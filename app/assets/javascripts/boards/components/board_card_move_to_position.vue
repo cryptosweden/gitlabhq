@@ -23,11 +23,6 @@ export default {
       required: true,
       validator: (item) => ['id', 'iid', 'referencePath'].every((key) => item[key]),
     },
-    list: {
-      type: Object,
-      required: false,
-      default: () => ({}),
-    },
     index: {
       type: Number,
       required: true,
@@ -38,6 +33,7 @@ export default {
     },
   },
   computed: {
+    // eslint-disable-next-line vue/no-unused-properties -- tracking() is required by Tracking mixin.
     tracking() {
       return {
         category: 'boards:list',
@@ -105,13 +101,13 @@ export default {
       title: $options.i18n.moveCardText,
       boundary: 'viewport',
     }"
-    class="move-to-position gl-block gl-absolute gl-top-3 gl-right-3 js-no-trigger"
+    class="move-to-position js-no-trigger gl-absolute gl-right-3 gl-top-3 gl-block"
     size="small"
     category="tertiary"
     :items="$options.BOARD_CARD_MOVE_TO_POSITIONS_OPTIONS"
     icon="ellipsis_v"
-    :aria-label="$options.i18n.moveCardText"
-    :text-sr-only="true"
+    :toggle-text="$options.i18n.moveCardText"
+    text-sr-only
     no-caret
     data-testid="board-move-to-position"
     @action="selectMoveAction"

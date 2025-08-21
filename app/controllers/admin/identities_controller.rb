@@ -24,11 +24,15 @@ class Admin::IdentitiesController < Admin::ApplicationController
   def index
     @identities = @user.identities
     @can_impersonate = helpers.can_impersonate_user(user, impersonation_in_progress?)
-    @impersonation_error_text = @can_impersonate ? nil : helpers.impersonation_error_text(user, impersonation_in_progress?)
+    @impersonation_error_text = if @can_impersonate
+                                  nil
+                                else
+                                  helpers.impersonation_error_text(user,
+                                    impersonation_in_progress?)
+                                end
   end
 
-  def edit
-  end
+  def edit; end
 
   def update
     if @identity.update(identity_params)
@@ -44,7 +48,8 @@ class Admin::IdentitiesController < Admin::ApplicationController
     if @identity.destroy
       ::Users::RepairLdapBlockedService.new(@user).execute
 
-      redirect_to admin_user_identities_path(@user), status: :found, notice: _('User identity was successfully removed.')
+      redirect_to admin_user_identities_path(@user), status: :found,
+        notice: _('User identity was successfully removed.')
     else
       redirect_to admin_user_identities_path(@user), status: :found, alert: _('Failed to remove user identity.')
     end
@@ -54,12 +59,12 @@ class Admin::IdentitiesController < Admin::ApplicationController
 
   # rubocop: disable CodeReuse/ActiveRecord
   def user
-    @user ||= User.find_by!(username: params[:user_id])
+    @user ||= User.find_by!(username: params.permit(:user_id)[:user_id])
   end
   # rubocop: enable CodeReuse/ActiveRecord
 
   def identity
-    @identity ||= user.identities.find(params[:id])
+    @identity ||= user.identities.find(params.permit(:id)[:id])
   end
 
   def identity_params

@@ -9,12 +9,13 @@ import { splitIntoChunks } from '~/vue_shared/components/source_viewer/workers/h
 import languageLoader from '~/content_editor/services/highlight_js_language_loader';
 import Tracking from '~/tracking';
 import axios from '~/lib/utils/axios_utils';
-import { TEXT_FILE_TYPE } from '../constants';
+import { TEXT_FILE_TYPE, FILE_EXTENSION_MAPPING_HLJS } from '../constants';
 
 /*
  * This mixin is intended to be used as an interface between our highlight worker and Vue components
  */
 export default {
+  HLJS_MAX_SIZE: 2000000, // 2MB
   mixins: [Tracking.mixin()],
   inject: {
     highlightWorker: { default: null },
@@ -25,7 +26,7 @@ export default {
     };
   },
   methods: {
-    trackEvent(label, language) {
+    trackViewSource(label, language) {
       this.track(EVENT_ACTION, { label, property: language });
     },
     isUnsupportedLanguage(language) {
@@ -36,7 +37,7 @@ export default {
       return LEGACY_FALLBACKS.includes(language) || isUnsupportedLanguage;
     },
     handleUnsupportedLanguage(language) {
-      this.trackEvent(EVENT_LABEL_FALLBACK, language);
+      this.trackViewSource(EVENT_LABEL_FALLBACK, language);
       this?.onError();
     },
     async handleLFSBlob(externalStorageUrl, rawPath, language) {
@@ -46,7 +47,16 @@ export default {
         .catch(() => this.$emit('error'));
     },
     initHighlightWorker(blob, isUsingLfs) {
-      const { rawTextBlob, language, fileType, externalStorageUrl, rawPath, simpleViewer } = blob;
+      const { rawTextBlob, name, fileType, externalStorageUrl, rawPath, simpleViewer } = blob;
+      let { language } = blob;
+
+      const fileExtensionOverride = Object.keys(FILE_EXTENSION_MAPPING_HLJS).find((extension) =>
+        name.endsWith(extension),
+      );
+
+      if (fileExtensionOverride) {
+        language = FILE_EXTENSION_MAPPING_HLJS[fileExtensionOverride];
+      }
 
       if (simpleViewer?.fileType !== TEXT_FILE_TYPE) return;
 

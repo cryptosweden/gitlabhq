@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require_relative '../../migration_helpers'
-require_relative '../../batched_background_migrations_dictionary'
+require_relative '../../../lib/gitlab/utils/batched_background_migrations_dictionary'
 
 URL_PATTERN = %r{\Ahttps://gitlab\.com/gitlab-org/gitlab/-/merge_requests/\d+\z}
 
@@ -9,6 +9,22 @@ module RuboCop
   module Cop
     module BackgroundMigration
       # Checks the batched background migration has the corresponding dictionary file
+      #
+      # @example
+      #   # bad
+      #   # Invalid dictionary file missing required keys:
+      #   # ---
+      #   # name: :SomethingWrong
+      #   # note: :just some note
+      #
+      #   # good
+      #   # Valid dictionary file structure:
+      #   # ---
+      #   # table_name: <Database table name>
+      #   # feature_category:
+      #       - <List of feature categories using this table.>
+      #   # introduced_by_url: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/XXXX
+      #   # milestone: '17.5'
       class DictionaryFile < RuboCop::Cop::Base
         include MigrationHelpers
 
@@ -25,10 +41,12 @@ module RuboCop
 
         DICTIONARY_DIR = "db/docs/batched_background_migrations"
 
+        # @!method batched_background_migration_name_node(node)
         def_node_matcher :batched_background_migration_name_node, <<~PATTERN
           `(send nil? :queue_batched_background_migration $_ ...)
         PATTERN
 
+        # @!method migration_constant_value(node)
         def_node_matcher :migration_constant_value, <<~PATTERN
           `(casgn nil? %const_name ({sym|str} $_))
         PATTERN
@@ -52,7 +70,7 @@ module RuboCop
         end
 
         def external_dependency_checksum
-          RuboCop::BatchedBackgroundMigrationsDictionary.checksum
+          ::Gitlab::Utils::BatchedBackgroundMigrationsDictionary.checksum
         end
 
         private
@@ -78,13 +96,11 @@ module RuboCop
             return [:missing_dictionary, { file_name: dictionary_file_path(migration_name) }]
           end
 
-          bbm_dictionary = RuboCop::BatchedBackgroundMigrationsDictionary.new(version(node))
+          bbm_dictionary = ::Gitlab::Utils::BatchedBackgroundMigrationsDictionary.new(version(node))
 
           return [:missing_key, { key: :milestone }] unless bbm_dictionary.milestone.present?
 
           return [:invalid_milestone, { key: :milestone }] unless valid_milestone?(bbm_dictionary.milestone)
-
-          return [:missing_key, { key: :finalize_after }] unless bbm_dictionary.finalize_after.present?
 
           return [:missing_key, { key: :introduced_by_url }] unless bbm_dictionary.introduced_by_url.present?
 

@@ -61,6 +61,15 @@ describe('helpers/init_simple_app_helper/initSimpleApp', () => {
     });
   });
 
+  it('passes the provide to the component if data-provide exists', () => {
+    initMock(`<div id="mount-here" data-provide={"someKey":"thing","count":123}></div>`);
+
+    expect(wrapper.vm.$options.provide).toEqual({
+      someKey: 'thing',
+      count: 123,
+    });
+  });
+
   describe('options', () => {
     describe('withApolloProvider', () => {
       describe('if not true or not VueApollo', () => {
@@ -87,6 +96,24 @@ describe('helpers/init_simple_app_helper/initSimpleApp', () => {
           initMock('<div id="mount-here"></div>', { withApolloProvider: apolloProvider });
 
           expect(wrapper.vm.$apolloProvider).toBe(apolloProvider);
+        });
+      });
+    });
+
+    describe('name', () => {
+      describe('if no name is given', () => {
+        it('name is undefined', () => {
+          initMock('<div id="mount-here"></div>');
+
+          expect(wrapper.vm.$options.name).toBeUndefined();
+        });
+      });
+
+      describe('if a name is given', () => {
+        it('name is set to the given', () => {
+          initMock('<div id="mount-here"></div>', { name: 'CoolAppRoot' });
+
+          expect(wrapper.vm.$options.name).toBe('CoolAppRoot');
         });
       });
     });

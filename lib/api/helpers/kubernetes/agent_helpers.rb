@@ -6,9 +6,13 @@ module API
       module AgentHelpers
         include Gitlab::Utils::StrongMemoize
 
-        def authenticate_gitlab_kas_request!
-          render_api_error!('KAS JWT authentication invalid', 401) unless Gitlab::Kas.verify_api_request(headers)
-        end
+        COUNTERS_EVENTS_MAPPING = {
+          'flux_git_push_notifications_total' => 'create_flux_git_push_notification',
+          'k8s_api_proxy_request' => 'request_api_proxy_access',
+          'k8s_api_proxy_requests_via_ci_access' => 'request_api_proxy_access_via_ci',
+          'k8s_api_proxy_requests_via_user_access' => 'request_api_proxy_access_via_user',
+          'k8s_api_proxy_requests_via_pat_access' => 'request_api_proxy_access_via_pat'
+        }.freeze
 
         def agent_token
           cluster_agent_token_from_authorization_token
@@ -19,14 +23,6 @@ module API
           agent_token.agent
         end
         strong_memoize_attr :agent
-
-        def gitaly_info(project)
-          Gitlab::GitalyClient.connection_data(project.repository_storage)
-        end
-
-        def gitaly_repository(project)
-          project.repository.gitaly_repository.to_h
-        end
 
         def check_agent_token
           unauthorized! unless agent_token
@@ -94,13 +90,19 @@ module API
         end
 
         def increment_count_events
-          events = params[:counters]&.slice(
-            :k8s_api_proxy_request, :flux_git_push_notifications_total,
-            :k8s_api_proxy_requests_via_ci_access, :k8s_api_proxy_requests_via_user_access,
-            :k8s_api_proxy_requests_via_pat_access
-          )
+          counters = params[:counters]&.slice(*COUNTERS_EVENTS_MAPPING.keys)
 
-          Gitlab::UsageDataCounters::KubernetesAgentCounter.increment_event_counts(events)
+          return unless counters.present?
+
+          counters.each do |counter, incr|
+            next if incr == 0
+
+            event = COUNTERS_EVENTS_MAPPING[counter]
+
+            Gitlab::InternalEvents.with_batched_redis_writes do
+              incr.times { Gitlab::InternalEvents.track_event(event) }
+            end
+          end
         end
 
         def update_configuration(agent:, config:)
@@ -142,6 +144,10 @@ module API
           access_token.user || raise(UnauthorizedError)
         end
 
+        def set_agent_on_context(agent:)
+          ::Gitlab::ApplicationContext.push(kubernetes_agent: agent)
+        end
+
         def access_token
           return unless params[:access_key].present?
 
@@ -170,7 +176,23 @@ module API
 
             additional_properties = {}
             if event_name.to_sym == :register_agent_at_kas
-              additional_properties = { label: event[:agent_version], property: event[:architecture] }
+              additional_properties = {
+                # built-in properties
+                label: event[:agent_version],
+                property: event[:architecture]
+              }
+              additional_properties[:value] = event[:agent_id] if event[:agent_id].present?
+
+              # custom properties
+              installation_method = event.dig(:extra_telemetry_data, :installation_method)
+              helm_chart_version = event.dig(:extra_telemetry_data, :helm_chart_version)
+
+              if event[:kubernetes_version].present?
+                additional_properties[:kubernetes_version] = event[:kubernetes_version]
+              end
+
+              additional_properties[:installation_method] = installation_method if installation_method.present?
+              additional_properties[:helm_chart_version] = helm_chart_version if helm_chart_version.present?
             end
 
             Gitlab::InternalEvents.track_event(event_name, additional_properties: additional_properties, user: user,

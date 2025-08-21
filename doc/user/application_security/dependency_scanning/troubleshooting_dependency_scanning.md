@@ -1,25 +1,48 @@
 ---
-stage: Secure
+stage: Application Security Testing
 group: Composition Analysis
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting Dependency Scanning
 ---
 
-# Troubleshooting Dependency Scanning
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 When working with dependency scanning, you might encounter the following issues.
 
 ## Debug-level logging
 
 Debug-level logging can help when troubleshooting. For details, see
-[debug-level logging](../../application_security/troubleshooting_application_security.md#debug-level-logging).
+[debug-level logging](../troubleshooting_application_security.md#debug-level-logging).
+
+## Run the analyzer in a local environment
+
+You can run a dependency scanning analyzer locally to debug issues or verify behavior without running a pipeline.
+
+For example, to run the Python analyzer:
+
+```shell
+cd project-git-repository
+
+docker run \
+   --interactive --tty --rm \
+   --volume "$PWD":/tmp/app \
+   --env CI_PROJECT_DIR=/tmp/app \
+   --env SECURE_LOG_LEVEL=debug \
+   -w /tmp/app \
+   registry.gitlab.com/security-products/gemnasium-python:5 /analyzer run
+```
+
+This command runs the analyzer with debug-level logging and mounts your local repository to analyze the dependencies.
+You can replace `registry.gitlab.com/security-products/gemnasium-python:5` with the appropriate scanner `image:tag` combination for your project's language and dependency manager.
 
 ### Working around missing support for certain languages or package managers
 
-As noted in the ["Supported languages" section](index.md#supported-languages-and-package-managers)
+As noted in the ["Supported languages" section](_index.md#supported-languages-and-package-managers)
 some dependency definition files are not yet supported.
 However, Dependency Scanning can be achieved if
 the language, a package manager, or a third-party tool
@@ -31,10 +54,10 @@ Generally, the approach is the following:
 1. Define a dedicated converter job in your `.gitlab-ci.yml` file.
    Use a suitable Docker image, script, or both to facilitate the conversion.
 1. Let that job upload the converted, supported file as an artifact.
-1. Add [`dependencies: [<your-converter-job>]`](../../../ci/yaml/index.md#dependencies)
+1. Add [`dependencies: [<your-converter-job>]`](../../../ci/yaml/_index.md#dependencies)
    to your `dependency_scanning` job to make use of the converted definitions files.
 
-For example, Poetry projects that _only_ have a `pyproject.toml`
+For example, Poetry projects that only have a `pyproject.toml`
 file can generate the `poetry.lock` file as follows.
 
 ```yaml
@@ -60,7 +83,7 @@ affected. Read more in
 
 ### Getting warning message `gl-dependency-scanning-report.json: no matching files`
 
-For information on this, see the [general Application Security troubleshooting section](../../../user/application_security/troubleshooting_application_security.md#getting-warning-messages--reportjson-no-matching-files).
+For information on this, see the [general Application Security troubleshooting section](../troubleshooting_application_security.md#getting-warning-messages--reportjson-no-matching-files).
 
 ## `Error response from daemon: error processing tar file: docker-tar: relocation error`
 
@@ -72,14 +95,14 @@ affected. Read more in
 ## Dependency scanning jobs are running unexpectedly
 
 The [dependency scanning CI template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Jobs/Dependency-Scanning.gitlab-ci.yml)
-uses the [`rules:exists`](../../../ci/yaml/index.md#rulesexists)
+uses the [`rules:exists`](../../../ci/yaml/_index.md#rulesexists)
 syntax. This directive is limited to 10000 checks and always returns `true` after reaching this
 number. Because of this, and depending on the number of files in your repository, a dependency
-scanning job might be triggered even if the scanner doesn't support your project. For more details about this limitation, see [the `rules:exists` documentation](../../../ci/yaml/index.md#rulesexists).
+scanning job might be triggered even if the scanner doesn't support your project. For more details about this limitation, see [the `rules:exists` documentation](../../../ci/yaml/_index.md#rulesexists).
 
 ## Error: `dependency_scanning is used for configuration only, and its script should not be executed`
 
-For information, see the [GitLab Secure troubleshooting section](../../application_security/troubleshooting_application_security.md#error-job-is-used-for-configuration-only-and-its-script-should-not-be-executed).
+For information, see the [GitLab Secure troubleshooting section](../troubleshooting_application_security.md#error-job-is-used-for-configuration-only-and-its-script-should-not-be-executed).
 
 ## Import multiple certificates for Java-based projects
 
@@ -187,14 +210,23 @@ gemnasium-python-dependency_scanning:
 This error can occur when the automatically generated `CI_JOB_TOKEN` starts with a hyphen (`-`).
 To avoid this error, follow [Poetry's configuration advice](https://python-poetry.org/docs/repositories/#configuring-credentials).
 
-## Error: Project has `<number>` unresolved dependencies
+## Error: project has unresolved dependencies
 
-The error message `Project has <number> unresolved dependencies` indicates a dependency resolution problem caused by your `gradle.build` or `gradle.build.kts` file.
+The following error messages indicate a Gradle dependency resolution issue
+caused by your `build.gradle` or `build.gradle.kts` file:
+
+- `Project has <number> unresolved dependencies` (GitLab 16.7 to 16.9)
+- `project has unresolved dependencies: ["dependency_name:version"]` (GitLab 17.0 and later)
+
 In GitLab 16.7 to 16.9, `gemnasium-maven` cannot continue processing when an unresolved dependency is encountered.
-Consult the [Gradle dependency resolution documentation](https://docs.gradle.org/current/userguide/dependency_resolution.html)
-for details on how to fix your `gradle.build` file.
-More details can be found in [epic 12361](https://gitlab.com/groups/gitlab-org/-/epics/12361)
-and [issue 437278](https://gitlab.com/gitlab-org/gitlab/-/issues/437278).
+
+In GitLab 17.0 and later, `gemnasium-maven` supports the `DS_GRADLE_RESOLUTION_POLICY` environment variable which you can use to control how unresolved dependencies are handled. By default, the scan fails when unresolved dependencies are encountered. However, you can set the environment variable `DS_GRADLE_RESOLUTION_POLICY` to `"none"` to allow the scan to continue and produce partial results.
+
+Consult the [Gradle dependency resolution documentation](https://docs.gradle.org/current/userguide/dependency_resolution.html) for guidance on
+fixing your `build.gradle` file. For more details, refer to [issue 482650](https://gitlab.com/gitlab-org/gitlab/-/issues/482650).
+
+Additionally, there is a known issue in `Kotlin 2.0.0` affecting dependency resolution, which is scheduled to be fixed in `Kotlin 2.0.20`.
+For more information, refer to [this issue](https://github.com/gradle/github-dependency-graph-gradle-plugin/issues/140#issuecomment-2230255380).
 
 ## Setting build constraints when scanning Go projects
 
@@ -261,3 +293,88 @@ If you use the [`-e/--editable`](https://pip.pypa.io/en/stable/cli/pip_install/#
 This command is required to build the target project.
 
 To resolve this issue, don't use the `-e/--editable` flag when you run dependency scanning for Python.
+
+## Handling out of memory errors with SBT
+
+If you encounter out of memory errors with SBT while using dependency scanning on a Scala project, you can address this by setting the [`SBT_CLI_OPTS`](_index.md#analyzer-specific-settings) environment variable. An example configuration is:
+
+```yaml
+variables:
+  SBT_CLI_OPTS: "-J-Xmx8192m -J-Xms4192m -J-Xss2M"
+```
+
+If you're using the Kubernetes executor, you may need to override the default Kubernetes resource settings. Refer to the [Kubernetes executor documentation](https://docs.gitlab.com/runner/executors/kubernetes/#overwrite-container-resources) for details on how to adjust container resources to prevent memory issues.
+
+## No `package-lock.json` file in NPM projects
+
+By default, the Dependency Scanning job runs only when there is a `package-lock.json` file in the repository. However, some NPM projects generate the `package-lock.json` file during the build process, instead of storing them in the Git repository.
+
+To scan dependencies in these projects:
+
+1. Generate the `package-lock.json` file in a build job.
+1. Store the generated file as an artifact.
+1. Modify the Dependency Scanning job to use the artifact and adjust its rules.
+
+For example, your configuration might look like this:
+
+```yaml
+include:
+  - template: Dependency-Scanning.gitlab-ci.yml
+
+build:
+  script:
+    - npm i
+  artifacts:
+    paths:
+      - package-lock.json  # Store the generated package-lock.json as an artifact
+
+gemnasium-dependency_scanning:
+  needs: ["build"]
+  rules:
+    - if: "$DEPENDENCY_SCANNING_DISABLED == 'true' || $DEPENDENCY_SCANNING_DISABLED == '1'"
+      when: never
+    - if: "$DS_EXCLUDED_ANALYZERS =~ /gemnasium([^-]|$)/"
+      when: never
+    - if: $CI_COMMIT_BRANCH && $GITLAB_FEATURES =~ /\bdependency_scanning\b/ && $CI_GITLAB_FIPS_MODE == "true"
+      variables:
+        DS_IMAGE_SUFFIX: "-fips"
+        DS_REMEDIATE: 'false'
+    - if: "$CI_COMMIT_BRANCH && $GITLAB_FEATURES =~ /\\bdependency_scanning\\b/"
+```
+
+## No Dependency Scanning job added to the pipeline
+
+The Dependency Scanning job uses rules to check if either lockfiles with dependencies or build-tool related files exist. If none of these files are detected, the job is not added to the pipeline, even if the lockfile are generated by another job in the pipeline.
+
+If you experience this situation, ensure your repository contains [a supported file](https://gitlab.com/gitlab-org/security-products/analyzers/dependency-scanning#supported-files),
+or a file indicating that a supported file is generated at runtime.
+Consider whether such files can be added to your repository to trigger the Dependency Scanning job.
+
+If you believe that your repository does contain such files and the job is still not triggered, [open an issue](https://gitlab.com/gitlab-org/gitlab/-/issues/new) with the following information:
+
+- The language and build tool you use.
+- What kind of lockfile you provide and where it gets generated.
+
+You can also contribute directly to the [Dependency Scanning template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Jobs/Dependency-Scanning.latest.gitlab-ci.yml#L269-270).
+
+## Dependency Scanning fails with `gradlew: permission denied`
+
+The `permission denied` error on `gradlew` typically indicates that `gradlew` was checked into the repository without an executable bit set. The error might appear in your job with this message:
+
+```plaintext
+[FATA] [gemnasium-maven] [2024-11-14T21:55:59Z] [/go/src/app/cmd/gemnasium-maven/main.go:65] ▶ fork/exec /builds/path/to/gradlew: permission denied
+```
+
+Make the file executable by running `chmod +ux gradlew` locally and pushing it to your Git repository.
+
+## Dependency Scanning scanner is no longer `Gemnasium`
+
+Historically, the scanner used by Dependency Scanning is `Gemnasium` and this is what user can see on the [vulnerability page](../vulnerabilities/_index.md).
+
+With the rollout of [Dependency Scanning by using SBOM](dependency_scanning_sbom/_index.md), we are replacing the `Gemnasium` scanner with the built-in `GitLab SBoM Vulnerability Scanner`. This new scanner is no longer executed in a CI/CD job but rather within the GitLab platform. While the two scanners are expected to provide the same results, because the SBOM scan happens after the existing Dependency Scanning CI/CD job, existing vulnerabilities have their scanner value updated with the new `GitLab SBoM Vulnerability Scanner`.
+
+As we move forward with the rollout and ultimately replace the existing Gemnasium analyzer, the `GitLab SBoM Vulnerability Scanner` will be the only expected value for GitLab built-in Dependency Scanning feature.
+
+## Dependency List for project not being updated based on latest SBOM
+
+When a pipeline has a failing job that would generate an SBOM, the `DeleteNotPresentOccurrencesService` does not execute, which prevents the dependency list from being changed or updated. This can occur even if there are other successful jobs that upload an SBOM, and the pipeline overall is successful. This is designed to prevent accidentally removing dependencies from the dependency list when related security scanning jobs fail. If the project dependency list is not updating as expected, check for any SBOM-related jobs that may have failed in the pipeline, and fix them or remove them.

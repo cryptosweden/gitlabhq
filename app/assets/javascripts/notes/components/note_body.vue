@@ -1,11 +1,13 @@
 <script>
 import { escape } from 'lodash';
-// eslint-disable-next-line no-restricted-imports
-import { mapActions, mapGetters, mapState } from 'vuex';
+import { mapState, mapActions } from 'pinia';
 import SafeHtml from '~/vue_shared/directives/safe_html';
-import { __ } from '~/locale';
+import { __, sprintf } from '~/locale';
 import Suggestions from '~/vue_shared/components/markdown/suggestions.vue';
 import { renderGFM } from '~/behaviors/markdown/render_gfm';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useMrNotes } from '~/mr_notes/store/legacy_mr_notes';
+import { useNotes } from '~/notes/store/legacy_notes';
 import NoteAttachment from './note_attachment.vue';
 import NoteAwardsList from './note_awards_list.vue';
 import NoteEditedText from './note_edited_text.vue';
@@ -18,6 +20,8 @@ export default {
     NoteAttachment,
     NoteForm,
     Suggestions,
+    DuoCodeReviewFeedback: () =>
+      import('ee_component/notes/components/duo_code_review_feedback.vue'),
   },
   directives: {
     SafeHtml,
@@ -51,14 +55,26 @@ export default {
       required: false,
       default: '',
     },
+    autosaveKey: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    restoreFromAutosave: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   computed: {
-    ...mapGetters(['getDiscussion', 'suggestionsCount', 'getSuggestionsFilePaths']),
-    ...mapGetters('diffs', ['suggestionCommitMessage']),
-    ...mapState({
-      batchSuggestionsInfo: (state) => state.notes.batchSuggestionsInfo,
-      failedToLoadMetadata: (state) => state.page.failedToLoadMetadata,
-    }),
+    ...mapState(useLegacyDiffs, ['suggestionCommitMessage']),
+    ...mapState(useMrNotes, ['failedToLoadMetadata']),
+    ...mapState(useNotes, [
+      'batchSuggestionsInfo',
+      'getDiscussion',
+      'suggestionsCount',
+      'getSuggestionsFilePaths',
+    ]),
     discussion() {
       if (!this.note.isDraft) return {};
 
@@ -95,15 +111,50 @@ export default {
 
       return escape(suggestion);
     },
+    isDuoFirstReviewComment() {
+      if (this.note.author.user_type !== 'duo_code_review_bot') {
+        return false;
+      }
+      // Get the discussion
+      const discussion = this.getDiscussion(this.note.discussion_id);
+      // If can't get discussion or this is not the first note, don't show feedback
+      return discussion?.notes?.length > 0 && discussion.notes[0].id === this.note.id;
+    },
+    isDiffNote() {
+      return this.note.type === 'DiffNote';
+    },
+    defaultAwardsList() {
+      return this.isDuoFirstReviewComment && this.isDiffNote ? ['thumbsup', 'thumbsdown'] : [];
+    },
+    duoFeedbackText() {
+      return sprintf(
+        __(
+          'Rate this response %{emoji} %{separator} Mention %{codeStart}%{botUser}%{codeEnd} to continue the conversation.',
+        ),
+        {
+          separator: '•',
+          codeStart: '<code>',
+          botUser: '@GitLabDuo',
+          codeEnd: '</code>',
+          emoji:
+            '<gl-emoji data-name="thumbsup"></gl-emoji> <gl-emoji data-name="thumbsdown"></gl-emoji>',
+        },
+        false,
+      );
+    },
   },
-  mounted() {
-    this.renderGFM();
-  },
-  updated() {
-    this.renderGFM();
+  watch: {
+    note: {
+      async handler() {
+        await this.$nextTick();
+        this.renderGFM();
+      },
+      deep: true,
+      immediate: true,
+    },
   },
   methods: {
-    ...mapActions([
+    ...mapActions(useNotes, [
       'submitSuggestion',
       'submitSuggestionBatch',
       'addSuggestionInfoToBatch',
@@ -112,6 +163,7 @@ export default {
     renderGFM() {
       renderGFM(this.$refs['note-body']);
     },
+    // eslint-disable-next-line max-params
     handleFormUpdate(noteText, parentElement, callback, resolveDiscussion) {
       this.$emit('handleFormUpdate', { noteText, parentElement, callback, resolveDiscussion });
     },
@@ -171,6 +223,11 @@ export default {
       @removeFromBatch="removeSuggestionFromBatch"
     />
     <div v-else v-safe-html:[$options.safeHtmlConfig]="note.note_html" class="note-text md"></div>
+    <duo-code-review-feedback
+      v-if="isDuoFirstReviewComment && !isDiffNote"
+      class="gl-mt-3"
+      data-testid="code-review-feedback"
+    />
     <note-form
       v-if="isEditing"
       ref="noteForm"
@@ -183,6 +240,8 @@ export default {
       :help-page-path="helpPagePath"
       :discussion="discussion"
       :resolve-discussion="note.resolve_discussion"
+      :autosave-key="autosaveKey"
+      :restore-from-autosave="restoreFromAutosave"
       @handleFormUpdate="handleFormUpdate"
       @cancelForm="formCancelHandler"
     />
@@ -196,19 +255,25 @@ export default {
     ></textarea>
     <!-- eslint-enable vue/no-mutating-props -->
     <note-edited-text
-      v-if="note.last_edited_at"
+      v-if="note.last_edited_at && note.last_edited_at !== note.created_at"
       :edited-at="note.last_edited_at"
       :edited-by="note.last_edited_by"
       :action-text="__('Edited')"
       class="note_edited_ago"
     />
+    <div
+      v-if="isDuoFirstReviewComment && isDiffNote"
+      v-safe-html:[$options.safeHtmlConfig]="duoFeedbackText"
+      class="gl-text-md gl-mt-4 gl-text-gray-500"
+    ></div>
     <note-awards-list
-      v-if="note.award_emoji && note.award_emoji.length"
+      v-if="defaultAwardsList.length || (note.award_emoji && note.award_emoji.length)"
       :note-id="note.id"
       :note-author-id="note.author.id"
       :awards="note.award_emoji"
       :toggle-award-path="note.toggle_award_path"
       :can-award-emoji="note.current_user.can_award_emoji"
+      :default-awards="defaultAwardsList"
     />
     <note-attachment v-if="note.attachment" :attachment="note.attachment" />
   </div>

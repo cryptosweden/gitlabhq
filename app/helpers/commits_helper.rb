@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 module CommitsHelper
+  include Gitlab::Utils::StrongMemoize
+
   # Returns a link to the commit author. If the author has a matching user and
   # is a member of the current @project it will link to the team member page.
   # Otherwise it will link to the author email as specified in the commit.
@@ -22,7 +24,7 @@ module CommitsHelper
       user: committer,
       user_name: committer.name,
       user_email: committer.email,
-      css_class: 'gl-hidden sm:gl-inline-block float-none gl-mr-0! gl-vertical-align-text-bottom'
+      css_class: 'gl-hidden sm:gl-inline-block float-none !gl-mr-0 gl-align-text-bottom'
     }))
   end
 
@@ -31,6 +33,21 @@ module CommitsHelper
       commit: commit,
       ref: ref,
       project: project
+    }
+  end
+
+  def commit_list_app_data
+    {
+      'project_full_path' => @project.full_path,
+      'project_root_path' => project_path(@project),
+      'project_path' => @project.path,
+      'project_id' => @project.id.to_s,
+      'escaped_ref' => ActionDispatch::Journey::Router::Utils.escape_path(@ref),
+      'ref_type' => @ref_type.to_s,
+      'root_ref' => @project.default_branch,
+      'path' => @path,
+      "browse_files_path" => path_to_browse_file_or_directory(@project, @ref, @path),
+      "commits_feed_path" => project_commits_path(@project, @id, rss_url_options)
     }
   end
 
@@ -67,12 +84,6 @@ module CommitsHelper
     crumbs.html_safe
   end
 
-  # Return Project default branch, if it present in array
-  # Else - first branch in array (mb last actual branch)
-  def commit_default_branch(project, branches)
-    branches.include?(project.default_branch) ? branches.delete(project.default_branch) : branches.pop
-  end
-
   # Returns a link formatted as a commit branch link
   def commit_branch_link(url, text)
     gl_badge_tag(text, { variant: :info, icon: 'branch' }, { href: url, class: 'gl-font-monospace gl-mb-1' })
@@ -98,13 +109,18 @@ module CommitsHelper
     end.join(' ').html_safe
   end
 
+  def commit_blob
+    @repo.blob_at(@ref, @path)
+  end
+  strong_memoize_attr :commit_blob
+
   def link_to_browse_code(project, commit)
     return unless current_controller?(:commits)
 
     if @path.blank?
       url = project_tree_path(project, commit)
       tooltip = _("Browse Files")
-    elsif @repo.blob_at(commit.id, @path)
+    elsif commit_blob.present?
       url = project_blob_path(project, tree_join(commit.id, @path))
       tooltip = _("Browse File")
     elsif @path.present?
@@ -114,6 +130,17 @@ module CommitsHelper
 
     render Pajamas::ButtonComponent.new(href: url, button_options: { title: tooltip, class: 'has-tooltip btn-icon', data: { container: 'body' } }) do
       sprite_icon('folder-open')
+    end
+  end
+
+  def path_to_browse_file_or_directory(project, ref, path)
+    return project_tree_path(project, ref) if path.blank?
+
+    path_to_item = tree_join(ref, path)
+    if commit_blob.present?
+      project_blob_path(project, path_to_item)
+    else
+      project_tree_path(project, path_to_item)
     end
   end
 
@@ -137,10 +164,8 @@ module CommitsHelper
       project = diffs.project
       repo = project.repository
 
-      # While Feature flag increase_diff_file_performance exists, we clear both
       Gitlab::Utils::BatchLoader.clear_key([:repository_blobs, repo, Gitlab::Diff::FileCollection::MergeRequestDiffBase.max_blob_size(project)])
       Gitlab::Utils::BatchLoader.clear_key([:repository_blobs, repo, Gitlab::Git::Blob::MAX_DATA_DISPLAY_SIZE])
-      Gitlab::Utils::BatchLoader.clear_key([:repository_blobs, repo])
 
       Kaminari.paginate_array(diff_files).page(page).per(per).tap do |diff_files|
         diff_files.each(&:add_blobs_to_batch_loader)
@@ -269,9 +294,7 @@ module CommitsHelper
     external_url = environment.external_url_for(diff_new_path, commit_sha)
     return unless external_url
 
-    render Pajamas::ButtonComponent.new(href: external_url, target: '_blank', button_options: { rel: 'noopener noreferrer', title: "View on #{environment.formatted_external_url}", data: { container: 'body' } }) do
-      sprite_icon('external-link')
-    end
+    render Pajamas::ButtonComponent.new(href: external_url, icon: 'external-link', target: '_blank', button_options: { rel: 'noopener noreferrer', title: "View on #{environment.formatted_external_url}", class: 'has-tooltip', data: { container: 'body' } })
   end
 
   def truncate_sha(sha)

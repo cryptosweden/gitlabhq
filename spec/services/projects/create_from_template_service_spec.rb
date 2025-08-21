@@ -7,10 +7,10 @@ RSpec.describe Projects::CreateFromTemplateService, feature_category: :groups_an
   let(:template_name) { 'rails' }
   let(:project_params) do
     {
-        path: user.to_param,
-        template_name: template_name,
-        description: 'project description',
-        visibility_level: Gitlab::VisibilityLevel::PUBLIC
+      path: user.to_param,
+      template_name: template_name,
+      description: 'project description',
+      visibility_level: Gitlab::VisibilityLevel::PUBLIC
     }
   end
 
@@ -41,11 +41,11 @@ RSpec.describe Projects::CreateFromTemplateService, feature_category: :groups_an
     end
 
     it 'does not set import set import type' do
-      expect(project.import_type).to be nil
+      expect(project.import_type).to be_nil
     end
 
     it 'does not set import set import source' do
-      expect(project.import_source).to be nil
+      expect(project.import_source).to be_nil
     end
 
     it 'is not scheduled' do
@@ -58,20 +58,22 @@ RSpec.describe Projects::CreateFromTemplateService, feature_category: :groups_an
   end
 
   context 'the result project' do
+    let(:project) { subject.execute }
+
     before do
       perform_enqueued_jobs do
-        @project = subject.execute
+        project
       end
 
-      @project.reload
+      project.reload
     end
 
     it 'overrides template description' do
-      expect(@project.description).to match('project description')
+      expect(project.description).to match('project description')
     end
 
     it 'overrides template visibility_level' do
-      expect(@project.visibility_level).to eq(Gitlab::VisibilityLevel::PUBLIC)
+      expect(project.visibility_level).to eq(Gitlab::VisibilityLevel::PUBLIC)
     end
   end
 end

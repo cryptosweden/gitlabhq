@@ -1,7 +1,7 @@
 <script>
 import ProjectAvatar from '~/vue_shared/components/project_avatar.vue';
 import { OVERLAY_GOTO } from '../command_palette/constants';
-import SearchResultHoverLayover from './global_search_hover_overlay.vue';
+import SearchResultFocusLayover from './global_search_focus_overlay.vue';
 
 export default {
   name: 'FrequentlyVisitedItem',
@@ -10,7 +10,7 @@ export default {
   },
   components: {
     ProjectAvatar,
-    SearchResultHoverLayover,
+    SearchResultFocusLayover,
   },
   props: {
     item: {
@@ -22,24 +22,23 @@ export default {
 </script>
 
 <template>
-  <search-result-hover-layover :text-message="$options.i18n.OVERLAY_GOTO">
+  <search-result-focus-layover :text-message="$options.i18n.OVERLAY_GOTO">
     <project-avatar
       :project-id="item.id"
       :project-name="item.title"
       :project-avatar-url="item.avatar"
-      :size="32"
+      :size="16"
       aria-hidden="true"
     />
 
-    <div class="gl-flex-grow-1 gl-text-truncate">
-      {{ item.title }}
-      <div
-        v-if="item.subtitle"
-        data-testid="subtitle"
-        class="gl-font-sm gl-text-gray-500 gl-text-truncate"
-      >
-        {{ item.subtitle }}
-      </div>
+    <div class="gl-flex gl-flex-row gl-items-center gl-gap-2 gl-truncate">
+      <span class="gl-truncate"> {{ item.title }} </span>
+      <template v-if="item.subtitle">
+        <span class="gl-text-subtle" aria-hidden="true">·</span>
+        <span data-testid="subtitle" class="gl-truncate gl-text-sm gl-text-subtle">
+          {{ item.subtitle }}
+        </span>
+      </template>
     </div>
-  </search-result-hover-layover>
+  </search-result-focus-layover>
 </template>

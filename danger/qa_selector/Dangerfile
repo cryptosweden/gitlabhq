@@ -49,16 +49,16 @@ if lines_with_testids.any?
   end
 
   markdown(<<~MARKDOWN)
-    If the `e2e:package-and-test` job in the `qa` stage has run automatically, please ensure the tests are passing.
-    If the job has not run, please start the `manual:e2e-test-pipeline-generate` job in the `prepare` stage and ensure the tests in `follow-up:e2e:package-and-test-ee` pipeline are passing.
+    If the `e2e:test-on-omnibus-ee` job in the `qa` stage has run automatically, please ensure the tests are passing.
+    If the job has not run, please start the `manual:e2e-test-pipeline-generate` job in the `prepare` stage and ensure the tests in `follow-up:e2e:test-on-omnibus-ee` pipeline are passing.
 
     For the list of known failures please refer to [the latest pipeline triage issue](https://gitlab.com/gitlab-org/quality/pipeline-triage/-/issues).
 
-    If your changes are under a feature flag, please check our [Testing with feature flags](https://docs.gitlab.com/ee/development/testing_guide/end_to_end/feature_flags.html#automatic-test-execution-when-a-feature-flag-definition-changes) documentation for instructions.
+    If your changes are under a feature flag, please check our [Testing with feature flags](https://docs.gitlab.com/development/testing_guide/end_to_end/feature_flags/#automatic-test-execution-when-a-feature-flag-definition-changes) documentation for instructions.
 
   MARKDOWN
 
-  warn "This merge request contains lines with testid selectors. Please ensure `e2e:package-and-test` job is run."
+  warn "This merge request contains lines with testid selectors. Please ensure `e2e:test-on-omnibus-ee` job is run."
 end
 
 if deprecated_qa_class.any?
@@ -84,7 +84,7 @@ if deprecated_qa_class.any?
   end
 
   markdown(<<~MARKDOWN)
-    Please ensure all deprecated data-qa-selector attributes are replaced with data-testid attributes in accordance with our [Testing Guide](https://docs.gitlab.com/ee/development/testing_guide/end_to_end/page_objects.html#data-testid-vs-data-qa-selector).
+    Please ensure all deprecated data-qa-selector attributes are replaced with data-testid attributes in accordance with our [Testing Guide](https://docs.gitlab.com/development/testing_guide/end_to_end/page_objects/#data-testid-vs-data-qa-selector).
 
   MARKDOWN
 

@@ -20,6 +20,7 @@ module API
       requires :id, types: [String, Integer], desc: 'The ID or URL-encoded path of the project'
     end
     route_setting :authentication, job_token_allowed: true, job_token_scope: :project
+    route_setting :authorization, skip_job_token_policies: true
     resource :projects, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
       desc 'List container repositories within a project' do
         detail 'This feature was introduced in GitLab 11.8.'
@@ -61,6 +62,19 @@ module API
       end
       delete ':id/registry/repositories/:repository_id', requirements: REPOSITORY_ENDPOINT_REQUIREMENTS do
         authorize_admin_container_image!
+
+        if Feature.enabled?(:container_registry_protected_containers_delete, user_project&.root_ancestor) &&
+            !current_user.can_admin_all_resources?
+
+          service_response = ContainerRegistry::Protection::CheckRuleExistenceService.for_delete(
+            current_user: current_user,
+            project: repository.project,
+            params: { repository_path: repository.path.to_s }
+          ).execute
+
+          forbidden!('Deleting protected container repository forbidden.') if service_response[:protection_rule_exists?]
+        end
+
         repository.delete_scheduled!
 
         track_package_event('delete_repository', :container, project: user_project, namespace: user_project.namespace)
@@ -89,7 +103,7 @@ module API
 
         paginated_tags =
           if params[:pagination] == 'keyset'
-            not_allowed! unless repository.migrated?
+            not_allowed! unless repository.gitlab_api_client.supports_gitlab_api?
 
             per_page_param = params[:per_page] || DEFAULT_PAGE_COUNT
             sort_param = params[:sort] == 'desc' ? '-name' : 'name'
@@ -170,6 +184,7 @@ module API
         failure [
           { code: 400, message: 'Bad Request' },
           { code: 401, message: 'Unauthorized' },
+          { code: 403, message: 'Forbidden' },
           { code: 404, message: 'Not Found' }
         ]
         tags %w[container_registry]
@@ -179,7 +194,7 @@ module API
         requires :tag_name, type: String, desc: 'The name of the tag'
       end
       delete ':id/registry/repositories/:repository_id/tags/:tag_name', requirements: REPOSITORY_ENDPOINT_REQUIREMENTS do
-        authorize_destroy_container_image!
+        authorize_destroy_container_image_tag!
 
         result = ::Projects::ContainerRepository::DeleteTagsService
           .new(repository.project, current_user, tags: [declared_params[:tag_name]])
@@ -189,8 +204,10 @@ module API
           track_package_event('delete_tag', :container, project: user_project, namespace: user_project.namespace)
 
           status :ok
+        elsif result[:message] == ::Projects::ContainerRepository::Gitlab::DeleteTagsService::PROTECTED_TAGS_ERROR_MESSAGE
+          forbidden!(result[:message])
         else
-          status :bad_request
+          bad_request!
         end
       end
     end
@@ -204,8 +221,8 @@ module API
         authorize! :read_container_image, repository
       end
 
-      def authorize_destroy_container_image!
-        authorize! :destroy_container_image, repository
+      def authorize_destroy_container_image_tag!
+        authorize! :destroy_container_image_tag, tag
       end
 
       def authorize_admin_container_image!

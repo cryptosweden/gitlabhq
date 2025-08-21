@@ -22,7 +22,7 @@ inherit_mode:
 
 AllCops:
   # The oldest supported Ruby version.
-  TargetRubyVersion: 3.1
+  TargetRubyVersion: 3.2
   SuggestExtensions: false
   NewCops: disable
 
@@ -49,13 +49,21 @@ Gemspec/AvoidExecutingGit:
 Gemspec/RequiredRubyVersion:
   Enabled: false
 
+# This cop doesn't make sense in the context of gems
+Gitlab/Ai/OrderConstants:
+  Enabled: false
+
 # This cop enforces domain bounded contexts which generally
 # are not applicable to gems.
 Gitlab/BoundedContexts:
   Enabled: false
 
 # This cop doesn't make sense in the context of gems
-Gitlab/DocUrl:
+Gitlab/DocumentationLinks/HardcodedUrl:
+  Enabled: false
+
+# This cop doesn't make sense in the context of gems
+Gitlab/EeOnlyClass:
   Enabled: false
 
 # This cop doesn't make sense in the context of gems
@@ -64,6 +72,10 @@ Gitlab/NamespacedClass:
 
 # This cop doesn't make sense in the context of gems
 Gitlab/RSpec/AvoidSetup:
+  Enabled: false
+
+# This cop doesn't make sense in the context of gems
+Gitlab/RSpec/MisplacedEeSpecFile:
   Enabled: false
 
 # This cop doesn't make sense in the context of gems
@@ -139,3 +151,29 @@ Rails/StrongParams:
   Enabled: true
   Include:
     - '**/controllers/**/*'
+
+# This cop doesn't make sense in the context of gems
+Gitlab/NoFindInWorkers:
+  Enabled: false
+
+Rake/TopLevelMethodDefinition:
+  Enabled: true
+  Include:
+    - '**/Rakefile'
+    - '**/*.rake'
+
+Scalability/RandomCronSchedule:
+  Enabled: false
+
+Database/AvoidUsingConnectionExecute:
+  Enabled: false
+
+RSpec/RedundantMetatagType:
+  Enabled: false
+
+# This cop doesn't make sense in the context of gems
+Gitlab/NoHelpersInPresenters:
+  Enabled: false
+  Include:
+    - '{,ee/,jh/}app/presenters/**/*.rb'
+

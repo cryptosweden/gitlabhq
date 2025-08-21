@@ -103,15 +103,15 @@ module Gitlab
           _("Set the milestone to %{milestone_reference}.") % { milestone_reference: milestone.to_reference } if milestone
         end
         params '%"milestone"'
-        types Issue, MergeRequest
+        types Issue, MergeRequest, WorkItem
         condition do
           quick_action_target.supports_milestone? &&
             current_user.can?(:"set_#{quick_action_target.to_ability_name}_metadata", quick_action_target) &&
-            find_milestones(project, state: 'active').any?
+            find_milestones(container, state: 'active').any?
         end
         parse_params do |milestone_param|
           extract_references(milestone_param, :milestone).first ||
-            find_milestones(project, title: milestone_param.strip).first
+            find_milestones(container, title: milestone_param.strip).first
         end
         command :milestone do |milestone|
           @updates[:milestone_id] = milestone.id if milestone
@@ -143,19 +143,21 @@ module Gitlab
         #
         # /copy_metadata
         #
-        desc { _('Copy labels and milestone from other issue or merge request in this project') }
+        desc { _('Copy labels and milestone from other work item or merge request in the same namespace') }
         explanation do |source_issuable|
           _("Copy labels and milestone from %{source_issuable_reference}.") % { source_issuable_reference: source_issuable.to_reference }
         end
-        params '#issue | !merge_request'
-        types Issue, MergeRequest
+        params '#item | !merge_request | URL'
+        types Issue, MergeRequest, WorkItem
         condition do
           current_user.can?(:"set_#{quick_action_target.to_ability_name}_metadata", quick_action_target)
         end
         parse_params do |issuable_param|
           extract_references(issuable_param, :issue).first ||
+            extract_references(issuable_param, :work_item).first ||
+            extract_references(issuable_param, :epic).first ||
             extract_references(issuable_param, :merge_request).first ||
-            failed_parse(_("Failed to find issue or merge request"))
+            failed_parse(_("Failed to find work item or merge request"))
         end
         command :copy_metadata do |source_issuable|
           if can_copy_metadata?(source_issuable)
@@ -226,7 +228,7 @@ module Gitlab
             current_user.can?(:"admin_#{quick_action_target.to_ability_name}", quick_action_target)
         end
         parse_params do |raw_time_date|
-          Gitlab::QuickActions::SpendTimeAndDateSeparator.new(raw_time_date).execute
+          Gitlab::QuickActions::SpendTimeAndDateSeparator.new(raw_time_date, current_user.timezone).execute
         end
         command :spend, :spent, :spend_time do |time_spent, time_spent_date, category|
           if time_spent
@@ -237,37 +239,6 @@ module Gitlab
               category: category
             }
           end
-        end
-
-        ########################################################################
-        #
-        # /remind_me
-        #
-        types Issue, MergeRequest
-        desc do
-          _('Set to-do reminder')
-        end
-        explanation do
-          _('Creates a reminder to-do item after the specified time period.')
-        end
-        params '<1w 3d 2h 14m>'
-        parse_params do |raw_delay|
-          ChronicDuration.parse(raw_delay)
-        end
-        condition do
-          Feature.enabled?(:remind_me_quick_action, quick_action_target.project)
-        end
-        command :remind_me do |parsed_delay|
-          # Schedule a CreateReminderWorker for the specified delay
-          #
-          ::Issuable::CreateReminderWorker.perform_in(
-            parsed_delay,
-            quick_action_target.id,
-            quick_action_target.class.to_s,
-            current_user.id
-          )
-
-          @execution_message[:remind_me] = _('Reminder set.')
         end
 
         ########################################################################
@@ -356,7 +327,26 @@ module Gitlab
         end
 
         def can_copy_metadata?(source_issuable)
-          source_issuable.present? && source_issuable.project_id == quick_action_target.project_id
+          source_issuable.present? && find_namespace(source_issuable) == find_namespace(quick_action_target)
+        end
+
+        def find_namespace(item)
+          case item
+          # WorkItem check should be before Issue, as WorkItem is a subclass of Issue
+          when WorkItem
+            handle_namespace_type(item.namespace)
+          when MergeRequest, Issue
+            item.project
+          end
+        end
+
+        def handle_namespace_type(namespace)
+          case namespace
+          when Project, Group
+            namespace
+          when Namespaces::ProjectNamespace
+            namespace.project
+          end
         end
 
         def format_time_estimate(time_estimate)

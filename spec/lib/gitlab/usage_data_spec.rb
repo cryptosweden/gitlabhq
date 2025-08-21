@@ -80,7 +80,7 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
   describe 'usage_activity_by_stage_package' do
     it 'includes accurate usage_activity_by_stage data' do
       for_defined_days_back do
-        create(:project, packages: [create(:package)] )
+        create(:project, packages: [create(:generic_package)])
       end
 
       expect(described_class.usage_activity_by_stage_package({})).to eq(
@@ -161,7 +161,7 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
         another_user = create(:user)
         another_project = create(:project, :repository, creator: another_user)
         create(:remote_mirror, project: another_project, enabled: false)
-        create(:snippet, author: user)
+        create(:personal_snippet, author: user)
       end
 
       expect(described_class.usage_activity_by_stage_create({})).to include(
@@ -185,6 +185,13 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
 
   describe 'usage_activity_by_stage_manage' do
     let_it_be(:error_rate) { Gitlab::Database::PostgresHll::BatchDistinctCounter::ERROR_RATE }
+    let(:omniauth_providers) do
+      [
+        double('provider', name: 'google_oauth2'),
+        double('provider', name: 'ldapmain'),
+        double('provider', name: 'group_saml')
+      ]
+    end
 
     it 'includes accurate usage_activity_by_stage data' do
       stub_config(
@@ -221,7 +228,6 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
           'ldap' => 4,
           'standard' => 0,
           'two-factor' => 0,
-          'two-factor-via-u2f-device' => 0,
           "two-factor-via-webauthn-device" => 0
         }
       )
@@ -235,7 +241,6 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
           'ldap' => 2,
           'standard' => 0,
           'two-factor' => 0,
-          'two-factor-via-u2f-device' => 0,
           "two-factor-via-webauthn-device" => 0
         }
       )
@@ -248,9 +253,6 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
         %w[gitlab_project github bitbucket bitbucket_server gitea git manifest fogbugz].each do |type|
           create(:project, import_type: type, creator_id: user.id)
         end
-
-        jira_project = create(:project, creator_id: user.id)
-        create(:jira_import_state, :finished, project: jira_project)
 
         create(:issue_csv_import, user: user)
 
@@ -286,23 +288,14 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
         }
       )
     end
-
-    def omniauth_providers
-      [
-        double('provider', name: 'google_oauth2'),
-        double('provider', name: 'ldapmain'),
-        double('provider', name: 'group_saml')
-      ]
-    end
   end
 
   describe 'usage_activity_by_stage_monitor' do
     it 'includes accurate usage_activity_by_stage data' do
       for_defined_days_back do
         user = create(:user, dashboard: 'operations')
-        cluster = create(:cluster, user: user)
         project = create(:project, creator: user)
-        create(:clusters_integrations_prometheus, cluster: cluster)
+        create(:cluster, user: user)
         create(:project_error_tracking_setting)
         create(:incident)
         create(:incident, alert_management_alert: create(:alert_management_alert))
@@ -312,7 +305,6 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
 
       expect(described_class.usage_activity_by_stage_monitor({})).to include(
         clusters: 2,
-        clusters_integrations_prometheus: 2,
         operations_dashboard_default_dashboard: 2,
         projects_with_error_tracking_enabled: 2,
         projects_with_incidents: 4,
@@ -323,7 +315,6 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
       data_28_days = described_class.usage_activity_by_stage_monitor(described_class.monthly_time_range_db_params)
       expect(data_28_days).to include(
         clusters: 1,
-        clusters_integrations_prometheus: 1,
         operations_dashboard_default_dashboard: 1,
         projects_with_error_tracking_enabled: 1,
         projects_with_incidents: 2,
@@ -416,7 +407,7 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
         create(:ci_pipeline, :auto_devops_source, user: user)
         create(:ci_pipeline, :repository_source, user: user)
         create(:ci_pipeline_schedule, owner: user)
-        create(:ci_trigger, owner: user)
+        create(:ci_trigger, owner: user, project: create(:project, maintainers: [user]))
       end
 
       expect(described_class.usage_activity_by_stage_verify({})).to include(
@@ -445,10 +436,6 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
   describe '.data' do
     let!(:ud) { build(:usage_data) }
 
-    before do
-      allow(described_class).to receive(:grafana_embed_usage_data).and_return(2)
-    end
-
     subject { described_class.data }
 
     it 'gathers usage data' do
@@ -467,21 +454,6 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
       count_data = subject[:counts]
 
       expect(count_data[:projects]).to eq(4)
-      expect(count_data[:projects_asana_active]).to eq(0)
-      expect(count_data[:projects_prometheus_active]).to eq(1)
-      expect(count_data[:projects_jenkins_active]).to eq(1)
-      expect(count_data[:projects_jira_active]).to eq(4)
-      expect(count_data[:jira_imports_projects_count]).to eq(2)
-      expect(count_data[:jira_imports_total_imported_count]).to eq(3)
-      expect(count_data[:jira_imports_total_imported_issues_count]).to eq(13)
-      expect(count_data[:projects_slack_active]).to eq(2)
-      expect(count_data[:projects_slack_slash_commands_active]).to eq(1)
-      expect(count_data[:projects_custom_issue_tracker_active]).to eq(1)
-      expect(count_data[:projects_mattermost_active]).to eq(1)
-      expect(count_data[:groups_mattermost_active]).to eq(1)
-      expect(count_data[:instances_mattermost_active]).to eq(1)
-      expect(count_data[:projects_inheriting_mattermost_active]).to eq(1)
-      expect(count_data[:groups_inheriting_slack_active]).to eq(1)
       expect(count_data[:projects_with_repositories_enabled]).to eq(3)
       expect(count_data[:projects_with_error_tracking_enabled]).to eq(1)
       expect(count_data[:projects_with_enabled_alert_integrations]).to eq(1)
@@ -494,9 +466,7 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
       expect(count_data[:issues_created_from_gitlab_error_tracking_ui]).to eq(1)
       expect(count_data[:issues_with_associated_zoom_link]).to eq(2)
       expect(count_data[:issues_using_zoom_quick_actions]).to eq(3)
-      expect(count_data[:issues_with_embedded_grafana_charts_approx]).to eq(2)
       expect(count_data[:incident_issues]).to eq(4)
-      expect(count_data[:issues_created_from_alerts]).to eq(2)
       expect(count_data[:alert_bot_incident_issues]).to eq(4)
       expect(count_data[:clusters_enabled]).to eq(6)
       expect(count_data[:project_clusters_enabled]).to eq(4)
@@ -509,8 +479,6 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
       expect(count_data[:clusters_platforms_eks]).to eq(1)
       expect(count_data[:clusters_platforms_gke]).to eq(1)
       expect(count_data[:clusters_platforms_user]).to eq(1)
-      expect(count_data[:clusters_integrations_prometheus]).to eq(1)
-      expect(count_data[:grafana_integrated_projects]).to eq(2)
       expect(count_data[:clusters_management_project]).to eq(1)
       expect(count_data[:kubernetes_agents]).to eq(2)
       expect(count_data[:kubernetes_agents_with_token]).to eq(1)
@@ -659,69 +627,6 @@ RSpec.describe Gitlab::UsageData, :aggregate_failures, feature_category: :servic
             uploads: 'uploads_object_store_config',
             packages: 'packages_object_store_config'
           })
-      end
-    end
-
-    describe '.grafana_embed_usage_data' do
-      subject { described_class.grafana_embed_usage_data }
-
-      let(:project) { create(:project) }
-      let(:description_with_embed) { "Some comment\n\nhttps://grafana.example.com/d/xvAk4q0Wk/go-processes?orgId=1&from=1573238522762&to=1573240322762&var-job=prometheus&var-interval=10m&panelId=1&fullscreen" }
-      let(:description_with_unintegrated_embed) { "Some comment\n\nhttps://grafana.exp.com/d/xvAk4q0Wk/go-processes?orgId=1&from=1573238522762&to=1573240322762&var-job=prometheus&var-interval=10m&panelId=1&fullscreen" }
-
-      shared_examples "zero count" do
-        it "does not count the issue" do
-          expect(subject).to eq(0)
-        end
-      end
-
-      context 'with project grafana integration enabled' do
-        before do
-          create(:grafana_integration, project: project, enabled: true)
-        end
-
-        context 'with valid and invalid embeds' do
-          before do
-            # Valid
-            create(:issue, project: project, description: description_with_embed)
-            create(:issue, project: project, description: description_with_embed)
-            # In-Valid
-            create(:issue, project: project, description: description_with_unintegrated_embed)
-            create(:issue, project: project, description: nil)
-            create(:issue, project: project, description: '')
-            create(:issue, project: project)
-          end
-
-          it 'counts only the issues with embeds' do
-            expect(subject).to eq(2)
-          end
-        end
-      end
-
-      context 'with project grafana integration disabled' do
-        before do
-          create(:grafana_integration, project: project, enabled: false)
-        end
-
-        context 'with one issue having a grafana link in the description and one without' do
-          before do
-            create(:issue, project: project, description: description_with_embed)
-            create(:issue, project: project)
-          end
-
-          it_behaves_like('zero count')
-        end
-      end
-
-      context 'with an un-integrated project' do
-        context 'with one issue having a grafana link in the description and one without' do
-          before do
-            create(:issue, project: project, description: description_with_embed)
-            create(:issue, project: project)
-          end
-
-          it_behaves_like('zero count')
-        end
       end
     end
   end

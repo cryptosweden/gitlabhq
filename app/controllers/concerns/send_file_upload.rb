@@ -1,11 +1,14 @@
 # frozen_string_literal: true
 
 module SendFileUpload
-  def send_upload(file_upload, send_params: {}, redirect_params: {}, attachment: nil, proxy: false, disposition: 'attachment')
+  def send_upload(
+    file_upload, send_params: {}, redirect_params: {}, attachment: nil, proxy: false,
+    disposition: 'attachment', ssrf_params: {})
     content_type = content_type_for(attachment)
 
     if attachment
-      response_disposition = ActionDispatch::Http::ContentDisposition.format(disposition: disposition, filename: attachment)
+      response_disposition = ActionDispatch::Http::ContentDisposition.format(disposition: disposition,
+        filename: attachment)
 
       # Response-Content-Type will not override an existing Content-Type in
       # Google Cloud Storage, so the metadata needs to be cleared on GCS for
@@ -26,8 +29,8 @@ module SendFileUpload
       head :ok
     elsif file_upload.file_storage?
       send_file file_upload.path, send_params
-    elsif file_upload.class.proxy_download_enabled? || proxy
-      headers.store(*Gitlab::Workhorse.send_url(file_upload.url(**redirect_params)))
+    elsif file_upload.proxy_download_enabled? || proxy
+      headers.store(*Gitlab::Workhorse.send_url(file_upload.url(**redirect_params), **ssrf_params))
       head :ok
     else
       file_url = ObjectStorage::CDN::FileUrl.new(
@@ -41,17 +44,7 @@ module SendFileUpload
   def content_type_for(attachment)
     return '' unless attachment
 
-    guess_content_type(attachment)
-  end
-
-  def guess_content_type(filename)
-    types = MIME::Types.type_for(filename)
-
-    if types.present?
-      types.first.content_type
-    else
-      "application/octet-stream"
-    end
+    ::Gitlab::Utils::MimeType.from_filename(attachment)
   end
 
   private

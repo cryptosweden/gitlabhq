@@ -1,20 +1,22 @@
 ---
 stage: Create
 group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
-description: "Autocomplete characters in Markdown fields."
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: Autocomplete characters in Markdown fields.
+title: Autocomplete characters
 ---
 
-# Autocomplete characters
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 The autocomplete characters provide a quick way of entering field values into
 Markdown fields. When you start typing a word in a Markdown field with one of
 the following characters, GitLab progressively autocompletes against a set of
-matching values. The string matching is not case sensitive.
+matching values. The string matching is not case-sensitive.
 
 | Character | Autocompletes | Relevant matches shown |
 | :-------- | :------------ | :---- |
@@ -31,13 +33,13 @@ matching values. The string matching is not case sensitive.
 When you select an item from the list, the value is entered in the field.
 The more characters you enter, the more precise the matches are.
 
-Autocomplete characters are useful when combined with [Quick Actions](quick_actions.md).
+You can use autocomplete characters in combination with [Quick Actions](quick_actions.md).
 
 ## User autocomplete
 
 Assume your GitLab instance includes the following users:
 
-<!-- vale gitlab.Spelling = NO -->
+<!-- vale gitlab_base.Spelling = NO -->
 
 | Username        | Name |
 | :-------------- | :--- |
@@ -47,7 +49,7 @@ Assume your GitLab instance includes the following users:
 | logan_gutkowski | Lee Wuckert |
 | shelba          | Josefine Haley |
 
-<!-- vale gitlab.Spelling = YES -->
+<!-- vale gitlab_base.Spelling = YES -->
 
 User autocompletion sorts by the users whose username or name start with your query first.
 For example, typing `@lea` shows `leanna` first and typing `@ros` shows `Rosemarie Rogahn` and `Rosy Grant` first.

@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Understanding EXPLAIN plans
 ---
-
-# Understanding EXPLAIN plans
 
 PostgreSQL allows you to obtain query plans using the `EXPLAIN` command. This
 command can be invaluable when trying to determine how a query performs.
@@ -87,8 +86,8 @@ Execution time: 3428.596 ms
 ```
 
 For more information, refer to the official
-[`EXPLAIN` documentation](https://www.postgresql.org/docs/current/sql-explain.html)
-and [using `EXPLAIN` guide](https://www.postgresql.org/docs/current/using-explain.html).
+[`EXPLAIN` documentation](https://www.postgresql.org/docs/16/sql-explain.html)
+and [using `EXPLAIN` guide](https://www.postgresql.org/docs/16/using-explain.html).
 
 ## Nodes
 
@@ -260,7 +259,7 @@ states the following on bitmap scans:
 
 > Bitmap Index Scan delivers a bitmap of potential tuple locations; it does not
 > access the heap itself. The bitmap is used by an ancestor Bitmap Heap Scan
-> node, possibly after passing through intermediate Bitmap And and/or Bitmap Or
+> node, possibly after passing through intermediate Bitmap Or and/or Bitmap And
 > nodes to combine it with the results of other Bitmap Index Scans.
 
 ### Limit
@@ -771,23 +770,24 @@ exec SET max_parallel_workers_per_gather = 0
 
 ### Rails console
 
-Using the [`activerecord-explain-analyze`](https://github.com/6/activerecord-explain-analyze)
+Using the Rails 7.1 [explain method](https://guides.rubyonrails.org/active_record_querying.html#explain-options)
 you can directly generate the query plan from the Rails console:
 
 ```ruby
-pry(main)> require 'activerecord-explain-analyze'
-=> true
-pry(main)> Project.where('build_timeout > ?', 3600).explain(analyze: true)
+pry(main)> Project.where('build_timeout > ?', 3600).explain(:analyze, :buffers, :verbose)
   Project Load (1.9ms)  SELECT "projects".* FROM "projects" WHERE (build_timeout > 3600)
   ↳ (pry):12
 => EXPLAIN for: SELECT "projects".* FROM "projects" WHERE (build_timeout > 3600)
 Seq Scan on public.projects  (cost=0.00..2.17 rows=1 width=742) (actual time=0.040..0.041 rows=0 loops=1)
   Output: id, name, path, description, created_at, updated_at, creator_id, namespace_id, ...
-  Filter: (projects.build_timeout > 3600)
-  Rows Removed by Filter: 14
-  Buffers: shared hit=2
-Planning time: 0.411 ms
-Execution time: 0.113 ms
+   Filter: (projects.build_timeout > 3600)
+   Rows Removed by Filter: 16
+   Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=6
+ Planning Time: 0.230 ms
+ Execution Time: 0.033 ms
+(9 rows)
 ```
 
 ## Further reading

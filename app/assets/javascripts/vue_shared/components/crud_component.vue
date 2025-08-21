@@ -1,15 +1,32 @@
 <script>
-import { GlButton, GlIcon } from '@gitlab/ui';
+import {
+  GlButton,
+  GlIcon,
+  GlBadge,
+  GlSkeletonLoader,
+  GlLink,
+  GlTooltipDirective,
+  GlAnimatedChevronLgDownUpIcon,
+} from '@gitlab/ui';
+import { __ } from '~/locale';
 
 export default {
   components: {
     GlButton,
     GlIcon,
+    GlBadge,
+    GlSkeletonLoader,
+    GlLink,
+    GlAnimatedChevronLgDownUpIcon,
+  },
+  directives: {
+    GlTooltip: GlTooltipDirective,
   },
   props: {
     title: {
       type: String,
-      required: true,
+      required: false,
+      default: '',
     },
     description: {
       type: String,
@@ -17,9 +34,9 @@ export default {
       default: null,
     },
     count: {
-      type: Number,
+      type: [String, Number],
       required: false,
-      default: null,
+      default: '',
     },
     icon: {
       type: String,
@@ -31,94 +48,271 @@ export default {
       required: false,
       default: null,
     },
+    toggleAriaLabel: {
+      type: String,
+      required: false,
+      default: null,
+    },
+    isCollapsible: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    collapsed: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    containerTag: {
+      type: String,
+      required: false,
+      default: 'section',
+    },
+    isLoading: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    anchorId: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    headerClass: {
+      type: [String, Object],
+      required: false,
+      default: null,
+    },
+    titleClass: {
+      type: [String, Object],
+      required: false,
+      default: null,
+    },
+    bodyClass: {
+      type: [String, Object],
+      required: false,
+      default: null,
+    },
+    footerClass: {
+      type: [String, Object],
+      required: false,
+      default: null,
+    },
+    persistCollapsedState: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   data() {
     return {
+      isCollapsed:
+        (this.collapsed && !this.persistCollapsedState) ||
+        (this.persistCollapsedState &&
+          localStorage.getItem(this.getLocalStorageKeyName()) === 'true'),
       isFormVisible: false,
     };
   },
+  computed: {
+    isContentVisible() {
+      const hasContent =
+        this.$scopedSlots.default || this.$scopedSlots.empty || this.$scopedSlots.pagination;
+      return !(hasContent && this.isCollapsible && this.isCollapsed);
+    },
+    toggleLabel() {
+      return this.isCollapsed ? __('Expand') : __('Collapse');
+    },
+    ariaExpandedAttr() {
+      return this.isCollapsed ? 'false' : 'true';
+    },
+    displayedCount() {
+      if (this.isLoading) {
+        return null;
+      }
+
+      return this.icon && !this.count ? '0' : this.count;
+    },
+    isFormUsedAndVisible() {
+      return this.$scopedSlots.form && this.isFormVisible && !this.isCollapsed;
+    },
+  },
+  watch: {
+    collapsed: {
+      handler(newVal) {
+        this.isCollapsed = newVal > 0;
+      },
+    },
+  },
+  mounted() {
+    const localStorageValue = localStorage.getItem(this.getLocalStorageKeyName());
+
+    if (this.persistCollapsedState) {
+      // If collapsed by default and not yet toggled.
+      if (this.collapsed && localStorageValue === null) {
+        this.isCollapsed = true;
+      }
+
+      if (localStorageValue === 'true') {
+        this.$emit('collapsed');
+      } else if (localStorageValue) {
+        this.$emit('expanded');
+      }
+    }
+  },
   methods: {
-    toggleForm() {
-      this.isFormVisible = !this.isFormVisible;
+    toggleCollapse() {
+      this.isCollapsed = !this.isCollapsed;
+
+      if (this.isCollapsed) {
+        this.$emit('collapsed');
+      } else {
+        this.$emit('expanded');
+      }
+
+      if (this.persistCollapsedState) {
+        localStorage.setItem(this.getLocalStorageKeyName(), this.isCollapsed);
+      }
     },
     showForm() {
       this.isFormVisible = true;
+      this.isCollapsed = false;
+      this.$emit('showForm');
     },
     hideForm() {
       this.isFormVisible = false;
+      this.$emit('hideForm');
+    },
+    getLocalStorageKeyName() {
+      return `crud-collapse-${this.anchorId}`;
     },
   },
 };
 </script>
 
 <template>
-  <section>
-    <div ref="crudComponent" class="crud gl-bg-subtle gl-border gl-border-default gl-rounded-base">
-      <header
-        class="gl-flex gl-flex-wrap gl-justify-between gl-gap-x-5 gl-gap-y-2 gl-px-5 gl-py-4 gl-bg-default gl-border-b gl-border-default gl-rounded-t-base"
-      >
-        <div class="gl-flex gl-flex-col gl-self-center">
-          <h2
-            class="gl-text-base gl-font-bold gl-leading-24 gl-inline-flex gl-gap-3 gl-m-0"
-            data-testid="crud-title"
+  <component
+    :is="containerTag"
+    :id="anchorId"
+    ref="crudComponent"
+    class="crud gl-border gl-rounded-lg gl-border-section gl-bg-subtle"
+    :class="{ 'gl-mt-5': isCollapsible }"
+  >
+    <header
+      class="crud-header gl-border-b gl-relative gl-flex gl-flex-wrap gl-justify-between gl-gap-x-5 gl-gap-y-2 gl-rounded-t-lg gl-border-section gl-bg-section gl-p-4 gl-pl-5 md:gl-flex-nowrap"
+      :class="[
+        headerClass,
+        {
+          'gl-rounded-lg gl-border-b-transparent': !isContentVisible,
+          'gl-relative gl-pr-10': isCollapsible,
+        },
+      ]"
+    >
+      <div class="gl-flex gl-grow gl-flex-col gl-self-center">
+        <h2
+          class="gl-m-0 gl-inline-flex gl-items-center gl-gap-3 gl-text-base gl-font-bold gl-leading-normal"
+          :class="titleClass"
+          data-testid="crud-title"
+        >
+          <gl-link
+            v-if="anchorId"
+            class="anchor gl-absolute gl-no-underline"
+            :href="`#${anchorId}`"
+            :aria-labelledby="anchorId"
+          />
+          <slot v-if="$scopedSlots.title" name="title"></slot>
+          <template v-else>{{ title }}</template>
+
+          <span
+            v-if="displayedCount || $scopedSlots.count"
+            class="crud-count gl-inline-flex gl-items-center gl-gap-2 gl-self-start gl-text-sm gl-text-subtle"
+            data-testid="crud-count"
           >
-            {{ title }}
-            <span
-              v-if="count"
-              class="gl-inline-flex gl-items-center gl-gap-2 gl-text-sm gl-text-secondary"
-              data-testid="crud-count"
-            >
-              <gl-icon v-if="icon" :name="icon" />
-              {{ count }}
-            </span>
-          </h2>
-          <p
-            v-if="description || $scopedSlots.description"
-            class="gl-text-sm gl-text-secondary gl-mt-1 gl-mb-0"
-            data-testid="crud-description"
-          >
-            <slot v-if="$scopedSlots.description" name="description"></slot>
-            <template v-else>{{ description }}</template>
-          </p>
-        </div>
-        <div class="gl-flex gl-gap-3 gl-items-baseline" data-testid="crud-actions">
+            <template v-if="displayedCount">
+              <gl-icon v-if="icon" :name="icon" variant="subtle" data-testid="crud-icon" />
+              <template v-if="icon">{{ displayedCount }}</template>
+              <gl-badge v-else class="gl-self-baseline">{{ displayedCount }}</gl-badge>
+            </template>
+            <slot v-if="$scopedSlots.count" name="count"></slot>
+          </span>
+        </h2>
+        <p
+          v-if="description || $scopedSlots.description"
+          class="!gl-mb-0 !gl-mt-2 !gl-text-sm !gl-leading-normal !gl-text-subtle"
+          data-testid="crud-description"
+        >
+          <slot v-if="$scopedSlots.description" name="description"></slot>
+          <template v-else>{{ description }}</template>
+        </p>
+      </div>
+      <div class="gl-flex gl-items-center gl-gap-3" data-testid="crud-actions">
+        <slot name="actions" :show-form="showForm" :is-form-visible="isFormVisible"></slot>
+        <gl-button
+          v-if="toggleText && !isFormUsedAndVisible"
+          size="small"
+          :aria-label="toggleAriaLabel"
+          data-testid="crud-form-toggle"
+          @click="showForm"
+          >{{ toggleText }}</gl-button
+        >
+        <div
+          v-if="isCollapsible"
+          class="gl-border-l gl-absolute gl-right-5 gl-top-4 gl-h-6 gl-border-l-section gl-pl-3"
+        >
           <gl-button
-            v-if="toggleText"
+            v-gl-tooltip
+            :title="toggleLabel"
+            category="tertiary"
             size="small"
-            data-testid="crud-form-toggle"
-            @click="toggleForm"
-            >{{ toggleText }}</gl-button
+            :aria-label="toggleLabel"
+            :aria-expanded="ariaExpandedAttr"
+            :aria-controls="anchorId"
+            class="btn-icon -gl-mr-2 gl-self-start"
+            data-testid="crud-collapse-toggle"
+            @click="toggleCollapse"
           >
-          <slot name="actions"></slot>
+            <gl-animated-chevron-lg-down-up-icon :is-on="!isCollapsed" variant="default" />
+          </gl-button>
         </div>
-      </header>
+      </div>
+    </header>
+
+    <div
+      v-if="isFormUsedAndVisible"
+      class="gl-border-b gl-border-section gl-bg-subtle gl-p-5 gl-pt-4"
+      data-testid="crud-form"
+    >
+      <slot name="form" :hide-form="hideForm"></slot>
+    </div>
+
+    <div
+      v-if="isContentVisible"
+      class="crud-body gl-mx-5 gl-my-4"
+      :class="[bodyClass, { 'gl-rounded-b-lg': !$scopedSlots.footer }]"
+      data-testid="crud-body"
+    >
+      <gl-skeleton-loader v-if="isLoading" :width="400" :lines="3" data-testid="crud-loading" />
+
+      <span v-else-if="$scopedSlots.empty" class="gl-text-subtle" data-testid="crud-empty">
+        <slot name="empty"></slot>
+      </span>
+      <slot v-else :show-form="showForm"></slot>
 
       <div
-        v-if="$scopedSlots.form && isFormVisible"
-        class="gl-p-5 gl-pt-4 gl-bg-default gl-border-b gl-border-default"
-        data-testid="crud-form"
+        v-if="$scopedSlots.pagination"
+        class="crud-pagination gl-border-t gl-flex gl-justify-center gl-border-t-section gl-p-5"
+        data-testid="crud-pagination"
       >
-        <slot name="form"></slot>
+        <slot name="pagination"></slot>
       </div>
-
-      <div
-        class="crud-body gl-mx-5 gl-my-4"
-        :class="{ 'gl-rounded-b-base': !$scopedSlots.footer }"
-        data-testid="crud-body"
-      >
-        <slot></slot>
-      </div>
-
-      <footer
-        v-if="$scopedSlots.footer"
-        class="gl-px-5 gl-py-4 gl-bg-default gl-border-t gl-border-default gl-rounded-b-base"
-        data-testid="crud-footer"
-      >
-        <slot name="footer"></slot>
-      </footer>
     </div>
-    <div v-if="$scopedSlots.pagination" class="gl-mt-5" data-testid="crud-pagination">
-      <slot name="pagination"></slot>
-    </div>
-  </section>
+
+    <footer
+      v-if="isContentVisible && $scopedSlots.footer"
+      class="gl-border-t gl-rounded-b-lg gl-border-section gl-bg-section gl-px-5 gl-py-4"
+      :class="footerClass"
+      data-testid="crud-footer"
+    >
+      <slot name="footer"></slot>
+    </footer>
+  </component>
 </template>

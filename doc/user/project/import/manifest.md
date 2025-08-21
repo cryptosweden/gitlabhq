@@ -1,16 +1,23 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Import multiple repositories by uploading a manifest file
+description: "Import multiple repositories to GitLab with manifest files."
 ---
 
-# Import multiple repositories by uploading a manifest file
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - Ability to re-import projects [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/23905) in GitLab 15.9.
+{{< /details >}}
+
+{{< history >}}
+
+- Ability to re-import projects [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/23905) in GitLab 15.9.
+
+{{< /history >}}
 
 GitLab allows you to import all the required Git repositories
 based on a manifest file like the one used by the
@@ -20,18 +27,22 @@ repositories like the Android Open Source Project (AOSP).
 
 ## Prerequisites
 
-> - Requirement for Maintainer role instead of Developer role introduced in GitLab 16.0 and backported to GitLab 15.11.1 and GitLab 15.10.5.
+{{< history >}}
+
+- Requirement for Maintainer role instead of Developer role introduced in GitLab 16.0 and backported to GitLab 15.11.1 and GitLab 15.10.5.
+
+{{< /history >}}
 
 - [Manifest import source](../../../administration/settings/import_and_export_settings.md#configure-allowed-import-sources)
   must be enabled. If not enabled, ask your GitLab administrator to enable it. The Manifest import source is enabled
   by default on GitLab.com.
-- GitLab must use PostgreSQL for its database, because [subgroups](../../group/subgroups/index.md) are needed for the manifest import
-  to work. Read more about the [database requirements](../../../install/requirements.md#database).
+- GitLab must use PostgreSQL for its database, because [subgroups](../../group/subgroups/_index.md) are needed for the manifest import
+  to work. Read more about the [database requirements](../../../install/requirements.md#postgresql).
 - At least the Maintainer role on the destination group to import to.
 
 ## Manifest format
 
-A manifest must be an XML file. There must be one `remote` tag with a `review`
+A manifest must be an XML file up to 1 MB in size. There must be one `remote` tag with a `review`
 attribute that contains a URL to a Git server, and each `project` tag must have
 a `name` and `path` attribute. GitLab then builds the URL to the repository
 by combining the URL from the `remote` tag with a project name.

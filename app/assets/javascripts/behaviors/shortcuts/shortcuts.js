@@ -8,7 +8,6 @@ import { getCookie, setCookie, parseBoolean } from '~/lib/utils/common_utils';
 import { waitForElement } from '~/lib/utils/dom_utils';
 import findAndFollowLink from '~/lib/utils/navigation_utility';
 import { refreshCurrentPage } from '~/lib/utils/url_utility';
-import { helpCenterState } from '~/super_sidebar/constants';
 import {
   keysFor,
   TOGGLE_KEYBOARD_SHORTCUTS_DIALOG,
@@ -19,16 +18,17 @@ import {
   HIDE_APPEARING_CONTENT,
   TOGGLE_CANARY,
   TOGGLE_MARKDOWN_PREVIEW,
+  FIND_AND_REPLACE,
   GO_TO_YOUR_TODO_LIST,
   GO_TO_ACTIVITY_FEED,
   GO_TO_YOUR_ISSUES,
   GO_TO_YOUR_MERGE_REQUESTS,
   GO_TO_YOUR_PROJECTS,
   GO_TO_YOUR_GROUPS,
-  TOGGLE_DUO_CHAT,
   GO_TO_MILESTONE_LIST,
   GO_TO_YOUR_SNIPPETS,
   GO_TO_YOUR_REVIEW_REQUESTS,
+  DUO_CHAT,
 } from './keybindings';
 import { disableShortcuts, shouldDisableShortcuts } from './shortcuts_toggle';
 
@@ -85,30 +85,56 @@ export default class Shortcuts {
       [TOGGLE_PERFORMANCE_BAR, Shortcuts.onTogglePerfBar],
       [HIDE_APPEARING_CONTENT, Shortcuts.hideAppearingContent],
       [TOGGLE_CANARY, Shortcuts.onToggleCanary],
-      [TOGGLE_DUO_CHAT, Shortcuts.onToggleDuoChat],
 
       [GO_TO_YOUR_TODO_LIST, () => findAndFollowLink('.shortcuts-todos')],
       [GO_TO_ACTIVITY_FEED, () => findAndFollowLink('.dashboard-shortcuts-activity')],
       [GO_TO_YOUR_ISSUES, () => findAndFollowLink('.dashboard-shortcuts-issues')],
-      [GO_TO_YOUR_MERGE_REQUESTS, () => findAndFollowLink('.dashboard-shortcuts-merge_requests')],
-      [GO_TO_YOUR_REVIEW_REQUESTS, () => findAndFollowLink('.dashboard-shortcuts-review_requests')],
+      [
+        GO_TO_YOUR_MERGE_REQUESTS,
+        () =>
+          findAndFollowLink(
+            '.dashboard-shortcuts-merge_requests, .js-merge-request-dashboard-shortcut',
+          ),
+      ],
+      [
+        GO_TO_YOUR_REVIEW_REQUESTS,
+        () =>
+          findAndFollowLink(
+            '.dashboard-shortcuts-review_requests, .js-merge-request-dashboard-shortcut',
+          ),
+      ],
       [GO_TO_YOUR_PROJECTS, () => findAndFollowLink('.dashboard-shortcuts-projects')],
       [GO_TO_YOUR_GROUPS, () => findAndFollowLink('.dashboard-shortcuts-groups')],
       [GO_TO_MILESTONE_LIST, () => findAndFollowLink('.dashboard-shortcuts-milestones')],
       [GO_TO_YOUR_SNIPPETS, () => findAndFollowLink('.dashboard-shortcuts-snippets')],
 
       [TOGGLE_MARKDOWN_PREVIEW, Shortcuts.toggleMarkdownPreview],
+      [DUO_CHAT, Shortcuts.focusDuoChat],
     ]);
 
     addStopCallback((e, element, combo) =>
       keysFor(TOGGLE_MARKDOWN_PREVIEW).includes(combo) ? false : undefined,
     );
 
+    if (gon?.features?.findAndReplace) {
+      this.add(FIND_AND_REPLACE, Shortcuts.toggleFindAndReplaceBar);
+
+      addStopCallback((e, element, combo) =>
+        keysFor(FIND_AND_REPLACE).includes(combo) ? false : undefined,
+      );
+    }
+
     $(document).on('click', '.js-shortcuts-modal-trigger', this.onToggleHelp);
 
     if (shouldDisableShortcuts()) {
       disableShortcuts();
     }
+
+    this.filterSelectors = [
+      'input[type=search]:not(#diff-tree-search)',
+      '.gl-filtered-search-term-input',
+      '.filtered-search',
+    ];
   }
 
   /**
@@ -223,11 +249,6 @@ export default class Shortcuts {
     }
   }
 
-  static onToggleDuoChat(e) {
-    e.preventDefault();
-    helpCenterState.showTanukiBotChatDrawer = !helpCenterState.showTanukiBotChatDrawer;
-  }
-
   static onTogglePerfBar(e) {
     e.preventDefault();
     const performanceBarCookieName = 'perf_bar_enabled';
@@ -251,11 +272,15 @@ export default class Shortcuts {
     $(document).triggerHandler('markdown-preview:toggle', [e]);
   }
 
+  static toggleFindAndReplaceBar(e) {
+    $(document).triggerHandler('markdown-editor:find-and-replace', [e]);
+  }
+
   focusFilter(e) {
-    if (!this.filterInput) {
-      this.filterInput = $('input[type=search]', '.nav-controls');
-    }
-    this.filterInput.focus();
+    const elements = document.querySelectorAll(this.filterSelectors.join(','));
+    const visibleElement = Array.from(elements).find((el) => el.offsetParent);
+
+    visibleElement?.focus();
     e.preventDefault();
   }
 
@@ -290,6 +315,14 @@ export default class Shortcuts {
     elements.forEach((element) => {
       element.style.display = 'none';
     });
+
+    if (e.preventDefault) {
+      e.preventDefault();
+    }
+  }
+
+  static focusDuoChat(e) {
+    document.querySelector('.js-tanuki-bot-chat-toggle')?.click();
 
     if (e.preventDefault) {
       e.preventDefault();

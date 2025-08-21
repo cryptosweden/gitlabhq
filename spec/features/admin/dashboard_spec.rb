@@ -4,6 +4,7 @@ require 'spec_helper'
 
 RSpec.describe 'admin visits dashboard' do
   include ProjectForksHelper
+  include VersionCheckHelpers
 
   before do
     admin = create(:admin)
@@ -36,6 +37,7 @@ RSpec.describe 'admin visits dashboard' do
 
       expect(page).to have_content('Users without a Group and Project 23')
       expect(page).to have_content('Users with highest role Guest 5')
+      expect(page).to have_content('Users with highest role Planner 7')
       expect(page).to have_content('Users with highest role Reporter 9')
       expect(page).to have_content('Users with highest role Developer 21')
       expect(page).to have_content('Users with highest role Maintainer 6')
@@ -43,22 +45,26 @@ RSpec.describe 'admin visits dashboard' do
       expect(page).to have_content('Bots 2')
 
       if Gitlab.ee?
-        expect(page).to have_content('Billable users 69')
+        expect(page).to have_content('Billable users 76')
       else
-        expect(page).not_to have_content('Billable users 69')
+        expect(page).not_to have_content('Billable users 76')
       end
 
       expect(page).to have_content('Blocked users 7')
-      expect(page).to have_content('Total users (active users + blocked users) 78')
+      expect(page).to have_content('Total users (active users + blocked users) 85')
     end
   end
 
   describe 'Version check', :js, feature_category: :deployment_management do
+    before do
+      stub_version_check({ "severity" => "success" })
+    end
+
     it 'shows badge on CE' do
       visit admin_root_path
 
       page.within('.admin-dashboard') do
-        expect(find('.badge')).to have_content('Up to date')
+        expect(find_by_testid('check-version-badge')).to have_content('Up to date')
       end
     end
   end

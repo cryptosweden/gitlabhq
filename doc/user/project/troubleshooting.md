@@ -1,10 +1,10 @@
 ---
-stage: Data Stores
-group: Tenant Scale
+stage: Tenant Scale
+group: Organizations
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting projects
+description: Problem solving, common issues, debugging, and error resolution.
 ---
-
-# Troubleshooting projects
 
 When working with projects, you might encounter the following issues, or require alternate methods to complete specific tasks.
 
@@ -29,8 +29,11 @@ projects = Project.find_by_sql("SELECT * FROM projects WHERE name LIKE '%ject'")
 If a project or repository has been updated but the state is not reflected in the UI, you may need to clear the project's or repository's cache.
 You can do so through [a Rails console session](../../administration/operations/rails_console.md#starting-a-rails-console-session) and one of the following:
 
-WARNING:
+{{< alert type="warning" >}}
+
 Commands that change data can cause damage if not run correctly or under the right conditions. Always run commands in a test environment first and have a backup instance ready to restore.
+
+{{< /alert >}}
 
 ```ruby
 ## Clear project cache
@@ -54,17 +57,36 @@ projects.each do |p|
 end
 ```
 
+### Transfer a project using console
+
+If transferring a project through the UI or API is not working, you can attempt the transfer in a [Rails console session](../../administration/operations/rails_console.md#starting-a-rails-console-session).
+
+```ruby
+p = Project.find_by_full_path('<project_path>')
+
+# To set the owner of the project
+current_user = p.creator
+
+# Namespace where you want this to be moved
+namespace = Namespace.find_by_full_path("<new_namespace>")
+
+Projects::TransferService.new(p, current_user).execute(namespace)
+```
+
 ## Delete a project using console
 
 If a project cannot be deleted, you can attempt to delete it through [Rails console](../../administration/operations/rails_console.md#starting-a-rails-console-session).
 
-WARNING:
+{{< alert type="warning" >}}
+
 Commands that change data can cause damage if not run correctly or under the right conditions. Always run commands in a test environment first and have a backup instance ready to restore.
+
+{{< /alert >}}
 
 ```ruby
 project = Project.find_by_full_path('<project_path>')
 user = User.find_by_username('<username>')
-ProjectDestroyWorker.new.perform(project.id, user.id, {})
+Projects::DestroyService.new(project, user, {}).execute
 ```
 
 If this fails, display why it doesn't work with:
@@ -82,8 +104,11 @@ you may need to do this for a large number of projects.
 To toggle a specific feature, you can [start a Rails console session](../../administration/operations/rails_console.md#starting-a-rails-console-session)
 and run the following function:
 
-WARNING:
+{{< alert type="warning" >}}
+
 Commands that change data can cause damage if not run correctly or under the right conditions. Always run commands in a test environment first and have a backup instance ready to restore.
+
+{{< /alert >}}
 
 ```ruby
 projects = Group.find_by_name('_group_name').projects

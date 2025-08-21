@@ -1,7 +1,5 @@
 <script>
-import Vue from 'vue';
-// eslint-disable-next-line no-restricted-imports
-import { mapGetters } from 'vuex';
+import { mapState } from 'pinia';
 import HiddenBadge from '~/issuable/components/hidden_badge.vue';
 import LockedBadge from '~/issuable/components/locked_badge.vue';
 import StatusBadge from '~/issuable/components/status_badge.vue';
@@ -9,11 +7,8 @@ import { TYPE_ISSUE, TYPE_MERGE_REQUEST, WORKSPACE_PROJECT } from '~/issues/cons
 import { fetchPolicies } from '~/lib/graphql';
 import ConfidentialityBadge from '~/vue_shared/components/confidentiality_badge.vue';
 import ImportedBadge from '~/vue_shared/components/imported_badge.vue';
-
-export const badgeState = Vue.observable({
-  state: '',
-  updateStatus: null,
-});
+import { badgeState } from '~/merge_requests/badge_state';
+import { useNotes } from '~/notes/store/legacy_notes';
 
 export default {
   TYPE_ISSUE,
@@ -43,6 +38,11 @@ export default {
       required: false,
       default: false,
     },
+    isDraft: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   data() {
     if (!this.iid) {
@@ -58,7 +58,7 @@ export default {
     return badgeState;
   },
   computed: {
-    ...mapGetters(['getNoteableData']),
+    ...mapState(useNotes, ['getNoteableData']),
     isLocked() {
       return this.getNoteableData.discussion_locked;
     },
@@ -94,32 +94,25 @@ export default {
 </script>
 
 <template>
-  <span class="gl-display-contents">
+  <span class="gl-contents">
     <status-badge
-      class="gl-align-self-center gl-mr-2"
+      class="gl-mr-2 gl-self-center"
       :issuable-type="$options.TYPE_MERGE_REQUEST"
       :state="state"
+      :is-draft="isDraft"
     />
     <confidentiality-badge
       v-if="isConfidential"
-      class="gl-align-self-center gl-mr-2"
+      class="gl-mr-2 gl-self-center"
       :issuable-type="$options.TYPE_ISSUE"
       :workspace-type="$options.WORKSPACE_PROJECT"
     />
     <locked-badge
       v-if="isLocked"
-      class="gl-align-self-center gl-mr-2"
+      class="gl-mr-2 gl-self-center"
       :issuable-type="$options.TYPE_MERGE_REQUEST"
     />
-    <hidden-badge
-      v-if="hidden"
-      class="gl-align-self-center gl-mr-2"
-      :issuable-type="$options.TYPE_MERGE_REQUEST"
-    />
-    <imported-badge
-      v-if="isImported"
-      class="gl-align-self-center gl-mr-2"
-      :importable-type="$options.TYPE_MERGE_REQUEST"
-    />
+    <hidden-badge v-if="hidden" class="gl-mr-2 gl-self-center" />
+    <imported-badge v-if="isImported" class="gl-mr-2 gl-self-center" />
   </span>
 </template>

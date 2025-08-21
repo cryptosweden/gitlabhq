@@ -1,11 +1,12 @@
 <script>
-import { GlAlert } from '@gitlab/ui';
+import { GlAlert, GlOutsideDirective as Outside } from '@gitlab/ui';
 import Autosize from 'autosize';
+import MarkdownComposer from 'ee_component/vue_shared/components/markdown/composer.vue';
 import { __ } from '~/locale';
 import axios from '~/lib/utils/axios_utils';
-import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
 import { updateDraft, clearDraft, getDraft } from '~/lib/utils/autosave';
 import { setUrlParams, joinPaths } from '~/lib/utils/url_utility';
+import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
 import {
   EDITING_MODE_KEY,
   EDITING_MODE_MARKDOWN_FIELD,
@@ -34,13 +35,16 @@ async function waitFor(getEl, interval = 10, timeout = 2000) {
 export default {
   components: {
     GlAlert,
-    LocalStorageSync,
     MarkdownField,
+    LocalStorageSync,
+    MarkdownComposer,
     ContentEditor: () =>
       import(
         /* webpackChunkName: 'content_editor' */ '~/content_editor/components/content_editor.vue'
       ),
   },
+  directives: { Outside },
+  inject: { canUseComposer: { default: false } },
   props: {
     value: {
       type: String,
@@ -68,7 +72,6 @@ export default {
     formFieldProps: {
       type: Object,
       required: true,
-      validator: (prop) => prop.id && prop.name,
     },
     autofocus: {
       type: Boolean,
@@ -120,13 +123,52 @@ export default {
       required: false,
       default: () => ({}),
     },
+    noteableType: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    restrictedToolBarItems: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
+    restoreFromAutosave: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    newCommentTemplatePaths: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
+    editorAiActions: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
   },
   data() {
-    const editingMode =
-      localStorage.getItem(this.$options.EDITING_MODE_KEY) || EDITING_MODE_MARKDOWN_FIELD;
+    let editingMode;
+    switch (window.gon?.text_editor) {
+      case 'rich_text_editor':
+        editingMode = EDITING_MODE_CONTENT_EDITOR;
+        break;
+      case 'plain_text_editor':
+        editingMode = EDITING_MODE_MARKDOWN_FIELD;
+        break;
+      default:
+        editingMode =
+          localStorage.getItem(this.$options.EDITING_MODE_KEY) || EDITING_MODE_MARKDOWN_FIELD;
+    }
+
+    const autosaveValue = this.autosaveKey ? getDraft(this.autosaveKey) : '';
+    const initialValue = this.restoreFromAutosave ? autosaveValue : this.value;
+
     return {
       alert: null,
-      markdown: this.value || (this.autosaveKey ? getDraft(this.autosaveKey) : '') || '',
+      markdown: initialValue || autosaveValue || '',
       editingMode,
       autofocused: false,
     };
@@ -140,21 +182,26 @@ export default {
       return this.autofocus && !this.autofocused ? 'end' : false;
     },
     markdownFieldRestrictedToolBarItems() {
-      return this.disableAttachments ? ['attach-file'] : [];
+      const restrictAttachments = this.disableAttachments ? ['attach-file'] : [];
+
+      return [...this.restrictedToolBarItems, ...restrictAttachments];
+    },
+    isDefaultEditorEnabled() {
+      return ['plain_text_editor', 'rich_text_editor'].includes(window.gon?.text_editor);
+    },
+    composerComponent() {
+      return this.canUseComposer ? 'markdown-composer' : 'div';
     },
   },
   watch: {
-    value(val) {
-      this.markdown = val;
-
-      this.saveDraft();
-      this.autosizeTextarea();
-    },
+    value: 'updateValue',
   },
   mounted() {
     this.autofocusTextarea();
 
-    this.$emit('input', this.markdown);
+    // Second argument (`true`) is passed to identify
+    // that the input event was emitted on component mount.
+    this.$emit('input', this.markdown, true);
     this.saveDraft();
 
     this.setFacade?.({
@@ -172,12 +219,27 @@ export default {
       return this.markdown;
     },
     setValue(value) {
-      this.markdown = value;
       this.$emit('input', value);
-
+      this.updateValue(value);
+    },
+    updateValue(value) {
+      this.markdown = value;
       this.saveDraft();
       this.autosizeTextarea();
     },
+    // eslint-disable-next-line vue/no-unused-properties -- append() is part of the component's public API.
+    append(value) {
+      if (!value) {
+        this.focus();
+        return;
+      }
+      const newValue = [this.markdown.trim(), value].filter(Boolean).join('\n\n');
+      this.updateValue(`${newValue}\n\n`);
+      this.$nextTick(() => {
+        this.focus();
+      });
+    },
+    // eslint-disable-next-line vue/no-unused-properties -- setTemplate() is part of the component's public API.
     setTemplate(template, force = false) {
       if (!this.markdown || force) {
         this.setValue(template);
@@ -210,20 +272,25 @@ export default {
       this.$emit('input', target.value);
 
       this.saveDraft();
-      this.autosizeTextarea();
     },
     renderMarkdown(markdown) {
       const url = setUrlParams(
         { render_quick_actions: this.supportsQuickActions },
         joinPaths(window.location.origin, this.renderMarkdownPath),
       );
-      return axios.post(url, { text: markdown }).then(({ data }) => data.body || data.html);
+      return axios
+        .post(url, { text: markdown })
+        .then(({ data: { html, body, ...otherData } = {} } = {}) => ({
+          body: body || html || '',
+          ...otherData,
+        }));
     },
     onEditingModeChange(editingMode) {
       this.editingMode = editingMode;
       this.notifyEditingModeChange(editingMode);
     },
     onEditingModeRestored(editingMode) {
+      if (!this.isDefaultEditorEnabled) return;
       if (editingMode === EDITING_MODE_CONTENT_EDITOR && !this.enableContentEditor) {
         this.editingMode = EDITING_MODE_MARKDOWN_FIELD;
         return;
@@ -249,6 +316,13 @@ export default {
         this.setEditorAsAutofocused();
       }
     },
+    focus() {
+      if (this.editingMode === EDITING_MODE_MARKDOWN_FIELD) {
+        this.$refs.textarea.focus();
+      } else {
+        this.$refs.contentEditor.focus();
+      }
+    },
     setEditorAsAutofocused() {
       this.autofocused = true;
     },
@@ -261,6 +335,7 @@ export default {
       if (!this.autosaveKey || key !== this.autosaveKey) return;
       clearDraft(this.autosaveKey);
     },
+    // eslint-disable-next-line vue/no-unused-properties -- togglePreview() is part of the component's public API.
     togglePreview(value) {
       if (this.editingMode === EDITING_MODE_MARKDOWN_FIELD) {
         this.$refs.markdownField.previewMarkdown = value;
@@ -280,6 +355,11 @@ export default {
       }
       this.$emit('keydown', event);
     },
+    onClickOutside() {
+      if (!this.canUseComposer) return;
+
+      eventHub.$emit('CLOSE_COMPOSER');
+    },
   },
   EDITING_MODE_KEY,
   i18n: {
@@ -294,8 +374,9 @@ export default {
 };
 </script>
 <template>
-  <div class="gl-px-0!">
+  <div class="js-editor md-area-wrapper gl-rounded-lg !gl-px-0">
     <local-storage-sync
+      v-if="!isDefaultEditorEnabled"
       :value="editingMode"
       as-string
       :storage-key="$options.EDITING_MODE_KEY"
@@ -313,14 +394,17 @@ export default {
     >
       {{ alert.message }}
     </gl-alert>
+    <!-- <markdown-composer v-if="!isContentEditorActive && canUseComposer"  /> -->
     <markdown-field
       v-if="!isContentEditorActive"
       ref="markdownField"
       v-bind="$attrs"
       data-testid="markdown-field"
       :markdown-preview-path="renderMarkdownPath"
+      :new-comment-template-paths="newCommentTemplatePaths"
       :can-attach-file="!disableAttachments"
       :can-suggest="codeSuggestionsConfig.canSuggest"
+      :editor-ai-actions="editorAiActions"
       :line="codeSuggestionsConfig.line"
       :lines="codeSuggestionsConfig.lines"
       :show-suggest-popover="codeSuggestionsConfig.showPopover"
@@ -333,23 +417,35 @@ export default {
       :show-content-editor-switcher="enableContentEditor"
       :drawio-enabled="drawioEnabled"
       :restricted-tool-bar-items="markdownFieldRestrictedToolBarItems"
-      :remove-border="true"
       @enableContentEditor="onEditingModeChange('contentEditor')"
       @handleSuggestDismissed="() => $emit('handleSuggestDismissed')"
     >
+      <template #header-buttons><slot name="header-buttons"></slot></template>
+      <template #toolbar><slot name="toolbar"></slot></template>
       <template #textarea>
-        <textarea
-          v-bind="formFieldProps"
-          ref="textarea"
-          :value="markdown"
-          class="note-textarea js-gfm-input markdown-area"
-          dir="auto"
-          :data-supports-quick-actions="supportsQuickActions"
-          :data-testid="formFieldProps['data-testid'] || 'markdown-editor-form-field'"
-          :disabled="disabled"
-          @input="updateMarkdownFromMarkdownField"
-          @keydown="$emit('keydown', $event)"
-        ></textarea>
+        <component
+          :is="composerComponent"
+          v-outside="onClickOutside"
+          :markdown="canUseComposer ? markdown : null"
+        >
+          <textarea
+            v-bind="formFieldProps"
+            ref="textarea"
+            :value="markdown"
+            class="note-textarea js-gfm-input markdown-area"
+            :class="[{ 'gl-relative gl-z-3': canUseComposer }, formFieldProps.class || '']"
+            dir="auto"
+            :data-can-suggest="codeSuggestionsConfig.canSuggest"
+            :data-noteable-type="noteableType"
+            :data-supports-quick-actions="supportsQuickActions"
+            :data-testid="formFieldProps['data-testid'] || 'markdown-editor-form-field'"
+            :disabled="disabled"
+            @input="updateMarkdownFromMarkdownField"
+            @keydown="$emit('keydown', $event)"
+            @focus="$emit('focus')"
+            @blur="$emit('blur')"
+          ></textarea>
+        </component>
       </template>
     </markdown-field>
     <div v-else>
@@ -357,6 +453,7 @@ export default {
         ref="contentEditor"
         :render-markdown="renderMarkdown"
         :markdown-docs-path="markdownDocsPath"
+        :new-comment-template-paths="newCommentTemplatePaths"
         :uploads-path="uploadsPath"
         :markdown="markdown"
         :supports-quick-actions="supportsQuickActions"
@@ -368,17 +465,18 @@ export default {
         :editable="!disabled"
         :disable-attachments="disableAttachments"
         :code-suggestions-config="codeSuggestionsConfig"
+        :data-testid="formFieldProps['data-testid'] || 'markdown-editor-form-field'"
         @initialized="setEditorAsAutofocused"
         @change="updateMarkdownFromContentEditor"
         @keydown="onKeydown"
         @enableMarkdownEditor="onEditingModeChange('markdownField')"
-      />
-      <input
-        v-bind="formFieldProps"
-        :value="markdown"
-        data-testid="markdown-editor-form-field"
-        type="hidden"
-      />
+        @focus="$emit('focus')"
+        @blur="$emit('blur')"
+      >
+        <template #header-buttons><slot name="header-buttons"></slot></template>
+        <template #toolbar><slot name="toolbar"></slot></template>
+      </content-editor>
+      <input v-bind="formFieldProps" :value="markdown" type="hidden" />
     </div>
   </div>
 </template>

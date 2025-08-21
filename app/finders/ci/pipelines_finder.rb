@@ -3,6 +3,8 @@
 module Ci
   class PipelinesFinder
     include UpdatedAtFilter
+    include CreatedAtFilter
+    include PipelineRefFilterIncludingReservedRefNames
 
     attr_reader :project, :pipelines, :params, :current_user
 
@@ -26,6 +28,7 @@ module Ci
       return Ci::Pipeline.none unless Ability.allowed?(current_user, :read_pipeline, project)
 
       items = prefiltered_pipelines
+      items = by_ids(items)
       items = by_iids(items)
       items = by_scope(items)
       items = by_status(items)
@@ -34,6 +37,7 @@ module Ci
       items = by_username(items)
       items = by_yaml_errors(items)
       items = by_updated_at(items)
+      items = by_created_at(items)
       items = by_source(items)
       items = by_name(items)
 
@@ -43,21 +47,35 @@ module Ci
     private
 
     # rubocop: disable CodeReuse/ActiveRecord
-    def ids_for_ref(items, refs)
-      unfiltered_items =
-        if Feature.enabled?(:exclude_child_pipelines_from_tag_branch_query, project)
-          items
-        else
-          pipelines
-        end
+    def pipeline_for_ref_subquery(items)
+      where_query = Arel.sql("#{Ci::Pipeline.table_name}.ref = refs.ref")
 
-      unfiltered_items.where(ref: refs).group(:ref).select('max(id)')
+      items
+        .where(where_query)
+        .order(id: :desc)
+        .limit(1) # Limit to 1 because we only want the latest pipeline per ref
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
+    def refs_values(refs)
+      # Create list of form `[['main'], ['branch1']]`
+      list = refs.map { |ref| Array(ref) }
+
+      # Create values list of form `(VALUES ('main'), ('branch1'))`
+      values_list = Arel::Nodes::Grouping.new(Arel::Nodes::ValuesList.new(list))
+
+      # (VALUES ('main'), ('branch1')) AS refs(ref)
+      Arel::Nodes::As.new(values_list, Arel.sql('refs(ref)'))
+    end
+
     # rubocop: disable CodeReuse/ActiveRecord
-    def from_ids(ids)
-      pipelines.unscoped.where(project_id: project.id, id: ids)
+    def from_derived_table(derived_pipelines_table, refs_values_table)
+      pipelines
+        .unscoped
+        .from([
+          refs_values_table,
+          derived_pipelines_table.arel.lateral.as(Ci::Pipeline.table_name)
+        ])
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
@@ -74,6 +92,14 @@ module Ci
       return pipelines if params[:source] == 'parent_pipeline'
 
       pipelines.no_child
+    end
+
+    def by_ids(items)
+      if params[:ids].present?
+        items.id_in(params[:ids])
+      else
+        items
+      end
     end
 
     def by_iids(items)
@@ -93,21 +119,27 @@ module Ci
       when ALLOWED_SCOPES[:FINISHED]
         items.finished
       when ALLOWED_SCOPES[:BRANCHES]
-        from_ids(ids_for_ref(items, branches))
+        pipelines_for_refs(items, branches)
       when ALLOWED_SCOPES[:TAGS]
-        from_ids(ids_for_ref(items, tags))
+        pipelines_for_refs(items, tags)
       else
         items
       end
     end
 
-    # rubocop: disable CodeReuse/ActiveRecord
+    def pipelines_for_refs(items, refs)
+      if refs.empty?
+        Ci::Pipeline.none
+      else
+        from_derived_table(pipeline_for_ref_subquery(items), refs_values(refs))
+      end
+    end
+
     def by_status(items)
       return items unless Ci::HasStatus::AVAILABLE_STATUSES.include?(params[:status])
 
-      items.where(status: params[:status])
+      items.for_status(params[:status])
     end
-    # rubocop: enable CodeReuse/ActiveRecord
 
     def by_source(items)
       return items unless ::Ci::Pipeline.sources.key?(params[:source])
@@ -115,36 +147,27 @@ module Ci
       items.with_pipeline_source(params[:source])
     end
 
-    # rubocop: disable CodeReuse/ActiveRecord
     def by_ref(items)
-      if params[:ref].present?
-        items.where(ref: params[:ref])
-      else
-        items
-      end
-    end
-    # rubocop: enable CodeReuse/ActiveRecord
+      return items unless params[:ref].present?
 
-    # rubocop: disable CodeReuse/ActiveRecord
+      refs = ref_and_associated_reserved_refs(project, params[:ref], params[:source])
+      items.for_ref(refs)
+    end
+
     def by_sha(items)
-      if params[:sha].present?
-        items.where(sha: params[:sha])
-      else
-        items
-      end
-    end
-    # rubocop: enable CodeReuse/ActiveRecord
+      return items unless params[:sha].present?
 
-    # rubocop: disable CodeReuse/ActiveRecord
+      items.for_sha(params[:sha])
+    end
+
     def by_username(items)
       return items unless params[:username].present?
 
       user_id = User.by_username(params[:username]).pluck_primary_key.first
       return Ci::Pipeline.none unless user_id
 
-      items.where(user_id: user_id)
+      items.for_user(user_id)
     end
-    # rubocop: enable CodeReuse/ActiveRecord
 
     # rubocop: disable CodeReuse/ActiveRecord
     def by_yaml_errors(items)

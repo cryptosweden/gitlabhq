@@ -30,9 +30,7 @@ module BlobHelper
       return ide_edit_path(target_project, branch, path)
     end
 
-    if target_project != source_project
-      params = { target_project: target_project.full_path }
-    end
+    params = { target_project: target_project.full_path } if target_project != source_project
 
     result = File.join(ide_path, 'project', source_project.full_path, 'merge_requests', merge_request.to_param)
     result += "?#{params.to_query}" unless params.nil?
@@ -76,12 +74,15 @@ module BlobHelper
     )
   end
 
+  # Used for single file Web Editor, Delete and Replace UI actions.
+  # can_edit_tree checks if ref is on top of the branch.
   def can_modify_blob?(blob, project = @project, ref = @ref)
     !blob.stored_externally? && can_edit_tree?(project, ref)
   end
 
-  def leave_edit_message
-    _("Leave edit mode? All unsaved changes will be lost.")
+  # Used for WebIDE editor where editing is possible even if ref is not on top of the branch.
+  def can_modify_blob_with_web_ide?(blob, project = @project)
+    !blob.stored_externally? && can_collaborate_with_project?(project)
   end
 
   def editing_preview_title(filename)
@@ -225,14 +226,10 @@ module BlobHelper
   def contribution_options(project)
     options = []
 
-    if can?(current_user, :create_issue, project)
-      options << link_to("submit an issue", new_project_issue_path(project))
-    end
+    options << link_to("submit an issue", new_project_issue_path(project)) if can?(current_user, :create_issue, project)
 
     merge_project = merge_request_source_project_for_project(@project)
-    if merge_project
-      options << link_to("create a merge request", project_new_merge_request_path(project))
-    end
+    options << link_to("create a merge request", project_new_merge_request_path(project)) if merge_project
 
     options
   end
@@ -296,10 +293,78 @@ module BlobHelper
       project_path: project.full_path,
       resource_id: project.to_global_id,
       user_id: current_user.present? ? current_user.to_global_id : '',
-      target_branch: project.empty_repo? ? ref : @ref,
-      original_branch: @ref,
-      can_download_code: can?(current_user, :download_code, project).to_s
+      target_branch: selected_branch,
+      original_branch: ref,
+      escaped_ref: ActionDispatch::Journey::Router::Utils.escape_path(ref),
+      can_download_code: can?(current_user, :download_code, project).to_s,
+      full_name: project.name_with_namespace
     }
+  end
+
+  def vue_blob_header_app_data(project, blob, ref)
+    archive_prefix = ref ? "#{project.path}-#{ref.tr('/', '-')}" : ''
+
+    {
+      blob_path: blob.path,
+      is_binary: blob.binary?,
+      breadcrumbs: breadcrumb_data_attributes,
+      escaped_ref: ActionDispatch::Journey::Router::Utils.escape_path(ref),
+      history_link: project_commits_path(project, ref),
+      project_id: project.id,
+      project_root_path: project_path(project),
+      project_path: project.full_path,
+      project_short_path: project.path,
+      ref_type: @ref_type.to_s,
+      ref: ref,
+      root_ref: project.repository.root_ref,
+      ssh_url: ssh_enabled? ? ssh_clone_url_to_repo(project) : '',
+      http_url: http_enabled? ? http_clone_url_to_repo(project) : '',
+      xcode_url: show_xcode_link?(project) ? xcode_uri_to_repo(project) : '',
+      download_links: archive_download_links(project, ref, archive_prefix).to_json
+    }
+  end
+
+  def edit_blob_app_data(project, id, blob, ref, action)
+    is_update = action == 'update'
+    is_create = action == 'create'
+    update_path = if is_update
+                    project_update_blob_path(project, id)
+                  elsif is_create
+                    project_create_blob_path(project, id)
+                  end
+
+    cancel_path = if is_update
+                    project_blob_path(project, id)
+                  elsif is_create
+                    project_tree_path(project, id)
+                  end
+
+    {
+      action: action.to_s,
+      update_path: update_path,
+      cancel_path: cancel_path,
+      original_branch: ref,
+      target_branch: selected_branch,
+      can_push_code: can?(current_user, :push_code, project).to_s,
+      can_push_to_branch: project.present(current_user: current_user).can_current_user_push_to_branch?(ref).to_s,
+      empty_repo: project.empty_repo?.to_s,
+      blob_name: is_update ? blob.name : nil,
+      branch_allows_collaboration: project.branch_allows_collaboration?(current_user, ref).to_s,
+      last_commit_sha: @last_commit_sha
+    }
+  end
+
+  private
+
+  def archive_download_links(project, ref, archive_prefix)
+    Gitlab::Workhorse::ARCHIVE_FORMATS.map do |fmt|
+      {
+        text: fmt,
+        path: external_storage_url_or_path(
+          project_archive_path(project, id: tree_join(ref, archive_prefix), format: fmt)
+        )
+      }
+    end
   end
 end
 

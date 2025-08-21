@@ -9,6 +9,11 @@ export default {
     GlCollapsibleListbox,
   },
   props: {
+    inputId: {
+      type: String,
+      required: false,
+      default: 'user_timezone',
+    },
     headerText: {
       type: String,
       required: false,
@@ -17,7 +22,6 @@ export default {
     value: {
       type: String,
       required: true,
-      default: '',
     },
     name: {
       type: String,
@@ -33,6 +37,11 @@ export default {
       type: Array,
       required: false,
       default: () => [],
+    },
+    required: {
+      type: Boolean,
+      required: false,
+      default: false,
     },
   },
   data() {
@@ -65,6 +74,13 @@ export default {
         : undefined;
     },
   },
+  watch: {
+    value(newVal) {
+      if (newVal) {
+        this.tzValue = this.initialTimezone(this.timezoneData, newVal);
+      }
+    },
+  },
   methods: {
     selectTimezone(formattedTimezone) {
       const selectedTimezone = this.timezones.find(
@@ -94,13 +110,15 @@ export default {
 };
 </script>
 <template>
-  <div>
+  <div class="gl-relative">
     <input
       v-if="name"
-      id="user_timezone"
+      :id="inputId"
       :name="name"
       :value="timezoneIdentifier || value"
-      type="hidden"
+      :required="required"
+      tabindex="-1"
+      class="gl-sr-only gl-absolute -gl-z-1 gl-h-full gl-w-full"
     />
     <gl-collapsible-listbox
       :header-text="headerText"

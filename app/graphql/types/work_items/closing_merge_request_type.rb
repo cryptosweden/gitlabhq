@@ -5,6 +5,8 @@ module Types
     class ClosingMergeRequestType < BaseObject
       graphql_name 'WorkItemClosingMergeRequest'
 
+      connection_type_class Types::WorkItems::Widgets::Connections::ClosingMergeRequestsConnectionType
+
       authorize :read_merge_request_closing_issue
 
       field :from_mr_description, GraphQL::Types::Boolean,
@@ -14,7 +16,7 @@ module Types
       field :id, ::Types::GlobalIDType[::MergeRequestsClosingIssues],
         null: false,
         description: 'Global ID of the closing merge request association.'
-      field :merge_request, Types::MergeRequestType,
+      field :merge_request, ::Types::MergeRequestType,
         null: true,
         description: 'Related merge request.'
     end

@@ -2,13 +2,15 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Migrate from legacy GitOps to Flux
 ---
 
-# Migrate from legacy GitOps to Flux
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Most users can migrate from their legacy agent-based GitOps solution
 to Flux without additional work or downtime. In most cases, Flux can
@@ -87,7 +89,7 @@ If you have multiple items under `gitops.manifest_projects` or under the `paths`
 
 ## Bootstrap Flux
 
-Prerequisites:
+Before you begin:
 
 - You disabled the GitOps functionality in your agent.
 - You installed the Flux CLI in a terminal with access to your cluster.
@@ -114,7 +116,7 @@ are already declared in the `manifests` directory, there is
 no extra work involved.
 
 For more information about configuring Flux with GitLab, see
-[Tutorial: Set up Flux for GitOps](flux_tutorial.md).
+[Tutorial: Set up Flux for GitOps](../getting_started.md).
 
 ## Troubleshooting
 

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Namespaces::ProjectNamespace, type: :model do
+RSpec.describe Namespaces::ProjectNamespace, type: :model, feature_category: :groups_and_projects do
   let_it_be(:organization) { create(:organization) }
 
   describe 'relationships' do
@@ -109,6 +109,36 @@ RSpec.describe Namespaces::ProjectNamespace, type: :model do
       project_namespace.sync_attributes_from_project(project)
 
       expect(project_namespace.visibility_level).to eq(Gitlab::VisibilityLevel::PRIVATE)
+    end
+  end
+
+  describe '#all_projects' do
+    let(:project) { create(:project) }
+    let(:project_namespace) { project.project_namespace }
+
+    it 'returns single project relation' do
+      expect(project_namespace.all_projects).to be_a(ActiveRecord::Relation)
+      expect(project_namespace.all_projects).to match_array([project])
+    end
+  end
+
+  describe 'combine create and update within a single transaction' do
+    let(:issue) { build(:issue, spam: true) }
+
+    subject(:combined_calls) do
+      issue.project.update_attribute(:visibility_level, Gitlab::VisibilityLevel::PUBLIC)
+    end
+
+    it { expect { combined_calls }.not_to raise_error }
+  end
+
+  describe '#markdown_placeholders_feature_flag_enabled? is delegated' do
+    let(:project) { create(:project) }
+    let(:project_namespace) { project.project_namespace }
+
+    it 'delegates to project' do
+      expect(project_namespace.markdown_placeholders_feature_flag_enabled?).to be_truthy
+      expect(project_namespace.project.markdown_placeholders_feature_flag_enabled?).to be_truthy
     end
   end
 end

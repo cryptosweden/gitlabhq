@@ -2,18 +2,20 @@
 stage: Shared responsibility based on functional area
 group: Shared responsibility based on functional area
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: GitLab Prometheus metrics
 ---
 
-# GitLab Prometheus metrics
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 To enable the GitLab Prometheus metrics:
 
-1. Log in to GitLab as a user with administrator access.
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. Sign in to GitLab as a user with administrator access.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Metrics and profiling**.
 1. Find the **Metrics - Prometheus** section, and select **Enable GitLab Prometheus metrics endpoint**.
 1. [Restart GitLab](../../restart_gitlab.md#reconfigure-a-linux-package-installation) for the changes to take effect.
@@ -34,7 +36,11 @@ For enabling and viewing metrics from Sidekiq nodes, see [Sidekiq metrics](#side
 
 ## Metrics available
 
-> - `caller_id` [removed](https://gitlab.com/gitlab-org/gitlab/-/issues/392622) from `redis_hit_miss_operations_total` and `redis_cache_generation_duration_seconds` in GitLab 15.11.
+{{< history >}}
+
+- `caller_id` [removed](https://gitlab.com/gitlab-org/gitlab/-/issues/392622) from `redis_hit_miss_operations_total` and `redis_cache_generation_duration_seconds` in GitLab 15.11.
+
+{{< /history >}}
 
 The following metrics are available:
 
@@ -45,6 +51,7 @@ The following metrics are available:
 | `gitlab_cache_operations_total`                                  | Counter     | 12.2    | Cache operations by controller or action                                                                              | `controller`, `action`, `operation`, `store`, `endpoint_id`              |
 | `gitlab_cache_read_multikey_count`                               | Histogram   | 15.7    | Count of keys in multi-key cache read operations                                                                      | `controller`, `action`, `store`, `endpoint_id`                   |
 | `gitlab_ci_job_token_inbound_access`                             | Counter     | 17.2   | Count of inbound accesses via CI job token | |
+| `gitlab_ci_job_token_authorization_failures`                     | Counter     | 17.11  | Count of failed authorization attempts via CI JOB Token | `same_root_ancestor` |
 | `gitlab_ci_pipeline_builder_scoped_variables_duration`           | Histogram   | 14.5   | Time in seconds it takes to create the scoped variables for a CI/CD job | |
 | `gitlab_ci_pipeline_creation_duration_seconds`                   | Histogram   | 13.0    | Time in seconds it takes to create a CI/CD pipeline                                                                   | `gitlab`                                                  |
 | `gitlab_ci_pipeline_size_builds`                                 | Histogram   | 13.1    | Total number of builds within a pipeline grouped by a pipeline source                                                 | `source`                                                  |
@@ -116,7 +123,6 @@ The following metrics are available:
 | `successful_login_captcha_total`                                 | Gauge       | 11.0    | Counter of successful CAPTCHA attempts during login                                                                   |                                                           |
 | `auto_devops_pipelines_completed_total`                          | Counter     | 12.7    | Counter of completed Auto DevOps pipelines, labeled by status                                                         |                                                           |
 | `artifact_report_<report_type>_builds_completed_total`           | Counter     | 15.3    | Counter of completed CI Builds with report-type artifacts, grouped by report type and labeled by status               |                                                           |
-| `gitlab_metrics_dashboard_processing_time_ms`                    | Summary     | 12.10   | Metrics dashboard processing time in milliseconds                                                                     | service, stages                                           |
 | `action_cable_active_connections`                                | Gauge       | 13.4    | Number of ActionCable WS clients currently connected                                                                  | `server_mode`                                             |
 | `action_cable_broadcasts_total`                                  | Counter     | 13.10   | The number of ActionCable broadcasts emitted                                                                          | `server_mode`                                             |
 | `action_cable_pool_min_size`                                     | Gauge       | 13.4    | Minimum number of worker threads in ActionCable thread pool                                                           | `server_mode`                                             |
@@ -131,11 +137,11 @@ The following metrics are available:
 | `action_cable_subscription_confirmations_total`                  | Counter     | 13.10   | The number of ActionCable subscriptions from clients confirmed                                                        | `server_mode`                                             |
 | `action_cable_subscription_rejections_total`                     | Counter     | 13.10   | The number of ActionCable subscriptions from clients rejected                                                         | `server_mode`                                             |
 | `action_cable_transmitted_bytes_total`                           | Counter     | 16.0    |  Total number of bytes transmitted over ActionCable                                                                   | `operation`, `channel`                                    |
-| `gitlab_issuable_fast_count_by_state_total`                      | Counter     | 13.5    | Total number of row count operations on issue/merge request list pages                                                |                                                           |
-| `gitlab_issuable_fast_count_by_state_failures_total`             | Counter     | 13.5    | Number of soft-failed row count operations on issue/merge request list pages                                          |                                                           |
+| `gitlab_issuable_fast_count_by_state_total`                      | Counter     | 13.5    | Total number of row count operations on the **Issue** and **Merge request** pages                                                |                                                           |
+| `gitlab_issuable_fast_count_by_state_failures_total`             | Counter     | 13.5    | Number of soft-failed row count operations on the **Issue** and **Merge request** pages                                          |                                                           |
 | `gitlab_ci_trace_finalize_duration_seconds`                      | Histogram   | 13.6    | Duration of build trace chunks migration to object storage                                                            |                                                           |
-| `gitlab_vulnerability_report_branch_comparison_real_duration_seconds`  | Histogram   | 15.11    | Execution duration of vulnerability report present on default branch SQL query                                                            |                                                           |
-| `gitlab_vulnerability_report_branch_comparison_cpu_duration_seconds`  | Histogram   | 15.11    | Execution duration of vulnerability report present on default branch SQL query                                                            |                                                           |
+| `gitlab_vulnerability_report_branch_comparison_real_duration_seconds`  | Histogram   | 15.11    | Wall clock execution duration of vulnerability report on default branch SQL query                                                              |                                                           |
+| `gitlab_vulnerability_report_branch_comparison_cpu_duration_seconds`  | Histogram   | 15.11    | CPU execution duration of vulnerability report on default branch SQL query                                                              |                                                           |
 | `gitlab_external_http_total`                                     | Counter     | 13.8    | Total number of HTTP calls to external systems                                                                        | `controller`, `action`, `endpoint_id`                                   |
 | `gitlab_external_http_duration_seconds`                          | Counter     | 13.8    | Duration in seconds spent on each HTTP call to external systems                                                       |                                                           |
 | `gitlab_external_http_exception_total`                           | Counter     | 13.8    | Total number of exceptions raised when making external HTTP calls                                                     |                                                           |
@@ -166,9 +172,9 @@ The following metrics are available:
 | `gitlab_diffs_render_real_duration_seconds` | Histogram | 15.8 | Duration in seconds spent on serializing and rendering diffs on diffs batch request | `controller`, `action`, `endpoint_id` |
 | `gitlab_memwd_violations_total`                      | Counter | 15.9  | Total number of times a Ruby process violated a memory threshold | |
 | `gitlab_memwd_violations_handled_total`              | Counter | 15.9  | Total number of times Ruby process memory violations were handled | |
-| `gitlab_sli_rails_request_apdex_total` | Counter | 14.4 | Total number of request Apdex measurements. For more information, see [Rails request SLIs](../../../development/application_slis/rails_request.md) | `endpoint_id`, `feature_category`, `request_urgency` |
+| `gitlab_sli_rails_request_apdex_total` | Counter | 14.4 | Total number of request Apdex measurements. | `endpoint_id`, `feature_category`, `request_urgency` |
 | `gitlab_sli_rails_request_apdex_success_total` | Counter | 14.4 | Total number of successful requests that met the target duration for their urgency. Divide by `gitlab_sli_rails_requests_apdex_total` to get a success ratio | `endpoint_id`, `feature_category`, `request_urgency` |
-| `gitlab_sli_rails_request_error_total` | Counter | 15.7 | Total number of request error measurements. For more information, see [Rails request SLIs](../../../development/application_slis/rails_request.md) | `endpoint_id`, `feature_category`, `request_urgency`, `error` |
+| `gitlab_sli_rails_request_error_total` | Counter | 15.7 | Total number of request error measurements. | `endpoint_id`, `feature_category`, `request_urgency`, `error` |
 | `job_register_attempts_failed_total` | Counter | 9.5 | Counts the times a runner fails to register a job | |
 | `job_register_attempts_total` | Counter | 9.5 | Counts the times a runner tries to register a job | |
 | `job_queue_duration_seconds` | Histogram | 9.5 | Request handling execution time | |
@@ -181,10 +187,25 @@ The following metrics are available:
 | `gitlab_connection_pool_size` | Gauge | 16.7 | Size of connection pool | |
 | `gitlab_connection_pool_available_count` | Gauge | 16.7 | Number of available connections in the pool | |
 | `gitlab_security_policies_scan_result_process_duration_seconds` | Histogram | 16.7 | The amount of time to process merge request approval policies | |
+| `gitlab_security_policies_policy_sync_duration_seconds` | Histogram | 17.6 | The amount of time to sync policy changes for a policy configuration | |
+| `gitlab_security_policies_policy_deletion_duration_seconds` | Histogram | 17.6 | The amount of time to delete policy-related configuration | |
+| `gitlab_security_policies_policy_creation_duration_seconds` | Histogram | 17.6 | The amount of time to create policy-related configuration | |
+| `gitlab_security_policies_sync_opened_merge_requests_duration_seconds` | Histogram | 17.6 | The amount of time to sync opened merge requests after policy changes | |
+| `gitlab_security_policies_scan_execution_configuration_rendering_seconds` | Histogram | 17.3 | The amount of time to render scan execution policy CI configurations | |
+| `gitlab_security_policies_update_configuration_duration_seconds` | Histogram | 17.6 | The amount of time to schedule sync for a policy configuration change | |
 | `gitlab_highlight_usage` | Counter | 16.8 | The number of times `Gitlab::Highlight` is used | `used_on` |
 | `dependency_linker_usage` | Counter | 16.8 | The number of times dependency linker is used | `used_on` |
 | `gitlab_keeparound_refs_requested_total` | Counter | 16.10 | Counts the number of keep-around refs requested to be created | `source` |
 | `gitlab_keeparound_refs_created_total` | Counter | 16.10 | Counts the number of keep-around refs actually created | `source` |
+| `search_advanced_index_repair_total` | Counter | 17.3 | Counts the number of index repair operations | `document_type` |
+| `search_advanced_boolean_settings` | Gauge | 17.3 | Current state of Advanced search boolean settings | `name` |
+| `gitlab_http_router_rule_total` | Counter | 17.4 | Counts occurrences of HTTP Router rule's `rule_action` and `rule_type` | `rule_action`, `rule_type` |
+| `gitlab_rack_attack_events_total` | Counter | 17.6 | Counts the total number of events handled by Rack Attack. | `event_type`, `event_name` |
+| `gitlab_rack_attack_throttle_limit` | Gauge | 17.6 | Reports the maximum number of requests that a client can make before Rack Attack throttles them. | `event_name` |
+| `gitlab_rack_attack_throttle_period_seconds` | Gauge | 17.6 | Reports the duration over which requests for a client are counted before Rack Attack throttles them. | `event_name` |
+| `gitlab_application_rate_limiter_throttle_utilization_ratio` | Histogram | 17.6 | Utilization ratio of a throttle in GitLab Application Rate Limiter. | `throttle_key`, `peek`, `feature_category` |
+| `gitlab_find_dependency_paths_real_duration_seconds` | Histogram | 18.3 |  Duration in seconds spent resolving the ancestor dependency paths for a given component. | |
+| `gitlab_dependency_paths_found_total` | Counter | 18.3 |  Counts the number of ancestor dependency paths found for a given dependency. | `cyclic` |
 
 ## Metrics controlled by a feature flag
 
@@ -203,8 +224,8 @@ The following metrics can be controlled by feature flags:
 
 ## Praefect metrics
 
-You can [configure Praefect](../../gitaly/praefect.md#praefect) to report metrics. For information
-on available metrics, see the [relevant documentation](../../gitaly/monitoring.md#monitor-gitaly-cluster).
+You can [configure Praefect](../../gitaly/praefect/configure.md#praefect) to report metrics. For information
+on available metrics, see [Monitoring Gitaly Cluster (Praefect)](../../gitaly/praefect/monitoring.md).
 
 ## Sidekiq metrics
 
@@ -228,12 +249,17 @@ configuration option in `gitlab.yml`. These metrics are served from the
 | `sidekiq_jobs_dead_total`                      | Counter   | 13.7 | Sidekiq dead jobs (jobs that have run out of retries)                                               | `queue`, `boundary`, `external_dependencies`, `feature_category`, `urgency` |
 | `sidekiq_redis_requests_total`                 | Counter   | 13.1 | Redis requests during a Sidekiq job execution                                                       | `queue`, `boundary`, `external_dependencies`, `feature_category`, `job_status`, `urgency` |
 | `sidekiq_elasticsearch_requests_total`         | Counter   | 13.1 | Elasticsearch requests during a Sidekiq job execution                                                       | `queue`, `boundary`, `external_dependencies`, `feature_category`, `job_status`, `urgency` |
-| `sidekiq_jobs_skipped_total`                   | Counter   | 16.2 | Number of jobs being skipped (dropped or deferred) when `drop_sidekiq_jobs` feature flag is enabled or `run_sidekiq_jobs` feature flag is disabled                          | `worker`, `action`                                                                                   |
+| `sidekiq_jobs_skipped_total`                   | Counter   | 16.2 | Number of jobs being skipped (dropped or deferred) when `drop_sidekiq_jobs` feature flag is enabled or `run_sidekiq_jobs` feature flag is disabled                          | `worker`, `action`, `feature_category`, `reason`                                                                                   |
 | `sidekiq_running_jobs`                         | Gauge     | 12.2 | Number of Sidekiq jobs running                                                                      | `queue`, `boundary`, `external_dependencies`, `feature_category`, `urgency` |
 | `sidekiq_concurrency`                          | Gauge     | 12.5 | Maximum number of Sidekiq jobs                                                                      |                                                                   |
 | `sidekiq_mem_total_bytes`                      | Gauge     | 15.3 | Number of bytes allocated for both objects consuming an object slot and objects that required a malloc'|                                                                   |
+| `sidekiq_concurrency_limit_queue_jobs`         | Gauge     | 17.3 | Number of Sidekiq jobs waiting in the concurrency limit queue|  `worker`, `feature_category`                                                             |
+| `sidekiq_concurrency_limit_max_concurrent_jobs` | Gauge    | 17.3 | Max number of concurrent running Sidekiq jobs |   `worker`, `feature_category`                                                           |
+| `sidekiq_concurrency_limit_current_concurrent_jobs`    | Gauge | 17.6 | Current number of concurrent running jobs. |  `worker`, `feature_category`                                                             |
+| `sidekiq_concurrency_limit_current_limit`      | Gauge     | 18.3 | Number of concurrent jobs currently allowed to run subject to throttling |   `worker`, `feature_category`                                                           |
+| `sidekiq_throttling_events_total`              | Counter | 18.3  | Total number of Sidekiq throttling events |   `worker`, `strategy` |
 | `geo_db_replication_lag_seconds`               | Gauge   | 10.2  | Database replication lag (seconds) | `url` |
-| `geo_repositories`                             | Gauge   | 10.2  | Total number of repositories available on primary | `url` |
+| `geo_repositories`                             | Gauge   | 10.2  | Deprecated in 17.9. The future GitLab release for removal is yet to be confirmed. Use `geo_project_repositories` instead. Total number of repositories available on primary | `url` |
 | `geo_lfs_objects`                              | Gauge   | 10.2  | Number of LFS objects on primary | `url` |
 | `geo_lfs_objects_checksummed`                  | Gauge   | 14.6  | Number of LFS objects checksummed successfully on primary | `url` |
 | `geo_lfs_objects_checksum_failed`              | Gauge   | 14.6  | Number of LFS objects failed to calculate the checksum on primary | `url` |
@@ -266,8 +292,13 @@ configuration option in `gitlab.yml`. These metrics are served from the
 | `geo_terraform_state_versions_verified`        | Gauge   | 13.12  | Number of terraform state versions successfully verified on secondary | `url` |
 | `geo_terraform_state_versions_verification_failed` | Gauge   | 13.12  | Number of terraform state versions that failed verification on secondary | `url` |
 | `geo_terraform_state_versions_verification_total` | Gauge   | 13.12  | Number of terraform state versions to attempt to verify on secondary | `url` |
-| `global_search_bulk_cron_queue_size`           | Gauge   | 12.10 | Number of database records waiting to be synchronized to Elasticsearch | |
-| `global_search_awaiting_indexing_queue_size`   | Gauge   | 13.2  | Number of database updates waiting to be synchronized to Elasticsearch while indexing is paused | |
+| `global_search_bulk_cron_queue_size`           | Gauge   | 12.10 | Deprecated and planned for removal in 18.0. Replaced by `search_advanced_bulk_cron_queue_size`. Number of incremental database updates waiting to be synchronized to Elasticsearch | |
+| `global_search_bulk_cron_initial_queue_size`   | Gauge   | 13.1  | Deprecated and planned for removal in 18.0. Replaced by `search_advanced_bulk_cron_initial_queue_size`. Number of initial database updates waiting to be synchronized to Elasticsearch | |
+| `global_search_awaiting_indexing_queue_size`   | Gauge   | 13.2  | Deprecated and planned for removal in 18.0. Replaced by `search_advanced_awaiting_indexing_queue_size`. Number of database updates waiting to be synchronized to Elasticsearch while indexing is paused | |
+| `search_advanced_bulk_cron_queue_size`           | Gauge   | 17.6  | Number of incremental database updates waiting to be synchronized to Elasticsearch | |
+| `search_advanced_bulk_cron_initial_queue_size`   | Gauge   | 17.6  |  Number of initial database updates waiting to be synchronized to Elasticsearch | |
+| `search_advanced_bulk_cron_embedding_queue_size` | Gauge   | 17.6  | Number of embedding updates waiting to be synchronized to Elasticsearch | |
+| `search_advanced_awaiting_indexing_queue_size`   | Gauge   | 17.6  | Number of database updates waiting to be synchronized to Elasticsearch while indexing is paused | |
 | `geo_merge_request_diffs`                      | Gauge   | 13.4  | Number of merge request diffs on primary | `url` |
 | `geo_merge_request_diffs_checksum_total`       | Gauge   | 13.12 | Number of merge request diffs to checksum on primary | `url` |
 | `geo_merge_request_diffs_checksummed`          | Gauge   | 13.4  | Number of merge request diffs that successfully calculated the checksum on primary | `url` |
@@ -417,23 +448,29 @@ configuration option in `gitlab.yml`. These metrics are served from the
 
 ## Database load balancing metrics
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+{{< details >}}
+
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 The following metrics are available:
 
 | Metric                                                   | Type      | Since                                                         | Description                                                                        | Labels                                                                                                                                   |
 |:-------------------------------------------------------- |:--------- |:------------------------------------------------------------- |:---------------------------------------------------------------------------------- |:---------------------------------------------------------------------------------------------------------------------------------------- |
 | `db_load_balancing_hosts`                                | Gauge     | [12.3](https://gitlab.com/gitlab-org/gitlab/-/issues/13630)   | Current number of load balancing hosts                                             |                                                                                                                                          |
-| `sidekiq_load_balancing_count`                           | Counter   | 13.11                                                         | Sidekiq jobs using load balancing with data consistency set to :sticky or :delayed | `queue`, `boundary`, `external_dependencies`, `feature_category`, `job_status`, `urgency`, `data_consistency`, `load_balancing_strategy` |
+| `sidekiq_load_balancing_count`                           | Counter   | 13.11                                                         | Sidekiq jobs using load balancing with data consistency set to `:sticky` or `:delayed` | `queue`, `boundary`, `external_dependencies`, `feature_category`, `job_status`, `urgency`, `data_consistency`, `load_balancing_strategy` |
 | `gitlab_transaction_caught_up_replica_pick_count_total`  | Counter   | 14.1                                                          | Number of search attempts for caught up replica                                    | `result`                                                                                                                                 |
 
 ## Database partitioning metrics
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+{{< details >}}
+
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 The following metrics are available:
 

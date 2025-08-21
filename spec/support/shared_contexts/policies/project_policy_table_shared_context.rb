@@ -72,31 +72,6 @@ RSpec.shared_context 'ProjectPolicyTable context' do
     :private  | :disabled | :anonymous  | nil   | 0
   end
 
-  # group_level, :membership, :admin_mode, :expected_count
-  # We need a new table because epics are at a group level only.
-  def permission_table_for_epics_access
-    :public   | :admin      | true  | 1
-    :public   | :admin      | false | 1
-    :public   | :reporter   | nil   | 1
-    :public   | :guest      | nil   | 1
-    :public   | :non_member | nil   | 1
-    :public   | :anonymous  | nil   | 1
-
-    :internal | :admin      | true  | 1
-    :internal | :admin      | false | 1
-    :internal | :reporter   | nil   | 1
-    :internal | :guest      | nil   | 1
-    :internal | :non_member | nil   | 1
-    :internal | :anonymous  | nil   | 0
-
-    :private  | :admin      | true  | 1
-    :private  | :admin      | false | 0
-    :private  | :reporter   | nil   | 1
-    :private  | :guest      | nil   | 1
-    :private  | :non_member | nil   | 0
-    :private  | :anonymous  | nil   | 0
-  end
-
   # project_level, :feature_access_level, :membership, :admin_mode, :expected_count
   def permission_table_for_guest_feature_access
     :public   | :enabled  | :admin      | true  | 1
@@ -420,22 +395,28 @@ RSpec.shared_context 'ProjectPolicyTable context' do
     :private  | :disabled | :disabled | :anonymous  | nil   | 0
   end
 
-  # :project_level, :membership, :expected_count
+  # :project_level, :membership, :admin_mode, :expected_count
   def permission_table_for_project_access
-    :public   | :reporter   | 1
-    :public   | :guest      | 1
-    :public   | :non_member | 1
-    :public   | :anonymous  | 1
+    :public   | :admin      | true  | 1
+    :public   | :admin      | false | 1
+    :public   | :reporter   | nil   | 1
+    :public   | :guest      | nil   | 1
+    :public   | :non_member | nil   | 1
+    :public   | :anonymous  | nil   | 1
 
-    :internal | :reporter   | 1
-    :internal | :guest      | 1
-    :internal | :non_member | 1
-    :internal | :anonymous  | 0
+    :internal | :admin      | true  | 1
+    :internal | :admin      | false | 1
+    :internal | :reporter   | nil   | 1
+    :internal | :guest      | nil   | 1
+    :internal | :non_member | nil   | 1
+    :internal | :anonymous  | nil   | 0
 
-    :private  | :reporter   | 1
-    :private  | :guest      | 1
-    :private  | :non_member | 0
-    :private  | :anonymous  | 0
+    :private  | :admin      | true  | 1
+    :private  | :admin      | false | 0
+    :private  | :reporter   | nil   | 1
+    :private  | :guest      | nil   | 1
+    :private  | :non_member | nil   | 0
+    :private  | :anonymous  | nil   | 0
   end
 
   # :snippet_level, :project_level, :feature_access_level, :membership, :admin_mode, :expected_count

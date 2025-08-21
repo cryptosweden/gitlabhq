@@ -15,8 +15,9 @@ RSpec.describe PostReceiveService, feature_category: :team_planning do
   let(:gl_repository) { "project-#{project.id}" }
   let(:branch_name) { 'feature' }
   let(:reference_counter) { double('ReferenceCounter') }
-  let(:push_options) { ['ci.skip', 'another push option'] }
+  let(:push_options) { ['secret_push_protection.skip_all', 'another-ignored-option'] }
   let(:repository) { project.repository }
+  let(:gitaly_context) { {} }
 
   let(:changes) do
     "#{Gitlab::Git::SHA1_BLANK_SHA} 570e7b2abdd848b95f2f578043fc23bd6f6fd24d refs/heads/#{branch_name}"
@@ -27,7 +28,8 @@ RSpec.describe PostReceiveService, feature_category: :team_planning do
       gl_repository: gl_repository,
       identifier: identifier,
       changes: changes,
-      push_options: push_options
+      push_options: push_options,
+      gitaly_context: gitaly_context
     }
   end
 
@@ -44,8 +46,6 @@ RSpec.describe PostReceiveService, feature_category: :team_planning do
     it 'does not return error' do
       expect(subject).to be_empty
     end
-
-    it_behaves_like 'does not record an onboarding progress action'
   end
 
   context 'when repository is nil' do
@@ -67,11 +67,116 @@ RSpec.describe PostReceiveService, feature_category: :team_planning do
   end
 
   shared_examples 'post_receive_service actions' do
-    it 'enqueues a PostReceive worker job' do
-      expect(PostReceive).to receive(:perform_async)
-        .with(gl_repository, identifier, changes, { ci: { skip: true } })
+    it 'enqueues a PostReceiveWorker worker job with gitaly_context' do
+      expect(Repositories::PostReceiveWorker).to receive(:perform_async)
+        .with(gl_repository, identifier, changes, {
+          'secret_push_protection' => { 'skip_all' => true }
+        }, { 'gitaly_context' => gitaly_context })
 
       subject
+    end
+
+    context 'when rename_post_receive_worker feature flag is disabled' do
+      before do
+        stub_feature_flags(rename_post_receive_worker: false)
+      end
+
+      it 'enqueues a PostReceive worker job with gitaly_context' do
+        expect(PostReceive).to receive(:perform_async)
+          .with(gl_repository, identifier, changes, {
+            'secret_push_protection' => { 'skip_all' => true }
+          }, { 'gitaly_context' => gitaly_context })
+
+        subject
+      end
+
+      context 'when allow_push_repository_for_job_token is also disabled' do
+        before do
+          stub_feature_flags(allow_push_repository_for_job_token: false)
+        end
+
+        it 'enqueues a PostReceive worker job without gitaly_context' do
+          expect(PostReceive).to receive(:perform_async)
+            .with(gl_repository, identifier, changes, {
+              'secret_push_protection' => { 'skip_all' => true }
+            })
+
+          subject
+        end
+      end
+    end
+
+    context 'when allow_push_repository_for_job_token feature flag is disabled' do
+      before do
+        stub_feature_flags(allow_push_repository_for_job_token: false)
+      end
+
+      it 'enqueues a PostReceiveWorker worker job without gitaly_context' do
+        expect(Repositories::PostReceiveWorker).to receive(:perform_async)
+          .with(gl_repository, identifier, changes, {
+            'secret_push_protection' => { 'skip_all' => true }
+          })
+
+        subject
+      end
+    end
+
+    context 'when gitaly_context includes skip-ci' do
+      let(:gitaly_context) { { 'skip-ci' => 'true' } }
+
+      it 'adds ci.skip to push options for PostReceiveWorker' do
+        expect(Repositories::PostReceiveWorker).to receive(:perform_async)
+          .with(gl_repository, identifier, changes, {
+            'secret_push_protection' => { 'skip_all' => true },
+            'ci' => { 'skip' => true }
+          }, { 'gitaly_context' => gitaly_context })
+
+        subject
+      end
+
+      context 'when allow_push_repository_for_job_token is disabled' do
+        before do
+          stub_feature_flags(allow_push_repository_for_job_token: false)
+        end
+
+        it 'adds ci.skip to push options for PostReceiveWorker without gitaly_context' do
+          expect(Repositories::PostReceiveWorker).to receive(:perform_async)
+            .with(gl_repository, identifier, changes, {
+              'secret_push_protection' => { 'skip_all' => true },
+              'ci' => { 'skip' => true }
+            })
+
+          subject
+        end
+      end
+
+      context 'when push_options are not present' do
+        let(:push_options) { nil }
+
+        it 'only includes ci.skip in push options for PostReceiveWorker' do
+          expect(Repositories::PostReceiveWorker).to receive(:perform_async)
+            .with(gl_repository, identifier, changes, {
+              'ci' => { 'skip' => true }
+            }, { 'gitaly_context' => gitaly_context })
+
+          subject
+        end
+
+        context 'when allow_push_repository_for_job_token is disabled' do
+          before do
+            stub_feature_flags(allow_push_repository_for_job_token: false)
+          end
+
+          it 'only includes ci.skip in push options for PostReceiveWorker without gitaly_context' do
+            expect(Repositories::PostReceiveWorker).to receive(:perform_async)
+              .with(gl_repository, identifier, changes, {
+                'ci' => { 'skip' => true }
+              })
+
+            subject
+          end
+        end
+      end
     end
 
     it 'decreases the reference counter and returns the result' do
@@ -80,10 +185,6 @@ RSpec.describe PostReceiveService, feature_category: :team_planning do
       expect(reference_counter).to receive(:decrease).and_return(true)
 
       expect(response.reference_counter_decreased).to be(true)
-    end
-
-    it_behaves_like 'records an onboarding progress action', :git_write do
-      let(:namespace) { project.namespace }
     end
   end
 
@@ -288,6 +389,52 @@ RSpec.describe PostReceiveService, feature_category: :team_planning do
 
       it "does not output another message that doesn't have a target_path" do
         expect(subject).not_to include(build_alert_message(unscoped_message.message))
+      end
+    end
+  end
+
+  context "when broadcast message has a target_access_level" do
+    let_it_be(:unscoped_message) do
+      create(:broadcast_message, message: "Hello world!")
+    end
+
+    let_it_be(:guest_message) do
+      create(:broadcast_message, message: "Guests welcome!", target_access_levels: [Gitlab::Access::GUEST])
+    end
+
+    let_it_be(:dev_message) do
+      create(:broadcast_message, message: "Hi dev team!", target_access_levels: [Gitlab::Access::DEVELOPER, Gitlab::Access::MAINTAINER])
+    end
+
+    context "with limited access" do
+      before do
+        allow(user).to receive(:max_member_access_for_project).and_return(Gitlab::Access::GUEST)
+      end
+
+      it "does not show message for higher access levels" do
+        expect(subject).not_to include(build_alert_message(dev_message.message))
+        expect(subject).to include(build_alert_message(guest_message.message))
+      end
+    end
+
+    context "with multiple allowed access levels" do
+      before do
+        allow(user).to receive(:max_member_access_for_project).and_return(Gitlab::Access::DEVELOPER)
+      end
+
+      it "shows the correct message" do
+        expect(subject).not_to include(build_alert_message(guest_message.message))
+        expect(subject).to include(build_alert_message(dev_message.message))
+      end
+    end
+
+    context "with no matching access level" do
+      before do
+        allow(user).to receive(:max_member_access_for_project).and_return(Gitlab::Access::REPORTER)
+      end
+
+      it "shows the unscoped message" do
+        expect(subject).to include(build_alert_message(unscoped_message.message))
       end
     end
   end

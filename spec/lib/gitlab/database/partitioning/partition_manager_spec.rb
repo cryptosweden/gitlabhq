@@ -6,13 +6,15 @@ RSpec.describe Gitlab::Database::Partitioning::PartitionManager, feature_categor
   include ActiveSupport::Testing::TimeHelpers
   include Database::PartitioningHelpers
   include ExclusiveLeaseHelpers
+  include Gitlab::Database::MigrationHelpers::LooseForeignKeyHelpers
   using RSpec::Parameterized::TableSyntax
 
   let(:partitioned_table_name) { :_test_gitlab_main_my_model_example_table }
 
   context 'creating partitions (mocked)' do
-    subject(:sync_partitions) { described_class.new(model).sync_partitions }
+    subject(:sync_partitions) { manager.sync_partitions }
 
+    let(:manager) { described_class.new(model) }
     let(:model) { double(partitioning_strategy: partitioning_strategy, table_name: table, connection: connection) }
     let(:connection) { ActiveRecord::Base.connection }
     let(:table) { partitioned_table_name }
@@ -22,8 +24,16 @@ RSpec.describe Gitlab::Database::Partitioning::PartitionManager, feature_categor
 
     let(:partitions) do
       [
-        instance_double(Gitlab::Database::Partitioning::TimePartition, table: 'bar', partition_name: 'foo', to_sql: "SELECT 1"),
-        instance_double(Gitlab::Database::Partitioning::TimePartition, table: 'bar', partition_name: 'foo2', to_sql: "SELECT 2")
+        instance_double(Gitlab::Database::Partitioning::TimePartition,
+          table: 'bar',
+          partition_name: 'foo',
+          to_create_sql: "CREATE TABLE _partition_1",
+          to_attach_sql: "ALTER TABLE foo ATTACH PARTITION _partition_1"),
+        instance_double(Gitlab::Database::Partitioning::TimePartition,
+          table: 'bar',
+          partition_name: 'foo2',
+          to_create_sql: "CREATE TABLE _partition_2",
+          to_attach_sql: "ALTER TABLE foo2 ATTACH PARTITION _partition_2")
       ]
     end
 
@@ -39,25 +49,25 @@ RSpec.describe Gitlab::Database::Partitioning::PartitionManager, feature_categor
         stub_exclusive_lease(described_class::MANAGEMENT_LEASE_KEY % table, timeout: described_class::LEASE_TIMEOUT)
       end
 
-      it 'creates the partition' do
-        expect(connection).to receive(:execute).with("LOCK TABLE \"#{table}\" IN ACCESS EXCLUSIVE MODE")
-        expect(connection).to receive(:execute).with(partitions.first.to_sql)
-        expect(connection).to receive(:execute).with(partitions.second.to_sql)
+      it 'creates and attaches the partition in 2 steps', :aggregate_failures do
+        expect(connection).not_to receive(:execute).with("LOCK TABLE \"#{table}\" IN ACCESS EXCLUSIVE MODE")
+        expect(manager).to receive(:create_partition_tables).with(partitions)
+        expect(manager).to receive(:attach_partition_tables).with(partitions)
 
         sync_partitions
       end
 
       context 'with explicitly provided connection' do
         let(:connection) { Ci::ApplicationRecord.connection }
+        let(:manager) { described_class.new(model, connection: connection) }
 
-        it 'uses the explicitly provided connection when any' do
+        it 'uses the explicitly provided connection when any', :aggregate_failures do
           skip_if_multiple_databases_not_setup(:ci)
 
-          expect(connection).to receive(:execute).with("LOCK TABLE \"#{table}\" IN ACCESS EXCLUSIVE MODE")
-          expect(connection).to receive(:execute).with(partitions.first.to_sql)
-          expect(connection).to receive(:execute).with(partitions.second.to_sql)
+          expect(manager).to receive(:create_partition_tables).with(partitions)
+          expect(manager).to receive(:attach_partition_tables).with(partitions)
 
-          described_class.new(model, connection: connection).sync_partitions
+          sync_partitions
         end
       end
 
@@ -85,7 +95,7 @@ RSpec.describe Gitlab::Database::Partitioning::PartitionManager, feature_categor
         expect(connection).not_to receive(:execute).with("LOCK TABLE \"#{table}\" IN ACCESS EXCLUSIVE MODE")
         expect(Gitlab::AppLogger).to receive(:warn).with(
           {
-            message: 'Skipping synching partitions',
+            message: 'Skipping syncing partitions',
             table_name: table,
             connection_name: 'main'
           }
@@ -119,6 +129,29 @@ RSpec.describe Gitlab::Database::Partitioning::PartitionManager, feature_categor
 
       it 'creates partitions' do
         expect { sync_partitions }.to change { find_partitions(my_model.table_name, schema: Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA).size }.from(0)
+      end
+    end
+
+    context 'when partitioned table has a loose foreign key trigger' do
+      before do
+        my_model.table_name = partitioned_table_name
+        create_partitioned_table(connection, partitioned_table_name)
+
+        track_record_deletions(my_model.table_name)
+      end
+
+      it 'attaches LFK trigger on the newly created partitions' do
+        expect(trigger_exists?(my_model.table_name, record_deletion_trigger_name(my_model.table_name))).to eq(true)
+
+        expect { sync_partitions }.to change {
+          find_partitions(my_model.table_name, schema: Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA).size
+        }.from(0)
+
+        partitions = find_partitions(my_model.table_name, schema: Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA)
+        partitions.each do |partition|
+          partition_name = partition.first
+          expect(trigger_exists?(partition_name, record_deletion_trigger_name(partition_name), Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA)).to eq(true)
+        end
       end
     end
 
@@ -281,7 +314,8 @@ RSpec.describe Gitlab::Database::Partitioning::PartitionManager, feature_categor
 
       # Also create all future partitions so that the sync is only trying to detach old partitions
       my_model.partitioning_strategy.missing_partitions.each do |p|
-        connection.execute p.to_sql
+        connection.execute p.to_create_sql
+        connection.execute p.to_attach_sql
       end
     end
 
@@ -328,13 +362,32 @@ RSpec.describe Gitlab::Database::Partitioning::PartitionManager, feature_categor
         expect { subject }.not_to change { find_partitions(my_model.table_name).size }
       end
     end
+
+    context 'when scheduling partition drops for large partitions' do
+      before do
+        stub_const("#{described_class}::MAX_PARTITION_SIZE", 1.byte)
+
+        connection.execute(<<~SQL)
+          INSERT INTO #{partitioned_table_name} (created_at) VALUES ('2021-04-15');
+        SQL
+      end
+
+      it 'schedules large partitions for weekend drops' do
+        next_saturday = Date.parse('2021-07-03')
+
+        expect(Postgresql::DetachedPartition).to receive(:create!)
+          .with(table_name: "#{partitioned_table_name}_202104", drop_after: next_saturday)
+
+        subject
+      end
+    end
   end
 
   describe 'analyze partitioned table' do
     let(:analyze) { true }
     let(:analyze_table) { partitioned_table_name }
     let(:analyze_partition) { "#{partitioned_table_name}_1" }
-    let(:analyze_regex) { /ANALYZE "#{analyze_table}"/ }
+    let(:analyze_regex) { /ANALYZE \(SKIP_LOCKED\) "#{analyze_table}"/ }
     let(:analyze_interval) { 1.week }
     let(:connection) { my_model.connection }
     let(:create_partition) { true }
@@ -352,6 +405,13 @@ RSpec.describe Gitlab::Database::Partitioning::PartitionManager, feature_categor
     end
 
     shared_examples_for 'run only once analyze within interval' do
+      before do
+        allow_next_instance_of(described_class) do |instance|
+          # Checking of LFK trigger affects the analyze tests
+          allow(instance).to receive(:parent_table_has_loose_foreign_key?).and_return(false)
+        end
+      end
+
       specify do
         control = ActiveRecord::QueryRecorder.new { described_class.new(my_model, connection: connection).sync_partitions(analyze: analyze) }
         expect(control.occurrences).to include(analyze_regex)
@@ -427,7 +487,7 @@ RSpec.describe Gitlab::Database::Partitioning::PartitionManager, feature_categor
 
   describe 'strategies that support analyze_interval' do
     [
-      ::Gitlab::Database::Partitioning::MonthlyStrategy,
+      ::Gitlab::Database::Partitioning::Time::MonthlyStrategy,
       ::Gitlab::Database::Partitioning::SlidingListStrategy,
       ::Gitlab::Database::Partitioning::CiSlidingListStrategy
     ].each do |klass|
@@ -463,7 +523,7 @@ RSpec.describe Gitlab::Database::Partitioning::PartitionManager, feature_categor
 
     it 'creates partitions for the future then drops the oldest one after a month' do
       # 1 month for the current month, 1 month for the old month that we're retaining data for, headroom
-      expected_num_partitions = (Gitlab::Database::Partitioning::MonthlyStrategy::HEADROOM + 2.months) / 1.month
+      expected_num_partitions = (Gitlab::Database::Partitioning::Time::MonthlyStrategy::HEADROOM + 2.months) / 1.month
       expect { described_class.new(my_model).sync_partitions }.to change { num_partitions(my_model) }.from(0).to(expected_num_partitions)
 
       travel 1.month
@@ -488,5 +548,10 @@ RSpec.describe Gitlab::Database::Partitioning::PartitionManager, feature_categor
       (id serial not null, created_at timestamptz not null, primary key (id, created_at))
       PARTITION BY RANGE (created_at);
     SQL
+  end
+
+  # Needed by track_record_deletions
+  def execute(sql)
+    connection.execute(sql)
   end
 end

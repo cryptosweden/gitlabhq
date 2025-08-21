@@ -10,14 +10,14 @@ RSpec.describe BulkImports::Groups::Pipelines::SubgroupEntitiesPipeline, feature
   let_it_be(:tracker) { create(:bulk_import_tracker, entity: parent_entity) }
   let_it_be(:context) { BulkImports::Pipeline::Context.new(tracker) }
 
-  subject { described_class.new(context) }
-
   let(:extracted_data) do
     BulkImports::Pipeline::ExtractedData.new(data: {
       'path' => 'sub-group',
       'full_path' => 'parent/sub-group'
     })
   end
+
+  subject { described_class.new(context) }
 
   describe '#run', :clean_gitlab_redis_shared_state do
     before do
@@ -55,6 +55,7 @@ RSpec.describe BulkImports::Groups::Pipelines::SubgroupEntitiesPipeline, feature
         source_type: :group_entity,
         source_full_path: 'parent/subgroup',
         destination_name: 'subgroup',
+        organization_id: parent_entity.group.organization_id,
         destination_namespace: parent_entity.group.full_path,
         parent_id: parent_entity.id
       }

@@ -5,8 +5,11 @@ module Namespaces
     BATCH_SIZE = 50
 
     include ApplicationWorker
+    include LoopWithRuntimeLimit
 
-    data_consistency :always # rubocop: disable SidekiqLoadBalancing/WorkerDataConsistency -- The worker updates data
+    MAX_RUNTIME = 45.seconds
+
+    data_consistency :always
 
     # rubocop:disable Scalability/CronWorkerContext -- This worker does not perform work scoped to a context
     include CronjobQueue
@@ -16,27 +19,28 @@ module Namespaces
     idempotent!
 
     def perform
-      runtime_limiter = Gitlab::Metrics::RuntimeLimiter.new(45.seconds)
+      results = {}
 
-      processed_namespaces = 0
-      loop do
+      loop_with_runtime_limit(MAX_RUNTIME) do |runtime_limiter|
         namespace_ids = Namespaces::Descendants.load_outdated_batch(BATCH_SIZE)
-
         break if namespace_ids.empty?
 
         namespace_ids.each do |namespace_id|
-          Namespaces::UpdateDenormalizedDescendantsService
+          result = Namespaces::UpdateDenormalizedDescendantsService
             .new(namespace_id: namespace_id)
             .execute
 
-          processed_namespaces += 1
+          results[result] ||= 0
+          results[result] += 1
+
           break if runtime_limiter.over_time?
         end
 
-        break if runtime_limiter.over_time?
+        # Stop the processing if we had unprocessed namespace. The worker will try it again later.
+        break if results.keys != [:processed]
       end
 
-      log_extra_metadata_on_done(:result, { processed_namespaces: processed_namespaces })
+      log_extra_metadata_on_done(:result, results)
     end
   end
 end

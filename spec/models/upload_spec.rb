@@ -48,6 +48,27 @@ RSpec.describe Upload do
       end
     end
 
+    context 'before_save' do
+      let_it_be(:project) { create(:project) }
+
+      it 'sets sharding key on create' do
+        upload = build(:upload, model: project)
+
+        expect { upload.save! }
+          .to change { upload.project_id }.from(nil)
+          .to(project.id)
+      end
+
+      it 'sets sharding key on update' do
+        upload = create(:upload, model: project)
+        other_project = create(:project)
+
+        expect { upload.update!(model: other_project) }
+          .to change { upload.project_id }.from(project.id)
+          .to(other_project.id)
+      end
+    end
+
     describe 'after_destroy' do
       context 'uploader is FileUploader-based' do
         subject { create(:upload, :issuable_upload) }
@@ -62,15 +83,35 @@ RSpec.describe Upload do
   end
 
   describe 'scopes' do
+    let_it_be(:project) { create(:project) }
+
     describe '.for_model_type_and_id' do
-      let(:avatar_uploads) { create_list(:upload, 2) }
-      let(:attachment_uploads) { create_list(:upload, 2, :attachment_upload) }
+      let(:snippet_uploads) { create_list(:upload, 2, :personal_snippet_upload) }
 
       it 'returns records matching the given model_type and ids' do
-        model_ids = [avatar_uploads, attachment_uploads].map { |uploads| uploads.first.model_id }
+        expect(described_class.for_model_type_and_id(Snippet, snippet_uploads.first.model_id))
+          .to contain_exactly(snippet_uploads.first)
+      end
+    end
 
-        expect(described_class.for_model_type_and_id(Note, model_ids))
-          .to contain_exactly(attachment_uploads.first)
+    describe '.for_uploader' do
+      let_it_be(:avatar_upload) { create(:upload, model: project) }
+      let_it_be(:favicon_upload) { create(:upload, :favicon_upload, model: project) }
+
+      it 'returns uploads matching given uploader class' do
+        expect(described_class.for_uploader(AvatarUploader)).to contain_exactly(avatar_upload)
+      end
+
+      it 'returns uploads matching given uploader class name' do
+        expect(described_class.for_uploader('AvatarUploader')).to contain_exactly(avatar_upload)
+      end
+    end
+
+    describe '.order_by_created_at_desc' do
+      let(:uploads) { create_list(:upload, 3, model: project) }
+
+      it 'returns uploads ordered by created_at descending' do
+        expect(described_class.order_by_created_at_desc).to eq(uploads.reverse)
       end
     end
   end
@@ -292,6 +333,28 @@ RSpec.describe Upload do
         .with(project.id, [], ['uploads_size'])
 
       subject.destroy!
+    end
+  end
+
+  it_behaves_like 'object storable' do
+    let(:locally_stored) do
+      upload = create(:upload)
+
+      if upload.store == ObjectStorage::Store::REMOTE
+        upload.update_column(described_class::STORE_COLUMN, ObjectStorage::Store::LOCAL)
+      end
+
+      upload
+    end
+
+    let(:remotely_stored) do
+      upload = create(:upload)
+
+      if upload.store == ObjectStorage::Store::LOCAL
+        upload.update_column(described_class::STORE_COLUMN, ObjectStorage::Store::REMOTE)
+      end
+
+      upload
     end
   end
 end

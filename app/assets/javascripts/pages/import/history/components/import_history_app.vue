@@ -16,7 +16,7 @@ const tableCell = (config) => ({
   tdClass: (value, key, item) => {
     return {
       // eslint-disable-next-line no-underscore-dangle
-      'gl-border-b-0!': item._showDetails,
+      '!gl-border-b-0': item._showDetails,
     };
   },
   ...config,
@@ -126,11 +126,9 @@ export default {
 
 <template>
   <div>
-    <div
-      class="gl-border-solid gl-border-gray-200 gl-border-0 gl-border-b-1 gl-display-flex gl-align-items-center"
-    >
-      <h1 class="gl-my-0 gl-py-4 gl-font-size-h1">
-        <img :src="assets.gitlabLogo" class="gl-w-6 gl-h-6 gl-mb-2 gl-display-inline gl-mr-2" />
+    <div class="gl-flex gl-items-center gl-border-0 gl-border-b-1 gl-border-solid gl-border-strong">
+      <h1 class="gl-my-0 gl-py-4 gl-text-size-h1">
+        <img :src="assets.gitlabLogo" class="gl-mb-2 gl-mr-2 gl-inline gl-h-6 gl-w-6" />
         {{ s__('BulkImport|Project import history') }}
       </h1>
     </div>
@@ -138,7 +136,7 @@ export default {
     <gl-empty-state
       v-else-if="!hasHistoryItems"
       :title="s__('BulkImport|No history is available')"
-      :description="s__('BulkImport|Your imported projects will appear here.')"
+      :description="s__('BulkImport|Your imported projects appear here.')"
     />
     <template v-else>
       <gl-table :fields="$options.fields" :items="historyItems" class="gl-w-full">
@@ -154,7 +152,9 @@ export default {
             </gl-link>
             <span v-else>{{ item.import_url }}</span>
           </template>
-          <span v-else>{{ s__('BulkImport|Template / File-based import / Direct transfer') }}</span>
+          <span v-else>{{
+            s__('BulkImport|Template, file-based import, or direct transfer')
+          }}</span>
         </template>
         <template #cell(destination)="{ item }">
           <gl-link :href="item.http_url_to_repo">
@@ -165,7 +165,7 @@ export default {
           <time-ago :time="value" />
         </template>
         <template #cell(status)="{ item, toggleDetails, detailsShowing }">
-          <import-status :status="item.import_status" class="gl-display-inline-block gl-w-13" />
+          <import-status :status="item.import_status" class="gl-inline-block gl-w-13" />
           <gl-button
             v-if="item.import_status === 'failed'"
             class="gl-ml-3"

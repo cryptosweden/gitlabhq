@@ -1,10 +1,9 @@
 ---
-stage: Secure
+stage: Application Security Testing
 group: Dynamic Analysis
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Enabling the analyzer
 ---
-
-# Enabling the analyzer
 
 You can specify the API you want to scan by using:
 
@@ -49,7 +48,7 @@ The environment variables `APISEC_OPENAPI_ALL_MEDIA_TYPES` and `APISEC_OPENAPI_M
 
 To configure API security testing scanning with an OpenAPI Specification:
 
-1. [Include](../../../../ci/yaml/index.md#includetemplate)
+1. [Include](../../../../ci/yaml/_index.md#includetemplate)
    the [`API-Security.gitlab-ci.yml` template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/API-Security.gitlab-ci.yml) in your `.gitlab-ci.yml` file.
 
 1. The [configuration file](variables.md#configuration-files) has several testing profiles defined with different checks enabled. We recommend that you start with the `Quick` profile.
@@ -75,7 +74,7 @@ stages:
   - dast
 
 include:
-  - template: API-Security.gitlab-ci.yml
+  - template: Security/API-Security.gitlab-ci.yml
 
 variables:
   APISEC_PROFILE: Quick
@@ -104,15 +103,18 @@ You can use various tools to generate HAR files:
 - [Fiddler](https://www.telerik.com/fiddler): Web debugging proxy
 - [GitLab HAR Recorder](https://gitlab.com/gitlab-org/security-products/har-recorder): Command line
 
-WARNING:
+{{< alert type="warning" >}}
+
 HAR files may contain sensitive information such as authentication tokens, API keys, and session
 cookies. We recommend that you review the HAR file contents before adding them to a repository.
+
+{{< /alert >}}
 
 ### API security testing scanning with a HAR file
 
 To configure API security testing to use a HAR file that provides information about the target API to test:
 
-1. [Include](../../../../ci/yaml/index.md#includetemplate)
+1. [Include](../../../../ci/yaml/_index.md#includetemplate)
    the [`API-Security.gitlab-ci.yml` template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/API-Security.gitlab-ci.yml) in your `.gitlab-ci.yml` file.
 
 1. The [configuration file](variables.md#configuration-files) has several testing profiles defined with different checks enabled. We recommend that you start with the `Quick` profile.
@@ -139,7 +141,7 @@ stages:
   - dast
 
 include:
-  - template: API-Security.gitlab-ci.yml
+  - template: Security/API-Security.gitlab-ci.yml
 
 variables:
   APISEC_PROFILE: Quick
@@ -155,7 +157,11 @@ This example is a minimal configuration for API security testing. From here you 
 
 ## GraphQL Schema
 
-> - Support for GraphQL Schema was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/352780) in GitLab 15.4.
+{{< history >}}
+
+- Support for GraphQL Schema was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/352780) in GitLab 15.4.
+
+{{< /history >}}
 
 GraphQL is a query language for your API and an alternative to REST APIs.
 API security testing supports testing GraphQL endpoints multiple ways:
@@ -173,12 +179,15 @@ For details on how to enable introspection, see your GraphQL framework documenta
 
 The GraphQL support in API security testing is able to query a GraphQL endpoint for the schema.
 
-NOTE:
+{{< alert type="note" >}}
+
 The GraphQL endpoint must support introspection queries for this method to work correctly.
+
+{{< /alert >}}
 
 To configure API security testing to use a GraphQL endpoint URL that provides information about the target API to test:
 
-1. [Include](../../../../ci/yaml/index.md#includetemplate)
+1. [Include](../../../../ci/yaml/_index.md#includetemplate)
    the [`API-Security.gitlab-ci.yml` template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/API-Security.gitlab-ci.yml) in your `.gitlab-ci.yml` file.
 
 1. Provide the path to the GraphQL endpoint, for example `/api/graphql`. Specify the location by adding the `APISEC_GRAPHQL` variable.
@@ -196,7 +205,7 @@ stages:
   - dast
 
 include:
-  - template: API-Security.gitlab-ci.yml
+  - template: Security/API-Security.gitlab-ci.yml
 
 api_security:
   variables:
@@ -216,7 +225,7 @@ API security testing can use a GraphQL schema file to understand and test a Grap
 
 To configure API security testing to use a GraphQL schema file that provides information about the target API to test:
 
-1. [Include](../../../../ci/yaml/index.md#includetemplate)
+1. [Include](../../../../ci/yaml/_index.md#includetemplate)
    the [`API-Security.gitlab-ci.yml` template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/API-Security.gitlab-ci.yml) in your `.gitlab-ci.yml` file.
 
 1. Provide the GraphQL endpoint path, for example `/api/graphql`. Specify the path by adding the `APISEC_GRAPHQL` variable.
@@ -237,7 +246,7 @@ stages:
   - dast
 
 include:
-  - template: API-Security.gitlab-ci.yml
+  - template: Security/API-Security.gitlab-ci.yml
 
 api_security:
   variables:
@@ -253,7 +262,7 @@ stages:
   - dast
 
 include:
-  - template: API-Security.gitlab-ci.yml
+  - template: Security/API-Security.gitlab-ci.yml
 
 api_security:
   variables:
@@ -280,17 +289,20 @@ When used with the GitLab API security testing scanner, Postman Collections must
 test with valid data. The API security testing scanner extracts all the API definitions and uses them to perform
 testing.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Postman Collection files may contain sensitive information such as authentication tokens, API keys,
 and session cookies. We recommend that you review the Postman Collection file contents before adding
 them to a repository.
+
+{{< /alert >}}
 
 ### API security testing scanning with a Postman Collection file
 
 To configure API security testing to use a Postman Collection file that provides information about the target
 API to test:
 
-1. [Include](../../../../ci/yaml/index.md#includetemplate)
+1. [Include](../../../../ci/yaml/_index.md#includetemplate)
    the [`API-Security.gitlab-ci.yml` template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/API-Security.gitlab-ci.yml).
 
 1. The [configuration file](variables.md#configuration-files) has several testing profiles defined with different checks enabled. We recommend that you start with the `Quick` profile.
@@ -316,7 +328,7 @@ stages:
   - dast
 
 include:
-  - template: API-Security.gitlab-ci.yml
+  - template: Security/API-Security.gitlab-ci.yml
 
 variables:
   APISEC_PROFILE: Quick
@@ -332,9 +344,13 @@ This is a minimal configuration for API security testing. From here you can:
 
 ### Postman variables
 
-> - Support for Postman Environment file format was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/356312) in GitLab 15.1.
-> - Support for multiple variable files was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/356312) in GitLab 15.1.
-> - Support for Postman variable scopes: Global and Environment was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/356312) in GitLab 15.1.
+{{< history >}}
+
+- Support for Postman Environment file format was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/356312) in GitLab 15.1.
+- Support for multiple variable files was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/356312) in GitLab 15.1.
+- Support for Postman variable scopes: Global and Environment was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/356312) in GitLab 15.1.
+
+{{< /history >}}
 
 #### Variables in Postman Client
 
@@ -343,15 +359,15 @@ requests. These placeholders are called variables, as explained in [using variab
 You can use variables to store and reuse values in your requests and scripts. For example, you can
 edit the collection to add variables to the document:
 
-![Edit collection variable tab View](../img/dast_api_postman_collection_edit_variable.png)
+![Edit collection variable tab View](img/dast_api_postman_collection_edit_variable_v13_9.png)
 
 Or alternatively, you can add variables in an environment:
 
-![Edit environment variables View](../img/dast_api_postman_environment_edit_variable.png)
+![Edit environment variables View](img/dast_api_postman_environment_edit_variable_v13_9.png)
 
 You can then use the variables in sections such as URL, headers, and others:
 
-![Edit request using variables View](../img/dast_api_postman_request_edit.png)
+![Edit request using variables View](img/dast_api_postman_request_edit_v13_9.png)
 
 Postman has grown from a basic client tool with a nice UX experience to a more complex ecosystem that allows testing APIs with scripts, creating complex collections that trigger secondary requests, and setting variables along the way. Not every feature in the Postman ecosystem is supported. For example, scripts are not supported. The main focus of the Postman support is to ingest Postman Collection definitions that are used by the Postman Client and their related variables defined in the workspace, environments, and the collections themselves.
 
@@ -359,9 +375,15 @@ Postman allows creating variables in different scopes. Each scope has a differen
 
 Variable scopes in Postman can be a daunting topic and not everyone is familiar with it. We strongly recommend that you read [Variable Scopes](https://learning.postman.com/docs/sending-requests/variables/variables/#variable-scopes) from Postman documentation before moving forward.
 
-As mentioned above, there are different variable scopes, and each of them has a purpose and can be used to provide more flexibility to your Postman document. There is an important note on how values for variables are computed, as per Postman documentation:
+As mentioned previously, there are different variable scopes, and each of them has a purpose and can be used to provide more flexibility to your Postman document. There is an important note on how values for variables are computed, as per Postman documentation:
 
-> If a variable with the same name is declared in two different scopes, the value stored in the variable with narrowest scope is used. For example, if there is a global variable named `username` and a local variable named `username`, the local value is used when the request runs.
+{{< alert type="note" >}}
+
+If a variable with the same name is declared in two different scopes, the value stored in the variable
+with narrowest scope is used. For example, if there is a global variable named `username` and
+a local variable named `username`, the local value is used when the request runs.
+
+{{< /alert >}}
 
 The following is a summary of the variable scopes supported by the Postman Client and API security testing:
 
@@ -598,7 +620,7 @@ stages:
   - dast
 
 include:
-  - template: API-Security.gitlab-ci.yml
+  - template: Security/API-Security.gitlab-ci.yml
 
 variables:
   APISEC_PROFILE: Quick
@@ -618,7 +640,7 @@ stages:
   - dast
 
 include:
-  - template: API-Security.gitlab-ci.yml
+  - template: Security/API-Security.gitlab-ci.yml
 
 variables:
   APISEC_PROFILE: Quick
@@ -638,7 +660,7 @@ stages:
   - dast
 
 include:
-  - template: API-Security.gitlab-ci.yml
+  - template: Security/API-Security.gitlab-ci.yml
 
 variables:
   APISEC_PROFILE: Quick
@@ -657,7 +679,7 @@ stages:
   - dast
 
 include:
-  - template: API-Security.gitlab-ci.yml
+  - template: Security/API-Security.gitlab-ci.yml
 
 variables:
   APISEC_PROFILE: Quick
@@ -691,7 +713,7 @@ stages:
   - dast
 
 include:
-  - template: API-Security.gitlab-ci.yml
+  - template: Security/API-Security.gitlab-ci.yml
 
 variables:
   APISEC_PROFILE: Quick
@@ -723,7 +745,7 @@ stages:
   - dast
 
 include:
-  - template: API-Security.gitlab-ci.yml
+  - template: Security/API-Security.gitlab-ci.yml
 
 variables:
   APISEC_PROFILE: Quick
@@ -758,7 +780,7 @@ stages:
   - dast
 
 include:
-  - template: API-Security.gitlab-ci.yml
+  - template: Security/API-Security.gitlab-ci.yml
 
 variables:
   APISEC_PROFILE: Quick
@@ -771,7 +793,7 @@ variables:
 
 When configured correctly, a CI/CD pipeline contains a `dast` stage and an `dast_api` job. The job only fails when an invalid configuration is provided. During typical operation, the job always succeeds even if vulnerabilities are identified during testing.
 
-Vulnerabilities are displayed on the **Security** pipeline tab with the suite name. When testing against the repositories default branch, the API security testing vulnerabilities are also shown on the Security and Compliance's Vulnerability Report page.
+Vulnerabilities are displayed on the **Security** pipeline tab with the suite name. When testing against the repositories default branch, the API security testing vulnerabilities are also shown on the Security and compliance's vulnerability report.
 
 To prevent an excessive number of reported vulnerabilities, the API security testing scanner limits the number of vulnerabilities it reports per operation.
 
@@ -814,12 +836,12 @@ Follow these steps to view details of a vulnerability:
 ### Security Dashboard
 
 The Security Dashboard is a good place to get an overview of all the security vulnerabilities in your groups, projects and
-pipelines. For more information, see the [Security Dashboard documentation](../../security_dashboard/index.md).
+pipelines. For more information, see the [Security Dashboard documentation](../../security_dashboard/_index.md).
 
 ### Interacting with the vulnerabilities
 
 Once a vulnerability is found, you can interact with it. Read more on how to
-[address the vulnerabilities](../../vulnerabilities/index.md).
+[address the vulnerabilities](../../vulnerabilities/_index.md).
 
 ### Handling False Positives
 

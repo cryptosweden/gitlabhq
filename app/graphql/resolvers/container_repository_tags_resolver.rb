@@ -2,9 +2,11 @@
 
 module Resolvers
   class ContainerRepositoryTagsResolver < BaseResolver
-    type Types::ContainerRepositoryTagType.connection_type, null: true
+    include Gitlab::Graphql::Authorize::AuthorizeResource
 
-    argument :sort, Types::ContainerRepositoryTagsSortEnum,
+    type Types::ContainerRegistry::ContainerRepositoryTagType.connection_type, null: true
+
+    argument :sort, Types::ContainerRegistry::ContainerRepositoryTagsSortEnum,
       description: 'Sort tags by these criteria.',
       required: false,
       default_value: nil
@@ -27,7 +29,7 @@ module Resolvers
     alias_method :container_repository, :object
 
     def resolve(sort:, **filters)
-      if container_repository.migrated?
+      if container_repository.gitlab_api_client.supports_gitlab_api?
         page_size = [filters[:first], filters[:last]].map(&:to_i).max
 
         result = container_repository.tags_page(
@@ -82,7 +84,7 @@ module Resolvers
     end
 
     def sort_tags(to_be_sorted, sort)
-      raise StandardError unless Types::ContainerRepositoryTagsSortEnum.enum.include?(sort)
+      raise StandardError unless Types::ContainerRegistry::ContainerRepositoryTagsSortEnum.enum.include?(sort)
 
       sort_value, _, direction = sort.to_s.rpartition('_')
 
@@ -95,7 +97,7 @@ module Resolvers
     def tags
       container_repository.tags
     rescue Faraday::Error
-      raise ::Gitlab::Graphql::Errors::ResourceNotAvailable, "Can't connect to the Container Registry. If this error persists, please review the troubleshooting documentation."
+      raise_resource_not_available_error! "Can't connect to the container registry. If this error persists, please review the troubleshooting documentation."
     end
   end
 end

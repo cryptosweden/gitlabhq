@@ -62,19 +62,20 @@ RSpec.describe 'Projects > Files > User browses LFS files', feature_category: :s
       expect(page).not_to have_content('size 1575078')
 
       page.within('.content') do
-        expect(page).to have_content('Delete')
         expect(page).to have_content('History')
-        expect(page).to have_content('Permalink')
-        expect(page).to have_content('Replace')
-        expect(page).to have_link('Download')
 
         expect(page).not_to have_content('Annotate')
         expect(page).not_to have_content('Blame')
 
-        click_button 'Edit'
+        click_button 'File actions'
+        expect(page).to have_button('Copy permalink')
+        expect(page).to have_button('Replace')
+        expect(page).to have_button('Delete')
 
-        expect(page).not_to have_selector(:link_or_button, text: /^Edit single file$/)
-        expect(page).to have_selector(:link_or_button, 'Open in Web IDE')
+        click_button 'File actions' # close dropdown to make Download visible
+        expect(page).to have_link('Download')
+
+        expect(page).to have_button('Edit', disabled: true)
       end
     end
   end

@@ -18,6 +18,8 @@ RSpec.describe 'Merge request > User sees merge widget', :js, feature_category: 
   end
 
   before do
+    stub_feature_flags(mr_reports_tab: false)
+
     project.add_maintainer(user)
     project_only_mwps.add_maintainer(user)
     sign_in(user)
@@ -75,27 +77,33 @@ RSpec.describe 'Merge request > User sees merge widget', :js, feature_category: 
       expect(find('.accept-merge-request')['disabled']).not_to be(true)
     end
 
-    it 'allows me to merge, see cherry-pick modal and load branches list', :sidekiq_might_not_need_inline do
+    it 'allows me to merge', :sidekiq_inline do
       wait_for_requests
       click_button 'Merge'
 
-      wait_for_requests
+      expect(page).to have_content("Merged by #{user.name}")
+    end
 
-      page.refresh
+    context 'when the merge request is already merged' do
+      let(:merge_request) { create(:merge_request, :merged, merge_commit_sha: '7975be0116940bf2ad4321f79d02a55c5f7779aa', source_project: project) }
 
-      click_button 'Cherry-pick'
+      it 'allows cherry-picking modal and loads branches list', :sidekiq_inline do
+        wait_for_requests
 
-      within_testid('modal-commit') do
-        click_button 'master'
-      end
+        click_button 'Cherry-pick'
 
-      within_testid('modal-commit') do
-        within_testid('base-dropdown-menu') do
-          fill_in 'Search branches', with: ''
+        within_testid('modal-commit') do
+          click_button 'master'
+        end
 
-          wait_for_requests
+        within_testid('modal-commit') do
+          within_testid('base-dropdown-menu') do
+            fill_in 'Search branches', with: ''
 
-          expect(page).to have_selector('[data-testid="listbox-item-master"]', visible: true)
+            wait_for_requests
+
+            expect(page).to have_selector('[data-testid="listbox-item-master"]', visible: true)
+          end
         end
       end
     end
@@ -137,15 +145,15 @@ RSpec.describe 'Merge request > User sees merge widget', :js, feature_category: 
       # Wait for the `ci_status` and `merge_check` requests
       wait_for_requests
 
-      click_button 'Merge...'
+      click_button 'Merge…'
 
       expect(page).to have_selector('[data-testid="merge-failed-pipeline-confirmation-dialog"]', visible: true)
     end
 
-    it 'allows me to merge with a failed pipeline' do
+    it 'allows me to merge with a failed pipeline', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/449599' do
       wait_for_requests
 
-      click_button 'Merge...'
+      click_button 'Merge…'
 
       within_testid('merge-failed-pipeline-confirmation-dialog') do
         click_button 'Merge unverified changes'
@@ -265,8 +273,8 @@ RSpec.describe 'Merge request > User sees merge widget', :js, feature_category: 
     shared_examples 'pipeline widget' do
       it 'shows head pipeline information', :sidekiq_might_not_need_inline do
         within '.ci-widget-content' do
-          expect(page).to have_content("Merged result pipeline ##{pipeline.id} pending")
-          expect(page).to have_content("Merged result pipeline pending for #{pipeline.short_sha}")
+          expect(page).to have_content("Merged results pipeline ##{pipeline.id} pending")
+          expect(page).to have_content("Merged results pipeline pending for #{pipeline.short_sha}")
         end
       end
     end
@@ -331,34 +339,19 @@ RSpec.describe 'Merge request > User sees merge widget', :js, feature_category: 
       visit project_merge_request_path(project_only_mwps, merge_request_in_only_mwps_project)
     end
 
-    context 'when using merge when pipeline succeeds' do
-      before do
-        stub_feature_flags(merge_when_checks_pass: false)
-      end
+    it 'is not allowed to set auto merge' do
+      # Wait for the `ci_status` and `merge_check` requests
+      wait_for_requests
 
-      it 'is not allowed to merge' do
-        # Wait for the `ci_status` and `merge_check` requests
-        wait_for_requests
-
-        expect(page).not_to have_selector('.accept-merge-request')
-      end
-    end
-
-    context 'when using merge when checks pass' do
-      it 'is not allowed to set auto merge' do
-        # Wait for the `ci_status` and `merge_check` requests
-        wait_for_requests
-
-        expect(page).to have_selector('.accept-merge-request')
-      end
+      expect(page).to have_selector('.accept-merge-request')
     end
   end
 
-  context 'view merge request with MWPS enabled but automatically merge fails' do
+  context 'view merge request with auto merge enabled but automatically merge fails' do
     before do
       merge_request.update!(
         auto_merge_enabled: true,
-        auto_merge_strategy: AutoMergeService::STRATEGY_MERGE_WHEN_PIPELINE_SUCCEEDS,
+        auto_merge_strategy: AutoMergeService::STRATEGY_MERGE_WHEN_CHECKS_PASS,
         merge_user: merge_request.author,
         merge_error: 'Something went wrong'
       )
@@ -376,7 +369,7 @@ RSpec.describe 'Merge request > User sees merge widget', :js, feature_category: 
     end
   end
 
-  context 'view merge request with MWPS enabled but automatically merge fails' do
+  context 'view merge request with auto merge enabled but automatically merge fails' do
     before do
       merge_request.update!(
         merge_when_pipeline_succeeds: true,
@@ -399,6 +392,8 @@ RSpec.describe 'Merge request > User sees merge widget', :js, feature_category: 
 
   context 'view merge request where fast-forward merge is not possible' do
     before do
+      stub_feature_flags(rebase_on_merge_automatic: ff_status)
+
       project.update!(merge_requests_ff_only_enabled: true)
 
       merge_request.update!(
@@ -409,13 +404,28 @@ RSpec.describe 'Merge request > User sees merge widget', :js, feature_category: 
       visit project_merge_request_path(project, merge_request)
     end
 
-    it 'shows information about the merge error' do
+    let(:ff_status) { true }
+
+    it 'there is no error' do
       # Wait for the `ci_status` and `merge_check` requests
       wait_for_requests
 
       click_button 'Expand merge checks'
 
-      expect(page).to have_content('Merge request must be rebased, because a fast-forward merge is not possible.')
+      expect(page).not_to have_content('Merge request must be rebased, because a fast-forward merge is not possible.')
+    end
+
+    context 'when ff is off' do
+      let(:ff_status) { false }
+
+      it 'shows information about the merge error' do
+        # Wait for the `ci_status` and `merge_check` requests
+        wait_for_requests
+
+        click_button 'Expand merge checks'
+
+        expect(page).to have_content('Merge request must be rebased, because a fast-forward merge is not possible.')
+      end
     end
   end
 
@@ -425,7 +435,7 @@ RSpec.describe 'Merge request > User sees merge widget', :js, feature_category: 
       visit project_merge_request_path(project, merge_request)
     end
 
-    it 'updates the MR widget', :sidekiq_might_not_need_inline do
+    it 'updates the MR widget', :sidekiq_might_not_need_inline, quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/449626' do
       page.within('.mr-state-widget') do
         click_button 'Merge'
       end
@@ -562,7 +572,7 @@ RSpec.describe 'Merge request > User sees merge widget', :js, feature_category: 
       end
 
       it 'shows parsing status' do
-        expect(page).to have_content('Test summary results are loading')
+        expect(page).to have_content('Test summary results are being parsed')
       end
     end
 

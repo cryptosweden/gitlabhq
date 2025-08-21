@@ -106,7 +106,7 @@ RSpec.describe Ci::BuildTraceMetadata, feature_category: :continuous_integration
     let_it_be(:build) { create(:ci_build) }
 
     subject(:execute) do
-      described_class.find_or_upsert_for!(build.id, build.partition_id)
+      described_class.find_or_upsert_for!(build.id, build.partition_id, build.project.id)
     end
 
     it 'creates a new record' do
@@ -114,6 +114,8 @@ RSpec.describe Ci::BuildTraceMetadata, feature_category: :continuous_integration
 
       expect(metadata).to be_a(described_class)
       expect(metadata.id).to eq(build.id)
+      expect(metadata.project_id).to eq(build.project.id)
+      expect(metadata.partition_id).to eq(build.partition_id)
       expect(metadata.archival_attempts).to eq(0)
     end
 
@@ -159,7 +161,35 @@ RSpec.describe Ci::BuildTraceMetadata, feature_category: :continuous_integration
     end
   end
 
-  describe 'partitioning', :ci_partitionable do
+  describe '#successfully_archived?' do
+    using RSpec::Parameterized::TableSyntax
+
+    let(:metadata) do
+      build(:ci_build_trace_metadata,
+        archived_at: archived_at,
+        checksum: checksum,
+        remote_checksum: remote_checksum)
+    end
+
+    subject { metadata.successfully_archived? }
+
+    where(:archived_at, :checksum, :remote_checksum, :result) do
+      '2025-01-01' | nil | nil | true
+      '2025-01-01' | 'a' | nil | true
+      '2025-01-01' | 'a' | 'a' | true
+      '2025-01-01' | 'a' | 'b' | false
+      nil          | nil | nil | false
+      nil          | 'a' | nil | false
+      nil          | 'a' | 'a' | false
+      nil          | 'a' | 'b' | false
+    end
+
+    with_them do
+      it { is_expected.to eq(result) }
+    end
+  end
+
+  describe 'partitioning' do
     include Ci::PartitioningHelpers
 
     let_it_be(:pipeline) { create(:ci_pipeline) }
@@ -169,11 +199,30 @@ RSpec.describe Ci::BuildTraceMetadata, feature_category: :continuous_integration
     let(:metadata) { create(:ci_build_trace_metadata, build: new_build) }
 
     before do
-      stub_current_partition_id(ci_testing_partition_id_for_check_constraints)
+      stub_current_partition_id(ci_testing_partition_id)
     end
 
     it 'assigns the same partition id as the one that build has' do
-      expect(metadata.partition_id).to eq(ci_testing_partition_id_for_check_constraints)
+      expect(metadata.partition_id).to eq(ci_testing_partition_id)
+    end
+  end
+
+  describe '#set_project_id' do
+    context 'when project_id is not set' do
+      let(:metadata) { create(:ci_build_trace_metadata) }
+
+      it 'sets the project_id from the build' do
+        expect(metadata.project_id).to eq(metadata.build.project_id)
+      end
+    end
+
+    context 'when project_id is set' do
+      let(:existing_project) { build_stubbed(:project) }
+      let(:metadata) { create(:ci_build_trace_metadata, project_id: existing_project.id) }
+
+      it 'does not override the project_id' do
+        expect(metadata.project_id).to eq(existing_project.id)
+      end
     end
   end
 end

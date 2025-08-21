@@ -16,160 +16,196 @@ module Gitlab
           weight: 'Weight',
           health_status: 'Health status',
           progress: 'Progress',
-          status: 'Status',
+          verification_status: 'Verification status',
           requirement_legacy: 'Requirement legacy',
           test_reports: 'Test reports',
           notifications: 'Notifications',
           current_user_todos: 'Current user todos',
           award_emoji: 'Award emoji',
           linked_items: 'Linked items',
+          linked_resources: 'Linked Resources',
           color: 'Color',
-          rolledup_dates: 'Rolledup dates',
           participants: 'Participants',
           time_tracking: 'Time tracking',
           designs: 'Designs',
-          development: 'Development'
+          development: 'Development',
+          crm_contacts: 'CRM contacts',
+          email_participants: 'Email participants',
+          status: 'Status',
+          custom_fields: 'Custom fields',
+          error_tracking: 'Error tracking',
+          vulnerabilities: 'Vulnerabilities'
         }.freeze
 
         WIDGETS_FOR_TYPE = {
           issue: [
             :assignees,
-            :labels,
+            :award_emoji,
+            :crm_contacts,
+            :current_user_todos,
+            :custom_fields,
             :description,
+            :designs,
+            :development,
+            :email_participants,
+            :error_tracking,
+            :health_status,
             :hierarchy,
-            :start_and_due_date,
+            :iteration,
+            :labels,
+            :linked_items,
             :milestone,
             :notes,
-            :iteration,
-            :weight,
-            :health_status,
             :notifications,
-            :current_user_todos,
-            :award_emoji,
-            :linked_items,
             :participants,
+            :start_and_due_date,
             :time_tracking,
-            :designs,
-            :development
+            :vulnerabilities,
+            :linked_resources,
+            [:weight, { editable: true, rollup: false }],
+            :status
           ],
           incident: [
             :assignees,
+            :award_emoji,
+            :crm_contacts,
+            :current_user_todos,
+            :custom_fields,
             :description,
+            :development,
+            :email_participants,
             :hierarchy,
+            :iteration,
+            :labels,
+            :linked_items,
+            :linked_resources,
+            :milestone,
             :notes,
             :notifications,
-            :current_user_todos,
-            :award_emoji,
-            :linked_items,
             :participants,
-            :time_tracking,
-            :development
+            :time_tracking
           ],
           test_case: [
+            :award_emoji,
+            :current_user_todos,
+            :custom_fields,
             :description,
+            :linked_items,
             :notes,
             :notifications,
-            :current_user_todos,
-            :award_emoji,
-            :linked_items,
             :participants,
             :time_tracking
           ],
           requirement: [
-            :description,
-            :notes,
-            :status,
-            :requirement_legacy,
-            :test_reports,
-            :notifications,
-            :current_user_todos,
             :award_emoji,
+            :current_user_todos,
+            :custom_fields,
+            :description,
             :linked_items,
+            :notes,
+            :notifications,
             :participants,
+            :requirement_legacy,
+            :verification_status,
+            :test_reports,
             :time_tracking
           ],
           task: [
             :assignees,
-            :labels,
+            :award_emoji,
+            :crm_contacts,
+            :current_user_todos,
+            :custom_fields,
             :description,
+            :development,
             :hierarchy,
-            :start_and_due_date,
+            :iteration,
+            :labels,
+            :linked_items,
+            :linked_resources,
             :milestone,
             :notes,
-            :iteration,
-            :weight,
             :notifications,
-            :current_user_todos,
-            :award_emoji,
-            :linked_items,
             :participants,
-            :time_tracking
+            :start_and_due_date,
+            :time_tracking,
+            [:weight, { editable: true, rollup: false }],
+            :status
           ],
           objective: [
             :assignees,
-            :labels,
+            :award_emoji,
+            :current_user_todos,
+            :custom_fields,
             :description,
+            :health_status,
             :hierarchy,
+            :labels,
+            :linked_items,
             :milestone,
             :notes,
-            :health_status,
-            :progress,
             :notifications,
-            :current_user_todos,
-            :award_emoji,
-            :linked_items,
-            :participants
+            :participants,
+            :progress
           ],
           key_result: [
             :assignees,
-            :labels,
-            :description,
-            :hierarchy,
-            :start_and_due_date,
-            :notes,
-            :health_status,
-            :progress,
-            :notifications,
-            :current_user_todos,
             :award_emoji,
+            :current_user_todos,
+            :custom_fields,
+            :description,
+            :health_status,
+            :hierarchy,
+            :labels,
             :linked_items,
-            :participants
+            :notes,
+            :notifications,
+            :participants,
+            :start_and_due_date,
+            :progress
           ],
           epic: [
             :assignees,
+            :award_emoji,
+            :color,
+            :current_user_todos,
+            :custom_fields,
             :description,
+            :health_status,
             :hierarchy,
             :labels,
-            :notes,
-            :start_and_due_date,
-            :health_status,
-            :status,
-            :notifications,
-            :current_user_todos,
-            :award_emoji,
             :linked_items,
-            :color,
-            :rolledup_dates,
+            :milestone,
+            :notes,
+            :notifications,
             :participants,
-            :time_tracking
+            :start_and_due_date,
+            :verification_status,
+            :time_tracking,
+            [:weight, { editable: false, rollup: true }]
           ],
           ticket: [
             :assignees,
-            :labels,
+            :award_emoji,
+            :crm_contacts,
+            :current_user_todos,
+            :custom_fields,
             :description,
+            :designs,
+            :development,
+            :email_participants,
+            :health_status,
             :hierarchy,
-            :start_and_due_date,
+            :iteration,
+            :labels,
+            :linked_items,
             :milestone,
             :notes,
-            :iteration,
-            :weight,
-            :health_status,
             :notifications,
-            :current_user_todos,
-            :award_emoji,
-            :linked_items,
             :participants,
-            :time_tracking
+            :start_and_due_date,
+            :time_tracking,
+            [:weight, { editable: true, rollup: false }]
           ]
         }.freeze
 
@@ -177,36 +213,41 @@ module Gitlab
           current_time = Time.current
 
           base_types = ::WorkItems::Type::BASE_TYPES.map do |type, attributes|
-            attributes.slice(:name, :icon_name)
-                      .merge(created_at: current_time, updated_at: current_time, base_type: type)
+            attributes
+              .slice(:name, :icon_name, :id)
+              .merge(created_at: current_time, updated_at: current_time, base_type: type)
           end
 
           ::WorkItems::Type.upsert_all(
             base_types,
-            unique_by: :idx_work_item_types_on_namespace_id_and_name_null_namespace
+            unique_by: :index_work_item_types_on_name_unique,
+            update_only: %i[name icon_name base_type]
           )
 
           upsert_widgets
         end
 
         def self.upsert_widgets
-          type_ids_by_name = ::WorkItems::Type.default.pluck(:name, :id).to_h # rubocop: disable CodeReuse/ActiveRecord
+          type_ids_by_name = ::WorkItems::Type.pluck(:name, :id).to_h # rubocop: disable CodeReuse/ActiveRecord
 
           widgets = WIDGETS_FOR_TYPE.flat_map do |type_sym, widget_syms|
             type_name = ::WorkItems::Type::TYPE_NAMES[type_sym]
 
             widget_syms.map do |widget_sym|
+              widget_sym, widget_options = widget_sym if widget_sym.is_a?(Array)
+
               {
                 work_item_type_id: type_ids_by_name[type_name],
                 name: WIDGET_NAMES[widget_sym],
-                widget_type: ::WorkItems::WidgetDefinition.widget_types[widget_sym]
+                widget_type: ::WorkItems::WidgetDefinition.widget_types[widget_sym],
+                widget_options: widget_options
               }
             end
           end
 
           ::WorkItems::WidgetDefinition.upsert_all(
             widgets,
-            unique_by: :index_work_item_widget_definitions_on_default_witype_and_name
+            unique_by: :index_work_item_widget_definitions_on_type_id_and_name
           )
         end
       end

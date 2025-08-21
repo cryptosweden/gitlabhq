@@ -1,10 +1,8 @@
 <script>
 import { GlButton, GlButtonGroup, GlDisclosureDropdown, GlTooltipDirective } from '@gitlab/ui';
-// eslint-disable-next-line no-restricted-imports
-import { mapActions, mapGetters } from 'vuex';
+import { mapActions, mapState } from 'pinia';
 import { throttle } from 'lodash';
 import { __ } from '~/locale';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import {
   keysFor,
   MR_NEXT_UNRESOLVED_DISCUSSION,
@@ -12,6 +10,8 @@ import {
 } from '~/behaviors/shortcuts/keybindings';
 import { shouldDisableShortcuts } from '~/behaviors/shortcuts/shortcuts_toggle';
 import { sanitize } from '~/lib/dompurify';
+import { useMrNotes } from '~/mr_notes/store/legacy_mr_notes';
+import { useNotes } from '~/notes/store/legacy_notes';
 import discussionNavigation from '../mixins/discussion_navigation';
 
 export default {
@@ -23,7 +23,7 @@ export default {
     GlButton,
     GlButtonGroup,
   },
-  mixins: [glFeatureFlagsMixin(), discussionNavigation],
+  mixins: [discussionNavigation],
   props: {
     blocksMerge: {
       type: Boolean,
@@ -37,13 +37,12 @@ export default {
     };
   },
   computed: {
-    ...mapGetters([
+    ...mapState(useNotes, [
       'getNoteableData',
       'resolvableDiscussionsCount',
       'unresolvedDiscussionsCount',
-      'allResolvableDiscussions',
-      'allVisibleDiscussionsExpanded',
     ]),
+    ...mapState(useMrNotes, ['allVisibleDiscussionsExpanded']),
     allResolved() {
       return this.unresolvedDiscussionsCount === 0;
     },
@@ -104,12 +103,9 @@ export default {
 
       return options;
     },
-    isNotificationsTodosButtons() {
-      return this.glFeatures.notificationsTodosButtons;
-    },
   },
   methods: {
-    ...mapActions(['toggleAllVisibleDiscussions']),
+    ...mapActions(useMrNotes, ['toggleAllVisibleDiscussions']),
   },
 };
 </script>
@@ -119,15 +115,13 @@ export default {
     v-if="resolvableDiscussionsCount > 0"
     id="discussionCounter"
     ref="discussionCounter"
-    class="gl-display-flex discussions-counter"
+    class="discussions-counter gl-flex"
   >
     <div
-      class="gl-display-flex gl-align-items-center gl-pl-4 gl-rounded-base gl-min-h-7"
+      class="gl-flex gl-min-h-7 gl-items-center gl-rounded-base gl-pl-4"
       :class="{
-        'gl-bg-orange-50': blocksMerge && !allResolved,
-        'gl-bg-gray-50': !blocksMerge || allResolved,
-        'gl-mr-3': !isNotificationsTodosButtons,
-        'gl-mr-5': isNotificationsTodosButtons,
+        'gl-bg-feedback-warning': blocksMerge && !allResolved,
+        'gl-bg-strong': !blocksMerge || allResolved,
       }"
       data-testid="discussions-counter-text"
     >
@@ -143,18 +137,18 @@ export default {
           :title="__('Thread options')"
           :aria-label="__('Thread options')"
           toggle-class="btn-icon"
-          class="gl-rounded-base! gl-pt-0! gl-h-full gl-ml-3"
+          class="gl-ml-3 gl-h-full !gl-rounded-base !gl-pt-0"
           :items="threadOptions"
         />
       </template>
       <template v-else>
-        {{ n__('%d unresolved thread', '%d unresolved threads', unresolvedDiscussionsCount) }}
+        {{ n__('%d open thread', '%d open threads', unresolvedDiscussionsCount) }}
         <gl-button-group class="gl-ml-3">
           <gl-button
             v-gl-tooltip.html="previousUnresolvedDiscussionTooltip"
             :aria-label="previousUnresolvedDiscussionTitle"
             :aria-keyshortcuts="previousUnresolvedDiscussionShortcutKey"
-            class="discussion-previous-btn gl-rounded-base! gl-px-2!"
+            class="discussion-previous-btn !gl-rounded-base !gl-px-2"
             data-track-action="click_button"
             data-track-label="mr_previous_unresolved_thread"
             data-track-property="click_previous_unresolved_thread_top"
@@ -166,7 +160,7 @@ export default {
             v-gl-tooltip.html="nextUnresolvedDiscussionTooltip"
             :aria-label="nextUnresolvedDiscussionTitle"
             :aria-keyshortcuts="nextUnresolvedDiscussionShortcutKey"
-            class="discussion-next-btn gl-rounded-base! gl-px-2!"
+            class="discussion-next-btn !gl-rounded-base !gl-px-2"
             data-track-action="click_button"
             data-track-label="mr_next_unresolved_thread"
             data-track-property="click_next_unresolved_thread_top"
@@ -184,7 +178,7 @@ export default {
             :title="__('Thread options')"
             :aria-label="__('Thread options')"
             toggle-class="btn-icon"
-            class="gl-rounded-base! gl-pt-0!"
+            class="!gl-rounded-base !gl-pt-0"
             :items="threadOptions"
           />
         </gl-button-group>

@@ -3,8 +3,10 @@
 module Ci
   class SecureFile < Ci::ApplicationRecord
     include FileStoreMounter
+    include ObjectStorable
     include Limitable
 
+    STORE_COLUMN = :file_store
     FILE_SIZE_LIMIT = 5.megabytes.freeze
     CHECKSUM_ALGORITHM = 'sha256'
     PARSABLE_EXTENSIONS = %w[cer p12 mobileprovision].freeze
@@ -18,7 +20,7 @@ module Ci
     validates :checksum, :file_store, :name, :project_id, presence: true
     validates :name, uniqueness: { scope: :project }
 
-    attribute :metadata, :ind_jsonb
+    attribute :metadata, ::Gitlab::Database::Type::IndifferentJsonb.new
     validates :metadata, json_schema: { filename: "ci_secure_file_metadata" }, allow_nil: true
 
     attribute :file_store, default: -> { Ci::SecureFileUploader.default_store }
@@ -29,7 +31,6 @@ module Ci
 
     scope :order_by_created_at, -> { order(created_at: :desc) }
     scope :project_id_in, ->(ids) { where(project_id: ids) }
-    scope :with_files_stored_locally, -> { where(file_store: Ci::SecureFileUploader::Store::LOCAL) }
 
     def checksum_algorithm
       CHECKSUM_ALGORITHM

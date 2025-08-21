@@ -2,13 +2,20 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::RunnerManagerBuild, model: true, feature_category: :fleet_visibility do
+RSpec.describe Ci::RunnerManagerBuild, :model, feature_category: :fleet_visibility do
   let_it_be(:runner) { create(:ci_runner) }
   let_it_be(:runner_manager) { create(:ci_runner_machine, runner: runner) }
   let_it_be(:build) { create(:ci_build, runner_manager: runner_manager) }
 
-  it { is_expected.to belong_to(:build) }
-  it { is_expected.to belong_to(:runner_manager) }
+  describe 'associations' do
+    it { is_expected.to belong_to(:build) }
+    it { is_expected.to belong_to(:runner_manager) }
+  end
+
+  describe 'validation' do
+    it { is_expected.to validate_presence_of(:build) }
+    it { is_expected.to validate_presence_of(:project_id) }
+  end
 
   describe 'partitioning' do
     context 'with build' do
@@ -52,10 +59,21 @@ RSpec.describe Ci::RunnerManagerBuild, model: true, feature_category: :fleet_vis
     it { expect(partitioning_strategy.active_partition).to be_present }
   end
 
-  context 'loose foreign key on p_ci_runner_manager_builds.runner_manager_id' do # rubocop:disable RSpec/ContextWording
-    it_behaves_like 'cleanup by a loose foreign key' do
-      let!(:parent) { create(:ci_runner_machine) }
-      let!(:model) { create(:ci_runner_machine_build, runner_manager: parent) }
+  describe 'loose foreign keys' do
+    context 'with loose foreign key on ci_runner_machines.id' do
+      it_behaves_like 'cleanup by a loose foreign key' do
+        let!(:parent) { create(:ci_runner_machine) }
+        let!(:model) { create(:ci_runner_machine_build, runner_manager: parent) }
+      end
+    end
+
+    context 'with loose foreign key on projects.id' do
+      it_behaves_like 'cleanup by a loose foreign key' do
+        let_it_be(:parent) { create(:project) }
+        let!(:runner) { create(:ci_runner, :project, :with_runner_manager, projects: [parent]) }
+        let!(:runner_manager) { runner.runner_managers.first }
+        let!(:model) { create(:ci_runner_machine_build, runner_manager: runner_manager, project_id: parent.id) }
+      end
     end
   end
 
@@ -75,7 +93,7 @@ RSpec.describe Ci::RunnerManagerBuild, model: true, feature_category: :fleet_vis
       it { is_expected.to eq(described_class.where(build_id: build_id)) }
     end
 
-    context 'with non-existeng build_id' do
+    context 'with non-existing build_id' do
       let(:build_id) { non_existing_record_id }
 
       it { is_expected.to be_empty }
@@ -95,6 +113,25 @@ RSpec.describe Ci::RunnerManagerBuild, model: true, feature_category: :fleet_vis
       let(:scope) { described_class.where(build_id: non_existing_record_id) }
 
       it { is_expected.to be_empty }
+    end
+  end
+
+  describe '#ensure_project_id' do
+    it 'sets the project_id before validation' do
+      runner_machine_build = FactoryBot.build(:ci_runner_machine_build, build: build)
+
+      expect do
+        runner_machine_build.validate!
+      end.to change { runner_machine_build.project_id }.from(nil).to(runner_machine_build.build.project.id)
+    end
+
+    it 'does not override the project_id if set' do
+      another_project = create(:project)
+      runner_machine_build = FactoryBot.build(:ci_runner_machine_build, project_id: another_project.id)
+
+      expect do
+        runner_machine_build.validate!
+      end.not_to change { runner_machine_build.project_id }.from(another_project.id)
     end
   end
 end

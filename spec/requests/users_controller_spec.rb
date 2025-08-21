@@ -8,6 +8,13 @@ RSpec.describe UsersController, feature_category: :user_management do
   let(:private_user) { create(:user, private_profile: true) }
   let(:public_user) { create(:user) }
 
+  before_all do
+    # Ensure support bot user is created so creation doesn't count towards query limit
+    # and we don't try to obtain an exclusive lease within a transaction.
+    # See https://gitlab.com/gitlab-org/gitlab/-/issues/509629
+    Users::Internal.support_bot_id
+  end
+
   describe 'GET #show' do
     shared_examples_for 'renders the show template' do
       it 'renders the show template' do
@@ -262,6 +269,19 @@ RSpec.describe UsersController, feature_category: :user_management do
           expect(event).to include('created_at', 'author', 'action')
           expect(event['action']).to eq('private')
           expect(event).not_to include('ref', 'commit', 'target', 'resource_parent')
+        end
+      end
+
+      context 'when the request originates from the personal homepage' do
+        before do
+          stub_feature_flags(personal_homepage: true)
+          sign_in(user)
+        end
+
+        it 'returns an empty response if the user has no activity' do
+          get user_activity_url user.username, format: :json, is_personal_homepage: '1'
+
+          expect(response.body).to eq('')
         end
       end
     end
@@ -754,11 +774,12 @@ RSpec.describe UsersController, feature_category: :user_management do
         allow(::Gitlab::ApplicationRateLimiter).to receive(:throttled?).and_return(false)
       end
 
+      let(:exists_true_response_body) { { exists: true }.to_json }
+
       it 'returns JSON indicating the user exists' do
         get user_exists_url user.username
 
-        expected_json = { exists: true }.to_json
-        expect(response.body).to eq(expected_json)
+        expect(response.body).to eq(exists_true_response_body)
       end
 
       context 'when the casing is different' do
@@ -767,8 +788,24 @@ RSpec.describe UsersController, feature_category: :user_management do
         it 'returns JSON indicating the user exists' do
           get user_exists_url user.username.downcase
 
-          expected_json = { exists: true }.to_json
-          expect(response.body).to eq(expected_json)
+          expect(response.body).to eq(exists_true_response_body)
+        end
+      end
+
+      context 'when a group with the username exists' do
+        let_it_be(:group) { create(:group, name: 'get-user-exists') }
+        let_it_be(:subgroup) { create(:group, name: 'get-user-exists-child', parent: group) }
+
+        it 'treats the top-level group as a reserved name' do
+          get user_exists_url 'get-user-exists'
+
+          expect(response.body).to eq(exists_true_response_body)
+        end
+
+        it 'treats the sub-group as not a reserved name' do
+          get user_exists_url 'get-user-exists-child'
+
+          expect(response.body).to eq({ exists: false }.to_json)
         end
       end
     end

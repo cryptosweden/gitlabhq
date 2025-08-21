@@ -1,11 +1,11 @@
 ---
 stage: Create
 group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
-description: "Debugging tips for fixing problems in Git."
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: Debugging tips for fixing problems in Git.
+title: Troubleshooting Git
+description: Tips to resolve Git issues.
 ---
-
-# Troubleshooting Git
 
 Sometimes things don't work the way they should or as you might expect when
 you're using Git. Here are some tips on troubleshooting and resolving issues
@@ -42,6 +42,7 @@ Git includes a complete set of [traces for debugging Git commands](https://git-s
 - `GIT_TRACE_PERFORMANCE=1`: enables tracing of performance data, showing how long each particular `git` invocation takes.
 - `GIT_TRACE_SETUP=1`: enables tracing of what `git` is discovering about the repository and environment it's interacting with.
 - `GIT_TRACE_PACKET=1`: enables packet-level tracing for network operations.
+- `GIT_CURL_VERBOSE=1`: enables `curl`'s verbose output, which [may include credentials](https://curl.se/docs/manpage.html#-v).
 
 ## Broken pipe errors on `git push`
 
@@ -57,20 +58,54 @@ To fix this issue, here are some possible solutions.
 
 ### Increase the POST buffer size in Git
 
-**If you're using Git over HTTP instead of SSH**, you can try increasing the POST buffer size in Git
-configuration.
-
-Example of an error during a clone:
-`fatal: pack has bad object at offset XXXXXXXXX: inflate returned -5`
-
-Open a terminal and enter:
+When you attempt to push large repositories with Git over HTTPS, you might get an error message like:
 
 ```shell
-git config http.postBuffer 52428800
+fatal: pack has bad object at offset XXXXXXXXX: inflate returned -5
 ```
 
-The value is specified in bytes, so in the above case the buffer size has been
-set to 50 MB. The default is 1 MB.
+To resolve this issue:
+
+- Increase the
+  [http.postBuffer](https://git-scm.com/docs/git-config#Documentation/git-config.txt-httppostBuffer)
+  value in your local Git configuration. The default value is 1 MB. For example, if `git clone`
+  fails when cloning a 500 MB repository, execute the following:
+
+  1. Open a terminal or command prompt.
+  1. Increase the `http.postBuffer` value:
+
+      ```shell
+      # Set the http.postBuffer size in bytes
+      git config http.postBuffer 524288000
+      ```
+
+If the local configuration doesn't resolve the issue, you may need to modify the server configuration.
+This should be done cautiously and only if you have server access.
+
+- Increase the `http.postBuffer` on the server side:
+
+  1. Open a terminal or command prompt.
+  1. Modify the GitLab instance's
+    [`gitlab.rb`](https://gitlab.com/gitlab-org/omnibus-gitlab/-/blob/13.5.1+ee.0/files/gitlab-config-template/gitlab.rb.template#L1435-1455) file:
+
+      ```ruby
+      gitaly['configuration'] = {
+        # ...
+        git: {
+          # ...
+          config: [
+            # Set the http.postBuffer size, in bytes
+            {key: "http.postBuffer", value: "524288000"},
+          ],
+        },
+      }
+      ```
+
+  1. Apply the configuration change:
+
+      ```shell
+      sudo gitlab-ctl reconfigure
+      ```
 
 ### Stream 0 was not closed cleanly
 
@@ -89,18 +124,21 @@ If neither approach fixes the error, you may need a different internet service p
 
 ### Check your SSH configuration
 
-**If pushing over SSH**, first check your SSH configuration as 'Broken pipe'
+If pushing over SSH, first check your SSH configuration as 'Broken pipe'
 errors can sometimes be caused by underlying issues with SSH (such as
 authentication). Make sure that SSH is correctly configured by following the
-instructions in the [SSH troubleshooting](../../user/ssh.md#password-prompt-with-git-clone) documentation.
+instructions in the [SSH troubleshooting](../../user/ssh_troubleshooting.md#password-prompt-with-git-clone) documentation.
 
 If you're a GitLab administrator with server access, you can also prevent
 session timeouts by configuring SSH `keep-alive` on the client or the server.
 
-NOTE:
+{{< alert type="note" >}}
+
 Configuring both the client and the server is unnecessary.
 
-**To configure SSH on the client side**:
+{{< /alert >}}
+
+To configure SSH on the client side:
 
 - On UNIX, edit `~/.ssh/config` (create the file if it doesn't exist) and
   add or edit:
@@ -115,7 +153,7 @@ Configuring both the client and the server is unnecessary.
   go to "Connection" and under "Sending of null packets to keep
   session active", set `Seconds between keepalives (0 to turn off)` to `60`.
 
-**To configure SSH on the server side**, edit `/etc/ssh/sshd_config` and add:
+To configure SSH on the server side, edit `/etc/ssh/sshd_config` and add:
 
 ```plaintext
 ClientAliveInterval 60
@@ -124,7 +162,7 @@ ClientAliveCountMax 5
 
 ### Running a `git repack`
 
-**If 'pack-objects' type errors are also being displayed**, you can try to
+If 'pack-objects' type errors are also being displayed, you can try to
 run a `git repack` before attempting to push to the remote repository again:
 
 ```shell
@@ -226,9 +264,26 @@ remote: Calculating new repository size... (cancelled after 729ms)
 This could be used to further investigate what operation is performing poorly
 and provide GitLab with more information on how to improve the service.
 
-## `git clone` over HTTP fails with `transfer closed with outstanding read data remaining` error
+### Error: Operation timed out
 
-Sometimes, when cloning old or large repositories, the following error is thrown:
+If you encounter an error like this when using Git, it usually indicates a network issue:
+
+```shell
+ssh: connect to host gitlab.com port 22: Operation timed out
+fatal: Could not read from remote repository
+```
+
+To help identify the underlying issue:
+
+- Connect through a different network (for example, switch from Wi-Fi to cellular data) to rule out
+  local network or firewall issues.
+- Run this bash command to gather `traceroute` and `ping` information: `mtr -T -P 22 <gitlab_server>.com`.
+  To learn about MTR and how to read its output, see the Cloudflare article
+  [What is My Traceroute (MTR)?](https://www.cloudflare.com/en-gb/learning/network-layer/what-is-mtr/).
+
+## Error: transfer closed with outstanding read data remaining
+
+Sometimes, when cloning old or large repositories, the following error is shown when running `git clone` over HTTP:
 
 ```plaintext
 error: RPC failed; curl 18 transfer closed with outstanding read data remaining
@@ -244,66 +299,21 @@ This problem is common in Git itself, due to its inability to handle large files
 - The number of revisions in the history.
 - The existence of large files in the repository.
 
-The root causes vary, so multiple potential solutions exist, and you may need to
-apply more than one:
+If this error occurs when cloning a large repository, you can
+[decrease the cloning depth](../../user/project/repository/monorepos/_index.md#use-shallow-clones-in-cicd-processes) to a value of `1`. For example:
 
-- If this error occurs when cloning a large repository, you can
-  [decrease the cloning depth](../../user/project/repository/monorepos/index.md#shallow-cloning)
-  to a value of `1`. For example:
+This approach doesn't resolve the underlying cause, but you can successfully clone the repository.
+To decrease the cloning depth to `1`, run:
 
   ```shell
   variables:
     GIT_DEPTH: 1
   ```
 
-- You can increase the
-  [http.postBuffer](https://git-scm.com/docs/git-config#Documentation/git-config.txt-httppostBuffer)
-  value in your local Git configuration from the default 1 MB value to a value greater
-  than the repository size. For example, if `git clone` fails when cloning a 500 MB
-  repository, you should set `http.postBuffer` to `524288000`:
+## Password expired error on Git fetch with SSH for LDAP user
 
-  ```shell
-  # Set the http.postBuffer size, in bytes
-  git config http.postBuffer 524288000
-  ```
-
-- You can increase the `http.postBuffer` on the server side:
-
-  1. Modify the GitLab instance's
-     [`gitlab.rb`](https://gitlab.com/gitlab-org/omnibus-gitlab/-/blob/13.5.1+ee.0/files/gitlab-config-template/gitlab.rb.template#L1435-1455) file:
-
-     ```ruby
-     gitaly['configuration'] = {
-       # ...
-       git: {
-         # ...
-         config: [
-           # Set the http.postBuffer size, in bytes
-           {key: "http.postBuffer", value: "524288000"},
-         ],
-       },
-     }
-     ```
-
-  1. After applying this change, apply the configuration change:
-
-     ```shell
-     sudo gitlab-ctl reconfigure
-     ```
-
-For example, if a repository has a very long history and no large files, changing
-the depth should fix the problem. However, if a repository has very large files,
-even a depth of 1 may be too large, thus requiring the `postBuffer` change.
-If you increase your local `postBuffer` but the NGINX value on the backend is still
-too small, the error persists.
-
-Modifying the server is not always an option, and introduces more potential risk.
-Attempt local changes first.
-
-## Password expired error on Git fetch via SSH for LDAP user
-
-If `git fetch` returns this `HTTP 403 Forbidden` error on a self-managed instance of
-GitLab, the password expiration date (`users.password_expires_at`) for this user in the
+If `git fetch` returns this `HTTP 403 Forbidden` error on GitLab Self-Managed,
+the password expiration date (`users.password_expires_at`) for this user in the
 GitLab database is a date in the past:
 
 ```plaintext
@@ -319,31 +329,39 @@ return this error:
 
 To resolve this issue, you can update the password expiration by either:
 
-- Using the `gitlab-rails console`:
+- Using the [GitLab Rails console](../../administration/operations/rails_console.md)
+  to check and update the user data:
 
   ```ruby
-  gitlab-rails console
+  user = User.find_by_username('<USERNAME>')
+  user.password_expired?
+  user.password_expires_at
   user.update!(password_expires_at: nil)
   ```
 
 - Using `gitlab-psql`:
 
-   ```sql
-   # gitlab-psql
-   UPDATE users SET password_expires_at = null WHERE username='<USERNAME>';
-   ```
+  ```sql
+  # gitlab-psql
+  UPDATE users SET password_expires_at = null WHERE username='<USERNAME>';
+  ```
 
 The bug was reported [in this issue](https://gitlab.com/gitlab-org/gitlab/-/issues/332455).
 
 ## Error on Git fetch: "HTTP Basic: Access Denied"
 
 If you receive an `HTTP Basic: Access denied` error when using Git over HTTP(S),
-refer to the [two-factor authentication troubleshooting guide](../../user/profile/account/two_factor_authentication.md#troubleshooting).
+refer to the [two-factor authentication troubleshooting guide](../../user/profile/account/two_factor_authentication_troubleshooting.md).
+
+This error may also occur with [Git for Windows](https://gitforwindows.org/)
+2.46.0 and later when specifying an empty username.
+When authenticating with a token, the username can be any value, but an empty value
+could trigger an authentication error. To resolve this, specify a username string.
 
 ## `401` errors logged during successful `git clone`
 
-When cloning a repository via HTTP, the
-[`production_json.log`](../../administration/logs/index.md#production_jsonlog) file
+When cloning a repository with HTTP, the
+[`production_json.log`](../../administration/logs/_index.md#production_jsonlog) file
 may show an initial status of `401` (unauthorized), quickly followed by a `200`.
 
 ```json
@@ -403,7 +421,7 @@ your IP address has been blocked by the failed-authentication ban:
 fatal: unable to access 'https://gitlab.com/group/project.git/': The requested URL returned error: 403
 ```
 
-The `403` can be seen in the [`production_json.log`](../../administration/logs/index.md#production_jsonlog):
+The `403` can be seen in the [`production_json.log`](../../administration/logs/_index.md#production_jsonlog):
 
 ```json
 {
@@ -424,7 +442,7 @@ The `403` can be seen in the [`production_json.log`](../../administration/logs/i
 ```
 
 If your IP address has been blocked, a corresponding log entry exists in the
-[`auth_json.log`](../../administration/logs/index.md#auth_jsonlog):
+[`auth_json.log`](../../administration/logs/_index.md#auth_jsonlog):
 
 ```json
 {
@@ -439,5 +457,5 @@ If your IP address has been blocked, a corresponding log entry exists in the
 ```
 
 The failed authentication ban limits differ depending if you are using a
-[self-managed instance](../../security/rate_limits.md#failed-authentication-ban-for-git-and-container-registry)
-or [GitLab.com](../../user/gitlab_com/index.md#ip-blocks).
+[GitLab Self-Managed](../../security/rate_limits.md#failed-authentication-ban-for-git-and-container-registry)
+or [GitLab SaaS](../../user/gitlab_com/_index.md#ip-blocks).

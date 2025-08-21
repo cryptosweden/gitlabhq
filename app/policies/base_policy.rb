@@ -4,11 +4,19 @@ class BasePolicy < DeclarativePolicy::Base
   desc "User is an instance admin"
   with_options scope: :user, score: 0
   condition(:admin) do
+    next false if @user&.from_ci_job_token?
+    next true if user_is_user? && @user.admin_bot?
+
     if Gitlab::CurrentSettings.admin_mode
-      Gitlab::Auth::CurrentUserMode.new(@user).admin_mode?
+      @user&.admin? && Gitlab::Auth::CurrentUserMode.new(@user).admin_mode?
     else
       @user&.admin?
     end
+  end
+
+  desc "The current instance is a GitLab Dedicated instance"
+  condition :gitlab_dedicated do
+    Gitlab::CurrentSettings.gitlab_dedicated_instance?
   end
 
   desc "User is blocked"
@@ -51,6 +59,10 @@ class BasePolicy < DeclarativePolicy::Base
   with_options scope: :user, score: 0
   condition(:placeholder_user) { @user.try(:placeholder?) || false }
 
+  desc "Import user"
+  with_options scope: :user, score: 0
+  condition(:import_user) { @user.try(:import_user?) || false }
+
   desc "User email is unconfirmed or user account is locked"
   with_options scope: :user, score: 0
   condition(:inactive) { @user&.confirmation_required_on_sign_in? || @user&.access_locked? }
@@ -64,6 +76,12 @@ class BasePolicy < DeclarativePolicy::Base
   desc 'User can create an organization'
   with_options scope: :global, score: 0
   condition(:can_create_organization) { Gitlab::CurrentSettings.can_create_organization }
+
+  desc "Only admins can destroy projects"
+  condition(:owner_cannot_destroy_project, scope: :global) do
+    ::Gitlab::CurrentSettings.current_application_settings
+      .default_project_deletion_protection
+  end
 
   desc "The application is restricted from public visibility"
   condition(:restricted_public_level, scope: :global) do
@@ -86,16 +104,40 @@ class BasePolicy < DeclarativePolicy::Base
     enable :change_repository_storage
   end
 
+  rule { gitlab_dedicated & admin }.policy do
+    enable :read_dedicated_hosted_runner_usage
+  end
+
   rule { default }.enable :read_cross_project
 
   condition(:is_gitlab_com, score: 0, scope: :global) { ::Gitlab.com? }
 
   rule { placeholder_user }.prevent_all
+  rule { import_user }.prevent_all
 
   private
 
   def user_is_user?
     user.is_a?(User)
+  end
+
+  def owns_organization?(org)
+    return false unless org.present?
+    return false unless user_is_user?
+
+    # Admin is often automatically assigned as an owner of the default organization
+    # so we only want to return true here if an admin user is running in admin mode
+    return false if admin_mode_required?
+
+    # Load the owners with a single query.
+    org.owner_user_ids.include?(@user.id)
+  end
+
+  def admin_mode_required?
+    return false unless @user&.admin?
+    return false unless Gitlab::CurrentSettings.admin_mode
+
+    !Gitlab::Auth::CurrentUserMode.new(@user).admin_mode?
   end
 end
 

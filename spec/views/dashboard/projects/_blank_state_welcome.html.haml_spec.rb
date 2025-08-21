@@ -25,7 +25,7 @@ RSpec.describe 'dashboard/projects/_blank_state_welcome.html.haml' do
     end
 
     context 'with project creation disabled' do
-      let_it_be(:user_projects_limit) { create(:user, projects_limit: 0 ) }
+      let_it_be(:user_projects_limit) { create(:user, projects_limit: 0) }
 
       before do
         allow(view).to receive(:current_user).and_return(user_projects_limit)
@@ -35,12 +35,6 @@ RSpec.describe 'dashboard/projects/_blank_state_welcome.html.haml' do
         render
 
         expect(rendered).not_to include(_('Create a project'))
-      end
-
-      it 'shows an alert' do
-        render
-
-        expect(rendered).to include(_("You see projects here when you're added to a group or project."))
       end
     end
   end
@@ -56,12 +50,6 @@ RSpec.describe 'dashboard/projects/_blank_state_welcome.html.haml' do
       render
 
       expect(rendered).not_to include(_('Create a project'))
-    end
-
-    it 'shows an alert' do
-      render
-
-      expect(rendered).to include(_("You see projects here when you're added to a group or project."))
     end
   end
 end

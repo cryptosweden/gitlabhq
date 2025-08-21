@@ -68,18 +68,6 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Stage, feature_category: :pipeline_co
       expect(subject.seeds.map(&:attributes)).to all(include(project: pipeline.project))
     end
 
-    context 'when a legacy trigger exists' do
-      before do
-        create(:ci_trigger_request, pipeline: pipeline)
-      end
-
-      it 'returns build seeds including legacy trigger' do
-        expect(pipeline.legacy_trigger).not_to be_nil
-        expect(subject.seeds.map(&:attributes))
-          .to all(include(trigger_request: pipeline.legacy_trigger))
-      end
-    end
-
     context 'when a ref is protected' do
       before do
         allow_next_instance_of(Project) do |instance|
@@ -137,6 +125,10 @@ RSpec.describe Gitlab::Ci::Pipeline::Seed::Stage, feature_category: :pipeline_co
   end
 
   describe '#to_resource' do
+    before do
+      stub_feature_flags(ci_validate_config_options: false)
+    end
+
     it 'builds a valid stage object with all builds' do
       subject.to_resource.save!
 

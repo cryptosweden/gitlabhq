@@ -2,7 +2,7 @@
 
 require 'rubocop-rspec'
 
-module Rubocop
+module RuboCop
   module Cop
     module RSpec
       # Checks for let_it_be with before instead of before_all when using `add_*` methods
@@ -41,6 +41,7 @@ module Rubocop
           (block (send nil? :before ...) ...)
         PATTERN
 
+        # @!method object_calling_add_role_method(node)
         def_node_matcher :object_calling_add_role_method, <<~PATTERN
           (send (send nil? $_) %ROLE_METHODS ...)
         PATTERN

@@ -1,17 +1,25 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Import your project from Gitea to GitLab
+description: "Import projects from Gitea to GitLab."
 ---
 
-# Import your project from Gitea to GitLab
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/381902) in GitLab 15.8, GitLab no longer automatically creates namespaces or groups that don't exist. GitLab also no longer falls back to using the user's personal namespace if the namespace or group name is taken.
-> - Ability to import projects with a `.` in their path [added](https://gitlab.com/gitlab-org/gitlab/-/issues/434175) in GitLab 16.11.
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/381902) in GitLab 15.8, GitLab no longer automatically creates namespaces or groups that don't exist. GitLab also no longer falls back to using the user's personal namespace if the namespace or group name is taken.
+- Ability to import projects with a `.` in their path [added](https://gitlab.com/gitlab-org/gitlab/-/issues/434175) in GitLab 16.11.
+- An **Imported** badge on some imported items [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/461208) in GitLab 17.2.
+
+{{< /history >}}
 
 Import your projects from Gitea to GitLab.
 
@@ -24,20 +32,25 @@ The Gitea importer can import:
 - Milestones
 - Labels
 
-When importing, repository public access is retained. If a repository is private in Gitea, it's
-created as private in GitLab as well.
+When importing:
+
+- Repository public access is retained. If a repository is private in Gitea, it's created as private in GitLab as well.
+- Imported issues, merge requests, and comments have an **Imported** badge in GitLab.
 
 ## Known issues
 
 - Because Gitea is not an OAuth provider, the author or assignee cannot be mapped to users on
   your GitLab instance. The project creator (usually the user who started the import process)
   is then set as the author. For issues, you can still see the original Gitea author.
-- Because Gitea cannot get comments from merge requests through the API, these comments are not imported.
-  For more information, see the [Gitea API documentation](https://docs.gitea.com/api/1.20/#tag/repository/operation/repoGetPullRequest).
+- The Gitea importer does not import diff notes from pull requests. See [this issue](https://gitlab.com/gitlab-org/gitlab/-/issues/450973) for more information.
 
 ## Prerequisites
 
-> - Requirement for Maintainer role instead of Developer role introduced in GitLab 16.0 and backported to GitLab 15.11.1 and GitLab 15.10.5.
+{{< history >}}
+
+- Requirement for Maintainer role instead of Developer role introduced in GitLab 16.0 and backported to GitLab 15.11.1 and GitLab 15.10.5.
+
+{{< /history >}}
 
 - Gitea version 1.0.0 or later.
 - [Gitea import source](../../../administration/settings/import_and_export_settings.md#configure-allowed-import-sources)
@@ -49,7 +62,7 @@ created as private in GitLab as well.
 
 The Gitea importer page is visible when you create a new project. To begin a Gitea import:
 
-1. On the left sidebar, at the top, select **Create new** (**{plus}**) and **New project/repository**.
+1. On the left sidebar, at the top, select **Create new** ({{< icon name="plus" >}}) and **New project/repository**.
 1. Select **Gitea** to start the import authorization process.
 
 ### Authorize access to your repositories using a personal access token
@@ -75,8 +88,8 @@ redirected to the Gitea importer page.
 
 From there, you can view the import statuses of your Gitea repositories:
 
-- Those that are being imported show a _started_ status.
-- Those already successfully imported are green with a _done_ status.
+- Those that are being imported show a started status.
+- Those already successfully imported are green with a done status.
 - Those that aren't yet imported have **Import** on the right side of the table.
 - Those that are already imported have **Re-import** on the right side of the table.
 
@@ -86,3 +99,24 @@ You also can:
 - Filter projects by name. If a filter is applied, **Import all projects**
   imports only selected projects.
 - Choose a different name for the project and a different namespace if you have the privileges to do so.
+
+## User contribution and membership mapping
+
+{{< history >}}
+
+- [Changed on GitLab.com](https://gitlab.com/groups/gitlab-org/-/epics/14667) to [user contribution and membership mapping](_index.md#user-contribution-and-membership-mapping) in GitLab 17.8.
+- [Enabled on GitLab.com and GitLab Self-Managed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/176675) in GitLab 17.8.
+
+{{< /history >}}
+
+The Gitea importer uses an [improved method](_index.md#user-contribution-and-membership-mapping)
+of mapping user contributions for GitLab.com and GitLab Self-Managed.
+
+### Old method of user contribution mapping
+
+You can use the old user contribution mapping method for imports to GitLab Self-Managed and GitLab Dedicated instances.
+To use this method, `gitea_user_mapping` must be disabled.
+For imports to GitLab.com, you must
+use the [improved method](_index.md#user-contribution-and-membership-mapping) instead.
+
+Using the old method, user contributions are assigned to the project creator (usually the user who started the import process) by default.

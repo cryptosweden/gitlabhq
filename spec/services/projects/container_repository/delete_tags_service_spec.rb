@@ -34,10 +34,10 @@ RSpec.describe Projects::ContainerRepository::DeleteTagsService, feature_categor
   shared_examples 'logging an error response' do |message: 'could not delete tags', extra_log: {}|
     it 'logs an error message' do
       log_data = {
-          service_class: 'Projects::ContainerRepository::DeleteTagsService',
-          message: message,
-          container_repository_id: repository.id,
-          project_id: repository.project_id
+        service_class: 'Projects::ContainerRepository::DeleteTagsService',
+        message: message,
+        container_repository_id: repository.id,
+        project_id: repository.project_id
       }
 
       log_data.merge!(extra_log) if extra_log.any?
@@ -54,7 +54,15 @@ RSpec.describe Projects::ContainerRepository::DeleteTagsService, feature_categor
 
     before do
       service_double = double
-      expect(expected_service_class).to receive(:new).with(repository, tags).and_return(service_double)
+
+      if expected_service_class == ::Projects::ContainerRepository::Gitlab::DeleteTagsService
+        expect(expected_service_class).to receive(:new).with(
+          { current_user: user, container_repository: repository, tag_names: tags }
+        ).and_return(service_double)
+      elsif expected_service_class == ::Projects::ContainerRepository::ThirdParty::DeleteTagsService
+        expect(expected_service_class).to receive(:new).with(repository, tags).and_return(service_double)
+      end
+
       expect(excluded_service_class).not_to receive(:new)
       expect(service_double).to receive(:execute).and_return(service_response)
     end

@@ -17,19 +17,19 @@ module MergeRequests
         if check_results.success?
           # If everything else is mergeable, but CI is not, the frontend expects two potential states to be returned
           # See discussion: gitlab.com/gitlab-org/gitlab/-/merge_requests/96778#note_1093063523
-          if check_ci_results.failed?
+          if check_ci_results.checking? || check_ci_results.failed?
             ci_check_failed_check
           else
             :mergeable
           end
         else
           # This check can only fail in EE
-          if check_results.payload[:failed_check] == :not_approved &&
+          if check_results.payload[:unsuccessful_check] == :not_approved &&
               merge_request.temporarily_unapproved?
             return :approvals_syncing
           end
 
-          check_results.payload[:failed_check]
+          check_results.payload[:unsuccessful_check]
         end
       end
 

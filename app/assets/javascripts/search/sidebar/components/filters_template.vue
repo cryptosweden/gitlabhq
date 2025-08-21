@@ -5,6 +5,7 @@ import { mapActions, mapState, mapGetters } from 'vuex';
 import Tracking from '~/tracking';
 
 import {
+  SEARCH_TYPE_ZOEKT,
   TRACKING_ACTION_CLICK,
   TRACKING_LABEL_APPLY,
   TRACKING_LABEL_RESET,
@@ -17,8 +18,15 @@ export default {
     GlForm,
   },
   computed: {
-    ...mapState(['sidebarDirty']),
-    ...mapGetters(['currentScope']),
+    ...mapState(['sidebarDirty', 'searchType']),
+    ...mapGetters(['currentScope', 'hasMissingProjectContext']),
+    showApplyButton() {
+      return !(
+        this.searchType === SEARCH_TYPE_ZOEKT &&
+        this.hasMissingProjectContext &&
+        this.currentScope === 'blobs'
+      );
+    },
   },
   methods: {
     ...mapActions(['applyQuery', 'resetQuery']),
@@ -45,13 +53,13 @@ export default {
     @submit.prevent="applyQueryWithTracking"
   >
     <slot></slot>
-    <div class="gl-display-flex gl-align-items-center gl-mt-4">
+    <div class="gl-mt-4 gl-flex gl-items-center">
       <gl-button
+        v-if="showApplyButton"
         category="primary"
         variant="confirm"
         type="submit"
         data-testid="search-apply-filters-btn"
-        :disabled="!sidebarDirty"
       >
         {{ __('Apply') }}
       </gl-button>

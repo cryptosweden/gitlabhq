@@ -12,9 +12,24 @@ module UserSettings
 
     def index
       set_index_vars
-      scopes = params[:scopes].split(',').map(&:squish).select(&:present?).map(&:to_sym) unless params[:scopes].nil?
+
+      unless params[:scopes].nil?
+        scopes = []
+        # An over engineered solution to generate scopes array without extra object allocations
+        params[:scopes].split(",", Gitlab::Auth.all_available_scopes.count + 1) do |scope|
+          scope = scope.squish
+          next if scope.empty?
+
+          scope = scope.to_sym
+          next if Gitlab::Auth.all_available_scopes.exclude?(scope)
+
+          scopes << scope
+        end
+      end
+
       @personal_access_token = finder.build(
         name: params[:name],
+        description: params[:description],
         scopes: scopes
       )
 
@@ -38,6 +53,7 @@ module UserSettings
       result = ::PersonalAccessTokens::CreateService.new(
         current_user: current_user,
         target_user: current_user,
+        organization_id: Current.organization.id,
         params: personal_access_token_params,
         concatenate_errors: false
       ).execute
@@ -45,8 +61,11 @@ module UserSettings
       @personal_access_token = result.payload[:personal_access_token]
 
       if result.success?
-        render json: { new_token: @personal_access_token.token,
-                       active_access_tokens: active_access_tokens }, status: :ok
+        tokens, size = active_access_tokens
+        render json: { token: @personal_access_token.token,
+                       # Delete when `migrate_user_access_tokens_ui` feature flag is removed
+                       new_token: @personal_access_token.token,
+                       active_access_tokens: tokens, total: size }, status: :ok
       else
         render json: { errors: result.errors }, status: :unprocessable_entity
       end
@@ -60,6 +79,37 @@ module UserSettings
       redirect_to user_settings_personal_access_tokens_path
     end
 
+    def rotate
+      token = finder.find(params[:id])
+      result = PersonalAccessTokens::RotateService.new(current_user, token, nil, keep_token_lifetime: true).execute
+
+      @personal_access_token = result.payload[:personal_access_token]
+      if result.success?
+        tokens, size = active_access_tokens
+        render json: { new_token: @personal_access_token.token,
+                       active_access_tokens: tokens, total: size }, status: :ok
+      else
+        render json: { message: result.message }, status: :unprocessable_entity
+      end
+    end
+
+    def toggle_dpop
+      unless Feature.enabled?(:dpop_authentication, current_user)
+        redirect_to user_settings_personal_access_tokens_path
+        return
+      end
+
+      result = UserPreferences::UpdateService.new(current_user, dpop_params).execute
+
+      if result.success?
+        flash[:notice] = _('DPoP preference updated.')
+      else
+        flash[:warning] = _('Unable to update DPoP preference.')
+      end
+
+      redirect_to user_settings_personal_access_tokens_path
+    end
+
     private
 
     def finder(options = {})
@@ -67,12 +117,17 @@ module UserSettings
     end
 
     def personal_access_token_params
-      params.require(:personal_access_token).permit(:name, :expires_at, scopes: [])
+      params.require(:personal_access_token).permit(:name, :expires_at, :description, scopes: [])
+    end
+
+    def dpop_params
+      params.require(:user).permit(:dpop_enabled)
     end
 
     def set_index_vars
       @scopes = Gitlab::Auth.available_scopes_for(current_user)
-      @active_access_tokens = active_access_tokens
+
+      @active_access_tokens, @active_access_tokens_size = active_access_tokens
     end
 
     def represent(tokens)

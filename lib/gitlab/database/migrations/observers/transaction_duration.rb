@@ -11,7 +11,7 @@ module Gitlab
             @writer = Oj::StreamWriter.new(@file, {})
             @writer.push_array
             @subscriber = ActiveSupport::Notifications.subscribe('transaction.active_record') do |*args|
-              record_sql_event(*args)
+              record_event(*args)
             end
           end
 
@@ -26,14 +26,16 @@ module Gitlab
             # no-op
           end
 
-          def record_sql_event(_name, started, finished, _unique_id, payload)
-            return if payload[:transaction_type] == :fake_transaction
+          private
+
+          def record_event(_name, started, finished, _unique_id, payload)
+            stack_count = payload[:connection].open_transactions
 
             @writer.push_value({
-                                 start_time: started.iso8601(6),
-                                 end_time: finished.iso8601(6),
-                                 transaction_type: payload[:transaction_type]
-                               })
+              start_time: started.iso8601(6),
+              end_time: finished.iso8601(6),
+              transaction_type: stack_count == 0 ? :real_transaction : :sub_transaction
+            })
           end
         end
       end

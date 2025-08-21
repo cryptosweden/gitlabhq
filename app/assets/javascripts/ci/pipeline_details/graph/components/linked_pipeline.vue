@@ -2,19 +2,20 @@
 import {
   GlBadge,
   GlButton,
+  GlIcon,
   GlLink,
   GlLoadingIcon,
-  GlTooltip,
+  GlPopover,
+  GlSprintf,
   GlTooltipDirective,
 } from '@gitlab/ui';
 import { TYPENAME_CI_PIPELINE } from '~/graphql_shared/constants';
 import { convertToGraphQLId } from '~/graphql_shared/utils';
 import { BV_HIDE_TOOLTIP } from '~/lib/utils/constants';
-import { __, sprintf } from '~/locale';
+import { __ } from '~/locale';
 import CancelPipelineMutation from '~/ci/pipeline_details/graphql/mutations/cancel_pipeline.mutation.graphql';
 import RetryPipelineMutation from '~/ci/pipeline_details/graphql/mutations/retry_pipeline.mutation.graphql';
 import CiIcon from '~/vue_shared/components/ci_icon/ci_icon.vue';
-import { reportToSentry } from '~/ci/utils';
 import { ACTION_FAILURE, DOWNSTREAM, UPSTREAM } from '../constants';
 
 export default {
@@ -25,14 +26,15 @@ export default {
     CiIcon,
     GlBadge,
     GlButton,
+    GlIcon,
     GlLink,
     GlLoadingIcon,
-    GlTooltip,
+    GlPopover,
+    GlSprintf,
   },
   styles: {
-    actionSizeClasses: ['gl-h-7 gl-w-7'],
-    flatLeftBorder: ['gl-rounded-bottom-left-none!', 'gl-rounded-top-left-none!'],
-    flatRightBorder: ['gl-rounded-bottom-right-none!', 'gl-rounded-top-right-none!'],
+    flatLeftBorder: ['!gl-rounded-bl-none', '!gl-rounded-tl-none'],
+    flatRightBorder: ['!gl-rounded-br-none', '!gl-rounded-tr-none'],
   },
   props: {
     columnTitle: {
@@ -86,8 +88,8 @@ export default {
     },
     buttonBorderClasses() {
       return this.isUpstream
-        ? ['gl-border-r-0!', ...this.$options.styles.flatRightBorder]
-        : ['gl-border-l-0!', ...this.$options.styles.flatLeftBorder];
+        ? ['!gl-border-r-0', ...this.$options.styles.flatRightBorder]
+        : ['!gl-border-l-0', ...this.$options.styles.flatLeftBorder];
     },
     buttonShadowClass() {
       return this.isExpandBtnFocus ? '' : '!gl-shadow-none';
@@ -109,17 +111,32 @@ export default {
     expandBtnText() {
       return this.expanded ? __('Collapse jobs') : __('Expand jobs');
     },
-    childPipeline() {
-      return this.isDownstream && this.isSameProject;
+    isChildPipeline() {
+      return this.isDownstream && !this.isMultiProject;
     },
     downstreamTitle() {
-      return this.childPipeline ? this.sourceJobName : this.pipeline.project.name;
+      if (this.hasPipelineName) {
+        return this.pipelineName;
+      }
+      if (!this.hasSourceJob) {
+        return this.projectName;
+      }
+
+      return this.isMultiProject
+        ? `${this.sourceJobName}: ${this.projectName}`
+        : this.sourceJobName;
     },
     graphqlPipelineId() {
       return convertToGraphQLId(TYPENAME_CI_PIPELINE, this.pipeline.id);
     },
+    hasPipelineName() {
+      return Boolean(this.pipelineName);
+    },
     hasUpdatePipelinePermissions() {
       return Boolean(this.pipeline?.userPermissions?.updatePipeline);
+    },
+    hasSourceJob() {
+      return Boolean(this.pipeline?.sourceJob?.id);
     },
     isCancelable() {
       return Boolean(this.pipeline?.cancelable && this.hasUpdatePipelinePermissions);
@@ -130,52 +147,69 @@ export default {
     isRetryable() {
       return Boolean(this.pipeline?.retryable && this.hasUpdatePipelinePermissions);
     },
-    isSameProject() {
-      return !this.pipeline.multiproject;
+    isMultiProject() {
+      return this.pipeline.multiproject;
     },
     isUpstream() {
       return this.type === UPSTREAM;
     },
     label() {
       if (this.parentPipeline) {
-        return __('Parent');
+        return __('parent');
       }
-      if (this.childPipeline) {
-        return __('Child');
+      if (this.isChildPipeline) {
+        return __('child');
       }
-      return __('Multi-project');
+      return __('multi-project');
     },
     parentPipeline() {
-      return this.isUpstream && this.isSameProject;
+      return this.isUpstream && !this.isMultiProject;
     },
     pipelineIsLoading() {
       return Boolean(this.isLoading || this.pipeline.isLoading);
+    },
+    pipelineName() {
+      return this.pipeline?.name || '';
     },
     pipelineStatus() {
       return this.pipeline.status;
     },
     projectName() {
-      return this.pipeline.project.name;
+      return this.pipeline?.project?.name || '';
+    },
+    popoverItems() {
+      return [
+        {
+          condition: this.hasPipelineName,
+          message: __('%{boldStart}Pipeline:%{boldEnd} %{value}'),
+          value: this.pipelineName,
+        },
+        {
+          condition: !this.isChildPipeline,
+          message: __('%{boldStart}Project:%{boldEnd} %{value}'),
+          value: this.projectName,
+        },
+        {
+          condition: this.hasSourceJob,
+          message: __('%{boldStart}Created by:%{boldEnd} %{value}'),
+          value: this.sourceJobName,
+        },
+        {
+          condition: true,
+          message: __('%{boldStart}Status:%{boldEnd} %{value}'),
+          value: this.pipeline.status.label,
+        },
+      ].filter((item) => item.condition);
     },
     showAction() {
       return Boolean(this.action?.method && this.action?.icon && this.action?.ariaLabel);
     },
-    showCardTooltip() {
+    showCardPopover() {
       return !this.hasActionTooltip && !this.isExpandBtnFocus;
     },
     sourceJobName() {
       return this.pipeline.sourceJob?.name ?? '';
     },
-    sourceJobInfo() {
-      return this.isDownstream ? sprintf(__('Created by %{job}'), { job: this.sourceJobName }) : '';
-    },
-    cardTooltipText() {
-      return `${this.downstreamTitle} #${this.pipeline.id} - ${this.pipelineStatus.label} -
-      ${this.sourceJobInfo}`;
-    },
-  },
-  errorCaptured(err, _vm, info) {
-    reportToSentry('linked_pipeline', `error: ${err}, info: ${info}`);
   },
   methods: {
     cancelPipeline() {
@@ -228,57 +262,81 @@ export default {
 <template>
   <div
     ref="linkedPipeline"
-    class="linked-pipeline-container gl-h-full !gl-flex gl-w-full sm:gl-w-auto"
+    class="linked-pipeline-container !gl-flex gl-h-full gl-w-full sm:gl-w-auto"
     :class="{
-      'gl-flex-direction-row-reverse': isUpstream,
-      'gl-flex-direction-row': !isUpstream,
+      'gl-flex-row-reverse': isUpstream,
+      'gl-flex-row': !isUpstream,
     }"
     data-testid="linked-pipeline-container"
     :aria-expanded="expanded"
     @mouseover="onDownstreamHovered"
     @mouseleave="onDownstreamHoverLeave"
   >
-    <gl-tooltip v-if="showCardTooltip" :target="() => $refs.linkedPipeline">
-      {{ cardTooltipText }}
-    </gl-tooltip>
-    <div class="gl-bg-white gl-border gl-p-3 gl-rounded-lg gl-w-full" :class="cardClasses">
-      <div class="gl-flex gl-gap-x-3">
+    <gl-popover
+      v-if="showCardPopover"
+      :target="() => $refs.linkedPipeline"
+      triggers="hover"
+      placement="bottom"
+    >
+      <div v-for="(item, index) in popoverItems" :key="index">
+        <gl-sprintf :message="item.message">
+          <template #bold="{ content }">
+            <strong>{{ content }}</strong>
+          </template>
+          <template #value>{{ item.value }}</template>
+        </gl-sprintf>
+      </div>
+    </gl-popover>
+    <div
+      class="gl-border gl-flex gl-w-full gl-flex-col gl-gap-y-2 gl-rounded-lg gl-border-l-section gl-bg-section gl-p-3"
+      :class="cardClasses"
+    >
+      <div class="gl-flex gl-w-26 gl-gap-x-3">
         <ci-icon
           v-if="!pipelineIsLoading"
           :status="pipelineStatus"
           :use-link="false"
-          class="gl-align-self-start"
+          class="gl-self-start"
         />
         <div v-else class="gl-pr-3"><gl-loading-icon size="sm" inline /></div>
-        <div class="gl-flex gl-flex-col gl-leading-normal gl-downstream-pipeline-job-width">
-          <span class="gl-truncate" data-testid="downstream-title-content">
+        <div class="gl-flex gl-min-w-0 gl-flex-1 gl-flex-col">
+          <span
+            class="gl-whitespace-normal gl-wrap-anywhere"
+            data-testid="downstream-title-content"
+          >
             {{ downstreamTitle }}
           </span>
-          <div class="gl-truncate gl-p-2 -gl-m-2">
-            <gl-link
-              class="gl-text-blue-500! gl-font-sm"
-              :href="pipeline.path"
-              data-testid="pipelineLink"
+          <div class="gl-truncate">
+            <gl-link class="gl-text-sm" :href="pipeline.path" data-testid="pipelineLink"
               >#{{ pipeline.id }}</gl-link
             >
           </div>
         </div>
-        <gl-button
-          v-if="showAction"
-          v-gl-tooltip
-          :title="action.ariaLabel"
-          :loading="isActionLoading"
-          :icon="action.icon"
-          class="gl-rounded-full!"
-          :class="$options.styles.actionSizeClasses"
-          :aria-label="action.ariaLabel"
-          @click="action.method"
-          @mouseover="setActionTooltip(true)"
-          @mouseout="setActionTooltip(false)"
-        />
-        <div v-else :class="$options.styles.actionSizeClasses"></div>
+        <div>
+          <gl-button
+            v-if="showAction"
+            v-gl-tooltip
+            :title="action.ariaLabel"
+            :loading="isActionLoading"
+            size="small"
+            class="!gl-rounded-full !gl-p-0"
+            :aria-label="action.ariaLabel"
+            @click="action.method"
+            @mouseover="setActionTooltip(true)"
+            @mouseout="setActionTooltip(false)"
+          >
+            <gl-icon :name="action.icon" :size="12" />
+          </gl-button>
+        </div>
       </div>
-      <div class="gl-pt-2 gl-ml-7">
+      <span
+        v-if="hasSourceJob"
+        class="gl-flex gl-w-26 gl-items-center gl-gap-2 gl-text-sm gl-text-subtle"
+      >
+        <gl-icon name="trigger-source" :size="12" class="gl-flex-shrink-0" />
+        <span class="gl-truncate"> {{ sourceJobName }} </span>
+      </span>
+      <div class="gl-cursor-default gl-pt-2">
         <gl-badge variant="info" data-testid="downstream-pipeline-label">
           {{ label }}
         </gl-badge>
@@ -289,7 +347,7 @@ export default {
         :id="buttonId"
         v-gl-tooltip
         :title="expandBtnText"
-        class="gl-border! gl-rounded-lg!"
+        class="!gl-border !gl-rounded-lg !gl-bg-section"
         :class="[`js-pipeline-expand-${pipeline.id}`, buttonBorderClasses, buttonShadowClass]"
         :icon="expandedIcon"
         :aria-label="expandBtnText"

@@ -38,6 +38,8 @@ export const MSG_MR_IM_REVIEWER = s__("GlobalSearch|Merge requests that I'm a re
 
 export const MSG_MR_IVE_CREATED = s__("GlobalSearch|Merge requests I've created");
 
+export const MSG_MR_IM_WORKING_ON = s__("GlobalSearch|Merge requests I'm working on");
+
 export const MSG_IN_ALL_GITLAB = s__('GlobalSearch|all GitLab');
 
 export const GROUPS_CATEGORY = s__('GlobalSearch|Groups');
@@ -84,23 +86,23 @@ export const COMMAND_PALETTE_TYPE_PAGES = s__('GlobalSearch|Pages or actions');
 export const COMMAND_PALETTE_TYPE_FILES = s__('GlobalSearch|Files');
 
 export const COMMAND_PALETTE_SEARCH_SCOPE_HEADER = s__(
-  'GlobalSearch|Search for `%{searchTerm}` in...',
+  'GlobalSearch|Search for `%{searchTerm}` in…',
 );
 
 export const COMMAND_PALETTE_PAGES_SCOPE_HEADER = s__(
-  'GlobalSearch|Search for `%{searchTerm}` pages in...',
+  'GlobalSearch|Search for `%{searchTerm}` pages in…',
 );
 
 export const COMMAND_PALETTE_USERS_SCOPE_HEADER = s__(
-  'GlobalSearch|Search for `%{searchTerm}` users in...',
+  'GlobalSearch|Search for `%{searchTerm}` users in…',
 );
 
 export const COMMAND_PALETTE_PROJECTS_SCOPE_HEADER = s__(
-  'GlobalSearch|Search for `%{searchTerm}` projects in...',
+  'GlobalSearch|Search for `%{searchTerm}` projects in…',
 );
 
 export const COMMAND_PALETTE_FILES_SCOPE_HEADER = s__(
-  'GlobalSearch|Search for `%{searchTerm}` files in...',
+  'GlobalSearch|Search for `%{searchTerm}` files in…',
 );
 
 export const COMMAND_PALETTE_PAGES_CHAR = '>';

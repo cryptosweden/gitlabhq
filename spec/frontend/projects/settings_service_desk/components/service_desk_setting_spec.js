@@ -1,7 +1,6 @@
 import { GlButton, GlDropdown, GlLoadingIcon, GlToggle, GlAlert } from '@gitlab/ui';
-import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
-import { extendedWrapper } from 'helpers/vue_test_utils_helper';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 import { helpPagePath } from '~/helpers/help_page_helper';
 import ServiceDeskSetting from '~/projects/settings_service_desk/components/service_desk_setting.vue';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
@@ -29,22 +28,19 @@ describe('ServiceDeskSetting', () => {
     wrapper.findByTestId('add-external-participants-from-cc');
 
   const createComponent = ({ props = {}, provide = {} } = {}) =>
-    extendedWrapper(
-      mount(ServiceDeskSetting, {
-        propsData: {
-          isEnabled: true,
-          isIssueTrackerEnabled: true,
-          ...props,
+    mountExtended(ServiceDeskSetting, {
+      propsData: {
+        isEnabled: true,
+        isIssueTrackerEnabled: true,
+        ...props,
+      },
+      provide: {
+        glFeatures: {
+          issueEmailParticipants: true,
         },
-        provide: {
-          glFeatures: {
-            issueEmailParticipants: true,
-            serviceDeskTicketsConfidentiality: true,
-          },
-          ...provide,
-        },
-      }),
-    );
+        ...provide,
+      },
+    });
 
   describe('with issue tracker', () => {
     it('does not show the info notice when enabled', () => {
@@ -63,8 +59,8 @@ describe('ServiceDeskSetting', () => {
       expect(findIssueTrackerInfo().exists()).toBe(true);
       expect(findIssueHelpLink().text()).toEqual('activate the issue tracker');
       expect(findIssueHelpLink().attributes('href')).toBe(
-        helpPagePath('user/project/settings/index.md', {
-          anchor: 'configure-project-visibility-features-and-permissions',
+        helpPagePath('user/project/settings/_index', {
+          anchor: 'configure-project-features-and-permissions',
         }),
       );
     });
@@ -241,7 +237,7 @@ describe('ServiceDeskSetting', () => {
       });
 
       it('checks and disables the checkbox', () => {
-        const { element } = findAreTicketsConfidentialByDefaultCheckbox().find('input');
+        const { element } = findAreTicketsConfidentialByDefaultCheckbox();
 
         expect(element.checked).toBe(true);
         expect(element.disabled).toBe(true);
@@ -255,9 +251,7 @@ describe('ServiceDeskSetting', () => {
         });
 
         it('forwards true as initial value to the checkbox', () => {
-          expect(findAreTicketsConfidentialByDefaultCheckbox().find('input').element.checked).toBe(
-            true,
-          );
+          expect(findAreTicketsConfidentialByDefaultCheckbox().element.checked).toBe(true);
         });
 
         it('displays correct help text', () => {
@@ -273,9 +267,7 @@ describe('ServiceDeskSetting', () => {
         });
 
         it('forwards false as initial value to the checkbox', () => {
-          expect(findAreTicketsConfidentialByDefaultCheckbox().find('input').element.checked).toBe(
-            false,
-          );
+          expect(findAreTicketsConfidentialByDefaultCheckbox().element.checked).toBe(false);
         });
 
         it('displays correct help text', () => {
@@ -283,16 +275,6 @@ describe('ServiceDeskSetting', () => {
             ServiceDeskSetting.i18n.areTicketsConfidentialByDefault.help.nonConfidential,
           );
         });
-      });
-    });
-
-    describe('when feature flag service_desk_tickets_confidentiality is disabled', () => {
-      it('is not rendered', () => {
-        wrapper = createComponent({
-          provide: { glFeatures: { serviceDeskTicketsConfidentiality: false } },
-        });
-
-        expect(findAreTicketsConfidentialByDefaultCheckbox().exists()).toBe(false);
       });
     });
   });
@@ -305,16 +287,12 @@ describe('ServiceDeskSetting', () => {
 
     it('forwards false as initial value to the checkbox', () => {
       wrapper = createComponent({ props: { initialReopenIssueOnExternalParticipantNote: false } });
-      expect(findReopenIssueOnExternalParticipantNoteCheckbox().find('input').element.checked).toBe(
-        false,
-      );
+      expect(findReopenIssueOnExternalParticipantNoteCheckbox().element.checked).toBe(false);
     });
 
     it('forwards true as initial value to the checkbox', () => {
       wrapper = createComponent({ props: { initialReopenIssueOnExternalParticipantNote: true } });
-      expect(findReopenIssueOnExternalParticipantNoteCheckbox().find('input').element.checked).toBe(
-        true,
-      );
+      expect(findReopenIssueOnExternalParticipantNoteCheckbox().element.checked).toBe(true);
     });
   });
 
@@ -326,7 +304,7 @@ describe('ServiceDeskSetting', () => {
 
     it('forwards the initial value to the checkbox', () => {
       wrapper = createComponent({ props: { initialAddExternalParticipantsFromCc: true } });
-      expect(findAddExternalParticipantsFromCcCheckbox().find('input').element.checked).toBe(true);
+      expect(findAddExternalParticipantsFromCcCheckbox().element.checked).toBe(true);
     });
 
     describe('when feature flag issue_email_participants is disabled', () => {

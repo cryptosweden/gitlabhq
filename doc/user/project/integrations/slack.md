@@ -1,20 +1,26 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Plan
+group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Slack notifications (deprecated)
 ---
-<!--- start_remove The following content will be removed on remove_date: '2025-05-15' -->
 
-# Slack notifications (deprecated)
+<!--- start_remove The following content will be removed on remove_date: '2026-05-16' -->
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+{{< details >}}
 
-WARNING:
-This feature was [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/372411) in GitLab 15.9
-and is planned for removal in 18.0. Use the [GitLab for Slack app](gitlab_slack_application.md) instead.
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+{{< alert type="warning" >}}
+
+This feature was [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/435909) in GitLab 15.9
+and is planned for removal in 19.0. Use the [GitLab for Slack app](gitlab_slack_application.md) instead.
 This change is a breaking change.
+
+{{< /alert >}}
 
 The Slack notifications integration enables your GitLab project to send events
 (such as issue creation) to your existing Slack team as notifications. Setting up
@@ -32,7 +38,11 @@ to control GitLab from Slack. Slash commands are configured separately.
 
 ## Configure GitLab
 
-> - [Changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/106760) in GitLab 15.9 to limit Slack channels to 10 per event.
+{{< history >}}
+
+- [Changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/106760) in GitLab 15.9 to limit Slack channels to 10 per event.
+
+{{< /history >}}
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Settings > Integrations**.
@@ -83,30 +93,38 @@ The following triggers are available for Slack notifications:
 | **Alert**                                                                | A new, unique alert is recorded.                     |
 | **[Group mention](#trigger-notifications-for-group-mentions) in public**                                              | A group is mentioned in a public context.            |
 | **[Group mention](#trigger-notifications-for-group-mentions) in private**                                             | A group is mentioned in a confidential context.      |
-| [**Vulnerability**](../../application_security/vulnerabilities/index.md) | A new, unique vulnerability is recorded.             |
+| [**Vulnerability**](../../application_security/vulnerabilities/_index.md) | A new, unique vulnerability is recorded.             |
 
 ## Trigger notifications for group mentions
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/417751) in GitLab 16.4.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/417751) in GitLab 16.4.
+- Restrictions on notification triggers [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/134677) in GitLab 18.3 [with a feature flag](../../../administration/feature_flags/_index.md) named `group_mention_access_check`. Disabled by default.
+
+{{< /history >}}
 
 To trigger a [notification event](#triggers-for-slack-notifications) for a group mention, use `@<group_name>` in:
 
 - Issue and merge request descriptions
 - Comments on issues, merge requests, and commits
 
+Notifications are triggered only if all direct group members have permission to view the resource
+(for example, merge request) where the mention is made. A notification will only be sent to at most 3 groups per event.
+
 ## Troubleshooting
 
 If your Slack integration is not working, start troubleshooting by
-searching through the [Sidekiq logs](../../../administration/logs/index.md#sidekiqlog)
+searching through the [Sidekiq logs](../../../administration/logs/_index.md#sidekiqlog)
 for errors relating to your Slack service.
 
-### Something went wrong on our end
+### Error: `Something went wrong on our end`
 
 You might get this generic error message in the GitLab UI.
-Review [the logs](../../../administration/logs/index.md#productionlog) to find
+Review [the logs](../../../administration/logs/_index.md#productionlog) to find
 the error message and keep troubleshooting from there.
 
-### `certificate verify failed`
+### Error: `certificate verify failed`
 
 You might see an entry like the following in your Sidekiq log:
 
@@ -140,7 +158,7 @@ To view which of these problems is the cause of the issue:
    ```
 
 If GitLab does not trust HTTPS connections to itself,
-[add your certificate to the GitLab trusted certificates](https://docs.gitlab.com/omnibus/settings/ssl/index.html#install-custom-public-certificates).
+[add your certificate to the GitLab trusted certificates](https://docs.gitlab.com/omnibus/settings/ssl/#install-custom-public-certificates).
 
 If GitLab does not trust connections to Slack,
 the GitLab OpenSSL trust store is incorrect. Typical causes are:
@@ -153,8 +171,11 @@ the GitLab OpenSSL trust store is incorrect. Typical causes are:
 To disable notifications for all projects that have Slack integration enabled,
 [start a rails console session](../../../administration/operations/rails_console.md#starting-a-rails-console-session) and use a script similar to the following:
 
-WARNING:
+{{< alert type="warning" >}}
+
 Commands that change data can cause damage if not run correctly or under the right conditions. Always run commands in a test environment first and have a backup instance ready to restore.
+
+{{< /alert >}}
 
 ```ruby
 # Grab all projects that have the Slack notifications enabled

@@ -42,9 +42,19 @@ export default {
       required: false,
       default: 'current-password',
     },
+    required: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
     name: {
       type: String,
       required: true,
+    },
+    disabled: {
+      type: Boolean,
+      required: false,
+      default: false,
     },
   },
   data() {
@@ -72,11 +82,11 @@ export default {
 </script>
 
 <template>
-  <div class="gl-field-error-anchor input-icon-wrapper">
+  <div class="gl-field-error-anchor gl-relative">
     <gl-form-input
       :id="id"
-      class="js-password-complexity-validation js-track-error gl-pr-8!"
-      required
+      class="js-password-complexity-validation js-track-error !gl-pr-8"
+      :required="required"
       :autocomplete="autocomplete"
       :name="name"
       :minlength="minimumPasswordLength"
@@ -84,13 +94,15 @@ export default {
       :data-track-action-for-errors="trackActionForErrors"
       :title="title"
       :type="type"
+      :disabled="disabled"
     />
     <gl-button
       v-gl-tooltip="toggleVisibilityLabel"
-      class="input-icon-right !gl-right-0"
+      class="gl-absolute gl-right-0 gl-top-0"
       category="tertiary"
       :aria-label="toggleVisibilityLabel"
       :icon="toggleVisibilityIcon"
+      :disabled="disabled"
       @click="handleToggleVisibilityButtonClick"
     />
   </div>

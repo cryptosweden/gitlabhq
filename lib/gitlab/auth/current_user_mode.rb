@@ -9,7 +9,9 @@ module Gitlab
     # e.g. on web access require re-authentication
     class CurrentUserMode
       include Gitlab::Utils::StrongMemoize
+
       NotRequestedError = Class.new(StandardError)
+      NonSidekiqEnvironmentError = Class.new(StandardError)
 
       # RequestStore entries
       CURRENT_REQUEST_BYPASS_SESSION_ADMIN_ID_RS_KEY = { res: :current_user_mode, data: :bypass_session_admin_id }.freeze
@@ -84,6 +86,20 @@ module Gitlab
         def current_admin
           Gitlab::SafeRequestStore[CURRENT_REQUEST_ADMIN_MODE_USER_RS_KEY]
         end
+
+        # Execute the given block with admin privileges if the user is an admin and admin mode is enabled.
+        # Otherwise, execute the block with regular user permissions.
+        def optionally_run_in_admin_mode(user)
+          raise NonSidekiqEnvironmentError unless Gitlab::Runtime.sidekiq?
+
+          return yield unless Gitlab::CurrentSettings.admin_mode && user.can_access_admin_area?
+
+          bypass_session!(user.id) do
+            with_current_admin(user) do
+              yield
+            end
+          end
+        end
       end
 
       def initialize(user, session = Gitlab::Session.current)
@@ -95,7 +111,7 @@ module Gitlab
         return false unless user
 
         Gitlab::SafeRequestStore.fetch(admin_mode_rs_key) do
-          user.admin? && (privileged_runtime? || session_with_admin_mode?)
+          user.can_access_admin_area? && (privileged_runtime? || session_with_admin_mode?)
         end
       end
 
@@ -103,12 +119,12 @@ module Gitlab
         return false unless user
 
         Gitlab::SafeRequestStore.fetch(admin_mode_requested_rs_key) do
-          user.admin? && admin_mode_requested_in_grace_period?
+          user.can_access_admin_area? && admin_mode_requested_in_grace_period?
         end
       end
 
       def enable_admin_mode!(password: nil, skip_password_validation: false)
-        return false unless user&.admin?
+        return false unless user&.can_access_admin_area?
         return false unless skip_password_validation || user&.valid_password?(password)
 
         raise NotRequestedError unless admin_mode_requested?
@@ -124,7 +140,7 @@ module Gitlab
       end
 
       def disable_admin_mode!
-        return unless user&.admin?
+        return unless user&.can_access_admin_area?
 
         reset_request_store_cache_entries
 
@@ -133,7 +149,7 @@ module Gitlab
       end
 
       def request_admin_mode!
-        return unless user&.admin?
+        return unless user&.can_access_admin_area?
 
         reset_request_store_cache_entries
 

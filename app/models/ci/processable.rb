@@ -9,19 +9,42 @@ module Ci
     include Ci::Metadatable
     extend ::Gitlab::Utils::Override
 
+    ACTIONABLE_WHEN = %w[manual delayed].freeze
+
     self.allow_legacy_sti_class = true
 
     has_one :resource, class_name: 'Ci::Resource', foreign_key: 'build_id', inverse_of: :processable
     has_one :sourced_pipeline, class_name: 'Ci::Sources::Pipeline', foreign_key: :source_job_id, inverse_of: :source_job
+    has_one :trigger, through: :pipeline
+    has_one :job_environment, class_name: 'Environments::Job', inverse_of: :job
+    has_one :job_definition_instance, ->(job) { in_partition(job) },
+      class_name: 'Ci::JobDefinitionInstance',
+      foreign_key: :job_id,
+      partition_foreign_key: :partition_id,
+      inverse_of: :job,
+      autosave: true
 
-    belongs_to :trigger_request
+    has_one :job_definition, ->(job) { in_partition(job) },
+      class_name: 'Ci::JobDefinition',
+      foreign_key: :job_id,
+      partition_foreign_key: :partition_id,
+      inverse_of: :jobs,
+      through: :job_definition_instance
+
+    has_many :job_messages,
+      ->(build) { in_partition(build) },
+      class_name: 'Ci::JobMessage',
+      foreign_key: :job_id,
+      inverse_of: :job,
+      partition_foreign_key: :partition_id
+
     belongs_to :resource_group, class_name: 'Ci::ResourceGroup', inverse_of: :processables
 
-    delegate :trigger_short_token, to: :trigger_request, allow_nil: true
-
     accepts_nested_attributes_for :needs
+    accepts_nested_attributes_for :job_definition_instance
 
     scope :preload_needs, -> { preload(:needs) }
+    scope :preload_job_definition_instances, -> { preload(:job_definition_instance) }
     scope :manual_actions, -> { where(when: :manual, status: COMPLETED_STATUSES + %i[manual]) }
 
     scope :with_needs, ->(names = nil) do
@@ -44,6 +67,14 @@ module Ci
       joins(:metadata).where.not(
         Ci::BuildMetadata.table_name => { id: Ci::BuildMetadata.scoped_build.with_interruptible.select(:id) }
       )
+    end
+
+    # The run after commit queue is processed LIFO
+    # We need to ensure that the Redis data is persisted before any other callbacks the might depend on it.
+    before_commit do |job|
+      job.run_after_commit do
+        redis_state.save if defined?(@redis_state)
+      end
     end
 
     state_machine :status do
@@ -96,14 +127,6 @@ module Ci
       end
     end
 
-    def assign_resource_from_resource_group(processable)
-      if Feature.enabled?(:assign_resource_worker_deduplicate_until_executing, processable.project)
-        Ci::ResourceGroups::AssignResourceFromResourceGroupWorkerV2.perform_async(processable.resource_group_id)
-      else
-        Ci::ResourceGroups::AssignResourceFromResourceGroupWorker.perform_async(processable.resource_group_id)
-      end
-    end
-
     def self.select_with_aggregated_needs(project)
       aggregated_needs_names = Ci::BuildNeed
         .scoped_build
@@ -128,6 +151,10 @@ module Ci
       )
     end
 
+    def assign_resource_from_resource_group(processable)
+      Ci::ResourceGroups::AssignResourceFromResourceGroupWorker.perform_async(processable.resource_group_id)
+    end
+
     validates :type, presence: true
     validates :scheduling_type, presence: true, on: :create, unless: :importing?
 
@@ -136,6 +163,8 @@ module Ci
       :legacy_detached_merge_request_pipeline?,
       :merge_train_pipeline?,
       to: :pipeline
+
+    delegate :short_token, to: :trigger, prefix: true, allow_nil: true
 
     def clone(current_user:, new_job_variables_attributes: [])
       new_attributes = self.class.clone_accessors.index_with do |attribute|
@@ -147,15 +176,43 @@ module Ci
         new_attributes[:metadata_attributes][:expanded_environment_name] = expanded_environment_name
       end
 
+      # We don't check for job_definition because loading the jsonb field from the database is expensive
+      if job_definition_instance
+        new_attributes[:job_definition_instance_attributes] ||= {}
+        new_attributes[:job_definition_instance_attributes].merge!(
+          project_id: project_id,
+          job_definition_id: job_definition_instance.job_definition_id,
+          partition_id: job_definition_instance.partition_id
+        )
+      end
+
       new_attributes[:user] = current_user
 
       self.class.new(new_attributes)
     end
 
+    # Scoped user is present when the user creating the pipeline supports composite identity.
+    # For example: a service account like GitLab Duo. The scoped user is used to further restrict
+    # the permissions of the CI job token associated to the `job.user`.
+    def scoped_user
+      # If jobs are retried by human users (not composite identity) we want to
+      # ignore the persisted `scoped_user_id`, because that is propagated
+      # together with `options` to cloned jobs.
+      # We also handle the case where `user` is `nil` (legacy behavior in specs).
+      return unless user&.composite_identity_enforced?
+
+      User.find_by_id(options[:scoped_user_id])
+    end
+    strong_memoize_attr :scoped_user
+
     def retryable?
       return false if retried? || archived? || deployment_rejected?
 
       success? || failed? || canceled? || canceling?
+    end
+
+    def archived?(...)
+      degenerated? || super
     end
 
     def aggregated_needs_names
@@ -229,20 +286,17 @@ module Ci
     def dependency_variables
       return [] if all_dependencies.empty?
 
-      dependencies_with_accessible_artifacts = find_dependencies_with_accessible_artifacts(all_dependencies)
+      dependencies_with_accessible_artifacts = job_dependencies_with_accessible_artifacts(all_dependencies)
 
       Gitlab::Ci::Variables::Collection.new.concat(
         Ci::JobVariable.where(job: dependencies_with_accessible_artifacts).dotenv_source
       )
     end
 
-    def find_dependencies_with_accessible_artifacts(all_dependencies)
-      ids = all_dependencies.collect(&:id)
+    def job_dependencies_with_accessible_artifacts(all_dependencies)
+      build_ids = all_dependencies.collect(&:id)
 
-      Ci::Build.joins(:job_artifacts).where(job_artifacts: { job_id: nil })
-        .or(Ci::Build.joins(:job_artifacts).where(job_artifacts: {
-          job_id: ids, file_type: 'dotenv', accessibility: 'public'
-        }))
+      Ci::Build.id_in(build_ids).builds_with_accessible_artifacts(self.project_id)
     end
 
     def all_dependencies
@@ -256,7 +310,21 @@ module Ci
     end
 
     def manual_confirmation_message
-      options[:manual_confirmation] if manual_job?
+      options[:manual_confirmation] if manual_job? && playable?
+    end
+
+    def redis_state
+      strong_memoize(:redis_state) do
+        Ci::JobRedisState.find_or_initialize_by(job: self)
+      end
+    end
+
+    def enqueue_immediately?
+      redis_state.enqueue_immediately?
+    end
+
+    def set_enqueue_immediately!
+      redis_state.enqueue_immediately = true
     end
 
     private
@@ -268,5 +336,3 @@ module Ci
     end
   end
 end
-
-Ci::Processable.prepend_mod

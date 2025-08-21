@@ -1,14 +1,16 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Operate
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Integrity check Rake task
 ---
 
-# Integrity check Rake task
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 GitLab provides Rake tasks to check the integrity of various components.
 See also the [check GitLab configuration Rake task](maintenance.md#check-gitlab-configuration).
@@ -40,23 +42,66 @@ exactly which repositories are causing the trouble.
 - Receiving an error when trying to push code - `remote: error: cannot lock ref`
 - A 500 error when viewing the GitLab dashboard or when accessing a specific project.
 
-### Check project code repositories
+### Check all project code repositories
 
 This task loops through the project code repositories and runs the integrity check
 described previously. If a project uses a pool repository, that is also checked.
 Other types of Git repositories [are not checked](https://gitlab.com/gitlab-org/gitaly/-/issues/3643).
 
-- Linux package installations:
+To check project code repositories:
 
-  ```shell
-  sudo gitlab-rake gitlab:git:fsck
-  ```
+{{< tabs >}}
 
-- Self-compiled installations:
+{{< tab title="Linux package (Omnibus)" >}}
 
-  ```shell
-  sudo -u git -H bundle exec rake gitlab:git:fsck RAILS_ENV=production
-  ```
+```shell
+sudo gitlab-rake gitlab:git:fsck
+```
+
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
+
+```shell
+sudo -u git -H bundle exec rake gitlab:git:fsck RAILS_ENV=production
+```
+
+{{< /tab >}}
+
+{{< /tabs >}}
+
+### Check specific project code repositories
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/197990) in GitLab 18.3.
+
+{{< /history >}}
+
+Limit the check to the repositories of projects with specific project IDs by setting the `PROJECT_IDS` environment
+variable to a comma-separated list of project IDs.
+
+For example, to check the repositories of projects with project IDs `1` and `3`:
+
+{{< tabs >}}
+
+{{< tab title="Linux package (Omnibus)" >}}
+
+```shell
+sudo PROJECT_IDS="1,3" gitlab-rake gitlab:git:fsck
+```
+
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
+
+```shell
+sudo -u git -H PROJECT_IDS="1,3" bundle exec rake gitlab:git:fsck RAILS_ENV=production
+```
+
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ## Checksum of repository refs
 
@@ -77,17 +122,27 @@ checksums in the format `<PROJECT ID>,<CHECKSUM>`.
 - If a repository exists but is empty, the output checksum is `0000000000000000000000000000000000000000`.
 - Projects which don't exist are skipped.
 
-- Linux package installations:
+To check all GitLab repositories:
 
-  ```shell
-  sudo gitlab-rake gitlab:git:checksum_projects
-  ```
+{{< tabs >}}
 
-- Self-compiled installations:
+{{< tab title="Linux package (Omnibus)" >}}
 
-  ```shell
-  sudo -u git -H bundle exec rake gitlab:git:checksum_projects RAILS_ENV=production
-  ```
+```shell
+sudo gitlab-rake gitlab:git:checksum_projects
+```
+
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
+
+```shell
+sudo -u git -H bundle exec rake gitlab:git:checksum_projects RAILS_ENV=production
+```
+
+{{< /tab >}}
+
+{{< /tabs >}}
 
 For example, if:
 
@@ -128,23 +183,33 @@ Integrity checks are supported for the following types of file:
 - Project-level Secure Files (introduced in GitLab 16.1.0)
 - User uploads
 
-- Linux package installations:
+To check the integrity of uploaded files:
 
-  ```shell
-  sudo gitlab-rake gitlab:artifacts:check
-  sudo gitlab-rake gitlab:ci_secure_files:check
-  sudo gitlab-rake gitlab:lfs:check
-  sudo gitlab-rake gitlab:uploads:check
-  ```
+{{< tabs >}}
 
-- Self-compiled installations:
+{{< tab title="Linux package (Omnibus)" >}}
 
-  ```shell
-  sudo -u git -H bundle exec rake gitlab:artifacts:check RAILS_ENV=production
-  sudo -u git -H bundle exec rake gitlab:ci_secure_files:check RAILS_ENV=production
-  sudo -u git -H bundle exec rake gitlab:lfs:check RAILS_ENV=production
-  sudo -u git -H bundle exec rake gitlab:uploads:check RAILS_ENV=production
-  ```
+```shell
+sudo gitlab-rake gitlab:artifacts:check
+sudo gitlab-rake gitlab:ci_secure_files:check
+sudo gitlab-rake gitlab:lfs:check
+sudo gitlab-rake gitlab:uploads:check
+```
+
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
+
+```shell
+sudo -u git -H bundle exec rake gitlab:artifacts:check RAILS_ENV=production
+sudo -u git -H bundle exec rake gitlab:ci_secure_files:check RAILS_ENV=production
+sudo -u git -H bundle exec rake gitlab:lfs:check RAILS_ENV=production
+sudo -u git -H bundle exec rake gitlab:uploads:check RAILS_ENV=production
+```
+
+{{< /tab >}}
+
+{{< /tabs >}}
 
 These tasks also accept some environment variables which you can use to override
 certain values:
@@ -217,22 +282,32 @@ secrets file (`gitlab-secrets.json`).
 
 Automatic resolution is not yet implemented. If you have values that
 cannot be decrypted, you can follow steps to reset them, see our
-documentation on what to do [when the secrets file is lost](../../administration/backup_restore/troubleshooting_backup_gitlab.md#when-the-secrets-file-is-lost).
+documentation on what to do [when the secrets file is lost](../backup_restore/troubleshooting_backup_gitlab.md#when-the-secrets-file-is-lost).
 
 This can take a very long time, depending on the size of your
 database, as it checks all rows in all tables.
 
-- Linux package installations:
+To verify database values can be decrypted using the current secrets:
 
-  ```shell
-  sudo gitlab-rake gitlab:doctor:secrets
-  ```
+{{< tabs >}}
 
-- Self-compiled installations:
+{{< tab title="Linux package (Omnibus)" >}}
 
-  ```shell
-  bundle exec rake gitlab:doctor:secrets RAILS_ENV=production
-  ```
+```shell
+sudo gitlab-rake gitlab:doctor:secrets
+```
+
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
+
+```shell
+bundle exec rake gitlab:doctor:secrets RAILS_ENV=production
+```
+
+{{< /tab >}}
+
+{{< /tabs >}}
 
 **Example output**
 
@@ -251,23 +326,33 @@ I, [2020-06-11T17:18:15.575711 #27148]  INFO -- : Done!
 ### Verbose mode
 
 To get more detailed information about which rows and columns can't be
-decrypted, you can pass a `VERBOSE` environment variable:
+decrypted, you can pass a `VERBOSE` environment variable.
 
-- Linux package installations:
+To verify database values can be decrypted using the current secrets with detailed information:
 
-  ```shell
-  sudo gitlab-rake gitlab:doctor:secrets VERBOSE=1
-  ```
+{{< tabs >}}
 
-- Self-compiled installations:
+{{< tab title="Linux package (Omnibus)" >}}
 
-  ```shell
-  bundle exec rake gitlab:doctor:secrets RAILS_ENV=production VERBOSE=1
-  ```
+```shell
+sudo gitlab-rake gitlab:doctor:secrets VERBOSE=1
+```
+
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
+
+```shell
+bundle exec rake gitlab:doctor:secrets RAILS_ENV=production VERBOSE=1
+```
+
+{{< /tab >}}
+
+{{< /tabs >}}
 
 **Example verbose output**
 
-<!-- vale gitlab.SentenceSpacing = NO -->
+<!-- vale gitlab_base.SentenceSpacing = NO -->
 
 ```plaintext
 I, [2020-06-11T17:17:54.951815 #27148]  INFO -- : Checking encrypted values in the database
@@ -283,15 +368,22 @@ I, [2020-06-11T17:18:15.575678 #27148]  INFO -- : Total: 1 row(s) affected
 I, [2020-06-11T17:18:15.575711 #27148]  INFO -- : Done!
 ```
 
-<!-- vale gitlab.SentenceSpacing = YES -->
+<!-- vale gitlab_base.SentenceSpacing = YES -->
 
 ## Reset encrypted tokens when they can't be recovered
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/131893) in GitLab 16.6.
+{{< history >}}
 
-WARNING:
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/131893) in GitLab 16.6.
+
+{{< /history >}}
+
+{{< alert type="warning" >}}
+
 This operation is dangerous and can result in data-loss. Proceed with extreme caution.
 You must have knowledge about GitLab internals before you perform this operation.
+
+{{< /alert >}}
 
 In some cases, encrypted tokens can no longer be recovered and cause issues.
 Most often, runner registration tokens for groups and projects might be broken on very large instances.
@@ -302,41 +394,79 @@ To reset broken tokens:
 1. Identify the broken tokens. For example `runners_token`.
 1. To reset broken tokens, run `gitlab:doctor:reset_encrypted_tokens` with `VERBOSE=true MODEL_NAMES=Model1,Model2 TOKEN_NAMES=broken_token1,broken_token2`. For example:
 
-    ```shell
-    VERBOSE=true MODEL_NAMES=Project,Group TOKEN_NAMES=runners_token bundle exec rake gitlab:doctor:reset_encrypted_tokens
-    ```
+   {{< tabs >}}
 
-    You will see every action this task would try to perform:
+   {{< tab title="Linux package (Omnibus)" >}}
 
-    ```plain
-    I, [2023-09-26T16:20:23.230942 #88920]  INFO -- : Resetting runners_token on Project, Group if they can not be read
-    I, [2023-09-26T16:20:23.230975 #88920]  INFO -- : Executing in DRY RUN mode, no records will actually be updated
-    D, [2023-09-26T16:20:30.151585 #88920] DEBUG -- : > Fix Project[1].runners_token
-    I, [2023-09-26T16:20:30.151617 #88920]  INFO -- : Checked 1/9 Projects
-    D, [2023-09-26T16:20:30.151873 #88920] DEBUG -- : > Fix Project[3].runners_token
-    D, [2023-09-26T16:20:30.152975 #88920] DEBUG -- : > Fix Project[10].runners_token
-    I, [2023-09-26T16:20:30.152992 #88920]  INFO -- : Checked 11/29 Projects
-    I, [2023-09-26T16:20:30.153230 #88920]  INFO -- : Checked 21/29 Projects
-    I, [2023-09-26T16:20:30.153882 #88920]  INFO -- : Checked 29 Projects
-    D, [2023-09-26T16:20:30.195929 #88920] DEBUG -- : > Fix Group[22].runners_token
-    I, [2023-09-26T16:20:30.196125 #88920]  INFO -- : Checked 1/19 Groups
-    D, [2023-09-26T16:20:30.196192 #88920] DEBUG -- : > Fix Group[25].runners_token
-    D, [2023-09-26T16:20:30.197557 #88920] DEBUG -- : > Fix Group[82].runners_token
-    I, [2023-09-26T16:20:30.197581 #88920]  INFO -- : Checked 11/19 Groups
-    I, [2023-09-26T16:20:30.198455 #88920]  INFO -- : Checked 19 Groups
-    I, [2023-09-26T16:20:30.198462 #88920]  INFO -- : Done!
-    ```
+   ```shell
+   VERBOSE=true MODEL_NAMES=Project,Group TOKEN_NAMES=runners_token gitlab-rake gitlab:doctor:reset_encrypted_tokens
+   ```
+
+   {{< /tab >}}
+
+   {{< tab title="Self-compiled (source)" >}}
+
+   ```shell
+   bundle exec rake gitlab:doctor:reset_encrypted_tokens RAILS_ENV=production VERBOSE=true MODEL_NAMES=Project,Group TOKEN_NAMES=runners_token
+   ```
+
+   {{< /tab >}}
+
+   {{< /tabs >}}
+
+   You will see every action this task would try to perform:
+
+   ```plain
+   I, [2023-09-26T16:20:23.230942 #88920]  INFO -- : Resetting runners_token on Project, Group if they can not be read
+   I, [2023-09-26T16:20:23.230975 #88920]  INFO -- : Executing in DRY RUN mode, no records will actually be updated
+   D, [2023-09-26T16:20:30.151585 #88920] DEBUG -- : > Fix Project[1].runners_token
+   I, [2023-09-26T16:20:30.151617 #88920]  INFO -- : Checked 1/9 Projects
+   D, [2023-09-26T16:20:30.151873 #88920] DEBUG -- : > Fix Project[3].runners_token
+   D, [2023-09-26T16:20:30.152975 #88920] DEBUG -- : > Fix Project[10].runners_token
+   I, [2023-09-26T16:20:30.152992 #88920]  INFO -- : Checked 11/29 Projects
+   I, [2023-09-26T16:20:30.153230 #88920]  INFO -- : Checked 21/29 Projects
+   I, [2023-09-26T16:20:30.153882 #88920]  INFO -- : Checked 29 Projects
+   D, [2023-09-26T16:20:30.195929 #88920] DEBUG -- : > Fix Group[22].runners_token
+   I, [2023-09-26T16:20:30.196125 #88920]  INFO -- : Checked 1/19 Groups
+   D, [2023-09-26T16:20:30.196192 #88920] DEBUG -- : > Fix Group[25].runners_token
+   D, [2023-09-26T16:20:30.197557 #88920] DEBUG -- : > Fix Group[82].runners_token
+   I, [2023-09-26T16:20:30.197581 #88920]  INFO -- : Checked 11/19 Groups
+   I, [2023-09-26T16:20:30.198455 #88920]  INFO -- : Checked 19 Groups
+   I, [2023-09-26T16:20:30.198462 #88920]  INFO -- : Done!
+   ```
 
 1. If you are confident that this operation resets the correct tokens, disable dry-run mode and run the operation again:
 
-    ```shell
-    DRY_RUN=false VERBOSE=true MODEL_NAMES=Project,Group TOKEN_NAMES=runners_token bundle exec rake gitlab:doctor:reset_encrypted_tokens
-    ```
+   {{< tabs >}}
+
+   {{< tab title="Linux package (Omnibus)" >}}
+
+   ```shell
+   DRY_RUN=false VERBOSE=true MODEL_NAMES=Project,Group TOKEN_NAMES=runners_token gitlab-rake gitlab:doctor:reset_encrypted_tokens
+   ```
+
+   {{< /tab >}}
+
+   {{< tab title="Self-compiled (source)" >}}
+
+   ```shell
+   bundle exec rake gitlab:doctor:reset_encrypted_tokens RAILS_ENV=production DRY_RUN=false VERBOSE=true MODEL_NAMES=Project,Group TOKEN_NAMES=runners_token
+   ```
+
+   {{< /tab >}}
+
+   {{< /tabs >}}
+
+The `gitlab:doctor:reset_encrypted_tokens` task has the following limitations:
+
+- Non-token attributes, for example `ApplicationSetting:ci_jwt_signing_key` are not reset.
+- The presence of more than one undecryptable attribute in a single model record causes the task
+  to fail with a `TypeError: no implicit conversion of nil into String ... block in aes256_gcm_decrypt` error.
 
 ## Troubleshooting
 
-The following are solutions to problems you might discover using the Rake tasks documented
-above.
+The following are solutions to problems you might discover using the Rake tasks
+documented previously.
 
 ### Dangling objects
 
@@ -433,12 +563,12 @@ To delete these references to missing local and/or remote artifacts (`job.log` f
 ### Delete references to missing LFS objects
 
 If `gitlab-rake gitlab:lfs:check VERBOSE=1` detects LFS objects that exist in the database
-but not on disk, [follow the procedure in the LFS documentation](../lfs/index.md#missing-lfs-objects)
+but not on disk, [follow the procedure in the LFS documentation](../lfs/_index.md#missing-lfs-objects)
 to remove the database entries.
 
 ### Update dangling object storage references
 
-If you have [migrated from object storage to local storage](../job_artifacts.md#migrating-from-object-storage-to-local-storage) and files were missing, then dangling database references remain.
+If you have [migrated from object storage to local storage](../cicd/job_artifacts.md#migrating-from-object-storage-to-local-storage) and files were missing, then dangling database references remain.
 
 This is visible in the migration logs with errors like the following:
 
@@ -449,7 +579,7 @@ W, [2022-11-28T13:14:09.296911 #10025]  WARN -- : Failed to transfer Ci::JobArti
 
 Attempting to [delete references to missing artifacts](check.md#delete-references-to-missing-artifacts) after you have disabled object storage, results in the following error:
 
-```shell
+```plaintext
 RuntimeError (Object Storage is not enabled for JobArtifactUploader)
 ```
 

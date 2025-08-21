@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::JobArtifacts::CreateService, :clean_gitlab_redis_shared_state, feature_category: :build_artifacts do
+RSpec.describe Ci::JobArtifacts::CreateService, :clean_gitlab_redis_shared_state, feature_category: :job_artifacts do
   include WorkhorseHelpers
   include Gitlab::Utils::Gzip
 
@@ -20,9 +20,21 @@ RSpec.describe Ci::JobArtifacts::CreateService, :clean_gitlab_redis_shared_state
     shared_examples_for 'handling lsif artifact' do
       context 'when artifact is lsif' do
         let(:artifact_type) { 'lsif' }
+        let(:max_artifact_size) { 200.megabytes.to_i }
+
+        before do
+          allow(Ci::JobArtifact)
+            .to receive(:max_artifact_size)
+            .with(type: artifact_type, project: project)
+            .and_return(max_artifact_size)
+        end
 
         it 'includes ProcessLsif in the headers' do
           expect(authorize[:headers][:ProcessLsif]).to eq(true)
+        end
+
+        it 'returns 200MB in bytes as maximum size' do
+          expect(authorize[:headers][:MaximumSize]).to eq(200.megabytes.to_i)
         end
       end
     end
@@ -85,7 +97,7 @@ RSpec.describe Ci::JobArtifacts::CreateService, :clean_gitlab_redis_shared_state
 
           allow(JobArtifactUploader)
             .to receive(:generate_final_store_path)
-            .with(root_id: project.id)
+            .with(root_hash: project.id)
             .and_return(final_store_path)
         end
 
@@ -202,6 +214,8 @@ RSpec.describe Ci::JobArtifacts::CreateService, :clean_gitlab_redis_shared_state
           expect(new_artifact.file_format).to eq('gzip')
           expect(new_artifact.file_sha256).to eq(artifacts_sha256)
           expect(new_artifact.locked).to eq(job.pipeline.locked)
+          expect(new_artifact.exposed_as).to eq(nil)
+          expect(new_artifact.exposed_paths).to eq(nil)
         end
 
         it 'logs the created artifact and metadata' do
@@ -223,6 +237,35 @@ RSpec.describe Ci::JobArtifacts::CreateService, :clean_gitlab_redis_shared_state
           expect(job.artifacts_expire_at).to be_within(1.minute).of(expected_expire_at)
           expect(archive_artifact.expire_at).to be_within(1.minute).of(expected_expire_at)
           expect(metadata_artifact.expire_at).to be_within(1.minute).of(expected_expire_at)
+        end
+
+        context 'when the job has exposed artifacts' do
+          let(:job) do
+            create(:ci_build, project: project,
+              options: { artifacts: { expose_as: 'test', paths: ['path1', 'test/path2'] } })
+          end
+
+          it 'creates a new metadata job artifact with exposed_* columns populated' do
+            expect { execute }.to change { Ci::JobArtifact.where(file_type: :metadata).count }.by(1)
+
+            new_artifact = job.job_artifacts.last
+            expect(new_artifact.exposed_as).to eq('test')
+            expect(new_artifact.exposed_paths).to match_array(['path1', 'test/path2'])
+          end
+
+          context 'when FF `ci_use_job_artifacts_table_for_exposed_artifacts` is disabled' do
+            before do
+              stub_feature_flags(ci_use_job_artifacts_table_for_exposed_artifacts: false)
+            end
+
+            it 'creates a new metadata job artifact without exposed_* columns populated' do
+              expect { execute }.to change { Ci::JobArtifact.where(file_type: :metadata).count }.by(1)
+
+              new_artifact = job.job_artifacts.last
+              expect(new_artifact.exposed_as).to eq(nil)
+              expect(new_artifact.exposed_paths).to eq(nil)
+            end
+          end
         end
 
         context 'when expire_in params is set to a specific value' do
@@ -467,8 +510,8 @@ RSpec.describe Ci::JobArtifacts::CreateService, :clean_gitlab_redis_shared_state
     end
 
     shared_examples_for 'handling partitioning' do
-      context 'with job partitioned', :ci_partitionable do
-        let(:partition_id) { ci_testing_partition_id_for_check_constraints }
+      context 'with job partitioned' do
+        let(:partition_id) { ci_testing_partition_id }
         let(:pipeline) { create(:ci_pipeline, project: project, partition_id: partition_id) }
         let(:job) { create(:ci_build, pipeline: pipeline) }
 

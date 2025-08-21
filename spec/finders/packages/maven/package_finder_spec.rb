@@ -3,9 +3,9 @@
 require 'spec_helper'
 
 RSpec.describe ::Packages::Maven::PackageFinder, feature_category: :package_registry do
-  let_it_be(:user)    { create(:user) }
-  let_it_be(:group)   { create(:group) }
-  let_it_be(:project) { create(:project, namespace: group) }
+  let_it_be(:user) { create(:user) }
+  let_it_be_with_refind(:group) { create(:group) }
+  let_it_be_with_reload(:project) { create(:project, namespace: group) }
   let_it_be_with_refind(:package) { create(:maven_package, project: project) }
 
   let(:param_path) { nil }
@@ -64,7 +64,7 @@ RSpec.describe ::Packages::Maven::PackageFinder, feature_category: :package_regi
           is_expected.to be_empty
         end
 
-        context 'when an user assigned the developer role' do
+        context 'when a user is assigned the developer role' do
           before do
             group.add_developer(user)
           end
@@ -82,7 +82,7 @@ RSpec.describe ::Packages::Maven::PackageFinder, feature_category: :package_regi
 
     context 'versionless maven-metadata.xml package' do
       let_it_be(:sub_group1) { create(:group, parent: group) }
-      let_it_be(:sub_group2)   { create(:group, parent: group) }
+      let_it_be(:sub_group2) { create(:group, parent: group) }
       let_it_be(:project1) { create(:project, group: sub_group1) }
       let_it_be(:project2) { create(:project, group: sub_group2) }
       let_it_be(:project3) { create(:project, group: sub_group1) }
@@ -90,6 +90,7 @@ RSpec.describe ::Packages::Maven::PackageFinder, feature_category: :package_regi
       let_it_be(:package1) { create(:maven_package, project: project1, name: package_name, version: nil) }
       let_it_be(:package2) { create(:maven_package, project: project2, name: package_name, version: nil) }
       let_it_be(:package3) { create(:maven_package, project: project3, name: package_name, version: nil) }
+      let_it_be(:package_file) { create(:package_file, :xml, package: package2) }
 
       let(:project_or_group) { group }
       let(:param_path) { package_name }
@@ -97,8 +98,6 @@ RSpec.describe ::Packages::Maven::PackageFinder, feature_category: :package_regi
       before do
         sub_group1.add_developer(user)
         sub_group2.add_developer(user)
-        # the package with the most recently published file should be returned
-        create(:package_file, :xml, package: package2)
       end
 
       context 'without order by package file' do
@@ -110,6 +109,22 @@ RSpec.describe ::Packages::Maven::PackageFinder, feature_category: :package_regi
 
         it { expect(subject.last).to eq(package2) }
       end
+    end
+
+    context 'with anonymous access to public registry in private group/project' do
+      let(:project_or_group) { group }
+      let(:user) { nil }
+
+      before do
+        [group, project].each do |entity|
+          entity.update_column(:visibility_level, Gitlab::VisibilityLevel.const_get(:PRIVATE, false))
+        end
+        project.project_feature.update!(package_registry_access_level: ::ProjectFeature::PUBLIC)
+
+        stub_feature_flags(maven_remove_permissions_check_from_finder: false)
+      end
+
+      it_behaves_like 'handling valid and invalid paths'
     end
   end
 

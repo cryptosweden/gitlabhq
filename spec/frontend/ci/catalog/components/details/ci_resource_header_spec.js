@@ -4,6 +4,8 @@ import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import AbuseCategorySelector from '~/abuse_reports/components/abuse_category_selector.vue';
 import CiResourceHeader from '~/ci/catalog/components/details/ci_resource_header.vue';
 import CiVerificationBadge from '~/ci/catalog/components/shared/ci_verification_badge.vue';
+import ProjectVisibilityIcon from '~/ci/catalog/components/shared/project_visibility_icon.vue';
+import TopicBadges from '~/vue_shared/components/topic_badges.vue';
 import { catalogSharedDataMock } from '../../mock';
 
 describe('CiResourceHeader', () => {
@@ -20,8 +22,11 @@ describe('CiResourceHeader', () => {
   const findAbuseCategorySelector = () => wrapper.findComponent(AbuseCategorySelector);
   const findAvatar = () => wrapper.findComponent(GlAvatar);
   const findAvatarLink = () => wrapper.findComponent(GlAvatarLink);
+  const findTopicBadgesComponent = () => wrapper.findComponent(TopicBadges);
   const findVerificationBadge = () => wrapper.findComponent(CiVerificationBadge);
   const findVersionBadge = () => wrapper.findComponent(GlBadge);
+  const findVisibilityIcon = () => wrapper.findComponent(ProjectVisibilityIcon);
+  const findArchiveBadge = () => wrapper.findByTestId('archive-badge');
 
   const createComponent = ({ props = {} } = {}) => {
     wrapper = shallowMountExtended(CiResourceHeader, {
@@ -84,6 +89,28 @@ describe('CiResourceHeader', () => {
     });
   });
 
+  describe('Visibility level', () => {
+    describe('as a public project', () => {
+      beforeEach(() => {
+        createComponent();
+      });
+
+      it('does not render a lock icon', () => {
+        expect(findVisibilityIcon().exists()).toBe(false);
+      });
+    });
+
+    describe('as a private project', () => {
+      beforeEach(() => {
+        createComponent({ props: { resource: { ...resource, visibilityLevel: 'private' } } });
+      });
+
+      it('renders a lock icon', () => {
+        expect(findVisibilityIcon().exists()).toBe(true);
+      });
+    });
+  });
+
   describe('verification badge', () => {
     describe('when the resource is not verified', () => {
       beforeEach(() => {
@@ -110,6 +137,26 @@ describe('CiResourceHeader', () => {
 
       it('displays the correct badge', () => {
         expect(findVerificationBadge().props('verificationLevel')).toBe(verificationLevel);
+      });
+    });
+  });
+
+  describe('project topics', () => {
+    describe('when there are no topics', () => {
+      it('does not render the topic badges component', () => {
+        createComponent();
+
+        expect(findTopicBadgesComponent().exists()).toBe(false);
+      });
+    });
+
+    describe('when there are topics', () => {
+      it('renders the topic badges component', () => {
+        const topics = ['vue.js', 'Ruby'];
+        createComponent({ props: { resource: { ...resource, topics } } });
+
+        expect(findTopicBadgesComponent().exists()).toBe(true);
+        expect(findTopicBadgesComponent().props('topics')).toBe(topics);
       });
     });
   });
@@ -160,6 +207,18 @@ describe('CiResourceHeader', () => {
           reportedUserId: 0,
           reportedFromUrl: reportedUrl,
         });
+      });
+    });
+
+    describe('archive badge', () => {
+      it('renders the archive badge when resource is archived', () => {
+        createComponent({ props: { resource: { ...resource, archived: true } } });
+        expect(findArchiveBadge().exists()).toBe(true);
+      });
+
+      it('does not render the archive badge when resource is not archived', () => {
+        createComponent({ props: { resource: { ...resource, archived: false } } });
+        expect(findArchiveBadge().exists()).toBe(false);
       });
     });
   });

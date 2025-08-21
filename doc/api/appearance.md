@@ -1,29 +1,37 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Application appearance API
 ---
 
-# Appearance API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
 
-The appearance API allows you to maintain the appearance of GitLab as if
-you're using the GitLab UI at `/admin/appearance`. The API requires
-administrator privileges.
+{{< /details >}}
 
-## Get current appearance configuration
+Use this API to control the appearance of your GitLab instance. For more information, see [GitLab Appearance](../administration/appearance.md).
 
-List the current appearance configuration of the GitLab instance.
+Prerequisites:
+
+- You must have administrator access to the instance.
+
+## Get details on current application appearance
+
+Gets details on the current appearance configuration for this GitLab instance.
 
 ```plaintext
 GET /application/appearance
 ```
 
+Example request:
+
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/application/appearance"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/application/appearance"
 ```
 
 Example response:
@@ -50,23 +58,23 @@ Example response:
 }
 ```
 
-## Change appearance configuration
+## Update application appearance
 
-Use an API call to modify GitLab instance appearance configuration.
+Updates the current appearance configuration for this GitLab instance.
 
 ```plaintext
 PUT /application/appearance
 ```
 
 | Attribute                         | Type    | Required | Description |
-| --------------------------------- | ------- | -------- | ----------- |
+|-----------------------------------|---------|----------|-------------|
 | `title`                           | string  | no       | Instance title on the sign in / sign up page |
 | `description`                     | string  | no       | Markdown text shown on the sign in / sign up page |
 | `pwa_name`                        | string  | no       | Full name of the Progressive Web App. Used for the attribute `name` in `manifest.json`. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/375708) in GitLab 15.8. |
 | `pwa_short_name`                  | string  | no       | Short name for Progressive Web App. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/375708) in GitLab 15.8. |
 | `pwa_description`                 | string  | no       | An explanation of what the Progressive Web App does. Used for the attribute `description` in `manifest.json`. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/375708) in GitLab 15.8. |
-| `pwa_icon`                        | mixed   | no       | Icon used for Progressive Web App. See [Change logo](#change-logo). [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/375708) in GitLab 15.8. |
-| `logo`                            | mixed   | no       | Instance image used on the sign in / sign up page. See [Change logo](#change-logo) |
+| `pwa_icon`                        | mixed   | no       | Icon used for Progressive Web App. See [Update application logo](#update-application-logo). [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/375708) in GitLab 15.8. |
+| `logo`                            | mixed   | no       | Instance image used on the sign in / sign up page. See [Update application logo](#update-application-logo) |
 | `header_logo`                     | mixed   | no       | Instance image used for the main navigation bar |
 | `favicon`                         | mixed   | no       | Instance favicon in `.ico` or `.png` format |
 | `member_guidelines`               | string  | no       | Markdown text shown on the group or project member page for users with permission to change members |
@@ -78,8 +86,12 @@ PUT /application/appearance
 | `message_font_color`              | string  | no       | Font color for the system header / footer bar |
 | `email_header_and_footer_enabled` | boolean | no       | Add header and footer to all outgoing emails if enabled |
 
+Example request:
+
 ```shell
-curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/application/appearance?email_header_and_footer_enabled=true&header_message=test"
+curl --request PUT \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/application/appearance?email_header_and_footer_enabled=true&header_message=test"
 ```
 
 Example response:
@@ -106,37 +118,38 @@ Example response:
 }
 ```
 
-## Change logo
+## Update application logo
 
-Upload a logo to your GitLab instance.
+Updates the current logo for this GitLab instance with an included image file.
 
-To upload an avatar from your file system, use the `--form` argument. This causes
-cURL to post data using the header `Content-Type: multipart/form-data`. The
-`file=` parameter must point to an image file on your file system and be
+To upload an avatar from your local file system, use the `--form` argument to include the file.
+This causes cURL to post data using the header `Content-Type: multipart/form-data`.
+The `file=` parameter must point to an image file on your file system and be
 preceded by `@`.
 
 ```plaintext
 PUT /application/appearance
 ```
 
-| Attribute   | Type   | Required | Description    |
-| ---------   | ------ | -------- | -------------- |
-| `logo`      | mixed  | Yes      | File to upload |
-| `pwa_icon`  | mixed  | Yes      | File to upload. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/375708) in GitLab 15.8. |
+| Attribute  | Type  | Required | Description |
+|------------|-------|----------|-------------|
+| `logo`     | mixed | Yes      | Image used as a logo. |
+| `pwa_icon` | mixed | Yes      | Image used for the Progressive Web App. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/375708) in GitLab 15.8. |
 
 Example request:
 
 ```shell
-curl --location --request PUT "https://gitlab.example.com/api/v4/application/appearance?data=image/png" \
---header "Content-Type: multipart/form-data" \
---header "PRIVATE-TOKEN: <your_access_token>" \
---form "logo=@/path/to/logo.png"
+curl --location --request PUT \
+  --url "https://gitlab.example.com/api/v4/application/appearance?data=image/png" \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --header "Content-Type: multipart/form-data" \
+  --form "logo=@/path/to/logo.png"
 ```
 
-Returned object:
+Example response:
 
 ```json
 {
-   "logo":"/uploads/-/system/appearance/logo/1/logo.png"
+  "logo":"/uploads/-/system/appearance/logo/1/logo.png"
 }
 ```

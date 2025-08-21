@@ -13,8 +13,7 @@ import IssueCardTimeInfo from 'ee_else_ce/issues/list/components/issue_card_time
 import createMockApollo from 'helpers/mock_apollo_helper';
 import setWindowLocation from 'helpers/set_window_location_helper';
 import { TEST_HOST } from 'helpers/test_constants';
-import { mountExtended, shallowMountExtended } from 'helpers/vue_test_utils_helper';
-import { stubComponent } from 'helpers/stub_component';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import {
   filteredTokens,
@@ -38,8 +37,8 @@ import { issuableListTabs } from '~/vue_shared/issuable/list/constants';
 import EmptyStateWithAnyIssues from '~/issues/list/components/empty_state_with_any_issues.vue';
 import EmptyStateWithoutAnyIssues from '~/issues/list/components/empty_state_without_any_issues.vue';
 import IssuesListApp from '~/issues/list/components/issues_list_app.vue';
-import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
 import NewResourceDropdown from '~/vue_shared/components/new_resource_dropdown/new_resource_dropdown.vue';
+import CreateWorkItemModal from '~/work_items/components/create_work_item_modal.vue';
 import WorkItemDrawer from '~/work_items/components/work_item_drawer.vue';
 import {
   CREATED_DESC,
@@ -54,12 +53,18 @@ import { getSortKey, getSortOptions } from '~/issues/list/utils';
 import axios from '~/lib/utils/axios_utils';
 import { HTTP_STATUS_INTERNAL_SERVER_ERROR } from '~/lib/utils/http_status';
 import { scrollUp } from '~/lib/utils/scroll_utils';
-import { joinPaths } from '~/lib/utils/url_utility';
 import {
+  joinPaths,
+  getParameterByName,
+  updateHistory,
+  removeParams,
+} from '~/lib/utils/url_utility';
+import {
+  CREATION_CONTEXT_LIST_ROUTE,
   WORK_ITEM_TYPE_ENUM_INCIDENT,
   WORK_ITEM_TYPE_ENUM_ISSUE,
   WORK_ITEM_TYPE_ENUM_TASK,
-  WORK_ITEM_TYPE_ENUM_TEST_CASE,
+  DETAIL_VIEW_QUERY_PARAM_NAME,
 } from '~/work_items/constants';
 import {
   TOKEN_TYPE_ASSIGNEE,
@@ -75,8 +80,8 @@ import {
   TOKEN_TYPE_TYPE,
   TOKEN_TYPE_CREATED,
   TOKEN_TYPE_CLOSED,
+  TOKEN_TYPE_SUBSCRIBED,
 } from '~/vue_shared/components/filtered_search_bar/constants';
-import deleteWorkItemMutation from '~/work_items/graphql/delete_work_item.mutation.graphql';
 import {
   workItemResponseFactory,
   workItemByIidResponseFactory,
@@ -87,15 +92,13 @@ import {
   mockMilestone,
 } from 'jest/work_items/mock_data';
 
-import { stubExperiments } from 'helpers/experimentation_helper';
-import GitlabExperiment from '~/experimentation/components/gitlab_experiment.vue';
-
 import('~/issuable');
 import('~/users_select');
 
 jest.mock('~/sentry/sentry_browser_wrapper');
 jest.mock('~/alert');
 jest.mock('~/lib/utils/scroll_utils', () => ({ scrollUp: jest.fn() }));
+jest.mock('~/lib/utils/url_utility');
 
 describe('CE IssuesListApp component', () => {
   let axiosMock;
@@ -103,6 +106,8 @@ describe('CE IssuesListApp component', () => {
 
   Vue.use(VueApollo);
   Vue.use(VueRouter);
+
+  const fullPath = 'path/to/project';
 
   const defaultProvide = {
     autocompleteAwardEmojisPath: 'autocomplete/award/emojis/path',
@@ -113,14 +118,17 @@ describe('CE IssuesListApp component', () => {
     canReadCrmContact: false,
     canReadCrmOrganization: false,
     exportCsvPath: 'export/csv/path',
-    fullPath: 'path/to/project',
+    fullPath,
     hasAnyIssues: true,
     hasAnyProjects: true,
     hasBlockedIssuesFeature: true,
+    hasCustomFieldsFeature: true,
     hasIssueDateFilterFeature: true,
     hasIssuableHealthStatusFeature: true,
     hasIssueWeightsFeature: true,
     hasIterationsFeature: true,
+    hasOkrsFeature: false,
+    hasQualityManagementFeature: false,
     hasScopedLabelsFeature: true,
     initialEmail: 'email@example.com',
     initialSort: CREATED_DESC,
@@ -135,9 +143,12 @@ describe('CE IssuesListApp component', () => {
     showNewIssueLink: true,
     signInPath: 'sign/in/path',
     groupId: '',
+    timeTrackingLimitToHours: false,
+    hasStatusFeature: true,
   };
 
   let defaultQueryResponse = getIssuesQueryResponse;
+  /** @type {import('vue-router').default} */
   let router;
   if (IS_EE) {
     defaultQueryResponse = cloneDeep(getIssuesQueryResponse);
@@ -147,24 +158,27 @@ describe('CE IssuesListApp component', () => {
     defaultQueryResponse.data.project.issues.nodes[0].epic = {
       id: 'gid://gitlab/Epic/1',
     };
+    defaultQueryResponse.data.project.issues.nodes[0].status = {
+      color: '#DD2B0E',
+      iconName: 'status-cancelled',
+      id: 'gid://gitlab/WorkItems::Statuses::SystemDefined::Status/4',
+      name: "Won't do",
+      description: '',
+      position: 0,
+      __typename: 'WorkItemStatus',
+    };
   }
 
   const mockIssuesQueryResponse = jest.fn().mockResolvedValue(defaultQueryResponse);
   const mockIssuesCountsQueryResponse = jest.fn().mockResolvedValue(getIssuesCountsQueryResponse);
 
-  const deleteWorkItemMutationHandler = jest
-    .fn()
-    .mockResolvedValue({ data: { workItemDelete: { errors: [] } } });
-
+  const findCreateWorkItemModal = () => wrapper.findComponent(CreateWorkItemModal);
   const findCsvImportExportButtons = () => wrapper.findComponent(CsvImportExportButtons);
   const findDropdown = () => wrapper.findComponent(GlDisclosureDropdown);
   const findIssuableByEmail = () => wrapper.findComponent(IssuableByEmail);
   const findGlButton = () => wrapper.findComponent(GlButton);
   const findGlButtons = () => wrapper.findAllComponents(GlButton);
   const findIssuableList = () => wrapper.findComponent(IssuableList);
-  const findListViewTypeBtn = () => wrapper.findByTestId('list-view-type');
-  const findGridtViewTypeBtn = () => wrapper.findByTestId('grid-view-type');
-  const findViewTypeLocalStorageSync = () => wrapper.findAllComponents(LocalStorageSync).at(0);
   const findNewResourceDropdown = () => wrapper.findComponent(NewResourceDropdown);
   const findCalendarButton = () => wrapper.findByTestId('subscribe-calendar');
   const findRssButton = () => wrapper.findByTestId('subscribe-rss');
@@ -185,13 +199,11 @@ describe('CE IssuesListApp component', () => {
     sortPreferenceMutationResponse = jest.fn().mockResolvedValue(setSortPreferenceMutationResponse),
     stubs = {},
     mountFn = shallowMount,
-    deleteMutationHandler = deleteWorkItemMutationHandler,
   } = {}) => {
     const requestHandlers = [
       [getIssuesQuery, issuesQueryResponse],
       [getIssuesCountsQuery, issuesCountsQueryResponse],
       [setSortPreferenceMutation, sortPreferenceMutationResponse],
-      [deleteWorkItemMutation, deleteMutationHandler],
     ];
 
     router = new VueRouter({ mode: 'history' });
@@ -230,6 +242,9 @@ describe('CE IssuesListApp component', () => {
   beforeEach(() => {
     setWindowLocation(TEST_HOST);
     axiosMock = new AxiosMockAdapter(axios);
+    joinPaths.mockImplementation((args) =>
+      jest.requireActual('~/lib/utils/url_utility').joinPaths(args),
+    );
   });
 
   afterEach(() => {
@@ -268,7 +283,6 @@ describe('CE IssuesListApp component', () => {
         hasPreviousPage: getIssuesQueryResponse.data.project.issues.pageInfo.hasPreviousPage,
         hasNextPage: getIssuesQueryResponse.data.project.issues.pageInfo.hasNextPage,
       });
-      expect(findIssuableList().props('isGridView')).toBe(false);
     });
   });
 
@@ -360,6 +374,25 @@ describe('CE IssuesListApp component', () => {
       });
     });
 
+    describe('create modal', () => {
+      it.each([true, false])(
+        'renders depending on whether issuesListCreateModal=%s',
+        (issuesListCreateModal) => {
+          wrapper = mountComponent({ provide: { glFeatures: { issuesListCreateModal } } });
+
+          expect(findCreateWorkItemModal().exists()).toBe(issuesListCreateModal);
+        },
+      );
+
+      it('renders in "list route" creation context', () => {
+        wrapper = mountComponent({ provide: { glFeatures: { issuesListCreateModal: true } } });
+
+        expect(findCreateWorkItemModal().props('creationContext')).toBe(
+          CREATION_CONTEXT_LIST_ROUTE,
+        );
+      });
+    });
+
     describe('new issue button', () => {
       it('renders when user has permissions', () => {
         wrapper = mountComponent({ provide: { showNewIssueLink: true }, mountFn: mount });
@@ -370,6 +403,12 @@ describe('CE IssuesListApp component', () => {
 
       it('does not render when user does not have permissions', () => {
         wrapper = mountComponent({ provide: { showNewIssueLink: false }, mountFn: mount });
+
+        expect(findGlButtons().filter((button) => button.text() === 'New issue')).toHaveLength(0);
+      });
+
+      it('does not render when `issuesListCreateModal` is enabled', () => {
+        wrapper = mountComponent({ provide: { glFeatures: { issuesListCreateModal: true } } });
 
         expect(findGlButtons().filter((button) => button.text() === 'New issue')).toHaveLength(0);
       });
@@ -387,37 +426,14 @@ describe('CE IssuesListApp component', () => {
 
         expect(findNewResourceDropdown().exists()).toBe(true);
       });
-    });
-  });
 
-  describe('header action buttons with the grid view enabled', () => {
-    beforeEach(() => {
-      wrapper = mountComponent({
-        mountFn: shallowMountExtended,
-        provide: {
-          glFeatures: {
-            issuesGridView: true,
-          },
-        },
-        stubs: {
-          IssuableList: stubComponent(IssuableList, {
-            template: `<div><slot name="nav-actions" /></div>`,
-          }),
-        },
+      it('does not render when `issuesListCreateModal` is enabled', () => {
+        wrapper = mountComponent({
+          provide: { isProject: false, glFeatures: { issuesListCreateModal: true } },
+        });
+
+        expect(findNewResourceDropdown().exists()).toBe(false);
       });
-    });
-
-    it('switch between list and grid', async () => {
-      findGridtViewTypeBtn().vm.$emit('click');
-      await nextTick();
-
-      expect(findIssuableList().props('isGridView')).toBe(true);
-      expect(findViewTypeLocalStorageSync().props('value')).toBe('Grid');
-
-      findListViewTypeBtn().vm.$emit('click');
-      await nextTick();
-      expect(findIssuableList().props('isGridView')).toBe(false);
-      expect(findViewTypeLocalStorageSync().props('value')).toBe('List');
     });
   });
 
@@ -454,6 +470,18 @@ describe('CE IssuesListApp component', () => {
     });
 
     describe('sort', () => {
+      describe('when sort is specified in the url params', () => {
+        getParameterByName.mockImplementation((args) =>
+          jest.requireActual('~/lib/utils/url_utility').getParameterByName(args),
+        );
+        it.each(Object.keys(urlSortParams))('sort is set to value %s', (sort) => {
+          setWindowLocation(`?sort=${sort}`);
+          wrapper = mountComponent();
+
+          expect(findIssuableList().props('initialSortBy')).toBe(sort);
+        });
+      });
+
       describe('when initial sort value uses old enum values', () => {
         const oldEnumSortValues = Object.values(urlSortParams);
 
@@ -509,6 +537,9 @@ describe('CE IssuesListApp component', () => {
       it('is set from the url params', () => {
         const initialState = STATUS_ALL;
         setWindowLocation(`?state=${initialState}`);
+        getParameterByName.mockImplementation((args) =>
+          jest.requireActual('~/lib/utils/url_utility').getParameterByName(args),
+        );
         wrapper = mountComponent();
 
         expect(findIssuableList().props('currentTab')).toBe(initialState);
@@ -518,16 +549,9 @@ describe('CE IssuesListApp component', () => {
     describe('filter tokens', () => {
       it('groups url params of assignee and author', () => {
         setWindowLocation(locationSearch);
-        wrapper = mountComponent({ provide: { glFeatures: { groupMultiSelectTokens: true } } });
-
-        expect(findIssuableList().props('initialFilterValue')).toEqual(groupedFilteredTokens);
-      });
-
-      it('is set from the url params', () => {
-        setWindowLocation(locationSearch);
         wrapper = mountComponent();
 
-        expect(findIssuableList().props('initialFilterValue')).toEqual(filteredTokens);
+        expect(findIssuableList().props('initialFilterValue')).toEqual(groupedFilteredTokens);
       });
     });
   });
@@ -573,22 +597,6 @@ describe('CE IssuesListApp component', () => {
       expect(findIssuableByEmail().attributes()).toMatchObject({
         'data-track-action': 'click_email_issue_project_issues_empty_list_page',
         'data-track-label': 'email_issue_project_issues_empty_list',
-        'data-track-experiment': 'issues_mrs_empty_state',
-      });
-    });
-
-    describe('when issues_mrs_empty_state candidate experiment', () => {
-      beforeEach(() => {
-        stubExperiments({ issues_mrs_empty_state: 'candidate' });
-      });
-
-      it('does not render IssuableByEmail', () => {
-        wrapper = mountComponent({
-          provide: { initialEmail: true, canCreateIssue: true },
-          stubs: { GitlabExperiment },
-        });
-
-        expect(findIssuableByEmail().exists()).toBe(false);
       });
     });
   });
@@ -624,7 +632,6 @@ describe('CE IssuesListApp component', () => {
             currentTabCount: 0,
             exportCsvPathWithQuery: defaultProvide.exportCsvPath,
             showCsvButtons: true,
-            showIssuableByEmail: false,
             showNewIssueDropdown: false,
           });
         });
@@ -672,7 +679,7 @@ describe('CE IssuesListApp component', () => {
         wrapper = mountComponent({ provide: { isSignedIn: false } });
       });
 
-      it('does not render My-Reaction or Confidential tokens', () => {
+      it('does not render My reaction or Confidential tokens', () => {
         expect(findIssuableList().props('searchTokens')).not.toMatchObject([
           { type: TOKEN_TYPE_AUTHOR, preloadedUsers: [mockCurrentUser] },
           { type: TOKEN_TYPE_ASSIGNEE, preloadedUsers: [mockCurrentUser] },
@@ -733,6 +740,7 @@ describe('CE IssuesListApp component', () => {
           { type: TOKEN_TYPE_ORGANIZATION },
           { type: TOKEN_TYPE_RELEASE },
           { type: TOKEN_TYPE_SEARCH_WITHIN },
+          { type: TOKEN_TYPE_SUBSCRIBED },
           { type: TOKEN_TYPE_TYPE },
         ]);
       });
@@ -1043,6 +1051,21 @@ describe('CE IssuesListApp component', () => {
           query: expect.objectContaining({ first_page_size: 50 }),
         });
       });
+
+      it('calls the query with correct variables', async () => {
+        wrapper = mountComponent();
+
+        findIssuableList().vm.$emit('page-size-change', 50);
+        await nextTick();
+
+        expect(mockIssuesQueryResponse).toHaveBeenCalledWith(
+          expect.objectContaining({
+            afterCursor: undefined,
+            beforeCursor: undefined,
+            firstPageSize: 50,
+          }),
+        );
+      });
     });
   });
 
@@ -1070,11 +1093,10 @@ describe('CE IssuesListApp component', () => {
       wrapper = mountComponent();
     });
 
-    it('fetches issue, incident, test case, and task types', () => {
+    it('fetches default work item types', () => {
       const types = [
         WORK_ITEM_TYPE_ENUM_ISSUE,
         WORK_ITEM_TYPE_ENUM_INCIDENT,
-        WORK_ITEM_TYPE_ENUM_TEST_CASE,
         WORK_ITEM_TYPE_ENUM_TASK,
       ];
 
@@ -1086,33 +1108,15 @@ describe('CE IssuesListApp component', () => {
   });
 
   describe('when providing token for labels', () => {
-    it('passes function to fetchLatestLabels property if frontend caching is enabled', () => {
-      wrapper = mountComponent({
-        provide: {
-          glFeatures: {
-            frontendCaching: true,
-          },
-        },
-      });
+    it('passes function to fetchLatestLabels property', () => {
+      wrapper = mountComponent();
 
       expect(typeof findLabelsToken().fetchLatestLabels).toBe('function');
-    });
-
-    it('passes null to fetchLatestLabels property if frontend caching is disabled', () => {
-      wrapper = mountComponent({
-        provide: {
-          glFeatures: {
-            frontendCaching: false,
-          },
-        },
-      });
-
-      expect(findLabelsToken().fetchLatestLabels).toBe(null);
     });
   });
 
   describe('when issue drawer is enabled', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       wrapper = mountComponent({
         provide: {
           glFeatures: {
@@ -1120,6 +1124,7 @@ describe('CE IssuesListApp component', () => {
           },
         },
       });
+      await waitForPromises();
     });
 
     it('renders issuable drawer component', () => {
@@ -1174,14 +1179,14 @@ describe('CE IssuesListApp component', () => {
 
           await waitForPromises();
 
-          expect(mockIssuesQueryResponse).toHaveBeenCalledTimes(2);
-          expect(mockIssuesCountsQueryResponse).toHaveBeenCalledTimes(2);
+          expect(mockIssuesQueryResponse).toHaveBeenCalledTimes(1);
+          expect(mockIssuesCountsQueryResponse).toHaveBeenCalledTimes(1);
         });
 
         it('updates the assignees field of active issuable', async () => {
           const {
             data: { workItem },
-          } = workItemResponseFactory({ iid: '789' });
+          } = workItemResponseFactory({ id: 'gid://gitlab/WorkItem/123456', iid: '789' });
           findWorkItemDrawer().vm.$emit('work-item-updated', workItem);
 
           await waitForPromises();
@@ -1197,7 +1202,7 @@ describe('CE IssuesListApp component', () => {
         it('updates the labels field of active issuable', async () => {
           const {
             data: { workItem },
-          } = workItemResponseFactory({ iid: '789' });
+          } = workItemResponseFactory({ id: 'gid://gitlab/WorkItem/123456', iid: '789' });
           findWorkItemDrawer().vm.$emit('work-item-updated', workItem);
 
           await waitForPromises();
@@ -1213,6 +1218,7 @@ describe('CE IssuesListApp component', () => {
 
         it('updates the upvotes count of active issuable', async () => {
           const { workItem } = workItemByIidResponseFactory({
+            id: 'gid://gitlab/WorkItem/123456',
             iid: '789',
             awardEmoji: {
               ...mockAwardsWidget,
@@ -1228,15 +1234,16 @@ describe('CE IssuesListApp component', () => {
         });
 
         it('updates the milestone field of active issuable', async () => {
+          const { projectMilestone, ...updatedMockMilestone } = mockMilestone;
           const {
             data: { workItem },
-          } = workItemResponseFactory({ iid: '789' });
+          } = workItemResponseFactory({ id: 'gid://gitlab/WorkItem/123456', iid: '789' });
           findWorkItemDrawer().vm.$emit('work-item-updated', workItem);
 
           await waitForPromises();
 
           expect(findIssuableList().props('issuables')[0].milestone).toEqual({
-            ...mockMilestone,
+            ...updatedMockMilestone,
             __persist: true,
             expired: undefined,
             state: undefined,
@@ -1246,12 +1253,16 @@ describe('CE IssuesListApp component', () => {
         it('updates the title and confidential state of active issuable', async () => {
           const {
             data: { workItem },
-          } = workItemResponseFactory({ iid: '789', confidential: true });
+          } = workItemResponseFactory({
+            id: 'gid://gitlab/WorkItem/123456',
+            iid: '789',
+            confidential: true,
+          });
           findWorkItemDrawer().vm.$emit('work-item-updated', workItem);
 
           await waitForPromises();
 
-          expect(findIssuableList().props('issuables')[0].title).toBe('Updated title');
+          expect(findIssuableList().props('issuables')[0].title).toBe('Updated _title_');
           expect(findIssuableList().props('issuables')[0].confidential).toBe(true);
         });
 
@@ -1277,13 +1288,8 @@ describe('CE IssuesListApp component', () => {
       });
 
       describe('when deleting an issuable from the drawer', () => {
-        beforeEach(async () => {
-          const {
-            data: { workItem },
-          } = workItemResponseFactory({ iid: '789' });
-          findWorkItemDrawer().vm.$emit('deleteWorkItem', workItem);
-
-          await waitForPromises();
+        beforeEach(() => {
+          findWorkItemDrawer().vm.$emit('workItemDeleted');
         });
 
         it('should refetch issues and issues count', () => {
@@ -1299,18 +1305,12 @@ describe('CE IssuesListApp component', () => {
   });
 
   it('shows an error when deleting from the drawer fails', async () => {
-    const errorHandler = jest.fn().mockRejectedValue('Houston, we have a problem');
-    const {
-      data: { workItem },
-    } = workItemResponseFactory({ iid: '789' });
-
     wrapper = mountComponent({
       provide: {
         glFeatures: {
           issuesListDrawer: true,
         },
       },
-      deleteMutationHandler: errorHandler,
     });
 
     findIssuableList().vm.$emit(
@@ -1319,10 +1319,102 @@ describe('CE IssuesListApp component', () => {
     );
     await nextTick();
 
-    findWorkItemDrawer().vm.$emit('deleteWorkItem', workItem);
-    await waitForPromises();
+    findWorkItemDrawer().vm.$emit('deleteWorkItemError');
+    await nextTick();
 
-    expect(Sentry.captureException).toHaveBeenCalled();
     expect(findIssuableList().props('error')).toBe('An error occurred while deleting an issuable.');
+  });
+
+  describe('when the URL contains a `show` parameter', () => {
+    const { id, iid } = defaultQueryResponse.data.project.issues.nodes[0];
+    const mountForShowParameter = async (
+      showParams = { id: getIdFromGraphQLId(id), iid, full_path: fullPath },
+    ) => {
+      const show = btoa(JSON.stringify(showParams));
+      setWindowLocation(`?${DETAIL_VIEW_QUERY_PARAM_NAME}=${show}`);
+      getParameterByName.mockReturnValue(show);
+      wrapper = mountComponent({
+        provide: {
+          glFeatures: {
+            issuesListDrawer: true,
+          },
+        },
+      });
+      await waitForPromises();
+    };
+    it('calls `getParameterByName` to get the `show` param', async () => {
+      await mountForShowParameter();
+
+      expect(getParameterByName).toHaveBeenCalledWith(DETAIL_VIEW_QUERY_PARAM_NAME);
+    });
+    describe('and the `show` param contains an item in the list', () => {
+      it('sets the `activeIssuable` for the work item drawer', async () => {
+        await mountForShowParameter();
+
+        expect(findWorkItemDrawer().props('activeItem')).toMatchObject({ id, iid, fullPath });
+      });
+    });
+    describe('and the `show` param does not contain an item in the list', () => {
+      beforeEach(async () => {
+        await mountForShowParameter({
+          id: 'gid://gitlab/Issue/999999',
+          iid: '999999',
+          full_path: 'does/not/match',
+        });
+      });
+      it('`updateHistory` is called', () => {
+        expect(updateHistory).toHaveBeenCalled();
+      });
+      it('`removeParams` is called to remove the `show` param', () => {
+        expect(removeParams).toHaveBeenCalledWith([DETAIL_VIEW_QUERY_PARAM_NAME]);
+      });
+    });
+  });
+
+  describe('when the route is updated', () => {
+    const { id, iid } = defaultQueryResponse.data.project.issues.nodes[0];
+    const show = btoa(JSON.stringify({ id: getIdFromGraphQLId(id), iid, full_path: fullPath }));
+    beforeEach(async () => {
+      getParameterByName.mockReturnValue(show);
+      wrapper = mountComponent({
+        provide: {
+          glFeatures: {
+            issuesListDrawer: true,
+          },
+        },
+      });
+      await waitForPromises();
+    });
+    describe('and the query contains a `show` parameter', () => {
+      it('calls `getParameterByName` to get the show param', async () => {
+        await router.push({ query: { show } });
+        expect(getParameterByName).toHaveBeenLastCalledWith(DETAIL_VIEW_QUERY_PARAM_NAME);
+      });
+    });
+    describe('and the query does not contain a `show` parameter', () => {
+      it('sets the `activeIssuable` to null, closing the drawer', async () => {
+        findIssuableList().vm.$emit(
+          'select-issuable',
+          getIssuesQueryResponse.data.project.issues.nodes[0],
+        );
+        expect(findWorkItemDrawer().props('open')).toBe(true);
+        await router.push({ query: { otherThing: true } });
+        expect(findWorkItemDrawer().props('open')).toBe(false);
+      });
+    });
+    describe('on window `popstate` event', () => {
+      it('sets the `activeIssuable` to null, closing the drawer if show parameter is not present', async () => {
+        findIssuableList().vm.$emit(
+          'select-issuable',
+          getIssuesQueryResponse.data.project.issues.nodes[0],
+        );
+        expect(findWorkItemDrawer().props('open')).toBe(true);
+
+        setWindowLocation('?otherThing=true');
+        window.dispatchEvent(new Event('popstate'));
+        await nextTick();
+        expect(findWorkItemDrawer().props('open')).toBe(false);
+      });
+    });
   });
 });

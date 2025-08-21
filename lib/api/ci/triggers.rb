@@ -31,6 +31,7 @@ module API
             documentation: { example: '6d056f63e50fe6f8c5f8f4aa10edb7' }
           optional :variables, type: Hash, desc: 'The list of variables to be injected into build',
             documentation: { example: { VAR1: "value1", VAR2: "value2" } }
+          optional :inputs, type: Hash, desc: 'The list of inputs to be used to create the pipeline.'
         end
         post ":id/(ref/:ref/)trigger/pipeline", requirements: { ref: /.+/ } do
           Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/20758')
@@ -68,17 +69,14 @@ module API
         params do
           use :pagination
         end
-        # rubocop: disable CodeReuse/ActiveRecord
         get ':id/triggers' do
           authenticate!
           authorize! :admin_build, user_project
 
-          triggers = user_project.triggers.includes(:trigger_requests)
+          triggers = user_project.triggers.with_last_used
 
           present paginate(triggers), with: Entities::Trigger, current_user: current_user
         end
-        # rubocop: enable CodeReuse/ActiveRecord
-
         desc 'Get specific trigger token of a project' do
           success code: 200, model: Entities::Trigger
           failure [
@@ -112,6 +110,8 @@ module API
         params do
           requires :description, type: String, desc: 'The trigger token description',
             documentation: { example: 'my trigger token description' }
+          optional :expires_at, type: DateTime, desc: 'Timestamp of when the pipeline trigger token expires.',
+            documentation: { example: '2024-07-01' }
         end
         post ':id/triggers' do
           authenticate!
@@ -121,7 +121,8 @@ module API
             ::Ci::PipelineTriggers::CreateService.new(
               project: user_project,
               user: current_user,
-              description: declared_params(include_missing: false)[:description]
+              description: declared_params(include_missing: false)[:description],
+              expires_at: declared_params(include_missing: true)[:expires_at]
             ).execute
 
           if response.success?

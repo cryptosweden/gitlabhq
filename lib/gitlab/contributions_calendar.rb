@@ -15,8 +15,13 @@ module Gitlab
       @contributor_time_instance = local_timezone_instance(contributor.timezone).now
       @current_user = current_user
       @groups = [] # Overriden in EE
-      @projects = ContributedProjectsFinder.new(contributor)
-        .execute(current_user, ignore_visibility: @contributor.include_private_contributions?)
+      @projects = ContributedProjectsFinder.new(
+        user: @contributor,
+        current_user: current_user,
+        params: {
+          ignore_visibility: @contributor.include_private_contributions?
+        }
+      ).execute
     end
 
     def activity_dates
@@ -59,6 +64,11 @@ module Gitlab
           .for_issue
           .for_action(%i[created closed])
 
+      design_events =
+        project_events_created_between(start_time, end_time, features: :issues)
+          .for_design
+          .for_action(%i[created updated destroyed])
+
       mr_events =
         project_events_created_between(start_time, end_time, features: :merge_requests)
           .for_merge_request
@@ -68,7 +78,7 @@ module Gitlab
         project_events_created_between(start_time, end_time, features: %i[issues merge_requests])
           .for_action(:commented)
 
-      [repo_events, issue_events, mr_events, project_note_events]
+      [repo_events, issue_events, design_events, mr_events, project_note_events]
     end
 
     def can_read_cross_project?

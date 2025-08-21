@@ -8,25 +8,27 @@
 class FlushCounterIncrementsWorker
   include ApplicationWorker
 
-  data_consistency :always
+  data_consistency :delayed
 
   sidekiq_options retry: 3
   loggable_arguments 0, 2
-
+  defer_on_database_health_signal :gitlab_main, [:project_daily_statistics], 1.minute
   # The increments in `ProjectStatistics` are owned by several teams depending
   # on the counter
-  feature_category :not_owned # rubocop:disable Gitlab/AvoidFeatureCategoryNotOwned
+  feature_category :continuous_integration
 
   urgency :low
-  deduplicate :until_executing, including_scheduled: true
+  deduplicate :until_executed, including_scheduled: true, if_deduplicated: :reschedule_once
 
   idempotent!
+
+  max_concurrency_limit_percentage 0.5
 
   def perform(model_name, model_id, attribute)
     return unless self.class.const_defined?(model_name)
 
     model_class = model_name.constantize
-    model = model_class.find_by_id(model_id)
+    model = model_class.primary_key_in([model_id]).take # rubocop: disable CodeReuse/ActiveRecord -- we work on a dynamic model name
     return unless model
 
     Gitlab::Counters::BufferedCounter.new(model, attribute).commit_increment!

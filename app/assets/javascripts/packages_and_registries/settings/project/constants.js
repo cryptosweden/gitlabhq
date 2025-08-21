@@ -1,11 +1,10 @@
 import { s__, __ } from '~/locale';
 
-export const CONTAINER_CLEANUP_POLICY_TITLE = s__('ContainerRegistry|Cleanup policies');
+export const CONTAINER_CLEANUP_POLICY_TITLE = s__(
+  'ContainerRegistry|Container registry cleanup policies',
+);
 export const CONTAINER_CLEANUP_POLICY_DESCRIPTION = s__(
   `ContainerRegistry|Save storage space by automatically deleting tags from the container registry and keeping the ones you want. %{linkStart}How does cleanup work?%{linkEnd}`,
-);
-export const CONTAINER_CLEANUP_POLICY_RULES_DESCRIPTION = s__(
-  'ContainerRegistry|Set rules to automatically remove unused packages to save storage space.',
 );
 export const CONTAINER_CLEANUP_POLICY_EDIT_RULES = s__('ContainerRegistry|Edit cleanup rules');
 export const CONTAINER_CLEANUP_POLICY_SET_RULES = s__('ContainerRegistry|Set cleanup rules');
@@ -29,7 +28,7 @@ export const TEXT_AREA_INVALID_FEEDBACK = s__(
 
 export const KEEP_HEADER_TEXT = s__('ContainerRegistry|Keep these tags');
 export const KEEP_INFO_TEXT = s__(
-  'ContainerRegistry|Tags that match %{strongStart}any of%{strongEnd} these rules are %{strongStart}kept%{strongEnd}, even if they match a removal rule below. The %{strongStart}latest%{strongEnd} tag is always kept.',
+  'ContainerRegistry|Tags that match %{strongStart}any of%{strongEnd} these rules are %{strongStart}kept%{strongEnd}, even if they match %{strongStart}all%{strongEnd} removal rules below. The %{strongStart}latest%{strongEnd} tag is always kept.',
 );
 export const KEEP_N_LABEL = s__('ContainerRegistry|Keep the most recent:');
 export const NAME_REGEX_KEEP_LABEL = s__('ContainerRegistry|Keep tags matching:');
@@ -39,7 +38,7 @@ export const NAME_REGEX_KEEP_DESCRIPTION = s__(
 
 export const REMOVE_HEADER_TEXT = s__('ContainerRegistry|Remove these tags');
 export const REMOVE_INFO_TEXT = s__(
-  'ContainerRegistry|Tags that match these rules are %{strongStart}removed%{strongEnd}, unless a rule above says to keep them.',
+  'ContainerRegistry|Tags that match %{strongStart}all%{strongEnd} these rules are %{strongStart}removed%{strongEnd}, unless they match %{strongStart}any%{strongEnd} keep rules above.',
 );
 export const EXPIRATION_SCHEDULE_LABEL = s__('ContainerRegistry|Remove tags older than:');
 export const NAME_REGEX_LABEL = s__('ContainerRegistry|Remove tags matching:');
@@ -48,10 +47,10 @@ export const NAME_REGEX_DESCRIPTION = s__(
 );
 
 export const ENABLED_TOGGLE_DESCRIPTION = s__(
-  'ContainerRegistry|%{strongStart}Enabled%{strongEnd} - Tags that match the rules on this page are automatically scheduled for deletion.',
+  'ContainerRegistry|Enabled - tags that match the rules on this page are automatically scheduled for deletion.',
 );
 export const DISABLED_TOGGLE_DESCRIPTION = s__(
-  'ContainerRegistry|%{strongStart}Disabled%{strongEnd} - Tags will not be automatically deleted.',
+  'ContainerRegistry|Disabled - tags will not be automatically deleted.',
 );
 
 export const CADENCE_LABEL = s__('ContainerRegistry|Run cleanup:');
@@ -116,6 +115,65 @@ export const OLDER_THAN_OPTIONS = [
   { key: 'THIRTY_DAYS', variable: 30, default: false },
   { key: 'SIXTY_DAYS', variable: 60, default: false },
   { key: 'NINETY_DAYS', variable: 90, default: true },
+];
+
+// Needs to be an empty string instead of `null` for @vue/compat. The value
+// should be transformed back to `null` as an input to the GraphQL query.
+export const GRAPHQL_ACCESS_LEVEL_VALUE_NULL = '';
+export const GRAPHQL_ACCESS_LEVEL_VALUE_MAINTAINER = 'MAINTAINER';
+const GRAPHQL_ACCESS_LEVEL_VALUE_OWNER = 'OWNER';
+const GRAPHQL_ACCESS_LEVEL_VALUE_ADMIN = 'ADMIN';
+
+export const MinimumAccessLevelText = {
+  [GRAPHQL_ACCESS_LEVEL_VALUE_MAINTAINER]: __('Maintainer'),
+  [GRAPHQL_ACCESS_LEVEL_VALUE_OWNER]: __('Owner'),
+  [GRAPHQL_ACCESS_LEVEL_VALUE_ADMIN]: s__('AdminUsers|Administrator'),
+};
+
+export const MinimumAccessLevelOptions = [
+  { value: GRAPHQL_ACCESS_LEVEL_VALUE_MAINTAINER, text: __('Maintainer') },
+  { value: GRAPHQL_ACCESS_LEVEL_VALUE_OWNER, text: __('Owner') },
+  { value: GRAPHQL_ACCESS_LEVEL_VALUE_ADMIN, text: s__('AdminUsers|Administrator') },
+];
+
+export const PackagesMinimumAccessForPushLevelText = {
+  null: s__('PackageRegistry|Developer (default)'),
+  [GRAPHQL_ACCESS_LEVEL_VALUE_MAINTAINER]: __('Maintainer'),
+  [GRAPHQL_ACCESS_LEVEL_VALUE_OWNER]: __('Owner'),
+  [GRAPHQL_ACCESS_LEVEL_VALUE_ADMIN]: s__('AdminUsers|Administrator'),
+};
+
+export const PackagesMinimumAccessForDeleteLevelText = {
+  null: s__('PackageRegistry|Maintainer (default)'),
+  [GRAPHQL_ACCESS_LEVEL_VALUE_OWNER]: __('Owner'),
+  [GRAPHQL_ACCESS_LEVEL_VALUE_ADMIN]: s__('AdminUsers|Administrator'),
+};
+
+export const PackagesMinimumAccessLevelOptions = [
+  { value: null, text: __('Developer (default)') },
+  { value: GRAPHQL_ACCESS_LEVEL_VALUE_MAINTAINER, text: __('Maintainer') },
+  { value: GRAPHQL_ACCESS_LEVEL_VALUE_OWNER, text: __('Owner') },
+  { value: GRAPHQL_ACCESS_LEVEL_VALUE_ADMIN, text: s__('AdminUsers|Administrator') },
+];
+
+export const PackagesMinimumAccessLevelForDeleteOptions = [
+  { value: null, text: __('Developer (default)') },
+  { value: GRAPHQL_ACCESS_LEVEL_VALUE_OWNER, text: __('Owner') },
+  { value: GRAPHQL_ACCESS_LEVEL_VALUE_ADMIN, text: s__('AdminUsers|Administrator') },
+];
+
+export const ContainerRepositoryMinimumAccessLevelText = {
+  null: s__('PackageRegistry|Developer (default)'),
+  [GRAPHQL_ACCESS_LEVEL_VALUE_MAINTAINER]: __('Maintainer'),
+  [GRAPHQL_ACCESS_LEVEL_VALUE_OWNER]: __('Owner'),
+  [GRAPHQL_ACCESS_LEVEL_VALUE_ADMIN]: s__('AdminUsers|Administrator'),
+};
+
+export const ContainerRepositoryMinimumAccessLevelOptions = [
+  { value: '', text: s__('ContainerRegistry|Developer (default)') },
+  { value: GRAPHQL_ACCESS_LEVEL_VALUE_MAINTAINER, text: __('Maintainer') },
+  { value: GRAPHQL_ACCESS_LEVEL_VALUE_OWNER, text: __('Owner') },
+  { value: GRAPHQL_ACCESS_LEVEL_VALUE_ADMIN, text: s__('AdminUsers|Administrator') },
 ];
 
 export const FETCH_SETTINGS_ERROR_MESSAGE = s__(

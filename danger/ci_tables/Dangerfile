@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
-SEE_DB_DOC = "See the [database dictionary documentation](https://docs.gitlab.com/ee/development/database/database_dictionary.html)."
+SEE_DB_DOC = "See the [database dictionary documentation](https://docs.gitlab.com/development/database/database_dictionary/)."
 
 PARTITIONING_COMMENT = <<~SUGGEST_COMMENT
-When adding new CI tables, consider [partitioning](https://docs.gitlab.com/ee/development/cicd/cicd_tables.html) the table
+When adding new CI tables, consider [partitioning](https://docs.gitlab.com/development/cicd/cicd_tables/) the table
 from the start if it references any of the larger CI tables: `ci_pipelines`, `ci_stages`, `ci_builds`, `p_ci_builds_metadata`, `ci_job_artifacts`, `ci_pipeline_variables`.
 SUGGEST_COMMENT
 
@@ -18,7 +18,7 @@ def check_database_dictionary_yaml(database_dictionary)
   markdown(PARTITIONING_COMMENT, file: database_dictionary.path, line: mr_line.succ)
 rescue Psych::Exception
   # YAML could not be parsed, fail the build.
-  fail "#{helper.html_link(database_ditionary.path)} isn't valid YAML! #{SEE_DB_DOC}"
+  fail "#{helper.html_link(database_dictionary.path)} isn't valid YAML! #{SEE_DB_DOC}"
 rescue StandardError => e
   warn "There was a problem trying to check the database dictionary file. Exception: #{e.class.name} - #{e.message}"
 end

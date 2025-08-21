@@ -7,7 +7,7 @@ module Gitlab
       DEFAULT_EXPIRE_TIME = 60 * 5
 
       def self.for_build(build)
-        self.new(build, ttl: build.metadata_timeout).encoded
+        self.new(build, ttl: build.timeout_value).encoded
       end
 
       def initialize(build, ttl:)
@@ -43,7 +43,7 @@ module Gitlab
 
       def project_claims
         ::JSONWebToken::ProjectTokenClaims
-         .new(project: project, user: user)
+         .new(project: source_project, user: user)
          .generate
       end
 
@@ -58,8 +58,11 @@ module Gitlab
           ref_protected: build.protected.to_s
         }
 
-        direct_groups = user&.first_group_paths
-        fields[:groups_direct] = direct_groups if direct_groups
+        if Feature.enabled?(:ci_jwt_groups_direct, project, type: :ops) ||
+            Feature.enabled?(:ci_jwt_groups_direct, project.root_namespace, type: :ops)
+          direct_groups = user&.first_group_paths
+          fields[:groups_direct] = direct_groups if direct_groups
+        end
 
         if environment.present?
           fields.merge!(
@@ -83,6 +86,14 @@ module Gitlab
 
       def environment_protected?
         false # Overridden in EE
+      end
+
+      # Only for Merge Request pipelines from forked projects, "source_project" is different from "project".
+      # In this case, the "project" is the target project of the merge request where the pipeline is created
+      # And "source_project" is the source project of the merge request.
+      # For all other cases "project" and "source_project" are one and the same
+      def source_project
+        pipeline.merge_request_from_forked_project? ? pipeline.merge_request.source_project : project
       end
     end
   end

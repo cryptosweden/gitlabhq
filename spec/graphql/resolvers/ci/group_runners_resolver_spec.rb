@@ -18,6 +18,7 @@ RSpec.describe Resolvers::Ci::GroupRunnersResolver, feature_category: :fleet_vis
 
     include_context 'runners resolver setup'
 
+    let(:user) { create_default(:user) }
     let(:obj) { group }
     let(:args) { {} }
 
@@ -73,7 +74,7 @@ RSpec.describe Resolvers::Ci::GroupRunnersResolver, feature_category: :fleet_vis
       let(:finder) { instance_double(::Ci::RunnersFinder) }
       let(:args) do
         {
-          status: 'active',
+          status: 'online',
           type: :group_type,
           tag_list: ['active_runner'],
           search: 'abc',
@@ -84,7 +85,7 @@ RSpec.describe Resolvers::Ci::GroupRunnersResolver, feature_category: :fleet_vis
 
       let(:expected_params) do
         {
-          status_status: 'active',
+          status_status: 'online',
           type_type: :group_type,
           tag_name: ['active_runner'],
           preload: {},

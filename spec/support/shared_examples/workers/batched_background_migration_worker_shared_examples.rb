@@ -9,7 +9,7 @@ RSpec.shared_examples 'it runs batched background migration jobs' do |tracking_d
 
   describe 'defining the job attributes' do
     it 'defines the data_consistency as always' do
-      expect(described_class.get_data_consistency).to eq(:always)
+      expect(described_class.get_data_consistency_per_database.values.uniq).to eq([:always])
     end
 
     it 'defines the feature_category as database' do
@@ -188,6 +188,8 @@ RSpec.shared_examples 'it runs batched background migration jobs' do |tracking_d
                 Database::BatchedBackgroundMigration::MainExecutionWorker
               when :ci
                 Database::BatchedBackgroundMigration::CiExecutionWorker
+              when :sec
+                Database::BatchedBackgroundMigration::SecExecutionWorker
               end
             end
 

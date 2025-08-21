@@ -18,7 +18,8 @@ RSpec.describe Resolvers::NamespaceProjectsResolver, feature_category: :groups_a
       sort: nil,
       ids: nil,
       with_issues_enabled: nil,
-      with_merge_requests_enabled: nil
+      with_merge_requests_enabled: nil,
+      with_namespace_domain_pages: nil
     }
   end
 
@@ -92,16 +93,85 @@ RSpec.describe Resolvers::NamespaceProjectsResolver, feature_category: :groups_a
         context 'when `search` parameter is not given' do
           let(:args) { default_args.merge(sort: :similarity, search: nil) }
 
-          it 'returns projects not ordered by similarity', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/446251' do
-            expect(project_names.first).not_to eq('Test')
+          it 'returns all projects' do
+            is_expected.to match_array(group_namespaced_projects)
           end
         end
 
         context 'when only search term is given' do
           let(:args) { default_args.merge(sort: nil, search: 'test') }
 
-          it 'filters out result that do not match the search input, but does not sort them' do
-            expect(project_names).to contain_exactly('Test', 'Test Project')
+          it 'filters out result that do not match the search input, and applies default similarity sort' do
+            expect(project_names.first).to eq('Test')
+            expect(project_names.second).to eq('Test Project')
+          end
+        end
+      end
+
+      context 'path sorting' do
+        let(:project_paths) { subject.map { |project| project['path'] } }
+
+        let(:args) { default_args.merge(sort: :path_asc) }
+
+        it 'returns projects sorted by path' do
+          expect(project_paths.first).to eq('project')
+          expect(project_paths.second).to eq('test')
+          expect(project_paths.third).to eq('test-project')
+        end
+
+        context 'when sorting by path in descending order' do
+          let(:args) { default_args.merge(sort: :path_desc) }
+
+          it 'returns projects sorted by path in descending order' do
+            expect(project_paths.first).to eq('test-project')
+            expect(project_paths.second).to eq('test')
+            expect(project_paths.third).to eq('project')
+          end
+        end
+      end
+
+      context 'full path sorting' do
+        let_it_be(:parent_group) { create(:group) }
+        let_it_be(:nested_group_1) { create(:group, parent: parent_group, path: 'alpha') }
+        let_it_be(:nested_group_2) { create(:group, parent: parent_group, path: 'beta') }
+        let_it_be(:deeply_nested_group) { create(:group, parent: nested_group_1, path: 'gamma') }
+
+        let_it_be(:projects_with_various_paths) do
+          [
+            create(:project, path: 'zebra', namespace: parent_group),
+            create(:project, path: 'apple', namespace: nested_group_1),
+            create(:project, path: 'banana', namespace: nested_group_2),
+            create(:project, path: 'cherry', namespace: deeply_nested_group)
+          ]
+        end
+
+        let(:namespace) { parent_group }
+        let(:args) { default_args.merge(include_subgroups: true, sort: :full_path_asc) }
+        let(:project_full_paths) { subject.map(&:full_path) }
+
+        before_all do
+          projects_with_various_paths.each { |p| p.add_developer(current_user) }
+        end
+
+        it 'returns projects sorted by full path in ascending order' do
+          expect(project_full_paths).to eq([
+            "#{parent_group.path}/alpha/apple",
+            "#{parent_group.path}/alpha/gamma/cherry",
+            "#{parent_group.path}/beta/banana",
+            "#{parent_group.path}/zebra"
+          ])
+        end
+
+        context 'when sorting by full path in descending order' do
+          let(:args) { default_args.merge(include_subgroups: true, sort: :full_path_desc) }
+
+          it 'returns projects sorted by full path in descending order' do
+            expect(project_full_paths).to eq([
+              "#{parent_group.path}/zebra",
+              "#{parent_group.path}/beta/banana",
+              "#{parent_group.path}/alpha/gamma/cherry",
+              "#{parent_group.path}/alpha/apple"
+            ])
           end
         end
       end
@@ -119,6 +189,46 @@ RSpec.describe Resolvers::NamespaceProjectsResolver, feature_category: :groups_a
           let(:args) { super().merge(ids: nil) }
 
           it { is_expected.to contain_exactly(*group_namespaced_projects) }
+        end
+      end
+
+      context 'with_namespace_domain_pages' do
+        before do
+          group_namespaced_projects[0...-1].each do |project|
+            project.project_setting.update!(pages_unique_domain_enabled: false)
+          end
+          group_namespaced_projects.last.project_setting.update!(
+            pages_unique_domain_enabled: true,
+            pages_unique_domain: 'foo123.example.com'
+          )
+        end
+
+        let(:args) { default_args.merge(with_namespace_domain_pages: true) }
+        let(:expected_projects) { group_namespaced_projects[0...-1] }
+
+        it { is_expected.to contain_exactly(*expected_projects) }
+      end
+
+      context 'archived_only argument' do
+        context 'when archived_only is true' do
+          let(:args) { default_args.merge(archived_only: true) }
+          let(:expected_projects) { group_namespaced_projects.second }
+
+          it { is_expected.to contain_exactly(*expected_projects) }
+        end
+
+        context 'when archived_only is false' do
+          let(:args) { default_args.merge(archived_only: false) }
+          let(:expected_projects) { group_namespaced_projects }
+
+          it { is_expected.to contain_exactly(*expected_projects) }
+        end
+
+        context 'when archived_only is not specified' do
+          let(:args) { default_args.merge(archived_only: nil) }
+          let(:expected_projects) { group_namespaced_projects }
+
+          it { is_expected.to contain_exactly(*expected_projects) }
         end
       end
     end

@@ -9,7 +9,11 @@ module MergeRequests
 
     def execute
       old_diff_refs = merge_request.diff_refs
-      new_diff = merge_request.create_merge_request_diff
+
+      return if merge_request.reached_versions_limit?
+      return if merge_request.reached_diff_commits_limit?
+
+      new_diff = merge_request.create_merge_request_diff(preload_gitaly: true)
 
       clear_cache(new_diff)
       update_diff_discussion_positions(old_diff_refs)

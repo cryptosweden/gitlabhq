@@ -12,17 +12,18 @@ RSpec.describe Ci::CreateCommitStatusService, :clean_gitlab_redis_cache, feature
   let_it_be(:guest) { create_user(:guest) }
   let_it_be(:reporter) { create_user(:reporter) }
   let_it_be(:developer) { create_user(:developer) }
+  let_it_be_with_reload(:plan_limits) { create(:plan_limits, :default_plan) }
 
   let(:user) { developer }
   let(:sha) { commit.id }
   let(:params) { { state: 'pending' } }
   let(:job) { response.payload[:job] }
 
-  %w[pending running success failed canceled].each do |status|
-    context "for #{status}" do
-      let(:params) { { state: status } }
+  context 'when pipeline for sha does not exists' do
+    %w[pending running success failed canceled skipped].each do |status|
+      context "for #{status}" do
+        let(:params) { { state: status } }
 
-      context 'when pipeline for sha does not exists' do
         it 'creates commit status and sets pipeline iid' do
           expect(response).to be_success
           expect(job.sha).to eq(commit.id)
@@ -41,12 +42,64 @@ RSpec.describe Ci::CreateCommitStatusService, :clean_gitlab_redis_cache, feature
     end
   end
 
+  context 'when pipeline for sha already exists' do
+    let_it_be(:pipeline) { create(:ci_pipeline, project: project, sha: commit.id, created_at: 1.day.ago) }
+
+    %w[pending running success failed canceled skipped].each do |status|
+      context "for #{status}" do
+        let(:params) { { state: status } }
+
+        it 'creates commit status on the pipeline' do
+          expect(response).to be_success
+          expect(job.sha).to eq(commit.id)
+          expect(job.status).to eq(status)
+          expect(job.name).to eq('default')
+          expect(job.ref).not_to be_empty
+          expect(job.pipeline_id).to eq(pipeline.id)
+        end
+
+        context 'when the pipeline is archived' do
+          before do
+            stub_application_setting(archive_builds_in_seconds: 3600)
+          end
+
+          it 'creates commit status on a new pipeline' do
+            expect(response).to be_success
+            expect(job.sha).to eq(commit.id)
+            expect(job.status).to eq(status)
+            expect(job.name).to eq('default')
+            expect(job.ref).not_to be_empty
+            expect(job.pipeline_id).to be_present
+            expect(job.pipeline_id).not_to eq(pipeline.id)
+          end
+        end
+
+        context 'when the pipeline size is exceeded' do
+          before do
+            plan_limits.update!(ci_pipeline_size: 1)
+            create(:ci_build, pipeline: pipeline)
+          end
+
+          it 'creates commit status on a new pipeline' do
+            expect(response).to be_success
+            expect(job.sha).to eq(commit.id)
+            expect(job.status).to eq(status)
+            expect(job.name).to eq('default')
+            expect(job.ref).not_to be_empty
+            expect(job.pipeline_id).to be_present
+            expect(job.pipeline_id).not_to eq(pipeline.id)
+          end
+        end
+      end
+    end
+  end
+
   context 'when status transitions from pending' do
     before do
       execute_service(state: 'pending')
     end
 
-    %w[running success failed canceled].each do |status|
+    %w[running success failed canceled skipped].each do |status|
       context "for #{status}" do
         let(:params) { { state: status } }
 
@@ -58,6 +111,23 @@ RSpec.describe Ci::CreateCommitStatusService, :clean_gitlab_redis_cache, feature
 
           expect(response).to be_success
           expect(job.status).to eq(status)
+        end
+
+        context 'when the pipeline size is exceeded' do
+          before do
+            plan_limits.update!(ci_pipeline_size: 1)
+            create(:ci_build, pipeline: ::Ci::Pipeline.last)
+          end
+
+          it "changes existing job to #{status}" do
+            expect { response }
+              .to not_change { ::Ci::Pipeline.count }.from(1)
+              .and not_change { ::Ci::Stage.count }.from(2)
+              .and not_change { ::CommitStatus.count }.from(2)
+
+            expect(response).to be_success
+            expect(job.status).to eq(status)
+          end
         end
       end
     end
@@ -257,9 +327,31 @@ RSpec.describe Ci::CreateCommitStatusService, :clean_gitlab_redis_cache, feature
         }
       end
 
+      before do
+        stub_const("#{described_class}::DEFAULT_LIMIT_PIPELINES", 3)
+      end
+
       it 'update the correct pipeline', :sidekiq_might_not_need_inline do
         expect { response }
           .to not_change { ::Ci::Pipeline.count }.from(2)
+          .and change { ::Ci::Stage.count }.by(1)
+          .and change { ::CommitStatus.count }.by(1)
+
+        expect(first_pipeline.reload.status).to eq('created')
+        expect(other_pipeline.reload.status).to eq('success')
+      end
+
+      it 'create a status on an old pipeline', :sidekiq_might_not_need_inline do
+        # 3 pipelines more are created to validate that it is possible to set a status on the 4th.
+        (0..2).each do |_|
+          project.ci_pipelines.build(source: :push, sha: commit.id, ref: 'master', status: 'created').tap do |p|
+            p.ensure_project_iid!
+            p.save!
+          end
+        end
+
+        expect { response }
+          .to not_change { ::Ci::Pipeline.count }.from(5)
           .and change { ::Ci::Stage.count }.by(1)
           .and change { ::CommitStatus.count }.by(1)
 
@@ -313,6 +405,24 @@ RSpec.describe Ci::CreateCommitStatusService, :clean_gitlab_redis_cache, feature
           expect(response).to be_error
           expect(response.http_status).to eq(:not_found)
           expect(response.message).to eq("404 Pipeline for pipeline_id, sha and ref Not Found")
+        end
+      end
+
+      context 'when the specified pipeline has too many jobs' do
+        before do
+          plan_limits.update!(ci_pipeline_size: 1)
+          create(:ci_build, pipeline: other_pipeline)
+        end
+
+        it 'returns a service error' do
+          expect { response }
+            .to not_change { ::Ci::Pipeline.count }.from(2)
+            .and not_change { ::Ci::Stage.count }.from(1)
+            .and not_change { ::CommitStatus.count }.from(1)
+
+          expect(response).to be_error
+          expect(response.http_status).to eq(:unprocessable_entity)
+          expect(response.message).to eq("The number of jobs has exceeded the limit")
         end
       end
     end
@@ -481,14 +591,14 @@ RSpec.describe Ci::CreateCommitStatusService, :clean_gitlab_redis_cache, feature
     end
   end
 
-  context 'with partitions', :ci_partitionable do
+  context 'with partitions' do
     include Ci::PartitioningHelpers
 
-    let(:current_partition_id) { ci_testing_partition_id_for_check_constraints }
+    let(:current_partition_id) { ci_testing_partition_id }
     let(:params) { { state: 'running' } }
 
     before do
-      stub_current_partition_id(ci_testing_partition_id_for_check_constraints)
+      stub_current_partition_id(ci_testing_partition_id)
     end
 
     it 'creates records in the current partition' do

@@ -1,18 +1,20 @@
 <script>
-import { GlTooltip, GlIcon } from '@gitlab/ui';
+import { GlIcon } from '@gitlab/ui';
 import dateFormat from '~/lib/dateformat';
 import {
   getDayDifference,
   getTimeago,
-  dateInWords,
-  parsePikadayDate,
+  humanTimeframe,
+  localeDateFormat,
+  newDate,
 } from '~/lib/utils/datetime_utility';
 import { __ } from '~/locale';
+import WorkItemAttribute from '~/vue_shared/components/work_item_attribute.vue';
 
 export default {
   components: {
+    WorkItemAttribute,
     GlIcon,
-    GlTooltip,
   },
   props: {
     closed: {
@@ -24,91 +26,91 @@ export default {
       type: String,
       required: true,
     },
+    startDate: {
+      type: String,
+      required: false,
+      default: undefined,
+    },
     cssClass: {
       type: String,
       required: false,
       default: '',
     },
-    tooltipPlacement: {
-      type: String,
-      required: false,
-      default: 'bottom',
-    },
   },
   computed: {
     title() {
       const timeago = getTimeago();
-      const { timeDifference, standardDateFormat } = this;
-      const formattedDate = standardDateFormat;
 
-      if (timeDifference >= -1 && timeDifference < 7) {
-        return `${timeago.format(this.issueDueDate)} (${formattedDate})`;
+      if (this.timeDifference >= -1 && this.timeDifference < 7) {
+        return `${timeago.format(this.issueDueDate)} (${this.standardDateFormat})`;
       }
 
       return timeago.format(this.issueDueDate);
     },
     body() {
-      const { timeDifference, issueDueDate, standardDateFormat } = this;
-
-      if (timeDifference === 0) {
+      if (this.timeDifference === 0) {
         return __('Today');
       }
-      if (timeDifference === 1) {
+      if (this.timeDifference === 1) {
         return __('Tomorrow');
       }
-      if (timeDifference === -1) {
+      if (this.timeDifference === -1) {
         return __('Yesterday');
       }
-      if (timeDifference > 0 && timeDifference < 7) {
-        return dateFormat(issueDueDate, 'dddd');
+      if (this.timeDifference > 0 && this.timeDifference < 7) {
+        return dateFormat(this.issueDueDate, 'dddd');
       }
 
-      return standardDateFormat;
+      return this.standardDateFormat;
+    },
+    iconName() {
+      return this.isOverdue ? 'calendar-overdue' : 'calendar';
     },
     issueDueDate() {
-      return parsePikadayDate(this.date);
+      return newDate(this.date);
     },
     timeDifference() {
       const today = new Date();
       return getDayDifference(today, this.issueDueDate);
     },
-    isPastDue() {
-      if (this.timeDifference >= 0 || this.closed) return false;
-      return true;
+    isOverdue() {
+      return !this.closed && this.timeDifference < 0;
     },
     standardDateFormat() {
-      const today = new Date();
-      const isDueInCurrentYear = today.getFullYear() === this.issueDueDate.getFullYear();
+      if (this.startDate) {
+        return humanTimeframe(newDate(this.startDate), this.issueDueDate);
+      }
 
-      return dateInWords(this.issueDueDate, true, isDueInCurrentYear);
+      const today = new Date();
+      return today.getFullYear() === this.issueDueDate.getFullYear()
+        ? localeDateFormat.asDateWithoutYear.format(this.issueDueDate)
+        : localeDateFormat.asDate.format(this.issueDueDate);
     },
   },
 };
 </script>
 
 <template>
-  <span>
-    <span
-      ref="issueDueDate"
-      :class="cssClass"
-      class="board-card-info gl-mr-3 gl-text-secondary gl-cursor-help"
-    >
+  <work-item-attribute
+    anchor-id="board-card-due-date"
+    wrapper-component="button"
+    :wrapper-component-class="`${cssClass} board-card-info gl-mr-3 !gl-cursor-help gl-text-subtle gl-bg-transparent gl-border-0 gl-p-0 focus-visible:gl-focus-inset`"
+  >
+    <template #icon>
       <gl-icon
-        :class="{ 'text-danger': isPastDue }"
-        class="board-card-info-icon gl-mr-2"
-        name="calendar"
+        :variant="isOverdue ? 'danger' : 'subtle'"
+        class="board-card-info-icon"
+        :name="iconName"
       />
-      <time
-        :class="{ 'text-danger': isPastDue }"
-        datetime="date"
-        class="gl-font-sm board-card-info-text"
-        >{{ body }}</time
-      >
-    </span>
-    <gl-tooltip :target="() => $refs.issueDueDate" :placement="tooltipPlacement">
-      <span class="bold">{{ __('Due date') }}</span>
+    </template>
+    <template #title>
+      <time datetime="date" class="board-card-info-text gl-text-sm">{{ body }}</time>
+    </template>
+    <template #tooltip-text>
+      <span class="gl-font-bold">{{ __('Due date') }}</span>
       <br />
-      <span :class="{ 'gl-text-red-300': isPastDue }">{{ title }}</span>
-    </gl-tooltip>
-  </span>
+      <span>{{ title }}</span>
+      <div v-if="isOverdue">({{ __('overdue') }})</div>
+    </template>
+  </work-item-attribute>
 </template>

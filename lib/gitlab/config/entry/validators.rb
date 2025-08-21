@@ -152,6 +152,8 @@ module Gitlab
           include LegacyValidationHelpers
 
           def validate_each(record, attribute, value)
+            return if options[:variable] && contains_variable?(value)
+
             unless validate_duration(value, options[:parser])
               record.errors.add(attribute, 'should be a duration')
             end
@@ -161,6 +163,10 @@ module Gitlab
                 record.errors.add(attribute, 'should not exceed the limit')
               end
             end
+          end
+
+          def contains_variable?(value)
+            ExpandVariables::VARIABLES_REGEXP.match?(value.to_s)
           end
         end
 
@@ -451,7 +457,7 @@ module Gitlab
           end
 
           def services_ports(current_data)
-            current_data.dig(:services).to_a.flat_map { |service| service.is_a?(Hash) ? service[:ports] : nil }
+            current_data[:services].to_a.flat_map { |service| service.is_a?(Hash) ? service[:ports] : nil }
           end
         end
 

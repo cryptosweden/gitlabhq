@@ -20,6 +20,7 @@ Bundler.require(*Rails.groups)
 module Gitlab
   class Application < Rails::Application
     config.load_defaults 7.0
+
     # This section contains configuration from Rails upgrades to override the new defaults so that we
     # keep existing behavior.
     #
@@ -37,17 +38,15 @@ module Gitlab
     config.active_record.automatic_scope_inversing = nil # New default is true
     config.active_record.verify_foreign_keys_for_fixtures = nil # New default is true
     config.active_record.partial_inserts = true # New default is false
-    config.active_support.cache_format_version = nil # New default is 7.0
-    config.active_support.disable_to_s_conversion = false # New default is true
     config.active_support.executor_around_test_case = nil # New default is true
     config.active_support.isolation_level = nil # New default is thread
     config.active_support.key_generator_hash_digest_class = nil # New default is OpenSSL::Digest::SHA256
-    config.active_support.use_rfc4122_namespaced_uuids = nil # New default is true
+    config.active_support.cache_format_version = 7.1
 
     # Rails 6.1
     config.action_dispatch.cookies_same_site_protection = nil # New default is :lax
-    ActiveSupport.utc_to_local_returns_utc_offset_times = false
     config.action_view.preload_links_header = false
+    ActiveSupport.utc_to_local_returns_utc_offset_times = false
 
     # Rails 5.2
     config.action_dispatch.use_authenticated_cookie_encryption = false
@@ -61,7 +60,6 @@ module Gitlab
     # Rails 5.0
     config.action_controller.per_form_csrf_tokens = false
     config.action_controller.forgery_protection_origin_check = false
-    ActiveSupport.to_time_preserves_timezone = false
 
     require_dependency Rails.root.join('lib/gitlab')
     require_dependency Rails.root.join('lib/gitlab/action_cable/config')
@@ -84,9 +82,11 @@ module Gitlab
     require_dependency Rails.root.join('lib/gitlab/middleware/handle_malformed_strings')
     require_dependency Rails.root.join('lib/gitlab/middleware/path_traversal_check')
     require_dependency Rails.root.join('lib/gitlab/middleware/rack_multipart_tempfile_factory')
+    require_dependency Rails.root.join('lib/gitlab/middleware/secure_headers')
     require_dependency Rails.root.join('lib/gitlab/runtime')
     require_dependency Rails.root.join('lib/gitlab/patch/database_config')
     require_dependency Rails.root.join('lib/gitlab/patch/redis_cache_store')
+    require_dependency Rails.root.join('lib/gitlab/pdf')
     require_dependency Rails.root.join('lib/gitlab/exceptions_app')
 
     config.exceptions_app = Gitlab::ExceptionsApp.new(Gitlab.jh? ? Rails.root.join('jh/public') : Rails.public_path)
@@ -119,8 +119,9 @@ module Gitlab
 
     config.generators.templates.push("#{config.root}/generator_templates")
 
-    foss_eager_load_paths = config.eager_load_paths.dup.freeze
-    load_paths = lambda do |dir:|
+    foss_eager_load_paths = config.all_eager_load_paths.dup.freeze
+
+    load_paths = ->(dir:) do
       ext_paths = foss_eager_load_paths.each_with_object([]) do |path, memo|
         ext_path = config.root.join(dir, Pathname.new(path).relative_path_from(config.root))
         memo << ext_path.to_s
@@ -154,7 +155,8 @@ module Gitlab
     Gitlab.ee { config.autoload_paths.push("#{config.root}/ee/lib/generators") }
     Gitlab.jh { config.autoload_paths.push("#{config.root}/jh/lib/generators") }
 
-    # Add JH initializer into rails initializers path
+    # Add EE/JH initializer into rails initializers path
+    Gitlab.ee { config.paths["config/initializers"] << "#{config.root}/ee/config/initializers" }
     Gitlab.jh { config.paths["config/initializers"] << "#{config.root}/jh/config/initializers" }
 
     # Only load the plugins named here, in the order given (default is alphabetical).
@@ -165,6 +167,7 @@ module Gitlab
     # config.i18n.load_path += Dir[Rails.root.join('my', 'locales', '*.{rb,yml}').to_s]
     # config.i18n.default_locale = :de
     config.i18n.enforce_available_locales = false
+    Gitlab.ee { config.i18n.load_path += Dir[config.root.join("ee/config/locales/*.yml").to_s] }
 
     # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
     # the I18n.default_locale when a translation can not be found).
@@ -202,12 +205,13 @@ module Gitlab
     #       vulnerability:
     #       https://gitlab.com/gitlab-org/labkit/blob/master/mask/matchers.go
     config.filter_parameters += [
-      /token$/,
+      /token$/i,
       /password/,
       /secret/,
       /key$/,
       /^body$/,
       /^description$/,
+      /^query$/,
       /^note$/,
       /^text$/,
       /^title$/,
@@ -231,10 +235,8 @@ module Gitlab
       redirect
       question
       SAMLResponse
+      selectedText
     ]
-
-    # This config option can be removed after Rails 7.1 by https://gitlab.com/gitlab-org/gitlab/-/issues/416270
-    config.active_support.use_rfc4122_namespaced_uuids = true
 
     # Enable escaping HTML in JSON.
     config.active_support.escape_html_entities_in_json = true
@@ -272,16 +274,14 @@ module Gitlab
     config.assets.precompile << "tailwind.css"
 
     config.assets.precompile << "print.css"
-    config.assets.precompile << "mailer.css"
-    config.assets.precompile << "mailer_client_specific.css"
-    config.assets.precompile << "notify.css"
-    config.assets.precompile << "notify_enhanced.css"
-    config.assets.precompile << "mailers/*.css"
+    config.assets.precompile << "mailers/highlighted_diff_email.css"
+    config.assets.precompile << "mailers/mailer.css"
+    config.assets.precompile << "mailers/mailer_client_specific.css"
+    config.assets.precompile << "mailers/notify_enhanced.css"
     config.assets.precompile << "page_bundles/_mixins_and_variables_and_functions.css"
-    config.assets.precompile << "page_bundles/admin/application_settings_metrics_and_profiling.css"
     config.assets.precompile << "page_bundles/admin/elasticsearch_form.css"
-    config.assets.precompile << "page_bundles/admin/geo_sites.css"
     config.assets.precompile << "page_bundles/admin/geo_replicable.css"
+    config.assets.precompile << "page_bundles/admin/geo_sites.css"
     config.assets.precompile << "page_bundles/alert_management_details.css"
     config.assets.precompile << "page_bundles/alert_management_settings.css"
     config.assets.precompile << "page_bundles/billings.css"
@@ -289,12 +289,12 @@ module Gitlab
     config.assets.precompile << "page_bundles/branches.css"
     config.assets.precompile << "page_bundles/build.css"
     config.assets.precompile << "page_bundles/ci_status.css"
-    config.assets.precompile << "page_bundles/ci_cd_settings.css"
     config.assets.precompile << "page_bundles/cluster_agents.css"
     config.assets.precompile << "page_bundles/clusters.css"
-    config.assets.precompile << "page_bundles/commits.css"
     config.assets.precompile << "page_bundles/commit_description.css"
     config.assets.precompile << "page_bundles/commit_rapid_diffs.css"
+    config.assets.precompile << "page_bundles/commits.css"
+    config.assets.precompile << "page_bundles/compare_rapid_diffs.css"
     config.assets.precompile << "page_bundles/cycle_analytics.css"
     config.assets.precompile << "page_bundles/dashboard.css"
     config.assets.precompile << "page_bundles/dashboard_projects.css"
@@ -302,43 +302,43 @@ module Gitlab
     config.assets.precompile << "page_bundles/dev_ops_reports.css"
     config.assets.precompile << "page_bundles/editor.css"
     config.assets.precompile << "page_bundles/environments.css"
-    config.assets.precompile << "page_bundles/epics.css"
     config.assets.precompile << "page_bundles/error_tracking_details.css"
-    config.assets.precompile << "page_bundles/error_tracking_index.css"
+    config.assets.precompile << "page_bundles/escalation_policies.css"
     config.assets.precompile << "page_bundles/graph_charts.css"
+    config.assets.precompile << "page_bundles/graphql_explorer.css"
     config.assets.precompile << "page_bundles/group.css"
     config.assets.precompile << "page_bundles/ide.css"
     config.assets.precompile << "page_bundles/import.css"
-    config.assets.precompile << "page_bundles/paginated_table.css"
     config.assets.precompile << "page_bundles/incidents.css"
-    config.assets.precompile << "page_bundles/issues_analytics.css"
     config.assets.precompile << "page_bundles/issuable.css"
     config.assets.precompile << "page_bundles/issuable_list.css"
+    config.assets.precompile << "page_bundles/issues_analytics.css"
     config.assets.precompile << "page_bundles/issues_list.css"
     config.assets.precompile << "page_bundles/issues_show.css"
     config.assets.precompile << "page_bundles/jira_connect.css"
-    config.assets.precompile << "page_bundles/learn_gitlab.css"
+    config.assets.precompile << "page_bundles/labels.css"
     config.assets.precompile << "page_bundles/log_viewer.css"
     config.assets.precompile << "page_bundles/login.css"
     config.assets.precompile << "page_bundles/members.css"
     config.assets.precompile << "page_bundles/merge_conflicts.css"
-    config.assets.precompile << "page_bundles/merge_request_analytics.css"
     config.assets.precompile << "page_bundles/merge_request.css"
+    config.assets.precompile << "page_bundles/merge_request_analytics.css"
     config.assets.precompile << "page_bundles/merge_request_rapid_diffs.css"
     config.assets.precompile << "page_bundles/merge_requests.css"
+    config.assets.precompile << "page_bundles/merge_request_creation_rapid_diffs.css"
     config.assets.precompile << "page_bundles/milestone.css"
     config.assets.precompile << "page_bundles/ml_experiment_tracking.css"
     config.assets.precompile << "page_bundles/new_namespace.css"
-    config.assets.precompile << "page_bundles/notifications.css"
+    config.assets.precompile << "page_bundles/notes_shared.css"
+    config.assets.precompile << "page_bundles/observability.css"
     config.assets.precompile << "page_bundles/oncall_schedules.css"
     config.assets.precompile << "page_bundles/operations.css"
     config.assets.precompile << "page_bundles/organizations.css"
-    config.assets.precompile << "page_bundles/escalation_policies.css"
+    config.assets.precompile << "page_bundles/paginated_table.css"
+    config.assets.precompile << "page_bundles/personal_homepage.css"
     config.assets.precompile << "page_bundles/pipeline.css"
-    config.assets.precompile << "page_bundles/pipeline_schedules.css"
-    config.assets.precompile << "page_bundles/pipelines.css"
     config.assets.precompile << "page_bundles/pipeline_editor.css"
-    config.assets.precompile << "page_bundles/productivity_analytics.css"
+    config.assets.precompile << "page_bundles/pipelines.css"
     config.assets.precompile << "page_bundles/profile.css"
     config.assets.precompile << "page_bundles/profile_two_factor_auth.css"
     config.assets.precompile << "page_bundles/profiles/preferences.css"
@@ -349,13 +349,11 @@ module Gitlab
     config.assets.precompile << "page_bundles/releases.css"
     config.assets.precompile << "page_bundles/remote_development.css"
     config.assets.precompile << "page_bundles/reports.css"
-    config.assets.precompile << "page_bundles/roadmap.css"
     config.assets.precompile << "page_bundles/requirements.css"
-    config.assets.precompile << "page_bundles/runner_details.css"
+    config.assets.precompile << "page_bundles/roadmap.css"
     config.assets.precompile << "page_bundles/runners.css"
     config.assets.precompile << "page_bundles/search.css"
     config.assets.precompile << "page_bundles/security_dashboard.css"
-    config.assets.precompile << "page_bundles/security_discover.css"
     config.assets.precompile << "page_bundles/settings.css"
     config.assets.precompile << "page_bundles/signup.css"
     config.assets.precompile << "page_bundles/terminal.css"
@@ -367,7 +365,6 @@ module Gitlab
     config.assets.precompile << "page_bundles/wiki.css"
     config.assets.precompile << "page_bundles/work_items.css"
     config.assets.precompile << "page_bundles/xterm.css"
-    config.assets.precompile << "page_bundles/labels.css"
     config.assets.precompile << "lazy_bundles/cropper.css"
     config.assets.precompile << "lazy_bundles/gridstack.css"
     config.assets.precompile << "performance_bar.css"
@@ -379,7 +376,6 @@ module Gitlab
     config.assets.precompile << "emoji_sprites.css"
     config.assets.precompile << "errors.css"
     config.assets.precompile << "jira_connect.js"
-    config.assets.precompile << "xterm.css"
 
     config.assets.precompile << "themes/*.css"
 
@@ -441,9 +437,11 @@ module Gitlab
 
     config.middleware.insert_before Rack::Runtime, ::Gitlab::Middleware::CompressedJson
 
+    config.middleware.insert_after ActionDispatch::Cookies, ::Gitlab::Middleware::SecureHeaders
+
     # Allow access to GitLab API from other domains
     config.middleware.insert_before Warden::Manager, Rack::Cors do
-      headers_to_expose = %w[Link X-Total X-Total-Pages X-Per-Page X-Page X-Next-Page X-Prev-Page X-Gitlab-Blob-Id X-Gitlab-Commit-Id X-Gitlab-Content-Sha256 X-Gitlab-Encoding X-Gitlab-File-Name X-Gitlab-File-Path X-Gitlab-Last-Commit-Id X-Gitlab-Ref X-Gitlab-Size X-Request-Id]
+      headers_to_expose = %w[Link X-Total X-Total-Pages X-Per-Page X-Page X-Next-Page X-Prev-Page X-Gitlab-Blob-Id X-Gitlab-Commit-Id X-Gitlab-Content-Sha256 X-Gitlab-Encoding X-Gitlab-File-Name X-Gitlab-File-Path X-Gitlab-Last-Commit-Id X-Gitlab-Ref X-Gitlab-Size X-Request-Id ETag]
 
       allow do
         origins Gitlab.config.gitlab.url
@@ -532,6 +530,7 @@ module Gitlab
 
     # Use caching across all environments
     ActiveSupport::Cache::RedisCacheStore.prepend(Gitlab::Patch::RedisCacheStore)
+
     config.cache_store = :redis_cache_store, Gitlab::Redis::Cache.active_support_config
 
     config.active_job.queue_adapter = :sidekiq
@@ -582,7 +581,7 @@ module Gitlab
         asset_roots << config.root.join("ee/app/assets").to_s
       end
 
-      LOOSE_APP_ASSETS = lambda do |logical_path, filename|
+      LOOSE_APP_ASSETS = ->(logical_path, filename) do
         filename.start_with?(*asset_roots) &&
           ['.js', '.css', '.md', '.vue', '.graphql', ''].exclude?(File.extname(logical_path))
       end
@@ -651,6 +650,7 @@ module Gitlab
         # Used in app/services/web_hooks/log_execution_service.rb: log_execution
         ActiveSupport::TimeWithZone,
         ActiveSupport::TimeZone,
+        ActiveSupport::SafeBuffer,
         Gitlab::Color, # https://gitlab.com/gitlab-org/gitlab/-/issues/368844,
         Hashie::Array, # https://gitlab.com/gitlab-org/gitlab/-/issues/378089
         Hashie::Mash # https://gitlab.com/gitlab-org/gitlab/-/issues/440316

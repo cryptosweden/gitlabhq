@@ -1,13 +1,12 @@
-import { GlDropdown, GlDropdownItem } from '@gitlab/ui';
-import { shallowMount } from '@vue/test-utils';
-import axios from 'axios';
+import { GlButton, GlButtonGroup, GlCollapsibleListbox, GlListboxItem } from '@gitlab/ui';
 import MockAdapter from 'axios-mock-adapter';
+import axios from '~/lib/utils/axios_utils';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
 import waitForPromises from 'helpers/wait_for_promises';
 import { HTTP_STATUS_NOT_FOUND, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import CustomNotificationsModal from '~/notifications/components/custom_notifications_modal.vue';
 import NotificationsDropdown from '~/notifications/components/notifications_dropdown.vue';
-import NotificationsDropdownItem from '~/notifications/components/notifications_dropdown_item.vue';
 
 const mockDropdownItems = ['global', 'watch', 'participating', 'mention', 'disabled'];
 const mockToastShow = jest.fn();
@@ -17,11 +16,11 @@ describe('NotificationsDropdown', () => {
   let mockAxios;
 
   function createComponent(injectedProperties = {}) {
-    return shallowMount(NotificationsDropdown, {
+    return mountExtended(NotificationsDropdown, {
       stubs: {
-        GlDropdown,
-        GlDropdownItem,
-        NotificationsDropdownItem,
+        GlButtonGroup,
+        GlButton,
+        GlCollapsibleListbox,
         CustomNotificationsModal,
       },
       directives: {
@@ -40,17 +39,17 @@ describe('NotificationsDropdown', () => {
     });
   }
 
-  const findDropdown = () => wrapper.findComponent(GlDropdown);
-  const findByTestId = (testId) => wrapper.find(`[data-testid="${testId}"]`);
-  const findAllNotificationsDropdownItems = () =>
-    wrapper.findAllComponents(NotificationsDropdownItem);
-  const findDropdownItemAt = (index) =>
-    findAllNotificationsDropdownItems().at(index).findComponent(GlDropdownItem);
+  const findDropdown = () => wrapper.findComponent(GlCollapsibleListbox);
+  const findSplitIcon = () => wrapper.findByTestId('notification-split-icon');
+  const findAllNotificationsDropdownItems = () => wrapper.findAllComponents(GlListboxItem);
+  const findListboxItemAt = (index) => findAllNotificationsDropdownItems().at(index);
+  const findListboxItem = (value) => wrapper.findByTestId(`listbox-item-${value}`);
   const findNotificationsModal = () => wrapper.findComponent(CustomNotificationsModal);
+  const tooltipTitlePrefix = 'Notification setting';
 
-  const clickDropdownItemAt = async (index) => {
-    const dropdownItem = findDropdownItemAt(index);
-    dropdownItem.vm.$emit('click');
+  const clickListboxItem = async (value) => {
+    const dropdownItem = findListboxItem(value);
+    await dropdownItem.trigger('click');
 
     await waitForPromises();
   };
@@ -73,7 +72,8 @@ describe('NotificationsDropdown', () => {
       });
 
       it('renders split dropdown', () => {
-        expect(findDropdown().props().split).toBe(true);
+        expect(findDropdown().props().icon).toBe('');
+        expect(findSplitIcon().exists()).toBe(true);
       });
 
       it('shows the button text when showLabel is true', () => {
@@ -82,16 +82,16 @@ describe('NotificationsDropdown', () => {
           showLabel: true,
         });
 
-        expect(findDropdown().props().text).toBe('Custom');
+        expect(findDropdown().props().toggleText).toBe('Custom');
       });
 
-      it("doesn't show the button text when showLabel is false", () => {
+      it('shows the tooltip text when showLabel is false', () => {
         wrapper = createComponent({
           initialNotificationLevel: 'custom',
           showLabel: false,
         });
 
-        expect(findDropdown().props().text).toBe(null);
+        expect(findDropdown().props().toggleText).toBe(`${tooltipTitlePrefix} - Custom`);
       });
 
       it('opens the modal when the user clicks the button', async () => {
@@ -102,7 +102,7 @@ describe('NotificationsDropdown', () => {
           initialNotificationLevel: 'custom',
         });
 
-        await findDropdown().vm.$emit('click');
+        await findSplitIcon().vm.$emit('click');
 
         expect(findNotificationsModal().props().visible).toBe(true);
       });
@@ -116,7 +116,8 @@ describe('NotificationsDropdown', () => {
       });
 
       it('renders unified dropdown', () => {
-        expect(findDropdown().props().split).toBe(false);
+        expect(findDropdown().props().icon).toBe('notifications');
+        expect(findSplitIcon().exists()).toBe(false);
       });
 
       it('shows the button text when showLabel is true', () => {
@@ -124,20 +125,19 @@ describe('NotificationsDropdown', () => {
           showLabel: true,
         });
 
-        expect(findDropdown().props('text')).toBe('Global');
+        expect(findDropdown().props().toggleText).toBe('Global');
       });
 
-      it("doesn't show the button text when showLabel is false", () => {
+      it('shows the tooltip text when showLabel is false', () => {
         wrapper = createComponent({
           showLabel: false,
         });
 
-        expect(findDropdown().props('text')).toBe(null);
+        expect(findDropdown().props().toggleText).toBe(`${tooltipTitlePrefix} - Global`);
       });
     });
 
     describe('button tooltip', () => {
-      const tooltipTitlePrefix = 'Notification setting';
       it.each`
         level              | title
         ${'global'}        | ${'Global'}
@@ -151,7 +151,7 @@ describe('NotificationsDropdown', () => {
           initialNotificationLevel: level,
         });
 
-        const tooltipElement = findByTestId('notification-dropdown');
+        const tooltipElement = wrapper.findByTestId('notification-dropdown');
         const tooltip = getBinding(tooltipElement.element, 'gl-tooltip');
 
         expect(tooltip.value.title).toBe(`${tooltipTitlePrefix} - ${title}`);
@@ -180,7 +180,7 @@ describe('NotificationsDropdown', () => {
       it.each`
         dropdownIndex | level              | title            | description
         ${0}          | ${'global'}        | ${'Global'}      | ${'Use your global notification setting'}
-        ${1}          | ${'watch'}         | ${'Watch'}       | ${'You will receive notifications for any activity'}
+        ${1}          | ${'watch'}         | ${'Watch'}       | ${'You will receive notifications for most activity'}
         ${2}          | ${'participating'} | ${'Participate'} | ${'You will only receive notifications for items you have participated in'}
         ${3}          | ${'mention'}       | ${'On mention'}  | ${'You will receive notifications only for comments in which you were @mentioned'}
         ${4}          | ${'disabled'}      | ${'Disabled'}    | ${'You will not get any notifications via email'}
@@ -188,19 +188,13 @@ describe('NotificationsDropdown', () => {
       `('displays "$title" and "$description"', ({ dropdownIndex, title, description }) => {
         wrapper = createComponent();
 
-        expect(findAllNotificationsDropdownItems().at(dropdownIndex).props('title')).toBe(title);
-        expect(findAllNotificationsDropdownItems().at(dropdownIndex).props('description')).toBe(
-          description,
-        );
+        expect(
+          findAllNotificationsDropdownItems().at(dropdownIndex).find('span.gl-font-bold').text(),
+        ).toBe(title);
+        expect(
+          findAllNotificationsDropdownItems().at(dropdownIndex).find('span.gl-text-subtle').text(),
+        ).toBe(description);
       });
-    });
-
-    it('passes provided `noFlip` value to `GlDropdown`', () => {
-      wrapper = createComponent({
-        noFlip: true,
-      });
-
-      expect(findDropdown().props('noFlip')).toBe(true);
     });
   });
 
@@ -222,7 +216,7 @@ describe('NotificationsDropdown', () => {
           groupId,
         });
 
-        await clickDropdownItemAt(1);
+        await clickListboxItem('watch');
 
         expect(axios.put).toHaveBeenCalledWith(endpointUrl, {
           level: 'watch',
@@ -230,23 +224,23 @@ describe('NotificationsDropdown', () => {
       },
     );
 
-    it('updates the selectedNotificationLevel and marks the item with a checkmark', async () => {
+    it('updates the selectedNotificationLevel and marks the item as selected', async () => {
       mockAxios.onPut('/api/v4/notification_settings').reply(HTTP_STATUS_OK, {});
       wrapper = createComponent();
 
-      const dropdownItem = findDropdownItemAt(1);
+      const dropdownItem = findListboxItemAt(1);
 
-      await clickDropdownItemAt(1);
+      await clickListboxItem('watch');
 
       expect(wrapper.vm.selectedNotificationLevel).toBe('watch');
-      expect(dropdownItem.props('isChecked')).toBe(true);
+      expect(dropdownItem.props().isSelected).toBe(true);
     });
 
     it("won't update the selectedNotificationLevel and shows a toast message when the request fails and", async () => {
       mockAxios.onPut('/api/v4/notification_settings').reply(HTTP_STATUS_NOT_FOUND, {});
       wrapper = createComponent();
 
-      await clickDropdownItemAt(1);
+      await clickListboxItem('watch');
 
       expect(wrapper.vm.selectedNotificationLevel).toBe('global');
       expect(mockToastShow).toHaveBeenCalledWith(
@@ -258,7 +252,7 @@ describe('NotificationsDropdown', () => {
       mockAxios.onPut('/api/v4/notification_settings').reply(HTTP_STATUS_OK, {});
       wrapper = createComponent();
 
-      await clickDropdownItemAt(5);
+      await clickListboxItem('custom');
 
       expect(findNotificationsModal().props().visible).toBe(true);
     });

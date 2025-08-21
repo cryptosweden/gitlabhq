@@ -2,22 +2,45 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Git do
+RSpec.describe Gitlab::Git, feature_category: :source_code_management do
   let(:committer_email) { 'user@example.org' }
   let(:committer_name) { 'John Doe' }
 
   describe '.ref_name' do
     let(:ref) { Gitlab::Git::BRANCH_REF_PREFIX + "an_invalid_ref_\xE5" }
 
+    subject(:ref_name) { described_class.ref_name(ref) }
+
     it 'ensure ref is a valid UTF-8 string' do
-      expect(described_class.ref_name(ref)).to eq("an_invalid_ref_%E5")
+      expect(ref_name).to eq("an_invalid_ref_%E5")
     end
 
     context 'when ref contains characters \x80 - \xFF' do
       let(:ref) { Gitlab::Git::BRANCH_REF_PREFIX + "\x90" }
 
       it 'correctly converts it' do
-        expect(described_class.ref_name(ref)).to eq("%90")
+        expect(ref_name).to eq("%90")
+      end
+    end
+
+    context 'with different types' do
+      using RSpec::Parameterized::TableSyntax
+
+      where(:ref, :types, :result) do
+        'refs/heads/master'          | 'tags|heads|remotes' | 'master'
+        'refs/tags/v1.0'             | 'tags|heads|remotes' | 'v1.0'
+        'refs/heads/master'          | 'heads'              | 'master'
+        'refs/tags/v1.0'             | 'tags'               | 'v1.0'
+        'refs/heads/master'          | 'tags'               | 'refs/heads/master'
+        'refs/tags/v1.0'             | 'heads'              | 'refs/tags/v1.0'
+        'refs/remotes/origin/master' | 'tags|heads|remotes' | 'origin/master'
+        'refs/remotes/origin/master' | 'tags|heads'         | 'refs/remotes/origin/master'
+      end
+
+      with_them do
+        subject(:ref_name) { described_class.ref_name(ref, types: types) }
+
+        it { is_expected.to eq(result) }
       end
     end
   end
@@ -51,12 +74,14 @@ RSpec.describe Gitlab::Git do
       too_short_sha = sha[0, Gitlab::Git::Commit::MIN_SHA_LENGTH - 1]
 
       [
-        [sha, sha,           true],
-        [sha, short_sha,     true],
-        [sha, sha.reverse,   false],
-        [sha, too_short_sha, false],
-        [sha, nil,           false],
-        [nil, nil,           true]
+        [sha, sha,               true],
+        [sha, short_sha,         true],
+        [sha, sha.upcase,        true],
+        [sha, short_sha.upcase,  true],
+        [sha, sha.reverse,       false],
+        [sha, too_short_sha,     false],
+        [sha, nil,               false],
+        [nil, nil,               true]
       ]
     end
 

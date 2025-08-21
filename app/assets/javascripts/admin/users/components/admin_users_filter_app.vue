@@ -1,34 +1,43 @@
 <script>
 import { GlFilteredSearch } from '@gitlab/ui';
 import { setUrlParams, visitUrl } from '~/lib/utils/url_utility';
-import { TOKENS } from '../constants';
+import {
+  getStandardTokenConfigs,
+  getFilterTokenConfigs,
+  ACCESS_LEVEL_OPTIONS,
+} from 'ee_else_ce/admin/users/constants';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import glAbilitiesMixin from '~/vue_shared/mixins/gl_abilities_mixin';
 import { initializeValuesFromQuery } from '../utils';
 
-const TOKEN_TYPES = TOKENS.map(({ type }) => type);
-
 export default {
-  name: 'AdminUsersFilterApp',
-  components: {
-    GlFilteredSearch,
-  },
+  components: { GlFilteredSearch },
+  mixins: [glFeatureFlagsMixin(), glAbilitiesMixin()],
   data() {
-    const { tokens, sort } = initializeValuesFromQuery();
+    const filterTokenConfigs = getFilterTokenConfigs(ACCESS_LEVEL_OPTIONS);
+    const standardTokenConfigs = getStandardTokenConfigs({
+      ...this.glFeatures,
+      ...this.glAbilities,
+    });
+    const { tokenValues, sort } = initializeValuesFromQuery(
+      filterTokenConfigs,
+      standardTokenConfigs,
+    );
 
-    return {
-      tokens,
-      sort,
-    };
+    return { filterTokenConfigs, standardTokenConfigs, tokenValues, sort };
   },
   computed: {
-    availableTokens() {
-      // Once a token is selected, discard the rest
-      const token = this.tokens.find(({ type }) => TOKEN_TYPES.includes(type));
-
-      if (token) {
-        return TOKENS.filter(({ type }) => type === token.type);
-      }
-
-      return TOKENS;
+    selectedFilterTokenConfig() {
+      const selectedTypes = new Set(this.tokenValues.map(({ type }) => type));
+      return this.filterTokenConfigs.find(({ type }) => selectedTypes.has(type));
+    },
+    availableTokenConfigs() {
+      // Due to the way the search is implemented on the backend, only one filter token config can
+      // be used at a time. If a filter token config is used, return only that config with the
+      // standard configs. Otherwise, return all the token configs.
+      return this.selectedFilterTokenConfig
+        ? [this.selectedFilterTokenConfig, ...this.standardTokenConfigs]
+        : [...this.filterTokenConfigs, ...this.standardTokenConfigs];
     },
   },
   methods: {
@@ -36,10 +45,17 @@ export default {
       const newParams = {};
 
       tokens?.forEach((token) => {
+        // If this is search text, set it as the search query.
         if (typeof token === 'string') {
           newParams.search_query = token;
-        } else {
+        }
+        // If this is the selected filter token, set the filter parameter.
+        else if (token.type === this.selectedFilterTokenConfig?.type) {
           newParams.filter = token.value.data;
+        }
+        // Otherwise, it's a standard token. Set the parameter using the token type and its value.
+        else {
+          newParams[token.type] = token.value.data;
         }
       });
 
@@ -56,9 +72,9 @@ export default {
 
 <template>
   <gl-filtered-search
-    v-model="tokens"
+    v-model="tokenValues"
     :placeholder="s__('AdminUsers|Search by name, email, or username')"
-    :available-tokens="availableTokens"
+    :available-tokens="availableTokenConfigs"
     terms-as-tokens
     @submit="search"
   />

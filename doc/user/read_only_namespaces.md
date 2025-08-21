@@ -2,47 +2,53 @@
 stage: Growth
 group: Acquisition
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Read-only namespaces and projects
 ---
 
-# Read-only namespaces
+## Read-only namespaces
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com
+{{< details >}}
 
-On GitLab.com, a top-level namespace is placed in a read-only state when it either:
+- Tier: Free
+- Offering: GitLab.com
 
-- Exceeds the [free user limit](free_user_limit.md) when the namespace visibility is private.
-- Exceeds the [storage usage quota](usage_quotas.md), regardless of namespace visibility.
+{{< /details >}}
 
-While a namespace is in a read-only state, a banner appears at the
-top of the page.
+A namespace is placed in a read-only state when it exceeds the [free user limit](free_user_limit.md), and when the namespace visibility is private.
 
-Your ability to write new data to read-only namespaces is restricted. For more
-information, see [Restricted actions](#restricted-actions).
+To remove the read-only state of a namespace and its projects, you can:
 
-## Remove the read-only state
+- [Reduce the number of members](free_user_limit.md#manage-members-in-your-group-namespace) in your namespace.
+- [Start a free trial](https://gitlab.com/-/trial_registrations/new), which includes an unlimited number of members.
+- [Purchase a paid tier](https://about.gitlab.com/pricing/).
 
-To restore a namespace to its standard state, you can:
+### Restricted actions
 
-- For exceeded free user limits:
-  - [Reduce the number of members](free_user_limit.md#manage-members-in-your-group-namespace) in your namespace.
-  - [Start a free trial](https://gitlab.com/-/trial_registrations/new), which includes an unlimited number of members.
-  - [Purchase a paid tier](https://about.gitlab.com/pricing/).
-
-## Restricted actions
+When a namespace is in a read-only state, you cannot execute the actions listed in the following table.
+If you try to execute a restricted action, you might get a `404` error.
 
 | Feature | Action restricted |
 |---------|-------------------|
-| Container registry | Create, edit, and delete cleanup policies <br> Push an image to the container registry |
-| Merge Requests | Create and update an MR |
-| Package registry | Publish a package |
-| Repositories | Add tags <br> Create new branches <br> Create and update commit status <br> Push and force push to non-protected branches <br> Push and force push to protected branches <br> Upload files <br> Create merge requests |
-| CI/CD | Create, edit, admin, and run pipelines <br>  Create, edit, admin, and run builds <br>  Create and edit admin environments <br> Create and edit admin deployments <br>  Create and edit admin clusters <br> Create and edit admin releases |
-| Namespaces | **For exceeded free user limits:** Invite new users |
+| Container registry | Create, edit, and delete cleanup policies. <br> Push an image to the container registry. |
+| Merge requests | Create and update a merge request. |
+| Package registry | Publish a package. |
+| CI/CD | Create, edit, administer, and run pipelines. <br>  Create, edit, administer, and run builds. <br>  Create and edit admin environments. <br> Create and edit admin deployments. <br>  Create and edit admin clusters. <br> Create and edit admin releases. |
+| Namespaces | **For exceeded free user limits**: Invite new users. |
 
-When you try to execute a restricted action in a read-only namespace, you might get a `404` error.
+## Read-only projects
 
-## Related topics
+{{< details >}}
 
-- [Free user limit](free_user_limit.md)
+- Tier: Free, Premium, Ultimate
+
+{{< /details >}}
+
+A project is placed in a read-only state when it exceeds the allocated storage limit on the:
+
+- Free tier, when any project in the namespace is over the [free limit](storage_usage_quotas.md#free-limit).
+- Premium and Ultimate tiers, when any project in the namespace is over the [fixed project limit](storage_usage_quotas.md#fixed-project-limit).
+
+### Restricted actions
+
+When a project is read-only due to storage limits, you can't push or add large files (LFS) to the project's repository.
+A banner at the top of the project or namespace page indicates the read-only status.

@@ -46,7 +46,11 @@ RSpec.describe Gitlab::Database::PostgresPartition, type: :model, feature_catego
     end
 
     describe '.with_list_constraint' do
-      subject(:with_list_constraint) { described_class.with_list_constraint(partition_id) }
+      subject(:with_list_constraint) do
+        described_class
+          .with_parent_tables(Ci::Partitionable.registered_models.map(&:table_name))
+          .with_list_constraint(partition_id)
+      end
 
       context 'when condition matches' do
         let(:partition_id) { '102' }
@@ -147,7 +151,14 @@ RSpec.describe Gitlab::Database::PostgresPartition, type: :model, feature_catego
     subject { described_class.partition_exists?(table_name) }
 
     context 'when the partition exists' do
-      let(:table_name) { "ci_builds_metadata" }
+      let(:table_name) { "_test_partition_02" }
+
+      before do
+        ActiveRecord::Base.connection.execute(<<~SQL)
+          CREATE TABLE #{table_name} PARTITION OF public._test_partitioned_table
+          FOR VALUES FROM ('2020-02-01') to ('2020-03-01');
+        SQL
+      end
 
       it { is_expected.to be_truthy }
     end
@@ -163,7 +174,14 @@ RSpec.describe Gitlab::Database::PostgresPartition, type: :model, feature_catego
     subject { described_class.legacy_partition_exists?(table_name) }
 
     context 'when the partition exists' do
-      let(:table_name) { "ci_builds_metadata" }
+      let(:table_name) { "_test_partition_02" }
+
+      before do
+        ActiveRecord::Base.connection.execute(<<~SQL)
+          CREATE TABLE #{table_name} PARTITION OF public._test_partitioned_table
+          FOR VALUES FROM ('2020-02-01') to ('2020-03-01');
+        SQL
+      end
 
       it { is_expected.to be_truthy }
     end

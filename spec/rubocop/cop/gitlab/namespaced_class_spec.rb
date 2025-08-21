@@ -3,7 +3,7 @@
 require 'rubocop_spec_helper'
 require_relative '../../../../rubocop/cop/gitlab/namespaced_class'
 
-RSpec.describe RuboCop::Cop::Gitlab::NamespacedClass do
+RSpec.describe RuboCop::Cop::Gitlab::NamespacedClass, feature_category: :shared do
   shared_examples 'enforces namespaced classes' do
     def namespaced(code)
       return code unless namespace
@@ -24,11 +24,11 @@ RSpec.describe RuboCop::Cop::Gitlab::NamespacedClass do
     end
 
     it 'flags a compact class definition without additional namespace' do
-      expect_offense(<<~SOURCE, namespace: namespace)
+      expect_offense(<<~RUBY, namespace: namespace)
         class %{namespace}::MyClass
               ^{namespace}^^^^^^^^^ #{described_class::MSG}
         end
-      SOURCE
+      RUBY
     end
 
     it 'flags a class definition with inheritance without additional namespace' do
@@ -80,12 +80,12 @@ RSpec.describe RuboCop::Cop::Gitlab::NamespacedClass do
     end
 
     it 'does not flag the class definition nested inside compact namespace' do
-      expect_no_offenses(<<~SOURCE)
+      expect_no_offenses(<<~RUBY)
         module #{namespace}::TopLevelModule
           class MyClass
           end
         end
-      SOURCE
+      RUBY
     end
 
     it 'does not flag a compact namespaced class definition' do
@@ -96,10 +96,10 @@ RSpec.describe RuboCop::Cop::Gitlab::NamespacedClass do
     end
 
     it 'does not flag a truly compact namespaced class definition' do
-      expect_no_offenses(<<~SOURCE, namespace: namespace)
-        class %{namespace}::MyModule::MyClass < ApplicationRecord
+      expect_no_offenses(<<~RUBY)
+        class #{namespace}::MyModule::MyClass < ApplicationRecord
         end
-      SOURCE
+      RUBY
     end
   end
 

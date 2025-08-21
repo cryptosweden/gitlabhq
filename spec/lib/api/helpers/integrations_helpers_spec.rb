@@ -7,21 +7,6 @@ RSpec.describe API::Helpers::IntegrationsHelpers, feature_category: :integration
   let(:development_classes) { [Integrations::MockCi, Integrations::MockMonitoring] }
   let(:instance_level_classes) { [Integrations::BeyondIdentity] }
 
-  describe '.chat_notification_flags' do
-    it 'returns correct values' do
-      expect(described_class.chat_notification_flags).to match_array(
-        [
-          {
-            required: false,
-            name: :notify_only_broken_pipelines,
-            type: ::Grape::API::Boolean,
-            desc: 'Send notifications for broken pipelines'
-          }
-        ]
-      )
-    end
-  end
-
   describe '.integrations' do
     it 'has correct integrations' do
       expect(described_class.integrations.keys.map(&:underscore))
@@ -39,6 +24,19 @@ RSpec.describe API::Helpers::IntegrationsHelpers, feature_category: :integration
   describe '.development_integration_classes' do
     it 'returns correct integrations' do
       expect(described_class.development_integration_classes).to eq(development_classes)
+    end
+  end
+
+  describe '.inheritance_field' do
+    it 'returns correct field' do
+      expect(described_class.inheritance_field).to eq(
+        {
+          required: false,
+          name: :use_inherited_settings,
+          type: ::Grape::API::Boolean,
+          desc: 'Indicates whether to inherit the default settings. Defaults to `false`.'
+        }
+      )
     end
   end
 end

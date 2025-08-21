@@ -47,6 +47,56 @@ RSpec.describe Gitlab::I18n::PoLinter do
       end
     end
 
+    context 'for a translations with namespaces' do
+      let(:po_path) { 'spec/fixtures/namespaces.po' }
+
+      it 'has an error for translation with namespace' do
+        message_id = "404|Not found"
+        expected_message = "contains a namespace. Remove it from the translation. For more information see https://docs.gitlab.com/ee/development/i18n/translation.html#namespaced-strings"
+
+        expect(errors[message_id]).to include(expected_message)
+      end
+
+      it 'has an error for plural translation with namespace' do
+        message_id = "CommitHistory|1 commit"
+        expected_message = "contains a namespace. Remove it from the translation. For more information see https://docs.gitlab.com/ee/development/i18n/translation.html#namespaced-strings"
+
+        expect(errors[message_id]).to include(expected_message)
+      end
+    end
+
+    context 'for a translations with spaces' do
+      let(:po_path) { 'spec/fixtures/spaces.po' }
+
+      it 'has an error for translation with a leading space' do
+        message_id = "1 commit"
+        expected_message = "has leading space. Remove it from the translation"
+
+        expect(errors[message_id]).to include(expected_message)
+      end
+
+      it 'has an error for plural translation with a leading space' do
+        message_id = "With plural"
+        expected_message = "has leading space. Remove it from the translation"
+
+        expect(errors[message_id]).to include(expected_message)
+      end
+
+      it 'has an error for translation with a trailing space' do
+        message_id = "User"
+        expected_message = "has trailing space. Remove it from the translation"
+
+        expect(errors[message_id]).to include(expected_message)
+      end
+
+      it 'has an error for translation with a multiple spaces not present in source string' do
+        message_id = "Hello there  world"
+        expected_message = "has different sets of consecutive multiple spaces. Make them consistent with source string"
+
+        expect(errors[message_id]).to include(expected_message)
+      end
+    end
+
     context 'for a translations with newlines' do
       let(:po_path) { 'spec/fixtures/newlines.po' }
 
@@ -214,6 +264,8 @@ RSpec.describe Gitlab::I18n::PoLinter do
       expect(linter).to receive(:validate_number_of_plurals).with([], fake_entry)
       expect(linter).to receive(:validate_unescaped_chars).with([], fake_entry)
       expect(linter).to receive(:validate_translation).with([], fake_entry)
+      expect(linter).to receive(:validate_namespace).with([], fake_entry)
+      expect(linter).to receive(:validate_spaces).with([], fake_entry)
       expect(linter).to receive(:validate_html).with([], fake_entry)
 
       linter.validate_entry(fake_entry)
@@ -327,6 +379,23 @@ RSpec.describe Gitlab::I18n::PoLinter do
     end
   end
 
+  describe '#validate_single_and_plural_variables' do
+    it 'does not allow mixing variable types in singular and plural forms' do
+      pluralized_entry = fake_translation(
+        msgid: 'CycleAnalytics|%{stageName}',
+        translation: '%{stageName}',
+        plural_id: 'CycleAnalytics|%d stages selected',
+        plurals: ['%d stages selected']
+      )
+
+      errors = []
+
+      linter.validate_variables(errors, pluralized_entry)
+
+      expect(errors).to eq(["is combining named variables with unnamed variables"])
+    end
+  end
+
   describe '#validate_translation' do
     let(:entry) { fake_translation(msgid: 'Hello %{world}', translation: 'Bonjour %{world}') }
 
@@ -345,7 +414,7 @@ RSpec.describe Gitlab::I18n::PoLinter do
 
       linter.validate_translation(errors, entry)
 
-      expect(errors).to include('Failure translating to en: broken')
+      expect(errors).to include("Failure translating to en in #{po_path}: broken")
     end
 
     it 'adds an error message when translating fails when translating with context' do
@@ -356,7 +425,7 @@ RSpec.describe Gitlab::I18n::PoLinter do
 
       linter.validate_translation(errors, entry)
 
-      expect(errors).to include('Failure translating to en: broken')
+      expect(errors).to include("Failure translating to en in #{po_path}: broken")
     end
 
     it "adds an error when trying to translate with incorrect variables when using unnamed variables" do
@@ -438,7 +507,7 @@ RSpec.describe Gitlab::I18n::PoLinter do
       result = linter.fill_in_variables(['%{hello}'])
 
       expect(result).to be_a(Hash)
-      expect(result).to include('hello' => an_instance_of(String))
+      expect(result).to include(hello: an_instance_of(String))
     end
   end
 end

@@ -1,20 +1,24 @@
-import { GlModal, GlFormInput, GlFormTextarea, GlToggle, GlAlert } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
-import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import { nextTick } from 'vue';
-import waitForPromises from 'helpers/wait_for_promises';
+import axios from '~/lib/utils/axios_utils';
+import FileIcon from '~/vue_shared/components/file_icon.vue';
 import { createAlert } from '~/alert';
 import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
-import { visitUrl } from '~/lib/utils/url_utility';
+import * as urlUtility from '~/lib/utils/url_utility';
 import UploadBlobModal from '~/repository/components/upload_blob_modal.vue';
 import UploadDropzone from '~/vue_shared/components/upload_dropzone/upload_dropzone.vue';
+import CommitChangesModal from '~/repository/components/commit_changes_modal.vue';
+import { logError } from '~/lib/logger';
+import { useMockInternalEventsTracking } from 'helpers/tracking_internal_events_helper';
 
 jest.mock('~/alert');
-jest.mock('~/lib/utils/url_utility', () => ({
-  visitUrl: jest.fn(),
-  joinPaths: () => '/new_upload',
-}));
+jest.mock('~/lib/logger');
+
+const NEW_PATH = '/new-upload';
+const REPLACE_PATH = '/replace-path';
+const ERROR_UPLOAD = 'Failed to upload file. See exception details for more information.';
+const ERROR_REPLACE = 'Failed to replace file. See exception details for more information.';
 
 const initialProps = {
   modalId: 'upload-blob',
@@ -22,14 +26,18 @@ const initialProps = {
   targetBranch: 'main',
   originalBranch: 'main',
   canPushCode: true,
-  path: 'new_upload',
+  canPushToBranch: true,
+  path: NEW_PATH,
+};
+
+const $toast = {
+  show: jest.fn(),
 };
 
 describe('UploadBlobModal', () => {
   let wrapper;
   let mock;
-
-  const mockEvent = { preventDefault: jest.fn() };
+  let visitUrlSpy;
 
   const createComponent = (props) => {
     wrapper = shallowMount(UploadBlobModal, {
@@ -37,214 +45,295 @@ describe('UploadBlobModal', () => {
         ...initialProps,
         ...props,
       },
+      stubs: {
+        CommitChangesModal,
+      },
       mocks: {
         $route: {
           params: {
             path: '',
           },
         },
+        $toast,
       },
     });
   };
 
-  const findModal = () => wrapper.findComponent(GlModal);
-  const findAlert = () => wrapper.findComponent(GlAlert);
-  const findCommitMessage = () => wrapper.findComponent(GlFormTextarea);
-  const findBranchName = () => wrapper.findComponent(GlFormInput);
-  const findMrToggle = () => wrapper.findComponent(GlToggle);
+  beforeEach(() => {
+    visitUrlSpy = jest.spyOn(urlUtility, 'visitUrl');
+    mock = new MockAdapter(axios);
+
+    mock.onPut(REPLACE_PATH).replyOnce(HTTP_STATUS_OK, { filePath: '/replace_file' });
+  });
+
+  afterEach(() => {
+    mock.restore();
+  });
+
+  const setupUploadMock = () => {
+    mock.onPost(NEW_PATH).replyOnce(HTTP_STATUS_OK, { filePath: '/new_file' });
+  };
+  const setupUploadMockAsError = () => {
+    mock.onPost(NEW_PATH).timeout();
+  };
+  const setupReplaceMock = () => {
+    mock.onPut(REPLACE_PATH).replyOnce(HTTP_STATUS_OK, { filePath: '/replace_file' });
+  };
+  const setupReplaceMockAsError = () => {
+    mock.onPut(REPLACE_PATH).timeout();
+  };
+
+  const findCommitChangesModal = () => wrapper.findComponent(CommitChangesModal);
   const findUploadDropzone = () => wrapper.findComponent(UploadDropzone);
-  const actionButtonDisabledState = () => findModal().props('actionPrimary').attributes.disabled;
-  const cancelButtonDisabledState = () => findModal().props('actionCancel').attributes.disabled;
-  const actionButtonLoadingState = () => findModal().props('actionPrimary').attributes.loading;
+  const findFileIcon = () => wrapper.findComponent(FileIcon);
+  const submitForm = async () => {
+    findCommitChangesModal().vm.$emit('submit-form', new FormData());
+
+    await axios.waitForAll();
+  };
+
+  describe('default', () => {
+    beforeEach(() => {
+      createComponent();
+    });
+
+    it('renders commit changes modal', () => {
+      expect(findCommitChangesModal().props()).toMatchObject({
+        modalId: 'upload-blob',
+        commitMessage: 'Upload New File',
+        targetBranch: 'main',
+        originalBranch: 'main',
+        canPushCode: true,
+        canPushToBranch: true,
+        valid: false,
+        loading: false,
+        emptyRepo: false,
+      });
+    });
+
+    it('includes the upload dropzone', () => {
+      expect(findUploadDropzone().exists()).toBe(true);
+    });
+  });
+
+  describe('directory upload handling', () => {
+    let mockFileReader;
+
+    beforeEach(() => {
+      createComponent();
+      mockFileReader = {
+        readAsDataURL: jest.fn(),
+        onload: null,
+        onerror: null,
+      };
+      jest.spyOn(window, 'FileReader').mockImplementation(() => mockFileReader);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('displays error message when user attempts to drag and drop a directory', async () => {
+      const directoryFile = new File([''], 'test-folder', { type: '' });
+      findUploadDropzone().vm.$emit('change', directoryFile);
+      mockFileReader.onerror({ target: { error: new Error() } });
+
+      await nextTick();
+
+      expect(wrapper.text()).toContain(
+        'Directories cannot be uploaded. Please upload a single file instead.',
+      );
+      expect(findUploadDropzone().exists()).toBe(true);
+      expect(wrapper.text()).not.toContain('test-folder');
+    });
+
+    it('allows uploading valid files', async () => {
+      const validFile = new File(['content'], 'test.txt', { type: 'text/plain' });
+      findUploadDropzone().vm.$emit('change', validFile);
+      mockFileReader.onload({ target: { result: 'data:text/plain;base64,content' } });
+
+      await nextTick();
+
+      expect(wrapper.text()).not.toContain('Directories cannot be uploaded');
+      expect(wrapper.text()).toContain('test.txt');
+    });
+
+    it('clears error state when valid file is loaded', async () => {
+      wrapper.vm.hasDirectoryUploadError = true;
+
+      findUploadDropzone().vm.$emit('change', new File(['content'], 'file.txt'));
+      mockFileReader.onload({ target: { result: 'data:text/plain;base64,' } });
+
+      await nextTick();
+
+      expect(wrapper.text()).not.toContain('Directories cannot be uploaded');
+    });
+
+    it('clears error state when modal is closed', async () => {
+      wrapper.vm.hasDirectoryUploadError = true;
+      findCommitChangesModal().vm.$emit('close-commit-changes-modal');
+      await nextTick();
+
+      expect(wrapper.text()).not.toContain('Directories cannot be uploaded');
+    });
+
+    describe('with tracking', () => {
+      const { bindInternalEventDocument } = useMockInternalEventsTracking();
+
+      it('tracks on success', async () => {
+        const { trackEventSpy } = bindInternalEventDocument(wrapper.element);
+        const validFile = new File(['content'], 'test.txt', { type: 'text/plain' });
+        findUploadDropzone().vm.$emit('change', validFile);
+        mockFileReader.onload({ target: { result: 'data:text/plain;base64,content' } });
+
+        await nextTick();
+
+        expect(trackEventSpy).toHaveBeenCalledWith(
+          'file_upload_placement_successful_in_upload_blob_modal',
+          {},
+          undefined,
+        );
+      });
+
+      it('does not track load on error', async () => {
+        const { trackEventSpy } = bindInternalEventDocument(wrapper.element);
+        const directoryFile = new File([''], 'test-folder', { type: '' });
+        findUploadDropzone().vm.$emit('change', directoryFile);
+        mockFileReader.onerror({ target: { error: new Error() } });
+
+        await nextTick();
+
+        expect(trackEventSpy).not.toHaveBeenCalledWith(
+          'file_upload_placement_successful_in_upload_blob_modal',
+          {},
+          undefined,
+        );
+      });
+    });
+  });
+
+  describe('uploadPath prop functionality', () => {
+    const CUSTOM_UPLOAD_PATH = '/custom/upload/path';
+
+    beforeEach(() => {
+      mock.onPost(CUSTOM_UPLOAD_PATH).replyOnce(HTTP_STATUS_OK, { filePath: '/custom_file' });
+    });
+
+    it('uses uploadPath prop when provided instead of constructing from route', async () => {
+      createComponent({ uploadPath: CUSTOM_UPLOAD_PATH });
+
+      findUploadDropzone().vm.$emit('change', new File(['content'], 'test.txt'));
+
+      await submitForm();
+
+      expect(mock.history.post).toHaveLength(1);
+      expect(mock.history.post[0].url).toBe(CUSTOM_UPLOAD_PATH);
+      expect(visitUrlSpy).toHaveBeenCalledWith('/custom_file');
+    });
+
+    it('falls back to route-based path construction when uploadPath is not provided', async () => {
+      setupUploadMock();
+      createComponent();
+
+      findUploadDropzone().vm.$emit('change', new File(['content'], 'test.txt'));
+
+      await submitForm();
+
+      expect(mock.history.post).toHaveLength(1);
+      expect(mock.history.post[0].url).toBe(NEW_PATH);
+      expect(visitUrlSpy).toHaveBeenCalledWith('/new_file');
+    });
+
+    it('uses uploadPath prop even when route params exist', async () => {
+      createComponent({ uploadPath: CUSTOM_UPLOAD_PATH });
+      wrapper.vm.$route.params.path = 'some/route/path';
+
+      findUploadDropzone().vm.$emit('change', new File(['content'], 'test.txt'));
+
+      await submitForm();
+
+      expect(mock.history.post).toHaveLength(1);
+      expect(mock.history.post[0].url).toBe(CUSTOM_UPLOAD_PATH);
+    });
+  });
 
   describe.each`
-    canPushCode | displayBranchName | displayForkedBranchMessage
-    ${true}     | ${true}           | ${false}
-    ${false}    | ${false}          | ${true}
+    props                            | setupMock           | setupMockAsError           | expectedVisitUrl   | expectedError
+    ${{}}                            | ${setupUploadMock}  | ${setupUploadMockAsError}  | ${'/new_file'}     | ${ERROR_UPLOAD}
+    ${{ replacePath: REPLACE_PATH }} | ${setupReplaceMock} | ${setupReplaceMockAsError} | ${'/replace_file'} | ${ERROR_REPLACE}
   `(
-    'canPushCode = $canPushCode',
-    ({ canPushCode, displayBranchName, displayForkedBranchMessage }) => {
-      beforeEach(() => {
-        createComponent({ canPushCode });
+    'with props=$props',
+    ({ props, setupMock, setupMockAsError, expectedVisitUrl, expectedError }) => {
+      beforeEach(async () => {
+        setupMock();
+        createComponent(props);
+        await nextTick();
       });
-
-      it('displays the modal', () => {
-        expect(findModal().exists()).toBe(true);
-      });
-
-      it('includes the upload dropzone', () => {
-        expect(findUploadDropzone().exists()).toBe(true);
-      });
-
-      it('includes the commit message', () => {
-        expect(findCommitMessage().exists()).toBe(true);
-      });
-
-      it('displays the disabled upload button', () => {
-        expect(actionButtonDisabledState()).toBe(true);
-      });
-
-      it('displays the enabled cancel button', () => {
-        expect(cancelButtonDisabledState()).toBe(false);
-      });
-
-      it('does not display the MR toggle', () => {
-        expect(findMrToggle().exists()).toBe(false);
-      });
-
-      it(`${
-        displayForkedBranchMessage ? 'displays' : 'does not display'
-      } the forked branch message`, () => {
-        expect(findAlert().exists()).toBe(displayForkedBranchMessage);
-      });
-
-      it(`${displayBranchName ? 'displays' : 'does not display'} the branch name`, () => {
-        expect(findBranchName().exists()).toBe(displayBranchName);
-      });
-
-      if (canPushCode) {
-        describe('when changing the branch name', () => {
-          it('displays the MR toggle', async () => {
-            createComponent({ targetBranch: 'Not main' });
-
-            await nextTick();
-
-            expect(findMrToggle().exists()).toBe(true);
-          });
-        });
-      }
 
       describe('completed form', () => {
         beforeEach(() => {
           findUploadDropzone().vm.$emit(
             'change',
-            new File(['http://file.com?format=jpg'], 'file.jpg'),
+            new File(['http://gitlab.com/-/uploads/file.jpg'], 'file.jpg'),
           );
         });
 
         it('enables the upload button when the form is completed', () => {
-          expect(actionButtonDisabledState()).toBe(false);
+          expect(findCommitChangesModal().props('valid')).toBe(true);
         });
 
-        describe('form submission', () => {
-          beforeEach(() => {
-            mock = new MockAdapter(axios);
-
-            findModal().vm.$emit('primary', mockEvent);
-          });
-
-          afterEach(() => {
-            mock.restore();
-          });
-
-          it('disables the upload button', () => {
-            expect(actionButtonDisabledState()).toBe(true);
-          });
-
-          it('sets the upload button to loading', () => {
-            expect(actionButtonLoadingState()).toBe(true);
-          });
+        it('displays the correct file type icon', () => {
+          expect(findFileIcon().props('fileName')).toBe('file.jpg');
         });
 
-        describe('successful response', () => {
-          beforeEach(async () => {
-            mock = new MockAdapter(axios);
-            mock.onPost(initialProps.path).reply(HTTP_STATUS_OK, { filePath: 'blah' });
+        it('on submit, redirects to the uploaded file', async () => {
+          await submitForm();
 
-            findModal().vm.$emit('primary', mockEvent);
-
-            await waitForPromises();
-          });
-
-          it('redirects to the uploaded file', () => {
-            expect(visitUrl).toHaveBeenCalled();
-          });
-
-          afterEach(() => {
-            mock.restore();
-          });
+          expect(visitUrlSpy).toHaveBeenCalledWith(expectedVisitUrl);
         });
 
-        describe('error response', () => {
-          beforeEach(async () => {
-            mock = new MockAdapter(axios);
-            mock.onPost(initialProps.path).timeout();
+        it('on error, creates an alert error', async () => {
+          setupMockAsError();
+          await submitForm();
 
-            findModal().vm.$emit('primary', mockEvent);
+          const mockError = new Error('timeout of 0ms exceeded');
 
-            await waitForPromises();
+          expect(createAlert).toHaveBeenCalledWith({
+            message: 'Error uploading file. Please try again.',
+          });
+          expect(logError).toHaveBeenCalledWith(expectedError, mockError);
+        });
+
+        describe('with tracking', () => {
+          const { bindInternalEventDocument } = useMockInternalEventsTracking();
+
+          it('should call trackEvent method when file was uploaded successfully', async () => {
+            const { trackEventSpy } = bindInternalEventDocument(wrapper.element);
+
+            await submitForm();
+
+            expect(trackEventSpy).toHaveBeenCalledWith(
+              'file_upload_successful_in_upload_blob_modal',
+              {},
+              undefined,
+            );
           });
 
-          it('creates an alert error', () => {
-            expect(createAlert).toHaveBeenCalledWith({
-              message: 'Error uploading file. Please try again.',
-            });
-          });
+          it('on error, it does not track', async () => {
+            mock.reset();
+            setupMockAsError();
+            await submitForm();
 
-          afterEach(() => {
-            mock.restore();
+            const { trackEventSpy } = bindInternalEventDocument(wrapper.element);
+
+            expect(trackEventSpy).not.toHaveBeenCalledWith(
+              'file_upload_successful_in_upload_blob_modal',
+              {},
+              undefined,
+            );
           });
         });
       });
     },
   );
-
-  describe('blob file submission type', () => {
-    const submitRequest = async () => {
-      mock = new MockAdapter(axios);
-      findModal().vm.$emit('primary', mockEvent);
-      await waitForPromises();
-    };
-
-    describe('upload blob file', () => {
-      beforeEach(() => {
-        createComponent();
-      });
-
-      it('displays the default "Upload new file" modal title', () => {
-        expect(findModal().props('title')).toBe('Upload new file');
-      });
-
-      it('display the defaul primary button text', () => {
-        expect(findModal().props('actionPrimary').text).toBe('Upload file');
-      });
-
-      it('makes a POST request', async () => {
-        await submitRequest();
-
-        expect(mock.history.put).toHaveLength(0);
-        expect(mock.history.post).toHaveLength(1);
-      });
-    });
-
-    describe('replace blob file', () => {
-      const modalTitle = 'Replace foo.js';
-      const replacePath = 'replace-path';
-      const primaryBtnText = 'Replace file';
-
-      beforeEach(() => {
-        createComponent({
-          modalTitle,
-          replacePath,
-          primaryBtnText,
-        });
-      });
-
-      it('displays the passed modal title', () => {
-        expect(findModal().props('title')).toBe(modalTitle);
-      });
-
-      it('display the passed primary button text', () => {
-        expect(findModal().props('actionPrimary').text).toBe(primaryBtnText);
-      });
-
-      it('makes a PUT request', async () => {
-        await submitRequest();
-
-        expect(mock.history.put).toHaveLength(1);
-        expect(mock.history.post).toHaveLength(0);
-        expect(mock.history.put[0].url).toBe(replacePath);
-      });
-    });
-  });
 });

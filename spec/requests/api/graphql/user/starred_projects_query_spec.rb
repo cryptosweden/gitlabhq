@@ -16,12 +16,14 @@ RSpec.describe 'Getting starredProjects of the user', feature_category: :groups_
   let_it_be(:project_c) { create(:project, :private, name: 'ProjectC', path: 'Project-C', star_count: 10) }
   let_it_be(:user, reload: true) { create(:user) }
 
+  let_it_be(:path) { %i[user starred_projects nodes] }
+
   let(:user_fields) { 'starredProjects { nodes { id } }' }
 
   let(:starred_projects) do
     post_graphql(query, current_user: current_user)
 
-    graphql_data_at(:user, :starred_projects, :nodes)
+    graphql_data_at(*path)
   end
 
   before do
@@ -56,6 +58,32 @@ RSpec.describe 'Getting starredProjects of the user', feature_category: :groups_
         a_graphql_entity_for(project_b),
         a_graphql_entity_for(project_c)
       )
+    end
+
+    context 'when all fields are requested' do
+      let(:user_fields) do
+        "starredProjects { nodes {#{all_graphql_fields_for('Project', max_depth: 1,
+          excluded: ['productAnalyticsState'])} } }"
+      end
+
+      it 'avoids N+1 queries', :use_sql_query_cache, :clean_gitlab_redis_cache do
+        post_graphql(query, current_user: current_user)
+
+        control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+          post_graphql(query, current_user: current_user)
+        end
+
+        project_d = create(:project, :public, name: 'ProjectD', path: 'Project-D', star_count: 30)
+        project_d.add_reporter(user)
+        user.toggle_star(project_d)
+
+        # There is an N+1 query related to custom roles - https://gitlab.com/gitlab-org/gitlab/-/issues/515675
+        # There is an N+1 query for duo_features_enabled cascading setting - https://gitlab.com/gitlab-org/gitlab/-/issues/442164
+        # There is an N+1 query related to pipelines - https://gitlab.com/gitlab-org/gitlab/-/issues/515677
+        expect do
+          post_graphql(query, current_user: current_user)
+        end.not_to exceed_all_query_limit(control).with_threshold(5)
+      end
     end
   end
 
@@ -105,7 +133,6 @@ RSpec.describe 'Getting starredProjects of the user', feature_category: :groups_
       let(:user_fields_with_sort) { "starredProjects(sort: #{sort_parameter}) { nodes { id name } }" }
       let(:query_with_sort) { graphql_query_for(:user, user_params, user_fields_with_sort) }
       let(:current_user) { user }
-      let(:path) { %i[user starred_projects nodes] }
 
       context 'when sort parameter provided is invalid' do
         let(:sort_parameter) { 'does_not_exist' }
@@ -277,6 +304,114 @@ RSpec.describe 'Getting starredProjects of the user', feature_category: :groups_
           end
         end
       end
+    end
+  end
+
+  describe 'min_access_level' do
+    let(:current_user) { user }
+
+    let_it_be(:project_with_owner_access) { create(:project, :private) }
+
+    let(:user_fields_with_min_access_level) do
+      "starredProjects(minAccessLevel: #{min_access_level}) { nodes { id name } }"
+    end
+
+    let(:query_with_min_access_level) { graphql_query_for(:user, user_params, user_fields_with_min_access_level) }
+
+    before_all do
+      project_with_owner_access.add_owner(user)
+      user.toggle_star(project_with_owner_access)
+    end
+
+    context 'when min_access_level is OWNER' do
+      let(:min_access_level) { :OWNER }
+
+      it 'returns only projects user has owner access to' do
+        post_graphql(query_with_min_access_level, current_user: current_user)
+
+        expect(graphql_data_at(*path))
+          .to contain_exactly(a_graphql_entity_for(project_with_owner_access))
+      end
+    end
+
+    context 'when min_access_level is REPORTER' do
+      let(:min_access_level) { :REPORTER }
+
+      it 'returns only projects user has reporter or higher access to' do
+        post_graphql(query_with_min_access_level, current_user: current_user)
+
+        expect(graphql_data_at(*path))
+          .to contain_exactly(
+            a_graphql_entity_for(project_with_owner_access),
+            a_graphql_entity_for(project_b),
+            a_graphql_entity_for(project_c)
+          )
+      end
+    end
+  end
+
+  describe 'programming_language_name' do
+    let(:current_user) { user }
+
+    let_it_be(:ruby) { create(:programming_language, name: 'Ruby') }
+    let_it_be(:repository_language) do
+      create(:repository_language, project: project_b, programming_language: ruby, share: 1)
+    end
+
+    let(:query_with_programming_language_name) do
+      graphql_query_for(:user, user_params, 'starredProjects(programmingLanguageName: "ruby") { nodes { id } }')
+    end
+
+    it 'returns only projects with ruby programming language' do
+      post_graphql(query_with_programming_language_name, current_user: current_user)
+
+      expect(graphql_data_at(*path))
+        .to contain_exactly(
+          a_graphql_entity_for(project_b)
+        )
+    end
+  end
+
+  context 'when requesting user permissions' do
+    let(:current_user) { user }
+
+    let(:user_fields) do
+      <<~QUERY
+        starredProjects {
+          nodes {
+            id
+            userPermissions {
+              readProject
+              removeProject
+            }
+          }
+        }
+      QUERY
+    end
+
+    it_behaves_like 'a working graphql query that returns data' do
+      before do
+        post_graphql(query, current_user: current_user)
+      end
+
+      it 'returns data', :aggregate_failures do
+        expect(graphql_errors).to be_nil
+
+        expect(graphql_data_at(:user, :starred_projects, :nodes, 0, :user_permissions)).to eq({
+          'readProject' => true,
+          'removeProject' => false
+        })
+      end
+    end
+
+    it 'batches data', :request_store do
+      queries = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+        post_graphql(query, current_user: current_user)
+      end
+
+      access_check_queries = queries.occurrences_starting_with(/.*FROM "project_authorizations".*/)
+
+      expect(access_check_queries.values.sum).to eq(1)
     end
   end
 end

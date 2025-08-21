@@ -13,7 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
+	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/api"
@@ -78,7 +79,7 @@ func uploadTestServer(t *testing.T, allowedHashFunctions []string, authorizeTest
 				_, err = fmt.Fprintf(w, `{"TempPath":"%s", "UploadHashFunctions": ["%s"]}`, t.TempDir(), strings.Join(allowedHashFunctions, `","`))
 			}
 
-			require.NoError(t, err)
+			assert.NoError(t, err)
 
 			if authorizeTests != nil {
 				authorizeTests(r)
@@ -86,7 +87,7 @@ func uploadTestServer(t *testing.T, allowedHashFunctions []string, authorizeTest
 			return
 		}
 
-		require.NoError(t, r.ParseMultipartForm(100000))
+		assert.NoError(t, r.ParseMultipartForm(100000))
 
 		nValues := len([]string{
 			"name",
@@ -104,8 +105,8 @@ func uploadTestServer(t *testing.T, allowedHashFunctions []string, authorizeTest
 			nValues += len([]string{"md5", "sha1", "sha256", "sha512"}) // Default hash functions
 		}
 
-		require.Len(t, r.MultipartForm.Value, nValues)
-		require.Empty(t, r.MultipartForm.File, "multipart form files")
+		assert.Len(t, r.MultipartForm.Value, nValues)
+		assert.Empty(t, r.MultipartForm.File, "multipart form files")
 
 		if extraTests != nil {
 			extraTests(r)
@@ -148,6 +149,8 @@ func TestAcceleratedUpload(t *testing.T) {
 		{"POST", `/api/graphql`, false},
 		{"POST", `/api/v4/topics`, false},
 		{"PUT", `/api/v4/topics`, false},
+		{"POST", `/api/v4/organizations`, false},
+		{"PUT", `/api/v4/organizations/1`, false},
 		{"POST", `/api/v4/groups`, false},
 		{"PUT", `/api/v4/groups/5`, false},
 		{"PUT", `/api/v4/groups/group%2Fsubgroup`, false},
@@ -186,6 +189,7 @@ func TestAcceleratedUpload(t *testing.T) {
 		{"POST", "/api/v4/projects/2412/packages/helm/api/stable/charts", true},
 		{"POST", "/api/v4/projects/group%2Fproject/packages/helm/api/stable/charts", true},
 		{"POST", "/api/v4/projects/group%2Fsubgroup%2Fproject/packages/helm/api/stable/charts", true},
+		{"POST", "/groups/my-group/-/group_members/bulk_reassignment_file", true},
 	}
 
 	allowedHashFunctions := map[string][]string{
@@ -282,8 +286,8 @@ func multipartBodyWithFile() (io.Reader, string, error) {
 
 func unacceleratedUploadTestServer(t *testing.T) *httptest.Server {
 	return testhelper.TestServerWithHandler(regexp.MustCompile(`.`), func(w http.ResponseWriter, r *http.Request) {
-		require.False(t, strings.HasSuffix(r.URL.Path, "/authorize"))
-		require.Empty(t, r.Header.Get(upload.RewrittenFieldsHeader))
+		assert.False(t, strings.HasSuffix(r.URL.Path, "/authorize"))
+		assert.Empty(t, r.Header.Get(upload.RewrittenFieldsHeader))
 
 		w.WriteHeader(200)
 	})
@@ -356,13 +360,13 @@ func TestBlockingRewrittenFieldsHeader(t *testing.T) {
 					io.WriteString(w, `{"TempPath":"`+os.TempDir()+`"}`)
 				default:
 					if tc.present {
-						require.Contains(t, r.Header, upload.RewrittenFieldsHeader)
+						assert.Contains(t, r.Header, upload.RewrittenFieldsHeader)
 					} else {
-						require.NotContains(t, r.Header, upload.RewrittenFieldsHeader)
+						assert.NotContains(t, r.Header, upload.RewrittenFieldsHeader)
 					}
 				}
 
-				require.NotEqual(t, canary, r.Header.Get(upload.RewrittenFieldsHeader), "Found canary %q in header", canary)
+				assert.NotEqual(t, canary, r.Header.Get(upload.RewrittenFieldsHeader), "Found canary %q in header", canary)
 			})
 			defer ts.Close()
 			ws := startWorkhorseServer(t, ts.URL)
@@ -376,7 +380,7 @@ func TestBlockingRewrittenFieldsHeader(t *testing.T) {
 			require.NoError(t, err)
 			defer resp.Body.Close()
 
-			require.Equal(t, 200, resp.StatusCode, "status code")
+			assert.Equal(t, 200, resp.StatusCode, "status code")
 		})
 	}
 }
@@ -391,7 +395,7 @@ func TestLfsUpload(t *testing.T) {
 	)
 
 	ts := testhelper.TestServerWithHandler(regexp.MustCompile(`.`), func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "PUT", r.Method)
+		assert.Equal(t, "PUT", r.Method)
 		switch r.RequestURI {
 		case resource + authorizeSuffix:
 			expectSignedRequest(t, r)
@@ -399,19 +403,19 @@ func TestLfsUpload(t *testing.T) {
 			// Instruct workhorse to accept the upload
 			w.Header().Set("Content-Type", api.ResponseContentType)
 			_, err := fmt.Fprint(w, lfsAPIResponse)
-			require.NoError(t, err)
+			assert.NoError(t, err)
 
 		case resource:
 			expectSignedRequest(t, r)
 
 			// Expect the request to point to a file on disk containing the data
-			require.NoError(t, r.ParseForm())
-			require.Equal(t, oid, r.Form.Get("file.sha256"), "Invalid SHA256 populated")
-			require.Equal(t, strconv.Itoa(len(requestBody)), r.Form.Get("file.size"), "Invalid size populated")
+			assert.NoError(t, r.ParseForm())
+			assert.Equal(t, oid, r.Form.Get("file.sha256"), "Invalid SHA256 populated")
+			assert.Equal(t, strconv.Itoa(len(requestBody)), r.Form.Get("file.size"), "Invalid size populated")
 
 			tempfile, err := os.ReadFile(r.Form.Get("file.path"))
-			require.NoError(t, err)
-			require.Equal(t, requestBody, string(tempfile), "Temporary file has the wrong body")
+			assert.NoError(t, err)
+			assert.Equal(t, requestBody, string(tempfile), "Temporary file has the wrong body")
 
 			fmt.Fprint(w, testRspSuccessBody)
 		default:
@@ -507,7 +511,7 @@ func TestLfsUploadRouting(t *testing.T) {
 
 func packageUploadTestServer(t *testing.T, method string, resource string, reqBody string, rspBody string) *httptest.Server {
 	return testhelper.TestServerWithHandler(regexp.MustCompile(`.`), func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, r.Method, method)
+		assert.Equal(t, r.Method, method)
 		apiResponse := fmt.Sprintf(
 			`{"TempPath":%q, "Size": %d}`, t.TempDir(), len(reqBody),
 		)
@@ -518,23 +522,23 @@ func packageUploadTestServer(t *testing.T, method string, resource string, reqBo
 			// Instruct workhorse to accept the upload
 			w.Header().Set("Content-Type", api.ResponseContentType)
 			_, err := fmt.Fprint(w, apiResponse)
-			require.NoError(t, err)
+			assert.NoError(t, err)
 
 		case resource:
 			expectSignedRequest(t, r)
 
 			// Expect the request to point to a file on disk containing the data
-			require.NoError(t, r.ParseForm())
+			assert.NoError(t, r.ParseForm())
 
 			fileLen := strconv.Itoa(len(reqBody))
-			require.Equal(t, fileLen, r.Form.Get("file.size"), "Invalid size populated")
+			assert.Equal(t, fileLen, r.Form.Get("file.size"), "Invalid size populated")
 
 			tmpFilePath := r.Form.Get("file.path")
 			fileData, err := os.ReadFile(tmpFilePath)
 			defer os.Remove(tmpFilePath)
 
-			require.NoError(t, err)
-			require.Equal(t, reqBody, string(fileData), "Temporary file has the wrong body")
+			assert.NoError(t, err)
+			assert.Equal(t, reqBody, string(fileData), "Temporary file has the wrong body")
 
 			fmt.Fprint(w, rspBody)
 		default:

@@ -1,14 +1,17 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Operate
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Set up Postfix for incoming email
+description: Configure Postfix for incoming email.
 ---
 
-# Set up Postfix for incoming email
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 This document takes you through the steps of setting up a basic Postfix mail
 server with IMAP authentication on Ubuntu, to be used with [incoming email](incoming_email.md).
@@ -95,8 +98,11 @@ The instructions make the assumption that you are using the email address `incom
    quit
    ```
 
-   NOTE:
+   {{< alert type="note" >}}
+
    The `.` is a literal period on its own line.
+
+   {{< /alert >}}
 
    If you receive an error after entering `rcpt to: incoming@localhost`
    then your Postfix `my_network` configuration is not correct. The error will
@@ -172,7 +178,7 @@ Courier, which we install later to add IMAP authentication, requires mailboxes t
    If `mail` returns an error `Maildir: Is a directory` then your
    version of `mail` doesn't support Maildir style mailboxes. Install
    `heirloom-mailx` by running `sudo apt-get install heirloom-mailx`. Then,
-   try the above steps again, substituting `heirloom-mailx` for the `mail`
+   try the previous steps again, substituting `heirloom-mailx` for the `mail`
    command.
 
 1. Sign out of the `incoming` account, and go back to being `root`:
@@ -276,8 +282,11 @@ Courier, which we install later to add IMAP authentication, requires mailboxes t
       quit
       ```
 
-      NOTE:
+      {{< alert type="note" >}}
+
       The `.` is a literal period on its own line.
+
+      {{< /alert >}}
 
    1. Check if the `incoming` user received the email:
 

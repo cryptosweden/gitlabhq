@@ -4,8 +4,8 @@ require 'spec_helper'
 
 RSpec.describe ClickHouse::Models::BaseModel, feature_category: :database do
   let(:table_name) { "dummy_table" }
-  let(:query_builder) { instance_double("ClickHouse::QueryBuilder") }
-  let(:updated_query_builder) { instance_double("ClickHouse::QueryBuilder") }
+  let(:query_builder) { instance_double("ClickHouse::Client::QueryBuilder") }
+  let(:updated_query_builder) { instance_double("ClickHouse::Client::QueryBuilder") }
 
   let(:dummy_class) do
     Class.new(described_class) do
@@ -15,14 +15,24 @@ RSpec.describe ClickHouse::Models::BaseModel, feature_category: :database do
     end
   end
 
-  describe '#to_sql' do
-    it 'delegates to the query builder' do
-      expect(query_builder).to receive(:to_sql).and_return("SELECT * FROM dummy_table")
+  it { expect(described_class).to be < ClickHouse::Client::QueryLike }
+
+  shared_examples 'method delegated to query builder' do |method_name|
+    it "delegates ##{method_name} to @query_builder" do
+      expect(query_builder).to receive(method_name).and_return("SELECT * FROM dummy_table")
 
       dummy_instance = dummy_class.new(query_builder)
 
-      expect(dummy_instance.to_sql).to eq("SELECT * FROM dummy_table")
+      expect(dummy_instance.public_send(method_name)).to eq("SELECT * FROM dummy_table")
     end
+  end
+
+  describe '#to_sql' do
+    it_behaves_like 'method delegated to query builder', :to_sql
+  end
+
+  describe '#to_redacted_sql' do
+    it_behaves_like 'method delegated to query builder', :to_redacted_sql
   end
 
   describe '#where' do
@@ -84,6 +94,19 @@ RSpec.describe ClickHouse::Models::BaseModel, feature_category: :database do
       expect(query_builder).to receive(:offset).with(5).and_return(updated_query_builder)
 
       new_instance = dummy_instance.offset(5)
+
+      expect(new_instance).to be_a(dummy_class)
+      expect(new_instance).not_to eq(dummy_instance)
+    end
+  end
+
+  describe '#group' do
+    it 'returns a new instance with grouped results' do
+      dummy_instance = dummy_class.new(query_builder)
+
+      expect(query_builder).to receive(:group).with(:id, :name).and_return(updated_query_builder)
+
+      new_instance = dummy_instance.group(:id, :name)
 
       expect(new_instance).to be_a(dummy_class)
       expect(new_instance).not_to eq(dummy_instance)

@@ -6,15 +6,12 @@ RSpec.describe WebHooks::LogExecutionService, feature_category: :webhooks do
   include ExclusiveLeaseHelpers
   using RSpec::Parameterized::TableSyntax
 
-  describe '#execute' do
-    around do |example|
-      travel_to(Time.current) { example.run }
-    end
+  describe '#execute', :freeze_time do
+    let_it_be_with_reload(:project_hook) { create(:project_hook) }
 
-    let_it_be_with_reload(:project_hook) { create(:project_hook, :token) }
-
+    let(:idempotency_key) { SecureRandom.uuid }
     let(:response_category) { :ok }
-    let(:request_headers) { { 'Header' => 'header value' } }
+    let(:request_headers) { { 'Header' => 'header value', 'Idempotency-Key' => idempotency_key } }
     let(:data) do
       {
         trigger: 'trigger_name',
@@ -31,9 +28,21 @@ RSpec.describe WebHooks::LogExecutionService, feature_category: :webhooks do
     subject(:service) { described_class.new(hook: project_hook, log_data: data, response_category: response_category) }
 
     it 'logs the data' do
-      expect { service.execute }.to change(::WebHookLog, :count).by(1)
+      expect { service.execute }.to change { ::WebHookLog.count }.by(1)
 
       expect(WebHookLog.recent.first).to have_attributes(data)
+    end
+
+    context 'when data contains unsafe YAML properties' do
+      before do
+        data[:request_data] = { data: described_class }
+      end
+
+      it 'casts to safe properties and logs the data' do
+        expect { service.execute }.to change { ::WebHookLog.count }.by(1)
+
+        expect(WebHookLog.recent.first).to have_attributes('request_data' => { 'data' => described_class.to_s })
+      end
     end
 
     it 'updates the last failure' do
@@ -46,57 +55,50 @@ RSpec.describe WebHooks::LogExecutionService, feature_category: :webhooks do
 
     context 'obtaining an exclusive lease' do
       let(:lease_key) { "web_hooks:update_hook_failure_state:#{project_hook.id}" }
+      let(:response_category) { :error }
 
       it 'updates failure state using a lease that ensures fresh state is written' do
-        service = described_class.new(hook: project_hook, log_data: data, response_category: :error)
-        # Write state somewhere else, so that the hook is out-of-date
-        WebHook.find(project_hook.id).update!(recent_failures: 5, disabled_until: 10.minutes.from_now, backoff_count: 1)
-
         lease = stub_exclusive_lease(lease_key, timeout: described_class::LOCK_TTL)
 
         expect(lease).to receive(:try_obtain)
         expect(lease).to receive(:cancel)
-        expect { service.execute }.to change { WebHook.find(project_hook.id).backoff_count }.to(2)
+        expect { service.execute }.to change { WebHook.find(project_hook.id).recent_failures }.to(1)
+      end
+
+      context 'when the hook does not have auto-disabling enabled' do
+        before do
+          allow(project_hook).to receive(:auto_disabling_enabled?).and_return(false)
+        end
+
+        it 'does not try to obtain a lease or update failure state' do
+          lease = stub_exclusive_lease(lease_key, timeout: described_class::LOCK_TTL)
+
+          expect(lease).not_to receive(:try_obtain)
+          expect { service.execute }.not_to change { WebHook.find(project_hook.id).recent_failures }.from(0)
+        end
       end
 
       context 'when a lease cannot be obtained' do
-        where(:response_category, :executable, :needs_updating) do
-          :ok     | true  | false
-          :ok     | false | true
-          :failed | true  | true
-          :failed | false | false
-          :error  | true  | true
-          :error  | false | false
+        before do
+          stub_exclusive_lease_taken(lease_key)
         end
 
-        with_them do
-          subject(:service) { described_class.new(hook: project_hook, log_data: data, response_category: response_category) }
+        it 'creates the WebHookLog and skips hook state update' do
+          expect(project_hook).not_to receive(:backoff!)
+          expect(project_hook).not_to receive(:parent)
 
-          before do
-            # stub LOCK_RETRY to be 0 in order for tests to run quicker
-            stub_const("#{described_class.name}::LOCK_RETRY", 0)
-            stub_exclusive_lease_taken(lease_key, timeout: described_class::LOCK_TTL)
-            allow(project_hook).to receive(:executable?).and_return(executable)
-          end
-
-          it 'raises an error if the hook needs to be updated' do
-            if needs_updating
-              expect { service.execute }.to raise_error(Gitlab::ExclusiveLeaseHelpers::FailedToObtainLockError)
-            else
-              expect { service.execute }.not_to raise_error
-            end
-          end
+          expect { service.execute }.to change { ::WebHookLog.count }.by(1)
         end
       end
     end
 
     context 'when response_category is :ok' do
       it 'does not increment the failure count' do
-        expect { service.execute }.not_to change(project_hook, :recent_failures)
+        expect { service.execute }.not_to change { project_hook.recent_failures }
       end
 
       it 'does not change the disabled_until attribute' do
-        expect { service.execute }.not_to change(project_hook, :disabled_until)
+        expect { service.execute }.not_to change { project_hook.disabled_until }
       end
 
       context 'when the hook had previously failed' do
@@ -105,30 +107,8 @@ RSpec.describe WebHooks::LogExecutionService, feature_category: :webhooks do
         end
 
         it 'resets the failure count' do
-          expect { service.execute }.to change(project_hook, :recent_failures).to(0)
+          expect { service.execute }.to change { project_hook.recent_failures }.to(0)
         end
-      end
-    end
-
-    context 'when response_category is :failed' do
-      let(:response_category) { :failed }
-
-      before do
-        data[:response_status] = '400'
-      end
-
-      it 'increments the failure count' do
-        expect { service.execute }.to change(project_hook, :recent_failures).by(1)
-      end
-
-      it 'does not change the disabled_until attribute' do
-        expect { service.execute }.not_to change(project_hook, :disabled_until)
-      end
-
-      it 'does not allow the failure count to overflow' do
-        project_hook.update!(recent_failures: 32767)
-
-        expect { service.execute }.not_to change(project_hook, :recent_failures)
       end
     end
 
@@ -146,6 +126,20 @@ RSpec.describe WebHooks::LogExecutionService, feature_category: :webhooks do
       end
     end
 
+    context 'when an unexpected error occurs while updating hook status' do
+      let(:standard_error) { StandardError.new('Unexpected error') }
+
+      before do
+        allow(project_hook).to receive(:enable!).and_raise(standard_error)
+      end
+
+      it 'creates the WebHookLog and tracks the exception without raising an error' do
+        expect(Gitlab::ErrorTracking).to receive(:track_exception).with(standard_error, hook_id: project_hook.id)
+
+        expect { service.execute }.to change { ::WebHookLog.count }.by(1)
+      end
+    end
+
     context 'with url_variables' do
       before do
         project_hook.update!(
@@ -158,14 +152,14 @@ RSpec.describe WebHooks::LogExecutionService, feature_category: :webhooks do
       let(:expected_headers) { { 'X-Token-Id' => '{foo}-{bar}', 'X-Request' => 'PUBLIC-{bar}' } }
 
       it 'logs the data and masks response headers' do
-        expect { service.execute }.to change(::WebHookLog, :count).by(1)
+        expect { service.execute }.to change { ::WebHookLog.count }.by(1)
 
         expect(WebHookLog.recent.first.response_headers).to eq(expected_headers)
       end
     end
 
     context 'with X-Gitlab-Token' do
-      let(:request_headers) { { 'X-Gitlab-Token' => project_hook.token } }
+      let(:request_headers) { { 'X-Gitlab-Token' => 'secret_token' } }
 
       it 'redacts the token' do
         service.execute

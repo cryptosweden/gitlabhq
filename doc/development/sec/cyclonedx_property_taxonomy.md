@@ -1,13 +1,19 @@
 ---
-stage: Govern
-group: Threat Insights
-info: BEFORE MAKING CHANGES TO THIS FILE, PLEASE REACH OUT TO THE THREAT INSIGHTS ENGINEERING TEAM, @gitlab-org/govern/threat-insights.  To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+stage: Security Risk Management
+group: Security Insights
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: GitLab CycloneDX property taxonomy
 ---
-
-# GitLab CycloneDX property taxonomy
 
 This document defines the namespaces and properties used by the `gitlab` namespace
 in the [CycloneDX Property Taxonomy](https://github.com/CycloneDX/cyclonedx-property-taxonomy).
+
+{{< alert type="note" >}}
+
+Before making changes to this file, reach out to the threat insights engineering team,
+`@gitlab-org/govern/threat-insights`.
+
+{{< /alert >}}
 
 ## Where properties should be located
 
@@ -71,6 +77,12 @@ The `Property of` column describes what object a property may be attached to.
 | Property                                   | Description | Example values | Property of |
 | ------------------------------------------ | ----------- | -------------- | ----------- |
 | `gitlab:dependency_scanning:language:name` | The name of the programming language associated with the dependency | `JavaScript`, `Ruby`, `Go` | `metadata`, `component` |
+
+## `gitlab:dependency_scanning_component` namespace taxonomy
+
+| Property                                   | Description | Example values | Property of |
+| ------------------------------------------ | ----------- | -------------- | ----------- |
+| `gitlab:dependency_scanning_component:reachability` | Identifies if a component is used | `in_use`, `not_found` | `component` |
 
 ## `gitlab:container_scanning` namespace taxonomy
 

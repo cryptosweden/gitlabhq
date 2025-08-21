@@ -33,11 +33,11 @@ module UpdateRepositoryStorageMethods
       mirror_repositories
     end
 
-    repository_storage_move.finish_replication!
-
     repository_storage_move.transaction do
       track_repository(destination_storage_name)
     end
+
+    repository_storage_move.finish_replication!
 
     remove_old_paths unless same_filesystem?
 
@@ -99,7 +99,7 @@ module UpdateRepositoryStorageMethods
     object_pool = repository.project&.pool_repository&.object_pool
     hint = object_pool ? object_pool.relative_path : ""
 
-    Repositories::ReplicateService.new(raw_repository)
+    ::Repositories::ReplicateService.new(raw_repository)
       .execute(new_repository, type.name, partition_hint: hint)
   end
 

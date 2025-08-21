@@ -3,6 +3,7 @@
 module Projects
   class DestroyService < BaseService
     include Gitlab::ShellAdapter
+    include ContainerRegistry::Protection::Concerns::TagRule
 
     DestroyError = Class.new(StandardError)
     BATCH_SIZE = 100
@@ -15,7 +16,10 @@ module Projects
     end
 
     def execute
-      return false unless can?(current_user, :remove_project, project)
+      unless can?(current_user, :remove_project, project)
+        project.update_attribute(:pending_delete, false) if project.pending_delete?
+        return false
+      end
 
       project.update_attribute(:pending_delete, true)
 
@@ -32,14 +36,20 @@ module Projects
       # Git data (e.g. a list of branch names).
       flush_caches(project)
 
-      ::Ci::AbortPipelinesService.new.execute(project.all_pipelines, :project_deleted)
+      ::Ci::AbortPipelinesService.new.execute(all_pipelines, :project_deleted)
 
       Projects::UnlinkForkService.new(project, current_user).execute(refresh_statistics: false)
 
       attempt_destroy(project)
 
-      system_hook_service.execute_hooks_for(project, :destroy)
-      log_info("Project \"#{project.full_path}\" was deleted")
+      execute_hooks(project)
+
+      Gitlab::AppLogger.info(
+        class: self.class.name,
+        message: "Project \"#{project.full_path}\" was deleted",
+        project_id: project.id,
+        full_path: project.full_path
+      )
 
       publish_project_deleted_event_for(project)
 
@@ -58,6 +68,11 @@ module Projects
     end
 
     private
+
+    def all_pipelines
+      # We don't use `Project#all_pipelines` to skip the `build_enabled?` setting in order to get all pipelines.
+      ::Ci::Pipeline.for_project(project.id)
+    end
 
     def validate_active_repositories_move!
       if project.repository_storage_moves.scheduled_or_started.exists?
@@ -122,7 +137,7 @@ module Projects
     def remove_repository(repository)
       return true unless repository
 
-      result = Repositories::DestroyService.new(repository).execute
+      result = ::Repositories::DestroyService.new(repository).execute
 
       result[:status] == :success
     end
@@ -134,8 +149,8 @@ module Projects
       # hook failed and caused us to end up here. A destroyed model will be a frozen hash,
       # which cannot be altered.
       unless project.destroyed?
-        # Restrict project visibility if the parent group visibility was made more restrictive while the project was scheduled for deletion.
-        visibility_level = project.visibility_level_allowed_by_group? ? project.visibility_level : project.group.visibility_level
+        # Restrict project visibility if the parent namespace visibility was made more restrictive while the project was scheduled for deletion.
+        visibility_level = project.visibility_level_allowed_by_namespace? ? project.visibility_level : project.namespace.visibility_level
         project.update(delete_error: message, pending_delete: false, visibility_level: visibility_level)
       end
 
@@ -151,6 +166,10 @@ module Projects
       destroy_project_related_records(project)
     end
 
+    def execute_hooks(project)
+      system_hook_service.execute_hooks_for(project, :destroy)
+    end
+
     def destroy_project_related_records(project)
       log_destroy_event
       trash_relation_repositories!
@@ -163,6 +182,7 @@ module Projects
       destroy_mr_diff_relations!
 
       destroy_merge_request_diffs!
+      delete_environments
 
       # Rails attempts to load all related records into memory before
       # destroying: https://github.com/rails/rails/issues/22510
@@ -172,6 +192,10 @@ module Projects
       # called multiple times, and it doesn't destroy any database records.
       project.destroy_dependent_associations_in_batches(exclude: [:container_repositories, :snippets])
       project.destroy!
+    rescue ActiveRecord::RecordNotDestroyed => e
+      raise_error(
+        e.record.errors.full_messages.to_sentence
+      )
     end
 
     def log_destroy_event
@@ -206,6 +230,22 @@ module Projects
           end
         end
       end
+
+      if Feature.enabled?(:merge_request_diff_commits_dedup, project)
+        loop do
+          inner_query = MergeRequest::CommitsMetadata
+            .select(:id)
+            .where(project_id: project.id)
+            .limit(delete_batch_size)
+
+          deleted_rows = MergeRequest::CommitsMetadata
+            .where(project_id: project.id)
+            .where(id: inner_query)
+            .delete_all
+
+          break if deleted_rows == 0
+        end
+      end
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
@@ -231,23 +271,54 @@ module Projects
       # This is to avoid logging the artifact deletion in Ci::JobArtifacts::DestroyBatchService.
       project.build_artifacts_size_refresh&.destroy
 
-      project.all_pipelines.find_each(batch_size: BATCH_SIZE) do |pipeline| # rubocop: disable CodeReuse/ActiveRecord
+      all_pipelines.find_each(batch_size: BATCH_SIZE) do |pipeline| # rubocop: disable CodeReuse/ActiveRecord
         # Destroy artifacts, then builds, then pipelines
         # All builds have already been dropped by Ci::AbortPipelinesService,
         # so no Ci::Build-instantiating cancellations happen here.
         # https://gitlab.com/gitlab-org/gitlab/-/merge_requests/71342#note_691523196
 
-        ::Ci::DestroyPipelineService.new(project, current_user).execute(pipeline)
+        # We already have done the permission check for `remove_project` so we can use `unsafe_execute` here.
+        # Using `#execute` causes issues with removing pipeline when `ProjectPolicy#repository_disabled` is true.
+        ::Ci::DestroyPipelineService.new(project, current_user).unsafe_execute(pipeline)
       end
 
       project.secure_files.find_each(batch_size: BATCH_SIZE) do |secure_file| # rubocop: disable CodeReuse/ActiveRecord
         ::Ci::DestroySecureFileService.new(project, current_user).execute(secure_file)
       end
 
-      deleted_count = ::CommitStatus.for_project(project).delete_all
+      delete_commit_statuses
+      destroy_orphaned_ci_job_artifacts!
+    end
+
+    # This method will delete all orphaned CI Job artifacts for the project, which are job artifacts
+    # whose jobs do not exist anymore. The reason these artifacts might still exist is because of
+    # https://gitlab.com/gitlab-org/gitlab/-/issues/508672.
+    # TODO: remove this method after we have a working & valid FK.
+    def destroy_orphaned_ci_job_artifacts!
+      orphaned_job_artifacts = ::Ci::JobArtifact.for_project(project)
+      return if orphaned_job_artifacts.none?
+
+      service = orphaned_job_artifacts.begin_fast_destroy
+      orphaned_job_artifacts.finalize_fast_destroy(service)
 
       Gitlab::AppLogger.info(
-        class: 'Projects::DestroyService',
+        class: self.class.name,
+        project_id: project.id,
+        message: 'Orphaned CI job artifacts deleted'
+      )
+    end
+
+    def delete_commit_statuses
+      deleted_count = 0
+
+      loop do
+        deleted_rows = ::CommitStatus.for_project(project).limit(BATCH_SIZE).delete_all
+        deleted_count += deleted_rows
+        break if deleted_rows < BATCH_SIZE
+      end
+
+      Gitlab::AppLogger.info(
+        class: self.class.name,
         project_id: project.id,
         message: 'leftover commit statuses',
         orphaned_commit_status_count: deleted_count
@@ -260,13 +331,23 @@ module Projects
       end
     end
 
-    # The project can have multiple webhooks with hundreds of thousands of web_hook_logs.
-    # By default, they are removed with "DELETE CASCADE" option defined via foreign_key.
-    # But such queries can exceed the statement_timeout limit and fail to delete the project.
-    # (see https://gitlab.com/gitlab-org/gitlab/-/issues/26259)
-    #
-    # To prevent that we use WebHooks::DestroyService. It deletes logs in batches and
-    # produces smaller and faster queries to the database.
+    def delete_environments
+      deleted_count = 0
+
+      loop do
+        deleted_rows = ::Environment.for_project(project).limit(BATCH_SIZE).delete_all
+        deleted_count += deleted_rows
+        break if deleted_rows < BATCH_SIZE
+      end
+
+      Gitlab::AppLogger.info(
+        class: self.class.name,
+        project_id: project.id,
+        message: 'Deleting environments completed',
+        deleted_environment_count: deleted_count
+      )
+    end
+
     def destroy_web_hooks!
       project.hooks.find_each do |web_hook|
         result = ::WebHooks::DestroyService.new(current_user).execute(web_hook)
@@ -293,6 +374,7 @@ module Projects
 
     def remove_registry_tags
       return true unless Gitlab.config.registry.enabled
+      return false if protected_for_delete?(project:, current_user:)
       return false unless remove_legacy_registry_tags
 
       results = []

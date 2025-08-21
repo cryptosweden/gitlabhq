@@ -4,10 +4,9 @@ require 'spec_helper'
 
 RSpec.describe MergeRequests::Mergeability::Logger, :request_store, feature_category: :code_review_workflow do
   let_it_be(:merge_request) { create(:merge_request) }
+  let(:caller_id) { 'a' }
 
   subject(:logger) { described_class.new(merge_request: merge_request) }
-
-  let(:caller_id) { 'a' }
 
   before do
     allow(Gitlab::ApplicationContext).to receive(:current_context_attribute).with(:caller_id).and_return(caller_id)
@@ -71,6 +70,26 @@ RSpec.describe MergeRequests::Mergeability::Logger, :request_store, feature_cate
         end
       end
 
+      context 'when block value responds to #status' do
+        let(:check_result) { instance_double(Gitlab::MergeRequests::Mergeability::CheckResult, status: :inactive) }
+
+        let(:extra_data) do
+          {
+            'mergeability.expensive_operation.status.values' => ['inactive']
+          }
+        end
+
+        it 'records operation status value' do
+          expect_next_instance_of(Gitlab::AppJsonLogger) do |app_logger|
+            expect(app_logger).to receive(:info).with(match(a_hash_including(loggable_data(**extra_data))))
+          end
+
+          expect(logger.instrument(mergeability_name: :expensive_operation) { check_result }).to eq(check_result)
+
+          logger.commit
+        end
+      end
+
       context 'with multiple observations' do
         let(:operation_count) { 2 }
 
@@ -88,20 +107,14 @@ RSpec.describe MergeRequests::Mergeability::Logger, :request_store, feature_cate
       end
 
       context 'when its a query' do
-        let(:extra_data) do
-          {
-            'mergeability.expensive_operation.db_count.values' => a_kind_of(Array),
-            'mergeability.expensive_operation.db_main_count.values' => a_kind_of(Array),
-            'mergeability.expensive_operation.db_main_duration_s.values' => a_kind_of(Array),
-            'mergeability.expensive_operation.db_primary_count.values' => a_kind_of(Array),
-            'mergeability.expensive_operation.db_primary_duration_s.values' => a_kind_of(Array)
-          }
-        end
-
         context 'with a single query' do
           it 'includes SQL metrics' do
             expect_next_instance_of(Gitlab::AppJsonLogger) do |app_logger|
-              expect(app_logger).to receive(:info).with(match(a_hash_including(loggable_data(**extra_data))))
+              expect(app_logger).to receive(:info) do |logged_args|
+                expect(logged_args).to include(
+                  'mergeability.expensive_operation.db_main_count.values' => a_kind_of(Array)
+                )
+              end
             end
 
             expect(logger.instrument(mergeability_name: :expensive_operation) { MergeRequest.count }).to eq(1)
@@ -113,7 +126,11 @@ RSpec.describe MergeRequests::Mergeability::Logger, :request_store, feature_cate
         context 'with multiple queries' do
           it 'includes SQL metrics' do
             expect_next_instance_of(Gitlab::AppJsonLogger) do |app_logger|
-              expect(app_logger).to receive(:info).with(match(a_hash_including(loggable_data(**extra_data))))
+              expect(app_logger).to receive(:info) do |logged_args|
+                expect(logged_args).to include(
+                  'mergeability.expensive_operation.db_main_count.values' => a_kind_of(Array)
+                )
+              end
             end
 
             expect(logger.instrument(mergeability_name: :expensive_operation) { Project.count + MergeRequest.count })

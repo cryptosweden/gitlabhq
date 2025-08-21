@@ -12,7 +12,9 @@ module Gitlab
 
         self.table_name = :batched_background_migration_jobs
 
+        MINIMUM_PAUSE_MS = 100
         MAX_ATTEMPTS = 3
+        MAX_SIDEKIQ_SHUTDOWN_FAILURES = 15
         MIN_BATCH_SIZE = 1
         SUB_BATCH_SIZE_REDUCE_FACTOR = 0.75
         SUB_BATCH_SIZE_THRESHOLD = 65
@@ -23,6 +25,8 @@ module Gitlab
 
         belongs_to :batched_migration, foreign_key: :batched_background_migration_id
         has_many :batched_job_transition_logs, foreign_key: :batched_background_migration_job_id
+
+        validates :pause_ms, numericality: { greater_than_or_equal_to: MINIMUM_PAUSE_MS }
 
         scope :active, -> { with_statuses(:pending, :running) }
         scope :stuck, -> { active.where('updated_at <= ?', STUCK_JOBS_TIMEOUT.ago) }
@@ -65,6 +69,10 @@ module Gitlab
           after_transition any => :failed do |job, transition|
             exception, from_sub_batch = job.class.extract_transition_options(transition.args)
 
+            # For jobs that could not complete work within the shutdown timeout when Sidekiq
+            # is shutting down, do not count this as an attempt.
+            job.decrement!(:attempts) if job.handle_sidekiq_shutdown_failure?(exception)
+
             job.reduce_sub_batch_size! if from_sub_batch && job.can_reduce_sub_batch_size?
 
             job.split_and_retry! if job.can_split?(exception)
@@ -102,6 +110,8 @@ module Gitlab
         delegate :job_class, :table_name, :column_name, :job_arguments, :job_class_name,
           to: :batched_migration, prefix: :migration
 
+        delegate :sidekiq_shutdown_failures, to: :batched_job_transition_logs
+
         def self.extract_transition_options(args)
           error_hash = args.find { |arg| arg[:error].present? }
 
@@ -111,6 +121,24 @@ module Gitlab
           from_sub_batch = error_hash[:from_sub_batch]
 
           [exception, from_sub_batch]
+        end
+
+        def job_attributes
+          {
+            batch_table: migration_table_name,
+            batch_column: migration_column_name,
+            sub_batch_size: sub_batch_size,
+            pause_ms: pause_ms,
+            job_arguments: migration_job_arguments
+          }.tap do |attributes|
+            if migration_job_class.cursor?
+              attributes[:start_cursor] = min_cursor
+              attributes[:end_cursor] = max_cursor
+            else
+              attributes[:start_id] = min_value
+              attributes[:end_id] = max_value
+            end
+          end
         end
 
         def time_efficiency
@@ -135,6 +163,7 @@ module Gitlab
 
         def split_and_retry!
           with_lock do
+            raise SplitAndRetryError, 'Split and retry not yet supported for cursor based jobs' unless max_cursor.nil?
             raise SplitAndRetryError, 'Only failed jobs can be split' unless failed?
 
             new_batch_size = batch_size / 2
@@ -223,6 +252,18 @@ module Gitlab
           diff = initial_sub_batch_size - reduced_sub_batch_size
 
           (1.0 * diff / initial_sub_batch_size * 100).round(2) > SUB_BATCH_SIZE_THRESHOLD
+        end
+
+        def sidekiq_shutdown_failures_count
+          sidekiq_shutdown_failures.count
+        end
+
+        def handle_sidekiq_shutdown_failure?(exception)
+          return false unless exception.is_a?(Sidekiq::Shutdown)
+          return false unless attempts > 1
+          return false unless sidekiq_shutdown_failures_count <= MAX_SIDEKIQ_SHUTDOWN_FAILURES
+
+          true
         end
       end
     end

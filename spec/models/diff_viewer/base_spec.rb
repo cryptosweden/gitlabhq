@@ -65,18 +65,34 @@ RSpec.describe DiffViewer::Base do
   end
 
   describe '#collapsed?' do
-    context 'when the combined blob size is larger than the collapse limit' do
+    context 'when diff is not expanded' do
       before do
+        allow(diff_file).to receive(:collapsed?).and_return(true)
         allow(diff_file).to receive(:raw_size).and_return(1025.kilobytes)
       end
 
-      it 'returns true' do
+      it 'returns true for large files' do
         expect(viewer.collapsed?).to be_truthy
       end
     end
 
-    context 'when the combined blob size is smaller than the collapse limit' do
-      it 'returns false' do
+    context 'when diff is expanded' do
+      before do
+        allow(diff_file).to receive(:collapsed?).and_return(false)
+        allow(diff_file).to receive(:raw_size).and_return(1025.kilobytes)
+      end
+
+      it 'returns false even when large' do
+        expect(viewer.collapsed?).to be_falsey
+      end
+    end
+
+    context 'when file is small' do
+      before do
+        allow(diff_file).to receive(:raw_size).and_return(10.kilobytes)
+      end
+
+      it 'returns false regardless of expanded state' do
         expect(viewer.collapsed?).to be_falsey
       end
     end
@@ -128,27 +144,6 @@ RSpec.describe DiffViewer::Base do
 
       it 'is not expandable' do
         expect(expandable).to be_falsey
-      end
-    end
-
-    context 'when increase_diff_file_performance is off' do
-      before do
-        stub_feature_flags(increase_diff_file_performance: false)
-      end
-
-      context 'when the blob readable_text is true' do
-        it 'is expandable' do
-          expect(expandable).to be_truthy
-        end
-      end
-
-      context 'when the blob readable_text is false' do
-        let(:commit) { project.commit('2f63565e7aac07bcdadb654e253078b727143ec4') }
-        let(:diff_file) { commit.diffs.diff_file_with_new_path('files/images/6049019_460s.jpg') }
-
-        it 'is not expandable' do
-          expect(expandable).to be_falsey
-        end
       end
     end
   end

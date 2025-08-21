@@ -1,7 +1,6 @@
 <script>
 import { GlIcon, GlLink, GlSprintf, GlSkeletonLoader } from '@gitlab/ui';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { createAlert } from '~/alert';
 import { s__, sprintf } from '~/locale';
 import { convertToGraphQLId } from '~/graphql_shared/utils';
@@ -11,16 +10,18 @@ import RunnerGoogleCloudOption from '~/ci/runner/components/runner_google_cloud_
 
 import runnerForRegistrationQuery from '../../graphql/register/runner_for_registration.query.graphql';
 import {
-  STATUS_ONLINE,
+  CREATION_STATE_FINISHED,
   EXECUTORS_HELP_URL,
   SERVICE_COMMANDS_HELP_URL,
   RUNNER_REGISTRATION_POLLING_INTERVAL_MS,
   I18N_FETCH_ERROR,
   GOOGLE_CLOUD_PLATFORM,
+  GOOGLE_KUBERNETES_ENGINE,
 } from '../../constants';
 import { captureException } from '../../sentry_utils';
 
 import GoogleCloudRegistrationInstructions from './google_cloud_registration_instructions.vue';
+import GkeRegistrationInstructions from './gke_registration_instructions.vue';
 import PlatformsDrawer from './platforms_drawer.vue';
 import CliCommand from './cli_command.vue';
 import { commandPrompt, registerCommand, runCommand } from './utils';
@@ -35,11 +36,11 @@ export default {
     ClipboardButton,
     CliCommand,
     GoogleCloudRegistrationInstructions,
+    GkeRegistrationInstructions,
     PlatformsDrawer,
     RunnerPlatformsRadioGroup,
     RunnerGoogleCloudOption,
   },
-  mixins: [glFeatureFlagsMixin()],
   props: {
     runnerId: {
       type: String,
@@ -91,7 +92,7 @@ export default {
         captureException({ error, component: this.$options.name });
       },
       pollInterval() {
-        if (this.isRunnerOnline) {
+        if (this.isRunnerRegistered) {
           // stop polling
           return 0;
         }
@@ -140,15 +141,18 @@ export default {
     runCommand() {
       return runCommand({ platform: this.platform });
     },
-    isRunnerOnline() {
-      return this.runner?.status === STATUS_ONLINE;
+    isRunnerRegistered() {
+      return this.runner?.creationState === CREATION_STATE_FINISHED;
     },
     showGoogleCloudRegistration() {
       return this.platform === GOOGLE_CLOUD_PLATFORM;
     },
+    showGKERegistration() {
+      return this.platform === GOOGLE_KUBERNETES_ENGINE;
+    },
   },
   watch: {
-    isRunnerOnline(newVal, oldVal) {
+    isRunnerRegistered(newVal, oldVal) {
       if (!oldVal && newVal) {
         this.$emit('runnerRegistered');
       }
@@ -168,7 +172,7 @@ export default {
       this.isDrawerOpen = val;
     },
     onBeforeunload(event) {
-      if (this.isRunnerOnline) {
+      if (this.isRunnerRegistered) {
         return undefined;
       }
 
@@ -197,12 +201,21 @@ export default {
     </runner-platforms-radio-group>
     <hr aria-hidden="true" />
 
-    <template v-if="showGoogleCloudRegistration">
-      <google-cloud-registration-instructions
-        :token="token"
-        :group-path="groupPath"
-        :project-path="projectPath"
-      />
+    <template v-if="showGoogleCloudRegistration || showGKERegistration">
+      <template v-if="showGoogleCloudRegistration">
+        <google-cloud-registration-instructions
+          :token="token"
+          :group-path="groupPath"
+          :project-path="projectPath"
+        />
+      </template>
+      <template v-if="showGKERegistration">
+        <gke-registration-instructions
+          :token="token"
+          :group-path="groupPath"
+          :project-path="projectPath"
+        />
+      </template>
     </template>
     <template v-else>
       <p>
@@ -214,7 +227,9 @@ export default {
           "
         >
           <template #link="{ content }">
-            <gl-link @click="onToggleDrawer()">{{ content }}</gl-link>
+            <gl-link data-testid="how-to-install-btn" @click="onToggleDrawer()">{{
+              content
+            }}</gl-link>
           </template>
         </gl-sprintf>
       </p>
@@ -232,7 +247,7 @@ export default {
         <template v-else>
           <cli-command :prompt="commandPrompt" :command="registerCommand" />
           <p>
-            <gl-icon name="information-o" class="gl-text-blue-600!" />
+            <gl-icon name="information-o" variant="info" />
             <gl-sprintf :message="tokenMessage">
               <template #token>
                 <code data-testid="runner-token">{{ token }}</code>
@@ -241,7 +256,6 @@ export default {
                   :title="__('Copy')"
                   size="small"
                   category="tertiary"
-                  class="gl-border-none!"
                 />
               </template>
               <template #bold="{ content }"
@@ -296,7 +310,7 @@ export default {
       <platforms-drawer :platform="platform" :open="isDrawerOpen" @close="onToggleDrawer(false)" />
     </template>
 
-    <section v-if="isRunnerOnline" class="gl-mt-6">
+    <section v-if="isRunnerRegistered" class="gl-mt-6">
       <h2 class="gl-heading-2">🎉 {{ s__("Runners|You've registered a new runner!") }}</h2>
 
       <p>

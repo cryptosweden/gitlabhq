@@ -2,7 +2,7 @@
 <script>
 import NO_PIPELINES_SVG from '@gitlab/svgs/dist/illustrations/empty-state/empty-pipeline-md.svg?url';
 import ERROR_STATE_SVG from '@gitlab/svgs/dist/illustrations/empty-state/empty-job-failed-md.svg?url';
-import { GlEmptyState, GlIcon, GlLoadingIcon, GlCollapsibleListbox } from '@gitlab/ui';
+import { GlCollapsibleListbox, GlEmptyState, GlIcon, GlLoadingIcon } from '@gitlab/ui';
 import { isEqual } from 'lodash';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import { createAlert, VARIANT_INFO, VARIANT_WARNING } from '~/alert';
@@ -58,30 +58,12 @@ export default {
       type: Boolean,
       required: true,
     },
-    canCreatePipeline: {
-      type: Boolean,
-      required: true,
-    },
-    ciLintPath: {
-      type: String,
-      required: false,
-      default: null,
-    },
     resetCachePath: {
       type: String,
       required: false,
       default: null,
     },
     newPipelinePath: {
-      type: String,
-      required: false,
-      default: null,
-    },
-    projectId: {
-      type: String,
-      required: true,
-    },
-    defaultBranchName: {
       type: String,
       required: false,
       default: null,
@@ -166,9 +148,7 @@ export default {
     },
 
     shouldRenderButtons() {
-      return (
-        (this.newPipelinePath || this.resetCachePath || this.ciLintPath) && this.shouldRenderTabs
-      );
+      return (this.newPipelinePath || this.resetCachePath) && this.shouldRenderTabs;
     },
 
     shouldRenderPagination() {
@@ -243,6 +223,7 @@ export default {
 
       this.track('click_filter_tabs', { label: TRACKING_CATEGORIES.tabs, property: scope });
     },
+    // eslint-disable-next-line vue/no-unused-properties -- successCallback() is part of the component's public API.
     successCallback(resp) {
       // Because we are polling & the user is interacting verify if the response received
       // matches the last request made
@@ -358,8 +339,12 @@ export default {
       v-if="shouldRenderTabs || shouldRenderButtons"
       class="top-area scrolling-tabs-container inner-page-scroll-tabs gl-border-none"
     >
-      <div class="fade-left"><gl-icon name="chevron-lg-left" :size="12" /></div>
-      <div class="fade-right"><gl-icon name="chevron-lg-right" :size="12" /></div>
+      <div class="fade-left">
+        <gl-icon name="chevron-lg-left" :size="12" />
+      </div>
+      <div class="fade-right">
+        <gl-icon name="chevron-lg-right" :size="12" />
+      </div>
 
       <navigation-tabs
         v-if="shouldRenderTabs"
@@ -372,23 +357,24 @@ export default {
         v-if="shouldRenderButtons"
         :new-pipeline-path="newPipelinePath"
         :reset-cache-path="resetCachePath"
-        :ci-lint-path="ciLintPath"
         :is-reset-cache-button-loading="isResetCacheButtonLoading"
         @resetRunnersCache="handleResetRunnersCache"
       />
     </div>
 
-    <div v-if="stateToRender !== $options.stateMap.emptyState" class="gl-display-flex">
-      <div class="row-content-block gl-display-flex gl-flex-grow-1 gl-border-b-0">
+    <div v-if="stateToRender !== $options.stateMap.emptyState" class="gl-flex">
+      <div
+        class="row-content-block gl-flex gl-max-w-full gl-flex-grow gl-flex-wrap gl-gap-4 gl-border-b-0 sm:gl-flex-nowrap"
+      >
         <pipelines-filtered-search
-          class="gl-display-flex gl-flex-grow-1 gl-mr-4"
-          :project-id="projectId"
-          :default-branch-name="defaultBranchName"
+          class="gl-flex gl-max-w-full gl-flex-grow"
           :params="validatedParams"
           @filterPipelines="filterPipelines"
         />
         <gl-collapsible-listbox
           v-model="visibilityPipelineIdType"
+          class="gl-grow sm:gl-grow-0"
+          toggle-class="gl-grow"
           :toggle-text="selectedPipelineKeyOption.text"
           :items="$options.pipelineKeyOptions"
           @select="changeVisibilityPipelineIDType"
@@ -401,13 +387,12 @@ export default {
         v-if="stateToRender === $options.stateMap.loading"
         :label="s__('Pipelines|Loading Pipelines')"
         size="lg"
-        class="prepend-top-20"
+        class="gl-mt-5"
       />
 
       <no-ci-empty-state
         v-else-if="stateToRender === $options.stateMap.emptyState"
         :empty-state-svg-path="$options.noPipelinesSvgPath"
-        :can-set-ci="canCreatePipeline"
       />
 
       <gl-empty-state
@@ -426,7 +411,6 @@ export default {
       <div v-else-if="stateToRender === $options.stateMap.tableList">
         <pipelines-table
           :pipelines="state.pipelines"
-          :update-graph-dropdown="updateGraphDropdown"
           :pipeline-id-type="selectedPipelineKeyOption.value"
           @cancel-pipeline="onCancelPipeline"
           @refresh-pipelines-table="onRefreshPipelinesTable"

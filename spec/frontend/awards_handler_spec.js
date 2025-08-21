@@ -4,6 +4,7 @@ import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import { initEmojiMock, clearEmojiMock } from 'helpers/emoji';
 import { useFakeRequestAnimationFrame } from 'helpers/fake_request_animation_frame';
 import loadAwardsHandler from '~/awards_handler';
+import { EMOJI_THUMBS_UP, EMOJI_THUMBS_DOWN } from '~/emoji/constants';
 
 window.gl = window.gl || {};
 
@@ -15,65 +16,65 @@ describe('AwardsHandler', () => {
   const emojiData = [
     {
       n: '8ball',
-      c: 'activity',
+      c: 'Activities',
       e: '🎱',
-      d: 'billiards',
+      d: 'pool 8 ball',
       u: '6.0',
     },
     {
       n: 'grinning',
-      c: 'people',
+      c: 'Smileys & Emotion',
       e: '😀',
       d: 'grinning face',
       u: '6.1',
     },
     {
       n: 'angel',
-      c: 'people',
+      c: 'Smileys & Emotion',
       e: '👼',
       d: 'baby angel',
       u: '6.0',
     },
     {
       n: 'anger',
-      c: 'symbols',
+      c: 'Smileys & Emotion',
       e: '💢',
       d: 'anger symbol',
       u: '6.0',
     },
     {
       n: 'alien',
-      c: 'people',
+      c: 'Smileys & Emotion',
       e: '👽',
-      d: 'extraterrestrial alien',
+      d: 'alien',
       u: '6.0',
     },
     {
       n: 'sunglasses',
-      c: 'people',
+      c: 'Smileys & Emotion',
       e: '😎',
       d: 'smiling face with sunglasses',
       u: '6.0',
     },
     {
       n: 'grey_question',
-      c: 'symbols',
+      c: 'Symbols',
       e: '❔',
-      d: 'white question mark ornament',
+      d: 'white question mark',
       u: '6.0',
     },
     {
-      n: 'thumbsup',
-      c: 'people',
+      n: EMOJI_THUMBS_UP,
+      c: 'People & Body',
       e: '👍',
-      d: 'thumbs up sign',
+      d: 'thumbs up',
       u: '6.0',
     },
     {
-      n: 'thumbsdown',
-      c: 'people',
+      n: EMOJI_THUMBS_DOWN,
+      c: 'People & Body',
       e: '👎',
-      d: 'thumbs down sign',
+      d: 'thumbs down',
       u: '6.0',
     },
   ];
@@ -98,6 +99,7 @@ describe('AwardsHandler', () => {
     setHTMLFixture(htmlSnippetsShow);
 
     awardsHandler = await loadAwardsHandler(true);
+    // eslint-disable-next-line max-params
     jest.spyOn(awardsHandler, 'postEmoji').mockImplementation((button, url, emoji, cb) => cb());
   });
 
@@ -118,10 +120,10 @@ describe('AwardsHandler', () => {
 
       const $emojiMenu = $('.emoji-menu');
 
-      expect($emojiMenu.length).toBe(1);
+      expect($emojiMenu).toHaveLength(1);
       expect($emojiMenu.hasClass('is-visible')).toBe(true);
-      expect($emojiMenu.find('.js-emoji-menu-search').length).toBe(1);
-      expect($('.js-awards-block.current').length).toBe(1);
+      expect($emojiMenu.find('.js-emoji-menu-search')).toHaveLength(1);
+      expect($('.js-awards-block.current')).toHaveLength(1);
     });
 
     it('should also show emoji menu for the smiley icon in notes', async () => {
@@ -129,7 +131,7 @@ describe('AwardsHandler', () => {
 
       const $emojiMenu = $('.emoji-menu');
 
-      expect($emojiMenu.length).toBe(1);
+      expect($emojiMenu).toHaveLength(1);
     });
 
     it('should remove emoji menu when body is clicked', async () => {
@@ -138,9 +140,9 @@ describe('AwardsHandler', () => {
       const $emojiMenu = $('.emoji-menu');
       $('body').click();
 
-      expect($emojiMenu.length).toBe(1);
+      expect($emojiMenu).toHaveLength(1);
       expect($emojiMenu.hasClass('is-visible')).toBe(false);
-      expect($('.js-awards-block.current').length).toBe(0);
+      expect($('.js-awards-block.current')).toHaveLength(0);
     });
 
     it('should not remove emoji menu when search is clicked', async () => {
@@ -149,40 +151,40 @@ describe('AwardsHandler', () => {
       const $emojiMenu = $('.emoji-menu');
       $('.emoji-search').click();
 
-      expect($emojiMenu.length).toBe(1);
+      expect($emojiMenu).toHaveLength(1);
       expect($emojiMenu.hasClass('is-visible')).toBe(true);
-      expect($('.js-awards-block.current').length).toBe(1);
+      expect($('.js-awards-block.current')).toHaveLength(1);
     });
   });
 
   describe('::addAwardToEmojiBar', () => {
     it('should add emoji to votes block', () => {
       const $votesBlock = $('.js-awards-block').eq(0);
-      awardsHandler.addAwardToEmojiBar($votesBlock, 'heart', false);
+      awardsHandler.addAwardToEmojiBar($votesBlock, 'heart');
       const $emojiButton = $votesBlock.find('[data-name=heart]');
 
-      expect($emojiButton.length).toBe(1);
+      expect($emojiButton).toHaveLength(1);
       expect($emojiButton.next('.js-counter').text()).toBe('1');
       expect($votesBlock.hasClass('hidden')).toBe(false);
     });
 
     it('should remove the emoji when we click again', () => {
       const $votesBlock = $('.js-awards-block').eq(0);
-      awardsHandler.addAwardToEmojiBar($votesBlock, 'heart', false);
-      awardsHandler.addAwardToEmojiBar($votesBlock, 'heart', false);
+      awardsHandler.addAwardToEmojiBar($votesBlock, 'heart');
+      awardsHandler.addAwardToEmojiBar($votesBlock, 'heart');
       const $emojiButton = $votesBlock.find('[data-name=heart]');
 
-      expect($emojiButton.length).toBe(0);
+      expect($emojiButton).toHaveLength(0);
     });
 
     it('should decrement the emoji counter', () => {
       const $votesBlock = $('.js-awards-block').eq(0);
-      awardsHandler.addAwardToEmojiBar($votesBlock, 'heart', false);
+      awardsHandler.addAwardToEmojiBar($votesBlock, 'heart');
       const $emojiButton = $votesBlock.find('[data-name=heart]');
       $emojiButton.next('.js-counter').text(5);
-      awardsHandler.addAwardToEmojiBar($votesBlock, 'heart', false);
+      awardsHandler.addAwardToEmojiBar($votesBlock, 'heart');
 
-      expect($emojiButton.length).toBe(1);
+      expect($emojiButton).toHaveLength(1);
       expect($emojiButton.next('.js-counter').text()).toBe('4');
     });
   });
@@ -199,15 +201,17 @@ describe('AwardsHandler', () => {
     it('should handle :+1: and :-1: mutuality', () => {
       const awardUrl = awardsHandler.getAwardUrl();
       const $votesBlock = $('.js-awards-block').eq(0);
-      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').closest('button');
-      const $thumbsDownEmoji = $votesBlock.find('[data-name=thumbsdown]').closest('button');
-      awardsHandler.addAward($votesBlock, awardUrl, 'thumbsup', false);
+      const $thumbsUpEmoji = $votesBlock.find(`[data-name=${EMOJI_THUMBS_UP}]`).closest('button');
+      const $thumbsDownEmoji = $votesBlock
+        .find(`[data-name=${EMOJI_THUMBS_DOWN}]`)
+        .closest('button');
+      awardsHandler.addAward($votesBlock, awardUrl, EMOJI_THUMBS_UP);
 
       expect($thumbsUpEmoji.hasClass('active')).toBe(true);
       expect($thumbsDownEmoji.hasClass('active')).toBe(false);
-      awardsHandler.addAward($votesBlock, awardUrl, 'thumbsdown', true);
+      awardsHandler.addAward($votesBlock, awardUrl, EMOJI_THUMBS_DOWN);
 
-      expect($thumbsUpEmoji.hasClass('active')).toBe(false);
+      expect($thumbsUpEmoji.hasClass('active')).toBe(true);
       expect($thumbsDownEmoji.hasClass('active')).toBe(true);
     });
   });
@@ -216,12 +220,12 @@ describe('AwardsHandler', () => {
     it('should remove emoji', () => {
       const awardUrl = awardsHandler.getAwardUrl();
       const $votesBlock = $('.js-awards-block').eq(0);
-      awardsHandler.addAward($votesBlock, awardUrl, 'fire', false);
+      awardsHandler.addAward($votesBlock, awardUrl, 'fire');
 
-      expect($votesBlock.find('[data-name=fire]').length).toBe(1);
+      expect($votesBlock.find('[data-name=fire]')).toHaveLength(1);
       awardsHandler.removeEmoji($votesBlock.find('[data-name=fire]').closest('button'));
 
-      expect($votesBlock.find('[data-name=fire]').length).toBe(0);
+      expect($votesBlock.find('[data-name=fire]')).toHaveLength(0);
     });
   });
 
@@ -229,9 +233,9 @@ describe('AwardsHandler', () => {
     it('should prepend "You" to the award tooltip', () => {
       const awardUrl = awardsHandler.getAwardUrl();
       const $votesBlock = $('.js-awards-block').eq(0);
-      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').closest('button');
+      const $thumbsUpEmoji = $votesBlock.find(`[data-name=${EMOJI_THUMBS_UP}]`).closest('button');
       $thumbsUpEmoji.attr('data-title', 'sam, jerry, max, and andy');
-      awardsHandler.addAward($votesBlock, awardUrl, 'thumbsup', false);
+      awardsHandler.addAward($votesBlock, awardUrl, EMOJI_THUMBS_UP);
 
       expect($thumbsUpEmoji.attr('title')).toBe('You, sam, jerry, max, and andy');
     });
@@ -239,9 +243,9 @@ describe('AwardsHandler', () => {
     it('handles the special case where "You" is not cleanly comma separated', () => {
       const awardUrl = awardsHandler.getAwardUrl();
       const $votesBlock = $('.js-awards-block').eq(0);
-      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').closest('button');
+      const $thumbsUpEmoji = $votesBlock.find(`[data-name=${EMOJI_THUMBS_UP}]`).closest('button');
       $thumbsUpEmoji.attr('data-title', 'sam');
-      awardsHandler.addAward($votesBlock, awardUrl, 'thumbsup', false);
+      awardsHandler.addAward($votesBlock, awardUrl, EMOJI_THUMBS_UP);
 
       expect($thumbsUpEmoji.attr('title')).toBe('You and sam');
     });
@@ -251,10 +255,10 @@ describe('AwardsHandler', () => {
     it('removes "You" from the front of the tooltip', () => {
       const awardUrl = awardsHandler.getAwardUrl();
       const $votesBlock = $('.js-awards-block').eq(0);
-      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').closest('button');
+      const $thumbsUpEmoji = $votesBlock.find(`[data-name=${EMOJI_THUMBS_UP}]`).closest('button');
       $thumbsUpEmoji.attr('data-title', 'You, sam, jerry, max, and andy');
       $thumbsUpEmoji.addClass('active');
-      awardsHandler.addAward($votesBlock, awardUrl, 'thumbsup', false);
+      awardsHandler.addAward($votesBlock, awardUrl, EMOJI_THUMBS_UP);
 
       expect($thumbsUpEmoji.attr('title')).toBe('sam, jerry, max, and andy');
     });
@@ -262,10 +266,10 @@ describe('AwardsHandler', () => {
     it('handles the special case where "You" is not cleanly comma separated', () => {
       const awardUrl = awardsHandler.getAwardUrl();
       const $votesBlock = $('.js-awards-block').eq(0);
-      const $thumbsUpEmoji = $votesBlock.find('[data-name=thumbsup]').closest('button');
+      const $thumbsUpEmoji = $votesBlock.find(`[data-name=${EMOJI_THUMBS_UP}]`).closest('button');
       $thumbsUpEmoji.attr('data-title', 'You and sam');
       $thumbsUpEmoji.addClass('active');
-      awardsHandler.addAward($votesBlock, awardUrl, 'thumbsup', false);
+      awardsHandler.addAward($votesBlock, awardUrl, EMOJI_THUMBS_UP);
 
       expect($thumbsUpEmoji.attr('title')).toBe('sam');
     });
@@ -321,8 +325,8 @@ describe('AwardsHandler', () => {
       awardsHandler.searchEmojis('thumb');
 
       const $menu = $('.emoji-menu');
-      const $thumbsUpItem = $menu.find('[data-name=thumbsup]');
-      const $thumbsDownItem = $menu.find('[data-name=thumbsdown]');
+      const $thumbsUpItem = $menu.find(`[data-name=${EMOJI_THUMBS_UP}]`);
+      const $thumbsDownItem = $menu.find(`[data-name=${EMOJI_THUMBS_DOWN}]`);
 
       expect($thumbsUpItem.is(':visible')).toBe(true);
       expect($thumbsDownItem.is(':visible')).toBe(true);
@@ -342,12 +346,12 @@ describe('AwardsHandler', () => {
         const $block = $('.js-awards-block');
         const $emoji = $menu.find(`.emoji-menu-list:not(.frequent-emojis) ${emojiSelector}`);
 
-        expect($emoji.length).toBe(1);
-        expect($block.find(emojiSelector).length).toBe(0);
+        expect($emoji).toHaveLength(1);
+        expect($block.find(emojiSelector)).toHaveLength(0);
         $emoji.click();
 
         expect($menu.hasClass('.is-visible')).toBe(false);
-        expect($block.find(emojiSelector).length).toBe(1);
+        expect($block.find(emojiSelector)).toHaveLength(1);
       });
     };
 
@@ -365,7 +369,7 @@ describe('AwardsHandler', () => {
       );
       $emoji.click();
 
-      expect($block.find(emojiSelector).length).toBe(0);
+      expect($block.find(emojiSelector)).toHaveLength(0);
     });
   });
 

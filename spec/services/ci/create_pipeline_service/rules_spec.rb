@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, feature_category: :pipeline_composition do
+RSpec.describe Ci::CreatePipelineService, feature_category: :pipeline_composition do
+  include Ci::PipelineMessageHelpers
+
   let(:project)     { create(:project, :repository) }
   let(:user)        { project.first_owner }
   let(:ref)         { 'refs/heads/master' }
@@ -13,6 +15,10 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
 
   let(:base_initialization_params) { { ref: ref, before: '00000000', after: project.commit(ref).sha, variables_attributes: nil } }
   let(:initialization_params)      { base_initialization_params }
+
+  before do
+    project.update!(ci_pipeline_variables_minimum_override_role: :maintainer)
+  end
 
   context 'job:rules' do
     let(:regular_job) { find_job('regular-job') }
@@ -193,6 +199,63 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
       end
     end
 
+    context 'exists with variables' do
+      let(:config) do
+        <<-YAML
+        variables:
+          VAR_DIRECTORY: "config"
+          VAR_FILE: "app.rb"
+          VAR_COMBINED: "config/app.rb"
+          VAR_COMBINED_NO_MATCH: "temp/app.rb"
+          VAR_NESTED: $VAR_DIRECTORY/$VAR_FILE
+
+        job1:
+          script: echo Hello, World!
+          rules:
+            - exists:
+              - $VAR_DIRECTORY/$VAR_FILE # matches
+
+        job2:
+          script: echo Hello, World!
+          rules:
+            - exists:
+              - $VAR_COMBINED # matches
+
+        job3:
+          script: echo Hello, World!
+          rules:
+            - exists:
+              - $VAR_COMBINED_NO_MATCH # does not match
+
+        job4:
+          script: echo Hello, World!
+          rules:
+            - exists:
+              - $VAR_NESTED
+        YAML
+      end
+
+      context 'with matches' do
+        let_it_be(:project_files) do
+          {
+            'config/app.rb' => '',
+            'some_file.rb' => ''
+          }
+        end
+
+        let_it_be(:project) do
+          create(:project, :custom_repo, files: project_files)
+        end
+
+        let_it_be(:number_of_project_files) { project_files.size }
+
+        it 'creates all relevant jobs' do
+          expect(pipeline).to be_persisted
+          expect(build_names).to contain_exactly('job1', 'job2', 'job4')
+        end
+      end
+    end
+
     context 'with allow_failure and exit_codes', :aggregate_failures do
       let(:config) do
         <<-EOY
@@ -222,6 +285,10 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
         EOY
       end
 
+      before do
+        stub_feature_flags(ci_validate_config_options: false)
+      end
+
       it 'creates a pipeline' do
         expect(pipeline).to be_persisted
         expect(build_names).to contain_exactly(
@@ -236,8 +303,8 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
       end
 
       it 'removes exit_codes if allow_failure is specified' do
-        expect(find_job('job-1').options.dig(:allow_failure_criteria)).to be_nil
-        expect(find_job('job-2').options.dig(:allow_failure_criteria)).to be_nil
+        expect(find_job('job-1').options[:allow_failure_criteria]).to be_nil
+        expect(find_job('job-2').options[:allow_failure_criteria]).to be_nil
         expect(find_job('job-3').options.dig(:allow_failure_criteria, :exit_codes)).to eq([42])
       end
     end
@@ -680,6 +747,10 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
         let_it_be(:project) { create(:project, :empty_repo) }
         let_it_be(:user)    { project.first_owner }
 
+        let(:initialization_params) { base_initialization_params.merge(before: nil) }
+        let(:changed_file) { 'file2.txt' }
+        let(:ref) { 'feature_2' }
+
         before_all do
           project.repository.add_branch(user, 'feature_1', 'master')
 
@@ -693,10 +764,6 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
             user, 'file2.txt', 'file 2', message: 'Create file2.txt', branch_name: 'feature_2'
           )
         end
-
-        let(:initialization_params) { base_initialization_params.merge(before: nil) }
-        let(:changed_file) { 'file2.txt' }
-        let(:ref) { 'feature_2' }
 
         context 'for jobs rules' do
           let(:config) do
@@ -749,6 +816,10 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
                 VALID_BRANCH_NAME: feature_1
                 FEATURE_BRANCH_NAME_PREFIX: feature_
                 INVALID_BRANCH_NAME: invalid-branch
+                VALID_FILENAME: file2.txt
+                INVALID_FILENAME: file1.txt
+                VALID_BASENAME: file2
+                VALID_NESTED_VARIABLE: ${VALID_BASENAME}.txt
               job1:
                 script: exit 0
                 rules:
@@ -799,17 +870,39 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
               end
             end
 
-            context 'when the compare_to variable feature flag is disabled' do
-              before do
-                stub_feature_flags(ci_expand_variables_in_compare_to: false)
+            context 'when paths is defined by a variable' do
+              let(:compare_to) { '${VALID_BRANCH_NAME}' }
+
+              context 'when the variable does not exist' do
+                let(:changed_file) { '$NON_EXISTENT_VAR' }
+
+                it 'does not create job1' do
+                  expect(build_names).to contain_exactly('job2')
+                end
               end
 
-              let(:compare_to) { '$VALID_BRANCH_NAME' }
+              context 'when the variable contains a matching filename' do
+                let(:changed_file) { '$VALID_FILENAME' }
 
-              it 'returns an error' do
-                expect(pipeline.errors.full_messages).to eq(
-                  ['Failed to parse rule for job1: rules:changes:compare_to is not a valid ref']
-                )
+                it 'creates both jobs' do
+                  expect(build_names).to contain_exactly('job1', 'job2')
+                end
+              end
+
+              context 'when the variable does not contain a matching filename' do
+                let(:changed_file) { '$INVALID_FILENAME' }
+
+                it 'does not create job1' do
+                  expect(build_names).to contain_exactly('job2')
+                end
+              end
+
+              context 'when the variable is nested and contains a matching filename' do
+                let(:changed_file) { '$VALID_NESTED_VARIABLE' }
+
+                it 'creates both jobs' do
+                  expect(build_names).to contain_exactly('job1', 'job2')
+                end
               end
             end
           end
@@ -1323,7 +1416,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
         let(:ref) { 'refs/heads/wip' }
 
         it 'invalidates the pipeline with a workflow rules error' do
-          expect(pipeline.errors[:base]).to include('Pipeline filtered out by workflow rules.')
+          expect(pipeline.errors[:base]).to include(sanitize_message(Ci::Pipeline.workflow_rules_failure_message))
           expect(pipeline).not_to be_persisted
         end
       end
@@ -1332,7 +1425,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
         let(:ref) { 'refs/heads/fix' }
 
         it 'invalidates the pipeline with a workflow rules error' do
-          expect(pipeline.errors[:base]).to include('Pipeline filtered out by workflow rules.')
+          expect(pipeline.errors[:base]).to include(sanitize_message(Ci::Pipeline.workflow_rules_failure_message))
           expect(pipeline).not_to be_persisted
         end
       end
@@ -1389,7 +1482,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
         let(:ref) { 'refs/heads/feature_conflict' }
 
         it 'invalidates the pipeline with a workflow rules error' do
-          expect(pipeline.errors[:base]).to include('Pipeline filtered out by workflow rules.')
+          expect(pipeline.errors[:base]).to include(sanitize_message(Ci::Pipeline.workflow_rules_failure_message))
           expect(pipeline).not_to be_persisted
         end
       end
@@ -1415,8 +1508,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
         let(:ref) { 'refs/heads/master' }
 
         it 'invalidates the pipeline with an empty jobs error' do
-          expect(pipeline.errors[:base]).to include('Pipeline will not run for the selected trigger. ' \
-            'The rules configuration prevented any jobs from being added to the pipeline.')
+          expect(pipeline.errors[:base]).to include(sanitize_message(Ci::Pipeline.rules_failure_message))
           expect(pipeline).not_to be_persisted
         end
       end
@@ -1434,7 +1526,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
         let(:ref) { 'refs/heads/fix' }
 
         it 'invalidates the pipeline with a workflow rules error' do
-          expect(pipeline.errors[:base]).to include('Pipeline filtered out by workflow rules.')
+          expect(pipeline.errors[:base]).to include(sanitize_message(Ci::Pipeline.workflow_rules_failure_message))
           expect(pipeline).not_to be_persisted
         end
       end
@@ -1443,7 +1535,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
         let(:ref) { 'refs/heads/wip' }
 
         it 'invalidates the pipeline with a workflow rules error' do
-          expect(pipeline.errors[:base]).to include('Pipeline filtered out by workflow rules.')
+          expect(pipeline.errors[:base]).to include(sanitize_message(Ci::Pipeline.workflow_rules_failure_message))
           expect(pipeline).not_to be_persisted
         end
       end
@@ -1635,7 +1727,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
           end
 
           it 'creates the pipeline with a job' do
-            expect(pipeline.errors.full_messages).to eq(['Pipeline filtered out by workflow rules.'])
+            expect(pipeline.errors.full_messages).to eq([sanitize_message(Ci::Pipeline.workflow_rules_failure_message)])
             expect(response).to be_error
             expect(pipeline).not_to be_persisted
           end

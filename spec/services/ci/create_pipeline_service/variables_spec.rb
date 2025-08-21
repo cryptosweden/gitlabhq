@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness,
-  feature_category: :secrets_management do
+RSpec.describe Ci::CreatePipelineService,
+  feature_category: :ci_variables do
   let_it_be(:project) { create(:project, :repository) }
   let_it_be(:user)    { project.first_owner }
 

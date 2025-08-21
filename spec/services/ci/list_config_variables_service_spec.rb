@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe Ci::ListConfigVariablesService,
-  :use_clean_rails_memory_store_caching, feature_category: :secrets_management do
+  :use_clean_rails_memory_store_caching, feature_category: :ci_variables do
   include ReactiveCachingHelpers
 
   let(:ci_config) { {} }
@@ -213,21 +213,6 @@ RSpec.describe Ci::ListConfigVariablesService,
         expect(result['COMMON_VAR']).to eq({ value: 'include_two', description: 'Common variable' })
       end
     end
-
-    context 'when feature flag is disabled in the project' do
-      before do
-        stub_feature_flags(project_ref_name_in_variables: false)
-      end
-
-      it 'passes nil as the ref name to YamlProcessor' do
-        expect(Gitlab::Ci::YamlProcessor)
-          .to receive(:new)
-          .with(anything, a_hash_including(ref: nil))
-          .and_call_original
-
-        result
-      end
-    end
   end
 
   context 'when project CI config is external' do
@@ -299,7 +284,7 @@ RSpec.describe Ci::ListConfigVariablesService,
   end
 
   context 'when reading from cache' do
-    let(:reactive_cache_params) { [sha] }
+    let(:reactive_cache_params) { [sha, ref] }
     let(:return_value) { { 'KEY1' => { value: 'val 1', description: 'description 1' } } }
 
     before do
@@ -312,12 +297,12 @@ RSpec.describe Ci::ListConfigVariablesService,
   end
 
   context 'when the cache is empty' do
-    let(:reactive_cache_params) { [sha] }
+    let(:reactive_cache_params) { [sha, ref] }
 
     it 'returns nil and enquques the worker to fill cache' do
       expect(ExternalServiceReactiveCachingWorker)
         .to receive(:perform_async)
-        .with(service.class, service.id, *reactive_cache_params)
+        .with(service.class.name, service.id, *reactive_cache_params)
 
       expect(result).to be_nil
     end

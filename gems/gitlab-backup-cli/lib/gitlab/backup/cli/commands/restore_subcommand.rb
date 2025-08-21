@@ -9,16 +9,16 @@ module Gitlab
 
           desc 'all BACKUP_ID', 'Restores a backup including repositories, database and local files'
           def all(backup_id)
-            duration = measure_duration do
-              Gitlab::Backup::Cli::Output.info("Initializing environment...")
-              Gitlab::Backup::Cli.rails_environment!
-            end
-            Gitlab::Backup::Cli::Output.success("Environment loaded. (#{duration.in_seconds}s)")
+            Gitlab::Backup::Cli.update_process_title!("restore all from #{backup_id}")
 
             restore_executor =
               Gitlab::Backup::Cli::RestoreExecutor.new(
                 context: build_context,
-                backup_id: backup_id
+                backup_id: backup_id,
+                backup_bucket: options["backup_bucket"],
+                wait_for_completion: options["wait_for_completion"],
+                registry_bucket: options["registry_bucket"],
+                service_account_file: options["service_account_file"]
               )
 
             duration = measure_duration do
@@ -40,9 +40,7 @@ module Gitlab
           private
 
           def build_context
-            # TODO: When we have more then one context we need to auto-detect which one to use
-            # https://gitlab.com/gitlab-org/gitlab/-/issues/454530
-            Gitlab::Backup::Cli::SourceContext.new
+            Gitlab::Backup::Cli::Context.build
           end
 
           def measure_duration

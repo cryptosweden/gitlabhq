@@ -21,8 +21,8 @@ module Ci
       expose_project_variables:,
       expose_group_variables:,
       environment: expanded_environment_name,
-      dependencies: true)
-
+      dependencies: true
+    )
       track_duration do
         pipeline
           .variables_builder
@@ -54,6 +54,12 @@ module Ci
     def simple_variables
       strong_memoize(:simple_variables) do
         scoped_variables(environment: nil)
+      end
+    end
+
+    def manual_variables
+      strong_memoize(:manual_variables) do
+        respond_to?(:job_variables) ? job_variables : []
       end
     end
 

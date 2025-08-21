@@ -1,10 +1,10 @@
 import { GlLoadingIcon, GlCollapsibleListbox, GlListboxItem } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
-import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import Vue from 'vue';
 // eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
+import axios from '~/lib/utils/axios_utils';
 import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import MilestoneCombobox from '~/milestones/components/milestone_combobox.vue';
 import createStore from '~/milestones/stores/';
@@ -230,7 +230,7 @@ describe('Milestone combobox component', () => {
           const dropdownItems = findDropdownItems();
 
           projectMilestones.forEach((milestone) => {
-            expect(dropdownItems.filter((x) => x.text() === milestone.title).exists()).toBe(true);
+            expect(dropdownItems.filter((x) => x.text() === milestone.title)).toHaveLength(1);
           });
         });
       });
@@ -319,7 +319,7 @@ describe('Milestone combobox component', () => {
           const dropdownItems = findDropdownItems();
 
           groupMilestones.forEach((milestone) => {
-            expect(dropdownItems.filter((x) => x.text() === milestone.title).exists()).toBe(true);
+            expect(dropdownItems.filter((x) => x.text() === milestone.title)).toHaveLength(1);
           });
         });
       });

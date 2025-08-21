@@ -1,7 +1,7 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`AutocompleteHelper filters items based on command "/assign" for reference type "user" and command 1`] = `
-Array [
+[
   "florida.schoen",
   "root",
   "all",
@@ -21,7 +21,7 @@ Array [
 `;
 
 exports[`AutocompleteHelper filters items based on command "/assign_reviewer" for reference type "user" and command 1`] = `
-Array [
+[
   "florida.schoen",
   "root",
   "all",
@@ -39,7 +39,7 @@ Array [
 `;
 
 exports[`AutocompleteHelper filters items based on command "/label" for reference type "label" and command 1`] = `
-Array [
+[
   "Bronce",
   "Contour",
   "Corolla",
@@ -59,7 +59,7 @@ Array [
 `;
 
 exports[`AutocompleteHelper filters items based on command "/reassign" for reference type "user" and command 1`] = `
-Array [
+[
   "florida.schoen",
   "root",
   "all",
@@ -79,7 +79,7 @@ Array [
 `;
 
 exports[`AutocompleteHelper filters items based on command "/reassign_reviewer" for reference type "user" and command 1`] = `
-Array [
+[
   "florida.schoen",
   "root",
   "all",
@@ -99,7 +99,7 @@ Array [
 `;
 
 exports[`AutocompleteHelper filters items based on command "/relabel" for reference type "label" and command 1`] = `
-Array [
+[
   "Amsche",
   "Brioffe",
   "Bronce",
@@ -119,14 +119,14 @@ Array [
 `;
 
 exports[`AutocompleteHelper filters items based on command "/unassign" for reference type "user" and command 1`] = `
-Array [
+[
   "errol",
   "evelynn_olson",
 ]
 `;
 
 exports[`AutocompleteHelper filters items based on command "/unassign_reviewer" for reference type "user" and command 1`] = `
-Array [
+[
   "lakeesha.batz",
   "laurene_blick",
   "myrtis",
@@ -135,7 +135,7 @@ Array [
 `;
 
 exports[`AutocompleteHelper filters items based on command "/unlabel" for reference type "label" and command 1`] = `
-Array [
+[
   "Amsche",
   "Brioffe",
   "Bryncefunc",
@@ -144,7 +144,7 @@ Array [
 `;
 
 exports[`AutocompleteHelper for reference type "command", searches for "re" correctly 1`] = `
-Array [
+[
   "relabel",
   "remove_milestone",
   "remove_estimate",
@@ -157,7 +157,7 @@ Array [
 `;
 
 exports[`AutocompleteHelper for reference type "epic", searches for "n" correctly 1`] = `
-Array [
+[
   "Nobis quidem aspernatur reprehenderit sunt ut ipsum tempora sapiente sed iste.",
   "Minus eius ut omnis quos sunt dicta ex ipsum.",
   "Quae nostrum possimus rerum aliquam pariatur a eos aut id.",
@@ -167,7 +167,7 @@ Array [
 `;
 
 exports[`AutocompleteHelper for reference type "issue", searches for "q" correctly 1`] = `
-Array [
+[
   "Quasi id et et nihil sint autem.",
   "Eaque omnis eius quas necessitatibus hic ut et corrupti.",
   "Aut quisquam magnam eos distinctio incidunt perferendis fugit.",
@@ -181,34 +181,35 @@ Array [
 ]
 `;
 
-exports[`AutocompleteHelper for reference type "label", searches for "c" correctly 1`] = `
-Array [
-  "Contour",
-  "Corolla",
-  "Cygsync",
-  "scoped label",
-  "Amsche",
+exports[`AutocompleteHelper for reference type "iteration", searches for "27" correctly 1`] = `
+[
+  "Optio quod at quia ad pariatur dolores. Nov 26, 2024 - Dec 9, 2024",
+  "Itaque repellat possimus dolor quia nesciunt hic aut iure animi vel. Nov 13, 2024 - Dec 10, 2024",
+  "Magni eos minus vero facilis in consequuntur deserunt omnis consectetur natus. Nov 27, 2024 - Dec 10, 2024",
+]
+`;
+
+exports[`AutocompleteHelper for reference type "label", searches for "bc" correctly 1`] = `
+[
   "Bronce",
   "Bryncefunc",
-  "Onesync",
-  "Pynefunc",
 ]
 `;
 
 exports[`AutocompleteHelper for reference type "merge_request", searches for "n" correctly 1`] = `
-Array [
+[
   "Blanditiis maxime voluptatem ut pariatur vel autem vero non quod libero.",
   "Optio nemo qui dolorem sit ipsum qui saepe.",
   "Draft: Alunny/publish lib",
   "Draft: Fix event current target",
-  "Draft: Resolve \\"hgvbbvnnb\\"",
+  "Draft: Resolve "hgvbbvnnb"",
   "Autem eaque et sed provident enim corrupti molestiae.",
   "Always call registry's trigger method from withRegistration",
 ]
 `;
 
 exports[`AutocompleteHelper for reference type "milestone", searches for "16" correctly 1`] = `
-Array [
+[
   "16.7",
   "16.8",
   "16.9",
@@ -225,7 +226,7 @@ Array [
 `;
 
 exports[`AutocompleteHelper for reference type "snippet", searches for "s" correctly 1`] = `
-Array [
+[
   "ss",
   "test snippet",
   "another test snippet",
@@ -233,7 +234,7 @@ Array [
 `;
 
 exports[`AutocompleteHelper for reference type "user", searches for "r" correctly 1`] = `
-Array [
+[
   "root",
   "errol",
   "lakeesha.batz",
@@ -248,7 +249,7 @@ Array [
 `;
 
 exports[`AutocompleteHelper for reference type "vulnerability", searches for "cross" correctly 1`] = `
-Array [
+[
   "Cross Site Scripting (Persistent)",
   "Cross Site Scripting (Persistent)",
   "Cross Site Scripting (Persistent)",
@@ -256,8 +257,83 @@ Array [
 `;
 
 exports[`AutocompleteHelper for reference type "wiki", searches for "ho" correctly 1`] = `
-Array [
+[
   "Home",
   "How to use GitLab",
+]
+`;
+
+exports[`AutocompleteHelper for work items filters statuses using apollo cache for command "/status "" 1`] = `
+[
+  "To do",
+  "In progress",
+  "Done",
+  "Won't do",
+]
+`;
+
+exports[`AutocompleteHelper for work items filters statuses using apollo cache for command "/status "pro" 1`] = `
+[
+  "In progress",
+]
+`;
+
+exports[`AutocompleteHelper for work items filters users using apollo cache for command "/assign" 1`] = `
+[
+  "florida.schoen",
+  "root",
+  "all",
+  "lakeesha.batz",
+  "laurene_blick",
+  "myrtis",
+  "patty",
+  "Commit451",
+  "flightjs",
+  "gitlab-instance-ade037f9",
+  "gitlab-org",
+  "gnuwget",
+  "h5bp",
+  "jashkenas",
+  "twitter",
+]
+`;
+
+exports[`AutocompleteHelper for work items filters users using apollo cache for command "/unassign" 1`] = `
+[
+  "errol",
+  "evelynn_olson",
+]
+`;
+
+exports[`AutocompleteHelper for work items filters work items using apollo cache for command "/unlink" 1`] = `
+[
+  31,
+  30,
+]
+`;
+
+exports[`AutocompleteHelper returns expected results before and after updating data sources 1`] = `
+[
+  "florida.schoen",
+  "root",
+  "all",
+  "errol",
+  "evelynn_olson",
+  "lakeesha.batz",
+  "laurene_blick",
+  "myrtis",
+  "patty",
+  "Commit451",
+  "flightjs",
+  "gitlab-instance-ade037f9",
+  "gitlab-org",
+  "gnuwget",
+  "h5bp",
+]
+`;
+
+exports[`AutocompleteHelper returns expected results before and after updating data sources 2`] = `
+[
+  "walker.finn",
 ]
 `;

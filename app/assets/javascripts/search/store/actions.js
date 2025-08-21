@@ -1,11 +1,12 @@
+import { omitBy } from 'lodash';
+import { nextTick } from 'vue';
 import Api from '~/api';
 import { createAlert } from '~/alert';
 import axios from '~/lib/utils/axios_utils';
-import { visitUrl, setUrlParams, getNormalizedURL } from '~/lib/utils/url_utility';
+import { visitUrl, setUrlParams, getNormalizedURL, updateHistory } from '~/lib/utils/url_utility';
 import { logError } from '~/lib/logger';
 import { __ } from '~/locale';
-import { labelFilterData } from '~/search/sidebar/components/label_filter/data';
-import { SCOPE_BLOB } from '~/search/sidebar/constants';
+import { SCOPE_BLOB, SEARCH_TYPE_ZOEKT, LABEL_FILTER_PARAM } from '~/search/sidebar/constants';
 import {
   GROUPS_LOCAL_STORAGE_KEY,
   PROJECTS_LOCAL_STORAGE_KEY,
@@ -22,6 +23,7 @@ import {
   getAggregationsUrl,
   prepareSearchAggregations,
   setDataToLS,
+  buildDocumentTitle,
 } from './utils';
 
 export const fetchGroups = ({ commit }, search) => {
@@ -102,7 +104,49 @@ export const setFrequentProject = ({ state, commit }, item) => {
   commit(types.LOAD_FREQUENT_ITEMS, { key: PROJECTS_LOCAL_STORAGE_KEY, data: frequentItems });
 };
 
-export const setQuery = ({ state, commit }, { key, value }) => {
+const filterBlobs = (navigationItemScope, skipBlobs) => {
+  return navigationItemScope !== SCOPE_BLOB ? true : skipBlobs;
+};
+
+export const fetchSidebarCount = ({ commit, state }, skipBlobs) => {
+  const items = Object.values(state.navigation)
+    .filter(
+      (navigationItem) =>
+        !navigationItem.active &&
+        navigationItem.count_link &&
+        filterBlobs(navigationItem.scope, skipBlobs),
+    )
+    .map((navItem) => {
+      const navigationItem = { ...navItem };
+
+      const modifications = {
+        search: state.query?.search || '*',
+      };
+
+      if (navigationItem.scope === SCOPE_BLOB && loadDataFromLS(LS_REGEX_HANDLE)) {
+        modifications[REGEX_PARAM] = true;
+      }
+
+      navigationItem.count_link = setUrlParams(
+        modifications,
+        getNormalizedURL(navigationItem.count_link),
+      );
+      return navigationItem;
+    });
+
+  const promises = items.map((navigationItem) =>
+    axios
+      .get(navigationItem.count_link)
+      .then(({ data: { count } }) => {
+        commit(types.RECEIVE_NAVIGATION_COUNT, { key: navigationItem.scope, count });
+      })
+      .catch((e) => logError(e)),
+  );
+
+  return Promise.all(promises);
+};
+
+export const setQuery = async ({ state, commit, getters, dispatch }, { key, value }) => {
   commit(types.SET_QUERY, { key, value });
 
   if (SIDEBAR_PARAMS.includes(key)) {
@@ -112,10 +156,39 @@ export const setQuery = ({ state, commit }, { key, value }) => {
   if (key === REGEX_PARAM) {
     setDataToLS(LS_REGEX_HANDLE, value);
   }
+
+  const isZoektSearch =
+    state.searchType === SEARCH_TYPE_ZOEKT && getters.currentScope === SCOPE_BLOB;
+
+  if (isZoektSearch && key === 'search') {
+    const shouldResetPage = state.query?.page > 1 || state.urlQuery?.page > 1;
+    const query = shouldResetPage ? { ...state.query, page: 1 } : { ...state.query };
+    const newUrl = setUrlParams(query, window.location.href, true, true);
+    document.title = buildDocumentTitle(state.query.search);
+
+    updateHistory({ state: query, title: state.query.search, url: newUrl, replace: true });
+
+    if (shouldResetPage) {
+      commit(types.SET_QUERY, { key: 'page', value: 1 });
+    }
+
+    await nextTick();
+    dispatch('fetchSidebarCount');
+  }
+
+  if (isZoektSearch && key === 'page') {
+    updateHistory({
+      state: state.query,
+      title: state.query.search,
+      url: setUrlParams({ ...state.query }, window.location.href, true, true),
+      replace: true,
+    });
+  }
 };
 
 export const applyQuery = ({ state }) => {
-  visitUrl(setUrlParams({ ...state.query, page: null }, window.location.href, false, true));
+  const query = omitBy(state.query, (item) => item === '');
+  visitUrl(setUrlParams({ ...query, page: null }, window.location.href, true, true));
 };
 
 export const resetQuery = ({ state }) => {
@@ -137,47 +210,14 @@ export const resetQuery = ({ state }) => {
   );
 };
 
-export const closeLabel = ({ state, commit }, { key }) => {
-  const labels = state?.query?.labels.filter((labelKey) => labelKey !== key);
-
-  setQuery({ state, commit }, { key: labelFilterData.filterParam, value: labels });
+export const closeLabel = ({ state, commit, getters }, { title }) => {
+  const labels =
+    state?.query?.[LABEL_FILTER_PARAM]?.filter((labelName) => labelName !== title) || [];
+  setQuery({ state, commit, getters }, { key: LABEL_FILTER_PARAM, value: labels });
 };
 
 export const setLabelFilterSearch = ({ commit }, { value }) => {
   commit(types.SET_LABEL_SEARCH_STRING, value);
-};
-
-export const fetchSidebarCount = ({ commit, state }) => {
-  const items = Object.values(state.navigation)
-    .filter((navigationItem) => !navigationItem.active && navigationItem.count_link)
-    .map((navItem) => {
-      const navigationItem = { ...navItem };
-      const modifications = {
-        search: state.query?.search || '*',
-      };
-
-      if (navigationItem.scope === SCOPE_BLOB && loadDataFromLS(LS_REGEX_HANDLE)) {
-        modifications[REGEX_PARAM] = true;
-      }
-
-      navigationItem.count_link = setUrlParams(
-        modifications,
-        getNormalizedURL(navigationItem.count_link),
-      );
-
-      return navigationItem;
-    });
-
-  const promises = items.map((navigationItem) =>
-    axios
-      .get(navigationItem.count_link)
-      .then(({ data: { count } }) => {
-        commit(types.RECEIVE_NAVIGATION_COUNT, { key: navigationItem.scope, count });
-      })
-      .catch((e) => logError(e)),
-  );
-
-  return Promise.all(promises);
 };
 
 export const fetchAllAggregation = ({ commit, state }) => {

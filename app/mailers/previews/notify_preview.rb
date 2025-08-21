@@ -17,6 +17,27 @@ class NotifyPreview < ActionMailer::Preview
     end
   end
 
+  def note_wiki_page_email_for_individual_note
+    note_email(:note_wiki_page_email) do
+      note = <<-MD.strip_heredoc
+        This is an individual note on a merge request :smiley:
+
+        In this notification email, we expect to see:
+
+        - The note contents (that's what you're looking at)
+        - A link to view this note on GitLab
+        - An explanation for why the user is receiving this notification
+      MD
+
+      create_note(
+        noteable_type: 'WikiPage::Meta',
+        noteable_id: wiki_page_meta.id,
+        note: note,
+        project: wiki_page_meta.project
+      )
+    end
+  end
+
   def new_user_email
     Notify.new_user_email(user.id).message
   end
@@ -60,7 +81,13 @@ class NotifyPreview < ActionMailer::Preview
         diff_refs: merge_request.diff_refs
       )
 
-      create_note(noteable_type: 'merge_request', noteable_id: merge_request.id, type: 'DiffNote', position: position, note: note)
+      create_note(
+        noteable_type: 'merge_request',
+        noteable_id: merge_request.id,
+        type: 'DiffNote',
+        position: position,
+        note: note
+      )
     end
   end
 
@@ -83,6 +110,10 @@ class NotifyPreview < ActionMailer::Preview
 
   def access_token_about_to_expire_email
     Notify.access_token_about_to_expire_email(user, ['%w', '%w']).message
+  end
+
+  def deploy_token_about_to_expire_email
+    Notify.deploy_token_about_to_expire_email(user, 'token_name', project).message
   end
 
   def ssh_key_expired_email
@@ -119,7 +150,12 @@ class NotifyPreview < ActionMailer::Preview
   end
 
   def issues_csv_email
-    Notify.issues_csv_email(user, project, '1997,Ford,E350', { truncated: false, rows_expected: 3, rows_written: 3 }).message
+    Notify.issues_csv_email(
+      user,
+      project,
+      '1997,Ford,E350',
+      { truncated: false, rows_expected: 3, rows_written: 3 }
+    ).message
   end
 
   def new_issue_email
@@ -134,6 +170,10 @@ class NotifyPreview < ActionMailer::Preview
     cleanup do
       Notify.new_ssh_key_email(key.id).message
     end
+  end
+
+  def new_gpg_key_email
+    Notify.new_gpg_key_email(gpg_key.id).message
   end
 
   def closed_merge_request_email
@@ -160,29 +200,8 @@ class NotifyPreview < ActionMailer::Preview
     Notify.changed_milestone_merge_request_email(user.id, merge_request.id, milestone, user.id)
   end
 
-  def member_access_denied_email
-    Notify.member_access_denied_email('project', project.id, user.id).message
-  end
-
   def member_access_granted_email
     Notify.member_access_granted_email(member.source_type, member.id).message
-  end
-
-  def member_access_requested_email
-    Notify.member_access_requested_email(member.source_type, member.id, user.id).message
-  end
-
-  def member_invite_accepted_email
-    Notify.member_invite_accepted_email(member.source_type, member.id).message
-  end
-
-  def member_invite_declined_email
-    Notify.member_invite_declined_email(
-      'project',
-      project.id,
-      'invite@example.com',
-      user.id
-    ).message
   end
 
   def member_about_to_expire_email
@@ -194,9 +213,31 @@ class NotifyPreview < ActionMailer::Preview
 
   def pages_domain_enabled_email
     cleanup do
-      pages_domain = PagesDomain.new(domain: 'my.example.com', project: project, verified_at: Time.now, enabled_until: 1.week.from_now)
-
       Notify.pages_domain_enabled_email(pages_domain, user).message
+    end
+  end
+
+  def pages_domain_disabled_email
+    cleanup do
+      Notify.pages_domain_disabled_email(pages_domain, user).message
+    end
+  end
+
+  def pages_domain_verification_succeeded_email
+    cleanup do
+      Notify.pages_domain_verification_succeeded_email(pages_domain, user).message
+    end
+  end
+
+  def pages_domain_verification_failed_email
+    cleanup do
+      Notify.pages_domain_verification_failed_email(pages_domain, user).message
+    end
+  end
+
+  def pages_domain_auto_ssl_failed_email
+    cleanup do
+      Notify.pages_domain_auto_ssl_failed_email(pages_domain, user).message
     end
   end
 
@@ -212,6 +253,26 @@ class NotifyPreview < ActionMailer::Preview
     Notify.pipeline_fixed_email(pipeline, pipeline.user.try(:email))
   end
 
+  def pipeline_variables_migration_complete_email
+    Notify.pipeline_variables_migration_complete_email(user, group, { updated_count: 5, skipped_count: 3 }).message
+  end
+
+  def pipeline_variables_migration_complete_email_all_updated
+    Notify.pipeline_variables_migration_complete_email(user, group, { updated_count: 10, skipped_count: 0 }).message
+  end
+
+  def pipeline_variables_migration_complete_email_single_project
+    Notify.pipeline_variables_migration_complete_email(user, group, { updated_count: 1, skipped_count: 0 }).message
+  end
+
+  def pipeline_variables_migration_complete_email_single_skipped
+    Notify.pipeline_variables_migration_complete_email(user, group, { updated_count: 2, skipped_count: 1 }).message
+  end
+
+  def pipeline_schedule_owner_unavailable
+    Notify.pipeline_schedule_owner_unavailable_email(pipeline_schedule, user)
+  end
+
   def autodevops_disabled_email
     Notify.autodevops_disabled_email(pipeline, user.email).message
   end
@@ -221,7 +282,7 @@ class NotifyPreview < ActionMailer::Preview
   end
 
   def unknown_sign_in_email
-    Notify.unknown_sign_in_email(user, '127.0.0.1', Time.current).message
+    Notify.unknown_sign_in_email(user, '127.0.0.1', Time.current, country: 'Germany', city: 'Frankfurt').message
   end
 
   def two_factor_otp_attempt_failed_email
@@ -334,15 +395,24 @@ class NotifyPreview < ActionMailer::Preview
     Notify.project_was_exported_email(user, project).message
   end
 
+  def repository_cleanup_success_email
+    Notify.repository_cleanup_success_email(project, user).message
+  end
+
   def request_review_merge_request_email
     Notify.request_review_merge_request_email(user.id, merge_request.id, user.id).message
   end
 
   def new_review_email
-    review = Review.last
-    mr_author = review.merge_request.author
+    mr_author = merge_request.author
 
-    Notify.new_review_email(mr_author.id, review.id).message
+    cleanup do
+      review = Review.create!(project: project, merge_request: merge_request, author: mr_author)
+      Note.create!(review: review, project: project, noteable: merge_request, author: mr_author, note: 'Example note 1')
+      Note.create!(review: review, project: project, noteable: merge_request, author: mr_author, note: 'Example note 2')
+
+      Notify.new_review_email(mr_author.id, review.id).message
+    end
   end
 
   def project_was_moved_email
@@ -350,7 +420,18 @@ class NotifyPreview < ActionMailer::Preview
   end
 
   def github_gists_import_errors_email
-    Notify.github_gists_import_errors_email(user.id, { '12345' => 'Snippet maximum file count exceeded', '67890' => 'error message 2' }).message
+    Notify.github_gists_import_errors_email(
+      user.id,
+      { '12345' => 'Snippet maximum file count exceeded', '67890' => 'error message 2' }
+    ).message
+  end
+
+  def project_import_complete
+    project_id = ProjectImportState.last.project_id
+    project = Project.find(project_id)
+    creator_id = project.creator_id
+
+    Notify.project_import_complete(project_id, creator_id, true, project.safe_import_url(masked: false)).message
   end
 
   def bulk_import_complete
@@ -360,11 +441,72 @@ class NotifyPreview < ActionMailer::Preview
   end
 
   def bulk_import_csv_user_mapping_success
-    Notify.bulk_import_csv_user_mapping(user.id, group.id, 94125, 0)
+    Notify.bulk_import_csv_user_mapping(
+      user.id,
+      group.id,
+      success_count: 94125,
+      failed_count: 0,
+      skipped_count: 50
+    )
   end
 
   def bulk_import_csv_user_mapping_failed
-    Notify.bulk_import_csv_user_mapping(user.id, group.id, 71249, 824)
+    Notify.bulk_import_csv_user_mapping(
+      user.id,
+      group.id,
+      success_count: 71249,
+      failed_count: 824,
+      skipped_count: 152
+    )
+  end
+
+  def csv_placeholder_reassignment_failed
+    Notify.csv_placeholder_reassignment_failed(user.id, group.id)
+  end
+
+  def import_source_user_reassign
+    source_user = Import::SourceUser.last
+
+    Notify.import_source_user_reassign(source_user.id)
+  end
+
+  def import_source_user_rejected
+    source_user = Import::SourceUser.last
+
+    Notify.import_source_user_rejected(source_user.id)
+  end
+
+  def import_source_user_complete
+    source_user = Import::SourceUser.last
+
+    Notify.import_source_user_complete(source_user.id)
+  end
+
+  def repository_rewrite_history_success_email
+    Notify.repository_rewrite_history_success_email(project, user)
+  end
+
+  def repository_rewrite_history_failure_email
+    Notify.repository_rewrite_history_failure_email(project, user, 'Error message')
+  end
+
+  def project_scheduled_for_deletion
+    cleanup do
+      project.update!(marked_for_deletion_at: Time.current)
+
+      ::Notify.project_scheduled_for_deletion(user.id, project.id).message
+    end
+  end
+
+  def group_scheduled_for_deletion
+    cleanup do
+      group.create_deletion_schedule!(
+        marked_for_deletion_on: Time.current,
+        deleting_user: user
+      )
+
+      ::Notify.group_scheduled_for_deletion(user.id, group.id).message
+    end
   end
 
   private
@@ -394,23 +536,25 @@ class NotifyPreview < ActionMailer::Preview
   end
 
   def custom_email_verification
-    @custom_email_verification ||= project.service_desk_custom_email_verification || ServiceDesk::CustomEmailVerification.create!(
-      project: project,
-      token: 'XXXXXXXXXXXX',
-      triggerer: user,
-      triggered_at: Time.current,
-      state: 'started'
-    )
+    @custom_email_verification ||= project.service_desk_custom_email_verification ||
+      ServiceDesk::CustomEmailVerification.create!(
+        project: project,
+        token: 'XXXXXXXXXXXX',
+        triggerer: user,
+        triggered_at: Time.current,
+        state: 'started'
+      )
   end
 
   def custom_email_credential
-    @custom_email_credential ||= project.service_desk_custom_email_credential || ServiceDesk::CustomEmailCredential.create!(
-      project: project,
-      smtp_address: 'smtp.gmail.com', # Use gmail, because Gitlab::HTTP_V2::UrlBlocker resolves DNS
-      smtp_port: 587,
-      smtp_username: 'user@gmail.com',
-      smtp_password: 'supersecret'
-    )
+    @custom_email_credential ||= project.service_desk_custom_email_credential ||
+      ServiceDesk::CustomEmailCredential.create!(
+        project: project,
+        smtp_address: 'smtp.gmail.com', # Use gmail, because Gitlab::HTTP_V2::UrlBlocker resolves DNS
+        smtp_port: 587,
+        smtp_username: 'user@gmail.com',
+        smtp_password: 'supersecret'
+      )
   end
 
   def service_desk_setting
@@ -428,12 +572,20 @@ class NotifyPreview < ActionMailer::Preview
     @merge_request ||= project.merge_requests.first
   end
 
+  def wiki_page_meta
+    @wiki_page_meta ||= WikiPage::Meta.last
+  end
+
   def milestone
     @milestone ||= issue.milestone
   end
 
   def pipeline
     @pipeline = Ci::Pipeline.last
+  end
+
+  def pipeline_schedule
+    @pipeline_schedule ||= Ci::PipelineSchedule.last
   end
 
   def remote_mirror
@@ -449,7 +601,7 @@ class NotifyPreview < ActionMailer::Preview
   end
 
   def member
-    @member ||= Member.last
+    @member ||= Member.non_invite.non_request.last
   end
 
   def key
@@ -458,6 +610,14 @@ class NotifyPreview < ActionMailer::Preview
 
   def find_or_create_key
     Key.last || Keys::CreateService.new(user).execute
+  end
+
+  def gpg_key
+    @gpg_key ||= find_or_create_gpg_key
+  end
+
+  def find_or_create_gpg_key
+    GpgKey.last || GpgKeys::CreateService.new(user, key: GpgHelpers::User1.public_key).execute
   end
 
   def create_note(params)
@@ -502,6 +662,15 @@ class NotifyPreview < ActionMailer::Preview
     end
 
     email
+  end
+
+  def pages_domain
+    @pages_domain ||= PagesDomain.new(
+      domain: 'my.example.com',
+      project: project,
+      verified_at: Time.now,
+      enabled_until: 1.week.from_now
+    )
   end
 end
 

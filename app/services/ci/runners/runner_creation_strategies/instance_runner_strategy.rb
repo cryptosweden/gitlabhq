@@ -11,6 +11,7 @@ module Ci
 
         def normalize_params
           params[:runner_type] = 'instance_type'
+          params[:organization_id] = nil
         end
 
         def validate_params
@@ -18,7 +19,7 @@ module Ci
         end
 
         def authorized_user?
-          user.present? && user.can?(:create_instance_runner)
+          user.present? && user.can?(:create_instance_runners)
         end
 
         private

@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Performance Guidelines
 ---
-
-# Performance Guidelines
 
 This document describes various guidelines to ensure good and consistent performance of GitLab.
 
@@ -18,23 +17,23 @@ This document describes various guidelines to ensure good and consistent perform
   - [Tooling](#tooling)
   - Database:
     - [Query performance guidelines](database/query_performance.md)
-    - [Pagination performance guidelines](../development/database/pagination_performance_guidelines.md)
-    - [Keyset pagination performance](../development/database/keyset_pagination.md#performance)
+    - [Pagination performance guidelines](database/pagination_performance_guidelines.md)
+    - [Keyset pagination performance](database/keyset_pagination.md#performance)
   - [Troubleshooting import/export performance issues](../user/project/settings/import_export_troubleshooting.md#troubleshooting-performance-issues)
   - [Pipelines performance in the `gitlab` project](pipelines/performance.md)
 - Frontend:
-  - [Performance guidelines and monitoring](../development/fe_guide/performance.md)
+  - [Performance guidelines and monitoring](fe_guide/performance.md)
   - [Browser performance testing guidelines](../ci/testing/browser_performance_testing.md)
   - [`gdk measure` and `gdk measure-workflow`](https://gitlab.com/gitlab-org/gitlab-development-kit/-/blob/main/doc/gdk_commands.md#measure-performance)
 - QA:
   - [Load performance testing](../ci/testing/load_performance_testing.md)
   - [GitLab Performance Tool project](https://gitlab.com/gitlab-org/quality/performance)
-  - [Review apps performance metrics](../development/testing_guide/review_apps.md#performance-metrics)
+  - [Review apps performance metrics](testing_guide/review_apps.md#performance-metrics)
 - Monitoring & Overview:
-  - [GitLab performance monitoring](../administration/monitoring/performance/index.md)
+  - [GitLab performance monitoring](../administration/monitoring/performance/_index.md)
   - [Development department performance indicators](https://handbook.gitlab.com/handbook/engineering/development/performance-indicators/)
-  - [Service measurement](../development/service_measurement.md)
-- Self-managed administration and customer-focused:
+  - [Service measurement](service_measurement.md)
+- GitLab Self-Managed administration and customer-focused:
   - [File system performance benchmarking](../administration/operations/filesystem_benchmarking.md)
   - [Sidekiq performance troubleshooting](../administration/sidekiq/sidekiq_troubleshooting.md)
 
@@ -51,7 +50,7 @@ The process of solving performance problems is roughly as follows:
    timings, etc) to the issue mentioned in step 1.
 1. Solve the problem.
 1. Create a merge request, assign the "Performance" label and follow the [performance review process](merge_request_concepts/performance.md).
-1. Once a change has been deployed make sure to _again_ measure for at least 24
+1. Once a change has been deployed make sure to again measure for at least 24
    hours to see if your changes have any impact on the production environment.
 1. Repeat until you're done.
 
@@ -72,7 +71,7 @@ GitLab provides built-in tools to help improve performance and availability:
 
 - [Profiling](profiling.md).
 - [Distributed Tracing](distributed_tracing.md)
-- [GitLab Performance Monitoring](../administration/monitoring/performance/index.md).
+- [GitLab Performance Monitoring](../administration/monitoring/performance/_index.md).
 - [QueryRecoder](database/query_recorder.md) for preventing `N+1` regressions.
 - [Chaos endpoints](chaos_endpoints.md) for testing failure scenarios. Intended mainly for testing availability.
 - [Service measurement](service_measurement.md) for measuring and logging service execution.
@@ -138,7 +137,7 @@ In short:
   confirm your findings.
 - X being N times faster than Y is meaningless if you don't know what impact it
   has on your production environment.
-- A production environment is the _only_ benchmark that always tells the truth
+- A production environment is the only benchmark that always tells the truth
   (unless your performance monitoring systems are not set up correctly).
 - If you must write a benchmark use the benchmark-ips Gem instead of Ruby's
   `Benchmark` module.
@@ -150,7 +149,7 @@ you to see where time is spent in a process. The
 [Stackprof](https://github.com/tmm1/stackprof) gem is included in GitLab,
 allowing you to profile which code is running on CPU in detail.
 
-It's important to note that profiling an application *alters its performance*.
+Profiling an application *alters its performance*.
 Different profiling strategies have different overheads. Stackprof is a sampling
 profiler. It samples stack traces from running threads at a configurable
 frequency (for example, 100 hz, that is 100 stacks per second). This type of profiling
@@ -191,7 +190,7 @@ exercises the troublesome code path, then run it using the `bin/rspec-stackprof`
 helper, for example:
 
 ```shell
-$ LIMIT=10 bin/rspec-stackprof spec/policies/project_policy_spec.rb
+$ bin/rspec-stackprof --limit=10 spec/policies/project_policy_spec.rb
 
 8/8 |====== 100 ======>| Time: 00:00:18
 
@@ -257,10 +256,13 @@ Currently supported profiling targets are:
 - Puma worker
 - Sidekiq
 
-NOTE:
+{{< alert type="note" >}}
+
 The Puma master process is not supported.
 Sending SIGUSR2 to it triggers restarts. In the case of Puma,
 take care to only send the signal to Puma workers.
+
+{{< /alert >}}
 
 This can be done via `pkill -USR2 puma:`. The `:` distinguishes between `puma
 4.3.3.gitlab.2 ...` (the master process) from `puma: cluster worker 0: ...` (the
@@ -292,7 +294,7 @@ qcachegrind project_policy_spec.callgrind # Mac
 ```
 
 You can also generate and view the resultant flame graph. To view a flame graph that
-`bin/rspec-stackprof` creates, you must set the `RAW` environment variable to `true` when running
+`bin/rspec-stackprof` creates, you must add the `--raw=true` option when running
 `bin/rspec-stackprof`.
 
 It might take a while to generate based on the output file size:
@@ -564,7 +566,7 @@ ruby heapviz.rb heap.json
 
 Fragmented Ruby heap snapshot could look like this:
 
-![Ruby heap fragmentation](img/memory_ruby_heap_fragmentation.png)
+![Ruby heap fragmentation](img/memory_ruby_heap_fragmentation_v12_3.png)
 
 Memory fragmentation could be reduced by tuning GC parameters [as described in this post](https://www.speedshop.co/2017/12/04/malloc-doubles-ruby-memory.html). This should be considered as a tradeoff, as it may affect overall performance of memory allocation and GC cycles.
 
@@ -705,7 +707,7 @@ end
 ```
 
 Depending on the size of the String and how frequently it would be allocated
-(before the `.freeze` call was added), this _may_ make things faster, but
+(before the `.freeze` call was added), this may make things faster, but
 this isn't guaranteed.
 
 Freezing strings saves memory, as every allocated string uses at least one `RVALUE_SIZE` bytes (40
@@ -919,7 +921,7 @@ production environments.
 
 ### Moving Allocations to Constants
 
-Storing an object as a constant so you only allocate it once _may_ improve
+Storing an object as a constant so you only allocate it once may improve
 performance, but this is not guaranteed. Looking up constants has an
 impact on runtime performance, and as such, using a constant instead of
 referencing an object directly may even slow code down. For example:
@@ -954,7 +956,7 @@ Assuming you are working with ActiveRecord models, you might also find these lin
 
 ### Examples
 
-You may find some useful examples in [this snippet](https://gitlab.com/gitlab-org/gitlab-foss/snippets/33946).
+You may find some useful examples in [this snippet](https://gitlab.com/gitlab-org/gitlab-foss/-/snippets/33946).
 
 ## ExclusiveLease
 

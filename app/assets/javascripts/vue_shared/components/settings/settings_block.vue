@@ -1,11 +1,11 @@
 <script>
-import { GlButton, GlCollapse } from '@gitlab/ui';
+import { GlButton, GlCollapse, GlAnimatedChevronLgRightDownIcon } from '@gitlab/ui';
 import { uniqueId } from 'lodash';
 
 import { __ } from '~/locale';
 
 export default {
-  components: { GlButton, GlCollapse },
+  components: { GlButton, GlCollapse, GlAnimatedChevronLgRightDownIcon },
   props: {
     title: {
       type: String,
@@ -17,7 +17,7 @@ export default {
       required: false,
       default: null,
     },
-    defaultExpanded: {
+    expanded: {
       type: Boolean,
       default: false,
       required: false,
@@ -25,23 +25,39 @@ export default {
   },
   data() {
     return {
-      expanded: window.location.hash?.replace('#', '') === this.id || this.defaultExpanded,
+      localExpanded: window.location.hash?.replace('#', '') === this.id || this.expanded,
     };
   },
+
   computed: {
     ariaExpanded() {
-      return this.expanded ? 'true' : 'false';
+      return this.localExpanded ? 'true' : 'false';
     },
     toggleButtonText() {
-      return this.expanded ? this.$options.i18n.collapseText : this.$options.i18n.expandText;
+      return this.localExpanded ? this.$options.i18n.collapseText : this.$options.i18n.expandText;
+    },
+    toggleButtonAriaLabel() {
+      return `${this.toggleButtonText} ${this.$scopedSlots.title || this.title}`;
+    },
+    expandedClass() {
+      return this.localExpanded ? 'expanded' : '';
     },
     collapseId() {
       return this.id || uniqueId('settings-block-');
     },
+    isChevronUp() {
+      return this.localExpanded;
+    },
+  },
+  watch: {
+    expanded(newValue) {
+      this.localExpanded = newValue;
+    },
   },
   methods: {
     toggleExpanded() {
-      this.expanded = !this.expanded;
+      this.localExpanded = !this.localExpanded;
+      this.$emit('toggle-expand', this.localExpanded);
     },
   },
   i18n: {
@@ -54,42 +70,42 @@ export default {
 </script>
 
 <template>
-  <section class="vue-settings-block">
-    <div class="gl-flex gl-justify-between gl-items-start">
-      <div class="gl-grow">
-        <h2
-          role="button"
-          tabindex="-1"
-          class="gl-heading-2 gl-cursor-pointer !gl-mb-2"
-          :aria-expanded="ariaExpanded"
-          :aria-controls="collapseId"
-          @click="toggleExpanded"
-        >
-          <slot v-if="$scopedSlots.title" name="title"></slot>
-          <template v-else>{{ title }}</template>
-        </h2>
-        <p class="gl-text-secondary gl-m-0"><slot name="description"></slot></p>
-      </div>
-      <div class="gl-flex-shrink-0 gl-px-2">
+  <section :id="id" class="vue-settings-block settings no-animate" :class="expandedClass">
+    <div class="gl-flex gl-items-start gl-justify-between gl-gap-x-3">
+      <div class="-gl-mr-3 gl-shrink-0 gl-px-2 gl-py-0 sm:gl-mr-0 sm:gl-p-2">
         <gl-button
-          class="gl-min-w-12 gl-shrink-0"
+          category="tertiary"
+          size="small"
+          class="settings-toggle gl-shrink-0 !gl-px-0 !gl-pl-2"
+          :aria-label="toggleButtonAriaLabel"
           :aria-expanded="ariaExpanded"
           :aria-controls="collapseId"
+          data-testid="settings-block-toggle"
           @click="toggleExpanded"
         >
-          <span aria-hidden="true">
-            {{ toggleButtonText }}
-          </span>
-          <span class="gl-sr-only">
-            {{ toggleButtonText }}
-            <slot v-if="$scopedSlots.title" name="title"></slot>
-            <template v-else>{{ title }}</template>
-          </span>
+          <gl-animated-chevron-lg-right-down-icon variant="default" :is-on="isChevronUp" />
+          <div class="gl-sr-only">{{ toggleButtonText }}</div>
         </gl-button>
       </div>
+      <div class="gl-grow">
+        <button
+          class="gl-w-full gl-border-0 gl-bg-transparent gl-p-0 gl-text-left"
+          tabindex="-1"
+          type="button"
+          :aria-expanded="ariaExpanded"
+          :aria-controls="collapseId"
+          data-testid="settings-block-title"
+          @click="toggleExpanded"
+        >
+          <h2 class="gl-heading-2 !gl-mb-2" data-settings-block-title>
+            {{ title }}
+          </h2>
+        </button>
+        <p class="gl-m-0 gl-text-subtle"><slot name="description"></slot></p>
+      </div>
     </div>
-    <gl-collapse :id="collapseId" v-model="expanded">
-      <div class="gl-pt-5">
+    <gl-collapse :id="collapseId" :visible="localExpanded" data-testid="settings-block-content">
+      <div class="gl-pl-7 gl-pt-5 sm:gl-pl-8">
         <slot></slot>
       </div>
     </gl-collapse>

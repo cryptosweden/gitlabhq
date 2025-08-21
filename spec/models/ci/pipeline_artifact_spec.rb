@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::PipelineArtifact, type: :model, feature_category: :build_artifacts do
+RSpec.describe Ci::PipelineArtifact, type: :model, feature_category: :job_artifacts do
   let(:coverage_report) { create(:ci_pipeline_artifact, :with_coverage_report) }
 
   describe 'associations' do
@@ -97,6 +97,28 @@ RSpec.describe Ci::PipelineArtifact, type: :model, feature_category: :build_arti
       it 'sets the size in bytesize' do
         expect(coverage_report_multibyte.size).to eq(14)
       end
+    end
+  end
+
+  it_behaves_like 'object storable' do
+    let(:locally_stored) do
+      ci_pipeline_artifact = create(:ci_pipeline_artifact)
+
+      if ci_pipeline_artifact.file_store == ObjectStorage::Store::REMOTE
+        ci_pipeline_artifact.update_column(described_class::STORE_COLUMN, ObjectStorage::Store::LOCAL)
+      end
+
+      ci_pipeline_artifact
+    end
+
+    let(:remotely_stored) do
+      ci_pipeline_artifact = create(:ci_pipeline_artifact)
+
+      if ci_pipeline_artifact.file_store == ObjectStorage::Store::LOCAL
+        ci_pipeline_artifact.update_column(described_class::STORE_COLUMN, ObjectStorage::Store::REMOTE)
+      end
+
+      ci_pipeline_artifact
     end
   end
 
@@ -310,14 +332,14 @@ RSpec.describe Ci::PipelineArtifact, type: :model, feature_category: :build_arti
     end
   end
 
-  describe 'partitioning', :ci_partitionable do
+  describe 'partitioning' do
     include Ci::PartitioningHelpers
 
     let(:pipeline) { create(:ci_pipeline) }
     let(:pipeline_artifact) { create(:ci_pipeline_artifact, pipeline: pipeline) }
 
     before do
-      stub_current_partition_id
+      stub_current_partition_id(ci_testing_partition_id)
     end
 
     it 'assigns the same partition id as the one that pipeline has' do

@@ -28,24 +28,22 @@ RSpec.describe 'User edit profile', feature_category: :user_profile do
   end
 
   it 'changes user profile' do
-    fill_in 'user_skype', with: 'testskype'
     fill_in 'user_linkedin', with: 'testlinkedin'
     fill_in 'user_twitter', with: 'testtwitter'
     fill_in 'user_website_url', with: 'http://testurl.com'
     fill_in 'user_location', with: 'Ukraine'
     fill_in 'user_bio', with: 'I <3 GitLab :tada:'
     fill_in 'user_job_title', with: 'Frontend Engineer'
-    fill_in 'user_organization', with: 'GitLab'
+    fill_in 'user_user_detail_organization', with: 'GitLab'
     submit_settings
 
     expect(user.reload).to have_attributes(
-      skype: 'testskype',
       linkedin: 'testlinkedin',
       twitter: 'testtwitter',
       website_url: 'http://testurl.com',
       bio: 'I <3 GitLab :tada:',
       job_title: 'Frontend Engineer',
-      organization: 'GitLab'
+      user_detail_organization: 'GitLab'
     )
 
     expect(find('#user_location').value).to eq 'Ukraine'
@@ -53,7 +51,7 @@ RSpec.describe 'User edit profile', feature_category: :user_profile do
   end
 
   it 'does not set secondary emails without user input' do
-    fill_in 'user_organization', with: 'GitLab'
+    fill_in 'user_user_detail_organization', with: 'GitLab'
     submit_settings
 
     user.reload
@@ -66,7 +64,7 @@ RSpec.describe 'User edit profile', feature_category: :user_profile do
   end
 
   it 'shows an error if the full name contains an emoji', :js do
-    simulate_input('#user_name', 'Martin 😀')
+    fill_in 'user_name', with: 'Martin 😀'
     submit_settings
 
     page.within('.rspec-full-name') do
@@ -549,11 +547,11 @@ RSpec.describe 'User edit profile', feature_category: :user_profile do
 
       page.find("li", text: "Arizona").click
 
-      expect(page).to have_field(:user_timezone, with: 'America/Phoenix', type: :hidden)
+      expect(page).to have_field(:user_timezone, with: 'America/Phoenix')
     end
 
     it 'timezone defaults to empty' do
-      expect(page).to have_field(:user_timezone, with: '', type: :hidden)
+      expect(page).to have_field(:user_timezone, with: '')
     end
   end
 
@@ -561,7 +559,7 @@ RSpec.describe 'User edit profile', feature_category: :user_profile do
     context 'when job title and organziation are entered' do
       it "shows job title and organzation on user's profile" do
         fill_in 'user_job_title', with: 'Frontend Engineer'
-        fill_in 'user_organization', with: 'GitLab - work info test'
+        fill_in 'user_user_detail_organization', with: 'GitLab - work info test'
         submit_settings
 
         visit_user
@@ -583,7 +581,7 @@ RSpec.describe 'User edit profile', feature_category: :user_profile do
 
     context 'when only organization is entered' do
       it "shows only organization on user's profile" do
-        fill_in 'user_organization', with: 'GitLab - work info test'
+        fill_in 'user_user_detail_organization', with: 'GitLab - work info test'
         submit_settings
 
         visit_user

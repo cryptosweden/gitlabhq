@@ -9,21 +9,33 @@ module Types
       class << self
         private
 
-        def type_description(name, type)
-          "#{type} type"
+        def graphql_value(name)
+          "#{name.upcase}_SERVICE"
+        end
+
+        def domain_value(name)
+          Integration.integration_name_to_type(name)
+        end
+
+        def value_description(name)
+          "#{Integration.integration_name_to_model(name).title} integration"
+        end
+
+        def integration_names
+          Integration.available_integration_names(
+            include_instance_specific: false, include_dev: false, include_disabled: true
+          )
         end
       end
 
       # This prepend must stay here because the dynamic block below depends on it.
-      prepend_mod # rubocop: disable Cop/InjectEnterpriseEditionModule
+      prepend_mod
 
-      ::Integration.available_integration_names(
-        include_instance_specific: false, include_dev: false, include_disabled: true
-      ).each do |name|
-        type = "#{name.camelize}Service"
-        domain_value = Integration.integration_name_to_type(name)
-        value type.underscore.upcase, value: domain_value, description: type_description(name, type)
+      integration_names.each do |name|
+        value graphql_value(name), value: domain_value(name), description: value_description(name) # rubocop:disable Graphql/EnumValues -- Cop falsely identifies we must call upcase. Enum value is upcased in #graphql_value
       end
     end
   end
 end
+
+Types::Projects::ServiceTypeEnum.prepend_mod

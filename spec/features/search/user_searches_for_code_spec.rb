@@ -7,7 +7,13 @@ RSpec.describe 'User searches for code', :js, :disable_rate_limiter, feature_cat
   include ListboxHelpers
 
   let_it_be(:user) { create(:user) }
-  let_it_be_with_reload(:project) { create(:project, :repository, namespace: user.namespace) }
+  let_it_be_with_reload(:project) do
+    # This helps with some of the test flakiness.
+    project = create(:project, :repository, namespace: user.namespace)
+    project.repository.root_ref
+    project.repository.ls_files('master')
+    project
+  end
 
   context 'when signed in' do
     before do
@@ -122,7 +128,7 @@ RSpec.describe 'User searches for code', :js, :disable_rate_limiter, feature_cat
 
       expect(page).to have_selector('.ref-selector')
 
-      select_search_scope('Issues')
+      select_search_scope('Issue')
 
       expect(find(:css, '.results')).to have_link(issue.title)
       expect(page).not_to have_selector('.ref-selector')
@@ -130,11 +136,15 @@ RSpec.describe 'User searches for code', :js, :disable_rate_limiter, feature_cat
   end
 
   context 'when signed out' do
-    context 'when block_anonymous_global_searches is enabled' do
+    context 'when global_search_block_anonymous_searches_enabled is enabled' do
+      before do
+        stub_application_setting(global_search_block_anonymous_searches_enabled: true)
+      end
+
       it 'is redirected to login page' do
         visit(search_path)
 
-        expect(page).to have_content('You must be logged in to search across all of GitLab')
+        expect(page).to have_content('You need to sign in or sign up before continuing.')
       end
     end
   end

@@ -10,7 +10,7 @@ import {
 } from '@gitlab/ui';
 import { convertToGraphQLId } from '~/graphql_shared/utils';
 import { issuableTypeText, TYPE_ISSUE } from '~/issues/constants';
-import { formatDate } from '~/lib/utils/datetime_utility';
+import { toISOStringWithoutMilliseconds } from '~/lib/utils/datetime_utility';
 import { TYPENAME_ISSUE, TYPENAME_MERGE_REQUEST } from '~/graphql_shared/constants';
 import { joinPaths } from '~/lib/utils/url_utility';
 import { s__, sprintf } from '~/locale';
@@ -87,6 +87,11 @@ export default {
     timeTrackingDocsPath() {
       return joinPaths(gon.relative_url_root || '', '/help/user/project/time_tracking.md');
     },
+    createTimelogModalId() {
+      return this.workItemId
+        ? `${CREATE_TIMELOG_MODAL_ID}-${this.workItemId}`
+        : CREATE_TIMELOG_MODAL_ID;
+    },
   },
   methods: {
     resetModal() {
@@ -110,6 +115,13 @@ export default {
       this.isLoading = true;
       this.saveError = '';
 
+      let isoSpentAt = null;
+      if (this.spentAt) {
+        const spentAtMidday = this.spentAt;
+        spentAtMidday.setHours(spentAtMidday.getHours() + 12);
+        isoSpentAt = toISOStringWithoutMilliseconds(spentAtMidday);
+      }
+
       if (this.workItemId) {
         return this.$apollo
           .mutate({
@@ -119,9 +131,7 @@ export default {
                 id: this.workItemId,
                 timeTrackingWidget: {
                   timelog: {
-                    spentAt: this.spentAt
-                      ? formatDate(this.spentAt, 'isoDateTime')
-                      : formatDate(Date.now(), 'isoDateTime'),
+                    spentAt: isoSpentAt,
                     summary: this.summary,
                     timeSpent: this.timeSpent,
                   },
@@ -152,9 +162,7 @@ export default {
           variables: {
             input: {
               timeSpent: this.timeSpent,
-              spentAt: this.spentAt
-                ? formatDate(this.spentAt, 'isoDateTime')
-                : formatDate(Date.now(), 'isoDateTime'),
+              spentAt: isoSpentAt,
               summary: this.summary,
               issuableId: this.getIssuableId(),
             },
@@ -186,7 +194,6 @@ export default {
       return convertToGraphQLId(this.getGraphQLEntityType(), this.issuableId);
     },
   },
-  CREATE_TIMELOG_MODAL_ID,
 };
 </script>
 
@@ -194,7 +201,7 @@ export default {
   <gl-modal
     ref="modal"
     :title="s__('CreateTimelogForm|Add time entry')"
-    :modal-id="$options.CREATE_TIMELOG_MODAL_ID"
+    :modal-id="createTimelogModalId"
     size="sm"
     data-testid="create-timelog-modal"
     :action-primary="primaryProps"
@@ -207,11 +214,8 @@ export default {
     <p>
       {{ modalText }}
     </p>
-    <form
-      class="gl-display-flex gl-flex-direction-column js-quick-submit"
-      @submit.prevent="registerTimeSpent"
-    >
-      <div class="gl-display-flex gl-gap-3">
+    <form class="js-quick-submit gl-flex gl-flex-col" @submit.prevent="registerTimeSpent">
+      <div class="gl-flex gl-gap-3">
         <gl-form-group
           key="time-spent"
           label-for="time-spent"
@@ -229,6 +233,7 @@ export default {
         <gl-form-group
           key="spent-at"
           optional
+          :optional-text="__('(optional)')"
           label-for="spent-at"
           :label="s__(`CreateTimelogForm|Spent at`)"
         >
@@ -243,7 +248,12 @@ export default {
           />
         </gl-form-group>
       </div>
-      <gl-form-group :label="s__('CreateTimelogForm|Summary')" optional label-for="summary">
+      <gl-form-group
+        :label="s__('CreateTimelogForm|Summary')"
+        optional
+        :optional-text="__('(optional)')"
+        label-for="summary"
+      >
         <gl-form-textarea id="summary" v-model="summary" rows="3" no-resize />
       </gl-form-group>
       <gl-alert v-if="saveError" variant="danger" class="gl-mb-3" :dismissible="false">

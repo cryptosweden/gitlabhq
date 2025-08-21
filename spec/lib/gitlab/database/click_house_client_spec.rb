@@ -35,12 +35,12 @@ RSpec.describe 'ClickHouse::Client', :click_house, feature_category: :database d
       let(:events) { [event1, event2, event3] }
 
       def format_row(event)
-        path = event.project.reload.project_namespace.traversal_ids.join('/')
+        path = event.project.reload.project_namespace.traversal_path
 
         action = Event.actions[event.action]
         [
           event.id,
-          "'#{path}/'",
+          "'#{path}'",
           event.author_id,
           event.target_id,
           "'#{event.target_type}'",
@@ -154,6 +154,19 @@ RSpec.describe 'ClickHouse::Client', :click_house, feature_category: :database d
       it 'has a ClickHouse logger' do
         expect(ClickHouse::Client.configuration.logger).to be_a(ClickHouse::Logger)
       end
+    end
+  end
+
+  context 'with silent_mode enabled' do
+    before do
+      Gitlab::SilentMode.enable!
+    end
+
+    it 'does not raise error' do
+      result = ClickHouse::Client.execute("SELECT 1 AS value", :main)
+
+      # does not return data, just true if successful. Otherwise, error.
+      expect(result).to eq(true)
     end
   end
 end

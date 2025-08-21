@@ -14,13 +14,9 @@ export default {
       type: String,
       required: true,
     },
-    emptyIllustrationUrl: {
-      type: String,
-      required: true,
-    },
   },
   tableFields: [
-    { key: 'environment', label: __('Environment'), sortable: true },
+    { key: 'environment', label: __('Environment'), sortable: true, isRowHeader: true },
     { key: 'gcp_region', label: __('Region'), sortable: true },
   ],
   i18n: {
@@ -44,7 +40,7 @@ export default {
     />
 
     <div v-else>
-      <h2 class="gl-font-size-h2">{{ $options.i18n.listTitle }}</h2>
+      <h2 class="gl-text-size-h2">{{ $options.i18n.listTitle }}</h2>
       <p>{{ $options.i18n.description }}</p>
 
       <gl-table :items="list" :fields="$options.tableFields" />

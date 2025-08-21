@@ -5,7 +5,7 @@ require 'spec_helper'
 RSpec.describe API::PersonalAccessTokens::SelfRotation, feature_category: :system_access do
   let(:path) { '/personal_access_tokens/self/rotate' }
   let(:token) { create(:personal_access_token, user: current_user) }
-  let(:expiry_date) { Date.today + 1.week }
+  let(:expiry_date) { 1.week.from_now }
   let(:params) { {} }
 
   let_it_be(:current_user) { create(:user) }
@@ -19,7 +19,7 @@ RSpec.describe API::PersonalAccessTokens::SelfRotation, feature_category: :syste
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['token']).not_to eq(token.token)
-        expect(json_response['expires_at']).to eq(expiry_date.to_s)
+        expect(json_response['expires_at']).to eq(expiry_date.to_date.iso8601)
         expect(token.reload).to be_revoked
       end
     end
@@ -38,7 +38,7 @@ RSpec.describe API::PersonalAccessTokens::SelfRotation, feature_category: :syste
       it_behaves_like 'rotating token succeeds'
 
       context 'when expiry is defined' do
-        let(:expiry_date) { Date.today + 1.month }
+        let(:expiry_date) { 1.month.from_now }
         let(:params) { { expires_at: expiry_date } }
 
         it_behaves_like 'rotating token succeeds'
@@ -55,7 +55,7 @@ RSpec.describe API::PersonalAccessTokens::SelfRotation, feature_category: :syste
           let(:current_user) { create(:admin) }
           let(:token) { create(:personal_access_token, scopes: [scope], user: current_user) }
 
-          if [Gitlab::Auth::API_SCOPE].include? scope
+          if [Gitlab::Auth::API_SCOPE, Gitlab::Auth::SELF_ROTATE_SCOPE].include? scope
             it_behaves_like 'rotating token succeeds'
           else
             it_behaves_like 'rotating token denied', :forbidden
@@ -70,7 +70,7 @@ RSpec.describe API::PersonalAccessTokens::SelfRotation, feature_category: :syste
       it_behaves_like 'rotating token succeeds'
 
       context 'when expiry is defined' do
-        let(:expiry_date) { Date.today + 1.month }
+        let(:expiry_date) { 1.month.from_now }
         let(:params) { { expires_at: expiry_date } }
 
         it_behaves_like 'rotating token succeeds'
@@ -87,11 +87,20 @@ RSpec.describe API::PersonalAccessTokens::SelfRotation, feature_category: :syste
           let(:current_user) { create(:user) }
           let(:token) { create(:personal_access_token, scopes: [scope], user: current_user) }
 
-          if [Gitlab::Auth::API_SCOPE].include? scope
+          if [Gitlab::Auth::API_SCOPE, Gitlab::Auth::SELF_ROTATE_SCOPE].include? scope
             it_behaves_like 'rotating token succeeds'
           else
             it_behaves_like 'rotating token denied', :forbidden
           end
+        end
+
+        context "with '#{scope}' and 'self_rotate' scoped token" do
+          let(:current_user) { create(:user) }
+          let(:token) do
+            create(:personal_access_token, scopes: [scope, Gitlab::Auth::SELF_ROTATE_SCOPE], user: current_user)
+          end
+
+          it_behaves_like 'rotating token succeeds'
         end
       end
     end
@@ -141,7 +150,7 @@ RSpec.describe API::PersonalAccessTokens::SelfRotation, feature_category: :syste
         context "with a '#{scope}' scoped token" do
           let(:token) { create(:oauth_access_token, scopes: [scope]) }
 
-          if [Gitlab::Auth::API_SCOPE].include? scope
+          if [Gitlab::Auth::API_SCOPE, Gitlab::Auth::SELF_ROTATE_SCOPE].include? scope
             it_behaves_like 'rotating token denied', :method_not_allowed
           else
             it_behaves_like 'rotating token denied', :forbidden
@@ -170,26 +179,38 @@ RSpec.describe API::PersonalAccessTokens::SelfRotation, feature_category: :syste
     context 'when current_user is a project bot' do
       let(:current_user) { create(:user, :project_bot) }
 
-      it_behaves_like 'rotating token denied', :forbidden
+      it_behaves_like 'rotating token succeeds'
 
       context 'when expiry is defined' do
-        let(:expiry_date) { Date.today + 1.month }
+        let(:expiry_date) { 1.month.from_now }
         let(:params) { { expires_at: expiry_date } }
 
-        it_behaves_like 'rotating token denied', :forbidden
+        it_behaves_like 'rotating token succeeds'
       end
 
       context 'with impersonated token' do
         let(:token) { create(:personal_access_token, :impersonation, user: current_user) }
 
-        it_behaves_like 'rotating token denied', :forbidden
+        it_behaves_like 'rotating token succeeds'
       end
 
       Gitlab::Auth.resource_bot_scopes.each do |scope|
         context "with a '#{scope}' scoped token" do
           let(:token) { create(:personal_access_token, scopes: [scope], user: current_user) }
 
-          it_behaves_like 'rotating token denied', :forbidden
+          if [Gitlab::Auth::API_SCOPE, Gitlab::Auth::SELF_ROTATE_SCOPE].include? scope
+            it_behaves_like 'rotating token succeeds'
+          else
+            it_behaves_like 'rotating token denied', :forbidden
+          end
+        end
+
+        context "with '#{scope}' and 'self_rotate' scoped token" do
+          let(:token) do
+            create(:personal_access_token, scopes: [scope, Gitlab::Auth::SELF_ROTATE_SCOPE], user: current_user)
+          end
+
+          it_behaves_like 'rotating token succeeds'
         end
       end
     end

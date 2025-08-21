@@ -7,7 +7,6 @@ class Profiles::AccountsController < Profiles::ApplicationController
   urgency :low, [:show]
 
   def show
-    push_frontend_feature_flag(:delay_delete_own_user)
     render(locals: show_view_variables)
   end
 
@@ -21,6 +20,17 @@ class Profiles::AccountsController < Profiles::ApplicationController
       identity.destroy
     else
       flash[:alert] = _("You are not allowed to unlink your primary login account")
+    end
+
+    redirect_to profile_account_path
+  end
+
+  def generate_support_pin
+    result = Users::SupportPin::UpdateService.new(current_user).execute
+    if result[:status] == :success
+      flash[:notice] = s_("Profiles|New Support PIN generated successfully.")
+    else
+      flash[:alert] = s_("Profiles|Failed to generate new Support PIN.")
     end
 
     redirect_to profile_account_path

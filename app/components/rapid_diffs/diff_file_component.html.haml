@@ -1,7 +1,11 @@
 -# TODO: add fork suggestion (commits only)
 
-.rd-diff-file
-  = render RapidDiffs::DiffFileHeaderComponent.new(diff_file: @diff_file)
-  .rd-diff-file-body
-    -# TODO: replace with ViewComponents for each viewer
-    = render 'projects/diffs/viewer', viewer: viewer
+%diff-file.rd-diff-file-component{ id: id, data: {  testid: 'rd-diff-file', file_data: file_data.to_json } }
+  %article.rd-diff-file{ data: { virtual: (viewer_component.viewer_name if virtual?) }, style: (virtual_rendering_styles if virtual?), aria: { labelledby: heading_id } }
+    = header || default_header
+    -# extra wrapper needed so hidden state doesn't require removing border or other styles
+    %details.rd-diff-file-details{ open: true, data: { file_body: '' } }
+      %summary>
+      .rd-diff-file-body
+        = render viewer_component_instance
+  %diff-file-mounted

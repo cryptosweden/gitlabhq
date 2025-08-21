@@ -49,9 +49,10 @@ module MergeRequests
         # Deleted branch
         next if Gitlab::Git.blank_ref?(changes[:newrev])
 
-        # Default branch
         branch_name = Gitlab::Git.branch_name(changes[:ref])
-        next if branch_name == target_project.default_branch
+
+        # Skip default branch only if no target branch is specified
+        next if branch_name == target_project.default_branch && !push_options[:target]
 
         result[branch_name] = changes
       end
@@ -147,6 +148,7 @@ module MergeRequests
         draft: push_options[:draft],
         target_branch: push_options[:target],
         force_remove_source_branch: push_options[:remove_source_branch],
+        squash: push_options[:squash],
         label: push_options[:label],
         unlabel: push_options[:unlabel],
         assign: push_options[:assign],
@@ -174,10 +176,10 @@ module MergeRequests
     end
 
     def merge_params(branch)
-      return {} unless push_options.key?(:merge_when_pipeline_succeeds)
+      return {} unless push_options.key?(:merge_when_pipeline_succeeds) || push_options.key?(:auto_merge)
 
       {
-        merge_when_pipeline_succeeds: push_options[:merge_when_pipeline_succeeds],
+        auto_merge_enabled: push_options[:auto_merge] || push_options[:merge_when_pipeline_succeeds],
         merge_user: current_user,
         sha: changes_by_branch.dig(branch, :newrev)
       }

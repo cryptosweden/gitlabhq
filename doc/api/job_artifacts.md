@@ -2,24 +2,42 @@
 stage: Verify
 group: Pipeline Execution
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Job Artifacts API
 ---
 
-# Job Artifacts API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-Use the job artifacts API to download or delete job artifacts.
+{{< /details >}}
 
-Authentication with a [CI/CD job token](../ci/jobs/job_artifacts.md#with-a-cicd-job-token)
-available in the Premium and Ultimate tier.
+Use this API to download, keep, and delete [job artifacts](../ci/jobs/job_artifacts.md).
 
-## Get job artifacts
+## Authenticate with a CI/CD job token
 
-> - The use of `CI_JOB_TOKEN` in the artifacts download API was [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/2346) in [GitLab Premium](https://about.gitlab.com/pricing/) 9.5.
+{{< details >}}
 
-Get the job's artifacts zipped archive of a project.
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+When downloading job artifacts in a CI/CD job, you can authenticate by using a [CI/CD job token](../ci/jobs/ci_job_token.md)
+for multi-project pipelines. This should only be used in CI/CD jobs defined in the `.gitlab-ci.yml` file.
+
+The job associated with the `$CI_JOB_TOKEN` must be running when the token is used.
+
+Use either:
+
+- The `job_token` parameter with the `CI_JOB_TOKEN` predefined variable.
+- The `JOB-TOKEN` header with the `CI_JOB_TOKEN` predefined variable.
+
+For more information, see [REST API authentication](rest/authentication.md).
+
+## Download job artifacts by job ID
+
+Download a job's artifacts archive using the job ID.
 
 If you use cURL to download artifacts from GitLab.com, use the `--location` parameter
 as the request might redirect through a CDN.
@@ -28,128 +46,95 @@ as the request might redirect through a CDN.
 GET /projects/:id/jobs/:job_id/artifacts
 ```
 
-| Attribute                     | Type           | Required | Description |
-|-------------------------------|----------------|----------|-------------|
-| `id`                          | integer/string | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
-| `job_id`                      | integer        | Yes      | ID of a job. |
-| `job_token`                   | string         | No       | To be used with [triggers](../ci/jobs/job_artifacts.md#with-a-cicd-job-token) for multi-project pipelines. It should be invoked only in a CI/CD job defined in the `.gitlab-ci.yml` file. The value is always `$CI_JOB_TOKEN`. The job associated with the `$CI_JOB_TOKEN` must be running when this token is used. Premium and Ultimate only. |
+Supported attributes:
 
-Example request using the `PRIVATE-TOKEN` header:
+| Attribute   | Type           | Required | Description |
+| ----------- | -------------- | -------- | ----------- |
+| `id`        | integer/string | Yes      | ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
+| `job_id`    | integer        | Yes      | ID of a job. |
+| `job_token` | string         | No       | CI/CD job token for multi-project pipelines. Premium and Ultimate only. |
+
+If successful, returns [`200`](rest/troubleshooting.md#status-codes) and serves the artifacts file.
+
+Example request:
 
 ```shell
-curl --location --output artifacts.zip --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/jobs/42/artifacts"
+curl --location --output artifacts.zip \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/jobs/42/artifacts"
 ```
 
-In the Premium and Ultimate tier you can authenticate with this endpoint
-in a CI/CD job by using a [CI/CD job token](../ci/jobs/ci_job_token.md).
+Example request using a CI/CD job token:
 
-Use either:
+```yaml
+# Uses the job_token parameter
+artifact_download:
+  stage: test
+  script:
+    - 'curl --location --output artifacts.zip \
+         --url "https://gitlab.example.com/api/v4/projects/1/jobs/42/artifacts?job_token=$CI_JOB_TOKEN"'
+```
 
-- The `job_token` attribute with the GitLab-provided `CI_JOB_TOKEN` predefined variable.
-  For example, the following job downloads the artifacts of the job with ID `42`:
+## Download job artifacts by reference name
 
-  ```yaml
-  artifact_download:
-    stage: test
-    script:
-      - 'curl --location --output artifacts.zip "https://gitlab.example.com/api/v4/projects/1/jobs/42/artifacts?job_token=$CI_JOB_TOKEN"'
-  ```
+Download a job's artifacts archive in the latest successful
+pipeline using the reference name.
 
-- The `JOB-TOKEN` header with the GitLab-provided `CI_JOB_TOKEN` predefined variable.
-  For example, the following job downloads the artifacts of the job with ID
-  `42`. The command is wrapped in single quotes because it contains a
-  colon (`:`):
+The latest successful pipeline is determined based on creation time.
+The start or end time of individual jobs does not affect which pipeline is the latest.
 
-  ```yaml
-  artifact_download:
-    stage: test
-    script:
-      - 'curl --location --output artifacts.zip --header "JOB-TOKEN: $CI_JOB_TOKEN" "https://gitlab.example.com/api/v4/projects/1/jobs/42/artifacts"'
-  ```
+For [parent and child pipelines](../ci/pipelines/downstream_pipelines.md#parent-child-pipelines),
+artifacts are searched in hierarchical order from parent to child. If both parent and child pipelines
+have a job with the same name, the artifact from the parent pipeline is returned.
 
-Possible response status codes:
+Prerequisites:
 
-| Status | Description |
-|--------|-------------|
-| 200    | Serves the artifacts file. |
-| 404    | Build not found or no artifacts. |
-
-## Download the artifacts archive
-
-> - The use of `CI_JOB_TOKEN` in the artifacts download API was [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/2346) in [GitLab Premium](https://about.gitlab.com/pricing/) 9.5.
-
-Download the artifacts zipped archive from the latest **successful** pipeline for
-the given reference name and job, provided the job finished successfully. This
-is the same as [getting the job's artifacts](#get-job-artifacts), but by
-defining the job's name instead of its ID.
+- You must have a completed pipeline with a `success` status.
+- If the pipeline includes manual jobs, they must either:
+  - Complete successfully.
+  - Have `allow_failure: true` set.
 
 If you use cURL to download artifacts from GitLab.com, use the `--location` parameter
 as the request might redirect through a CDN.
-
-NOTE:
-If a pipeline is [parent of other child pipelines](../ci/pipelines/downstream_pipelines.md#parent-child-pipelines), artifacts
-are searched in hierarchical order from parent to child. For example, if both parent and
-child pipelines have a job with the same name, the artifact from the parent pipeline is returned.
 
 ```plaintext
 GET /projects/:id/jobs/artifacts/:ref_name/download?job=name
 ```
 
-Parameters
+Supported attributes:
 
-| Attribute                     | Type           | Required | Description |
-|-------------------------------|----------------|----------|-------------|
-| `id`                          | integer/string | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
-| `job`                         | string         | Yes      | The name of the job. |
-| `ref_name`                    | string         | Yes      | Branch or tag name in repository. HEAD or SHA references are not supported. |
-| `job_token`                   | string         | No       | To be used with [triggers](../ci/jobs/job_artifacts.md#with-a-cicd-job-token) for multi-project pipelines. It should be invoked only in a CI/CD job defined in the `.gitlab-ci.yml` file. The value is always `$CI_JOB_TOKEN`. The job associated with the `$CI_JOB_TOKEN` must be running when this token is used. Premium and Ultimate only. |
+| Attribute   | Type           | Required | Description |
+| ----------- | -------------- | -------- | ----------- |
+| `id`        | integer/string | Yes      | ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
+| `job`       | string         | Yes      | The name of the job. |
+| `ref_name`  | string         | Yes      | Branch or tag name in repository. HEAD or SHA references are not supported. For merge request pipelines, use `ref/merge-requests/:iid/head` instead of the branch name. |
+| `job_token` | string         | No       | CI/CD job token for multi-project pipelines. Premium and Ultimate only. |
 
-Example request using the `PRIVATE-TOKEN` header:
+If successful, returns [`200`](rest/troubleshooting.md#status-codes) and serves the artifacts file.
+
+Example request:
 
 ```shell
-curl --location --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/jobs/artifacts/main/download?job=test"
+curl --location \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/jobs/artifacts/main/download?job=test"
 ```
 
-In the Premium and Ultimate tier you can authenticate with this endpoint
-in a CI/CD job by using a [CI/CD job token](../ci/jobs/ci_job_token.md).
+Example request using a CI/CD job token:
 
-Use either:
-
-- The `job_token` attribute with the GitLab-provided `CI_JOB_TOKEN` predefined variable.
-  For example, the following job downloads the artifacts of the `test` job
-  of the `main` branch:
-
-  ```yaml
-  artifact_download:
-    stage: test
-    script:
-      - 'curl --location --output artifacts.zip "https://gitlab.example.com/api/v4/projects/$CI_PROJECT_ID/jobs/artifacts/main/download?job=test&job_token=$CI_JOB_TOKEN"'
-  ```
-
-- The `JOB-TOKEN` header with the GitLab-provided `CI_JOB_TOKEN` predefined variable.
-  For example, the following job downloads the artifacts of the `test` job
-  of the `main` branch. The command is wrapped in single quotes
-  because it contains a colon (`:`):
-
-  ```yaml
-  artifact_download:
-    stage: test
-    script:
-      - 'curl --location --output artifacts.zip --header "JOB-TOKEN: $CI_JOB_TOKEN" "https://gitlab.example.com/api/v4/projects/$CI_PROJECT_ID/jobs/artifacts/main/download?job=test"'
-  ```
-
-Possible response status codes:
-
-| Status | Description |
-|--------|-------------|
-| 200    | Serves the artifacts file. |
-| 404    | Build not found or no artifacts. |
+```yaml
+# Uses the job_token parameter
+artifact_download:
+  stage: test
+  script:
+    - 'curl --location --output artifacts.zip \
+         --url "https://gitlab.example.com/api/v4/projects/$CI_PROJECT_ID/jobs/artifacts/main/download?job=test&job_token=$CI_JOB_TOKEN"'
+```
 
 ## Download a single artifact file by job ID
 
-Download a single artifact file from a job with a specified ID from inside
-the job's artifacts zipped archive. The file is extracted from the archive and
-streamed to the client.
+Download a single file from a job's artifacts using the job ID.
+The file is extracted from the archive and streamed to the client.
 
 If you use cURL to download artifacts from GitLab.com, use the `--location` parameter
 as the request might redirect through a CDN.
@@ -158,44 +143,43 @@ as the request might redirect through a CDN.
 GET /projects/:id/jobs/:job_id/artifacts/*artifact_path
 ```
 
-Parameters
+Supported attributes:
 
-| Attribute                     | Type           | Required | Description |
-|-------------------------------|----------------|----------|-------------|
-| `artifact_path`               | string         | Yes      | Path to a file inside the artifacts archive. |
-| `id`                          | integer/string | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
-| `job_id`                      | integer        | Yes      | The unique job identifier. |
-| `job_token`                   | string         | No       | To be used with [triggers](../ci/jobs/job_artifacts.md#with-a-cicd-job-token) for multi-project pipelines. It should be invoked only in a CI/CD job defined in the `.gitlab-ci.yml` file. The value is always `$CI_JOB_TOKEN`. The job associated with the `$CI_JOB_TOKEN` must be running when this token is used. Premium and Ultimate only. |
+| Attribute       | Type           | Required | Description |
+| --------------- | -------------- | -------- | ----------- |
+| `artifact_path` | string         | Yes      | Path to a file inside the artifacts archive. |
+| `id`            | integer/string | Yes      | ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
+| `job_id`        | integer        | Yes      | The unique job identifier. |
+| `job_token`     | string         | No       | CI/CD job token for multi-project pipelines. Premium and Ultimate only. |
+
+If successful, returns [`200`](rest/troubleshooting.md#status-codes) and sends a single artifact file.
 
 Example request:
 
 ```shell
-curl --location --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/jobs/5/artifacts/some/release/file.pdf"
+curl --location \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/jobs/5/artifacts/some/release/file.pdf"
 ```
 
-In the Premium and Ultimate tier you can authenticate with this endpoint
-in a CI/CD job by using a [CI/CD job token](../ci/jobs/ci_job_token.md).
+## Download a single artifact file by reference name
 
-Possible response status codes:
+Download a single file from a job's artifacts in the latest successful pipeline
+using the reference name. The file is extracted from the archive and streamed to the client with the `plain/text` content type.
 
-| Status | Description |
-|--------|-------------|
-| 200    | Sends a single artifact file |
-| 400    | Invalid path provided |
-| 404    | Build not found or no file/artifacts |
-
-## Download a single artifact file from specific tag or branch
-
-Download a single artifact file for a specific job of the latest **successful** pipeline
-for the given reference name from inside the job's artifacts archive.
-The file is extracted from the archive and streamed to the client, with the `plain/text` content type.
+For [parent and child pipelines](../ci/pipelines/downstream_pipelines.md#parent-child-pipelines),
+artifacts are searched in hierarchical order from parent to child. If both parent and child pipelines
+have a job with the same name, the artifact from the parent pipeline is returned.
 
 The artifact file provides more detail than what is available in the
-[CSV export](../user/application_security/vulnerability_report/index.md#export-vulnerability-details).
+[CSV export](../user/application_security/vulnerability_report/_index.md#exporting).
 
-Artifacts for [parent and child pipelines](../ci/pipelines/downstream_pipelines.md#parent-child-pipelines)
-are searched in hierarchical order from parent to child. For example, if both parent and child pipelines
-have a job with the same name, the artifact from the parent pipeline is returned.
+Prerequisites:
+
+- You must have a completed pipeline with a `success` status.
+- If the pipeline includes manual jobs, they must either:
+  - Complete successfully.
+  - Have `allow_failure: true` set.
 
 If you use cURL to download artifacts from GitLab.com, use the `--location` parameter
 as the request might redirect through a CDN.
@@ -204,52 +188,49 @@ as the request might redirect through a CDN.
 GET /projects/:id/jobs/artifacts/:ref_name/raw/*artifact_path?job=name
 ```
 
-Parameters:
+Supported attributes:
 
-| Attribute                     | Type           | Required | Description |
-|-------------------------------|----------------|----------|-------------|
-| `artifact_path`               | string         | Yes      | Path to a file inside the artifacts archive. |
-| `id`                          | integer/string | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
-| `job`                         | string         | Yes      | The name of the job. |
-| `ref_name`                    | string         | Yes      | Branch or tag name in repository. `HEAD` or `SHA` references are not supported. |
-| `job_token`                   | string         | No       | To be used with [triggers](../ci/jobs/job_artifacts.md#with-a-cicd-job-token) for multi-project pipelines. It should be invoked only in a CI/CD job defined in the `.gitlab-ci.yml` file. The value is always `$CI_JOB_TOKEN`. The job associated with the `$CI_JOB_TOKEN` must be running when this token is used. Premium and Ultimate only. |
+| Attribute       | Type           | Required | Description |
+| --------------- | -------------- | -------- | ----------- |
+| `artifact_path` | string         | Yes      | Path to a file inside the artifacts archive. |
+| `id`            | integer/string | Yes      | ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
+| `job`           | string         | Yes      | The name of the job. |
+| `ref_name`      | string         | Yes      | Branch or tag name in repository. `HEAD` or `SHA` references are not supported. For merge request pipelines, use `ref/merge-requests/:iid/head` instead of the branch name. |
+| `job_token`     | string         | No       | CI/CD job token for multi-project pipelines. Premium and Ultimate only. |
+
+If successful, returns [`200`](rest/troubleshooting.md#status-codes) and sends a single artifact file.
 
 Example request:
 
 ```shell
-curl --location --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/jobs/artifacts/main/raw/some/release/file.pdf?job=pdf"
+curl --location \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/jobs/artifacts/main/raw/some/release/file.pdf?job=pdf"
 ```
 
-In the Premium and Ultimate tier you can authenticate with this endpoint
-in a CI/CD job by using a [CI/CD job token](../ci/jobs/ci_job_token.md).
+## Keep job artifacts
 
-Possible response status codes:
-
-| Status | Description |
-|--------|-------------|
-| 200    | Sends a single artifact file |
-| 400    | Invalid path provided |
-| 404    | Build not found or no file/artifacts |
-
-## Keep artifacts
-
-Prevents artifacts from being deleted when expiration is set.
+Prevent a job's artifacts from being automatically deleted when they reach their expiration date.
 
 ```plaintext
 POST /projects/:id/jobs/:job_id/artifacts/keep
 ```
 
-Parameters
+Supported attributes:
 
 | Attribute | Type           | Required | Description |
 |-----------|----------------|----------|-------------|
-| `id`      | integer/string | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`      | integer/string | Yes      | ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `job_id`  | integer        | Yes      | ID of a job. |
+
+If successful, returns [`200`](rest/troubleshooting.md#status-codes) and the job details.
 
 Example request:
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/jobs/1/artifacts/keep"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/jobs/1/artifacts/keep"
 ```
 
 Example response:
@@ -288,39 +269,41 @@ Example response:
 
 ## Delete job artifacts
 
-Delete artifacts of a job.
+Delete all artifacts associated with a specific job. Artifacts cannot be recovered after they are deleted.
 
 Prerequisites:
 
-- Must have at least the maintainer role in the project.
+- You must have at least the Maintainer role for the project.
 
 ```plaintext
 DELETE /projects/:id/jobs/:job_id/artifacts
 ```
 
+Supported attributes:
+
 | Attribute | Type           | Required | Description |
 |-----------|----------------|----------|-------------|
-| `id`      | integer/string | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `id`      | integer/string | Yes      | ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `job_id`  | integer        | Yes      | ID of a job. |
+
+If successful, returns [`204 No Content`](rest/troubleshooting.md#status-codes).
 
 Example request:
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/jobs/1/artifacts"
+curl --request DELETE \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/jobs/1/artifacts"
 ```
 
-NOTE:
-At least Maintainer role is required to delete artifacts.
+## Delete all job artifacts in a project
 
-If the artifacts were deleted successfully, a response with status `204 No Content` is returned.
+Delete all job artifacts eligible for deletion in a project. Artifacts cannot be recovered after they are deleted.
 
-## Delete project artifacts
-
-Delete artifacts eligible for deletion in a project. By default, artifacts from
-[the most recent successful pipeline of each ref](../ci/jobs/job_artifacts.md#keep-artifacts-from-most-recent-successful-jobs)
+By default, artifacts from [the most recent successful pipeline of each ref](../ci/jobs/job_artifacts.md#keep-artifacts-from-most-recent-successful-jobs)
 are not deleted.
 
-Requests to this endpoint set the expiry of all artifacts that
+Requests to this endpoint set the expiry of all job artifacts that
 can be deleted to the current time. The files are then deleted from the system as part
 of the regular cleanup of expired job artifacts. Job logs are never deleted.
 
@@ -335,14 +318,46 @@ Prerequisites:
 DELETE /projects/:id/artifacts
 ```
 
+Supported attributes:
+
 | Attribute | Type           | Required | Description |
 |-----------|----------------|----------|-------------|
-| `id`      | integer/string | Yes      | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `id`      | integer/string | Yes      | ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
+
+If successful, returns [`202 Accepted`](rest/troubleshooting.md#status-codes).
 
 Example request:
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/artifacts"
+curl --request DELETE \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/artifacts"
 ```
 
-A response with status `202 Accepted` is returned.
+## Troubleshooting
+
+### Using branch names with merge request pipelines
+
+You might get a `404 Not Found` error when trying to download job artifacts using a branch name as the `ref_name`.
+
+This issue occurs because merge request pipelines use a different reference format than branch pipelines.
+Merge request pipelines run on `refs/merge-requests/:iid/head`, not directly on the source branch.
+
+To download job artifacts for a merge request pipeline, use `ref/merge-requests/:iid/head`
+as the `ref_name` instead of the branch name, where `:iid` is the merge request ID.
+
+For example, for merge request `!123`:
+
+```shell
+curl --location \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/jobs/artifacts/ref/merge-requests/123/head/raw/file.txt?job=test"
+```
+
+### Downloading `artifacts:reports` files
+
+You might get a `404 Not Found` error when trying to download reports using the job artifacts API.
+
+This issue occurs because [reports](../ci/yaml/_index.md#artifactsreports) are not downloadable by default.
+
+To make reports downloadable, add their filenames or `gl-*-report.json` to [`artifacts:paths`](../ci/yaml/_index.md#artifactspaths).

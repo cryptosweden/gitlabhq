@@ -41,10 +41,15 @@ module Ci
         .payload
 
       log_downstream_pipeline_creation(downstream_pipeline)
+      log_audit_event(downstream_pipeline)
       update_bridge_status!(@bridge, downstream_pipeline)
     rescue StandardError => e
       @bridge.reset.drop!(:data_integrity_failure)
       raise e
+    end
+
+    def log_audit_event(downstream_pipeline)
+      # defined in EE
     end
 
     private
@@ -52,9 +57,7 @@ module Ci
     def update_bridge_status!(bridge, pipeline)
       Gitlab::OptimisticLocking.retry_lock(bridge, name: 'create_downstream_pipeline_update_bridge_status') do |subject|
         if pipeline.created_successfully?
-          # If bridge uses `strategy:depend` we leave it running
-          # and update the status when the downstream pipeline completes.
-          subject.success! unless subject.dependent?
+          subject.success! unless subject.has_strategy?
           ServiceResponse.success(payload: pipeline)
         else
           message = pipeline.errors.full_messages
@@ -172,3 +175,5 @@ module Ci
     end
   end
 end
+
+Ci::CreateDownstreamPipelineService.prepend_mod_with('Ci::CreateDownstreamPipelineService')

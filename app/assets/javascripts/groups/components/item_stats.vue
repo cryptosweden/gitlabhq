@@ -52,9 +52,10 @@ export default {
 </script>
 
 <template>
-  <div class="stats gl-text-gray-500">
+  <div class="stats gl-text-subtle">
     <item-stats-value
       v-if="displayValue(item.subgroupCount)"
+      tabindex="0"
       :title="__('Subgroups')"
       :value="subgroupCount"
       css-class="number-subgroups gl-ml-5"
@@ -63,6 +64,7 @@ export default {
     />
     <item-stats-value
       v-if="displayValue(item.projectCount)"
+      tabindex="0"
       :title="__('Projects')"
       :value="projectCount"
       css-class="number-projects gl-ml-5"
@@ -70,20 +72,23 @@ export default {
       data-testid="project-count"
     />
     <item-stats-value
-      v-if="isGroup"
+      v-if="displayValue(item.memberCount)"
+      tabindex="0"
       :title="__('Direct members')"
       :value="item.memberCount"
       css-class="number-users gl-ml-5"
+      data-testid="member-count"
       icon-name="users"
     />
     <item-stats-value
       v-if="isProject"
+      tabindex="0"
       :value="starCount"
       css-class="project-stars"
       data-testid="star-count"
       icon-name="star"
     />
-    <div v-if="isProject" class="last-updated gl-font-sm">
+    <div v-if="isProject" class="last-updated gl-text-sm">
       <time-ago-tooltip :time="item.lastActivityAt" tooltip-placement="bottom" />
     </div>
   </div>

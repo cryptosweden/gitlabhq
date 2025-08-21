@@ -132,4 +132,13 @@ module Gitlab
 
     ::Gitlab::CurrentSettings.maintenance_mode
   end
+
+  # This method will check your environment
+  # (e.g. `ENV['BUNDLE_GEMFILE]`) to determine whether your application is
+  # running with the next set of dependencies or the current set of dependencies.
+  #
+  # @return [Boolean]
+  def self.next_rails?
+    Rails.gem_version >= Gem::Version.new("7.2")
+  end
 end

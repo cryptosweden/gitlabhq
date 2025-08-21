@@ -4,8 +4,6 @@ module Ci
   # The purpose of this class is to store Build related data that can be disposed.
   # Data that should be persisted forever, should be stored with Ci::Build model.
   class BuildMetadata < Ci::ApplicationRecord
-    BuildTimeout = Struct.new(:value, :source)
-
     include Ci::Partitionable
     include Presentable
     include ChronicDurationAttribute
@@ -29,10 +27,10 @@ module Ci
     validates :build, presence: true
     validates :id_tokens, json_schema: { filename: 'build_metadata_id_tokens' }
     validates :secrets, json_schema: { filename: 'build_metadata_secrets' }
+    validate :validate_config_options_schema
 
-    attribute :config_options, :sym_jsonb
-    attribute :config_variables, :sym_jsonb
-    attribute :runtime_runner_features, :sym_jsonb
+    attribute :config_options, ::Gitlab::Database::Type::SymbolizedJsonb.new
+    attribute :config_variables, ::Gitlab::Database::Type::SymbolizedJsonb.new
 
     chronic_duration_attr_reader :timeout_human_readable, :timeout
 
@@ -42,9 +40,8 @@ module Ci
     end
 
     scope :with_interruptible, -> { where(interruptible: true) }
-    scope :with_exposed_artifacts, -> { where(has_exposed_artifacts: true) }
 
-    enum timeout_source: {
+    enum :timeout_source, {
       unknown_timeout_source: 1,
       project_timeout_source: 2,
       runner_timeout_source: 3,
@@ -52,19 +49,10 @@ module Ci
     }
 
     def update_timeout_state
-      timeout = timeout_with_highest_precedence
-
+      timeout = ::Ci::Builds::TimeoutCalculator.new(build).applicable_timeout
       return unless timeout
 
       update(timeout: timeout.value, timeout_source: timeout.source)
-    end
-
-    def set_cancel_gracefully
-      runtime_runner_features[:cancel_gracefully] = true
-    end
-
-    def cancel_gracefully?
-      runtime_runner_features[:cancel_gracefully] == true
     end
 
     def enable_debug_trace!
@@ -79,36 +67,31 @@ module Ci
       self.project_id ||= build.project_id
     end
 
-    def timeout_with_highest_precedence
-      [(job_timeout || project_timeout), runner_timeout].compact.min_by(&:value)
+    def ci_validate_config_options_enabled?
+      Feature.enabled?(:ci_validate_config_options, project)
     end
 
-    def project_timeout
-      strong_memoize(:project_timeout) do
-        BuildTimeout.new(project&.build_timeout, :project_timeout_source)
-      end
-    end
+    def validate_config_options_schema
+      return unless ci_validate_config_options_enabled?
 
-    def job_timeout
-      return unless build.options
+      validator = JsonSchemaValidator.new({
+        filename: 'build_metadata_config_options',
+        attributes: [:config_options],
+        detail_errors: true
+      })
 
-      strong_memoize(:job_timeout) do
-        if timeout_from_options = build.options[:job_timeout]
-          BuildTimeout.new(timeout_from_options, :job_timeout_source)
-        end
-      end
-    end
+      validator.validate(self)
+      return if errors[:config_options].empty?
 
-    def runner_timeout
-      return unless runner_timeout_set?
+      Gitlab::AppJsonLogger.warn(
+        class: self.class.name,
+        message: 'Invalid config_options schema detected',
+        build_metadata_id: id,
+        project_id: project_id,
+        schema_errors: errors[:config_options]
+      )
 
-      strong_memoize(:runner_timeout) do
-        BuildTimeout.new(build.runner.maximum_timeout, :runner_timeout_source)
-      end
-    end
-
-    def runner_timeout_set?
-      build.runner&.maximum_timeout.to_i > 0
+      errors.delete(:config_options) if Rails.env.production?
     end
   end
 end

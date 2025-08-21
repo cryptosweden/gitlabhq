@@ -4,10 +4,11 @@ module Packages
   module Cleanup
     class ExecutePolicyWorker
       include ApplicationWorker
+      include CronjobChildWorker
       include LimitedCapacity::Worker
       include Gitlab::Utils::StrongMemoize
 
-      data_consistency :always
+      data_consistency :sticky
       queue_namespace :package_cleanup
       feature_category :package_registry
       urgency :low

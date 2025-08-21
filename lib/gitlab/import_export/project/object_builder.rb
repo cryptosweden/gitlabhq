@@ -13,6 +13,8 @@ module Gitlab
       #
       # It also adds some logic around Group Labels/Milestones for edge cases.
       class ObjectBuilder < Base::ObjectBuilder
+        include Gitlab::Utils::StrongMemoize
+
         def initialize(klass, attributes)
           super
 
@@ -23,8 +25,10 @@ module Gitlab
         def find
           return if group_relation_without_group?
           return find_diff_commit_user if diff_commit_user?
+          return find_merge_request_commits_metadata if commits_metadata?
           return find_diff_commit if diff_commit?
           return find_work_item_type if work_item_type?
+          return find_pipeline if pipeline?
 
           super
         end
@@ -83,6 +87,23 @@ module Gitlab
           find_or_create_diff_commit_user(@attributes['name'], @attributes['email'])
         end
 
+        def find_merge_request_commits_metadata
+          return unless diff_commits_dedup_enabled?
+
+          metadata = {
+            'project_id' => project.id,
+            'commit_author' => @attributes['commit_author'],
+            'committer' => @attributes['committer'],
+            'sha' => @attributes['sha'],
+            'message' => @attributes['message'],
+            'trailers' => @attributes['trailers'],
+            'authored_date' => @attributes['authored_date'],
+            'committed_date' => @attributes['committed_date']
+          }
+
+          find_or_create_merge_request_commits_metadata(metadata)
+        end
+
         def find_diff_commit
           row = @attributes.dup
 
@@ -100,18 +121,45 @@ module Gitlab
           author = row.delete('commit_author')
           committer = row.delete('committer')
 
+          # We temporarily add 'project' to the attributes for DiffCommitUser processing,
+          # but MergeRequestDiffCommit doesn't have a project_id column, so we remove it
+          row.delete('project')
+
           row['commit_author'] = author ||
             find_or_create_diff_commit_user(aname, amail)
 
           row['committer'] = committer ||
             find_or_create_diff_commit_user(cname, cmail)
 
+          merge_request_commits_metadata = row.delete('merge_request_commits_metadata')
+
+          if diff_commits_dedup_enabled?
+            commit_metadata_attrs = row.slice('authored_date', 'committed_date', 'sha', 'message', 'trailers')
+            commit_metadata_attrs['project_id'] = project.id
+            commit_metadata_attrs['commit_author'] = row['commit_author']
+            commit_metadata_attrs['committer'] = row['committer']
+
+            row['merge_request_commits_metadata'] = merge_request_commits_metadata ||
+              find_or_create_merge_request_commits_metadata(commit_metadata_attrs)
+          end
+
           MergeRequestDiffCommit.new(row)
         end
 
         def find_or_create_diff_commit_user(name, email)
           find_with_cache([MergeRequest::DiffCommitUser, name, email]) do
-            MergeRequest::DiffCommitUser.find_or_create(name, email)
+            MergeRequest::DiffCommitUser.find_or_create(
+              name,
+              email,
+              project.organization_id,
+              with_organization: Feature.enabled?(:add_organization_to_diff_commit_users, project)
+            )
+          end
+        end
+
+        def find_or_create_merge_request_commits_metadata(metadata = {})
+          find_with_cache([MergeRequest::CommitsMetadata, metadata['project_id'], metadata['sha']]) do
+            MergeRequest::CommitsMetadata.find_or_create(metadata)
           end
         end
 
@@ -139,12 +187,20 @@ module Gitlab
           klass == MergeRequest::DiffCommitUser
         end
 
+        def commits_metadata?
+          klass == MergeRequest::CommitsMetadata
+        end
+
         def diff_commit?
           klass == MergeRequestDiffCommit
         end
 
         def work_item_type?
           klass == ::WorkItems::Type
+        end
+
+        def pipeline?
+          klass == ::Ci::Pipeline
         end
 
         # If an existing group milestone used the IID
@@ -183,6 +239,17 @@ module Gitlab
             end
           end
         end
+
+        def find_pipeline
+          # Here we should referencing only existing pipelines
+          # Only the 'iid' and `project` attributes should be present
+          ::Ci::Pipeline.find_by(iid: attributes['iid'], project_id: project.id)
+        end
+
+        def diff_commits_dedup_enabled?
+          Feature.enabled?(:merge_request_diff_commits_dedup, project)
+        end
+        strong_memoize_attr :diff_commits_dedup_enabled?
       end
     end
   end

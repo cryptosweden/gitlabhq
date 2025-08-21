@@ -3,7 +3,7 @@
 class ProjectAutoDevops < ApplicationRecord
   belongs_to :project, inverse_of: :auto_devops
 
-  enum deploy_strategy: {
+  enum :deploy_strategy, {
     continuous: 0,
     manual: 1,
     timed_incremental: 2
@@ -26,6 +26,7 @@ class ProjectAutoDevops < ApplicationRecord
   def create_gitlab_deploy_token
     project.deploy_tokens.create!(
       name: DeployToken::GITLAB_DEPLOY_TOKEN_NAME,
+      project_id: project_id,
       read_registry: true
     )
   end

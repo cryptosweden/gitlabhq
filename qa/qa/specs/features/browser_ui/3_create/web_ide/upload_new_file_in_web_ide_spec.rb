@@ -1,19 +1,14 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create', product_group: :ide do
+  RSpec.describe 'Create', feature_category: :web_ide do
     describe 'Upload a file in Web IDE' do
+      include_context "Web IDE test prep"
       let(:file_path) { File.absolute_path(File.join('qa', 'fixtures', 'web_ide', file_name)) }
       let(:project) { create(:project, :with_readme, name: 'webide-upload-file-project') }
 
       before do
-        Flow::Login.sign_in
-        project.visit!
-        Page::Project::Show.perform(&:open_web_ide!)
-        Page::Project::WebIDE::VSCode.perform do |vscode|
-          vscode.wait_for_ide_to_load
-          vscode.wait_for_file_to_load('README.md')
-        end
+        load_web_ide
       end
 
       context 'when a file with the same name already exists' do
@@ -37,7 +32,7 @@ module QA
             Support::Waiter.wait_until { ide.has_pending_changes? }
             ide.commit_and_push_to_new_branch(file_name)
 
-            expect(ide).to have_message('Success! Your changes have been committed.')
+            expect(ide).to have_message(Page::Project::WebIDE::VSCode::COMMIT_SUCCESS_MESSAGE)
 
             ide.create_merge_request
           end
@@ -50,18 +45,24 @@ module QA
         end
       end
 
-      context 'when the file is a text file',
-        testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/390006' do
-        let(:file_name) { 'text_file.txt' }
+      context 'with a new file', quarantine: {
+        only: { pipeline: %i[staging staging-canary] },
+        issue: 'https://gitlab.com/gitlab-org/gitlab/-/issues/527274',
+        type: :flaky
+      } do
+        context 'when the file is a text file',
+          testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/390006' do
+          let(:file_name) { 'text_file.txt' }
 
-        it_behaves_like 'upload a file'
-      end
+          it_behaves_like 'upload a file'
+        end
 
-      context 'when the file is an image',
-        testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/390007' do
-        let(:file_name) { 'dk.png' }
+        context 'when the file is an image',
+          testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/390007' do
+          let(:file_name) { 'dk.png' }
 
-        it_behaves_like 'upload a file'
+          it_behaves_like 'upload a file'
+        end
       end
     end
   end

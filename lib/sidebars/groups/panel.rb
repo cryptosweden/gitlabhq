@@ -8,11 +8,22 @@ module Sidebars
         set_scope_menu(Sidebars::Groups::Menus::ScopeMenu.new(context))
 
         add_menu(Sidebars::Groups::Menus::GroupInformationMenu.new(context))
-        add_menu(Sidebars::Groups::Menus::IssuesMenu.new(context))
+
+        if ::Feature.enabled?(:work_item_planning_view, context.group)
+          add_menu(Sidebars::Groups::Menus::WorkItemsMenu.new(context))
+        else
+          add_menu(Sidebars::Groups::Menus::IssuesMenu.new(context))
+        end
+
         add_menu(Sidebars::Groups::Menus::MergeRequestsMenu.new(context))
         add_menu(Sidebars::Groups::Menus::CiCdMenu.new(context))
         add_menu(Sidebars::Groups::Menus::KubernetesMenu.new(context))
         add_menu(Sidebars::Groups::Menus::PackagesRegistriesMenu.new(context))
+
+        if ::Feature.enabled?(:observability_sass_features, context.group)
+          add_menu(Sidebars::Groups::Menus::ObservabilityMenu.new(context))
+        end
+
         add_menu(Sidebars::Groups::Menus::CustomerRelationsMenu.new(context))
         add_menu(Sidebars::Groups::Menus::SettingsMenu.new(context))
       end

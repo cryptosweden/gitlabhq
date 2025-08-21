@@ -4,12 +4,14 @@ module Projects
   class UpdateService < BaseService
     include UpdateVisibilityLevel
     include ValidatesClassificationLabel
+    include ::Ci::JobToken::InternalEventsTracking
 
     ValidationError = Class.new(StandardError)
     ApiError = Class.new(StandardError)
 
     def execute
       build_topics
+      ensure_ci_cd_settings
       remove_unallowed_params
       add_pages_unique_domain
 
@@ -27,22 +29,21 @@ module Projects
 
       yield if block_given?
 
-      validate_classification_label(project, :external_authorization_classification_label)
+      validate_classification_label_param!(project, :external_authorization_classification_label)
 
       # If the block added errors, don't try to save the project
       return update_failed! if project.errors.any?
 
-      if project.update(params.except(:default_branch))
-        after_update
+      update_project!
+      after_update
 
-        success
-      else
-        update_failed!
-      end
-    rescue ValidationError => e
-      error(e.message)
+      success
+    rescue ActiveRecord::ActiveRecordError
+      update_failed!
     rescue ApiError => e
       error(e.message, status: :api_error)
+    rescue ValidationError, Gitlab::Pages::UniqueDomainGenerationFailure => e
+      error(e.message)
     end
 
     def run_auto_devops_pipeline?
@@ -52,6 +53,23 @@ module Projects
     end
 
     private
+
+    def update_project!
+      if Feature.disabled?(:replicate_deletion_schedule_operations, project)
+        return project.update!(params.except(*non_assignable_project_params))
+      end
+
+      project.transaction do
+        project.deletion_schedule&.destroy! if params[:remove_deletion_schedule]
+        project.update!(params.except(*non_assignable_project_params))
+      end
+    end
+
+    def ensure_ci_cd_settings
+      # It's possible that before the fix in https://gitlab.com/gitlab-org/gitlab/-/issues/421050,
+      # there were projects created that has no ci_cd_settings, so we backfill it here.
+      project.build_ci_cd_settings unless project.ci_cd_settings
+    end
 
     def add_pages_unique_domain
       return unless params.dig(:project_setting_attributes, :pages_unique_domain_enabled)
@@ -67,6 +85,7 @@ module Projects
       validate_default_branch_change
       validate_renaming_project_with_tags
       validate_restrict_user_defined_variables_change
+      validate_pages_primary_domain
     end
 
     def validate_restrict_user_defined_variables_change
@@ -111,11 +130,12 @@ module Projects
       return unless renaming_project_with_container_registry_tags?
 
       unless ContainerRegistry::GitlabApiClient.supports_gitlab_api?
-        raise ValidationError, s_('UpdateProject|Cannot rename project because it contains container registry tags!')
+        raise ValidationError, s_('UpdateProject|Cannot rename or delete project because it contains container registry tags. Delete all container registry tags first. https://docs.gitlab.com/user/packages/container_registry/#move-or-rename-container-registry-repositories')
       end
 
       dry_run = ContainerRegistry::GitlabApiClient.rename_base_repository_path(
-        project.full_path, name: params[:path], dry_run: true)
+        project.full_path, name: params[:path], project: project, dry_run: true
+      )
 
       return if dry_run == :accepted
 
@@ -128,8 +148,17 @@ module Projects
       )
     end
 
+    def validate_pages_primary_domain
+      primary_domain = params.dig(:project_setting_attributes, :pages_primary_domain)
+
+      return unless primary_domain.presence
+      return if project.pages_domain_present?(primary_domain)
+
+      raise_validation_error(s_("UpdateProject|The `pages_primary_domain` attribute is missing from the domain list in the Pages project configuration. Assign `pages_primary_domain` to the Pages project or reset it."))
+    end
+
     def ambiguous_head_documentation_link
-      url = Rails.application.routes.url_helpers.help_page_path('user/project/repository/branches/index', anchor: 'error-ambiguous-head-branch-exists')
+      url = Rails.application.routes.url_helpers.help_page_path('user/project/repository/branches/_index.md', anchor: 'error-ambiguous-head-branch-exists')
 
       format('<a href="%{url}" target="_blank" rel="noopener noreferrer">', url: url)
     end
@@ -144,13 +173,20 @@ module Projects
     end
 
     # overridden by EE module
+    def audit_topic_change(from:); end
+
+    # overridden by EE module
     def remove_unallowed_params
       params.delete(:emails_enabled) unless can?(current_user, :set_emails_disabled, project)
 
       params.delete(:runner_registration_enabled) if Gitlab::CurrentSettings.valid_runner_registrars.exclude?('project')
+
+      params.delete(:max_artifacts_size) unless can?(current_user, :update_max_artifacts_size, project)
     end
 
     def after_update
+      track_job_token_scope_setting_changes(project.ci_cd_settings, current_user)
+
       todos_features_changes = %w[
         issues_access_level
         merge_requests_access_level
@@ -173,6 +209,8 @@ module Projects
       end
 
       update_pending_builds if runners_settings_toggled?
+
+      audit_topic_change(from: @previous_topics)
 
       publish_events
     end
@@ -214,7 +252,7 @@ module Projects
       new_restrict_user_defined_variables = params[:restrict_user_defined_variables]
       return false if new_restrict_user_defined_variables.nil?
 
-      project.restrict_user_defined_variables != new_restrict_user_defined_variables
+      project.restrict_user_defined_variables? != new_restrict_user_defined_variables
     end
 
     def changing_pipeline_variables_minimum_override_role?
@@ -246,6 +284,9 @@ module Projects
     end
 
     def build_topics
+      # Used in EE. Can't be cached in override due to Gitlab/ModuleWithInstanceVariables cop
+      @previous_topics = project.topic_list
+
       topics = params.delete(:topics)
       tag_list = params.delete(:tag_list)
       topic_list = topics || tag_list
@@ -287,36 +328,8 @@ module Projects
     end
 
     def publish_events
-      publish_project_archived_event
-      publish_project_attributed_changed_event
       publish_project_features_changed_event
-    end
-
-    def publish_project_archived_event
-      return unless project.archived_previously_changed?
-
-      event = Projects::ProjectArchivedEvent.new(data: {
-        project_id: @project.id,
-        namespace_id: @project.namespace_id,
-        root_namespace_id: @project.root_namespace.id
-      })
-
-      Gitlab::EventStore.publish(event)
-    end
-
-    def publish_project_attributed_changed_event
-      changes = @project.previous_changes
-
-      return if changes.blank?
-
-      event = Projects::ProjectAttributesChangedEvent.new(data: {
-        project_id: @project.id,
-        namespace_id: @project.namespace_id,
-        root_namespace_id: @project.root_namespace.id,
-        attributes: changes.keys
-      })
-
-      Gitlab::EventStore.publish(event)
+      publish_project_visibility_changed_event
     end
 
     def publish_project_features_changed_event
@@ -332,6 +345,23 @@ module Projects
       })
 
       Gitlab::EventStore.publish(event)
+    end
+
+    def publish_project_visibility_changed_event
+      return unless @project.visibility_level_previously_changed?
+
+      event = Projects::ProjectVisibilityChangedEvent.new(data: {
+        project_id: @project.id,
+        namespace_id: @project.namespace_id,
+        root_namespace_id: @project.root_namespace.id,
+        visibility_level: @project.visibility_level
+      })
+
+      Gitlab::EventStore.publish(event)
+    end
+
+    def non_assignable_project_params
+      [:default_branch, :remove_deletion_schedule]
     end
   end
 end

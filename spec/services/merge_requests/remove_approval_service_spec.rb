@@ -128,6 +128,13 @@ RSpec.describe MergeRequests::RemoveApprovalService, feature_category: :code_rev
       it_behaves_like 'triggers GraphQL subscription mergeRequestApprovalStateUpdated' do
         let(:action) { execute! }
       end
+
+      it 'triggers GraphQL subscription userMergeRequestUpdated' do
+        expect(GraphqlTriggers).to receive(:user_merge_request_updated).with(user, merge_request)
+        expect(GraphqlTriggers).to receive(:user_merge_request_updated).with(merge_request.author, merge_request)
+
+        execute!
+      end
     end
 
     context 'with a user who has not approved' do

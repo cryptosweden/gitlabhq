@@ -1,12 +1,11 @@
 ---
 stage: Plan
 group: Optimize
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Value stream analytics development guidelines
 ---
 
-# Value stream analytics development guidelines
-
-For information on how to configure value stream analytics (VSA) in GitLab, see our [analytics documentation](../user/group/value_stream_analytics/index.md).
+For information on how to configure value stream analytics (VSA) in GitLab, see our [analytics documentation](../user/group/value_stream_analytics/_index.md).
 
 ## How does Value Stream Analytics work?
 
@@ -15,13 +14,13 @@ expressions and runs various aggregations on the data.
 
 For example:
 
-- Duration between the Merge Request creation time and Merge Request merge time.
+- Duration between the merge request creation time and merge request merge time.
 - Duration between the Issue creation time and Issue close time.
 
 This duration is exposed in various ways:
 
 - Aggregation: median, average
-- Listing: list the duration for individual Merge Request and Issue records
+- Listing: list the duration for individual merge request and issue records
 
 Apart from the durations, we expose the record count within a stage.
 
@@ -32,20 +31,20 @@ Apart from the durations, we expose the record count within a stage.
 - Project level (licensed): We are continually adding features to project level VSA to bring it in line with group level VSA.
 - Project level (FOSS): Keep it as is.
 
-|Feature|Group level (licensed)|Project level (licensed)|Project level (FOSS)|
-|-|-|-|-|
-|Create custom value streams|Yes|No, only one value stream (default) is present with the default stages|no, only one value stream (default) is present with the default stages|
-|Create custom stages|Yes|No|No|
-|Filtering (author, label, milestone, etc.)|Yes|Yes|Yes|
-|Stage time chart|Yes|No|No|
-|Total time chart|Yes|No|No|
-|Task by type chart|Yes|No|No|
-|DORA Metrics|Yes|Yes|No|
-|Cycle time and lead time summary (Lifecycle metrics)|Yes|Yes|No|
-|New issues, commits and deploys (Lifecycle metrics)|Yes, excluding commits|Yes|Yes|
-|Uses aggregated backend|Yes|No|No|
-|Date filter behavior|Filters items [finished within the date range](https://gitlab.com/groups/gitlab-org/-/epics/6046)|Filters items by creation date.|Filters items by creation date.|
-|Authorization|At least reporter|At least reporter|Can be public.|
+| Feature                                              | Group level (licensed)                                                                        | Project level (licensed)                                               | Project level (FOSS) |
+|------------------------------------------------------|-----------------------------------------------------------------------------------------------|------------------------------------------------------------------------|----------------------|
+| Create custom value streams                          | Yes                                                                                           | No, only one value stream (default) is present with the default stages | No, only one value stream (default) is present with the default stages |
+| Create custom stages                                 | Yes                                                                                           | No                                                                     | No                   |
+| Filtering (author, label, milestone, etc.)           | Yes                                                                                           | Yes                                                                    | Yes                  |
+| Stage time chart                                     | Yes                                                                                           | No                                                                     | No                   |
+| Total time chart                                     | Yes                                                                                           | No                                                                     | No                   |
+| Task by type chart                                   | Yes                                                                                           | No                                                                     | No                   |
+| DORA Metrics                                         | Yes                                                                                           | Yes                                                                    | No                   |
+| Cycle time and lead time summary (Lifecycle metrics) | Yes                                                                                           | Yes                                                                    | No                   |
+| New issues, commits and deploys (Lifecycle metrics)  | Yes, excluding commits                                                                        | Yes                                                                    | Yes                  |
+| Uses aggregated backend                              | Yes                                                                                           | No                                                                     | No                   |
+| Date filter behavior                                 | Filters items [finished in the date range](https://gitlab.com/groups/gitlab-org/-/epics/6046) | Filters items by creation date.                                        | Filters items by creation date. |
+| Authorization                                        | At least reporter                                                                             | At least reporter                                                      | Can be public.       |
 
 ## VSA core domain objects
 
@@ -290,12 +289,12 @@ considered legacy, which will be phased out at some point.
 
 ## Frontend
 
-[Project VSA](../user/group/value_stream_analytics/index.md) is available for all users and:
+[Project VSA](../user/group/value_stream_analytics/_index.md) is available for all users and:
 
 - Includes a mixture of key and DORA metrics based on the tier.
 - Uses the set of [default stages](#default-stages).
 
-[Group VSA](../user/group/value_stream_analytics/index.md) is only available for licensed users and extends project VSA to include:
+[Group VSA](../user/group/value_stream_analytics/_index.md) is only available for licensed users and extends project VSA to include:
 
 - An [overview stage](https://gitlab.com/gitlab-org/gitlab/-/issues/321438).
 - The ability to create custom value streams.
@@ -354,4 +353,4 @@ Analytics::CycleAnalytics::ReaggregationWorker.new.perform
 
 #### Value stream analytics
 
-For instructions on how to seed data for value stream analytics, see [development seed files](../development/development_seed_files.md).
+For instructions on how to seed data for value stream analytics, see [development seed files](development_seed_files.md).

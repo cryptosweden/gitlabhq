@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Query.group(fullPath).ciVariables', feature_category: :secrets_management do
+RSpec.describe 'Query.group(fullPath).ciVariables', feature_category: :ci_variables do
   include GraphqlHelpers
 
   let_it_be(:group) { create(:group) }
@@ -87,39 +87,6 @@ RSpec.describe 'Query.group(fullPath).ciVariables', feature_category: :secrets_m
         'raw' => false,
         'environmentScope' => 'staging'
       })
-    end
-
-    context 'when feature flag `ci_hidden_variables is disabled`' do
-      before do
-        stub_feature_flags(ci_hidden_variables: false)
-      end
-
-      it "returns the value even if it is hidden" do
-        variable = create(:ci_group_variable,
-          group: group,
-          key: 'TEST_VAR',
-          value: 'TestValue',
-          masked: true,
-          hidden: true,
-          protected: true,
-          raw: false,
-          environment_scope: 'staging')
-
-        post_graphql(query, current_user: user)
-
-        expect(graphql_data.dig('group', 'ciVariables', 'limit')).to be(30000)
-        expect(graphql_data.dig('group', 'ciVariables', 'nodes')).to contain_exactly({
-          'id' => variable.to_global_id.to_s,
-          'key' => 'TEST_VAR',
-          'value' => 'TestValue',
-          'variableType' => 'ENV_VAR',
-          'masked' => true,
-          'protected' => true,
-          'hidden' => true,
-          'raw' => false,
-          'environmentScope' => 'staging'
-        })
-      end
     end
   end
 

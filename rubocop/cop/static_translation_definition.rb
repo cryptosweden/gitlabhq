@@ -9,47 +9,47 @@ module RuboCop
     #
     # @example
     #
-    # # bad
-    # class MyExample
-    #   # Constant
-    #   Translation = _('A translation.')
+    #   # bad
+    #   class MyExample
+    #     # Constant
+    #     Translation = _('A translation.')
     #
-    #   # Class scope
-    #   field :foo, title: _('A title')
+    #     # Class scope
+    #     field :foo, title: _('A title')
     #
-    #   validates :title, :presence, message: _('is missing')
+    #     validates :title, :presence, message: _('is missing')
     #
-    #   # Memoized
-    #   def self.translations
-    #     @cached ||= { text: _('A translation.') }
+    #     # Memoized
+    #     def self.translations
+    #       @cached ||= { text: _('A translation.') }
+    #     end
+    #
+    #     included do # or prepended or class_methods
+    #       self.error_message = _('Something went wrong.')
+    #     end
     #   end
     #
-    #   included do # or prepended or class_methods
-    #     self.error_message = _('Something went wrong.')
+    #   # good
+    #   class MyExample
+    #     # Keep translations dynamic.
+    #     Translation = -> { _('A translation.') }
+    #     # OR
+    #     def translation
+    #       _('A translation.')
+    #     end
+    #
+    #     field :foo, title: -> { _('A title') }
+    #
+    #     validates :title, :presence, message: -> { _('is missing') }
+    #
+    #     def self.translations
+    #       { text: _('A translation.') }
+    #     end
+    #
+    #     included do # or prepended or class_methods
+    #       self.error_message = -> { _('Something went wrong.') }
+    #     end
     #   end
-    # end
-    #
-    # # good
-    # class MyExample
-    #   # Keep translations dynamic.
-    #   Translation = -> { _('A translation.') }
-    #   # OR
-    #   def translation
-    #     _('A translation.')
-    #   end
-    #
-    #   field :foo, title: -> { _('A title') }
-    #
-    #   validates :title, :presence, message: -> { _('is missing') }
-    #
-    #   def self.translations
-    #     { text: _('A translation.') }
-    #   end
-    #
-    #   included do # or prepended or class_methods
-    #     self.error_message = -> { _('Something went wrong.') }
-    #   end
-    # end
     #
     class StaticTranslationDefinition < RuboCop::Cop::Base
       MSG = <<~TEXT.tr("\n", ' ')
@@ -63,6 +63,7 @@ module RuboCop
       # See https://api.rubyonrails.org/classes/ActiveSupport/Concern.html
       NON_METHOD_DEFINITIONS = %i[class_methods included prepended].to_set.freeze
 
+      # @!method translation_method?(node)
       def_node_matcher :translation_method?, <<~PATTERN
         (send _ {#{RESTRICT_ON_SEND.map(&:inspect).join(' ')}} {dstr str}+)
       PATTERN
@@ -88,7 +89,7 @@ module RuboCop
       private
 
       def memoized?(node)
-        node.type == :or_asgn
+        node.or_asgn_type?
       end
 
       def dynamic?(node, memoized)
@@ -105,15 +106,15 @@ module RuboCop
       def named_block?(node)
         return unless node.block_type?
 
-        !NON_METHOD_DEFINITIONS.include?(node.method_name) # rubocop:disable Rails/NegateInclude
+        !NON_METHOD_DEFINITIONS.include?(node.method_name)
       end
 
       def instance_method_definition?(node)
-        node.type == :def
+        node.def_type?
       end
 
       def unmemoized_class_method_definition?(node, memoized)
-        node.type == :defs && !memoized
+        node.defs_type? && !memoized
       end
     end
   end

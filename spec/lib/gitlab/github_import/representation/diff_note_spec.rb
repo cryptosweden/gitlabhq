@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::GithubImport::Representation::DiffNote do
+RSpec.describe Gitlab::GithubImport::Representation::DiffNote, feature_category: :importers do
   let(:hunk) do
     '@@ -1 +1 @@
     -Hello
@@ -34,6 +34,12 @@ RSpec.describe Gitlab::GithubImport::Representation::DiffNote do
   let(:updated_at) { Time.new(2017, 1, 1, 12, 15) }
 
   shared_examples 'a DiffNote representation' do
+    context 'when note body is present' do
+      it 'includes the note body' do
+        expect(note.note).to eq(note_body)
+      end
+    end
+
     it 'returns an instance of DiffNote' do
       expect(note).to be_an_instance_of(described_class)
     end

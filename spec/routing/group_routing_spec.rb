@@ -8,6 +8,13 @@ RSpec.shared_examples 'groups routing' do
 
   it "to #show" do
     expect(get("/groups/#{group_path}")).to route_to('groups#show', id: group_path)
+    expect(get("/groups/#{group_path}/-/shared")).to route_to('groups#show', id: group_path)
+    expect(get("/groups/#{group_path}/-/shared_groups")).to route_to('groups#show', id: group_path)
+    expect(get("/groups/#{group_path}/-/inactive")).to route_to('groups#show', id: group_path)
+  end
+
+  it "to #destroy" do
+    expect(delete("/groups/#{group_path}")).to route_to('groups#destroy', id: group_path)
   end
 
   it "also supports nested groups" do
@@ -71,14 +78,26 @@ RSpec.shared_examples 'groups routing' do
   end
 
   it 'routes to the usage quotas controller' do
-    expect(get("groups/#{group_path}/-/usage_quotas")).to route_to("groups/usage_quotas#index", group_id: group_path)
+    expect(get("groups/#{group_path}/-/usage_quotas")).to route_to("groups/usage_quotas#root", group_id: group_path)
   end
 end
 
-RSpec.describe "Groups", "routing" do
+RSpec.describe "Groups", "routing", feature_category: :groups_and_projects do
   context 'complex group path with dot' do
     include_examples 'groups routing' do
       let(:group_path) { 'complex.group-namegit' }
+    end
+  end
+
+  context 'with path ending with .html' do
+    include_examples 'groups routing' do
+      let(:group_path) { 'group.html' }
+    end
+  end
+
+  context 'with path ending with .json' do
+    include_examples 'groups routing' do
+      let(:group_path) { 'group.json' }
     end
   end
 
@@ -151,6 +170,12 @@ RSpec.describe "Groups", "routing" do
         expect(get('/v2/gitlabhq/dependency_proxy/containers/foo/bar/blobs/abc12345'))
           .to route_to('groups/dependency_proxy_for_containers#blob', group_id: 'gitlabhq', image: 'foo/bar', sha: 'abc12345')
       end
+    end
+  end
+
+  describe Groups::RedirectController, 'routing' do
+    it 'to #redirect_from_id' do
+      expect(get('/-/g/1')).to route_to('groups/redirect#redirect_from_id', id: '1')
     end
   end
 end

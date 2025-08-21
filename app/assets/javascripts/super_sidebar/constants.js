@@ -21,8 +21,10 @@ export const sidebarState = Vue.observable({
   wasHoverPeek: false,
 });
 
-export const helpCenterState = Vue.observable({
-  showTanukiBotChatDrawer: false,
+export const duoChatGlobalState = Vue.observable({
+  commands: [],
+  isShown: false,
+  isAgenticChatShown: false,
 });
 
 export const SUPER_SIDEBAR_PEEK_OPEN_DELAY = 200;
@@ -58,8 +60,6 @@ export const DROPDOWN_Y_OFFSET = 4;
 
 export const NAV_ITEM_LINK_ACTIVE_CLASS = 'super-sidebar-nav-item-current';
 
-export const IMPERSONATING_OFFSET = 34;
-
 // Frequent items constants
 export const FREQUENT_ITEMS = {
   MAX_COUNT: 20,
@@ -70,6 +70,7 @@ export const FIFTEEN_MINUTES_IN_MS = 900000;
 
 export const STORAGE_KEY = {
   projects: 'frequent-projects',
+  groups: 'frequent-groups',
 };
 
 export const CONTEXT_NAMESPACE_GROUPS = 'groups';

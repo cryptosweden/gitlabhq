@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Metrics::Subscribers::ExternalHttp, :request_store, feature_category: :logging do
+RSpec.describe Gitlab::Metrics::Subscribers::ExternalHttp, :request_store, feature_category: :observability do
   let(:transaction) { Gitlab::Metrics::WebTransaction.new({}) }
   let(:subscriber) { described_class.new }
 
@@ -225,7 +225,7 @@ RSpec.describe Gitlab::Metrics::Subscribers::ExternalHttp, :request_store, featu
         subscriber.request(event_2)
         subscriber.request(event_3)
 
-        expect(Gitlab::SafeRequestStore[:external_http_detail_store]).to be(nil)
+        expect(Gitlab::SafeRequestStore[:external_http_detail_store]).to be_nil
       end
     end
   end

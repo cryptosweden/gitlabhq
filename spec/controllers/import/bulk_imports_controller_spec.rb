@@ -2,8 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Import::BulkImportsController, feature_category: :importers do
+RSpec.describe Import::BulkImportsController, :with_organization_url_helpers, feature_category: :importers do
   let_it_be(:user) { create(:user) }
+  let_it_be(:current_organization) { user.organization }
 
   before do
     stub_application_setting(bulk_import_enabled: true)
@@ -14,7 +15,7 @@ RSpec.describe Import::BulkImportsController, feature_category: :importers do
   end
 
   context 'when user is signed in' do
-    context 'when bulk_import feature flag is enabled' do
+    context 'when importing group and projects by direct transfer is enabled' do
       describe 'POST configure' do
         before do
           allow_next_instance_of(BulkImports::Clients::HTTP) do |instance|
@@ -224,7 +225,7 @@ RSpec.describe Import::BulkImportsController, feature_category: :importers do
           it 'denies network request' do
             get :status
             expect(controller).to redirect_to(new_group_path(anchor: 'import-group-pane'))
-            expect(flash[:alert]).to eq("Specified URL cannot be used: \"#{expected_error}\"")
+            expect(flash[:alert]).to eq("Specified URL cannot be used: &quot;#{expected_error}&quot;")
           end
         end
 
@@ -416,11 +417,16 @@ RSpec.describe Import::BulkImportsController, feature_category: :importers do
           error_response = ServiceResponse.error(message: 'Record invalid', http_status: :unprocessable_entity)
 
           expect_next_instance_of(
-            ::BulkImports::CreateService, user, bulk_import_params[0], { url: instance_url, access_token: pat }) do |service|
+            ::BulkImports::CreateService, user, bulk_import_params[0], { url: instance_url, access_token: pat },
+            fallback_organization: current_organization
+          ) do |service|
             allow(service).to receive(:execute).and_return(ServiceResponse.success(payload: bulk_import))
           end
+
           expect_next_instance_of(
-            ::BulkImports::CreateService, user, bulk_import_params[1], { url: instance_url, access_token: pat }) do |service|
+            ::BulkImports::CreateService, user, bulk_import_params[1], { url: instance_url, access_token: pat },
+            fallback_organization: current_organization
+          ) do |service|
             allow(service).to receive(:execute).and_return(error_response)
           end
 
@@ -452,7 +458,9 @@ RSpec.describe Import::BulkImportsController, feature_category: :importers do
             }
 
             expect_next_instance_of(
-              ::BulkImports::CreateService, user, entity, { url: instance_url, access_token: pat }) do |service|
+              ::BulkImports::CreateService, user, entity, { url: instance_url, access_token: pat },
+              fallback_organization: current_organization
+            ) do |service|
               allow(service).to receive(:execute).and_return(ServiceResponse.success(payload: bulk_import))
             end
 
@@ -489,17 +497,37 @@ RSpec.describe Import::BulkImportsController, feature_category: :importers do
             expect(response).to have_gitlab_http_status(:too_many_requests)
           end
         end
+
+        context 'when current organization is set' do
+          it 'passes the current organization to the ::BulkImports::CreateService' do
+            expect_next_instance_of(
+              ::BulkImports::CreateService, anything, anything, anything, fallback_organization: current_organization
+            ) do |service|
+              allow(service).to receive(:execute).and_return(ServiceResponse.success(payload: bulk_import))
+            end.twice
+
+            post :create, params: { bulk_import: bulk_import_params }
+          end
+        end
       end
     end
 
-    context 'when feature is disabled' do
+    context 'when importing groups and projects by direct transfer is disabled' do
       before do
         stub_application_setting(bulk_import_enabled: false)
+        stub_feature_flags(override_bulk_import_disabled: false)
+
+        allow_next_instance_of(BulkImports::Clients::HTTP) do |instance|
+          allow(instance).to receive(:validate_instance_version!).and_return(true)
+          allow(instance).to receive(:validate_import_scopes!).and_return(true)
+        end
       end
 
       context 'POST configure' do
         it 'returns 404' do
-          post :configure
+          post :configure, params: {
+            bulk_import_gitlab_access_token: 'token', bulk_import_gitlab_url: 'https://gitlab.example'
+          }
 
           expect(response).to have_gitlab_http_status(:not_found)
         end
@@ -510,6 +538,31 @@ RSpec.describe Import::BulkImportsController, feature_category: :importers do
           get :status
 
           expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context 'when the override_bulk_import_disabled feature flag is enabled' do
+        before do
+          stub_feature_flags(override_bulk_import_disabled: true)
+        end
+
+        context 'POST configure' do
+          it 'does not return 404' do
+            post :configure, params: {
+              bulk_import_gitlab_access_token: 'token', bulk_import_gitlab_url: 'https://gitlab.example'
+            }
+
+            expect(response).to have_gitlab_http_status(:found)
+            expect(response).to redirect_to(status_import_bulk_imports_url)
+          end
+        end
+
+        context 'GET status' do
+          it 'does not return 404' do
+            get :status
+
+            expect(response).to have_gitlab_http_status(:ok)
+          end
         end
       end
     end

@@ -10,17 +10,19 @@ module Projects
       end
 
       def execute(group_link_params)
+        allowed_params = filter_params(group_link_params)
+
         if group_link.blank? || !allowed_to_update?
           return ServiceResponse.error(message: 'Not found', reason: :not_found)
         end
 
-        unless allowed_to_update_to_or_from_owner?(group_link_params)
+        unless allowed_to_update_to_or_from_owner?(allowed_params)
           return ServiceResponse.error(message: 'Forbidden', reason: :forbidden)
         end
 
-        group_link.update!(group_link_params)
+        group_link.update!(allowed_params)
 
-        refresh_authorizations if requires_authorization_refresh?(group_link_params)
+        refresh_authorizations if requires_authorization_refresh?(allowed_params)
 
         ServiceResponse.success
       end
@@ -28,6 +30,14 @@ module Projects
       private
 
       attr_reader :group_link
+
+      def permitted_attributes
+        %i[group_access expires_at].freeze
+      end
+
+      def filter_params(params)
+        params.select { |k| permitted_attributes.include?(k.to_sym) }
+      end
 
       def allowed_to_update?
         current_user.can?(:admin_project_member, group_link.project)
@@ -45,9 +55,16 @@ module Projects
         # Until we compare the inconsistency rates of the new specialized worker and
         # the old approach, we still run AuthorizedProjectsWorker
         # but with some delay and lower urgency as a safety net.
-        group_link.group.refresh_members_authorized_projects(
-          priority: UserProjectAccessChangedService::LOW_PRIORITY
+        if Feature.enabled?(
+          :project_authorizations_update_in_background_for_group_shares,
+          group_link.group.root_ancestor
         )
+          AuthorizedProjectUpdate::EnqueueGroupMembersRefreshAuthorizedProjectsWorker.perform_async(group_link.group.id)
+        else
+          group_link.group.refresh_members_authorized_projects(
+            priority: UserProjectAccessChangedService::LOW_PRIORITY
+          )
+        end
       end
 
       def requires_authorization_refresh?(params)

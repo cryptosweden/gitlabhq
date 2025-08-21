@@ -13,7 +13,11 @@ import { getInstrumentationLink } from './apollo/instrumentation_link';
 import { getSuppressNetworkErrorsDuringNavigationLink } from './apollo/suppress_network_errors_during_navigation_link';
 import { getPersistLink } from './apollo/persist_link';
 import { persistenceMapper } from './apollo/persistence_mapper';
+import { sentryBreadcrumbLink } from './apollo/sentry_breadcrumb_link';
 import { correlationIdLink } from './apollo/correlation_id_link';
+
+export const ERROR_POLICY_ALL = 'all';
+export const ERROR_POLICY_NONE = 'none';
 
 export const fetchPolicies = {
   CACHE_FIRST: 'cache-first',
@@ -54,6 +58,9 @@ export const typePolicies = {
   TreeEntry: {
     keyFields: ['webPath'],
   },
+  Blob: {
+    keyFields: ['webPath'],
+  },
   Subscription: {
     fields: {
       aiCompletionResponse: {
@@ -62,6 +69,9 @@ export const typePolicies = {
         },
       },
     },
+  },
+  GroupDora: {
+    merge: true,
   },
   Dora: {
     merge: true,
@@ -72,6 +82,9 @@ export const typePolicies = {
   ProjectValueStreamAnalyticsFlowMetrics: {
     merge: true,
   },
+  ValueStreamStageMetrics: {
+    merge: true,
+  },
   ScanExecutionPolicy: {
     keyFields: ['name'],
   },
@@ -80,6 +93,18 @@ export const typePolicies = {
   },
   ComplianceFrameworkConnection: {
     merge: true,
+  },
+  OrganizationUserConnection: {
+    merge: true,
+  },
+  RepositoryBlob: {
+    keyFields: ({ id, path }) => {
+      if (path) {
+        return `${id}${encodeURIComponent(path)}`;
+      }
+
+      return id;
+    },
   },
 };
 
@@ -152,6 +177,10 @@ function createApolloClient(resolvers = {}, config = {}) {
 
   if (gon.version) {
     httpHeaders['x-gitlab-version'] = gon.version;
+  }
+
+  if (gon.current_organization?.id) {
+    httpHeaders['X-GitLab-Organization-ID'] = gon.current_organization.id;
   }
 
   const httpOptions = {
@@ -250,6 +279,7 @@ function createApolloClient(resolvers = {}, config = {}) {
       [
         getSuppressNetworkErrorsDuringNavigationLink(),
         getInstrumentationLink(),
+        sentryBreadcrumbLink,
         correlationIdLink,
         requestCounterLink,
         performanceBarLink,

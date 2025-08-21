@@ -1,6 +1,7 @@
 # frozen_string_literal: true
+
 # These helpers allow you to manage and register
-# U2F and WebAuthn devices
+# WebAuthn devices
 #
 # Usage:
 #   describe "..." do
@@ -18,31 +19,36 @@ module Features
 
     def enable_two_factor_authentication
       click_on _('Enable two-factor authentication')
-      expect(page).to have_content(_('Set up new device'))
+      expect(page).to have_content(_('Register device'))
       wait_for_requests
     end
 
     def manage_two_factor_authentication
       click_on 'Manage two-factor authentication'
-      expect(page).to have_content("Set up new device")
+      expect(page).to have_content(_('Register device'))
       wait_for_requests
     end
 
-    # Registers webauthn device via UI
-    # Remove after `webauthn_without_totp` feature flag is deleted.
-    def register_webauthn_device(webauthn_device = nil, name: 'My device')
-      webauthn_device ||= FakeWebauthnDevice.new(page, name)
-      webauthn_device.respond_to_webauthn_registration
-      click_on 'Set up new device'
-      expect(page).to have_content('Your device was successfully set up')
-      fill_in 'Pick a name', with: name
-      click_on 'Register device'
-      webauthn_device
+    # Register OTP authenticator via UI
+    def otp_authenticator_registration(pin, password = nil)
+      click_button _('Register authenticator')
+      fill_in 'current_password', with: password if password
+      fill_in 'pin_code', with: pin
+      click_button _('Register with two-factor app')
     end
 
+    def otp_authenticator_registration_and_copy_codes(pin, password = nil)
+      otp_authenticator_registration(pin, password)
+      click_button _('Copy codes')
+      click_link _('Proceed')
+    end
+
+    # Registers webauthn device via UI
     def webauthn_device_registration(webauthn_device: nil, name: 'My device', password: 'fake')
       webauthn_device ||= FakeWebauthnDevice.new(page, name)
       webauthn_device.respond_to_webauthn_registration
+      click_on _('Register device')
+      wait_for_requests
       click_on _('Set up new device')
       webauthn_fill_form_and_submit(name: name, password: password)
       webauthn_device

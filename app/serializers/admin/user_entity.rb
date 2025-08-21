@@ -3,7 +3,7 @@
 module Admin
   class UserEntity < API::Entities::UserSafe
     include RequestAwareEntity
-    include UsersHelper
+    include ::UsersHelper
     include UserActionsHelper
 
     expose :created_at
@@ -13,10 +13,6 @@ module Admin
     expose :note
     expose :badges do |user|
       user_badges_in_admin_section(user)
-    end
-
-    expose :projects_count do |user|
-      user.authorized_projects.length
     end
 
     expose :actions do |user|

@@ -1,5 +1,5 @@
 <script>
-import { GlTable, GlBadge, GlPagination } from '@gitlab/ui';
+import { GlTable, GlBadge, GlPagination, GlButton, GlTooltipDirective } from '@gitlab/ui';
 import { __ } from '~/locale';
 import PodLogsButton from '~/environments/environment_details/components/kubernetes/pod_logs_button.vue';
 import {
@@ -14,6 +14,10 @@ export default {
     GlBadge,
     GlPagination,
     PodLogsButton,
+    GlButton,
+  },
+  directives: {
+    GlTooltip: GlTooltipDirective,
   },
   props: {
     items: {
@@ -34,6 +38,7 @@ export default {
   data() {
     return {
       currentPage: 1,
+      selectedItem: null,
     };
   },
   computed: {
@@ -53,13 +58,13 @@ export default {
   },
   methods: {
     selectItem(item) {
-      const selectedItem = item[0];
+      this.selectedItem = item;
+      this.$emit('select-item', item);
+    },
+    getDeleteAction(item) {
+      const actions = item.actions || [];
 
-      if (selectedItem) {
-        this.$emit('select-item', selectedItem);
-      } else {
-        this.$emit('remove-selection');
-      }
+      return actions.find((action) => action.name === 'delete-pod') || null;
     },
   },
   i18n: {
@@ -77,27 +82,50 @@ export default {
       :per-page="pageSize"
       :current-page="currentPage"
       :empty-text="$options.i18n.emptyText"
-      hover
-      selectable
-      select-mode="single"
-      selected-variant="primary"
+      primary-key="name"
       show-empty
-      stacked="md"
-      @row-selected="selectItem"
+      stacked="lg"
     >
-      <template #cell(status)="{ item: { status } }">
-        <gl-badge :variant="$options.WORKLOAD_STATUS_BADGE_VARIANTS[status]" class="gl-ml-2">{{
-          status
-        }}</gl-badge>
+      <template #cell(name)="{ item }">
+        <gl-button
+          :title="item.name"
+          class="gl-max-w-full gl-truncate"
+          variant="link"
+          @click="selectItem(item)"
+          >{{ item.name }}</gl-button
+        >
       </template>
 
-      <template #cell(logs)="{ item: { name, namespace, containers } }">
-        <pod-logs-button
-          v-if="containers"
-          :namespace="namespace"
-          :pod-name="name"
-          :containers="containers"
-        />
+      <template #cell(status)="{ item: { status, statusText, statusTooltip } }">
+        <gl-badge
+          v-gl-tooltip
+          :variant="$options.WORKLOAD_STATUS_BADGE_VARIANTS[status]"
+          :title="statusTooltip"
+          :tabindex="statusTooltip ? '0' : undefined"
+        >
+          {{ statusText || status }}
+        </gl-badge>
+      </template>
+
+      <template #cell(actions)="{ item }">
+        <div class="gl-flex gl-items-center gl-justify-end gl-gap-4 lg:gl-justify-between">
+          <pod-logs-button
+            v-if="item.containers"
+            :namespace="item.namespace"
+            :pod-name="item.name"
+            :containers="item.containers"
+          />
+          <gl-button
+            v-if="getDeleteAction(item)"
+            icon="remove"
+            size="small"
+            variant="danger"
+            category="tertiary"
+            data-testid="delete-action-button"
+            :aria-label="getDeleteAction(item).text"
+            @click="$emit(getDeleteAction(item).name, item)"
+          />
+        </div>
       </template>
     </gl-table>
 

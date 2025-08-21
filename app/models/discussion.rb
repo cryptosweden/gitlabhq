@@ -15,6 +15,7 @@ class Discussion
 
   delegate :created_at,
     :project,
+    :namespace,
     :author,
     :noteable,
     :commit_id,
@@ -39,8 +40,8 @@ class Discussion
     project&.id
   end
 
-  def self.build(notes, context_noteable = nil)
-    notes.first.discussion_class(context_noteable).new(notes, context_noteable)
+  def self.build(notes, context_noteable = nil, inverse_relations: true)
+    notes.first.discussion_class(context_noteable).new(notes, context_noteable, inverse_relations: inverse_relations)
   end
 
   def self.build_collection(notes, context_noteable = nil)
@@ -49,16 +50,16 @@ class Discussion
   end
 
   def self.build_discussions(discussion_ids, context_noteable = nil, preload_note_diff_file: false)
-    notes = Note.where(discussion_id: discussion_ids).fresh
+    notes = model_class.where(discussion_id: discussion_ids).order_created_at_id_asc
     notes = notes.inc_note_diff_file if preload_note_diff_file
 
-    grouped_notes = notes.group_by { |n| n.discussion_id }
+    grouped_notes = notes.group_by(&:discussion_id)
     grouped_notes.transform_values { |notes| Discussion.build(notes, context_noteable) }
   end
 
   def self.lazy_find(discussion_id)
     BatchLoader.for(discussion_id).batch do |discussion_ids, loader|
-      results = Note.where(discussion_id: discussion_ids).fresh.to_a.group_by(&:discussion_id)
+      results = model_class.where(discussion_id: discussion_ids).order_created_at_id_asc.to_a.group_by(&:discussion_id)
       results.each do |discussion_id, notes|
         next if notes.empty?
 
@@ -103,9 +104,15 @@ class Discussion
     DiscussionNote
   end
 
-  def initialize(notes, context_noteable = nil)
+  def self.model_class
+    Note
+  end
+
+  def initialize(notes, context_noteable = nil, inverse_relations: true)
     @notes = notes
     @context_noteable = context_noteable
+
+    notes.each { |n| n.discussion = self } if inverse_relations
   end
 
   def on_image?
@@ -189,10 +196,18 @@ class Discussion
   # hash is already unique per discussion. This also fixes the issue where same discussion may return different GIDs
   # depending on number of notes it has.
   def to_global_id(options = {})
-    GlobalID.new(::Gitlab::GlobalId.build(model_name: Discussion.to_s, id: id))
+    GlobalID.new(::Gitlab::GlobalId.build(model_name: discussion_class.to_s, id: id))
+  end
+
+  def discussion_class
+    ::Discussion
   end
 
   def noteable_collection_name
     noteable.class.underscore.pluralize
+  end
+
+  def can_resolve_discussion?(user)
+    resolvable? && !!user&.can?(:resolve_note, first_note)
   end
 end

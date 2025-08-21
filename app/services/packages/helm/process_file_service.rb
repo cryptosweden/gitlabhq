@@ -7,6 +7,8 @@ module Packages
       include ExclusiveLeaseGuard
 
       ExtractionError = Class.new(StandardError)
+      ProtectedPackageError = Class.new(StandardError)
+
       DEFAULT_LEASE_TIMEOUT = 1.hour.to_i
 
       def initialize(channel, package_file)
@@ -17,6 +19,10 @@ module Packages
       def execute
         raise ExtractionError, 'Helm chart was not processed - package_file is not set' unless package_file
 
+        if package_protected?
+          raise ProtectedPackageError, "Helm chart '#{chart_name}' with version '#{chart_version}' is protected"
+        end
+
         try_obtain_lease do
           temp_package.transaction do
             rename_package_and_set_version
@@ -24,16 +30,31 @@ module Packages
             cleanup_temp_package
           end
         end
+
+        ::Packages::Helm::CreateMetadataCacheWorker.perform_async(package.project_id, @channel)
       end
 
       private
 
       attr_reader :channel, :package_file
 
+      def package_protected?
+        service_response =
+          ::Packages::Protection::CheckRuleExistenceService.for_push(
+            project: @package_file.project,
+            current_user: @package_file.package.creator,
+            params: { package_name: chart_name, package_type: :helm }
+          ).execute
+
+        raise ArgumentError, service_response.message if service_response.error?
+
+        service_response[:protection_rule_exists?]
+      end
+
       def rename_package_and_set_version
         package.update!(
-          name: metadata['name'],
-          version: metadata['version'],
+          name: chart_name,
+          version: chart_version,
           status: :default
         )
       end
@@ -62,12 +83,11 @@ module Packages
       strong_memoize_attr :temp_package
 
       def package
-        project_packages = package_file.package.project.packages
-        package = project_packages.with_package_type(:helm)
-                                  .with_name(metadata['name'])
-                                  .with_version(metadata['version'])
-                                  .not_pending_destruction
-                                  .last
+        package = ::Packages::Helm::Package.for_projects(package_file.package.project)
+                                           .with_name(chart_name)
+                                           .with_version(chart_version)
+                                           .not_pending_destruction
+                                           .last
         package || temp_package
       end
       strong_memoize_attr :package
@@ -77,8 +97,16 @@ module Packages
       end
       strong_memoize_attr :metadata
 
+      def chart_name
+        metadata['name']
+      end
+
+      def chart_version
+        metadata['version']
+      end
+
       def file_name
-        "#{metadata['name']}-#{metadata['version']}.tgz"
+        "#{chart_name}-#{chart_version}.tgz"
       end
 
       # used by ExclusiveLeaseGuard

@@ -30,18 +30,11 @@ RSpec.describe WebHooks::DestroyService, feature_category: :webhooks do
       end
 
       it 'destroys the hook' do
-        expect { subject.execute(hook) }.to change(WebHook, :count).from(1).to(0)
+        expect { subject.execute(hook) }.to change { WebHook.count }.from(1).to(0)
       end
 
       it 'does not destroy logs' do
-        expect { subject.execute(hook) }.not_to change(WebHookLog, :count)
-      end
-
-      it 'schedules the destruction of logs' do
-        expect(WebHooks::LogDestroyWorker).to receive(:perform_async).with({ 'hook_id' => hook.id })
-        expect(Gitlab::AppLogger).to receive(:info).with(match(/scheduled a deletion of logs/))
-
-        subject.execute(hook)
+        expect { subject.execute(hook) }.not_to change { WebHookLog.count }
       end
 
       context 'when the hook fails to destroy' do
@@ -50,8 +43,6 @@ RSpec.describe WebHooks::DestroyService, feature_category: :webhooks do
         end
 
         it 'is not a success' do
-          expect(WebHooks::LogDestroyWorker).not_to receive(:perform_async)
-
           r = subject.execute(hook)
 
           expect(r).to be_error

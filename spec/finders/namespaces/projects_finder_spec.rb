@@ -30,8 +30,26 @@ RSpec.describe Namespaces::ProjectsFinder, feature_category: :groups_and_project
     end
 
     context 'with a namespace' do
-      it 'returns the project for the namespace' do
-        expect(projects).to contain_exactly(project_1, project_2, project_4, project_6, project_7)
+      context 'when namespace is group' do
+        it 'returns the project for the namespace' do
+          expect(projects).to contain_exactly(project_1, project_2, project_4, project_6, project_7)
+        end
+      end
+
+      context 'when namespace is project' do
+        let(:namespace) { project_1.project_namespace }
+
+        it 'returns empty array' do
+          expect(projects).to eq([])
+        end
+
+        context 'when include_sibling_projects is provided' do
+          let(:params) { { include_sibling_projects: true } }
+
+          it "returns the projects from project's parent group" do
+            expect(projects).to contain_exactly(project_1, project_2, project_4, project_6, project_7)
+          end
+        end
       end
 
       context 'when not_aimed_for_deletion is provided' do
@@ -88,6 +106,32 @@ RSpec.describe Namespaces::ProjectsFinder, feature_category: :groups_and_project
 
           it 'returns ONLY non-archived projects' do
             expect(projects).to contain_exactly(project_1, project_2, project_4, project_6)
+          end
+        end
+      end
+
+      context 'when archived_only param is present' do
+        context 'when archived_only is true' do
+          let(:params) { { archived_only: true } }
+
+          it 'returns only archived projects' do
+            expect(projects).to contain_exactly(project_7)
+          end
+        end
+
+        context 'when archived_only is false' do
+          let(:params) { { archived_only: false } }
+
+          it 'returns all projects' do
+            expect(projects).to contain_exactly(project_1, project_2, project_4, project_6, project_7)
+          end
+        end
+
+        context 'when archived_only is invalid' do
+          let(:params) { { archived_only: 'invalid' } }
+
+          it 'returns all projects' do
+            expect(projects).to contain_exactly(project_1, project_2, project_4, project_6, project_7)
           end
         end
       end

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class OmniauthCallbacksController < Devise::OmniauthCallbacksController
+  include ActionView::Helpers::TextHelper
   include AuthenticatesWithTwoFactorForAdminMode
   include Devise::Controllers::Rememberable
   include AuthHelper
@@ -9,19 +10,32 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
   include AcceptsPendingInvitations
   include Onboarding::Redirectable
   include InternalRedirect
+  include SafeFormatHelper
+  include SynchronizeBroadcastMessageDismissals
 
   ACTIVE_SINCE_KEY = 'active_since'
+
+  # Following https://www.rfc-editor.org/rfc/rfc3986.txt
+  # to check for the present of reserved characters
+  # in redirect_fragment
+  INVALID_FRAGMENT_EXP = %r{[;/?:@&=+$,]+}
+
+  InvalidFragmentError = Class.new(StandardError)
 
   after_action :verify_known_sign_in
 
   protect_from_forgery except: [:failure] + AuthHelper.saml_providers, with: :exception, prepend: true
-  before_action :log_saml_response, only: [:saml]
 
   feature_category :system_access
+
+  # To be used in ee version for raising error on user signup if user is from restricted country
+  SignUpFromRestrictedCountyError = Class.new(StandardError)
 
   def handle_omniauth
     if ::AuthHelper.saml_providers.include?(oauth['provider'].to_sym)
       saml
+    elsif ::AuthHelper.oidc_providers.include?(oauth['provider'].to_sym)
+      openid_connect
     else
       omniauth_flow(Gitlab::Auth::OAuth)
     end
@@ -33,7 +47,7 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
 
   # overridden in EE
   def openid_connect
-    handle_omniauth
+    omniauth_flow(Gitlab::Auth::OAuth)
   end
 
   def jwt
@@ -72,6 +86,7 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
   end
 
   def saml
+    log_saml_response
     omniauth_flow(Gitlab::Auth::Saml)
   rescue Gitlab::Auth::Saml::IdentityLinker::UnverifiedRequest
     redirect_unverified_saml_initiation
@@ -99,6 +114,14 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
 
   private
 
+  def verify_redirect_fragment(fragment)
+    if URI.decode_uri_component(fragment).match(INVALID_FRAGMENT_EXP)
+      raise InvalidFragmentError
+    else
+      fragment
+    end
+  end
+
   def track_event(user, provider, status)
     log_audit_event(user, with: provider)
     update_login_counter_metric(provider, status)
@@ -109,9 +132,7 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
   end
 
   def omniauth_login_counter
-    @counter ||= Gitlab::Metrics.counter(
-      :gitlab_omniauth_login_total,
-      'Counter of OmniAuth login attempts')
+    Gitlab::Auth::OAuth::BeforeRequestPhaseOauthLoginCounterIncrement.counter
   end
 
   def log_failed_login(user, provider)
@@ -143,6 +164,8 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
       set_session_active_since(oauth['provider']) if ::AuthHelper.saml_providers.include?(oauth['provider'].to_sym)
       track_event(current_user, oauth['provider'], 'succeeded')
 
+      handle_step_up_auth
+
       if Gitlab::CurrentSettings.admin_mode
         return admin_mode_flow(auth_module::User) if current_user_mode.admin_mode_requested?
       end
@@ -154,6 +177,8 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
 
       current_auth_user = build_auth_user(auth_module::User)
       set_remember_me(current_user, current_auth_user)
+      # We are also calling this here in the case that devise re-logins and current_user is set
+      synchronize_broadcast_message_dismissals(current_user)
 
       store_idp_two_factor_status(current_auth_user.bypass_two_factor?)
 
@@ -167,6 +192,8 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
     else
       sign_in_user_flow(auth_module::User)
     end
+  rescue InvalidFragmentError
+    fail_login_with_message("Invalid state")
   end
 
   def link_identity(identity_linker)
@@ -178,7 +205,8 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
   end
 
   def redirect_identity_link_failed(error_message)
-    redirect_to profile_account_path, notice: _("Authentication failed: %{error_message}") % { error_message: error_message }
+    redirect_to profile_account_path,
+      notice: safe_format(_("Authentication failed: %{error_message}"), error_message: error_message)
   end
 
   def redirect_identity_linked
@@ -188,26 +216,29 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
   def redirect_authorize_identity_link(identity_linker)
     state = SecureRandom.uuid
     session[:identity_link_state] = state
+    session[:identity_link_provider] = identity_linker.provider
+    session[:identity_link_extern_uid] = identity_linker.uid
 
-    redirect_to new_user_settings_identities_path(
-      provider: identity_linker.provider,
-      extern_uid: identity_linker.uid,
-      state: state
-    )
+    redirect_to new_user_settings_identities_path(state: state)
   end
 
   def build_auth_user(auth_user_class)
     strong_memoize_with(:build_auth_user, auth_user_class) do
-      auth_user_class.new(oauth)
+      auth_user_class.new(oauth, build_auth_user_params)
     end
   end
 
-  # Overrided in EE
+  # Overridden in EE
+  def build_auth_user_params
+    { organization_id: Current.organization.id }
+  end
+
+  # Overridden in EE
   def set_session_active_since(id); end
 
   def sign_in_user_flow(auth_user_class)
     auth_user = build_auth_user(auth_user_class)
-    new_user = auth_user.new?
+    new_user = allowed_new_user?(auth_user)
     @user = auth_user.find_and_update!
 
     if auth_user.valid_sign_in?
@@ -227,16 +258,21 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
       else
         if @user.deactivated?
           @user.activate
-          flash[:notice] = _('Welcome back! Your account had been deactivated due to inactivity but is now reactivated.')
+          flash[:notice] =
+            _('Welcome back! Your account had been deactivated due to inactivity but is now reactivated.')
         end
 
         # session variable for storing bypass two-factor request from IDP
-        store_idp_two_factor_status(true)
+        store_idp_two_factor_status(auth_user.bypass_two_factor?)
 
         accept_pending_invitations(user: @user) if new_user
+        synchronize_broadcast_message_dismissals(@user) unless new_user
         persist_accepted_terms_if_required(@user) if new_user
 
         perform_registration_tasks(@user, oauth['provider']) if new_user
+
+        enqueue_after_sign_in_workers(@user, auth_user)
+
         sign_in_and_redirect_or_verify_identity(@user, auth_user, new_user)
       end
     else
@@ -248,18 +284,51 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
     handle_disabled_provider
   rescue Gitlab::Auth::OAuth::User::SignupDisabledError
     handle_signup_error
+  rescue SignUpFromRestrictedCountyError
+    handle_signup_from_restricted_country_error
+  end
+
+  def handle_signup_from_restricted_country_error
+    sign_up_message = "Sign up with Jihu"
+    jihu_url = ActionController::Base.helpers.link_to _(sign_up_message), "https://about.gitlab.com/pricing/faq-jihu/",
+      class: 'gl-link'
+    message = safe_format(_('It looks like you are visiting GitLab from Mainland China, Macau, or Hong Kong.' \
+      'We advise you to %{jihu_url} before continuing.'), jihu_url: jihu_url)
+
+    flash[:alert] = sanitize(message)
+
+    redirect_to new_user_session_path
   end
 
   def handle_signup_error
+    redirect_path = new_user_session_path
     label = Gitlab::Auth::OAuth::Provider.label_for(oauth['provider'])
-    message = [_("Signing in using your %{label} account without a pre-existing GitLab account is not allowed.") % { label: label }]
+    simple_url = Settings.gitlab.url.sub(%r{^https?://(www\.)?}i, '')
+    message = [
+      safe_format(_('Signing in using your %{label} account without a pre-existing ' \
+        'account in %{simple_url} is not allowed.'), label: label, simple_url: simple_url)
+    ]
 
     if Gitlab::CurrentSettings.allow_signup?
-      message << (_("Create a GitLab account first, and then connect it to your %{label} account.") % { label: label })
+      redirect_path = new_user_registration_path
+      doc_pair = tag_pair(view_context.link_to(
+        '',
+        help_page_path('user/profile/_index.md', anchor: 'sign-in-services')),
+        :doc_start,
+        :doc_end
+      )
+      message << safe_format(
+        _('Create an account in %{simple_url} first, and then %{doc_start}connect it to ' \
+          'your %{label} account%{doc_end}.'),
+        doc_pair,
+        label: label,
+        simple_url: simple_url
+      )
     end
 
-    flash[:alert] = message.join(' ')
-    redirect_to new_user_session_path
+    flash[:alert] = sanitize(message.join(' '))
+
+    redirect_to redirect_path
   end
 
   def oauth
@@ -295,21 +364,41 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
 
   def handle_identity_with_untrusted_extern_uid
     label = Gitlab::Auth::OAuth::Provider.label_for(oauth['provider'])
-    flash[:alert] = format(_("Signing in using your %{label} account has been disabled for security reasons. Please sign in to your GitLab account using another authentication method and reconnect to your %{label} account."), label: label)
+    flash[:alert] = safe_format(
+      _('Signing in using your %{label} account has been disabled for security reasons. ' \
+        'Please sign in to your GitLab account using another authentication method and ' \
+        'reconnect to your %{label} account.'
+       ),
+      label: label
+    )
 
     redirect_to new_user_session_path
   end
 
   def handle_disabled_provider
     label = Gitlab::Auth::OAuth::Provider.label_for(oauth['provider'])
-    flash[:alert] = _("Signing in using %{label} has been disabled") % { label: label }
+    flash[:alert] = safe_format(_("Signing in using %{label} has been disabled"), label: label)
 
     redirect_to new_user_session_path
   end
 
-  def log_audit_event(user, options = {})
-    AuditEventService.new(user, user, options)
-      .for_authentication.security_event
+  def log_audit_event(user, options = {}, name = 'authenticated_with_oauth')
+    return if options[:with].blank?
+
+    provider = options[:with]
+    audit_context = {
+      name: name,
+      author: user,
+      scope: user,
+      target: user,
+      message: "Signed in with #{provider.upcase} authentication",
+      authentication_event: true,
+      authentication_provider: provider,
+      additional_details: {
+        with: provider
+      }
+    }
+    ::Gitlab::Audit::Auditor.audit(audit_context)
   end
 
   def set_remember_me(user, auth_user)
@@ -331,9 +420,21 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
     key = stored_location_key_for(:user)
     location = session[key]
     if uri = parse_uri(location)
-      uri.fragment = redirect_fragment
+      uri.fragment = verify_redirect_fragment(redirect_fragment)
       store_location_for(:user, uri.to_s)
     end
+  end
+
+  def handle_step_up_auth
+    return if Feature.disabled?(:omniauth_step_up_auth_for_admin_mode, current_user)
+
+    step_up_auth_flow =
+      ::Gitlab::Auth::Oidc::StepUpAuthentication.build_flow(session: session, provider: oauth.provider)
+
+    return unless step_up_auth_flow.enabled_by_config?
+    return unless step_up_auth_flow.requested?
+
+    step_up_auth_flow.evaluate!(oauth.extra.raw_info)
   end
 
   def admin_mode_flow(auth_user_class)
@@ -368,26 +469,33 @@ class OmniauthCallbacksController < Devise::OmniauthCallbacksController
     Users::RespondToTermsService.new(user, terms).execute(accepted: true)
   end
 
-  def perform_registration_tasks(_user, _provider)
-    store_location_for(:user, after_sign_up_path)
+  def perform_registration_tasks(user, _provider)
+    store_location_for(:user, after_sign_up_path(user))
   end
 
-  def onboarding_status
-    Onboarding::Status.new(request.env.fetch('omniauth.params', {}).deep_symbolize_keys, session, @user)
+  def onboarding_status_presenter
+    Onboarding::StatusPresenter
+      .new(request.env.fetch('omniauth.params', {}).deep_symbolize_keys, session['user_return_to'], @user)
   end
-  strong_memoize_attr :onboarding_status
+  strong_memoize_attr :onboarding_status_presenter
 
   # overridden in EE
   def sign_in_and_redirect_or_verify_identity(user, _, _)
     sign_in_and_redirect(user, event: :authentication)
   end
 
+  # overridden in specific EE class
+  def enqueue_after_sign_in_workers(_user, _auth_user)
+    true
+  end
+
+  # overridden in specific EE class
+  def allowed_new_user?(auth_user)
+    auth_user.new?
+  end
+
   def store_idp_two_factor_status(bypass_2fa)
-    if Feature.enabled?(:by_pass_two_factor_for_current_session)
-      session[:provider_2FA] = true if bypass_2fa
-    else
-      session.delete(:provider_2FA)
-    end
+    session[:provider_2FA] = true if bypass_2fa
   end
 
   def log_saml_response

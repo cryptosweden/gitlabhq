@@ -2,13 +2,15 @@
 stage: Verify
 group: Pipeline Execution
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Testing PHP projects
 ---
 
-# Testing PHP projects
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 This guide covers basic building instructions for PHP projects.
 
@@ -167,20 +169,20 @@ Finally, push to GitLab and let the tests begin!
 
 ### Test against different PHP versions in Shell builds
 
-The [phpenv](https://github.com/phpenv/phpenv) project allows you to easily manage different versions of PHP
+The [phpenv](https://github.com/phpenv/phpenv) project allows you to manage different versions of PHP
 each with its own configuration. This is especially useful when testing PHP projects
 with the Shell executor.
 
 You have to install it on your build machine under the `gitlab-runner`
 user following [the upstream installation guide](https://github.com/phpenv/phpenv#installation).
 
-Using phpenv also allows to easily configure the PHP environment with:
+Using phpenv also allows you to configure the PHP environment with:
 
 ```shell
 phpenv config-add my_config.ini
 ```
 
-**Important note:** It seems `phpenv/phpenv`
+**Important note**: It seems `phpenv/phpenv`
  [is abandoned](https://github.com/phpenv/phpenv/issues/57). There is a fork
  at [`madumlao/phpenv`](https://github.com/madumlao/phpenv) that tries to bring
  the project back to life. [`CHH/phpenv`](https://github.com/CHH/phpenv) also
@@ -190,7 +192,7 @@ phpenv config-add my_config.ini
 
 ### Install custom extensions
 
-Since this is a pretty bare installation of the PHP environment, you may need
+Because this is a pretty bare installation of the PHP environment, you may need
 some extensions that are not currently present on the build machine.
 
 To install additional extensions, execute:
@@ -244,7 +246,7 @@ default:
 ## Access private packages or dependencies
 
 If your test suite needs to access a private repository, you need to configure
-the [SSH keys](../ssh_keys/index.md) to be able to clone it.
+the [SSH keys](../jobs/ssh_keys.md) to be able to clone it.
 
 ## Use databases or other services
 
@@ -253,27 +255,14 @@ run. If you're using the Docker executor, you can leverage Docker to
 link to other containers. With GitLab Runner, this can be achieved by defining
 a `service`.
 
-This functionality is covered in [the CI services](../services/index.md)
+This functionality is covered in [the CI services](../services/_index.md)
 documentation.
-
-## Testing things locally
-
-With GitLab Runner 1.0 you can also test any changes locally. From your
-terminal execute:
-
-```shell
-# Check using docker executor
-gitlab-runner exec docker test:app
-
-# Check using shell executor
-gitlab-runner exec shell test:app
-```
 
 ## Example project
 
 We have set up an [Example PHP Project](https://gitlab.com/gitlab-examples/php) for your convenience
 that runs on [GitLab.com](https://gitlab.com) using our publicly available
-[instance runners](../runners/index.md).
+[instance runners](../runners/_index.md).
 
 Want to hack on it? Fork it, commit, and push your changes. Within a few
 moments the changes are picked by a public runner and the job begins.

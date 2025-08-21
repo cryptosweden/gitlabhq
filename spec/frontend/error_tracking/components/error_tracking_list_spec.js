@@ -12,14 +12,13 @@ import Vue, { nextTick } from 'vue';
 // eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import stubChildren from 'helpers/stub_children';
+import waitForPromises from 'helpers/wait_for_promises';
+import { useMockInternalEventsTracking } from 'helpers/tracking_internal_events_helper';
 import ErrorTrackingActions from '~/error_tracking/components/error_tracking_actions.vue';
 import ErrorTrackingList from '~/error_tracking/components/error_tracking_list.vue';
 import TimelineChart from '~/error_tracking/components/timeline_chart.vue';
-import Tracking from '~/tracking';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import errorsList from './list_mock.json';
-
-jest.mock('~/tracking');
 
 Vue.use(Vuex);
 
@@ -41,7 +40,6 @@ describe('ErrorTrackingList', () => {
 
   function mountComponent({
     errorTrackingEnabled = true,
-    userCanEnableErrorTracking = true,
     showIntegratedTrackingDisabledAlert = false,
     integratedErrorTrackingEnabled = false,
     listPath = '/error_tracking',
@@ -56,7 +54,6 @@ describe('ErrorTrackingList', () => {
           listPath,
           projectPath: 'project/test',
           enableErrorTrackingLink: '/link',
-          userCanEnableErrorTracking,
           errorTrackingEnabled,
           integratedErrorTrackingEnabled,
           showIntegratedTrackingDisabledAlert,
@@ -64,6 +61,7 @@ describe('ErrorTrackingList', () => {
         },
         stubs: {
           ...stubChildren(ErrorTrackingList),
+          GlTable: false,
           ...stubs,
         },
       }),
@@ -74,9 +72,6 @@ describe('ErrorTrackingList', () => {
     actions = {
       startPolling: jest.fn(),
       restartPolling: jest.fn().mockName('restartPolling'),
-      addRecentSearch: jest.fn(),
-      loadRecentSearches: jest.fn(),
-      setIndexPath: jest.fn(),
       clearRecentSearches: jest.fn(),
       setEndpoint: jest.fn(),
       searchByQuery: jest.fn(),
@@ -131,7 +126,6 @@ describe('ErrorTrackingList', () => {
       store.state.list.errors = errorsList;
       mountComponent({
         stubs: {
-          GlTable: false,
           GlLink: false,
         },
       });
@@ -144,7 +138,7 @@ describe('ErrorTrackingList', () => {
     });
 
     it('shows list of errors in a table', () => {
-      expect(findErrorListRows().length).toEqual(store.state.list.errors.length);
+      expect(findErrorListRows()).toHaveLength(store.state.list.errors.length);
     });
 
     it('shows user count', () => {
@@ -159,7 +153,6 @@ describe('ErrorTrackingList', () => {
         mountComponent({
           listPath: url,
           stubs: {
-            GlTable: false,
             GlLink: false,
           },
         });
@@ -194,7 +187,6 @@ describe('ErrorTrackingList', () => {
         store.state.list.errors = errorsList.map((e) => ({ ...e, frequency: undefined }));
         mountComponent({
           stubs: {
-            GlTable: false,
             GlLink: false,
           },
         });
@@ -243,7 +235,6 @@ describe('ErrorTrackingList', () => {
 
       mountComponent({
         stubs: {
-          GlTable: false,
           GlDropdown: false,
           GlDropdownItem: false,
         },
@@ -252,7 +243,7 @@ describe('ErrorTrackingList', () => {
 
     it('shows empty table', () => {
       expect(findLoadingIcon().exists()).toBe(false);
-      expect(findErrorListRows().length).toEqual(1);
+      expect(findErrorListRows()).toHaveLength(1);
       expect(findSortDropdown().exists()).toBe(true);
     });
 
@@ -275,7 +266,7 @@ describe('ErrorTrackingList', () => {
       expect(wrapper.findComponent(GlEmptyState).exists()).toBe(true);
       expect(findLoadingIcon().exists()).toBe(false);
       expect(findErrorListTable().exists()).toBe(false);
-      expect(dropdownsArray().length).toBe(0);
+      expect(dropdownsArray()).toHaveLength(0);
     });
   });
 
@@ -309,7 +300,6 @@ describe('ErrorTrackingList', () => {
 
       mountComponent({
         stubs: {
-          GlTable: false,
           GlLink: false,
         },
       });
@@ -339,7 +329,6 @@ describe('ErrorTrackingList', () => {
 
       mountComponent({
         stubs: {
-          GlTable: false,
           GlLink: false,
         },
       });
@@ -362,7 +351,7 @@ describe('ErrorTrackingList', () => {
     });
   });
 
-  describe('when the resolve button is clicked with non numberic error id', () => {
+  describe('when the resolve button is clicked with non numeric error id', () => {
     beforeEach(() => {
       store.state.list.loading = false;
       store.state.list.errors = [
@@ -380,7 +369,6 @@ describe('ErrorTrackingList', () => {
 
       mountComponent({
         stubs: {
-          GlTable: false,
           GlLink: false,
         },
       });
@@ -403,7 +391,6 @@ describe('ErrorTrackingList', () => {
     beforeEach(() => {
       mountComponent({
         errorTrackingEnabled: false,
-        userCanEnableErrorTracking: false,
         stubs: {
           GlLink: false,
           GlEmptyState: false,
@@ -420,7 +407,7 @@ describe('ErrorTrackingList', () => {
       expect(emptyStateComponent.isVisible()).toBe(true);
       expect(emptyStatePrimaryDescription.exists()).toBe(true);
       expect(emptyStateLinks.at(0).attributes('href')).toBe(
-        '/help/operations/error_tracking.html#integrated-error-tracking',
+        '/help/operations/integrated_error_tracking',
       );
     });
   });
@@ -445,8 +432,8 @@ describe('ErrorTrackingList', () => {
       store.state.list.recentSearches = ['great', 'search'];
 
       await nextTick();
-      const dropdownItems = wrapper.findAll('.filtered-search-box li');
-      expect(dropdownItems.length).toBe(3);
+      const dropdownItems = wrapper.findAll('[data-testid="recent-searches-dropdown"] li');
+      expect(dropdownItems).toHaveLength(3);
       expect(dropdownItems.at(0).text()).toBe('great');
       expect(dropdownItems.at(1).text()).toBe('search');
     });
@@ -524,7 +511,6 @@ describe('ErrorTrackingList', () => {
           store.state.list.loading = false;
           mountComponent({
             stubs: {
-              GlTable: false,
               GlPagination: false,
             },
           });
@@ -532,7 +518,9 @@ describe('ErrorTrackingList', () => {
         });
 
         it('fetches the previous page of results', () => {
-          expect(wrapper.find('.prev-page-item').attributes('aria-disabled')).toBe(undefined);
+          expect(
+            wrapper.find('[data-testid="gl-pagination-prev"]').attributes('aria-disabled'),
+          ).toBe(undefined);
           findPagination().vm.$emit('input', currentPage - 1);
           expect(actions.fetchPaginatedResults).toHaveBeenCalled();
           expect(actions.fetchPaginatedResults).toHaveBeenLastCalledWith(
@@ -570,11 +558,11 @@ describe('ErrorTrackingList', () => {
 
     describe.each([true, false])(`when integratedErrorTracking is %s`, (integrated) => {
       const category = 'Error Tracking';
+      const { bindInternalEventDocument } = useMockInternalEventsTracking();
 
       beforeEach(() => {
         mountComponent({
           stubs: {
-            GlTable: false,
             GlLink: false,
           },
           integratedErrorTrackingEnabled: integrated,
@@ -582,48 +570,63 @@ describe('ErrorTrackingList', () => {
       });
 
       it('should track list views', () => {
-        expect(Tracking.event).toHaveBeenCalledWith(category, 'view_errors_list', {
-          extra: {
+        const { trackEventSpy } = bindInternalEventDocument(wrapper.element);
+
+        expect(trackEventSpy).toHaveBeenCalledWith(
+          'view_errors_list',
+          {
             variant: integrated ? 'integrated' : 'external',
           },
-        });
+          category,
+        );
       });
 
       it('should track status updates', async () => {
+        const { trackEventSpy } = bindInternalEventDocument(wrapper.element);
+
         const status = 'ignored';
         findErrorActions().vm.$emit('update-issue-status', {
           errorId: 1,
           status,
         });
-        await nextTick();
+        await waitForPromises();
 
-        expect(Tracking.event).toHaveBeenCalledWith(category, 'update_ignored_status', {
-          extra: {
+        expect(trackEventSpy).toHaveBeenLastCalledWith(
+          'update_ignored_status',
+          {
             variant: integrated ? 'integrated' : 'external',
           },
-        });
+          category,
+        );
       });
 
       it('should track error filter', () => {
+        const { trackEventSpy } = bindInternalEventDocument(wrapper.element);
+
         const findStatusFilter = () => findStatusFilterDropdown().findComponent(GlDropdownItem);
         findStatusFilter().vm.$emit('click');
 
-        expect(Tracking.event).toHaveBeenCalledWith(category, 'filter_unresolved_status', {
-          extra: {
+        expect(trackEventSpy).toHaveBeenCalledWith(
+          'filter_unresolved_status',
+          {
             variant: integrated ? 'integrated' : 'external',
           },
-        });
+          category,
+        );
       });
 
       it('should track error sorting', () => {
+        const { trackEventSpy } = bindInternalEventDocument(wrapper.element);
         const findSortItem = () => findSortDropdown().findComponent(GlDropdownItem);
         findSortItem().vm.$emit('click');
 
-        expect(Tracking.event).toHaveBeenCalledWith(category, 'sort_by_last_seen', {
-          extra: {
+        expect(trackEventSpy).toHaveBeenCalledWith(
+          'sort_by_last_seen',
+          {
             variant: integrated ? 'integrated' : 'external',
           },
-        });
+          category,
+        );
       });
     });
   });

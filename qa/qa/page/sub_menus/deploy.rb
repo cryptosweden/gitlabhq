@@ -7,11 +7,11 @@ module QA
         extend QA::Page::PageConcern
 
         def go_to_package_registry
-          open_deploy_submenu("Package Registry")
+          open_deploy_submenu("Package registry")
         end
 
         def go_to_container_registry
-          open_deploy_submenu('Container Registry')
+          open_deploy_submenu('Container registry')
         end
 
         def go_to_pages_settings

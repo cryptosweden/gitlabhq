@@ -16,12 +16,12 @@ defaults = {
 }
 
 options = {
-  mode: ENV.fetch('MODE', defaults[:mode]) || defaults[:mode],
-  interval: ENV['INTERVAL'],
-  limit: ENV.fetch('LIMIT', nil) || defaults[:limit],
-  raw: ENV.fetch('RAW', false) === 'true' || defaults[:raw],
-  output: ENV.fetch('OUTPUT', nil),
-  speedscope: ENV.fetch('SPEEDSCOPE', false) === 'true' || defaults[:speedscope]
+  mode: defaults[:mode],
+  interval: nil,
+  limit: defaults[:limit],
+  raw: defaults[:raw],
+  output: nil,
+  speedscope: defaults[:speedscope]
 }
 
 OptionParser.new do |opt|
@@ -35,7 +35,7 @@ Examples:
   #{__FILE__} --mode=wall --interval=#{defaults[:mode_interval]} --limit=#{defaults[:limit]} --raw=true --output=tmp/example.dump spec/controllers/help_controller_spec.rb
   #{__FILE__} spec/policies/project_policy_spec.rb -e 'project visibility'
   #{__FILE__} --speedscope=true spec/controllers/help_controller_spec.rb
-  MODE=cpu LIMIT=5 #{__FILE__} spec/controllers/help_controller_spec.rb
+  #{__FILE__} --mode=cpu --limit=5 spec/controllers/help_controller_spec.rb
 DOCSTRING
   opt.separator ''
   opt.separator 'Options:'

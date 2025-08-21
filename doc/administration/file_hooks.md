@@ -1,14 +1,17 @@
 ---
-stage: Manage
-group: Import and Integrate
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
+stage: Create
+group: Import
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: File hooks
+description: "Create custom file hooks to integrate your GitLab Self-Managed instance with external services without modifying source code."
 ---
 
-# File hooks
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 Use custom file hooks (not to be confused with [server hooks](server_hooks.md) or [system hooks](system_hooks.md)),
 to introduce custom integrations without modifying the GitLab source code.
@@ -18,11 +21,14 @@ in a file hook's code, and create many file hooks as you need. Each file hook is
 triggered by GitLab asynchronously in case of an event. For a list of events,
 see the [system hooks](system_hooks.md) and [webhooks](../user/project/integrations/webhook_events.md) documentation.
 
-NOTE:
+{{< alert type="note" >}}
+
 File hooks must be configured on the file system of the GitLab server. Only GitLab
 server administrators can complete these tasks. Explore
 [system hooks](system_hooks.md) or [webhooks](../user/project/integrations/webhooks.md)
 as an option if you do not have file system access.
+
+{{< /alert >}}
 
 Instead of writing and supporting your own file hook, you can also make changes
 directly to the GitLab source code and contribute back upstream. In this way, we can
@@ -36,12 +42,11 @@ Find examples in the
 
 To set up a custom hook:
 
-1. On the GitLab server, locate the plugin directory. For self-compiled installations, the path is usually
+1. On the GitLab server running the Sidekiq component, locate the plugin directory. For self-compiled installations, the path is usually
    `/home/git/gitlab/file_hooks/`. For Linux package installations, the path is usually
    `/opt/gitlab/embedded/service/gitlab-rails/file_hooks`.
 
-   For [configurations with multiple servers](reference_architectures/index.md), your hook file should exist on each
-   application server.
+   For [configurations with multiple servers](reference_architectures/_index.md), your hook file must exist on each Sidekiq server.
 
 1. Inside the `file_hooks` directory, create a file with a name of your choice,
    without spaces or special characters.
@@ -57,11 +62,16 @@ Assuming the file hook code is properly implemented, the hook fires
 as appropriate. The file hooks file list is updated for each event. There is no
 need to restart GitLab to apply a new file hook.
 
-If a file hook executes with non-zero exit code or GitLab fails to execute it, a
+If a file hook executes with non-zero exit code or fails to execute, a
 message is logged to:
 
-- `gitlab-rails/file_hook.log` in a Linux package installation.
-- `log/file_hook.log` in a self-compiled installation.
+- `log/file_hook.log` for self-compiled installations.
+- `gitlab-rails/file_hook.log` for Linux package installations.
+
+This file is only created if the file hook exits non-zero.
+When the file hook executes, an entry is added to the Sidekiq log `gitlab/sidekiq/current`
+for each `FileHookWorker` started.
+This entry contains details of the event and the script that was executed.
 
 ## File hook example
 

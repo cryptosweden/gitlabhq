@@ -1,14 +1,13 @@
 ---
 stage: Create
 group: Source Code
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: GitLab Shell feature list
 ---
-
-# GitLab Shell feature list
 
 ## Discover
 
-Allows users to identify themselves on an instance via SSH. The command helps to
+Allows users to identify themselves on an instance with SSH. The command helps to
 confirm quickly whether a user has SSH access to the instance:
 
 ```shell
@@ -40,7 +39,7 @@ It limits the set of commands to predefined Git commands:
 ## Generate new 2FA recovery codes
 
 Enables users to
-[generate new 2FA recovery codes](../../user/profile/account/two_factor_authentication.md#generate-new-recovery-codes-using-ssh):
+[generate new 2FA recovery codes](../../user/profile/account/two_factor_authentication_troubleshooting.md#generate-new-recovery-codes-using-ssh):
 
 ```shell
 $ ssh git@<hostname> 2fa_recovery_codes
@@ -78,7 +77,7 @@ $ ssh git@<hostname> git-lfs-authenticate <project-path> <upload/download>
 
 ## Personal access token
 
-Enables users to use personal access tokens via SSH:
+Enables users to use personal access tokens with SSH:
 
 ```shell
 $ ssh git@<hostname> personal_access_token <name> <scope1[,scope2,...]> [ttl_days]
@@ -87,3 +86,110 @@ Token:   glpat-...
 Scopes:  api
 Expires: 2022-02-05
 ```
+
+### Configuration options
+
+Administrators can control PAT generation with SSH.
+To configure PAT settings in GitLab Shell:
+
+{{< tabs >}}
+
+{{< tab title="Linux package (Omnibus)" >}}
+
+1. Edit the `/etc/gitlab/gitlab.rb` file.
+1. Add or modify the following configuration:
+
+   ```ruby
+   gitlab_shell['pat'] = { enabled: true, allowed_scopes: [] }
+   ```
+
+   - `enabled`: Set to `true` to enable PAT generation using SSH, or `false` to disable it.
+   - `allowed_scopes`: An array of scopes allowed for PATs generated with SSH.
+     Leave empty (`[]`) to allow all scopes.
+
+1. Save the file and [Restart GitLab](../../administration/restart_gitlab.md).
+
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
+
+1. Edit the `values.yaml` file:
+
+   ```yaml
+   gitlab:
+     gitlab-shell:
+       config:
+         pat:
+           enabled: true
+           allowedScopes: []
+   ```
+
+   - `enabled`: Set to `true` to enable PAT generation using SSH, or `false` to disable it.
+   - `allowedScopes`: An array of scopes allowed for PATs generated with SSH.
+     Leave empty (`[]`) to allow all
+
+1. Save the file and apply the new values:
+
+   ```shell
+   helm upgrade -f gitlab_values.yaml gitlab gitlab/gitlab
+   ```
+
+{{< /tab >}}
+
+{{< tab title="Docker" >}}
+
+1. Edit the `docker-compose.yaml` file:
+
+   ```yaml
+   services:
+     gitlab:
+       environment:
+         GITLAB_OMNIBUS_CONFIG: |
+           gitlab_shell['pat'] = { enabled: true, allowed_scopes: [] }
+   ```
+
+   - `enabled`: Set to `'true'` to enable PAT generation using SSH, or `'false'` to disable it.
+   - `allowed_scopes`: A comma-separated list of scopes allowed for PATs generated with SSH. Leave empty (`[]`) to allow all scopes.
+
+1. Save the file and restart GitLab and its services:
+
+   ```shell
+   docker compose up -d
+   ```
+
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
+
+1. Edit the `/home/git/gitlab-shell/config.yml` file:
+
+   ```yaml
+   pat:
+     enabled: true
+     allowed_scopes: []
+   ```
+
+   - `enabled`: Set to `true` to enable PAT generation using SSH, or `false` to disable it.
+   - `allowed_scopes`: An array of scopes allowed for PATs generated with SSH.
+      Leave empty (`[]`) to allow all scopes.
+
+1. Save the file and restart GitLab Shell:
+
+   ```shell
+   # For systems running systemd
+   sudo systemctl restart gitlab-shell.target
+
+   # For systems running SysV init
+   sudo service gitlab-shell restart
+   ```
+
+{{< /tab >}}
+
+{{< /tabs >}}
+
+{{< alert type="note" >}}
+
+These settings only affect PAT generation with SSH and do not
+impact PATs created through the web interface.
+
+{{< /alert >}}

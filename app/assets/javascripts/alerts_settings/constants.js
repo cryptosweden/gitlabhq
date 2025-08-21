@@ -44,6 +44,9 @@ export const i18n = {
       help: s__(
         'AlertSettings|To create a custom mapping, enter an example payload from your monitoring tool, in JSON format. Select the "Parse payload fields" button to continue.',
       ),
+      prometheusHelp: s__(
+        'AlertSettings|To create a custom mapping, enter a single JSON object from the array under the %{codeStart}alerts%{codeEnd} key of a payload from your Prometheus instance. Select the "Parse payload fields" button to continue.',
+      ),
       placeholder: s__('AlertSettings|{ "events": [{ "application": "Name of application" }] }'),
       editPayload: s__('AlertSettings|Edit payload'),
       parsePayload: s__('AlertSettings|Parse payload fields'),
@@ -104,21 +107,6 @@ export const integrationSteps = {
   customizeMapping: 'CUSTOMIZE_MAPPING',
 };
 
-export const createStepNumbers = {
-  [integrationSteps.selectType]: 1,
-  [integrationSteps.nameIntegration]: 2,
-  [integrationSteps.enableHttpIntegration]: 3,
-  [integrationSteps.enablePrometheusIntegration]: 2,
-  [integrationSteps.customizeMapping]: 4,
-};
-
-export const editStepNumbers = {
-  [integrationSteps.nameIntegration]: 1,
-  [integrationSteps.enableHttpIntegration]: 2,
-  [integrationSteps.enablePrometheusIntegration]: null,
-  [integrationSteps.customizeMapping]: 3,
-};
-
 export const integrationTypes = {
   none: { value: '', text: s__('AlertSettings|Select integration type') },
   http: { value: 'HTTP', text: s__('AlertSettings|HTTP Endpoint') },
@@ -133,8 +121,6 @@ export const typeSet = {
 export const integrationToDeleteDefault = { id: null, name: '' };
 
 export const JSON_VALIDATE_DELAY = 250;
-
-export const targetPrometheusUrlPlaceholder = 'http://prometheus.example.com/';
 
 /**
  * Tracks snowplow event when user views alerts integration list

@@ -3,11 +3,14 @@
 module Packages
   module CleanupArtifactWorker
     extend ActiveSupport::Concern
+    include CronjobChildWorker
     include LimitedCapacity::Worker
     include Gitlab::Utils::StrongMemoize
 
     def perform_work
       return unless artifact
+
+      before_destroy
 
       begin
         artifact.transaction do
@@ -45,6 +48,10 @@ module Packages
 
     def log_cleanup_item
       raise NotImplementedError
+    end
+
+    def before_destroy
+      # no op
     end
 
     def after_destroy

@@ -52,7 +52,8 @@ export default {
       this.$refs.modal.show();
     },
     buildEvents(events) {
-      const rawEvents = Object.keys(events).map((key) => ({
+      const eventKeys = Object.keys(events).filter((key) => key in this.$options.i18n.eventNames);
+      const rawEvents = eventKeys.map((key) => ({
         id: key,
         enabled: Boolean(events[key]),
         name: this.$options.i18n.eventNames[key] || '',
@@ -85,7 +86,7 @@ export default {
       const index = this.events.findIndex((e) => e.id === event.id);
 
       // update loading state for the given event
-      this.$set(this.events, index, { ...this.events[index], loading: true });
+      this.events.splice(index, 1, { ...this.events[index], loading: true });
 
       try {
         const {

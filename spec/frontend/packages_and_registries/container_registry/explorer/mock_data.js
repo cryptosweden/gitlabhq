@@ -22,6 +22,7 @@ export const imagesListResponse = [
       path: 'GITLAB-TEST',
       webUrl: 'http://localhost:3000/gitlab-org/gitlab-test',
     },
+    protectionRuleExists: false,
     ...userPermissionsData,
   },
   {
@@ -41,6 +42,7 @@ export const imagesListResponse = [
       path: 'GITLAB-TEST',
       webUrl: 'http://localhost:3000/gitlab-org/gitlab-test',
     },
+    protectionRuleExists: false,
     ...userPermissionsData,
   },
 ];
@@ -98,6 +100,28 @@ export const graphQLEmptyGroupImageListMock = {
   },
 };
 
+export const graphQLImageListNullContainerRepositoriesMock = {
+  data: {
+    project: {
+      __typename: 'Project',
+      id: '1',
+      containerRepositoriesCount: 0,
+      containerRepositories: null,
+    },
+  },
+};
+
+export const graphQLGroupImageListNullContainerRepositoriesMock = {
+  data: {
+    group: {
+      __typename: 'Group',
+      id: '1',
+      containerRepositoriesCount: 0,
+      containerRepositories: null,
+    },
+  },
+};
+
 export const deletedContainerRepository = {
   id: 'gid://gitlab/ContainerRepository/11',
   status: 'DELETE_SCHEDULED',
@@ -138,11 +162,12 @@ export const containerRepositoryMock = {
   createdAt: '2020-11-03T13:29:21Z',
   expirationPolicyStartedAt: null,
   expirationPolicyCleanupStatus: 'UNSCHEDULED',
+  protectionRuleExists: false,
   project: {
     visibility: 'public',
     path: 'gitlab-test',
     id: '1',
-    containerExpirationPolicy: {
+    containerTagsExpirationPolicy: {
       enabled: false,
       nextRunAt: '2020-11-27T08:59:27Z',
     },
@@ -171,9 +196,11 @@ export const tagsMock = [
     publishedAt: '2020-11-05T13:29:38+00:00',
     totalSize: '1099511627776',
     referrers: null,
+    mediaType: null,
     userPermissions: {
       destroyContainerRepositoryTag: true,
     },
+    protection: null,
     __typename: 'ContainerRepositoryTag',
   },
   {
@@ -187,12 +214,69 @@ export const tagsMock = [
     publishedAt: '2020-11-05T13:29:32+00:00',
     totalSize: '536870912000',
     referrers: null,
+    mediaType: null,
     userPermissions: {
       destroyContainerRepositoryTag: true,
     },
+    protection: null,
+    __typename: 'ContainerRepositoryTag',
+  },
+  {
+    digest: 'sha256:2cf3d2fdac1b04a14301d47d51cb88dcd26714c74f91440eeee99ce399089062',
+    location: 'host.docker.internal:5000/gitlab-org/gitlab-test/rails-12009:beta-24758',
+    path: 'gitlab-org/gitlab-test/rails-12009:beta-24758',
+    name: 'beta-24758',
+    revision: 'c2613843ab33aabf847965442b13a8b55a56ae28837ce182627c0716eb08c02b',
+    shortRevision: 'c2613843a',
+    createdAt: '2020-11-03T13:29:38+00:00',
+    publishedAt: '2020-11-05T13:29:38+00:00',
+    totalSize: '1099511627776',
+    referrers: null,
+    mediaType: 'application/vnd.oci.image.index.v1+json',
+    userPermissions: {
+      destroyContainerRepositoryTag: true,
+    },
+    protection: null,
+    __typename: 'ContainerRepositoryTag',
+  },
+  {
+    digest: 'sha256:2cf3d2fdac1b04a14301d47d51cb88dcd26714c74f91440eeee99ce399089062',
+    location: 'host.docker.internal:5000/gitlab-org/gitlab-test/rails-12009:beta-24751',
+    path: 'gitlab-org/gitlab-test/rails-12009:beta-24751',
+    name: 'beta-24751',
+    revision: 'c2613843ab33aabf847965442b13a8b55a56ae28837ce182627c0716eb08c02b',
+    shortRevision: 'c2613843a',
+    createdAt: '2020-11-03T13:29:38+00:00',
+    publishedAt: '2020-11-05T13:29:38+00:00',
+    totalSize: '1099511627776',
+    referrers: null,
+    mediaType: 'application/vnd.docker.distribution.manifest.list.v2+json',
+    userPermissions: {
+      destroyContainerRepositoryTag: true,
+    },
+    protection: null,
     __typename: 'ContainerRepositoryTag',
   },
 ];
+
+export const protectedImageTag = {
+  digest: 'sha256:7f94f97dff89ffd122cafe50cd32329adf682356a7a96f69cbfe313ee589791c',
+  location: 'host.docker.internal:5000/gitlab-org/gitlab-test/rails-12009:beta-31070',
+  path: 'gitlab-org/gitlab-test/rails-12009:beta-31070',
+  name: 'beta-31070',
+  revision: 'df44e7228f0f255c73e35b6f0699624a615f42746e3e8e2e4b3804a6d6fc3292',
+  shortRevision: 'df44e7228',
+  createdAt: '2020-11-03T13:29:32+00:00',
+  publishedAt: '2020-11-05T13:29:32+00:00',
+  totalSize: '536870912000',
+  referrers: null,
+  mediaType: null,
+  userPermissions: {
+    destroyContainerRepositoryTag: false,
+  },
+  protection: null,
+  __typename: 'ContainerRepositoryTag',
+};
 
 export const imageTagsMock = ({ nodes = tagsMock, userPermissions = {} } = {}) => ({
   data: {
@@ -220,6 +304,7 @@ export const imageTagsCountMock = (override) => ({
       tagsCount: 13,
       size: null,
       lastPublishedAt: '2020-11-05T13:29:32+00:00',
+      protectionRuleExists: false,
       ...override,
     },
   },

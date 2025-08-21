@@ -4,9 +4,12 @@ import {
   PROJECTS_LOCAL_STORAGE_KEY,
   LS_REGEX_HANDLE,
 } from '~/search/store/constants';
+import { SCOPE_BLOB, SCOPE_PROJECTS } from '~/search/sidebar/constants';
+
 import * as getters from '~/search/store/getters';
 import createState from '~/search/store/state';
 import { useMockLocationHelper } from 'helpers/mock_window_location_helper';
+
 import {
   MOCK_QUERY,
   MOCK_GROUPS,
@@ -143,7 +146,7 @@ describe('Global Search Store Getters', () => {
 
   describe('unselectedLabels', () => {
     it('returns all labels that are not selected', () => {
-      state.query.labels = ['60'];
+      state.query.label_name = ['Brist'];
       expect(getters.unselectedLabels(state)).toStrictEqual([MOCK_LABEL_SEARCH_RESULT]);
     });
   });
@@ -151,23 +154,79 @@ describe('Global Search Store Getters', () => {
   describe('unappliedNewLabels', () => {
     it('returns all labels that are selected but not applied', () => {
       // Applied labels
-      state.urlQuery.labels = ['37', '60'];
+      state.urlQuery.label_name = ['Aftersync', 'Brist'];
       // Applied and selected labels
-      state.query.labels = ['37', '6', '73', '60'];
+      state.query.label_name = ['Aftersync', 'Cosche', 'Accent', 'Brist'];
       // Selected but unapplied labels
       // expect(getters.unappliedNewLabels(state)).toStrictEqual(MOCK_FILTERED_UNSELECTED_LABELS);
       expect(getters.unappliedNewLabels(state).map(({ key }) => key)).toStrictEqual(['6', '73']);
     });
   });
-  describe('showArchived', () => {
-    it('returns true project_id is NOT in query', () => {
-      state.query.project_id = undefined;
-      expect(getters.showArchived(state)).toBe(true);
+  describe('hasMissingProjectContext', () => {
+    it('returns true projectInitialJson.id is NOT in query', () => {
+      state.projectInitialJson = {
+        id: undefined,
+      };
+      expect(getters.hasMissingProjectContext(state)).toBe(true);
     });
 
-    it('returns false project_id is in query', () => {
-      state.query.project_id = 'test';
-      expect(getters.showArchived(state)).toBe(false);
+    it('returns false projectInitialJson.id is in query', () => {
+      state.projectInitialJson = {
+        id: 'test',
+      };
+      expect(getters.hasMissingProjectContext(state)).toBe(false);
+    });
+  });
+
+  describe('searchNavigationLink', () => {
+    const { searchNavigationLink } = getters;
+
+    it('adds default search term "*" when no search query exists', () => {
+      state.query.search = '';
+      const item = { link: '/search', scope: SCOPE_PROJECTS };
+
+      const result = searchNavigationLink(item, state);
+
+      expect(result).toBe('/search?search=*');
+    });
+
+    it('adds default search term "*" for blob scope when no search query exists', () => {
+      state.query.search = '';
+      localStorage.setItem(LS_REGEX_HANDLE, JSON.stringify(false));
+      const item = { link: '/search', scope: SCOPE_BLOB };
+
+      const result = searchNavigationLink(item, state);
+
+      expect(result).toBe('/search?search=*');
+    });
+
+    it('does not add default search term when search query exists', () => {
+      state.query.search = 'existing query';
+      const item = { link: '/search', scope: SCOPE_PROJECTS };
+
+      const result = searchNavigationLink(item, state);
+
+      expect(result).toBe('/search?');
+    });
+
+    it('uses injectRegexSearch for blob scope even when search query exists', () => {
+      state.query.search = 'existing query';
+      localStorage.setItem(LS_REGEX_HANDLE, JSON.stringify(true));
+      const item = { link: '/search', scope: SCOPE_BLOB };
+
+      const result = searchNavigationLink(item, state);
+
+      expect(result).toBe('/search?regex=true');
+    });
+
+    it('adds default search term "*" and uses injectRegexSearch', () => {
+      state.query.search = '';
+      localStorage.setItem(LS_REGEX_HANDLE, JSON.stringify(true));
+      const item = { link: '/search', scope: SCOPE_BLOB };
+
+      const result = searchNavigationLink(item, state);
+
+      expect(result).toBe('/search?regex=true&search=*');
     });
   });
 });

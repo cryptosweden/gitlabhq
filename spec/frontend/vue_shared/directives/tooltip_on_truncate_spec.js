@@ -1,4 +1,5 @@
 import { shallowMount } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import { createMockDirective as mockDirective, getBinding } from 'helpers/vue_mock_directive';
 import { hasHorizontalOverflow } from '~/lib/utils/dom_utils';
 
@@ -6,7 +7,7 @@ import TooltipOnTruncate from '~/vue_shared/directives/tooltip_on_truncate';
 
 jest.mock('~/lib/utils/dom_utils');
 jest.mock('@gitlab/ui', () => ({
-  ...jest.requireActual('~/lib/utils/url_utility'),
+  ...jest.requireActual('@gitlab/ui'),
   GlTooltipDirective: mockDirective('gl-tooltip'),
   GlResizeObserverDirective: mockDirective('gl-resize-observer'),
 }));
@@ -46,7 +47,7 @@ describe('TooltipOnTruncate directive', () => {
     });
 
     it('unbinds when destroyed', () => {
-      wrapper.vm.$destroy();
+      wrapper.destroy();
 
       expect(getBinding(wrapper.element, 'gl-tooltip')).toBeUndefined();
       expect(getBinding(wrapper.element, 'gl-resize-observer')).toBeUndefined();
@@ -102,6 +103,7 @@ describe('TooltipOnTruncate directive', () => {
       expect(getTooltip().value).toBe('');
 
       await wrapper.setProps({ content: 'Some content' });
+      await nextTick();
 
       expect(getTooltip().value).toBe('Some content');
     });

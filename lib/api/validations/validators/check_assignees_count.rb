@@ -5,7 +5,7 @@ module API
     module Validators
       class CheckAssigneesCount < Grape::Validations::Validators::Base
         def self.coerce
-          lambda do |value|
+          ->(value) do
             case value
             when String, Array
               Array.wrap(value)
@@ -20,7 +20,7 @@ module API
 
           raise Grape::Exceptions::Validation.new(
             params: [@scope.full_name(attr_name)],
-            message: "allows one value, but found #{params[attr_name].size}: #{params[attr_name].join(", ")}"
+            message: "allows one value, but found #{params[attr_name].size}: #{params[attr_name].join(', ')}"
           )
         end
 

@@ -1,80 +1,124 @@
 # frozen_string_literal: true
 
 namespace :ci do
-  require_relative "helpers/util"
+  desc "Detect changes and generate e2e test pipelines with dynamically scaled parallel jobs"
+  task :generate_e2e_pipelines, [:pipeline_path] do |_, args|
+    require_relative "helpers/util"
+    require_relative '../../tooling/lib/tooling/events/track_pipeline_events'
 
-  include Task::Helpers::Util
+    include Task::Helpers::Util
+    include QA::Tools::Ci::Helpers
 
-  desc "Detect changes and populate test variables for selective test execution and feature flag testing"
-  task :detect_changes, [:env_file] do |_, args|
-    env_file = args[:env_file]
-    abort("ERROR: Path for environment file must be provided") unless env_file
+    logger.info("*** Analyzing which E2E tests to execute based on MR changes or Scheduled pipeline ***")
 
-    diff = mr_diff
-    labels = mr_labels
-    # Assign mapping of groups to tests in stages other than the groups defined stage
-    additional_group_spec_list = { 'gitaly' => %w[create] }
-
-    qa_changes = QA::Tools::Ci::QaChanges.new(diff, labels, additional_group_spec_list)
-    logger = qa_changes.logger
-
-    logger.info("Analyzing merge request changes")
-    # skip running tests when only quarantine changes detected
-    if qa_changes.quarantine_changes?
-      logger.info(" merge request contains only quarantine changes, e2e test execution will be skipped!")
-      append_to_file(env_file, "QA_SKIP_ALL_TESTS=true")
-      next
-    end
-
+    pipeline_path = args[:pipeline_path] || "tmp"
     run_all_label_present = mr_labels.include?("pipeline:run-all-e2e")
     run_no_tests_label_present = mr_labels.include?("pipeline:skip-e2e")
 
     if run_all_label_present && run_no_tests_label_present
-      raise 'cannot have both pipeline:run-all-e2e and pipeline:skip-e2e labels. Please remove one of these labels'
+      raise "cannot have both pipeline:run-all-e2e and pipeline:skip-e2e labels. Please remove one of these labels"
     end
+
+    noop_pipeline_creator = QA::Tools::Ci::PipelineCreator.new(
+      [],
+      pipeline_path: pipeline_path,
+      logger: logger
+    )
 
     if run_no_tests_label_present
-      logger.info(" merge request has pipeline:skip-e2e label, e2e test execution will be skipped.")
-      append_to_file(env_file, "QA_SKIP_ALL_TESTS=true")
+      logger.info("Merge request has pipeline:skip-e2e label, e2e test execution will be skipped.")
+      next noop_pipeline_creator.create_noop(reason: "no-op run, pipeline:skip-e2e label detected")
     end
 
-    # on run-all label of framework changes do not infer specific tests
-    tests = run_all_label_present || qa_changes.framework_changes? ? nil : qa_changes.qa_tests
+    diff = mr_diff
+    changes = QA::Tools::Ci::QaChanges.new(diff)
+    tests = []
 
-    # When QA_TESTS only contain folders and no specific specs, populate KNAPSACK_TEST_FILE_PATTERN
-    if tests && tests.split(' ').none? { |item| item.include?('_spec') }
-      test_paths = tests.split(' ').map { |item| "#{item}**/*" }
-
-      files_pattern = "{#{test_paths.join(',')}}"
-
-      logger.info(" Files pattern for tests: #{files_pattern}")
-      append_to_file(env_file, <<~TXT)
-        KNAPSACK_TEST_FILE_PATTERN='#{files_pattern}'
-      TXT
-    end
-
-    if run_all_label_present
-      logger.info(" merge request has pipeline:run-all-e2e label, full test suite will be executed")
-      append_to_file(env_file, "QA_RUN_ALL_E2E_LABEL=true\n")
-    elsif qa_changes.framework_changes? # run all tests when framework changes detected
-      logger.info(" merge request contains qa framework changes, full test suite will be executed")
-      append_to_file(env_file, "QA_FRAMEWORK_CHANGES=true\n")
-    elsif tests
-      logger.info(" detected following specs to execute: '#{tests}'")
+    if diff.empty?
+      logger.info("No changed file diff provided, full test suite will be executed")
     else
-      logger.info(" no specific specs to execute detected")
+      noop = changes.quarantine_changes? || changes.only_spec_removal? || changes.only_changes_to_non_e2e_spec_files?
+
+      if noop && !run_all_label_present
+        msg_prefix = "Skipping e2e test execution because"
+
+        if changes.quarantine_changes?
+          logger.info("#{msg_prefix} only quarantine changes detected in merge request!")
+          next noop_pipeline_creator.create_noop(reason: "#{msg_prefix}, quarantine changes detected in merge request")
+        end
+
+        if changes.only_spec_removal?
+          logger.info("#{msg_prefix} only e2e spec removal detected in merge request!")
+          next noop_pipeline_creator.create_noop(reason: "#{msg_prefix} e2e spec removal detected in merge request")
+        end
+
+        if changes.only_changes_to_non_e2e_spec_files?
+          logger.info("#{msg_prefix} only non e2e test changes detected in merge request!")
+          next noop_pipeline_creator.create_noop(reason: "#{msg_prefix} non e2e test changes detected in merge request")
+        end
+      end
+
+      feature_flags_changes = QA::Tools::Ci::FfChanges.new(diff).fetch
+      # on run-all label or framework changes do not infer specific tests
+      run_all_tests = run_all_label_present || changes.framework_changes? || !feature_flags_changes.nil?
+      tests = changes.qa_tests unless run_all_tests
+
+      if run_all_label_present
+        logger.info("Merge request has pipeline:run-all-e2e label, full test suite will be executed")
+      elsif changes.framework_changes? # run all tests when framework changes detected
+        logger.info("Merge request contains qa framework changes, full test suite will be executed")
+      elsif tests.any?
+        logger.info("Following specs were selected for execution: '#{tests}'")
+      else
+        logger.info("No specific specs to execute detected, full test suite will be executed")
+      end
     end
 
-    # always check all test suites in case a suite is defined but doesn't have any runnable specs
-    suites = QA::Tools::Ci::NonEmptySuites.new(tests).fetch
-    append_to_file(env_file, <<~TXT)
-      QA_SUITES='#{suites}'
-      QA_TESTS='#{tests}'
-    TXT
+    creator_args = {
+      pipeline_path: pipeline_path,
+      logger: logger,
+      env: { "QA_FEATURE_FLAGS" => feature_flags_changes }
+    }
+    pipeline_creator = QA::Tools::Ci::PipelineCreator.new(tests, **creator_args)
 
-    # check if mr contains feature flag changes
-    feature_flags = QA::Tools::Ci::FfChanges.new(diff).fetch
-    append_to_file(env_file, "QA_FEATURE_FLAGS='#{feature_flags}'")
+    logger.info("*** Creating Functional E2E test pipeline definitions ***")
+    pipeline_creator.create
+    logger.info("*** Creating Non-Functional E2E test pipeline definitions ***")
+    pipeline_creator.create_non_functional
+    next if run_all_tests
+    next unless QA::Runtime::Env.selective_execution_improved_enabled? && !QA::Runtime::Env.mr_targeting_stable_branch?
+
+    pipelines_for_selective_improved = [:test_on_gdk]
+    logger.warn("*** Recreating #{pipelines_for_selective_improved} using spec list based on coverage mappings ***")
+    tests_from_mapping = changes.qa_tests(from_code_path_mapping: true)
+
+    logger.info("Following specs were selected for execution: '#{tests_from_mapping}'")
+    begin
+      type_of_mr = if mr_labels.include?("frontend") && mr_labels.include?("backend")
+                     "fullstack"
+                   elsif mr_labels.include?("backend")
+                     "backend"
+                   elsif mr_labels.include?("frontend")
+                     "frontend"
+                   else
+                     "other"
+                   end
+
+      QA::Tools::Ci::PipelineCreator.new(tests_from_mapping, **creator_args).create(pipelines_for_selective_improved)
+      properties = {
+        label: tests_from_mapping.nil? || tests_from_mapping.empty? ? 'non-selective' : 'selective',
+        value: tests_from_mapping.nil? || tests_from_mapping.empty? ? 0 : tests_from_mapping.count,
+        property: type_of_mr
+      }
+      Tooling::Events::TrackPipelineEvents.new(logger: logger).send_event(
+        "e2e_tests_selected_for_execution_gitlab_pipeline",
+        **properties
+      )
+    rescue StandardError => e
+      logger.warn("*** Error while creating pipeline with selected specs: #{e.backtrace} ***")
+      logger.info("*** Defaulting to running full suite ***")
+      QA::Tools::Ci::PipelineCreator.new([], **creator_args).create
+    end
   end
 
   desc "Export test run metrics to influxdb"
@@ -84,10 +128,20 @@ namespace :ci do
     QA::Tools::Ci::TestMetrics.export(args[:glob])
   end
 
-  desc "Export code paths mapping to GCP"
+  desc "Export backend code paths mapping to GCP"
   task :export_code_paths_mapping, [:glob] do |_, args|
     raise("Code paths mapping JSON glob pattern is required") unless args[:glob]
 
-    QA::Tools::Ci::ExportCodePathsMapping.export(args[:glob])
+    QA::Tools::Ci::CodePathsMapping.export(args[:glob])
+  end
+
+  desc "Export frontend code paths mapping to GCP"
+  task :export_frontend_code_paths_mapping, [:glob] do |_, args|
+    raise("Code paths mapping JSON glob pattern is required") unless args[:glob]
+
+    filename = File.basename(args[:glob])
+    prefix = "#{filename.split('*').first}merged-pipeline"
+    QA::Tools::Ci::CodePathsMapping.export(args[:glob], bucket: "code-path-mappings",
+      file_name: prefix)
   end
 end

@@ -3,12 +3,12 @@ import { GlAlert, GlLoadingIcon, GlTabs } from '@gitlab/ui';
 import { s__, __ } from '~/locale';
 import PipelineGraph from '~/ci/pipeline_editor/components/graph/pipeline_graph.vue';
 import { getParameterValues, setUrlParams, updateHistory } from '~/lib/utils/url_utility';
+import InputsAnnouncementBanner from '~/ci/common/pipeline_inputs/inputs_announcement_banner.vue';
 import {
   CREATE_TAB,
   EDITOR_APP_STATUS_EMPTY,
   EDITOR_APP_STATUS_INVALID,
   EDITOR_APP_STATUS_LOADING,
-  EDITOR_APP_STATUS_VALID,
   EDITOR_APP_STATUS_LINT_UNAVAILABLE,
   MERGED_TAB,
   TAB_QUERY_PARAM,
@@ -65,6 +65,7 @@ export default {
     GlAlert,
     GlLoadingIcon,
     GlTabs,
+    InputsAnnouncementBanner,
     PipelineGraph,
     TextEditor,
     WalkthroughPopover,
@@ -101,6 +102,7 @@ export default {
     },
   },
   apollo: {
+    // eslint-disable-next-line @gitlab/vue-no-undef-apollo-properties
     appStatus: {
       query: getAppStatus,
       update(data) {
@@ -114,9 +116,6 @@ export default {
     };
   },
   computed: {
-    isMergedYamlAvailable() {
-      return this.ciConfigData?.mergedYaml;
-    },
     isEmpty() {
       return this.appStatus === EDITOR_APP_STATUS_EMPTY;
     },
@@ -126,11 +125,11 @@ export default {
     isLintUnavailable() {
       return this.appStatus === EDITOR_APP_STATUS_LINT_UNAVAILABLE;
     },
-    isValid() {
-      return this.appStatus === EDITOR_APP_STATUS_VALID;
-    },
     isLoading() {
       return this.appStatus === EDITOR_APP_STATUS_LOADING;
+    },
+    isMergedYamlAvailable() {
+      return this.ciConfigData?.mergedYaml;
     },
     validateTabBadgeTitle() {
       if (this.showValidateNewBadge) {
@@ -190,6 +189,7 @@ export default {
       data-testid="editor-tab"
       @click="setCurrentTab($options.tabConstants.CREATE_TAB)"
     >
+      <inputs-announcement-banner />
       <walkthrough-popover v-if="isNewCiConfigFile" v-on="$listeners" />
       <ci-editor-header
         :show-help-drawer="showHelpDrawer"

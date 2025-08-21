@@ -7,6 +7,18 @@ RSpec.describe IssuesFinder, feature_category: :team_planning do
 
   it_behaves_like 'issues or work items finder', :issue, '{Issues|WorkItems}Finder#execute context'
 
+  context 'when filtering by author username' do
+    let_it_be(:issuable_parent) { create(:project) }
+    let_it_be(:issuable_attributes) { { project: issuable_parent } }
+    let_it_be(:issuable_factory) { :issue }
+    let_it_be(:factory_params) { [] }
+
+    let(:search_params) { { project_id: issuable_parent.id } }
+
+    it_behaves_like 'filterable by group handle for', :author
+    it_behaves_like 'filterable by group handle for', :assignees
+  end
+
   context 'when filtering by group_id' do
     include_context '{Issues|WorkItems}Finder#execute context', :issue
 
@@ -66,6 +78,35 @@ RSpec.describe IssuesFinder, feature_category: :team_planning do
         it 'returns the item within the group and projects' do
           expect(items).to contain_exactly(item4)
         end
+      end
+    end
+  end
+
+  context 'when filtering by a date' do
+    let_it_be(:item_due_2_weeks_ago) { create(:issue, project: project1, due_date: 2.weeks.ago) }
+    let_it_be(:item_due_yesterday) { create(:issue, project: project1, due_date: 1.day.ago) }
+    let_it_be(:item_due_today) { create(:issue, project: project1, due_date: Date.current) }
+    let_it_be(:item_due_tomorrow) { create(:issue, project: project1, due_date: 1.day.from_now) }
+    let_it_be(:item_due_in_1_week) { create(:issue, project: project1, due_date: 1.week.from_now) }
+    let(:scope) { 'all' }
+
+    context 'when filtering by due_before' do
+      include_context '{Issues|WorkItems}Finder#execute context', :issue
+
+      let(:params) { { due_before: Date.current } }
+
+      it 'returns relevant issues' do
+        expect(items).to contain_exactly(item_due_2_weeks_ago, item_due_yesterday)
+      end
+    end
+
+    context 'when filtering by due_after' do
+      include_context '{Issues|WorkItems}Finder#execute context', :issue
+
+      let(:params) { { due_after: Date.current } }
+
+      it 'returns relevant issues' do
+        expect(items).to contain_exactly(item_due_today, item_due_tomorrow, item_due_in_1_week)
       end
     end
   end

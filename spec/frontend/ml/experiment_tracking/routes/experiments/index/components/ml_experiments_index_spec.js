@@ -1,38 +1,76 @@
-import { GlEmptyState, GlLink, GlTableLite } from '@gitlab/ui';
+import {
+  GlAlert,
+  GlAvatar,
+  GlAvatarLink,
+  GlEmptyState,
+  GlKeysetPagination,
+  GlLink,
+  GlTableLite,
+} from '@gitlab/ui';
+import Vue from 'vue';
+import VueApollo from 'vue-apollo';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import MlExperimentsIndexApp from '~/ml/experiment_tracking/routes/experiments/index';
-import Pagination from '~/vue_shared/components/incubation/pagination.vue';
 import ModelExperimentsHeader from '~/ml/experiment_tracking/components/model_experiments_header.vue';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
-import { TITLE_LABEL } from '~/ml/experiment_tracking/routes/experiments/index/translations';
+import createMockApollo from 'helpers/mock_apollo_helper';
+import waitForPromises from 'helpers/wait_for_promises';
+import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
+import { MLFLOW_USAGE_MODAL_ID } from '~/ml/experiment_tracking/routes/experiments/index/constants';
+import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
+import getExperimentsQuery from '~/ml/experiment_tracking/graphql/queries/get_experiments.query.graphql';
 import {
-  startCursor,
   firstExperiment,
   secondExperiment,
-  experiments,
-  defaultPageInfo,
+  MockExperimentsQueryResult,
+  MockExperimentsEmptyQueryResult,
 } from './mock_data';
 
-let wrapper;
-const createWrapper = (defaultExperiments = [], pageInfo = defaultPageInfo) => {
-  wrapper = mountExtended(MlExperimentsIndexApp, {
-    propsData: { experiments: defaultExperiments, pageInfo, emptyStateSvgPath: 'path' },
-  });
-};
-
-const findPagination = () => wrapper.findComponent(Pagination);
-const findEmptyState = () => wrapper.findComponent(GlEmptyState);
-const findTable = () => wrapper.findComponent(GlTableLite);
-const findTableHeaders = () => findTable().findAll('th');
-const findTableRows = () => findTable().findAll('tbody > tr');
-const findNthTableRow = (idx) => findTableRows().at(idx);
-const findColumnInRow = (row, col) => findNthTableRow(row).findAll('td').at(col);
-const hrefInRowAndColumn = (row, col) =>
-  findColumnInRow(row, col).findComponent(GlLink).attributes().href;
-const findTitleHeader = () => wrapper.findComponent(ModelExperimentsHeader);
+Vue.use(VueApollo);
 
 describe('MlExperimentsIndex', () => {
+  let wrapper;
+  let apolloProvider;
+
+  const createWrapper = async ({
+    resolver = jest.fn().mockResolvedValue(MockExperimentsQueryResult),
+  } = {}) => {
+    const requestHandlers = [[getExperimentsQuery, resolver]];
+    apolloProvider = createMockApollo(requestHandlers);
+
+    wrapper = mountExtended(MlExperimentsIndexApp, {
+      apolloProvider,
+      directives: { GlModal: createMockDirective('gl-modal') },
+      propsData: {
+        projectPath: 'group/project',
+        emptyStateSvgPath: 'path',
+        mlflowTrackingUrl: 'mlflow/tracking/url',
+      },
+    });
+
+    await waitForPromises();
+  };
+
+  beforeEach(() => {
+    jest.spyOn(Sentry, 'captureException').mockImplementation();
+  });
+
+  const findPagination = () => wrapper.findComponent(GlKeysetPagination);
+  const findAlert = () => wrapper.findComponent(GlAlert);
+  const findEmptyState = () => wrapper.findComponent(GlEmptyState);
+  const findTable = () => wrapper.findComponent(GlTableLite);
+  const findTableHeaders = () => findTable().findAll('th');
+  const findTableRows = () => findTable().findAll('tbody > tr');
+  const findNthTableRow = (idx) => findTableRows().at(idx);
+  const findColumnInRow = (row, col) => findNthTableRow(row).findAll('td').at(col);
+  const hrefInRowAndColumn = (row, col) =>
+    findColumnInRow(row, col).findComponent(GlLink).attributes().href;
+  const findTitleHeader = () => wrapper.findComponent(ModelExperimentsHeader);
+  const findDocsButton = () => wrapper.findByTestId('empty-create-using-button');
+
   describe('empty state', () => {
-    beforeEach(() => createWrapper());
+    const resolver = jest.fn().mockResolvedValue(MockExperimentsEmptyQueryResult);
+    beforeEach(() => createWrapper({ resolver }));
 
     it('displays empty state when no experiment', () => {
       expect(findEmptyState().exists()).toBe(true);
@@ -49,13 +87,18 @@ describe('MlExperimentsIndex', () => {
     it('renders header', () => {
       expect(findTitleHeader().exists()).toBe(true);
     });
+
+    it('creates button to docs', () => {
+      expect(findDocsButton().text()).toBe('Create an experiment using MLflow');
+      expect(getBinding(findDocsButton().element, 'gl-modal').value).toBe(MLFLOW_USAGE_MODAL_ID);
+    });
   });
 
   describe('Title header', () => {
-    beforeEach(() => createWrapper(experiments));
+    beforeEach(() => createWrapper());
 
     it('has the right title', () => {
-      expect(findTitleHeader().props('pageTitle')).toBe(TITLE_LABEL);
+      expect(findTitleHeader().props('pageTitle')).toBe('Model experiments');
     });
   });
 
@@ -64,15 +107,17 @@ describe('MlExperimentsIndex', () => {
     const secondRow = 1;
     const nameColumn = 0;
     const candidateCountColumn = 1;
+    const creatorColumn = 2;
+    const lastActivityColumn = 3;
 
-    beforeEach(() => createWrapper(experiments));
+    beforeEach(() => createWrapper());
 
     it('displays the table', () => {
       expect(findTable().exists()).toBe(true);
     });
 
     it('sets headers correctly', () => {
-      const expectedColumnNames = ['Experiment', 'Logged candidates for experiment'];
+      const expectedColumnNames = ['Name', 'Number of runs', 'Creator', 'Last activity'];
 
       expect(findTableHeaders().wrappers.map((h) => h.text())).toEqual(expectedColumnNames);
     });
@@ -89,13 +134,50 @@ describe('MlExperimentsIndex', () => {
       });
     });
 
-    describe('candidate count column', () => {
-      it('shows the candidate count', () => {
+    describe('experiment last activity column', () => {
+      it('displays the last activity column', () => {
+        expect(
+          findColumnInRow(firstRow, lastActivityColumn).findComponent(TimeAgoTooltip).props('time'),
+        ).toBe('2021-08-10T09:33:54Z');
+        expect(
+          findColumnInRow(secondRow, lastActivityColumn)
+            .findComponent(TimeAgoTooltip)
+            .props('time'),
+        ).toBe('2021-08-10T09:39:54Z');
+      });
+    });
+
+    describe('experiment creator column', () => {
+      it('displays creator avatars and links', () => {
+        expect(
+          findColumnInRow(firstRow, creatorColumn).findComponent(GlAvatarLink).attributes(),
+        ).toMatchObject({
+          href: firstExperiment.creator.webUrl,
+          title: firstExperiment.creator.name,
+        });
+        expect(
+          findColumnInRow(firstRow, creatorColumn).findComponent(GlAvatar).props(),
+        ).toMatchObject({ src: firstExperiment.creator.avatarUrl });
+
+        expect(
+          findColumnInRow(secondRow, creatorColumn).findComponent(GlAvatarLink).attributes(),
+        ).toMatchObject({
+          href: secondExperiment.creator.webUrl,
+          title: secondExperiment.creator.name,
+        });
+        expect(
+          findColumnInRow(secondRow, creatorColumn).findComponent(GlAvatar).props(),
+        ).toMatchObject({ src: secondExperiment.creator.avatarUrl });
+      });
+    });
+
+    describe('run count column', () => {
+      it('shows the run count', () => {
         expect(findColumnInRow(firstRow, candidateCountColumn).text()).toBe(
-          `${firstExperiment.candidate_count}`,
+          `${firstExperiment.candidateCount}`,
         );
         expect(findColumnInRow(secondRow, candidateCountColumn).text()).toBe(
-          `${secondExperiment.candidate_count}`,
+          `${secondExperiment.candidateCount}`,
         );
       });
     });
@@ -103,15 +185,36 @@ describe('MlExperimentsIndex', () => {
 
   describe('pagination', () => {
     describe('Pagination behaviour', () => {
-      beforeEach(() => createWrapper(experiments));
+      beforeEach(() => createWrapper());
 
       it('should show', () => {
         expect(findPagination().exists()).toBe(true);
       });
 
       it('Passes pagination to pagination component', () => {
-        expect(findPagination().props('startCursor')).toBe(startCursor);
+        expect(findPagination().props()).toMatchObject({
+          endCursor: null,
+          hasNextPage: false,
+          hasPreviousPage: false,
+          startCursor: null,
+        });
       });
+    });
+  });
+
+  describe('when loading data fails', () => {
+    beforeEach(async () => {
+      const error = new Error('Failure!');
+
+      await createWrapper({ resolver: jest.fn().mockRejectedValue(error) });
+    });
+
+    it('error message is displayed', () => {
+      expect(findAlert().text()).toContain('Failed to load experiments with error: Failure!');
+    });
+
+    it('error is logged in sentry', () => {
+      expect(Sentry.captureException).toHaveBeenCalled();
     });
   });
 });

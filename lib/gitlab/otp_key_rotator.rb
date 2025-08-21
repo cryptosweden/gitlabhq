@@ -30,7 +30,7 @@ module Gitlab
 
     # rubocop: disable CodeReuse/ActiveRecord
     def rotate!(old_key:, new_key:)
-      old_key ||= Gitlab::Application.secrets.otp_key_base
+      old_key ||= Gitlab::Application.credentials.otp_key_base
 
       raise ArgumentError, "Old key is the same as the new key" if old_key == new_key
       raise ArgumentError, "New key is too short! Must be 256 bits" if new_key.size < 64
@@ -67,7 +67,7 @@ module Gitlab
     attr_reader :old_key, :new_key
 
     def otp_secret_settings
-      @otp_secret_settings ||= User.attr_encrypted_attributes[:otp_secret]
+      @otp_secret_settings ||= User.attr_encrypted_encrypted_attributes[:otp_secret]
     end
 
     def reencrypt(user, old_key, new_key)

@@ -53,6 +53,11 @@ RSpec.shared_examples 'a redacted search results' do
             message: "redacted_search_results",
             current_user_id: user.id,
             query: search,
+            "meta.search.type": search_service.search_type,
+            "meta.search.level": search_service.level,
+            "meta.search.scope": search_service.scope,
+            "meta.search.group_id": anything,
+            "meta.search.project_id": anything,
             filtered: array_including(
               [
                 { class_name: 'Issue', id: unreadable.id, ability: :read_issue }
@@ -172,7 +177,7 @@ RSpec.shared_examples 'a redacted search results' do
     context 'with :with_api_entity_associations' do
       let(:unredacted_results) { ar_relation(MergeRequest.with_api_entity_associations, readable, unreadable) }
 
-      it_behaves_like "redaction limits N+1 queries", limit: 8
+      it_behaves_like "redaction limits N+1 queries", limit: 10
     end
   end
 

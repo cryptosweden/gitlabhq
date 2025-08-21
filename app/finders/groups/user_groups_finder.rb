@@ -10,6 +10,8 @@
 #   params:
 #     permissions: string (see Types::Groups::UserPermissionsEnum)
 #     search: string used for search on path and group name
+#     sort: string (see Types::Namespaces::GroupSortEnum)
+#     exact_matches_first: boolean used to enable priotization of exact matches
 #
 # Initially created to filter user groups and descendants where the user can create projects
 module Groups
@@ -25,8 +27,12 @@ module Groups
       return Group.none if target_user.blank?
 
       items = by_permission_scope
-      items = by_search(items)
+      items = by_organization(items)
 
+      # Search will perform an ORDER BY to ensure exact matches are returned first.
+      return by_search(items, exact_matches_first: true) if exact_matches_first_enabled?
+
+      items = by_search(items)
       sort(items)
     end
 
@@ -56,6 +62,26 @@ module Groups
 
     def permission_scope_import_projects?
       params[:permission_scope] == :import_projects
+    end
+
+    def by_organization(items)
+      return items unless params[:organization]
+
+      items.in_organization(params[:organization])
+    end
+
+    def sort(items)
+      return super unless params[:sort]
+
+      if params[:sort] == :similarity && params[:search].present?
+        return items.sorted_by_similarity_desc(params[:search])
+      end
+
+      items.sort_by_attribute(params[:sort])
+    end
+
+    def exact_matches_first_enabled?
+      params[:exact_matches_first] && params[:search].present?
     end
   end
 end

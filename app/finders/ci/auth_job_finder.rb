@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module Ci
   class AuthJobFinder
     AuthError = Class.new(StandardError)
@@ -10,11 +11,11 @@ module Ci
       @token = token
     end
 
-    def execute!
+    def execute!(allow_canceling: false)
       find_job_by_token.tap do |job|
         next unless job
 
-        validate_job!(job)
+        validate_job!(job, allow_canceling)
 
         job.user.set_ci_job_token_scope!(job) if job.user
       end
@@ -30,19 +31,36 @@ module Ci
     attr_reader :token
 
     def find_job_by_token
-      ::Ci::Build.find_by_token(token)
+      jwt = ::Ci::JobToken::Jwt.decode(token)
+      if jwt&.job
+        link_composite_identity!(jwt)
+        jwt.job
+      else
+        # TODO: Remove fallback finder when feature flag `ci_job_token_jwt` is removed
+        ::Ci::Build.find_by_token(token)
+      end
     end
 
-    def validate_job!(job)
-      validate_running_job!(job)
+    def link_composite_identity!(jwt)
+      return unless jwt.scoped_user
+
+      # We prefer not to use `link_from_job` when we have the JWT because
+      # the JWT is the source of truth.
+      ::Gitlab::Auth::Identity.fabricate(jwt.job.user)&.link!(jwt.scoped_user)
+    end
+
+    def validate_job!(job, allow_canceling)
+      validate_running_job!(job, allow_canceling)
       validate_job_not_erased!(job)
       validate_project_presence!(job)
+
+      log_successful_job_auth(job)
 
       true
     end
 
-    def validate_running_job!(job)
-      raise NotRunningJobError, 'Job is not running' unless job.running?
+    def validate_running_job!(job, allow_canceling)
+      raise NotRunningJobError, 'Job is not running' unless job.running? || (allow_canceling && job.canceling?)
     end
 
     def validate_job_not_erased!(job)
@@ -51,6 +69,16 @@ module Ci
 
     def validate_project_presence!(job)
       raise DeletedProjectError, 'Project has been deleted!' if job.project.nil? || job.project.pending_delete?
+    end
+
+    def log_successful_job_auth(job)
+      Gitlab::AppLogger.info({
+        class: self.class,
+        job_id: job.id,
+        job_user_id: job.user_id,
+        job_project_id: job.project_id,
+        message: "successful job token auth"
+      }.merge(Gitlab::ApplicationContext.current))
     end
   end
 end

@@ -14,7 +14,7 @@ module Tooling
         For the following files, a review from the [Data team and Analytics Instrumentation team](https://gitlab.com/groups/gitlab-org/analytics-section/analytics-instrumentation/engineers/-/group_members?with_inherited_permissions=exclude) is recommended
         Please check the ~"analytics instrumentation" [Service Ping guide](https://docs.gitlab.com/ee/development/service_ping/) or the [Snowplow guide](https://docs.gitlab.com/ee/development/snowplow/).
 
-        For MR review guidelines, see the [Internal Analytics review guidelines](https://docs.gitlab.com/ee/development/internal_analytics/review_guidelines.html).
+        For MR review guidelines, see the [Internal Analytics review guidelines](https://docs.gitlab.com/development/internal_analytics/review_guidelines/).
 
         %<changed_files>s
 
@@ -27,11 +27,16 @@ module Tooling
 
       CHANGED_USAGE_DATA_MESSAGE = <<~MSG
         Notice that implementing metrics directly in usage_data.rb has been deprecated.
-        Please use [Instrumentation Classes](https://docs.gitlab.com/ee/development/internal_analytics/metrics/metrics_instrumentation.html) instead.
+        Please use [Instrumentation Classes](https://docs.gitlab.com/development/internal_analytics/metrics/metrics_instrumentation/) instead.
       MSG
 
       CHANGE_DEPRECATED_DATA_SOURCE_MESSAGE = <<~MSG
-        Redis and RedisHLL tracking is deprecated, consider using Internal Events tracking instead https://docs.gitlab.com/ee/development/internal_analytics/internal_event_instrumentation/quick_start.html#defining-event-and-metrics
+        Redis and RedisHLL tracking is deprecated, consider using Internal Events tracking instead https://docs.gitlab.com/development/internal_analytics/internal_event_instrumentation/quick_start/#defining-event-and-metrics
+      MSG
+
+      PII_WARNING = <<~MSG
+        Make sure the additional properties don't contain any sensitive information, like customer data or personal data.
+        For more information, see the Data Classification Standard at https://about.gitlab.com/handbook/security/data-classification-standard/
       MSG
 
       WORKFLOW_LABELS = [
@@ -97,11 +102,59 @@ module Tooling
         end
       end
 
+      def warn_about_migrated_redis_keys_specs!
+        override_files_changes = ["lib/gitlab/usage_data_counters/hll_redis_key_overrides.yml",
+          "lib/gitlab/usage_data_counters/total_counter_redis_key_overrides.yml"].map do |filename|
+          helper.changed_lines(filename).filter { |line| line.start_with?("+") }
+        end
+        return if override_files_changes.flatten.none?
+
+        return if modified_spec_files.any? do |filename|
+          helper.changed_lines(filename).any? do |mod_line, _i|
+            /^\+.*it_behaves_like ('|")migrated internal event('|")/.match?(mod_line)
+          end
+        end
+
+        warn "Redis keys overrides were added. Please consider cover keys merging with specs. See the [related issue](https://gitlab.com/gitlab-org/gitlab/-/issues/475191) for details"
+      end
+
+      def warn_about_potential_pii_tracking
+        file_list = helper.modified_files.concat(helper.added_files).select do |f|
+          f.end_with?(".rb") && !f.end_with?("_spec.rb")
+        end
+
+        file_list.each do |file_name|
+          add_suggestion(
+            filename: file_name,
+            regex: /\+\s*additional_properties\s*[:=]\s*{/,
+            comment_text: PII_WARNING
+          )
+        end
+      end
+
+      def prohibit_key_path_changes!
+        modified_config_files.each do |filename|
+          helper.changed_lines(filename).each do |mod_line, _i|
+            next unless /^-\s*key_path:.*$/.match?(mod_line)
+
+            add_suggestion(
+              filename: filename,
+              regex: /key_path/,
+              comment_text: 'Key path is changed. This is an extremely dangerous action and can lead to data loss. See the [metrics lifecycle](https://docs.gitlab.com/development/internal_analytics/metrics/metrics_lifecycle/#change-an-existing-metric) for more information'
+            )
+          end
+        end
+      end
+
+      private
+
       def modified_config_files
         helper.modified_files.select { |f| f.include?('config/metrics') && f.end_with?('yml') }
       end
 
-      private
+      def modified_spec_files
+        helper.modified_files.select { |f| f.include?('spec/') && f.end_with?('_spec.rb') }
+      end
 
       def comment_removed_metric(filename, has_removed_url, has_removed_milestone)
         mr_has_milestone = !helper.mr_milestone.nil?

@@ -1,9 +1,11 @@
+// Package redis provides a mechanism for watching Redis key changes.
 package redis
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -11,23 +13,29 @@ import (
 	"github.com/jpillora/backoff"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/redis/go-redis/v9"
+	redis "github.com/redis/go-redis/v9"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/log"
 )
 
+// KeyWatcher is responsible for watching keys in Redis and notifying subscribers.
 type KeyWatcher struct {
+	// Put this field first to ensure backoff.Backoff is aligned for 64-bit access
+	reconnectBackoff backoff.Backoff
 	mu               sync.Mutex
+	newSubscriber    chan struct{}
 	subscribers      map[string][]chan string
 	shutdown         chan struct{}
-	reconnectBackoff backoff.Backoff
 	redisConn        *redis.Client // can be nil
 	conn             *redis.PubSub
+	firstRun         bool
 }
 
+// NewKeyWatcher initializes a KeyWatcher for managing Redis key subscriptions.
 func NewKeyWatcher(redisConn *redis.Client) *KeyWatcher {
 	return &KeyWatcher{
-		shutdown: make(chan struct{}),
+		newSubscriber: make(chan struct{}, 1),
+		shutdown:      make(chan struct{}),
 		reconnectBackoff: backoff.Backoff{
 			Min:    100 * time.Millisecond,
 			Max:    60 * time.Second,
@@ -35,28 +43,33 @@ func NewKeyWatcher(redisConn *redis.Client) *KeyWatcher {
 			Jitter: true,
 		},
 		redisConn: redisConn,
+		firstRun:  true,
 	}
 }
 
 var (
+	// KeyWatchers tracks the number of keys being actively watched by GitLab Workhorse.
 	KeyWatchers = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "gitlab_workhorse_keywatcher_keywatchers",
 			Help: "The number of keys that is being watched by gitlab-workhorse",
 		},
 	)
+	// RedisSubscriptions tracks the current number of active Redis pubsub subscriptions.
 	RedisSubscriptions = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "gitlab_workhorse_keywatcher_redis_subscriptions",
 			Help: "Current number of keywatcher Redis pubsub subscriptions",
 		},
 	)
+	// TotalMessages counts the total number of messages received by GitLab Workhorse on Redis pubsub channels.
 	TotalMessages = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gitlab_workhorse_keywatcher_total_messages",
 			Help: "How many messages gitlab-workhorse has received in total on pubsub.",
 		},
 	)
+	// TotalActions counts various keywatcher actions like adding or removing key watchers.
 	TotalActions = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "gitlab_workhorse_keywatcher_actions_total",
@@ -64,6 +77,7 @@ var (
 		},
 		[]string{"action"},
 	)
+	// ReceivedBytes tracks the total number of bytes received by GitLab Workhorse in Redis pubsub messages.
 	ReceivedBytes = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "gitlab_workhorse_keywatcher_received_bytes_total",
@@ -87,7 +101,7 @@ func (kw *KeyWatcher) receivePubSubStream(ctx context.Context, pubsub *redis.Pub
 	defer func() {
 		kw.mu.Lock()
 		defer kw.mu.Unlock()
-		kw.conn.Close()
+		kw.conn.Close() // nolint:errcheck,gosec // ignore errors
 		kw.conn = nil
 
 		// Reset kw.subscribers because it is tied to Redis server side state of
@@ -104,7 +118,13 @@ func (kw *KeyWatcher) receivePubSubStream(ctx context.Context, pubsub *redis.Pub
 	for {
 		msg, err := kw.conn.Receive(ctx)
 		if err != nil {
-			log.WithError(fmt.Errorf("keywatcher: pubsub receive: %v", err)).Error()
+			// EOF errors can happen if the Redis server terminates an idle connection.
+			// These are expected if the server received no subscriptions during the
+			// Redis TIMEOUT period. The EOF message will have been reported by the
+			// go-redis logger.
+			if err != io.EOF {
+				log.WithError(fmt.Errorf("keywatcher: pubsub receive: %v", err)).Error()
+			}
 			return nil
 		}
 
@@ -117,7 +137,7 @@ func (kw *KeyWatcher) receivePubSubStream(ctx context.Context, pubsub *redis.Pub
 			TotalMessages.Inc()
 			ReceivedBytes.Add(float64(len(msg.Payload)))
 			if strings.HasPrefix(msg.Channel, channelPrefix) {
-				kw.notifySubscribers(msg.Channel[len(channelPrefix):], string(msg.Payload))
+				kw.notifySubscribers(msg.Channel[len(channelPrefix):], msg.Payload)
 			}
 		default:
 			log.WithError(fmt.Errorf("keywatcher: unknown: %T", msg)).Error()
@@ -126,27 +146,43 @@ func (kw *KeyWatcher) receivePubSubStream(ctx context.Context, pubsub *redis.Pub
 	}
 }
 
+// Process listens for pub/sub events and reconnects if needed.
 func (kw *KeyWatcher) Process() {
 	log.Info("keywatcher: starting process loop")
 
 	ctx := context.Background() // lint:allow context.Background
 
 	for {
-		pubsub := kw.redisConn.Subscribe(ctx, []string{}...)
-		if err := pubsub.Ping(ctx); err != nil {
-			log.WithError(fmt.Errorf("keywatcher: %v", err)).Error()
-			time.Sleep(kw.reconnectBackoff.Duration())
-			continue
+		// Connect to Redis to flag configuration issues
+		if !kw.firstRun && kw.getNumSubscribers() == 0 {
+			<-kw.newSubscriber
 		}
 
-		kw.reconnectBackoff.Reset()
+		kw.firstRun = false
+		kw.processSubscriptions(ctx)
 
-		if err := kw.receivePubSubStream(ctx, pubsub); err != nil {
-			log.WithError(fmt.Errorf("keywatcher: receivePubSubStream: %v", err)).Error()
-		}
+		// Precaution to avoid spinning in a loop
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
+func (kw *KeyWatcher) processSubscriptions(ctx context.Context) {
+	log.Info("keywatcher: listening for subscriptions")
+	pubsub := kw.redisConn.Subscribe(ctx, []string{}...)
+	if err := pubsub.Ping(ctx); err != nil {
+		log.WithError(fmt.Errorf("keywatcher: %v", err)).Error()
+		time.Sleep(kw.reconnectBackoff.Duration())
+		return
+	}
+
+	kw.reconnectBackoff.Reset()
+
+	if err := kw.receivePubSubStream(ctx, pubsub); err != nil {
+		log.WithError(fmt.Errorf("keywatcher: receivePubSubStream: %v", err)).Error()
+	}
+}
+
+// Shutdown gracefully stops the KeyWatcher.
 func (kw *KeyWatcher) Shutdown() {
 	log.Info("keywatcher: shutting down")
 
@@ -181,6 +217,14 @@ func (kw *KeyWatcher) notifySubscribers(key, value string) {
 }
 
 func (kw *KeyWatcher) addSubscription(ctx context.Context, key string, notify chan string) error {
+	// Use a non-blocking send because we only want to initiate the connection if not present.
+	// This does not guarantee that the connection will be set up by the time we attempt
+	// to subscribe to the channel, but missing one long poll should not be a big deal.
+	select {
+	case kw.newSubscriber <- struct{}{}:
+	default: // Drop the value if channel is full
+	}
+
 	kw.mu.Lock()
 	defer kw.mu.Unlock()
 
@@ -229,9 +273,22 @@ func (kw *KeyWatcher) delSubscription(ctx context.Context, key string, notify ch
 		delete(kw.subscribers, key)
 		countAction("delete-subscription")
 		if kw.conn != nil {
-			kw.conn.Unsubscribe(ctx, channelPrefix+key)
+			kw.conn.Unsubscribe(ctx, channelPrefix+key) // nolint:errcheck,gosec // ignore errors
 		}
 	}
+}
+func (kw *KeyWatcher) getNumSubscribers() int {
+	kw.mu.Lock()
+	defer kw.mu.Unlock()
+
+	return len(kw.subscribers)
+}
+
+func (kw *KeyWatcher) connected() bool {
+	kw.mu.Lock()
+	defer kw.mu.Unlock()
+
+	return kw.conn != nil
 }
 
 // WatchKeyStatus is used to tell how WatchKey returned
@@ -249,6 +306,7 @@ const (
 	WatchKeyStatusNoChange
 )
 
+// WatchKey watches a Redis key for changes and returns the change status.
 func (kw *KeyWatcher) WatchKey(ctx context.Context, key, value string, timeout time.Duration) (WatchKeyStatus, error) {
 	notify := make(chan string, 1)
 	if err := kw.addSubscription(ctx, key, notify); err != nil {

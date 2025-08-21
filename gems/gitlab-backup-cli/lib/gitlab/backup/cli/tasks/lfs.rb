@@ -7,14 +7,14 @@ module Gitlab
         class Lfs < Task
           def self.id = 'lfs'
 
-          def human_name = _('lfs objects')
+          def human_name = 'LFS Objects'
 
           def destination_path = 'lfs.tar.gz'
 
           private
 
-          def target
-            ::Backup::Targets::Files.new(nil, storage_path, options: options)
+          def local
+            Gitlab::Backup::Cli::Targets::Files.new(context, storage_path)
           end
 
           def storage_path = context.ci_lfs_path

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Query.project(fullPath).pipelines.jobs.manualVariables', feature_category: :secrets_management do
+RSpec.describe 'Query.project(fullPath).pipelines.jobs.manualVariables', feature_category: :ci_variables do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project) }
@@ -53,7 +53,8 @@ RSpec.describe 'Query.project(fullPath).pipelines.jobs.manualVariables', feature
     expect(variables_data).to be_empty
   end
 
-  it 'does not fetch job variables for bridges' do
+  it 'does not fetch job variables for generic commit statuses or bridges' do
+    create(:generic_commit_status, pipeline: pipeline)
     create(:ci_bridge, :manual, pipeline: pipeline)
 
     post_graphql(query, current_user: user)
@@ -63,14 +64,16 @@ RSpec.describe 'Query.project(fullPath).pipelines.jobs.manualVariables', feature
     expect(variables_data).to be_empty
   end
 
-  it 'does not produce N+1 queries', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/367991' do
+  it 'does not produce N+1 queries' do
+    first_user = create(:user)
     second_user = create(:user)
+    project.add_maintainer(first_user)
     project.add_maintainer(second_user)
     job = create(:ci_build, :manual, pipeline: pipeline)
     create(:ci_job_variable, key: 'MANUAL_TEST_VAR_1', job: job)
 
     control_count = ActiveRecord::QueryRecorder.new do
-      post_graphql(query, current_user: user)
+      post_graphql(query, current_user: first_user)
     end
 
     variables_data = graphql_data.dig('project', 'pipelines', 'nodes').first

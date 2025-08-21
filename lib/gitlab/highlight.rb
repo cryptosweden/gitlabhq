@@ -43,7 +43,7 @@ module Gitlab
     end
 
     def self.file_size_limit
-      Gitlab.config.extra['maximum_text_highlight_size_kilobytes']
+      Gitlab.config.extra['maximum_text_highlight_size_kilobytes'].kilobytes
     end
 
     private
@@ -58,24 +58,30 @@ module Gitlab
 
     def highlight_text(text, continue: true, plain: false, used_on: :blob)
       @gitlab_highlight_usage_counter.increment(used_on: used_on)
+      fix_attributes = used_on == :diff
 
       if plain
-        highlight_plain(text)
+        highlight_plain(text, fix_attributes:)
       else
-        highlight_rich(text, continue: continue)
+        highlight_rich(text, continue:, fix_attributes:)
       end
     end
 
-    def highlight_plain(text)
-      @formatter.format(Rouge::Lexers::PlainText.lex(text), **context).html_safe
+    def highlight_plain(text, fix_attributes: false)
+      @formatter.format(Rouge::Lexers::PlainText.lex(text), **context, fix_attributes:).html_safe
     end
 
-    def highlight_rich(text, continue: true)
+    def highlight_rich(text, continue: true, fix_attributes: false)
       tag = lexer.tag
       tokens = lexer.lex(text, continue: continue)
-      Gitlab::RenderTimeout.timeout { @formatter.format(tokens, **context, tag: tag).html_safe }
+      Gitlab::RenderTimeout.timeout { @formatter.format(tokens, **context, tag:, fix_attributes:).html_safe }
     rescue Timeout::Error => e
-      Gitlab::ErrorTracking.track_and_raise_for_dev_exception(e)
+      ErrorTracking.log_exception(
+        e,
+        message: 'Syntax highlighting timeout.',
+        lexer_tag: tag,
+        text_length: text.length
+      )
       highlight_plain(text)
     rescue StandardError
       highlight_plain(text)

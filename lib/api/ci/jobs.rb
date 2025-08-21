@@ -4,12 +4,15 @@ module API
   module Ci
     class Jobs < ::API::Base
       include PaginationParams
+      include APIGuard
 
       helpers ::API::Helpers::ProjectStatsRefreshConflictsHelpers
 
-      before { authenticate! }
+      allow_access_with_scope :ai_workflows, if: ->(request) { request.get? || request.head? }
 
       resource :projects, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
+        before { authenticate! }
+
         params do
           requires :id, types: [String, Integer], desc: 'The ID or URL-encoded path of the project'
         end
@@ -48,6 +51,8 @@ module API
           use :pagination
         end
         # rubocop: disable CodeReuse/ActiveRecord
+        route_setting :authentication, job_token_allowed: true
+        route_setting :authorization, job_token_policies: :read_jobs
         get ':id/jobs', urgency: :low, feature_category: :continuous_integration do
           check_rate_limit!(:jobs_index, scope: current_user)
 
@@ -120,6 +125,7 @@ module API
         end
         params do
           requires :job_id, type: Integer, desc: 'The ID of a job', documentation: { example: 88 }
+          optional :force, type: Boolean, desc: 'Force cancellation for a job with a state of `canceling`', documentation: { example: true }
         end
         post ':id/jobs/:job_id/cancel', urgency: :low, feature_category: :continuous_integration do
           authorize_cancel_builds!
@@ -127,7 +133,12 @@ module API
           build = find_build!(params[:job_id])
           authorize!(:cancel_build, build)
 
-          build.cancel
+          if params[:force]
+            authorize!(:maintainer_access, build)
+            build.force_cancel
+          else
+            build.cancel
+          end
 
           present build, with: Entities::Ci::Job
         end
@@ -145,6 +156,8 @@ module API
         end
         # This endpoint can be used for retrying both builds and bridges.
         post ':id/jobs/:job_id/retry', urgency: :low, feature_category: :continuous_integration do
+          Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/473419')
+
           authorize_update_builds!
 
           job = find_job!(params[:job_id])
@@ -226,6 +239,15 @@ module API
       end
 
       resource :job do
+        helpers ::API::Helpers::KasHelpers
+
+        before do
+          # Use primary for both main and ci database as authenticating in the scope of runners will load
+          # Ci::Build model and other standard authn related models like License, Project and User.
+          ::Gitlab::Database::LoadBalancing::SessionMap
+            .with_sessions([::ApplicationRecord, ::Ci::ApplicationRecord]).use_primary { authenticate! }
+        end
+
         desc 'Get current job using job token' do
           success code: 200, model: Entities::Ci::Job
           failure [
@@ -235,6 +257,7 @@ module API
           ]
         end
         route_setting :authentication, job_token_allowed: true
+        route_setting :authorization, skip_job_token_policies: true
         get '', feature_category: :continuous_integration, urgency: :low do
           validate_current_authenticated_job
 
@@ -251,6 +274,7 @@ module API
           ]
         end
         route_setting :authentication, job_token_allowed: true
+        route_setting :authorization, skip_job_token_policies: true
         get '/allowed_agents', urgency: :default, feature_category: :deployment_management do
           validate_current_authenticated_job
 
@@ -269,8 +293,12 @@ module API
 
           agent_authorizations = ::Clusters::Agents::Authorizations::CiAccess::FilterService.new(
             ::Clusters::Agents::Authorizations::CiAccess::Finder.new(project).execute,
-            environment: persisted_environment&.name
+            { environment: persisted_environment&.name,
+              protected_ref: pipeline.protected_ref? },
+            pipeline.project
           ).execute
+
+          set_feature_flag_header(user: current_user, project: project)
 
           # See https://gitlab.com/gitlab-org/cluster-integration/gitlab-agent/-/blob/master/doc/kubernetes_ci_access.md#apiv4joballowed_agents-api
           {

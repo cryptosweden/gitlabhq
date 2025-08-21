@@ -18,6 +18,8 @@ module AuthHelper
   ].freeze
   LDAP_PROVIDER = /\Aldap/
   POPULAR_PROVIDERS = %w[google_oauth2 github].freeze
+  SHA1_CHAR_PAIR_COUNT = 20
+  SHA256_CHAR_PAIR_COUNT = 32
 
   delegate :slack_app_id, to: :'Gitlab::CurrentSettings.current_application_settings'
 
@@ -31,6 +33,20 @@ module AuthHelper
 
   def omniauth_enabled?
     Gitlab::Auth.omniauth_enabled?
+  end
+
+  def enabled_button_based_providers_for_signup
+    if Gitlab.config.omniauth.allow_single_sign_on.is_a?(Array)
+      enabled_button_based_providers & Gitlab.config.omniauth.allow_single_sign_on
+    elsif Gitlab.config.omniauth.allow_single_sign_on
+      enabled_button_based_providers
+    else
+      []
+    end
+  end
+
+  def signup_button_based_providers_enabled?
+    omniauth_enabled? && enabled_button_based_providers_for_signup.any?
   end
 
   def provider_has_custom_icon?(name)
@@ -97,6 +113,15 @@ module AuthHelper
     providers.map(&:name).map(&:to_sym)
   end
 
+  def oidc_providers
+    providers = Gitlab.config.omniauth.providers.select do |provider|
+      provider.name == 'openid_connect' || provider.dig('args',
+        'strategy_class') == 'OmniAuth::Strategies::OpenIDConnect'
+    end
+
+    providers.map(&:name).map(&:to_sym)
+  end
+
   def any_form_based_providers_enabled?
     form_based_providers.any? { |provider| form_enabled_for_sign_in?(provider) }
   end
@@ -140,6 +165,36 @@ module AuthHelper
     enabled_button_based_providers.any?
   end
 
+  def step_up_auth_params(provider_name, step_up_auth_scope)
+    return {} if Feature.disabled?(:omniauth_step_up_auth_for_admin_mode, current_user)
+
+    # Get provider configuration for step up auth scope
+    provider_config = Gitlab::Auth::OAuth::Provider
+      .config_for(provider_name)
+      &.dig('step_up_auth', step_up_auth_scope.to_s)
+      &.to_h
+
+    return {} if provider_config.blank?
+
+    base_params = { step_up_auth_scope: step_up_auth_scope }
+    config_params = provider_config['params'].to_h
+
+    base_params
+      .merge!(config_params)
+      .transform_values do |v|
+        v.is_a?(Hash) ? v.to_json : v
+      end
+  end
+
+  def step_up_auth_documentation_link(flow)
+    link_url = flow.documentation_link
+
+    return unless link_url
+
+    provider_label = ::Gitlab::Auth::OAuth::Provider.label_for(flow.provider)
+    link_to(provider_label, link_url, target: '_blank', rel: 'noopener noreferrer', class: 'gl-link')
+  end
+
   def provider_image_tag(provider, size = 64)
     label = label_for_provider(provider)
 
@@ -174,15 +229,89 @@ module AuthHelper
     current_user.allow_password_authentication_for_web? && !current_user.password_automatically_set?
   end
 
-  def auth_app_owner_text(owner)
-    return _('An administrator added this OAuth application ') unless owner
+  def auth_app_owner_text(application)
+    return _('An anonymous service added this dynamically created OAuth application ') if application.dynamic?
+    return _('An administrator added this OAuth application ') unless application.owner
 
-    if owner.is_a?(Group)
-      group_link = link_to(owner.name, group_path(owner))
-      _("%{group_link} added this OAuth application ").html_safe % { group_link: group_link }
+    if application.owner.is_a?(Group)
+      group_link = link_to(application.owner.name, group_path(application.owner))
+      safe_format(_("%{group_link} added this OAuth application "), group_link: group_link)
     else
-      user_link = link_to(owner.name, user_path(owner))
-      _("%{user_link} added this OAuth application ").html_safe % { user_link: user_link }
+      user_link = link_to(application.owner.name, user_path(application.owner))
+      safe_format(_("%{user_link} added this OAuth application "), user_link: user_link)
+    end
+  end
+
+  def delete_otp_authenticator_data(password_required)
+    message = if password_required
+                _('Are you sure you want to delete this one-time password authenticator? ' \
+                  'Enter your password to continue.')
+              else
+                _('Are you sure you want to delete this one-time password authenticator?')
+              end
+
+    { button_text: _('Delete one-time password authenticator'),
+      icon: 'remove',
+      message: message,
+      path: destroy_otp_profile_two_factor_auth_path,
+      password_required: password_required.to_s }
+  end
+
+  def delete_webauthn_device_data(password_required, path)
+    message = if password_required
+                _('Are you sure you want to delete this WebAuthn device? ' \
+                  'Enter your password to continue.')
+              else
+                _('Are you sure you want to delete this WebAuthn device?')
+              end
+
+    { button_text: _('Delete WebAuthn device'),
+      icon: 'remove',
+      message: message,
+      path: path,
+      password_required: password_required.to_s }
+  end
+
+  def disable_two_factor_authentication_data(password_required)
+    message = if password_required
+                _('Are you sure you want to invalidate your one-time password authenticator and WebAuthn devices? ' \
+                  'Enter your password to continue. This action cannot be undone.')
+              else
+                _('Are you sure you want to invalidate your one-time password authenticator and WebAuthn devices?')
+              end
+
+    { button_text: _('Disable two-factor authentication'),
+      message: message,
+      path: profile_two_factor_auth_path,
+      password_required: password_required.to_s,
+      size: 'small' }
+  end
+
+  def codes_two_factor_authentication_data(password_required)
+    message = if password_required
+                _('Are you sure you want to regenerate recovery codes? ' \
+                  'Enter your password to continue.')
+              else
+                _('Are you sure you want to regenerate recovery codes?')
+              end
+
+    { button_text: _('Regenerate recovery codes'),
+      message: message,
+      method: 'post',
+      path: codes_profile_two_factor_auth_path,
+      password_required: password_required.to_s,
+      size: 'small',
+      variant: 'default' }
+  end
+
+  def certificate_fingerprint_algorithm(fingerprint)
+    case fingerprint.scan(/[0-9a-f]{2}/i).length
+    when SHA1_CHAR_PAIR_COUNT
+      # v2.x will change to RubySaml::XML::SHA1
+      XMLSecurity::Document::SHA1
+    when SHA256_CHAR_PAIR_COUNT
+      # v2.x will change to RubySaml::XML::SHA256
+      XMLSecurity::Document::SHA256
     end
   end
 

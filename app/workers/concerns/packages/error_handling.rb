@@ -10,12 +10,17 @@ module Packages
       ArgumentError,
       ActiveRecord::RecordInvalid,
       ::Packages::Helm::ExtractFileMetadataService::ExtractionError,
+      ::Packages::Helm::ProcessFileService::ProtectedPackageError,
       ::Packages::Nuget::ExtractMetadataFileService::ExtractionError,
       ::Packages::Nuget::UpdatePackageFromMetadataService::InvalidMetadataError,
       ::Packages::Nuget::UpdatePackageFromMetadataService::ZipError,
+      ::Packages::Nuget::UpdatePackageFromMetadataService::DuplicatePackageError,
+      ::Packages::Nuget::UpdatePackageFromMetadataService::ProtectedPackageError,
       ::Packages::Rubygems::ProcessGemService::ExtractionError,
       ::Packages::Rubygems::ProcessGemService::InvalidMetadataError,
-      ::Packages::Npm::ProcessPackageFileService::ExtractionError
+      ::Packages::Npm::ProcessPackageFileService::ExtractionError,
+      ::Packages::Npm::CheckManifestCoherenceService::MismatchError,
+      ::Packages::Conan::MetadataExtractionService::ExtractionError
     ].freeze
 
     def process_package_file_error(package_file:, exception:, extra_log_payload: {})

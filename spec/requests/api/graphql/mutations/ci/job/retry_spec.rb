@@ -6,8 +6,9 @@ RSpec.describe 'JobRetry', feature_category: :continuous_integration do
   include GraphqlHelpers
 
   let_it_be(:user) { create(:user) }
-  let_it_be(:project) { create(:project, maintainers: user) }
-  let_it_be(:pipeline) { create(:ci_pipeline, project: project, user: user) }
+  let_it_be(:project) { create(:project, :repository, maintainers: user) }
+  let_it_be(:sha) { project.repository.commit.sha }
+  let_it_be(:pipeline) { create(:ci_pipeline, sha: sha, project: project, user: user) }
 
   let(:job) { create(:ci_build, :success, pipeline: pipeline, name: 'build') }
 
@@ -88,6 +89,7 @@ RSpec.describe 'JobRetry', feature_category: :continuous_integration do
       expect(new_job.job_variables.count).to be(1)
       expect(new_job.job_variables.first.key).to eq('MANUAL_VAR')
       expect(new_job.job_variables.first.value).to eq('test manual var')
+      expect(new_job.job_variables.first.project_id).to eq(project.id)
     end
   end
 
@@ -97,7 +99,7 @@ RSpec.describe 'JobRetry', feature_category: :continuous_integration do
     it 'returns an error' do
       post_graphql_mutation(mutation, current_user: user)
 
-      expect(mutation_response['job']).to be(nil)
+      expect(mutation_response['job']).to be_nil
       expect(mutation_response['errors']).to match_array(['Job cannot be retried'])
     end
   end

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Lfs
-  class LockFileService < BaseService
+  class LockFileService < BaseFileLockService
     def execute
       unless can?(current_user, :push_code, project)
         raise Gitlab::GitAccess::ForbiddenError, 'You have no permissions'
@@ -25,8 +25,9 @@ module Lfs
     # rubocop: enable CodeReuse/ActiveRecord
 
     def create_lock!
-      lock = project.lfs_file_locks.create!(user: current_user,
-        path: params[:path])
+      lock = project.lfs_file_locks.create!(user: current_user, path: params[:path])
+
+      project.refresh_lfs_file_locks_changed_epoch
 
       success(http_status: 201, lock: lock)
     end

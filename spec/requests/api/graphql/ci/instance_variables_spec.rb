@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Query.ciVariables', feature_category: :secrets_management do
+RSpec.describe 'Query.ciVariables', feature_category: :ci_variables do
   include GraphqlHelpers
 
   let(:query) do
@@ -62,7 +62,7 @@ RSpec.describe 'Query.ciVariables', feature_category: :secrets_management do
 
       post_graphql(query, current_user: user)
 
-      expect(graphql_data.dig('ciVariables')).to be_nil
+      expect(graphql_data['ciVariables']).to be_nil
     end
   end
 
@@ -74,7 +74,7 @@ RSpec.describe 'Query.ciVariables', feature_category: :secrets_management do
 
       post_graphql(query, current_user: user)
 
-      expect(graphql_data.dig('ciVariables')).to be_nil
+      expect(graphql_data['ciVariables']).to be_nil
     end
   end
 

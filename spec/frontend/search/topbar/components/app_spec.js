@@ -1,6 +1,6 @@
 import { GlButton } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
-import Vue, { nextTick } from 'vue';
+import Vue from 'vue';
 // eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import { MOCK_QUERY } from 'jest/search/mock_data';
@@ -8,8 +8,7 @@ import { stubComponent } from 'helpers/stub_component';
 import GlobalSearchTopbar from '~/search/topbar/components/app.vue';
 import MarkdownDrawer from '~/vue_shared/components/markdown_drawer/markdown_drawer.vue';
 import SearchTypeIndicator from '~/search/topbar/components/search_type_indicator.vue';
-import GlSearchBoxByType from '~/search/topbar/components/search_box_by_type.vue';
-import { ENTER_KEY } from '~/lib/utils/keys';
+import GlobalSearchInput from '~/search/topbar/components/global_search_input.vue';
 import {
   SYNTAX_OPTIONS_ADVANCED_DOCUMENT,
   SYNTAX_OPTIONS_ZOEKT_DOCUMENT,
@@ -31,28 +30,30 @@ describe('GlobalSearchTopbar', () => {
     preloadStoredFrequentItems: jest.fn(),
   };
 
-  const createComponent = (initialState = {}, defaultBranchName = '', stubs = {}) => {
+  const getterSpies = {
+    currentScope: jest.fn(),
+  };
+
+  const createComponent = ({ initialState = {}, stubs = {}, featureFlag = {} } = {}) => {
     const store = new Vuex.Store({
       state: {
         query: MOCK_QUERY,
         ...initialState,
       },
       actions: actionSpies,
+      getters: getterSpies,
     });
 
     wrapper = shallowMount(GlobalSearchTopbar, {
       store,
-      propsData: { defaultBranchName },
       stubs,
       provide: {
-        glFeatures: {
-          zoektExactSearch: true,
-        },
+        glFeatures: featureFlag,
       },
     });
   };
 
-  const findGlSearchBox = () => wrapper.findComponent(GlSearchBoxByType);
+  const findGlSearchBox = () => wrapper.findComponent(GlobalSearchInput);
   const findSyntaxOptionButton = () => wrapper.findComponent(GlButton);
   const findSyntaxOptionDrawer = () => wrapper.findComponent(MarkdownDrawer);
   const findSearchTypeIndicator = () => wrapper.findComponent(SearchTypeIndicator);
@@ -72,9 +73,11 @@ describe('GlobalSearchTopbar', () => {
     `('Seachbox options for searchType: $searchType', ({ searchType, hasRegexSearch }) => {
       beforeEach(() => {
         createComponent({
-          query: { repository_ref: 'master' },
-          searchType,
-          defaultBranchName: 'master',
+          initialState: {
+            query: { repository_ref: 'master' },
+            searchType,
+            defaultBranchName: 'master',
+          },
         });
       });
 
@@ -98,7 +101,7 @@ describe('GlobalSearchTopbar', () => {
       ${'zoekt'}    | ${true}
     `('syntax options drawer with searchType: $searchType', ({ searchType, showSyntaxOptions }) => {
       beforeEach(() => {
-        createComponent({ query: { repository_ref: '' }, searchType });
+        createComponent({ initialState: { query: { repository_ref: '' }, searchType } });
       });
 
       it('renders button correctly', () => {
@@ -116,7 +119,7 @@ describe('GlobalSearchTopbar', () => {
       ${'zoekt'}    | ${SYNTAX_OPTIONS_ZOEKT_DOCUMENT}
     `('syntax options drawer with searchType: $searchType', ({ searchType, documentPath }) => {
       beforeEach(() => {
-        createComponent({ query: { repository_ref: '' }, searchType });
+        createComponent({ initialState: { query: { repository_ref: '' }, searchType } });
       });
 
       it('renders drawer with correct document', () => {
@@ -128,10 +131,13 @@ describe('GlobalSearchTopbar', () => {
       it('dispatched correct click action', () => {
         const drawerToggleSpy = jest.fn();
 
-        createComponent({ query: { repository_ref: '' }, searchType: 'advanced' }, '', {
-          MarkdownDrawer: stubComponent(MarkdownDrawer, {
-            methods: { toggleDrawer: drawerToggleSpy },
-          }),
+        createComponent({
+          initialState: { query: { repository_ref: '' }, searchType: 'advanced' },
+          stubs: {
+            MarkdownDrawer: stubComponent(MarkdownDrawer, {
+              methods: { toggleDrawer: drawerToggleSpy },
+            }),
+          },
         });
 
         findSyntaxOptionButton().vm.$emit('click');
@@ -140,71 +146,62 @@ describe('GlobalSearchTopbar', () => {
     });
 
     describe.each`
-      state                                                                                                                   | hasSyntaxOptions
-      ${{ query: { repository_ref: '' }, searchType: 'basic', searchLevel: 'project', defaultBranchName: 'master' }}          | ${false}
-      ${{ query: { repository_ref: 'v0.1' }, searchType: 'basic', searchLevel: 'project', defaultBranchName: '' }}            | ${false}
-      ${{ query: { repository_ref: 'master' }, searchType: 'basic', searchLevel: 'project', defaultBranchName: 'master' }}    | ${false}
-      ${{ query: { repository_ref: 'master' }, searchType: 'advanced', searchLevel: 'project', defaultBranchName: '' }}       | ${false}
-      ${{ query: { repository_ref: '' }, searchType: 'advanced', searchLevel: 'project', defaultBranchName: 'master' }}       | ${true}
-      ${{ query: { repository_ref: 'v0.1' }, searchType: 'advanced', searchLevel: 'project', defaultBranchName: '' }}         | ${false}
-      ${{ query: { repository_ref: 'master' }, searchType: 'advanced', searchLevel: 'project', defaultBranchName: 'master' }} | ${true}
-      ${{ query: { repository_ref: 'master' }, searchType: 'zoekt', searchLevel: 'project', defaultBranchName: 'master' }}    | ${true}
-    `(
-      `the syntax option based on component state`,
-      ({ state, defaultBranchName, hasSyntaxOptions }) => {
-        beforeEach(() => {
-          createComponent({ ...state }, defaultBranchName);
+      state                                                                                                                                                  | hasSyntaxOptions
+      ${{ query: { repository_ref: '' }, searchType: 'basic', searchLevel: 'project', defaultBranchName: 'master' }}                                         | ${false}
+      ${{ query: { repository_ref: 'v0.1' }, searchType: 'basic', searchLevel: 'project', defaultBranchName: '' }}                                           | ${false}
+      ${{ query: { repository_ref: 'master' }, searchType: 'basic', searchLevel: 'project', defaultBranchName: 'master' }}                                   | ${false}
+      ${{ query: { repository_ref: 'test' }, searchType: 'advanced', searchLevel: 'project', defaultBranchName: '', projectInitialJson: { id: 1 } }}         | ${false}
+      ${{ query: { repository_ref: '' }, searchType: 'advanced', searchLevel: 'project', defaultBranchName: 'master', projectInitialJson: { id: 1 } }}       | ${true}
+      ${{ query: { repository_ref: 'v0.1' }, searchType: 'advanced', searchLevel: 'project', defaultBranchName: '', projectInitialJson: { id: 1 } }}         | ${false}
+      ${{ query: { repository_ref: 'master' }, searchType: 'advanced', searchLevel: 'project', defaultBranchName: 'master', projectInitialJson: { id: 1 } }} | ${true}
+      ${{ query: { repository_ref: 'master' }, searchType: 'zoekt', searchLevel: 'project', defaultBranchName: 'master', projectInitialJson: { id: 1 } }}    | ${true}
+    `(`the syntax option based on component state`, ({ state, hasSyntaxOptions }) => {
+      beforeEach(() => {
+        createComponent({
+          initialState: { ...state },
+        });
+      });
+
+      describe(`repository: ${state.query.repository_ref}, searchType: ${state.searchType}, defaultBranchName: ${state.defaultBranchName}`, () => {
+        it(`renders correctly button`, () => {
+          expect(findSyntaxOptionButton().exists()).toBe(hasSyntaxOptions);
         });
 
-        describe(`repository: ${state.query.repository_ref}, searchType: ${state.searchType}`, () => {
-          it(`renders correctly button`, () => {
-            expect(findSyntaxOptionButton().exists()).toBe(hasSyntaxOptions);
-          });
-
-          it(`renders correctly drawer when branch name is ${state.query.repository_ref}`, () => {
-            expect(findSyntaxOptionDrawer().exists()).toBe(hasSyntaxOptions);
-          });
+        it(`renders correctly drawer when branch name is ${state.query.repository_ref}`, () => {
+          expect(findSyntaxOptionDrawer().exists()).toBe(hasSyntaxOptions);
         });
-      },
-    );
+      });
+    });
   });
 
   describe('actions', () => {
-    beforeEach(() => {
-      createComponent();
+    describe.each`
+      search    | reload
+      ${''}     | ${0}
+      ${'test'} | ${1}
+    `('clicking regular expression button', ({ search, reload }) => {
+      beforeEach(() => {
+        createComponent({
+          initialState: { query: { search }, searchType: 'zoekt' },
+          stubs: { GlobalSearchInput },
+        });
+      });
+
+      it(`calls setQuery and ${!reload ? 'NOT ' : ''}applyQuery if there is a search term`, () => {
+        findRegulareExpressionToggle().vm.$emit('click');
+        expect(actionSpies.setQuery).toHaveBeenCalled();
+        expect(actionSpies.applyQuery).toHaveBeenCalledTimes(reload);
+      });
     });
 
-    it('clicking search button inside search box calls applyQuery', async () => {
-      await nextTick();
+    describe('onCreate', () => {
+      beforeEach(() => {
+        createComponent();
+      });
 
-      findGlSearchBox().vm.$emit('keydown', new KeyboardEvent({ key: ENTER_KEY }));
-      expect(actionSpies.applyQuery).toHaveBeenCalled();
-    });
-  });
-
-  describe.each`
-    search    | reload
-    ${''}     | ${0}
-    ${'test'} | ${1}
-  `('clicking regular expression button', ({ search, reload }) => {
-    beforeEach(() => {
-      createComponent({ query: { search }, searchType: 'zoekt' }, '', { GlSearchBoxByType });
-    });
-
-    it(`calls setQuery and ${!reload ? 'NOT ' : ''}applyQuery if there is a search term`, () => {
-      findRegulareExpressionToggle().vm.$emit('click');
-      expect(actionSpies.setQuery).toHaveBeenCalled();
-      expect(actionSpies.applyQuery).toHaveBeenCalledTimes(reload);
-    });
-  });
-
-  describe('onCreate', () => {
-    beforeEach(() => {
-      createComponent();
-    });
-
-    it('calls preloadStoredFrequentItems', () => {
-      expect(actionSpies.preloadStoredFrequentItems).toHaveBeenCalled();
+      it('calls preloadStoredFrequentItems', () => {
+        expect(actionSpies.preloadStoredFrequentItems).toHaveBeenCalled();
+      });
     });
   });
 });

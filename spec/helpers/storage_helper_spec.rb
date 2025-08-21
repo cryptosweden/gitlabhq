@@ -17,7 +17,7 @@ RSpec.describe StorageHelper, feature_category: :consumables_cost_management do
     end
 
     it "uses commas as thousands separator" do
-      expect(helper.storage_counter(100_000_000_000_000_000_000_000)).to eq("86,736.2 EiB")
+      expect(helper.storage_counter(100_000_000_000_000_000_000_000_000)).to eq("84,703.3 ZB")
     end
   end
 

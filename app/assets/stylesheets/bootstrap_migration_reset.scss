@@ -9,7 +9,7 @@ body {
 }
 
 legend {
-  border-bottom: 1px solid $border-color;
+  @apply gl-border-b;
   margin-bottom: 20px;
 }
 
@@ -59,10 +59,7 @@ hr {
 }
 
 code {
-  padding: 2px 4px;
-  color: $code-color;
-  background-color: $gray-50;
-  border-radius: $gl-border-radius-base;
+  @apply gl-py-1 gl-px-2 gl-text-strong gl-bg-strong gl-rounded-base;
 
   .code > &,
   .build-log & {

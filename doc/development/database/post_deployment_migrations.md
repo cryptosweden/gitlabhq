@@ -1,14 +1,13 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Post Deployment Migrations
 ---
-
-# Post Deployment Migrations
 
 Post deployment migrations are regular Rails migrations that can optionally be
 executed after a deployment. By default these migrations are executed alongside
-the other migrations. To skip these migrations you must set the
+the other migrations, but this would require a downtime. To skip these migrations you must set the
 environment variable `SKIP_POST_DEPLOYMENT_MIGRATIONS` to a non-empty value
 when running `rake db:migrate`.
 
@@ -22,7 +21,8 @@ bundle exec rake db:migrate
 This however skips post deployment migrations:
 
 ```shell
-SKIP_POST_DEPLOYMENT_MIGRATIONS=true bundle exec rake db:migrate
+export SKIP_POST_DEPLOYMENT_MIGRATIONS=true
+bundle exec rake db:migrate
 ```
 
 For GitLab.com, these migrations are executed on a daily basis at the discretion of
@@ -37,7 +37,8 @@ usually use the command `chef-client` to do so. To make use of this feature
 you'd have to run this command as follows:
 
 ```shell
-SKIP_POST_DEPLOYMENT_MIGRATIONS=true sudo chef-client
+export SKIP_POST_DEPLOYMENT_MIGRATIONS=true
+sudo chef-client
 ```
 
 Once all servers have been updated you can run `chef-client` again on a single

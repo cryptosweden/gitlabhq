@@ -51,6 +51,7 @@ RSpec.describe Ci::CancelPipelineService, :aggregate_failures, feature_category:
           .to have_received(:info)
           .with(
             a_hash_including(
+              class: described_class.to_s,
               event: 'pipeline_cancel_running',
               pipeline_id: pipeline.id,
               auto_canceled_by_pipeline_id: nil,
@@ -80,6 +81,7 @@ RSpec.describe Ci::CancelPipelineService, :aggregate_failures, feature_category:
           subject
 
           expect(pipeline.auto_canceled_by_id).to eq(auto_canceled_by_pipeline.id)
+          expect(pipeline.auto_canceled_by_partition_id).to eq(auto_canceled_by_pipeline.partition_id)
 
           expect(pipeline.all_jobs.canceled.pluck(:auto_canceled_by_id).uniq)
             .to eq([auto_canceled_by_pipeline.id])

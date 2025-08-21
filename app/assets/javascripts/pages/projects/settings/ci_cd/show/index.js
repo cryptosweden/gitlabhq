@@ -1,16 +1,17 @@
 import initArtifactsSettings from '~/artifacts_settings';
+import initVariablesMinimumOverrideRole from '~/ci/pipeline_variables_minimum_override_role';
 import initSettingsPipelinesTriggers from '~/ci_settings_pipeline_triggers';
 import initVariableList from '~/ci/ci_variable_list';
 import initInheritedGroupCiVariables from '~/ci/inherited_ci_variables';
 import initDeployFreeze from '~/deploy_freeze';
-import registrySettingsApp from '~/packages_and_registries/settings/project/registry_settings_bundle';
-import initSharedRunnersToggle from '~/projects/settings/mount_shared_runners_toggle';
+import { initInstanceRunnersToggle } from '~/projects/settings/init_instance_runners_toggle';
 import initRefSwitcherBadges from '~/projects/settings/mount_ref_switcher_badges';
 import initSettingsPanels from '~/settings_panels';
 import { initTokenAccess } from '~/token_access';
 import { initCiSecureFiles } from '~/ci_secure_files';
 import initDeployTokens from '~/deploy_tokens';
 import { initProjectRunnersRegistrationDropdown } from '~/ci/runner/project_runners/register';
+import { initProjectRunnersSettings } from '~/ci/runner/project_runners_settings/index';
 import { initGeneralPipelinesOptions } from '~/ci_settings_general_pipeline';
 import { renderGFM } from '~/behaviors/markdown/render_gfm';
 
@@ -31,17 +32,18 @@ extraSettingsToggle?.addEventListener('click', (event) => {
   autoDevOpsExtraSettings.classList.toggle('hidden', !target.checked);
 });
 
-registrySettingsApp();
 initDeployTokens();
 initDeployFreeze();
 initSettingsPipelinesTriggers();
 initArtifactsSettings();
+initVariablesMinimumOverrideRole();
 
 initProjectRunnersRegistrationDropdown();
-initSharedRunnersToggle();
+initInstanceRunnersToggle();
 initRefSwitcherBadges();
 initTokenAccess();
 initCiSecureFiles();
 initGeneralPipelinesOptions();
+initProjectRunnersSettings();
 
 renderGFM(document.getElementById('js-shared-runners-markdown'));

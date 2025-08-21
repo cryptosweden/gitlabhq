@@ -22,6 +22,11 @@ RSpec.describe 'Project Issues Calendar Feed', feature_category: :groups_and_pro
     let!(:issue)    { create(:issue, author: user, assignees: [assignee], project: project) }
 
     before do
+      # TODO: When removing the feature flag,
+      # we won't need the tests for the issues listing page, since we'll be using
+      # the work items listing page.
+      stub_feature_flags(work_item_planning_view: false)
+
       project.add_developer(user)
     end
 
@@ -86,7 +91,7 @@ RSpec.describe 'Project Issues Calendar Feed', feature_category: :groups_and_pro
 
         expect(body).to have_text("SUMMARY:test title (in #{project.full_path})")
         # line length for ics is 75 chars
-        expected_description = (+"DESCRIPTION:Find out more at #{issue_url(issue)}").insert(75, ' ')
+        expected_description = "DESCRIPTION:Find out more at #{issue_url(issue)}".insert(75, ' ')
         expect(body).to have_text(expected_description)
         expect(body).to have_text("DTSTART;VALUE=DATE:#{Date.tomorrow.strftime('%Y%m%d')}")
         expect(body).to have_text("URI:#{issue_url(issue)}")

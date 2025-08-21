@@ -20,7 +20,8 @@ class Projects::TriggersController < Projects::ApplicationController
     response = ::Ci::PipelineTriggers::CreateService.new(
       project: project,
       user: current_user,
-      description: trigger_params[:description]
+      description: trigger_params[:description],
+      expires_at: trigger_params[:expires_at]
     ).execute
 
     @trigger = response.payload[:trigger]
@@ -35,10 +36,12 @@ class Projects::TriggersController < Projects::ApplicationController
   end
 
   def update
-    response = ::Ci::PipelineTriggers::UpdateService.new(user: current_user, trigger: trigger, description: trigger_params[:description]).execute
+    response = ::Ci::PipelineTriggers::UpdateService.new(user: current_user, trigger: trigger,
+      description: trigger_params[:description]).execute
 
     if response.success?
-      redirect_to project_settings_ci_cd_path(@project, anchor: 'js-pipeline-triggers'), notice: _('Trigger token was successfully updated.')
+      redirect_to project_settings_ci_cd_path(@project, anchor: 'js-pipeline-triggers'),
+        notice: _('Trigger token was successfully updated.')
     else
       render action: "edit"
     end
@@ -76,6 +79,6 @@ class Projects::TriggersController < Projects::ApplicationController
   end
 
   def trigger_params
-    params.require(:trigger).permit(:description)
+    params.require(:trigger).permit(:description, :expires_at)
   end
 end

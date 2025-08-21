@@ -1,14 +1,16 @@
 ---
-stage: Systems
+stage: Tenant Scale
 group: Geo
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting common Geo errors
 ---
 
-# Troubleshooting common Geo errors
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 ## Basic troubleshooting
 
@@ -21,7 +23,7 @@ Before attempting more advanced troubleshooting:
 
 On the **primary** site:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Geo > Sites**.
 
 We perform the following health checks on each **secondary** site
@@ -32,15 +34,19 @@ to help identify if something is wrong:
 - Is the secondary site's tracking database configured?
 - Is the secondary site's tracking database connected?
 - Is the secondary site's tracking database up-to-date?
-- Is the secondary site's status less than 10 minutes old?
+- Is the secondary site's status less than 1 hour old?
 
-A site shows as "Unhealthy" if the site's status is more than 10 minutes old. In that case, try running the following in the [Rails console](../../../operations/rails_console.md) on the affected secondary site:
+A site shows as "Unhealthy" if the site's status is more than 1 hour old. In that case, try running the following in the [Rails console](../../../operations/rails_console.md) on the affected secondary site:
 
 ```ruby
 Geo::MetricsUpdateWorker.new.perform
 ```
 
-If it raises an error, then the error is probably also preventing the jobs from completing. If it takes longer than 10 minutes, then there may be a performance issue, and the UI may always show "Unhealthy" even if the status eventually does get updated.
+If it raises an error, then the error is probably also preventing the jobs from completing. If it takes longer than 1 hour, then the status might flap or persist as "Unhealthy", even if the status does occasionally get updated. This might be due to growth in usage, growth in data over time, or performance bugs such as a missing database index.
+
+You can monitor system CPU load with a utility like `top` or `htop`. If PostgreSQL is using a significant amount of CPU, it might indicate that there's a problem, or that the system is underprovisioned. System memory should also be monitored.
+
+If you increase memory, you should also check the PostgreSQL memory-related settings in your `/etc/gitlab/gitlab.rb` configuration.
 
 If it successfully updates the status, then something may be wrong with Sidekiq. Is it running? Do the logs show errors? This job is supposed to be enqueued every minute and might not run if a [job deduplication idempotency](../../../sidekiq/sidekiq_troubleshooting.md#clearing-a-sidekiq-job-deduplication-idempotency-key) key was not cleared properly. It takes an exclusive lease in Redis to ensure that only one of these jobs can run at a time. The primary site updates its status directly in the PostgreSQL database. Secondary sites send an HTTP Post request to the primary site with their status data.
 
@@ -60,7 +66,11 @@ health check manually to get this information and a few more details.
 
 #### Health check Rake task
 
-> - The use of a custom NTP server was [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/105514) in GitLab 15.7.
+{{< history >}}
+
+- The use of a custom NTP server was [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/105514) in GitLab 15.7.
+
+{{< /history >}}
 
 This Rake task can be run on a **Rails** node in the **primary** or **secondary**
 Geo sites:
@@ -120,9 +130,9 @@ OpenSSH configured to use AuthorizedKeysCommand ... skipped
   doc/administration/operations/fast_ssh_key_lookup.md
 ```
 
-This issue may occur if:
+This issue might occur if:
 
-- You [use SELinux](../../../operations/fast_ssh_key_lookup.md#selinux-support-and-limitations).
+- You use [SELinux](../../../operations/fast_ssh_key_lookup.md#selinux-support).
 - You don't use SELinux, and the `git` user cannot access the OpenSSH configuration file due to restricted file permissions.
 
 In the latter case, the following output shows that only the `root` user can read this file:
@@ -158,58 +168,69 @@ The output includes:
 Example:
 
 ```plaintext
-http://secondary.example.com/
------------------------------------------------------
-                        GitLab Version: 14.9.2-ee
-                              Geo Role: Secondary
-                         Health Status: Healthy
-                  Project Repositories: succeeded 12345 / total 12345 (100%)
-             Project Wiki Repositories: succeeded 6789 / total 6789 (100%)
-                           Attachments: succeeded 4 / total 4 (100%)
-                      CI job artifacts: succeeded 0 / total 0 (0%)
-        Design management repositories: succeeded 1 / total 1 (100%)
-                           LFS Objects: failed 1 / succeeded 2 / total 3 (67%)
-                   Merge Request Diffs: succeeded 0 / total 0 (0%)
-                         Package Files: failed 1 / succeeded 2 / total 3 (67%)
-              Terraform State Versions: failed 1 / succeeded 2 / total 3 (67%)
-                  Snippet Repositories: failed 1 / succeeded 2 / total 3 (67%)
-               Group Wiki Repositories: succeeded 4 / total 4 (100%)
-                    Pipeline Artifacts: failed 3 / succeeded 0 / total 3 (0%)
-                     Pages Deployments: succeeded 0 / total 0 (0%)
-                  Repositories Checked: failed 5 / succeeded 0 / total 5 (0%)
-                Package Files Verified: succeeded 0 / total 10 (0%)
-     Terraform State Versions Verified: succeeded 0 / total 10 (0%)
-         Snippet Repositories Verified: succeeded 99 / total 100 (99%)
-           Pipeline Artifacts Verified: succeeded 0 / total 10 (0%)
-         Project Repositories Verified: succeeded 12345 / total 12345 (100%)
-    Project Wiki Repositories Verified: succeeded 6789 / total 6789 (100%)
-                         Sync Settings: Full
-              Database replication lag: 0 seconds
-       Last event ID seen from primary: 12345 (about 2 minutes ago)
-               Last event ID processed: 12345 (about 2 minutes ago)
-                Last status report was: 1 minute ago
+                        Geo Site Information
+--------------------------------------------
+                                      Name: example-us-east-2
+                                       URL: https://gitlab.example.com
+                                  Geo Role: Secondary
+                             Health Status: Healthy
+                This Node's GitLab Version: 17.7.0-ee
+
+                     Replication Information
+--------------------------------------------
+                             Sync Settings: Full
+                  Database replication lag: 0 seconds
+           Last event ID seen from primary: 12345 (about 2 minutes ago)
+                   Last event ID processed: 12345 (about 2 minutes ago)
+                    Last status report was: 1 minute ago
+
+                          Replication Status
+--------------------------------------------
+                    Lfs Objects replicated: succeeded 111 / total 111 (100%)
+            Merge Request Diffs replicated: succeeded 28 / total 28 (100%)
+                  Package Files replicated: succeeded 90 / total 90 (100%)
+       Terraform State Versions replicated: succeeded 65 / total 65 (100%)
+           Snippet Repositories replicated: succeeded 63 / total 63 (100%)
+        Group Wiki Repositories replicated: succeeded 14 / total 14 (100%)
+             Pipeline Artifacts replicated: succeeded 112 / total 112 (100%)
+              Pages Deployments replicated: succeeded 55 / total 55 (100%)
+                        Uploads replicated: succeeded 2 / total 2 (100%)
+                  Job Artifacts replicated: succeeded 32 / total 32 (100%)
+                Ci Secure Files replicated: succeeded 44 / total 44 (100%)
+         Dependency Proxy Blobs replicated: succeeded 15 / total 15 (100%)
+     Dependency Proxy Manifests replicated: succeeded 2 / total 2 (100%)
+      Project Wiki Repositories replicated: succeeded 2 / total 2 (100%)
+ Design Management Repositories replicated: succeeded 1 / total 1 (100%)
+           Project Repositories replicated: succeeded 2 / total 2 (100%)
+
+                         Verification Status
+--------------------------------------------
+                      Lfs Objects verified: succeeded 111 / total 111 (100%)
+              Merge Request Diffs verified: succeeded 28 / total 28 (100%)
+                    Package Files verified: succeeded 90 / total 90 (100%)
+         Terraform State Versions verified: succeeded 65 / total 65 (100%)
+             Snippet Repositories verified: succeeded 63 / total 63 (100%)
+          Group Wiki Repositories verified: succeeded 14 / total 14 (100%)
+               Pipeline Artifacts verified: succeeded 112 / total 112 (100%)
+                Pages Deployments verified: succeeded 55 / total 55 (100%)
+                          Uploads verified: succeeded 2 / total 2 (100%)
+                    Job Artifacts verified: succeeded 32 / total 32 (100%)
+                  Ci Secure Files verified: succeeded 44 / total 44 (100%)
+           Dependency Proxy Blobs verified: succeeded 15 / total 15 (100%)
+       Dependency Proxy Manifests verified: succeeded 2 / total 2 (100%)
+        Project Wiki Repositories verified: succeeded 2 / total 2 (100%)
+   Design Management Repositories verified: succeeded 1 / total 1 (100%)
+             Project Repositories verified: succeeded 2 / total 2 (100%)
+
 ```
 
-Each item can have up to three statuses. For example, for `Project Repositories`, you see the following lines:
-
-```plaintext
-  Project Repositories: succeeded 12345 / total 12345 (100%)
-  Project Repositories Verified: succeeded 12345 / total 12345 (100%)
-  Repositories Checked: failed 5 / succeeded 0 / total 5 (0%)
-```
-
-The 3 status items are defined as follows:
-
-- The `Project Repositories` output shows how many project repositories are synced from the primary to the secondary.
-- The `Project Verified Repositories` output shows how many project repositories on this secondary have a matching repository checksum with the Primary.
-- The `Repositories Checked` output shows how many project repositories have passed a local Git repository check (`git fsck`) on the secondary.
+All objects are replicated and verified, which are defined in the [Geo glossary](../../glossary.md). Read more about the
+methods we use for replicating and verifying each data type in [supported Geo data types](../datatypes.md#data-types).
 
 To find more details about failed items, check
 [the `gitlab-rails/geo.log` file](../../../logs/log_parsing.md#find-most-common-geo-sync-errors)
 
-If you notice replication or verification failures, you can try to [resolve them](replication.md#fixing-non-postgresql-replication-failures).
-
-If there are Repository check failures, you can try to [resolve them](synchronization.md#find-repository-check-failures-in-a-geo-secondary-site).
+If you notice replication or verification failures, you can try to [resolve them](synchronization_verification.md).
 
 ##### Fixing errors found when running the Geo check Rake task
 
@@ -262,7 +283,7 @@ sudo gitlab-rake gitlab:geo:check
   ```
 
   Verify the correct password is set for `gitlab_rails['db_password']` that was
-  used when creating the hash in  `postgresql['sql_user_password']` by running
+  used when creating the hash in `postgresql['sql_user_password']` by running
   `gitlab-ctl pg-password-md5 gitlab` and entering the password.
 
 - Check returns `not a secondary node`.
@@ -278,9 +299,9 @@ sudo gitlab-rake gitlab:geo:check
   Checking Geo ... Finished
   ```
 
-  Ensure you have added the secondary site in the Admin Area under **Geo > Sites** on the web interface for the **primary** site.
+  Ensure you have added the secondary site in the **Admin** area under **Geo > Sites** on the web interface for the **primary** site.
   Also ensure you entered the `gitlab_rails['geo_node_name']`
-  when adding the secondary site in the Admin Area of the **primary** site.
+  when adding the secondary site in the **Admin** area of the **primary** site.
 
 - Check returns `Exception: PG::UndefinedTable: ERROR:  relation "geo_nodes" does not exist`.
 
@@ -357,7 +378,7 @@ In GitLab 15.6 and earlier, use one of the following workarounds:
 - Add entries in `/etc/hosts` for `pool.ntp.org` to direct the request to valid local time servers.
   This fixes the long timeout and the timeout error.
 - Direct the check to any valid IP address. This resolves the timeout issue, but the check fails
-  with the `No route to host` error, as noted above.
+  with the `No route to host` error, as noted previously.
 
 [Cloud native GitLab deployments](https://docs.gitlab.com/charts/advanced/geo/#set-the-geo-primary-site)
 generate an error because containers in Kubernetes do not have access to the host clock:
@@ -395,9 +416,23 @@ The PostgreSQL read-replica database would be producing these errors:
 2023-01-17_17:44:54.64271 STATEMENT:  /*application:web,db_config_name:main*/ INSERT INTO "shards" ("name") VALUES ('storage1') RETURNING "id"
 ```
 
-This situation can occur during initial configuration when a secondary site is not yet aware that it is a secondary site.
+This situation can occur:
 
-To resolve the error, follow [Step 3. Add the secondary site](../configuration.md#step-3-add-the-secondary-site).
+- During initial configuration when a secondary site is not yet aware that it is a secondary site. To resolve the error, follow [Step 3. Add the secondary site](../configuration.md#step-3-add-the-secondary-site).
+- During the upgrade of a Geo secondary site. It's possible that `gitlab_rails['auto_migrate']` is set to `true`, causing GitLab to attempt database migrations on the replica database, which is not required. To resolve the error:
+
+  1. SSH as root to the GitLab Rails node of the secondary site.
+  1. Edit `/etc/gitlab/gitlab.rb`, and comment out this setting or set it to false:
+
+     ```ruby
+     gitlab_rails['auto_migrate'] = false
+     ```
+
+  1. Reconfigure GitLab:
+
+     ```shell
+     sudo gitlab-ctl reconfigure
+     ```
 
 ### Check if PostgreSQL replication is working
 
@@ -406,7 +441,7 @@ To check if PostgreSQL replication is working, check if:
 - [Sites are pointing to the correct database node](#are-sites-pointing-to-the-correct-database-node).
 - [Geo can detect the current site correctly](#can-geo-detect-the-current-site-correctly).
 
-If you're still having problems, see the [advanced replication troubleshooting](replication.md).
+If you're still having problems, see the [advanced replication troubleshooting](synchronization_verification.md).
 
 #### Are sites pointing to the correct database node?
 
@@ -423,7 +458,7 @@ Geo finds the current Puma or Sidekiq node's Geo [site](../../glossary.md) name 
 1. Get the "Geo node name" (there is
    [an issue to rename the settings to "Geo site name"](https://gitlab.com/gitlab-org/gitlab/-/issues/335944)):
    - Linux package: get the `gitlab_rails['geo_node_name']` setting.
-   - GitLab Helm charts: get the `global.geo.nodeName` setting (see [Charts with GitLab Geo](https://docs.gitlab.com/charts/advanced/geo/index.html)).
+   - GitLab Helm charts: get the `global.geo.nodeName` setting (see [Charts with GitLab Geo](https://docs.gitlab.com/charts/advanced/geo/)).
 1. If that is not defined, then get the `external_url` setting.
 
 This name is used to look up the Geo site with the same **Name** in the **Geo Sites**
@@ -449,15 +484,15 @@ This machine's Geo node name matches a database record ... no
   You could add or update a Geo node database record, setting the name to "https://example.com/".
   Or you could set this machine's Geo node name to match the name of an existing database record: "London", "Shanghai"
   For more information see:
-  doc/administration/geo/replication/troubleshooting/index.md#can-geo-detect-the-current-node-correctly
+  doc/administration/geo/replication/troubleshooting/_index.md#can-geo-detect-the-current-node-correctly
 ```
 
 For more information about recommended site names in the description of the Name field, see
-[Geo Admin Area Common Settings](../../../../administration/geo_sites.md#common-settings).
+[Geo **Admin** area Common Settings](../../../geo_sites.md#common-settings).
 
 ### Check OS locale data compatibility
 
-If at all possible, all Geo nodes across all sites should be deployed with the same method and operating system, as defined in the [requirements for running Geo](../../index.md#requirements-for-running-geo).
+If at all possible, all Geo nodes across all sites should be deployed with the same method and operating system, as defined in the [requirements for running Geo](../../_index.md#requirements-for-running-geo).
 
 If different operating systems or different operating system versions are deployed across Geo sites, you **must** perform a locale data compatibility check before setting up Geo. You must also check `glibc` when using a mixture of GitLab deployment methods. The locale might be different between a Linux package install, a GitLab Docker container, a Helm chart deployment, or external database services. See the [documentation on upgrading operating systems for PostgreSQL](../../../postgresql/upgrading_os.md), including how to check `glibc` version compatibility.
 
@@ -468,26 +503,16 @@ See the [PostgreSQL wiki for more details](https://wiki.postgresql.org/wiki/Loca
 
 ## Fixing common errors
 
-This section documents common error messages reported in the Admin Area on the web interface, and how to fix them.
-
-### Geo database configuration file is missing
-
-GitLab cannot find or doesn't have permission to access the `database_geo.yml` configuration file.
-
-In a Linux package installation, the file should be in `/var/opt/gitlab/gitlab-rails/etc`.
-If it doesn't exist or inadvertent changes have been made to it, run `sudo gitlab-ctl reconfigure` to restore it to its correct state.
-
-If this path is mounted on a remote volume, ensure your volume configuration
-has the correct permissions.
+This section documents common error messages reported in the **Admin** area on the web interface, and how to fix them.
 
 ### An existing tracking database cannot be reused
 
 Geo cannot reuse an existing tracking database.
 
 It is safest to use a fresh secondary, or reset the whole secondary by following
-[Resetting Geo secondary site replication](replication.md#resetting-geo-secondary-site-replication).
+[Resetting Geo secondary site replication](synchronization_verification.md#resetting-geo-secondary-site-replication).
 
-It is risky to reuse a secondary site without resetting it because the secondary site may have missed some Geo events. For example, missed deletion events lead to the secondary site permanently having data that should be deleted. Similarly, losing an event which physically moves the location of data leads to data permanently orphaned in one location, and missing in the other location until it is re-verified. This is why GitLab switched to hashed storage, since it makes moving data unnecessary. There may be other unknown problems due to lost events.
+It is risky to reuse a secondary site without resetting it because the secondary site may have missed some Geo events. For example, missed deletion events lead to the secondary site permanently having data that should be deleted. Similarly, losing an event which physically moves the location of data leads to data permanently orphaned in one location, and missing in the other location until it is re-verified. This is why GitLab switched to hashed storage, which makes moving data unnecessary. There may be other unknown problems due to lost events.
 
 If these kinds of risks do not apply, for example in a test environment, or if you know that the main Postgres database still contains all Geo events since the Geo site was added, then you can bypass this health check:
 
@@ -537,17 +562,17 @@ This error message indicates that the replica database in the **secondary** site
 
 To restore the database and resume replication, you can do one of the following:
 
-- [Reset the Geo secondary site replication](replication.md#resetting-geo-secondary-site-replication).
-- [Set up a new Geo secondary using the Linux package](../../setup/index.md#using-linux-package-installations).
+- [Reset the Geo secondary site replication](synchronization_verification.md#resetting-geo-secondary-site-replication).
+- [Set up a new Geo secondary using the Linux package](../../setup/_index.md#using-linux-package-installations).
 
-If you set up a new secondary from scratch, you must also [remove the old site from the Geo cluster](../remove_geo_site.md#removing-secondary-geo-sites).
+If you set up a new secondary from scratch, you must also [remove the old site from the Geo cluster](../remove_geo_site.md).
 
 ### Geo site does not appear to be replicating the database from the primary site
 
 The most common problems that prevent the database from replicating correctly are:
 
 - **Secondary** sites cannot reach the **primary** site. Check credentials and
-  [firewall rules](../../index.md#firewall-rules).
+  [firewall rules](../../_index.md#firewall-rules).
 - SSL certificate problems. Make sure you copied `/etc/gitlab/gitlab-secrets.json` from the **primary** site.
 - Database storage disk is full.
 - Database replication slot is misconfigured.
@@ -567,6 +592,21 @@ If you are using the Linux package installation, something might have failed dur
 This can be caused by orphaned records in the project registry. They are being cleaned
 periodically using a registry worker, so give it some time to fix it itself.
 
+### Failed checksums on primary site
+
+Failed checksums identified by the Geo Primary Verification information screen can be caused by missing files or mismatched checksums. You can find error messages like `"Repository cannot be checksummed because it does not exist"` or `"File is not checksummable"` in the `gitlab-rails/geo.log` file.
+
+For additional information about failed items, run the [integrity check Rake tasks](../../../raketasks/check.md#uploaded-files-integrity):
+
+```ruby
+sudo gitlab-rake gitlab:artifacts:check
+sudo gitlab-rake gitlab:ci_secure_files:check
+sudo gitlab-rake gitlab:lfs:check
+sudo gitlab-rake gitlab:uploads:check
+```
+
+For detailed information about individual errors, use the `VERBOSE=1` variable.
+
 ### Secondary site shows "Unhealthy" in UI
 
 If you have updated the value of `external_url` in `/etc/gitlab/gitlab.rb` for the primary site or changed the protocol from `http` to `https`, you may see that secondary sites are shown as `Unhealthy`. You may also find the following error in `geo.log`:
@@ -580,7 +620,7 @@ If you have updated the value of `external_url` in `/etc/gitlab/gitlab.rb` for t
 
 In this case, make sure to update the changed URL on all your sites:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Geo > Sites**.
 1. Change the URL and save the change.
 
@@ -604,3 +644,130 @@ create the following empty file:
 ```shell
 sudo touch /etc/gitlab/skip-auto-backup
 ```
+
+### High CPU usage on primary during object verification
+
+From GitLab 16.11 to GitLab 17.2, a missing PostgreSQL index causes high CPU
+usage and slow artifact verification progress. Additionally, the Geo secondary
+sites might report as unhealthy. [Issue 471727](https://gitlab.com/gitlab-org/gitlab/-/issues/471727) describes the behavior in detail.
+
+To determine if you might be experiencing this issue, follow the steps to
+[confirm if you are affected](https://gitlab.com/gitlab-org/gitlab/-/issues/471727#to-confirm-if-you-are-affected).
+
+If you are affected, follow the steps in the [workaround](https://gitlab.com/gitlab-org/gitlab/-/issues/471727#workaround)
+to manually create the index. Creating the index causes PostgreSQL to
+consume slightly more resources until it finishes. Afterward, CPU usage might
+remain high while verification continues, but queries should complete
+significantly faster, and secondary site status should update correctly.
+
+### Verification failed with: `Verification timed out after (...)`
+
+From GitLab 16.11, Geo may create duplicate `JobArtifactRegistry` entries for the same `artifact_id`, which can lead to synchronization
+failures between primary and secondary sites. This issue may also impact `UploadRegistry` and `PackageFileRegistry` entries.
+
+To determine if you might be experiencing this issue and remove the duplicate entries:
+
+1. Open a [Rails console](../../../operations/rails_console.md) in the secondary site.
+1. Get the number of model record IDs that have duplicates:
+
+   ```ruby
+   artifact_ids = Geo::JobArtifactRegistry.group(:artifact_id).having('COUNT(*) > 1').pluck(:artifact_id); artifact_ids.size
+   upload_ids = Geo::UploadRegistry.group(:file_id).having('COUNT(*) > 1').pluck(:file_id); upload_ids.size
+   package_file_ids = Geo::PackageFileRegistry.group(:package_file_id).having('COUNT(*) > 1').pluck(:package_file_id); package_file_ids.size
+   ```
+
+1. Output the IDs:
+
+   ```ruby
+   puts 'BEGIN Artifact IDs', artifact_ids, 'END Artifact IDs'
+   puts 'BEGIN Upload IDs', upload_ids, 'END Upload IDs'
+   puts 'BEGIN Package File IDs', package_file_ids, 'END Package File IDs'
+   ```
+
+   If the output is empty, you are not affected. Otherwise, save
+   the terminal output in a text file in case you lose connection later.
+
+1. Delete all duplicates:
+
+   ```ruby
+   Geo::JobArtifactRegistry.where(artifact_id: artifact_ids).delete_all
+   Geo::UploadRegistry.where(file_id: upload_ids).delete_all
+   Geo::PackageFileRegistry.where(package_file_id: package_file_ids).delete_all
+   ```
+
+1. Wait for the background jobs to create the registry rows again and resync.
+
+Follow [issue 479852](https://gitlab.com/gitlab-org/gitlab/-/issues/479852) to get feedback on the fix.
+
+### Error `end of file reached` when running Geo Rake check task on secondary
+
+You may face the following error when running the [health check Rake task](common.md#health-check-rake-task) on the secondary site:
+
+```plaintext
+Can connect to the primary node ... no
+Reason:
+end of file reached
+```
+
+It might happen if the incorrect URL to the primary site was specified in the setting. To troubleshoot it,
+run the following commands in [the Rails Console](../../../operations/rails_console.md):
+
+```ruby
+primary = Gitlab::Geo.primary_node
+primary.internal_uri
+Gitlab::HTTP.get(primary.internal_uri, allow_local_requests: true, limit: 10)
+```
+
+Make sure that the value of `internal_uri` is correct in the previous output.
+If the URL of the primary site is incorrect, double-check it in `/etc/gitlab/gitlab.rb`, and in **Admin > Geo > Sites**.
+
+### Excessive database IO from Geo metrics collection
+
+If you're experiencing high database load due to frequent Geo metrics collection, you can reduce the frequency of the `geo_metrics_update_worker` job. This adjustment can help alleviate database strain in large GitLab instances where metrics collection significantly impacts database performance.
+
+Increasing the interval means that your Geo metrics are updated less frequently. This results in metrics being out-of-date for longer periods of time, which may impact your ability to monitor Geo replication in real-time. If metrics are out-of-date for more than 10 minutes, the site is arbitrarily marked as "Unhealthy" in the Admin Area.
+
+The following example sets the job to run every 30 minutes. Adjust the cron schedule based on your needs.
+
+{{< tabs >}}
+
+{{< tab title="Linux package (Omnibus)" >}}
+
+1. Add or modify the following setting in `/etc/gitlab/gitlab.rb`:
+
+   ```ruby
+   gitlab_rails['geo_metrics_update_worker_cron'] = "*/30 * * * *"
+   ```
+
+1. Reconfigure GitLab:
+
+   ```shell
+   sudo gitlab-ctl reconfigure
+   ```
+
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
+
+1. Edit `/home/git/gitlab/config/gitlab.yml`:
+
+   ```yaml
+   production: &base
+     ee_cron_jobs:
+       geo_metrics_update_worker:
+         cron: "*/30 * * * *"
+   ```
+
+1. Save the file and restart GitLab:
+
+   ```shell
+   # For systems running systemd
+   sudo systemctl restart gitlab.target
+
+   # For systems running SysV init
+   sudo service gitlab restart
+   ```
+
+{{< /tab >}}
+
+{{< /tabs >}}

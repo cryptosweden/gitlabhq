@@ -12,11 +12,12 @@ RSpec.describe 'getting merge request listings nested in a project', feature_cat
   let_it_be(:group_label) { create(:group_label, group: group) }
 
   let_it_be_with_reload(:merge_request_a) do
-    create(:labeled_merge_request, :unique_branches, source_project: project, labels: [label, group_label])
+    create(:labeled_merge_request, :unique_branches, source_project: project, labels: [label, group_label],
+      reviewers: [current_user])
   end
 
   let_it_be(:merge_request_b) do
-    create(:merge_request, :closed, :unique_branches, source_project: project)
+    create(:merge_request, :closed, :unique_branches, source_project: project, reviewers: [current_user, create(:user)])
   end
 
   let_it_be(:merge_request_c) do
@@ -59,7 +60,7 @@ RSpec.describe 'getting merge request listings nested in a project', feature_cat
       # We cannot disable SQL query limiting here, since the transaction does not
       # begin until we enter the controller.
       headers = {
-        'X-GITLAB-DISABLE-SQL-QUERY-LIMIT' => 'https://gitlab.com/gitlab-org/gitlab/-/issues/322979'
+        'X-GITLAB-DISABLE-SQL-QUERY-LIMIT' => '224,https://gitlab.com/gitlab-org/gitlab/-/issues/469250'
       }
 
       post_graphql(query, current_user: current_user, headers: headers)
@@ -229,26 +230,26 @@ RSpec.describe 'getting merge request listings nested in a project', feature_cat
     it_behaves_like 'when searching with parameters'
   end
 
-  context 'when searching by approved' do
-    let(:approved_mr) { create(:merge_request, target_project: project, source_project: project) }
-
-    before do
-      create(:approval, merge_request: approved_mr)
+  context 'when requesting not the only assigned reviewer' do
+    let(:search_params) do
+      {
+        iids: [merge_request_a.iid.to_s, merge_request_b.iid.to_s],
+        not: { reviewer_username: current_user.username, only_reviewer: true }
+      }
     end
 
-    context 'when true' do
-      let(:search_params) { { approved: true } }
-      let(:mrs) { [approved_mr] }
+    let(:extra_iid_for_second_query) { merge_request_c.iid.to_s }
+    let(:requested_fields) { [:iid] }
+    let(:mrs) { [merge_request_b] }
 
-      it_behaves_like 'when searching with parameters'
+    def execute_query
+      query = query_merge_requests(requested_fields)
+      post_graphql(query, current_user: current_user)
     end
 
-    context 'when false' do
-      let(:search_params) { { approved: false } }
-      let(:mrs) { all_merge_requests }
+    it_behaves_like 'when searching with parameters'
 
-      it_behaves_like 'when searching with parameters'
-    end
+    include_examples 'N+1 query check'
   end
 
   context 'when requesting `approved_by`' do
@@ -300,13 +301,25 @@ RSpec.describe 'getting merge request listings nested in a project', feature_cat
 
     context 'when requesting `merged_at`' do
       let(:requested_fields) { [:merged_at] }
+      let(:merge_request_ids) { [merge_request_a.id, merge_request_b.id, merge_request_c.id] }
 
       before do
         # make the MRs "merged"
-        [merge_request_a, merge_request_b, merge_request_c].each do |mr|
-          mr.update!(state_id: MergeRequest.available_states[:merged])
-          mr.metrics.update!(merged_at: Time.now)
-        end
+        ::MergeRequest.where(id: merge_request_ids).update_all(state_id: MergeRequest.available_states[:merged])
+        ::MergeRequest::Metrics.where(merge_request_id: merge_request_ids).update_all(merged_at: Time.now)
+      end
+
+      include_examples 'N+1 query check'
+    end
+
+    context 'when requesting `closed_at`' do
+      let(:requested_fields) { [:closed_at] }
+      let(:merge_request_ids) { [merge_request_a.id, merge_request_b.id, merge_request_c.id] }
+
+      before do
+        # make the MRs "closed"
+        ::MergeRequest.where(id: merge_request_ids).update_all(state_id: MergeRequest.available_states[:closed])
+        ::MergeRequest::Metrics.where(merge_request_id: merge_request_ids).update_all(latest_closed_at: Time.now)
       end
 
       include_examples 'N+1 query check'
@@ -359,8 +372,8 @@ RSpec.describe 'getting merge request listings nested in a project', feature_cat
       let(:requested_fields) { 'upvotes downvotes awardEmoji { nodes { name } }' }
 
       before do
-        create_list(:award_emoji, 2, name: 'thumbsup', awardable: merge_request_a)
-        create_list(:award_emoji, 2, name: 'thumbsdown', awardable: merge_request_b)
+        create_list(:award_emoji, 2, name: AwardEmoji::THUMBS_UP, awardable: merge_request_a)
+        create_list(:award_emoji, 2, name: AwardEmoji::THUMBS_DOWN, awardable: merge_request_b)
       end
 
       include_examples 'N+1 query check'

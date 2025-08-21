@@ -30,10 +30,6 @@ export default {
     event: 'selectProject',
   },
   props: {
-    list: {
-      type: Object,
-      required: true,
-    },
     selectedProject: {
       type: Object,
       required: true,
@@ -88,9 +84,6 @@ export default {
     selectedProjectName() {
       return this.selectedProject.name || this.$options.i18n.dropdownText;
     },
-    isFetchResultEmpty() {
-      return this.activeGroupProjects.length === 0;
-    },
     hasNextPage() {
       return this.projects.pageInfo?.hasNextPage;
     },
@@ -137,9 +130,12 @@ export default {
 
 <template>
   <div>
-    <label class="gl-font-bold gl-mt-3" data-testid="header-label">{{
-      $options.i18n.headerTitle
-    }}</label>
+    <label
+      id="project-select-listbox-label"
+      class="gl-mt-3 gl-font-bold"
+      data-testid="header-label"
+      >{{ $options.i18n.headerTitle }}</label
+    >
     <gl-collapsible-listbox
       v-model="selectedProjectId"
       block
@@ -149,6 +145,7 @@ export default {
       :items="activeGroupProjects"
       :toggle-text="selectedProjectName"
       :header-text="$options.i18n.headerTitle"
+      toggle-aria-labelled-by="project-select-listbox-label"
       :loading="initialLoading"
       :searching="isLoading"
       :search-placeholder="$options.i18n.searchPlaceholder"

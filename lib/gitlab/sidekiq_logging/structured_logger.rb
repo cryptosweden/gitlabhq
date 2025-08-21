@@ -14,7 +14,7 @@ module Gitlab
         started_time = get_time
         base_payload = parse_job(job)
 
-        ActiveRecord::LogSubscriber.reset_runtime
+        ActiveRecord::RuntimeRegistry.reset
 
         @logger.info log_job_start(job, base_payload)
 
@@ -51,11 +51,21 @@ module Gitlab
       end
 
       def log_job_start(job, payload)
+        add_thread_identity(payload)
         payload['message'] = "#{base_message(payload)}: start"
         payload['job_status'] = 'start'
 
-        scheduling_latency_s = ::Gitlab::InstrumentationHelper.queue_duration_for_job(payload)
-        payload['scheduling_latency_s'] = scheduling_latency_s if scheduling_latency_s
+        buffering_duration_s = ::Gitlab::InstrumentationHelper.buffering_duration_for_job(payload)
+        payload['concurrency_limit_buffering_duration_s'] = buffering_duration_s if buffering_duration_s
+
+        queue_duration_s = ::Gitlab::InstrumentationHelper.queue_duration_for_job(payload)
+        scheduling_duration_s = ::Gitlab::InstrumentationHelper.queue_duration_for_job(job,
+          with_buffering_duration: false)
+
+        if queue_duration_s
+          payload['queue_duration_s'] = queue_duration_s
+          payload['scheduling_latency_s'] = scheduling_duration_s
+        end
 
         enqueue_latency_s = ::Gitlab::InstrumentationHelper.enqueue_latency_for_scheduled_job(payload)
         payload['enqueue_latency_s'] = enqueue_latency_s if enqueue_latency_s
@@ -65,6 +75,7 @@ module Gitlab
 
       def log_job_done(job, started_time, payload, job_exception = nil)
         payload = payload.dup
+        add_thread_identity(payload)
         add_instrumentation_keys!(job, payload)
         add_logging_extras!(job, payload)
 
@@ -93,7 +104,7 @@ module Gitlab
 
         Gitlab::ExceptionLogFormatter.format!(job_exception, payload) if job_exception
 
-        db_duration = ActiveRecord::LogSubscriber.runtime
+        db_duration = ActiveRecord::RuntimeRegistry.sql_runtime
         payload['db_duration_s'] = Gitlab::Utils.ms_to_round_sec(db_duration)
 
         job_urgency = payload['class'].safe_constantize&.get_urgency.to_s
@@ -105,6 +116,11 @@ module Gitlab
         end
 
         payload
+      end
+
+      def add_thread_identity(payload)
+        payload['sidekiq_tid'] = Gitlab::SidekiqProcess.tid
+        payload['sidekiq_thread_name'] = Thread.current.name if Thread.current.name
       end
 
       def add_time_keys!(time, payload)

@@ -17,8 +17,7 @@ module Integrations
 
           bulk_insert_data_fields(inserted_ids) if integration.data_fields_present?
 
-          if integration.is_a?(GitlabSlackApplication) && integration.active? &&
-              Feature.enabled?(:gitlab_for_slack_app_instance_and_group_level, type: :beta)
+          if integration.is_a?(GitlabSlackApplication) && integration.active?
             inserted_slack_ids = bulk_insert_slack_integrations(inserted_ids)
             bulk_insert_slack_integration_scopes(inserted_slack_ids)
           end
@@ -51,8 +50,11 @@ module Integrations
         integration_fk_name = model.reflections['integration'].foreign_key
         attributes = data_fields_hash(:create)
 
-        items_to_insert = integration_ids.map do |id|
-          attributes.merge(integration_fk_name => id)
+        items_to_insert = integration_ids.zip(batch).map do |integration_id, record|
+          attributes.merge(
+            integration_fk_name => integration_id,
+            "#{association}_id" => record.id
+          )
         end
 
         bulk_insert_new(model, items_to_insert)

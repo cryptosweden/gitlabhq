@@ -129,4 +129,30 @@ RSpec.describe 'projects/edit' do
       end
     end
   end
+
+  describe 'restoring a project', feature_category: :groups_and_projects do
+    let_it_be(:organization) { build_stubbed(:organization) }
+
+    context 'when project is pending deletion' do
+      let_it_be(:project) do
+        build_stubbed(:project, marked_for_deletion_at: Date.current, organization: organization)
+      end
+
+      it 'renders restore project card and action' do
+        render
+
+        expect(rendered).to render_template('shared/groups_projects/settings/_restore')
+        expect(rendered).to have_link('Restore project')
+      end
+    end
+
+    context 'when project is not pending deletion' do
+      it 'does not render restore project card and action' do
+        render
+
+        expect(rendered).to render_template('shared/groups_projects/settings/_restore')
+        expect(rendered).not_to have_link('Restore project')
+      end
+    end
+  end
 end

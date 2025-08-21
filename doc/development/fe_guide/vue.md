@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Vue
 ---
-
-# Vue
 
 To get started with Vue, read through [their documentation](https://v2.vuejs.org/v2/guide/index.html).
 
@@ -12,7 +11,6 @@ To get started with Vue, read through [their documentation](https://v2.vuejs.org
 
 What is described in the following sections can be found in these examples:
 
-- [Web IDE](https://gitlab.com/gitlab-org/gitlab-foss/tree/master/app/assets/javascripts/ide/stores)
 - [Security products](https://gitlab.com/gitlab-org/gitlab/-/tree/master/ee/app/assets/javascripts/vue_shared/security_reports)
 - [Registry](https://gitlab.com/gitlab-org/gitlab-foss/tree/master/app/assets/javascripts/registry/stores)
 
@@ -21,6 +19,12 @@ What is described in the following sections can be found in these examples:
 Sometimes, HAML page is enough to satisfy requirements. This statement is correct primarily for the static pages or pages that have very little logic. How do we know it's worth adding a Vue application to the page? The answer is "when we need to maintain application state and synchronize the rendered page with it".
 
 To better explain this, let's imagine the page that has one toggle, and toggling it sends an API request. This case does not involve any state we want to maintain, we send the request and switch the toggle. However, if we add one more toggle that should always be the opposite to the first one, we need a _state_: one toggle should be "aware" about the state of another one. When written in plain JavaScript, this logic usually involves listening to DOM event and reacting with modifying DOM. Cases like this are much easier to handle with Vue.js so we should create a Vue application here.
+
+## How to add a Vue application to a page
+
+1. Create a new folder in `app/assets/javascripts` for your Vue application.
+1. Add [page-specific JavaScript](performance.md#page-specific-javascript) to load your application.
+1. You can use the [`initSimpleApp helper](#the-initsimpleapp-helper) to simplify [passing data from HAML to JS](#providing-data-from-haml-to-javascript).
 
 ### What are some flags signaling that you might need Vue application?
 
@@ -41,12 +45,13 @@ In the past, we added interactivity to the page piece-by-piece, adding multiple 
 
 Because of these reasons, we want to be cautious about adding new Vue applications to the pages where another Vue application is already present (this does not include old or new navigation). Before adding a new app, make sure that it is absolutely impossible to extend an existing application to achieve a desired functionality. When in doubt, feel free to ask for the architectural advise on `#frontend` or `#frontend-maintainers` Slack channel.
 
-If you still need to add a new application, make sure it shares local state with existing applications (preferably via Apollo Client, or Vuex if we use REST API)
+If you still need to add a new application, make sure it shares local state with existing applications.
+Learn: [How do I know which state manager to use?](state_management.md)
 
 ## Vue architecture
 
 The main goal we are trying to achieve with Vue architecture is to have only one data flow, and only one data entry.
-To achieve this goal we use [Vuex](#vuex) or [Apollo Client](graphql.md#libraries)
+To achieve this goal we use [Pinia](pinia.md) or [Apollo Client](graphql.md#libraries)
 
 You can also read about this architecture in Vue documentation about
 [state management](https://v2.vuejs.org/v2/guide/state-management.html#Simple-State-Management-from-Scratch)
@@ -149,7 +154,57 @@ export default {
 import MyComponent from './my_component.vue'
 import { initSimpleApp } from '~/helpers/init_simple_app_helper'
 
-initSimpleApp('#js-my-element', MyComponent)
+initSimpleApp('#js-my-element', MyComponent, { name: 'MyAppRoot' })
+```
+
+###### Passing values as `provide`/`inject` instead of props
+
+To use `initSimpleApp` to pass values as `provide`/`inject` instead of props:
+
+1. Include an HTML element in the page with an ID or unique class.
+1. Add a `data-provide` attribute containing a JSON object.
+1. Import the desired Vue component, and pass it along with a valid CSS selector string
+   that selects the HTML element to `initSimpleApp`. This string mounts the component
+   at the specified location.
+
+`initSimpleApp` automatically retrieves the content of the data-provide attribute as a JSON object and passes it as inject to the mounted Vue component. This can be used to pre-populate the component with data.
+
+Example:
+
+```vue
+//my_component.vue
+<template>
+  <div>
+    <p>Inject1: {{ inject1 }}</p>
+    <p>Inject2: {{ inject2 }}</p>
+  </div>
+</template>
+
+<script>
+export default {
+  name: 'MyComponent',
+  inject: {
+    inject1: {
+      default: '',
+    },
+    inject2: {
+      default: 0
+    }
+  },
+}
+</script>
+```
+
+```html
+<div id="js-my-element" data-provide='{"inject1": "my object", "inject2": 42 }'></div>
+```
+
+```javascript
+//index.js
+import MyComponent from './my_component.vue'
+import { initSimpleApp } from '~/helpers/init_simple_app_helper'
+
+initSimpleApp('#js-my-element', MyComponent, { name: 'MyAppRoot' })
 ```
 
 ##### `provide` and `inject`
@@ -242,9 +297,12 @@ return new Vue({
 });
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 When adding an `id` attribute to mount a Vue application, make sure this `id` is unique
 across the codebase.
+
+{{< /alert >}}
 
 For more information on why we explicitly declare the data being passed into the Vue app,
 refer to our [Vue style guide](style/vue.md#basic-rules).
@@ -254,10 +312,10 @@ refer to our [Vue style guide](style/vue.md#basic-rules).
 When composing a form with Rails, the `name`, `id`, and `value` attributes of form inputs are generated
 to match the backend. It can be helpful to have access to these generated attributes when converting
 a Rails form to Vue, or when [integrating components](https://gitlab.com/gitlab-org/gitlab/-/blob/8956ad767d522f37a96e03840595c767de030968/app/assets/javascripts/access_tokens/index.js#L15) (such as a date picker or project selector) into it.
-The [`parseRailsFormFields`](https://gitlab.com/gitlab-org/gitlab/-/blob/fe88797f682c7ff0b13f2c2223a3ff45ada751c1/app/assets/javascripts/lib/utils/forms.js#L107) utility can be used to parse the generated form input attributes so they can be passed to the Vue application.
+The [`parseRailsFormFields`](https://gitlab.com/gitlab-org/gitlab/-/blob/fe88797f682c7ff0b13f2c2223a3ff45ada751c1/app/assets/javascripts/lib/utils/forms.js#L107) utility function can be used to parse the generated form input attributes so they can be passed to the Vue application.
 This enables us to integrate Vue components without changing how the form submits.
 
-```haml
+```ruby
 -# form.html.haml
 = form_for user do |form|
   .js-user-form
@@ -378,7 +436,7 @@ export default {
 
 #### Accessing feature flags
 
-After pushing a feature flag to the [frontend](../feature_flags/index.md#frontend),
+After pushing a feature flag to the [frontend](../feature_flags/_index.md#frontend),
 use the [`provide` and `inject`](https://v2.vuejs.org/v2/api/#provide-inject)
 mechanisms in Vue to make feature flags available to any descendant components
 in a Vue application. The `glFeatures` object is already provided in
@@ -424,7 +482,7 @@ This approach has a few benefits:
 
 #### Redirecting to page and displaying alerts
 
-If you need to redirect to another page and display alerts, you can use the [`visitUrlWithAlerts`](https://gitlab.com/gitlab-org/gitlab/-/blob/7063dce68b8231442567707024b2f29e48ce2f64/app/assets/javascripts/lib/utils/url_utility.js#L731) util.
+If you need to redirect to another page and display alerts, you can use the [`visitUrlWithAlerts`](https://gitlab.com/gitlab-org/gitlab/-/blob/7063dce68b8231442567707024b2f29e48ce2f64/app/assets/javascripts/lib/utils/url_utility.js#L731) utility function.
 This can be useful when you're redirecting to a newly created resource and showing a success alert.
 
 By default the alerts will be cleared when the page is reloaded. If you need an alert to be persisted on a page you can set the
@@ -443,7 +501,9 @@ visitUrlWithAlerts('/dashboard/groups', [
 ])
 ```
 
-If you need to manually remove a persisted alert, you can use the [`removeGlobalAlertById`](https://gitlab.com/gitlab-org/gitlab/-/blob/7063dce68b8231442567707024b2f29e48ce2f64/app/assets/javascripts/lib/utils/global_alerts.js#L31) util.
+If you need to manually remove a persisted alert, you can use the [`removeGlobalAlertById`](https://gitlab.com/gitlab-org/gitlab/-/blob/7063dce68b8231442567707024b2f29e48ce2f64/app/assets/javascripts/lib/utils/global_alerts.js#L31) utility function.
+
+If you need to programmatically dismiss an alert, you can use the [`dismissGlobalAlertById`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/assets/javascripts/lib/utils/global_alerts.js#L43) utility function.
 
 ### A folder for Components
 
@@ -460,11 +520,13 @@ in one table would not be a good use of this pattern.
 
 You can read more about components in Vue.js site, [Component System](https://v2.vuejs.org/v2/guide/#Composing-with-Components).
 
-### A folder for the Store
+### Pinia
 
-#### Vuex
+[Learn more about Pinia in GitLab](pinia.md).
 
-Check this [page](vuex.md) for more details.
+### Vuex
+
+[Vuex is deprecated](vuex.md#deprecated), consider [migrating](migrating_from_vuex.md).
 
 ### Vue Router
 
@@ -567,11 +629,10 @@ Based on the Vue guidance:
 
 - **Do not** use or create a JavaScript class in your [data function](https://v2.vuejs.org/v2/api/#data).
 - **Do not** add new JavaScript class implementations.
-- **Do** use [GraphQL](../api_graphql_styleguide.md), [Vuex](vuex.md) or a set of components if
-  cannot use primitives or objects.
+- **Do** encapsulate complex state management with cohesive decoupled components or [a state manager](state_management.md).
 - **Do** maintain existing implementations using such approaches.
 - **Do** Migrate components to a pure object model when there are substantial changes to it.
-- **Do** add business logic to helpers or utilities, so you can test them separately from your component.
+- **Do** move business logic to separate files, so you can test them separately from your component.
 
 #### Why
 
@@ -726,29 +787,6 @@ const useSomeLogic = (done) => {
 }
 ```
 
-#### Composables and Vuex
-
-We should always prefer to avoid using Vuex state in composables. In case it's not possible, we should use props to receive that state, and emit events from the `setup` to update the Vuex state. A parent component should be responsible to get that state from Vuex, and mutate it on events emitted from a child. You should **never mutate a state that's coming down from a prop**. If a composable must mutate a Vuex state, it should use a callback to emit an event.
-
-```javascript
-const useAsyncComposable = ({ state, update }) => {
-  const start = async () => {
-    const newState = await doSomething(state);
-    update(newState);
-  };
-  return { start };
-};
-
-const ComponentWithComposable = {
-  setup(props, { emit }) {
-    const update = (data) => emit('update', data);
-    const state = computed(() => props.state); // state from Vuex
-    const { start } = useAsyncComposable({ state, update });
-    start();
-  },
-};
-```
-
 #### Testing composables
 
 <!-- TBD -->
@@ -859,26 +897,26 @@ describe('~/todos/app.vue', () => {
    component under test, with the `computed` property, for example). Remember to use `.props()` and not `.vm.someProp`.
 1. Test we react correctly to any events emitted from child components:
 
-  ```javascript
-  const checkbox = wrapper.findByTestId('checkboxTestId');
+   ```javascript
+   const checkbox = wrapper.findByTestId('checkboxTestId');
 
-  expect(checkbox.attributes('disabled')).not.toBeDefined();
+   expect(checkbox.attributes('disabled')).not.toBeDefined();
 
-  findChildComponent().vm.$emit('primary');
-  await nextTick();
+   findChildComponent().vm.$emit('primary');
+   await nextTick();
 
-  expect(checkbox.attributes('disabled')).toBeDefined();
-  ```
+   expect(checkbox.attributes('disabled')).toBeDefined();
+   ```
 
 1. **Do not** test the internal implementation of the child components:
 
-  ```javascript
-  // bad
-  expect(findChildComponent().find('.error-alert').exists()).toBe(false);
+   ```javascript
+   // bad
+   expect(findChildComponent().find('.error-alert').exists()).toBe(false);
 
-  // good
-  expect(findChildComponent().props('withAlertContainer')).toBe(false);
-  ```
+   // good
+   expect(findChildComponent().props('withAlertContainer')).toBe(false);
+   ```
 
 ### Events
 
@@ -935,15 +973,18 @@ Using `trigger` on the component means we treat it as a white box: we assume tha
 
 You should only apply to be a Vue.js expert when your own merge requests and your reviews show:
 
-- Deep understanding of Vue and Vuex reactivity
-- Vue and Vuex code are structured according to both official and our guidelines
-- Full understanding of testing a Vue and Vuex application
-- Vuex code follows the [documented pattern](vuex.md#naming-pattern-request-and-receive-namespaces)
-- Knowledge about the existing Vue and Vuex applications and existing reusable components
+- Deep understanding of Vue reactivity
+- Vue and [Pinia](pinia.md) code are structured according to both official and our guidelines
+- Full understanding of testing Vue components and Pinia stores
+- Knowledge about the existing Vue and Pinia applications and existing reusable components
 
 ## Vue 2 -> Vue 3 Migration
 
-> - This section is added temporarily to support the efforts to migrate the codebase from Vue 2.x to Vue 3.x
+{{< history >}}
+
+- This section is added temporarily to support the efforts to migrate the codebase from Vue 2.x to Vue 3.x
+
+{{< /history >}}
 
 We recommend to minimize adding certain features to the codebase to prevent increasing
 the tech debt for the eventual migration:

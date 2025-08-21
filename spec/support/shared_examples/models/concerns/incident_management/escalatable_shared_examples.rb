@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 RSpec.shared_examples 'a model including Escalatable' do
-  # rubocop:disable Rails/SaveBang -- Usage of factory symbol as argument causes a false-positive
   let_it_be(:escalatable_factory) { factory_from_class(described_class) }
   let_it_be(:triggered_escalatable, reload: true) { create(escalatable_factory, :triggered) }
   let_it_be(:acknowledged_escalatable, reload: true) { create(escalatable_factory, :acknowledged) }
@@ -273,7 +272,6 @@ RSpec.shared_examples 'a model including Escalatable' do
   private
 
   def factory_from_class(klass)
-    klass.name.underscore.tr('/', '_')
+    ::Gitlab::Utils.param_key(klass)
   end
 end
-# rubocop:enable Rails/SaveBang

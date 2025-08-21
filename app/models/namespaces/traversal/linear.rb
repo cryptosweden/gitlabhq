@@ -44,9 +44,9 @@ module Namespaces
       included do
         before_update :lock_both_roots, if: -> { parent_id_changed? }
         after_update :sync_traversal_ids, if: -> { saved_change_to_parent_id? }
-        # This uses rails internal before_commit API to sync traversal_ids on namespace create, right before transaction is committed.
-        # This helps reduce the time during which the root namespace record is locked to ensure updated traversal_ids are valid
-        before_commit :sync_traversal_ids, on: [:create]
+
+        after_create :sync_traversal_ids_on_create
+
         after_commit :set_traversal_ids,
           if: -> { traversal_ids.empty? || saved_change_to_parent_id? },
           on: [:create, :update]
@@ -79,24 +79,29 @@ module Namespaces
         end
       end
 
-      def traversal_ids=(ids)
-        super(ids)
-        self.transient_traversal_ids = nil
-      end
+      def traversal_path(with_organization: false)
+        ids = traversal_ids.clone
 
-      def traversal_ids
-        read_attribute(:traversal_ids).presence || transient_traversal_ids || []
+        ids.prepend(organization_id) if with_organization
+
+        "#{ids.join('/')}/"
       end
 
       def use_traversal_ids?
         traversal_ids.present?
       end
 
+      # Return the top most ancestor of this namespace.
+      # This method aims to minimize the number of queries by trying to re-use data that has already been loaded.
       def root_ancestor
         strong_memoize(:root_ancestor) do
-          if association(:parent).loaded? && parent.present?
-            # This case is possible when parent has not been persisted or we're inside a transaction.
+          if parent_loaded_and_present?
             parent.root_ancestor
+          elsif parent_id_present_and_traversal_ids_empty?
+            # Parent is in the database, so find our root ancestor using our parent's traversal_ids.
+            parent = Namespace.where(id: parent_id).select(:traversal_ids)
+            Namespace.from("(#{parent.to_sql}) AS parent_namespace, namespaces")
+                     .find_by('namespaces.id = parent_namespace.traversal_ids[1]')
           elsif parent_id.nil?
             # There is no parent, so we are the root ancestor.
             self
@@ -110,22 +115,22 @@ module Namespaces
         all_projects.select(:id)
       end
 
-      def self_and_descendants
+      def self_and_descendants(skope: self.class)
         return super unless use_traversal_ids?
 
-        lineage(top: self)
+        lineage(top: self, skope: skope)
       end
 
-      def self_and_descendant_ids
+      def self_and_descendant_ids(skope: self.class)
         return super unless use_traversal_ids?
 
-        self_and_descendants.as_ids
+        self_and_descendants(skope: skope).as_ids
       end
 
       def descendants
         return super unless use_traversal_ids?
 
-        self_and_descendants.where.not(id: id)
+        self_and_descendants.id_not_in(id)
       end
 
       def self_and_hierarchy
@@ -134,12 +139,12 @@ module Namespaces
         self_and_descendants.or(ancestors)
       end
 
-      def ancestors(hierarchy_order: nil)
+      def ancestors(hierarchy_order: nil, skope: self.class)
         return super unless use_traversal_ids?
 
-        return self.class.none if parent_id.blank?
+        return skope.none if parent_id.blank?
 
-        lineage(bottom: parent, hierarchy_order: hierarchy_order)
+        lineage(bottom: parent, hierarchy_order: hierarchy_order, skope: skope)
       end
 
       def ancestor_ids(hierarchy_order: nil)
@@ -176,12 +181,12 @@ module Namespaces
           .order('ancestors.ord': hierarchy_order)
       end
 
-      def self_and_ancestors(hierarchy_order: nil)
+      def self_and_ancestors(hierarchy_order: nil, skope: self.class)
         return super unless use_traversal_ids?
 
-        return self.class.where(id: id) if parent_id.blank?
+        return skope.where(id: id) if parent_id.blank?
 
-        lineage(bottom: self, hierarchy_order: hierarchy_order)
+        lineage(bottom: self, hierarchy_order: hierarchy_order, skope: skope)
       end
 
       def self_and_ancestor_ids(hierarchy_order: nil)
@@ -202,8 +207,6 @@ module Namespaces
 
       private
 
-      attr_accessor :transient_traversal_ids
-
       # Update the traversal_ids for the full hierarchy.
       #
       # NOTE: self.traversal_ids will be stale. Reload for a fresh record.
@@ -216,22 +219,26 @@ module Namespaces
         end
       end
 
+      def sync_traversal_ids_on_create
+        run_callbacks :sync_traversal_ids do
+          # Clear any previously memoized root_ancestor as our ancestors have changed.
+          clear_memoization(:root_ancestor)
+
+          Namespace::TraversalHierarchy.sync_traversal_ids!(self)
+        end
+      end
+
       def set_traversal_ids
         return if id.blank?
 
-        # This is a temporary guard and will be removed.
+        # Update our traversal_ids state to match the database.
+        self.traversal_ids = self.class.where(id: self).pick(:traversal_ids)
+        clear_traversal_ids_change
+
+        clear_memoization(:root_ancestor)
+
+        # ProjectNamespace doesn't have any children.
         return if is_a?(Namespaces::ProjectNamespace)
-
-        self.transient_traversal_ids = if parent_id
-                                         parent.traversal_ids + [id]
-                                       else
-                                         [id]
-                                       end
-
-        # Clear root_ancestor memo if changed.
-        if read_attribute(:traversal_ids)&.first != transient_traversal_ids.first
-          clear_memoization(:root_ancestor)
-        end
 
         # Update traversal_ids for any associated child objects.
         children.each(&:reload) if children.loaded?
@@ -246,32 +253,20 @@ module Namespaces
         ].compact
 
         roots = Gitlab::ObjectHierarchy
-          .new(Namespace.where(id: parent_ids))
+          .new(Namespace.id_in(parent_ids))
           .base_and_ancestors
-          .reorder(nil)
-          .where(parent_id: nil)
+          .without_order
+          .top_level
 
-        Namespace.lock.select(:id).where(id: roots).order(id: :asc).load
+        Namespace.lock('FOR NO KEY UPDATE').select(:id).id_in(roots).order(id: :asc).load
       end
 
       # Search this namespace's lineage. Bound inclusively by top node.
-      def lineage(top: nil, bottom: nil, hierarchy_order: nil)
+      def lineage(top: nil, bottom: nil, hierarchy_order: nil, skope: self.class)
         raise UnboundedSearch, 'Must bound search by either top or bottom' unless top || bottom
 
-        skope = self.class
-
         if top
-          if ::Feature.enabled?(:optimize_top_bound_lineage_search, self)
-            lower = top.traversal_ids
-            upper = lower.dup
-            upper[-1] = upper[-1].next
-
-            skope = skope
-              .where("traversal_ids >= ('{?}')", lower)
-              .where("traversal_ids < ('{?}')", upper)
-          else
-            skope = skope.where("traversal_ids @> ('{?}')", top.id)
-          end
+          skope = skope.where("traversal_ids @> ('{?}')", top.id)
         end
 
         if bottom
@@ -287,7 +282,7 @@ module Namespaces
           # The SELECT includes an extra depth attribute. We wrap the SQL in a
           # standard SELECT to avoid mismatched attribute errors when trying to
           # chain future ActiveRelation commands, and retain the ordering.
-          skope = self.class
+          skope = skope.klass
             .from(skope, self.class.table_name)
             .select(skope.arel_table[Arel.star])
             .order(depth: hierarchy_order)
@@ -305,6 +300,16 @@ module Namespaces
         else
           index + 1
         end
+      end
+
+      # This case is possible when parent has not been persisted or we're inside a transaction.
+      def parent_loaded_and_present?
+        association(:parent).loaded? && parent.present?
+      end
+
+      # This case occurs when parent is persisted but we are not.
+      def parent_id_present_and_traversal_ids_empty?
+        parent_id.present? && traversal_ids.empty?
       end
     end
   end

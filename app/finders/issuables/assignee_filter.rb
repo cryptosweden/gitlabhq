@@ -2,6 +2,8 @@
 
 module Issuables
   class AssigneeFilter < BaseFilter
+    include GroupMembersFilterable
+
     def filter(issuables)
       filtered = by_assignee(issuables)
       filtered = by_assignee_union(filtered)
@@ -49,6 +51,9 @@ module Issuables
     def filter_by_assignees(issuables)
       assignee_ids = assignee_ids(params)
 
+      user_ids_from_group = extract_group_member_ids(params[:assignee_username])
+      return issuables.assigned_to(user_ids_from_group) if user_ids_from_group
+
       return issuables.none if assignee_ids.blank?
 
       assignee_ids.each do |assignee_id|
@@ -61,7 +66,9 @@ module Issuables
     def has_assignee_param?(specific_params)
       return if specific_params.nil?
 
-      specific_params[:assignee_ids].present? || specific_params[:assignee_id].present? || specific_params[:assignee_username].present?
+      specific_params[:assignee_ids].present? ||
+        specific_params[:assignee_id].present? ||
+        specific_params[:assignee_username].present?
     end
 
     def assignee_ids(specific_params)

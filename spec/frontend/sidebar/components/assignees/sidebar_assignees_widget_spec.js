@@ -13,9 +13,17 @@ import SidebarAssigneesWidget from '~/sidebar/components/assignees/sidebar_assig
 import SidebarInviteMembers from '~/sidebar/components/assignees/sidebar_invite_members.vue';
 import SidebarEditableItem from '~/sidebar/components/sidebar_editable_item.vue';
 import getIssueAssigneesQuery from '~/sidebar/queries/get_issue_assignees.query.graphql';
+import getMrAssigneesQuery from '~/sidebar/queries/get_mr_assignees.query.graphql';
 import updateIssueAssigneesMutation from '~/sidebar/queries/update_issue_assignees.mutation.graphql';
 import UserSelect from '~/vue_shared/components/user_select/user_select.vue';
-import { issuableQueryResponse, updateIssueAssigneesMutationResponse } from '../../mock_data';
+import {
+  issuableQueryResponse,
+  updateIssueAssigneesMutationResponse,
+  issuableQueryWithPlaceholderResponse,
+  mrAssigneesQueryResponse,
+  initialAssigneesPlaceholder,
+  initialAssignees,
+} from '../../mock_data';
 
 jest.mock('~/alert');
 
@@ -25,16 +33,6 @@ const updateIssueAssigneesMutationSuccess = jest
 const mockError = jest.fn().mockRejectedValue('Error!');
 
 Vue.use(VueApollo);
-
-const initialAssignees = [
-  {
-    id: 'some-user',
-    avatarUrl: 'some-user-avatar',
-    name: 'test',
-    username: 'test',
-    webUrl: '/test',
-  },
-];
 
 describe('Sidebar assignees widget', () => {
   let wrapper;
@@ -51,12 +49,14 @@ describe('Sidebar assignees widget', () => {
   const createComponent = ({
     issuableQueryHandler = jest.fn().mockResolvedValue(issuableQueryResponse),
     updateIssueAssigneesMutationHandler = updateIssueAssigneesMutationSuccess,
+    mrQueryHandler = jest.fn().mockResolvedValue(mrAssigneesQueryResponse),
     props = {},
     provide = {},
   } = {}) => {
     fakeApollo = createMockApollo([
       [getIssueAssigneesQuery, issuableQueryHandler],
       [updateIssueAssigneesMutation, updateIssueAssigneesMutationHandler],
+      [getMrAssigneesQuery, mrQueryHandler],
     ]);
     wrapper = shallowMount(SidebarAssigneesWidget, {
       apolloProvider: fakeApollo,
@@ -141,22 +141,24 @@ describe('Sidebar assignees widget', () => {
     });
 
     it('renders assignees list from API response when resolved', async () => {
+      const user = {
+        __typename: 'UserCore',
+        avatarUrl:
+          'https://www.gravatar.com/avatar/a95e5b71488f4b9d69ce5ff58bfd28d6?s=80&d=identicon',
+        id: 'gid://gitlab/User/2',
+        name: 'Jacki Kub',
+        status: null,
+        type: 'HUMAN',
+        username: 'francina.skiles',
+        webPath: '/franc',
+        webUrl: '/franc',
+      };
+
       createComponent();
       await waitForPromises();
 
-      expect(findAssignees().props('users')).toEqual([
-        {
-          __typename: 'UserCore',
-          id: 'gid://gitlab/User/2',
-          avatarUrl:
-            'https://www.gravatar.com/avatar/a95e5b71488f4b9d69ce5ff58bfd28d6?s=80\u0026d=identicon',
-          name: 'Jacki Kub',
-          username: 'francina.skiles',
-          webUrl: '/franc',
-          webPath: '/franc',
-          status: null,
-        },
-      ]);
+      expect(findUserSelect().props('value')).toEqual([{ ...user, canMerge: false }]);
+      expect(findAssignees().props('users')).toEqual([user]);
     });
 
     it('renders an error when issuable query is rejected', async () => {
@@ -165,6 +167,7 @@ describe('Sidebar assignees widget', () => {
       });
       await waitForPromises();
 
+      expect(findUserSelect().props('value')).toEqual([]);
       expect(createAlert).toHaveBeenCalledWith({
         message: 'An error occurred while fetching participants.',
       });
@@ -184,6 +187,7 @@ describe('Sidebar assignees widget', () => {
       });
 
       await waitForPromises();
+      await nextTick();
 
       expect(
         findAssignees()
@@ -221,6 +225,7 @@ describe('Sidebar assignees widget', () => {
                 webUrl: '/root',
                 webPath: '/root',
                 status: null,
+                type: 'HUMAN',
               },
             ],
             id: 'gid://gitlab/Issue/1',
@@ -280,13 +285,13 @@ describe('Sidebar assignees widget', () => {
       it('closes a dropdown after User Select input event', async () => {
         findUserSelect().vm.$emit('input', [{ username: 'root' }]);
 
+        await waitForPromises();
+
         expect(updateIssueAssigneesMutationSuccess).toHaveBeenCalledWith({
           assigneeUsernames: ['root'],
           fullPath: '/mygroup/myProject',
           iid: '1',
         });
-
-        await waitForPromises();
 
         expect(findUserSelect().isVisible()).toBe(false);
       });
@@ -396,7 +401,10 @@ describe('Sidebar assignees widget', () => {
   });
 
   it('does not render invite members link on non-issue sidebar', async () => {
-    createComponent({ props: { issuableType: TYPE_MERGE_REQUEST } });
+    createComponent({
+      props: { issuableType: TYPE_MERGE_REQUEST },
+    });
+
     await waitForPromises();
     expect(findInviteMembersLink().exists()).toBe(false);
   });
@@ -415,5 +423,89 @@ describe('Sidebar assignees widget', () => {
     });
     await waitForPromises();
     expect(findInviteMembersLink().exists()).toBe(true);
+  });
+
+  describe('when Placeholder users are present', () => {
+    const customIssuableQueryHandler = jest
+      .fn()
+      .mockResolvedValue(issuableQueryWithPlaceholderResponse);
+
+    it('filters out placeholders from the assignees list', async () => {
+      createComponent({
+        issuableQueryHandler: customIssuableQueryHandler,
+      });
+
+      await waitForPromises();
+
+      const assignees = findAssignees().props('users');
+
+      expect(assignees.some((user) => user.type === 'PLACEHOLDER')).toBe(false);
+    });
+
+    it('does not display initialAssignee if the initial assignee is a placeholder user', async () => {
+      const pendingPromise = new Promise(() => {});
+      const loadingQueryHandler = jest.fn().mockReturnValue(pendingPromise);
+
+      createComponent({
+        issuableQueryHandler: loadingQueryHandler,
+        props: {
+          initialAssignees: initialAssigneesPlaceholder,
+        },
+      });
+
+      await nextTick();
+
+      expect(findEditableItem().props('initialLoading')).toBe(true);
+      expect(findAssignees().exists()).toBe(false);
+    });
+
+    it('displays the initial assignee if assignee is not a placeholder user', async () => {
+      createComponent({
+        props: {
+          initialAssignees,
+        },
+      });
+
+      await nextTick();
+
+      const assignees = findAssignees().props('users');
+      expect(assignees).toHaveLength(1);
+      expect(assignees[0].type).toEqual('HUMAN');
+    });
+
+    it('does not show the assignee as selected if the assignee is a placeholder', async () => {
+      createComponent({
+        issuableQueryHandler: customIssuableQueryHandler,
+      });
+
+      await waitForPromises();
+
+      const assignees = findAssignees().props('users');
+      expect(assignees).toHaveLength(0);
+    });
+
+    it('does not pass placeholder users to user-select as dropdown values', async () => {
+      createComponent({
+        issuableQueryHandler: customIssuableQueryHandler,
+        props: {
+          initialAssignees: initialAssigneesPlaceholder,
+        },
+      });
+
+      await waitForPromises();
+      expect(findUserSelect().props('value')).toEqual([]);
+    });
+
+    it('does not pass the author to user-select if issuableAuthor is a placeholder user', async () => {
+      createComponent({
+        issuableQueryHandler: customIssuableQueryHandler,
+        props: {
+          initialAssignees,
+        },
+      });
+
+      await waitForPromises();
+      expect(findUserSelect().props('issuableAuthor')).toEqual({});
+    });
   });
 });

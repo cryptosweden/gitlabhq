@@ -1,16 +1,16 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Developer Experience
+group: API
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: REST API deprecations
+description: "List of deprecated fields and planned breaking changes in the GitLab REST API."
 ---
 
-# REST API deprecations and removals
+You should regularly review the following deprecations and make the recommended changes. These deprecations often signal improved API features and recommend using new fields
+or endpoints for features.
 
-The following API changes will occur between REST API v4 and v5.
-No date is set for this upgrade.
-
-For more information, see [issue 216456](https://gitlab.com/gitlab-org/gitlab/-/issues/216456)
-and [issue 387485](https://gitlab.com/gitlab-org/gitlab/-/issues/387485).
+Though some deprecations mention a v5 REST API, no v5 REST API development is active.
+GitLab will not make these changes within REST API v4, as [we commit to follow semantic versioning for our REST API](_index.md#versioning-and-deprecations).
 
 ## `geo_nodes` API endpoints
 
@@ -75,7 +75,7 @@ Breaking change. [Related issue](https://gitlab.com/gitlab-org/gitlab/-/issues/3
 The endpoint to get the configuration of approvals for a project returns
 empty arrays for `approvers` and `approval_groups`.
 These fields were deprecated in favor of the endpoint to
-[get project-level rules](../merge_request_approvals.md#get-project-level-rules)
+[list all approval rules](../merge_request_approvals.md#list-all-approval-rules-for-a-merge-request)
 for a merge request. API users are encouraged to switch to this endpoint instead.
 
 These fields will be removed from the `get configuration` endpoint in v5 of the GitLab REST API.
@@ -117,23 +117,15 @@ Breaking change. [Related issue](https://gitlab.com/gitlab-org/gitlab/-/issues/4
 In GitLab 17.0, the [Runners API](../runners.md) will return `""` in place of `ip_address` for runners.
 In v5 of the REST API, the field will be removed.
 
-## Runner will not return `version`, `revision`, `platform`, or `architecture`
-
-Breaking change. [Related issue](https://gitlab.com/gitlab-org/gitlab/-/issues/457128).
-
-In GitLab 18.0, the [Runners API](../runners.md) will return `""` in place of `version`, `revision`, `platform`,
-and `architecture` for runners.
-In v5 of the REST API, the fields will be removed.
-
 ## `default_branch_protection` API field
 
 Breaking change. [Related issue](https://gitlab.com/gitlab-org/gitlab/-/issues/408315).
 
 The `default_branch_protection` field is deprecated in GitLab 17.0 for the following APIs:
 
-- [New group API](../groups.md#new-group).
-- [Update group API](../groups.md#update-group).
-- [Application API](../settings.md#change-application-settings)
+- [New group API](../groups.md#create-a-group).
+- [Update group API](../groups.md#update-group-attributes).
+- [Application Settings API](../settings.md#update-application-settings)
 
 You should use the `default_branch_protection_defaults` field instead, which provides more finer grained control
 over the default branch protections.
@@ -143,6 +135,22 @@ The `default_branch_protection` field will be removed in v5 of the GitLab REST A
 ## `require_password_to_approve` API field
 
 The `require_password_to_approve` was deprecated in GitLab 16.9. Use the `require_reauthentication_to_approve` field
-instead. If you supply values to both fields, the  `require_reauthentication_to_approve` field takes precedence.
+instead. If you supply values to both fields, the `require_reauthentication_to_approve` field takes precedence.
 
 The `require_password_to_approve` field will be removed in v5 of the GitLab REST API.
+
+## Pull mirroring configuration with the projects API endpoint
+
+Breaking change. [Related issue](https://gitlab.com/gitlab-org/gitlab/-/issues/494294).
+
+In GitLab 17.6, the [pull mirroring configuration with the Projects API](../project_pull_mirroring.md#configure-pull-mirroring-for-a-project-deprecated) is deprecated.
+It is replaced by a new configuration and endpoint, [`projects/:id/mirror/pull`](../project_pull_mirroring.md#configure-pull-mirroring-for-a-project).
+
+The previous configuration using the Projects API will be removed in v5 of the GitLab REST API.
+
+## `restrict_user_defined_variables` parameter with the projects API endpoint
+
+In GitLab 17.7, the [`restrict_user_defined_variables` parameter in Projects API](../projects.md#edit-a-project)
+is deprecated in favour of using only `ci_pipeline_variables_minimum_override_role`.
+
+To match the same behavior of `restrict_user_defined_variables: false` set `ci_pipeline_variables_minimum_override_role` as `developer`.

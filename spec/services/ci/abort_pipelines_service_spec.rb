@@ -16,7 +16,7 @@ RSpec.describe Ci::AbortPipelinesService, feature_category: :continuous_integrat
   let_it_be(:non_cancelable_stage, reload: true) { create(:ci_stage, name: 'stageB', status: :success, pipeline: cancelable_pipeline, project: project) }
 
   let_it_be(:manual_pipeline_cancelable_build, reload: true) { create(:ci_build, :created, pipeline: manual_pipeline) }
-  let_it_be(:manual_pipeline_non_cancelable_build, reload: true) { create(:ci_build, :manual, pipeline: manual_pipeline) }
+  let_it_be(:manual_pipeline_manual_build, reload: true) { create(:ci_build, :manual, pipeline: manual_pipeline) }
   let_it_be(:manual_pipeline_cancelable_stage, reload: true) { create(:ci_stage, name: 'stageA', status: :created, pipeline: manual_pipeline, project: project) }
   let_it_be(:manual_pipeline_non_cancelable_stage, reload: true) { create(:ci_stage, name: 'stageB', status: :success, pipeline: manual_pipeline, project: project) }
 
@@ -45,7 +45,7 @@ RSpec.describe Ci::AbortPipelinesService, feature_category: :continuous_integrat
       expect(manual_pipeline_cancelable_build.finished_at).not_to be_nil
 
       expect(non_cancelable_build).not_to be_failed
-      expect(manual_pipeline_non_cancelable_build).not_to be_failed
+      expect(manual_pipeline_manual_build).to be_failed
     end
 
     def expect_correct_cancellations
@@ -67,6 +67,19 @@ RSpec.describe Ci::AbortPipelinesService, feature_category: :continuous_integrat
         expect(other_users_pipeline.status).to eq('failed')
         expect(other_users_pipeline.failure_reason).to eq('project_deleted')
         expect(other_users_pipeline.stages.map(&:status)).to all(eq('failed'))
+      end
+
+      context 'when batching limit is exceeded' do
+        before do
+          stub_const("#{described_class}::ABORT_PIPELINE_BATCHING_LIMIT", 0)
+        end
+
+        it 'raises PipelinesAbortLimitExceededError if batching limit is exceeded' do
+          error_msg = 'Exceeded the maximum batching limit to abort pipelines'
+
+          expect { abort_project_pipelines }.to raise_error(described_class::PipelinesAbortLimitExceededError, error_msg)
+          expect(cancelable_build.status).to eq('running')
+        end
       end
 
       it 'avoids N+1 queries' do

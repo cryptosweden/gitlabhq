@@ -1,14 +1,16 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Operate
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: File system performance benchmarking
 ---
 
-# File system performance benchmarking
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 File system performance has a big impact on overall GitLab performance,
 especially for actions that read or write to Git repositories. This information
@@ -75,11 +77,14 @@ operations per second.
 
 ### Simple benchmarking
 
-NOTE:
+{{< alert type="note" >}}
+
 This test is naive but can be used if `fio` is not
 available on the system. It's possible to receive good results on this
 test but still have poor performance due to read speed and various other
 factors.
+
+{{< /alert >}}
 
 The following one-line commands provide a quick benchmark for file system write and read
 performance. This writes 1,000 small files to the directory in which it is
@@ -107,9 +112,9 @@ executed, and then reads the same 1,000 files.
 
 1. Remove the test files:
 
-  ```shell
-  cd ../; rm -rf test
-  ```
+   ```shell
+   cd ../; rm -rf test
+   ```
 
 The output of the `time for ...` commands resemble the following. The
 important metric is the `real` time.

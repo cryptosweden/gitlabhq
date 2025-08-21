@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::References::IssueReferenceFilter, feature_category: :team_planning do
+RSpec.describe Banzai::Filter::References::IssueReferenceFilter, feature_category: :markdown do
   include FilterSpecHelper
   include DesignManagementTestHelpers
 
@@ -191,11 +191,26 @@ RSpec.describe Banzai::Filter::References::IssueReferenceFilter, feature_categor
     it_behaves_like 'an internal reference'
   end
 
-  context 'alternative internal_reference' do
+  context 'alternative GL- internal reference' do
     let(:written_reference) { "GL-#{issue.iid}" }
     let(:reference) { "##{issue.iid}" }
 
     it_behaves_like 'an internal reference'
+  end
+
+  context 'alternative [issue:XXX] internal reference' do
+    let(:written_reference) { "[issue:#{issue.iid}]" }
+    let(:reference) { "##{issue.iid}" }
+
+    it_behaves_like 'an internal reference'
+  end
+
+  context 'project [issue:project/path/XXX] reference' do
+    let(:reference) { "[issue:#{project.full_path}/#{issue.iid}]" }
+
+    it_behaves_like 'a reference containing an element node'
+
+    it_behaves_like 'a reference with issue type information'
   end
 
   context 'cross-project / cross-namespace complete reference' do
@@ -370,7 +385,7 @@ RSpec.describe Banzai::Filter::References::IssueReferenceFilter, feature_categor
     end
 
     it 'link with trailing slash' do
-      doc = reference_filter("Fixed (#{issue_url + "/"}.)")
+      doc = reference_filter("Fixed (#{issue_url + '/'}.)")
 
       expect(doc.to_html).to match(%r{\(<a.+>#{Regexp.escape(issue.to_reference(project))}</a>\.\)})
     end

@@ -14,7 +14,6 @@ include:
   - local: .gitlab/ci/global.gitlab-ci.yml
   - local: .gitlab/ci/review-apps/rules.gitlab-ci.yml
   - local: .gitlab/ci/review-apps/qa.gitlab-ci.yml
-  - local: .gitlab/ci/review-apps/dast.gitlab-ci.yml
   - local: .gitlab/ci/review-apps/dast-api.gitlab-ci.yml
 
 .base-before_script: &base-before_script
@@ -45,10 +44,10 @@ review-build-cng-env:
       scripts/trigger-build.rb
       VERSION
   before_script:
-    - apk add --no-cache --update curl  # Not present in ruby-alpine, so we add it manually
     - !reference [".fast-no-clone-job", before_script]
     - !reference [".build-cng-env", before_script]
     - mv VERSION GITLAB_WORKHORSE_VERSION  # GITLAB_WORKHORSE_VERSION is a symlink to VERSION
+    - mkdir -p tmp # create tmp folder for trigger-build.rb due to not cloning repository
 
 review-build-cng:
   extends:
@@ -67,10 +66,11 @@ review-build-cng:
     GITLAB_IMAGE_REPOSITORY: "registry.gitlab.com/gitlab-org/build/cng-mirror"
     GITLAB_IMAGE_SUFFIX: "ee"
     GITLAB_REVIEW_APP_BASE_CONFIG_FILE: "scripts/review_apps/base-config.yaml"
-    GITLAB_HELM_CHART_REF: "1ec3db1320cfe5a5e96881e53b92a0644aaa149e"  # 7.9.1: https://gitlab.com/gitlab-org/charts/gitlab/-/commit/1ec3db1320cfe5a5e96881e53b92a0644aaa149e
+    GITLAB_HELM_CHART_REF: "1d594de1401223ec414ff3676cf098cc689eb9a0"  # 8.4.2: https://gitlab.com/gitlab-org/charts/gitlab/-/commit/1d594de1401223ec414ff3676cf098cc689eb9a0
   environment:
     name: review/${CI_COMMIT_REF_SLUG}${SCHEDULE_TYPE}  # No separator for SCHEDULE_TYPE so it's compatible as before and looks nice without it
     url: https://gitlab-${CI_ENVIRONMENT_SLUG}.${REVIEW_APPS_DOMAIN}
+    auto_stop_in: 2 weeks
     on_stop: trigger-review-stop
 
 review-deploy:
@@ -109,13 +109,13 @@ review-deploy:
     - *base-before_script
     - !reference [".use-kube-context", before_script]
   script:
-    - run_timed_command "retry delete_helm_release"
-    - run_timed_command "check_kube_domain"
-    - run_timed_command "download_chart"
-    - run_timed_command "deploy" || (display_deployment_debug && exit 1)
-    - run_timed_command "verify_deploy" || (display_deployment_debug && exit 1)
-    - run_timed_command "disable_sign_ups" || (display_deployment_debug && exit 1)
-    - run_timed_command "verify_commit_sha" || (display_deployment_debug && exit 1)
+    - retry delete_helm_release
+    - check_kube_domain
+    - download_chart
+    - deploy || (display_deployment_debug && exit 1)
+    - verify_deploy || (display_deployment_debug && exit 1)
+    - disable_sign_ups || (display_deployment_debug && exit 1)
+    - verify_commit_sha || (display_deployment_debug && exit 1)
   after_script:
     # Run seed-dast-test-data.sh only when DAST_RUN is set to true. This is to pupulate review app with data for DAST scan.
     # Set DAST_RUN to true when jobs are manually scheduled.

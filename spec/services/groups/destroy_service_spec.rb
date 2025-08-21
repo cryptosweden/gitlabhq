@@ -78,21 +78,37 @@ RSpec.describe Groups::DestroyService, feature_category: :groups_and_projects do
       it 'publishes a GroupDeletedEvent' do
         expect { destroy_group(group, user, async) }
           .to publish_event(Groups::GroupDeletedEvent)
-          .with(
-            group_id: group.id,
-            root_namespace_id: group.root_ancestor.id
-          )
+            .with(
+              group_id: group.id,
+              root_namespace_id: group.root_ancestor.id
+            )
+          .and publish_event(Groups::GroupDeletedEvent)
+            .with(
+              group_id: nested_group.id,
+              root_namespace_id: nested_group.root_ancestor.id,
+              parent_namespace_id: group.id
+            )
       end
+    end
+  end
+
+  shared_examples 'marks the group as delete' do |async|
+    it 'marks the group as deleted', :freeze_time do
+      expect(group).to receive(:update_attribute).with(:deleted_at, Time.current)
+
+      destroy_group(group, user, async)
     end
   end
 
   describe 'asynchronous delete' do
     it_behaves_like 'group destruction', true
+    it_behaves_like 'marks the group as delete', true
 
     context 'Sidekiq fake' do
       before do
         # Don't run Sidekiq to verify that group and projects are not actually destroyed
         Sidekiq::Testing.fake! { destroy_group(group, user, true) }
+        Sidekiq::Testing.fake! { destroy_group(nested_group, user, true) }
       end
 
       it 'verifies original paths and projects still exist' do
@@ -105,6 +121,19 @@ RSpec.describe Groups::DestroyService, feature_category: :groups_and_projects do
 
   describe 'synchronous delete' do
     it_behaves_like 'group destruction', false
+    it_behaves_like 'marks the group as delete', false
+
+    context 'when destroying the group throws an error' do
+      before do
+        allow(group).to receive(:destroy).and_raise(StandardError)
+      end
+
+      it 'unmarks the group as delete' do
+        expect { destroy_group(group, user, false) }.to raise_error(StandardError)
+
+        expect(group.deleted_at).to be_nil
+      end
+    end
   end
 
   context 'projects in pending_delete' do

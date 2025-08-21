@@ -5,7 +5,7 @@ require 'spec_helper'
 RSpec.describe Mutations::Achievements::Create, feature_category: :user_profile do
   include GraphqlHelpers
 
-  let_it_be(:user) { create(:user) }
+  let_it_be(:current_user) { create(:user) }
 
   let(:group) { create(:group) }
   let(:valid_params) do
@@ -14,7 +14,7 @@ RSpec.describe Mutations::Achievements::Create, feature_category: :user_profile 
 
   describe '#resolve' do
     subject(:resolve_mutation) do
-      described_class.new(object: nil, context: { current_user: user }, field: nil).resolve(
+      described_class.new(object: nil, context: query_context, field: nil).resolve(
         **valid_params,
         namespace_id: group.to_global_id
       )
@@ -22,7 +22,7 @@ RSpec.describe Mutations::Achievements::Create, feature_category: :user_profile 
 
     context 'when the user does not have permission' do
       before do
-        group.add_developer(user)
+        group.add_developer(current_user)
       end
 
       it 'raises an error' do
@@ -31,9 +31,26 @@ RSpec.describe Mutations::Achievements::Create, feature_category: :user_profile 
       end
     end
 
+    context 'when the feature is not enabled' do
+      before do
+        stub_feature_flags(achievements: false)
+      end
+
+      it 'raises an error' do
+        allow_next_instance_of(described_class) do |instance|
+          allow(instance).to receive(:authorized_find!).and_return(group)
+        end
+
+        expect do
+          resolve_mutation
+        end.to raise_error(Gitlab::Graphql::Errors::ResourceNotAvailable,
+          '`achievements` feature flag is disabled.')
+      end
+    end
+
     context 'when the user has permission' do
       before do
-        group.add_maintainer(user)
+        group.add_maintainer(current_user)
       end
 
       context 'when the params are invalid' do

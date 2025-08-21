@@ -1,7 +1,6 @@
 - title: 'GitLab Runner platforms and setup instructions in GraphQL API'
   announcement_milestone: '15.9'
-  announcement_date: '2023-02-22'
-  removal_milestone: '18.0'
+  removal_milestone: '20.0'
   breaking_change: true
   reporter: mrincon
   body: |
@@ -10,3 +9,8 @@
     [GitLab Runner documentation](https://docs.gitlab.com/runner/)
   stage: verify
   issue_url: https://gitlab.com/gitlab-org/gitlab/-/issues/387937
+  window: "1"
+  impact: low
+  scope: instance, group, project
+  resolution_role: admin
+  manual_task: false

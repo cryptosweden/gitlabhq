@@ -10,8 +10,9 @@ module Packages
       package.pending_destruction!
 
       package.mark_package_files_for_destruction
-      package.sync_maven_metadata(current_user)
-      package.sync_npm_metadata_cache
+      package.sync_maven_metadata(current_user) if package.maven?
+      package.sync_npm_metadata_cache if package.npm?
+      package.sync_helm_metadata_cache if package.helm?
 
       service_response_success('Package was successfully marked as pending destruction')
     rescue StandardError => e
@@ -42,3 +43,5 @@ module Packages
     end
   end
 end
+
+Packages::MarkPackageForDestructionService.prepend_mod

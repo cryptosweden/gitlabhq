@@ -28,7 +28,7 @@ module DevOpsReport
           description: 'created per active user',
           feature: 'milestones',
           blog: 'http://conversationaldevelopment.com/shorten-cycle/',
-          docs: help_page_path('user/project/milestones/index')
+          docs: help_page_path('user/project/milestones/_index.md')
         ),
         Card.new(
           metric: metric,
@@ -36,7 +36,7 @@ module DevOpsReport
           description: 'created per active user',
           feature: 'boards',
           blog: 'http://jpattonassociates.com/user-story-mapping/',
-          docs: help_page_path('user/project/issue_board')
+          docs: help_page_path('user/project/issue_board.md')
         ),
         Card.new(
           metric: metric,
@@ -44,7 +44,7 @@ module DevOpsReport
           description: 'per active user',
           feature: 'merge_requests',
           blog: 'https://8thlight.com/blog/uncle-bob/2013/02/01/The-Humble-Craftsman.html',
-          docs: help_page_path('user/project/merge_requests/index')
+          docs: help_page_path('user/project/merge_requests/_index.md')
         ),
         Card.new(
           metric: metric,
@@ -52,15 +52,15 @@ module DevOpsReport
           description: 'created per active user',
           feature: 'ci_pipelines',
           blog: 'https://martinfowler.com/bliki/ContinuousDelivery.html',
-          docs: help_page_path('ci/index')
+          docs: help_page_path('ci/_index.md')
         ),
         Card.new(
           metric: metric,
           title: 'Environments',
           description: 'created per active user',
           feature: 'environments',
-          blog: 'https://about.gitlab.com/2016/08/26/ci-deployment-and-environments/',
-          docs: help_page_path('ci/environments/index')
+          blog: promo_url(path: '/2016/08/26/ci-deployment-and-environments/'),
+          docs: help_page_path('ci/environments/_index.md')
         ),
         Card.new(
           metric: metric,
@@ -74,8 +74,7 @@ module DevOpsReport
           title: 'Monitoring',
           description: 'fraction of all projects',
           feature: 'projects_prometheus_active',
-          blog: 'https://prometheus.io/docs/introduction/overview/',
-          docs: help_page_path('user/project/integrations/prometheus')
+          blog: 'https://prometheus.io/docs/introduction/overview/'
         ),
         Card.new(
           metric: metric,
@@ -83,7 +82,7 @@ module DevOpsReport
           description: 'issues created per active user',
           feature: 'service_desk_issues',
           blog: 'http://blogs.forrester.com/kate_leggett/17-01-30-top_trends_for_customer_service_in_2017_operations_become_smarter_and_more_strategic',
-          docs: 'https://docs.gitlab.com/ee/user/project/service_desk.html'
+          docs: 'https://docs.gitlab.com/user/project/service_desk/'
         )
       ]
     end
@@ -143,10 +142,8 @@ module DevOpsReport
       ]
     end
 
-    # rubocop: disable CodeReuse/ActiveRecord
     def average_percentage_score
       cards.sum(&:percentage_score) / cards.size.to_f
     end
-    # rubocop: enable CodeReuse/ActiveRecord
   end
 end

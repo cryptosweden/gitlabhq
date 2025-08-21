@@ -8,28 +8,31 @@ module Ci
     LOG_MAX_PIPELINE_SIZE = 2_000
     LOG_MAX_CREATION_THRESHOLD = 20.seconds
     SEQUENCE = [Gitlab::Ci::Pipeline::Chain::Build,
-      Gitlab::Ci::Pipeline::Chain::Build::Associations,
       Gitlab::Ci::Pipeline::Chain::Validate::Abilities,
       Gitlab::Ci::Pipeline::Chain::Validate::Repository,
+      Gitlab::Ci::Pipeline::Chain::Build::Associations,
       Gitlab::Ci::Pipeline::Chain::Limit::RateLimit,
       Gitlab::Ci::Pipeline::Chain::Validate::SecurityOrchestrationPolicy,
-      Gitlab::Ci::Pipeline::Chain::PipelineExecutionPolicies::FindConfigs,
+      Gitlab::Ci::Pipeline::Chain::AssignPartition,
+      Gitlab::Ci::Pipeline::Chain::PipelineExecutionPolicies::EvaluatePolicies,
       Gitlab::Ci::Pipeline::Chain::Skip,
+      Gitlab::Ci::Pipeline::Chain::Validate::Config,
       Gitlab::Ci::Pipeline::Chain::Config::Content,
       Gitlab::Ci::Pipeline::Chain::Config::Process,
+      Gitlab::Ci::Pipeline::Chain::StopLinting,
       Gitlab::Ci::Pipeline::Chain::Validate::AfterConfig,
       Gitlab::Ci::Pipeline::Chain::RemoveUnwantedChatJobs,
       Gitlab::Ci::Pipeline::Chain::SeedBlock,
       Gitlab::Ci::Pipeline::Chain::EvaluateWorkflowRules,
-      Gitlab::Ci::Pipeline::Chain::AssignPartition,
       Gitlab::Ci::Pipeline::Chain::Seed,
       Gitlab::Ci::Pipeline::Chain::Limit::Size,
       Gitlab::Ci::Pipeline::Chain::Limit::ActiveJobs,
       Gitlab::Ci::Pipeline::Chain::Limit::Deployments,
       Gitlab::Ci::Pipeline::Chain::Validate::External,
+      Gitlab::Ci::Pipeline::Chain::SetBuildSources,
       Gitlab::Ci::Pipeline::Chain::Populate,
       Gitlab::Ci::Pipeline::Chain::PopulateMetadata,
-      Gitlab::Ci::Pipeline::Chain::PipelineExecutionPolicies::MergeJobs,
+      Gitlab::Ci::Pipeline::Chain::PipelineExecutionPolicies::ApplyPolicies,
       Gitlab::Ci::Pipeline::Chain::StopDryRun,
       Gitlab::Ci::Pipeline::Chain::EnsureEnvironments,
       Gitlab::Ci::Pipeline::Chain::EnsureResourceGroups,
@@ -39,6 +42,7 @@ module Ci
       Gitlab::Ci::Pipeline::Chain::Metrics,
       Gitlab::Ci::Pipeline::Chain::TemplateUsage,
       Gitlab::Ci::Pipeline::Chain::ComponentUsage,
+      Gitlab::Ci::Pipeline::Chain::KeywordUsage,
       Gitlab::Ci::Pipeline::Chain::Pipeline::Process].freeze
 
     # Create a new pipeline in the specified project.
@@ -49,7 +53,6 @@ module Ci
     #                                                         is present in the commit body
     # @param [Boolean] save_on_errors                         Whether persisting an invalid pipeline when it encounters an
     #                                                         error during creation (e.g. invalid yaml)
-    # @param [Ci::TriggerRequest] trigger_request             The pipeline trigger triggers the pipeline creation.
     # @param [Ci::PipelineSchedule] schedule                  The pipeline schedule triggers the pipeline creation.
     # @param [MergeRequest] merge_request                     The merge request triggers the pipeline creation.
     # @param [Ci::ExternalPullRequest] external_pull_request  The external pull request triggers the pipeline creation.
@@ -59,12 +62,20 @@ module Ci
     #                                                         generating a dangling pipeline.
     #
     # @return [Ci::Pipeline]                                  The created Ci::Pipeline object.
-    # rubocop: disable Metrics/ParameterLists
-    def execute(source, ignore_skip_ci: false, save_on_errors: true, trigger_request: nil, schedule: nil, merge_request: nil, external_pull_request: nil, bridge: nil, **options, &block)
+    # rubocop: disable Metrics/ParameterLists, Metrics/AbcSize
+    def execute(
+      source,
+      ignore_skip_ci: false, save_on_errors: true, schedule: nil, merge_request: nil,
+      external_pull_request: nil, bridge: nil, inputs: {},
+      **options, &block
+    )
       @logger = build_logger
+      @command_logger = Gitlab::Ci::Pipeline::CommandLogger.new
       @pipeline = Ci::Pipeline.new
 
-      command = Gitlab::Ci::Pipeline::Chain::Command.new(
+      validate_options!(options)
+
+      @command = Gitlab::Ci::Pipeline::Chain::Command.new(
         source: source,
         origin_ref: params[:ref],
         checkout_sha: params[:checkout_sha],
@@ -72,7 +83,6 @@ module Ci
         before_sha: params[:before],          # The base SHA of the source branch (i.e merge_request.diff_base_sha).
         source_sha: params[:source_sha],      # The HEAD SHA of the source branch (i.e merge_request.diff_head_sha).
         target_sha: params[:target_sha],      # The HEAD SHA of the target branch.
-        trigger_request: trigger_request,
         schedule: schedule,
         merge_request: merge_request,
         external_pull_request: external_pull_request,
@@ -82,17 +92,19 @@ module Ci
         variables_attributes: params[:variables_attributes],
         project: project,
         current_user: current_user,
-        push_options: params[:push_options] || {},
+        push_options: ::Ci::PipelineCreation::PushOptions.fabricate(params[:push_options]),
         chat_data: params[:chat_data],
         bridge: bridge,
         logger: @logger,
+        partition_id: params[:partition_id],
+        inputs: inputs,
+        gitaly_context: params[:gitaly_context],
         **extra_options(**options))
 
-      # Ensure we never persist the pipeline when dry_run: true
-      @pipeline.readonly! if command.dry_run?
+      @pipeline.readonly! if @command.readonly?
 
       Gitlab::Ci::Pipeline::Chain::Sequence
-        .new(pipeline, command, SEQUENCE)
+        .new(pipeline, @command, SEQUENCE)
         .build!
 
       if pipeline.persisted?
@@ -100,31 +112,60 @@ module Ci
           Ci::PipelineCreatedEvent.new(data: { pipeline_id: pipeline.id })
         )
 
-        create_namespace_onboarding_action
+        after_successful_creation_hook
       else
         # If pipeline is not persisted, try to recover IID
         pipeline.reset_project_iid
       end
 
       if error_message = pipeline.full_error_messages.presence || pipeline.failure_reason.presence
+        ::Ci::PipelineCreation::Requests.failed(params[:pipeline_creation_request], error_message)
+
         ServiceResponse.error(message: error_message, payload: pipeline)
       else
+        ::Ci::PipelineCreation::Requests.succeeded(params[:pipeline_creation_request], pipeline.id)
+
         ServiceResponse.success(payload: pipeline)
       end
 
     ensure
       @logger.commit(pipeline: pipeline, caller: self.class.name)
+      @command_logger.commit(pipeline: pipeline, command: @command) if @command
     end
-    # rubocop: enable Metrics/ParameterLists
+    # rubocop: enable Metrics/ParameterLists, Metrics/AbcSize
+
+    def execute_async(source, options)
+      pipeline_creation_request = ::Ci::PipelineCreation::Requests.start_for_project(project)
+      creation_params = params.merge(pipeline_creation_request: pipeline_creation_request)
+
+      ::CreatePipelineWorker.perform_async(
+        project.id, current_user.id, params[:ref], source.to_s,
+        options.stringify_keys, creation_params.except(:ref).stringify_keys
+      )
+
+      ServiceResponse.success(payload: pipeline_creation_request['id'])
+    end
+
+    def yaml_processor_result
+      @command.yaml_processor_result
+    end
 
     private
 
-    def create_namespace_onboarding_action
-      Onboarding::PipelineCreatedWorker.perform_async(project.namespace_id)
+    def after_successful_creation_hook
+      # overridden in EE
     end
 
-    def extra_options(content: nil, dry_run: false)
-      { content: content, dry_run: dry_run }
+    # rubocop:disable Gitlab/NoCodeCoverageComment
+    # :nocov: Tested in FOSS and fully overridden and tested in EE
+    def validate_options!(_)
+      raise ArgumentError, "Param `partition_id` is not allowed" if params[:partition_id]
+    end
+    # :nocov:
+    # rubocop:enable Gitlab/NoCodeCoverageComment
+
+    def extra_options(content: nil, dry_run: false, linting: false)
+      { content: content, dry_run: dry_run, linting: linting }
     end
 
     def build_logger

@@ -40,16 +40,13 @@ export default {
 </script>
 <template>
   <gl-empty-state
+    :title="$options.i18n.pipelineSchedules"
     :svg-path="$options.SCHEDULE_MD_SVG_URL"
     :svg-height="150"
     :primary-button-text="$options.i18n.createNew"
     :primary-button-link="newSchedulePath"
+    data-testid="empty-state-new-schedule-button"
   >
-    <template #title>
-      <h3>
-        {{ $options.i18n.pipelineSchedules }}
-      </h3>
-    </template>
     <template #description>
       <p class="gl-mb-0">{{ $options.i18n.description }}</p>
       <ul class="gl-list-inside" data-testid="pipeline-schedules-characteristics">

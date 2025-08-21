@@ -1,17 +1,15 @@
-import { GlEmptyState } from '@gitlab/ui';
-
 import { mountExtended } from 'jest/__helpers__/vue_test_utils_helper';
 import SubgroupsAndProjectsEmptyState from '~/groups/components/empty_states/subgroups_and_projects_empty_state.vue';
+import ResourceListsEmptyState from '~/vue_shared/components/resource_lists/empty_state.vue';
+import { SEARCH_MINIMUM_LENGTH } from '~/groups/constants';
 
 let wrapper;
 
 const defaultProvide = {
-  newProjectIllustration: '/assets/illustrations/project-create-new-sm.svg',
   newProjectPath: '/projects/new?namespace_id=231',
-  newSubgroupIllustration: '/assets/illustrations/group-new.svg',
   newSubgroupPath: '/groups/new?parent_id=231',
   emptyProjectsIllustration: '/assets/illustrations/empty-state/empty-projects-md.svg',
-  emptySubgroupIllustration: '/assets/illustrations/empty-state/empty-subgroup-md.svg',
+  emptySubgroupIllustration: '/assets/illustrations/empty-state/empty-projects-md.svg',
   canCreateSubgroups: true,
   canCreateProjects: true,
 };
@@ -25,28 +23,20 @@ const createComponent = ({ provide = {} } = {}) => {
   });
 };
 
-const findNewSubgroupLink = () =>
-  wrapper.findByRole('link', {
-    name: new RegExp(SubgroupsAndProjectsEmptyState.i18n.withLinks.subgroup.title),
-  });
-const findNewProjectLink = () =>
-  wrapper.findByRole('link', {
-    name: new RegExp(SubgroupsAndProjectsEmptyState.i18n.withLinks.project.title),
-  });
-const findNewSubgroupIllustration = () =>
-  wrapper.findByRole('img', { name: SubgroupsAndProjectsEmptyState.i18n.withLinks.subgroup.title });
-const findNewProjectIllustration = () =>
-  wrapper.findByRole('img', { name: SubgroupsAndProjectsEmptyState.i18n.withLinks.project.title });
+const findNewSubgroupCard = () => wrapper.findByTestId('create-subgroup');
+const findNewProjectCard = () => wrapper.findByTestId('create-project');
 
 describe('SubgroupsAndProjectsEmptyState', () => {
   describe('when user has permission to create a subgroup', () => {
-    it('renders `Create new subgroup` link', () => {
+    it('renders `Create subgroup` card', () => {
       createComponent();
 
-      expect(findNewSubgroupLink().attributes('href')).toBe(defaultProvide.newSubgroupPath);
-      expect(findNewSubgroupIllustration().attributes('src')).toBe(
-        defaultProvide.newSubgroupIllustration,
-      );
+      expect(findNewSubgroupCard().props()).toMatchObject({
+        title: 'Create subgroup',
+        description: 'Use groups to manage multiple projects and members.',
+        icon: 'subgroup',
+        href: defaultProvide.newSubgroupPath,
+      });
     });
   });
 
@@ -54,10 +44,13 @@ describe('SubgroupsAndProjectsEmptyState', () => {
     it('renders `Create new project` link', () => {
       createComponent();
 
-      expect(findNewProjectLink().attributes('href')).toBe(defaultProvide.newProjectPath);
-      expect(findNewProjectIllustration().attributes('src')).toBe(
-        defaultProvide.newProjectIllustration,
-      );
+      expect(findNewProjectCard().props()).toMatchObject({
+        title: 'Create project',
+        description:
+          'Use projects to store and access issues, wiki pages, and other GitLab features.',
+        icon: 'project',
+        href: defaultProvide.newProjectPath,
+      });
     });
   });
 
@@ -65,11 +58,16 @@ describe('SubgroupsAndProjectsEmptyState', () => {
     it('renders empty state', () => {
       createComponent({ provide: { canCreateSubgroups: false, canCreateProjects: false } });
 
-      expect(wrapper.findComponent(GlEmptyState).props()).toMatchObject({
-        title: SubgroupsAndProjectsEmptyState.i18n.withoutLinks.title,
-        description: SubgroupsAndProjectsEmptyState.i18n.withoutLinks.description,
+      expect(wrapper.findComponent(ResourceListsEmptyState).props()).toMatchObject({
+        title: 'There are no subgroups or projects in this group',
+        description:
+          'You do not have necessary permissions to create a subgroup or project in this group. Please contact an owner of this group to create a new subgroup or project.',
         svgPath: defaultProvide.emptySubgroupIllustration,
+        search: '',
+        searchMinimumLength: SEARCH_MINIMUM_LENGTH,
       });
+
+      expect(wrapper.findByTestId('empty-subgroup-and-projects-actions').exists()).toBe(false);
     });
   });
 });

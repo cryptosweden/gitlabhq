@@ -113,7 +113,8 @@ RSpec.describe Resolvers::ProjectMergeRequestsResolver do
 
     it 'returns error when assignee username and wildcard id are used' do
       expect_graphql_error_to_be_created(GraphQL::Schema::Validator::ValidationFailedError,
-        'Only one of [assigneeUsername, assigneeWildcardId] arguments is allowed at the same time.') do
+        'Only one of [assigneeUsernames, assigneeUsername, assigneeWildcardId] ' \
+          'arguments is allowed at the same time.') do
         resolve_mr(project, assignee_username: current_user.username, assignee_wildcard_id: 'ANY')
       end
     end
@@ -145,6 +146,47 @@ RSpec.describe Resolvers::ProjectMergeRequestsResolver do
       result = resolve_mr(project, label_name: [label.name])
 
       expect(result).to contain_exactly(merge_request)
+    end
+  end
+
+  context 'with negated params' do
+    context 'with negated assignee username' do
+      it do
+        result = resolve_mr(project, not: { assignee_usernames: [other_user.username] })
+
+        expect(result).to contain_exactly(merge_request2)
+      end
+    end
+
+    context 'with negated reviewer username' do
+      it do
+        result = resolve_mr(project, not: { reviewer_username: reviewer.username })
+
+        expect(result).to contain_exactly(merge_request2)
+      end
+    end
+
+    context 'with negated review states' do
+      let_it_be(:merge_request3) do
+        create(
+          :merge_request,
+          :unique_branches,
+          source_project: project,
+          target_project: project,
+          author: other_user,
+          reviewers: [reviewer]
+        )
+      end
+
+      before_all do
+        merge_request3.merge_request_reviewers.update_all(state: :requested_changes)
+      end
+
+      it do
+        result = resolve_mr(project, not: { review_states: ['REQUESTED_CHANGES'] })
+
+        expect(result).to contain_exactly(merge_request)
+      end
     end
   end
 

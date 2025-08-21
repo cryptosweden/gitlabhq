@@ -4,6 +4,7 @@ import { getContentWrapperHeight } from '~/lib/utils/dom_utils';
 import { s__, __ } from '~/locale';
 import csrf from '~/lib/utils/csrf';
 import { CATEGORY_OPTIONS } from '~/abuse_reports/components/constants';
+import { DRAWER_Z_INDEX } from '~/lib/utils/constants';
 
 export default {
   name: 'AbuseCategorySelector',
@@ -66,17 +67,18 @@ export default {
       this.$emit('close-drawer');
     },
   },
+  DRAWER_Z_INDEX,
 };
 </script>
 <template>
   <gl-drawer
     :header-height="getDrawerHeaderHeight"
-    :z-index="300"
+    :z-index="$options.DRAWER_Z_INDEX"
     :open="showDrawer && mounted"
     @close="closeDrawer"
   >
     <template #title>
-      <h2 class="gl-font-size-h2 gl-mt-0 gl-mb-0 gl-leading-24" data-testid="category-drawer-title">
+      <h2 class="gl-mb-0 gl-mt-0 gl-text-size-h2 gl-leading-24" data-testid="category-drawer-title">
         {{ $options.i18n.title }}
       </h2>
     </template>
@@ -92,8 +94,13 @@ export default {
           data-testid="input-referer"
         />
 
-        <gl-form-group :label="$options.i18n.label" label-class="gl-text-black-normal">
+        <gl-form-group
+          :label="$options.i18n.label"
+          label-for="abuse-report-category"
+          label-class="gl-text-default"
+        >
           <gl-form-radio-group
+            id="abuse-report-category"
             v-model="selected"
             :options="$options.CATEGORY_OPTIONS"
             name="abuse_report[category]"

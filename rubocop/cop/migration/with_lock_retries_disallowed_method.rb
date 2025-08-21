@@ -37,15 +37,21 @@ module RuboCop
           reset_trigger_function
           cleanup_conversion_of_integer_to_bigint
           revert_initialize_conversion_of_integer_to_bigint
+          validate_foreign_key
+          track_record_deletions
+          track_record_deletions_override_table_name
+          untrack_record_deletions
         ].sort.freeze
 
         MSG = "The method is not allowed to be called within the `with_lock_retries` block, the only allowed methods are: #{ALLOWED_MIGRATION_METHODS.join(', ')}".freeze
         MSG_ONLY_ONE_FK_ALLOWED = "Avoid adding more than one foreign key within the `with_lock_retries`. See https://docs.gitlab.com/ee/development/migration_style_guide.html#examples"
 
+        # @!method send_node?(node)
         def_node_matcher :send_node?, <<~PATTERN
           send
         PATTERN
 
+        # @!method add_foreign_key?(node)
         def_node_matcher :add_foreign_key?, <<~PATTERN
           (send nil? :add_foreign_key ...)
         PATTERN
@@ -55,7 +61,7 @@ module RuboCop
 
           return unless in_migration?(node)
           return unless block_body
-          return unless node.method_name == :with_lock_retries
+          return unless node.method?(:with_lock_retries)
 
           if send_node?(block_body)
             check_node(block_body)

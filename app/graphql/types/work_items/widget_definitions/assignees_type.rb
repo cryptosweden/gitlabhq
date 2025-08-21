@@ -8,14 +8,14 @@ module Types
         graphql_name 'WorkItemWidgetDefinitionAssignees'
         description 'Represents an assignees widget definition'
 
-        implements Types::WorkItems::WidgetDefinitionInterface
+        implements ::Types::WorkItems::WidgetDefinitionInterface
 
         field :can_invite_members, GraphQL::Types::Boolean,
           null: false,
           description: 'Indicates whether the current user can invite members to the work item\'s parent.'
 
         def can_invite_members
-          object.can_invite_members?(current_user, resource_parent)
+          object.widget_class.can_invite_members?(current_user, resource_parent)
         end
 
         private

@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Mutations::AlertManagement::CreateAlertIssue do
+RSpec.describe Mutations::AlertManagement::CreateAlertIssue, feature_category: :api do
+  include GraphqlHelpers
+
   let_it_be(:current_user) { create(:user) }
   let_it_be(:project) { create(:project) }
   let_it_be(:alert) { create(:alert_management_alert, project: project, status: 'triggered') }
@@ -16,6 +18,7 @@ RSpec.describe Mutations::AlertManagement::CreateAlertIssue do
 
     context 'user has access to project' do
       before do
+        stub_feature_flags(hide_incident_management_features: false)
         project.add_developer(current_user)
       end
 
@@ -65,6 +68,12 @@ RSpec.describe Mutations::AlertManagement::CreateAlertIssue do
       end
     end
 
+    context 'when feature flag is enabled' do
+      it 'raises a resource not available error' do
+        expect { subject }.to raise_error(Gitlab::Graphql::Errors::ResourceNotAvailable)
+      end
+    end
+
     context 'when resource is not accessible to the user' do
       it 'raises an error if the resource is not accessible to the user' do
         expect { subject }.to raise_error(Gitlab::Graphql::Errors::ResourceNotAvailable)
@@ -74,7 +83,7 @@ RSpec.describe Mutations::AlertManagement::CreateAlertIssue do
 
   private
 
-  def mutation_for(project, user)
-    described_class.new(object: project, context: { current_user: user }, field: nil)
+  def mutation_for(project, _user)
+    described_class.new(object: project, context: query_context, field: nil)
   end
 end

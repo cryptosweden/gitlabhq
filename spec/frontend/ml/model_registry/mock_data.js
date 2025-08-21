@@ -1,4 +1,4 @@
-export const newCandidate = () => ({
+export const newCandidate = (withModel = true) => ({
   params: [
     { name: 'Algorithm', value: 'Decision Tree' },
     { name: 'MaxDepth', value: '3' },
@@ -17,7 +17,8 @@ export const newCandidate = () => ({
   info: {
     iid: 'candidate_iid',
     eid: 'abcdefg',
-    pathToArtifact: 'path_to_artifact',
+    gid: 'gid://gitlab/Ml::Candidate/1',
+    pathToArtifact: 'path_to_artifact/packages/12',
     experimentName: 'The Experiment',
     pathToExperiment: 'path/to/experiment',
     status: 'SUCCESS',
@@ -37,7 +38,19 @@ export const newCandidate = () => ({
         avatar: '/img.png',
       },
     },
+    createdAt: '2024-01-01T00:00:00Z',
+    authorName: 'Test User',
+    authorWebUrl: '/test-user',
+    canPromote: true,
+    promotePath: 'promote/path',
   },
+  projectPath: 'some/project',
+  canWriteModelRegistry: true,
+  canWriteModelExperiments: true,
+  markdownPreviewPath: '/markdown-preview',
+  modelGid: withModel ? 'gid://gitlab/Ml::Model/1' : undefined,
+  modelName: withModel ? 'CoolModel' : undefined,
+  latestVersion: withModel ? '1.0.2' : undefined,
 });
 
 const LATEST_VERSION = {

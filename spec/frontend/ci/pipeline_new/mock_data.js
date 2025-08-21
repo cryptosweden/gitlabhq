@@ -27,7 +27,7 @@ export const mockPostParams = {
 
 export const mockError = {
   errors: [
-    'test job: chosen stage does not exist; available stages are .pre, build, test, deploy, .post',
+    'test job: chosen stage test does not exist; available stages are .pre, build, test, deploy, .post',
   ],
   warnings: [
     `jobs:build1 may allow multiple pipelines to run for a single action due to \`rules:when\` clause with no \`workflow:rules\` - read more: ${DOCS_URL_IN_EE_DIR}/ci/troubleshooting.html#pipeline-warnings`,
@@ -37,16 +37,15 @@ export const mockError = {
   total_warnings: 7,
 };
 
-export const mockCreditCardValidationRequiredError = {
-  errors: ['Credit card required to be on file in order to run CI jobs'],
-  warnings: [],
-  total_warnings: 0,
-};
-
 export const mockIdentityVerificationRequiredError = {
-  errors: ['Identity verification is required in order to run CI jobs'],
-  warnings: [],
-  total_warnings: 0,
+  data: {
+    pipelineCreate: {
+      clientMutationId: 'test-mutation-id',
+      errors: ['Identity verification is required in order to run CI jobs'],
+      pipeline: null,
+      __typename: 'PipelineCreatePayload',
+    },
+  },
 };
 
 export const mockBranchRefs = ['main', 'dev', 'release'];
@@ -56,17 +55,17 @@ export const mockTagRefs = ['1.0.0', '1.1.0', '1.2.0'];
 export const mockVariables = [
   {
     uniqueId: 'var-refs/heads/main2',
-    variable_type: 'env_var',
+    variableType: 'ENV_VAR',
     key: 'var_without_value',
     value: '',
   },
   {
     uniqueId: 'var-refs/heads/main3',
-    variable_type: 'env_var',
+    variableType: 'ENV_VAR',
     key: 'var_with_value',
     value: 'test_value',
   },
-  { uniqueId: 'var-refs/heads/main4', variable_type: 'env_var', key: '', value: '' },
+  { uniqueId: 'var-refs/heads/main4', variableType: 'ENV_VAR', key: '', value: '' },
 ];
 
 export const mockYamlVariables = [

@@ -2,6 +2,7 @@
 
 class PagesDomainSslRenewalWorker # rubocop:disable Scalability/IdempotentWorker
   include ApplicationWorker
+  include CronjobChildWorker
 
   data_consistency :always
 
@@ -14,6 +15,6 @@ class PagesDomainSslRenewalWorker # rubocop:disable Scalability/IdempotentWorker
     return unless domain&.enabled?
     return unless ::Gitlab::LetsEncrypt.enabled?
 
-    ::PagesDomains::ObtainLetsEncryptCertificateService.new(domain).execute
+    ::Pages::Domains::ObtainLetsEncryptCertificateService.new(domain).execute
   end
 end

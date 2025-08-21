@@ -97,7 +97,8 @@ function renderMermaidEl(el, source) {
 
   // Hide the markdown but keep it "visible enough" to allow Copy-as-GFM
   // https://gitlab.com/gitlab-org/gitlab/-/merge_requests/83202
-  el.closest('pre').classList.add('gl-sr-only');
+  // Also remove padding from the pre element to prevent errant scrollbar appearing
+  el.closest('pre').classList.add('gl-sr-only', '!gl-p-0');
   el.closest('pre').parentNode.appendChild(wrapper);
 
   // Event Listeners
@@ -153,15 +154,16 @@ function renderMermaids(els) {
 
       if (!parent.classList.contains(LAZY_ALERT_SHOWN_CLASS)) {
         const alertContainer = document.createElement('div');
-        alertContainer.classList.add(ALERT_CONTAINER_CLASS);
-        alertContainer.classList.add('gl-mb-5');
-        parent.after(alertContainer);
+        alertContainer.classList.add(ALERT_CONTAINER_CLASS, 'gl-mb-5');
+        const noteText = parent.closest('.note-text');
+        const markdownBlock = noteText?.querySelector('.markdown-code-block') || parent;
+        markdownBlock.before(alertContainer);
         createAlert({
           message: __(
             'Warning: Displaying this diagram might cause performance issues on this page.',
           ),
           variant: VARIANT_WARNING,
-          parent: parent.parentNode,
+          parent: noteText || parent.parentNode,
           containerSelector: `.${ALERT_CONTAINER_CLASS}`,
           primaryButton: {
             text: __('Display'),

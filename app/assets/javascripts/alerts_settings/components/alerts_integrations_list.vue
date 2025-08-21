@@ -18,7 +18,6 @@ import {
   integrationToDeleteDefault,
   typeSet,
 } from '../constants';
-import getCurrentIntegrationQuery from '../graphql/queries/get_current_integration.query.graphql';
 
 export const i18n = {
   deleteIntegration: s__('AlertSettings|Delete integration'),
@@ -97,20 +96,14 @@ export default {
     },
     {
       key: 'actions',
-      thClass: 'gl-text-right',
+      thAlignRight: true,
       tdClass: 'gl-text-right !gl-align-middle',
       label: __('Actions'),
     },
   ],
-  apollo: {
-    currentIntegration: {
-      query: getCurrentIntegrationQuery,
-    },
-  },
   data() {
     return {
       integrationToDelete: integrationToDeleteDefault,
-      currentIntegration: null,
     };
   },
   mounted() {
@@ -135,12 +128,12 @@ export default {
       this.integrationToDelete = integration;
     },
     deleteIntegration() {
-      const { id, type } = this.integrationToDelete;
-      this.$emit('delete-integration', { id, type });
+      const { id } = this.integrationToDelete;
+      this.$emit('delete-integration', { id });
       this.integrationToDelete = { ...integrationToDeleteDefault };
     },
-    editIntegration({ id, type }) {
-      this.$emit('edit-integration', { id, type });
+    editIntegration({ id }) {
+      this.$emit('edit-integration', { id });
     },
   },
 };
@@ -162,8 +155,9 @@ export default {
             v-gl-tooltip
             name="check"
             :size="16"
-            class="gl-text-green-500 gl-hover-cursor-pointer gl-mr-3"
+            class="gl-mr-3 hover:gl-cursor-pointer"
             :title="$options.i18n.status.enabled.tooltip"
+            variant="success"
           />
           {{ $options.i18n.status.enabled.name }}
         </span>
@@ -172,15 +166,16 @@ export default {
             v-gl-tooltip
             name="warning-solid"
             :size="16"
-            class="gl-text-red-600 gl-hover-cursor-pointer gl-mr-3"
+            class="gl-mr-3 gl-text-danger hover:gl-cursor-pointer"
             :title="$options.i18n.status.disabled.tooltip"
+            variant="danger"
           />
           {{ $options.i18n.status.disabled.name }}
         </span>
       </template>
 
       <template #cell(actions)="{ item }">
-        <gl-button-group class="gl-ml-3 -gl-mt-2 -gl-mb-2">
+        <gl-button-group class="-gl-mb-2 -gl-mt-2 gl-ml-3">
           <gl-button
             icon="settings"
             :aria-label="$options.i18n.editIntegration"
@@ -188,7 +183,6 @@ export default {
           />
           <gl-button
             v-gl-modal.deleteIntegration
-            :disabled="item.type === $options.typeSet.prometheus"
             icon="remove"
             :aria-label="$options.i18n.deleteIntegration"
             @click="setIntegrationToDelete(item)"
@@ -201,7 +195,7 @@ export default {
       </template>
 
       <template #empty>
-        <p class="gl-new-card-empty gl-text-center gl-mb-0">{{ $options.i18n.emptyState }}</p>
+        <p class="gl-mb-0 gl-text-subtle">{{ $options.i18n.emptyState }}</p>
       </template>
     </gl-table>
 

@@ -1,10 +1,19 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Sidekiq limited capacity worker
 ---
 
-# Sidekiq limited capacity worker
+{{< alert type="note" >}}
+
+The following documentation for limited capacity worker relates to a specific
+type of worker that usually does not take arguments but instead gets work from
+a custom queue (for example, a PostgreSQL backlog of work). It cannot be used for
+throttling normal Sidekiq workers. To restrict the concurrency of a normal
+Sidekiq worker you can use a [concurrency limit](worker_attributes.md#concurrency-limit).
+
+{{< /alert >}}
 
 It is possible to limit the number of concurrent running jobs for a worker class
 by using the `LimitedCapacity::Worker` concern.
@@ -94,8 +103,3 @@ name as label:
 - `limited_capacity_worker_running_jobs`
 - `limited_capacity_worker_max_running_jobs`
 - `limited_capacity_worker_remaining_work_count`
-
-## Alternatives
-
-If limited capacity worker doesn't fit your architecture, there's also a [concurrency limit](worker_attributes.md#concurrency-limit)
-attribute that can be used to restrict concurrency of a Sidekiq worker.

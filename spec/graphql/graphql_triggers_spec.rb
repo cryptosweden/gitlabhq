@@ -172,4 +172,112 @@ RSpec.describe GraphqlTriggers, feature_category: :shared do
       end
     end
   end
+
+  describe '.issuable_todo_updated' do
+    let_it_be(:user) { create(:user) }
+
+    it 'triggers the issuable_todo_updated subscription' do
+      expect(GitlabSchema.subscriptions).to receive(:trigger).with(
+        :issuable_todo_updated,
+        { issuable_id: issuable.to_gid },
+        issuable
+      ).and_call_original
+
+      described_class.issuable_todo_updated(issuable)
+    end
+  end
+
+  describe '.user_merge_request_updated' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:merge_request) { create(:merge_request) }
+
+    before do
+      stub_feature_flags(merge_request_dashboard: true)
+    end
+
+    it 'triggers the user_merge_request_updated subscription' do
+      expect(GitlabSchema.subscriptions).to receive(:trigger).with(
+        :user_merge_request_updated,
+        { user_id: user.to_gid },
+        merge_request
+      ).and_call_original
+
+      described_class.user_merge_request_updated(user, merge_request)
+    end
+
+    describe 'when merge_request_dashboard is disabled' do
+      before do
+        stub_feature_flags(merge_request_dashboard: false)
+      end
+
+      it 'does not trigger the user_merge_request_updated subscription' do
+        expect(GitlabSchema.subscriptions).not_to receive(:trigger).with(
+          :user_merge_request_updated,
+          { user_id: user.id },
+          merge_request
+        ).and_call_original
+
+        described_class.user_merge_request_updated(user, merge_request)
+      end
+    end
+  end
+
+  describe '.ci_pipeline_status_updated' do
+    let_it_be(:pipeline) { create(:ci_pipeline) }
+    let_it_be(:user) { pipeline.project.owners.first }
+
+    it 'triggers the ci_pipeline_status_updated subscription' do
+      expect(GitlabSchema.subscriptions).to receive(:trigger).with(
+        :ci_pipeline_status_updated,
+        { pipeline_id: pipeline.to_gid },
+        pipeline
+      ).and_call_original
+
+      described_class.ci_pipeline_status_updated(pipeline)
+    end
+  end
+
+  describe '.ci_pipeline_job_updated' do
+    let_it_be(:job) { create(:ci_build) }
+
+    it 'triggers the ci_job_status_updated subscription' do
+      expect(GitlabSchema.subscriptions).to receive(:trigger).with(
+        :ci_job_status_updated,
+        { job_id: job.to_gid },
+        job
+      )
+
+      described_class.ci_job_status_updated(job)
+    end
+  end
+
+  describe '.ci_pipeline_schedule_status_updated' do
+    let_it_be(:schedule) { create(:ci_pipeline_schedule, project: project, owner: project.first_owner) }
+
+    it 'triggers the ci_pipeline_schedule_status_updated subscription' do
+      expect(GitlabSchema.subscriptions).to receive(:trigger).with(
+        :ci_pipeline_schedule_status_updated,
+        { project_id: schedule.project.to_gid },
+        schedule
+      )
+
+      described_class.ci_pipeline_schedule_status_updated(schedule)
+    end
+
+    describe 'when ci_pipeline_schedules_status_realtime is disabled' do
+      before do
+        stub_feature_flags(ci_pipeline_schedules_status_realtime: false)
+      end
+
+      it 'does not trigger the ci_pipeline_schedules_status_realtime subscription' do
+        expect(GitlabSchema.subscriptions).not_to receive(:trigger).with(
+          :ci_pipeline_schedule_status_updated,
+          { project_id: schedule.project.to_gid },
+          schedule
+        )
+
+        described_class.ci_pipeline_schedule_status_updated(schedule)
+      end
+    end
+  end
 end

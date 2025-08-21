@@ -1,15 +1,18 @@
 import { parseBoolean, getCookie } from '~/lib/utils/common_utils';
-import mrNotes from '~/mr_notes/stores';
 import { getLocationHash, getParameterValues } from '~/lib/utils/url_utility';
 import eventHub from '~/notes/event_hub';
-import { initReviewBar } from '~/batch_comments';
 import { initDiscussionCounter } from '~/mr_notes/discussion_counter';
 import { initOverviewTabCounter } from '~/mr_notes/init_count';
 import { getDerivedMergeRequestInformation } from '~/diffs/utils/merge_request';
 import { getReviewsForMergeRequest } from '~/diffs/utils/file_reviews';
 import { DIFF_VIEW_COOKIE_NAME, INLINE_DIFF_VIEW_TYPE } from '~/diffs/constants';
+import { useNotes } from '~/notes/store/legacy_notes';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useBatchComments } from '~/batch_comments/store';
+import { useMrNotes } from '~/mr_notes/store/legacy_mr_notes';
+import { pinia } from '~/pinia/instance';
 
-function setupMrNotesState(store, notesDataset, diffsDataset) {
+function setupMrNotesState(notesDataset, diffsDataset = {}) {
   const noteableData = JSON.parse(notesDataset.noteableData);
   noteableData.noteableType = notesDataset.noteableType;
   noteableData.targetType = notesDataset.targetType;
@@ -20,12 +23,12 @@ function setupMrNotesState(store, notesDataset, diffsDataset) {
 
   const { mrPath } = getDerivedMergeRequestInformation({ endpoint: diffsDataset.endpoint });
 
-  store.dispatch('setNotesData', notesData);
-  store.dispatch('setNoteableData', noteableData);
-  store.dispatch('setUserData', currentUserData);
-  store.dispatch('setTargetNoteHash', getLocationHash());
-  store.dispatch('setEndpoints', endpoints);
-  store.dispatch('diffs/setBaseConfig', {
+  useNotes().setNotesData(notesData);
+  useNotes().setNoteableData(noteableData);
+  useNotes().setUserData(currentUserData);
+  useNotes().setTargetNoteHash(getLocationHash());
+  useMrNotes(pinia).setEndpoints(endpoints);
+  useLegacyDiffs(pinia).setBaseConfig({
     endpoint: diffsDataset.endpoint,
     endpointMetadata: diffsDataset.endpointMetadata,
     endpointBatch: diffsDataset.endpointBatch,
@@ -44,34 +47,38 @@ function setupMrNotesState(store, notesDataset, diffsDataset) {
   });
 }
 
-export function initMrStateLazyLoad(store = mrNotes, { reviewBarParams } = {}) {
-  store.dispatch('setActiveTab', window.mrTabs.getCurrentAction());
-  window.mrTabs.eventHub.$on('MergeRequestTabChange', (value) =>
-    store.dispatch('setActiveTab', value),
-  );
+export function initMrStateLazyLoad() {
+  // Pinia stores must be initialized manually during migration, otherwise they won't sync with Vuex
+  useNotes(pinia);
+  useLegacyDiffs(pinia);
+  useBatchComments(pinia).$patch({ isMergeRequest: true });
+  useMrNotes(pinia).setActiveTab(window.mrTabs.getCurrentAction());
+
+  let pageInitialized = false;
+  const initPage = () => {
+    if (pageInitialized) return;
+
+    // prevent loading MR state on commits and pipelines pages
+    // this is due to them having a shared controller with the Overview page
+    if (['diffs', 'show'].includes(useMrNotes(pinia).activeTab)) {
+      eventHub.$once('fetchNotesData', () => useNotes().fetchNotes());
+
+      requestIdleCallback(() => {
+        initOverviewTabCounter();
+        initDiscussionCounter();
+      });
+      pageInitialized = true;
+    }
+  };
+
+  window.mrTabs.eventHub.$on('MergeRequestTabChange', (value) => {
+    useMrNotes(pinia).setActiveTab(value);
+    initPage();
+  });
 
   const discussionsEl = document.getElementById('js-vue-mr-discussions');
   const diffsEl = document.getElementById('js-diffs-app');
 
-  let stop = () => {};
-  stop = store.watch(
-    (state) => state.page.activeTab,
-    (activeTab) => {
-      setupMrNotesState(store, discussionsEl.dataset, diffsEl.dataset);
-
-      // prevent loading MR state on commits and pipelines pages
-      // this is due to them having a shared controller with the Overview page
-      if (['diffs', 'show'].includes(activeTab)) {
-        eventHub.$once('fetchNotesData', () => store.dispatch('fetchNotes'));
-
-        requestIdleCallback(() => {
-          initReviewBar(reviewBarParams);
-          initOverviewTabCounter();
-          initDiscussionCounter();
-        });
-        stop();
-      }
-    },
-    { immediate: true },
-  );
+  setupMrNotesState(discussionsEl.dataset, diffsEl?.dataset);
+  initPage();
 }

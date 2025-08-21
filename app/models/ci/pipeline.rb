@@ -4,6 +4,7 @@ module Ci
   class Pipeline < Ci::ApplicationRecord
     include Ci::Partitionable
     include Ci::HasStatus
+    include Ci::HasCompletionReason
     include Importable
     include AfterCommitQueue
     include Presentable
@@ -17,11 +18,16 @@ module Ci
     include UpdatedAtFilterable
     include EachBatch
     include FastDestroyAll::Helpers
+    include Gitlab::InternalEventsTracking
 
-    include IgnorableColumns
-    ignore_column :id_convert_to_bigint, remove_with: '17.2', remove_after: '2024-06-15'
+    self.table_name = :p_ci_pipelines
+    self.primary_key = :id
+    self.sequence_name = :ci_pipelines_id_seq
 
     MAX_OPEN_MERGE_REQUESTS_REFS = 4
+    YAML_ERRORS_MAX_LENGTH = 100.kilobytes
+    MAX_SHA_LENGTH = 64
+    MAX_REF_LENGTH = 300
 
     PROJECT_ROUTE_AND_NAMESPACE_ROUTE = {
       project: [:project_feature, :route, { namespace: :route }]
@@ -29,17 +35,18 @@ module Ci
 
     DEFAULT_CONFIG_PATH = '.gitlab-ci.yml'
 
-    CANCELABLE_STATUSES = (Ci::HasStatus::CANCELABLE_STATUSES + ['manual']).freeze
     UNLOCKABLE_STATUSES = (Ci::Pipeline.completed_statuses + [:manual]).freeze
-    INITIAL_PARTITION_VALUE = 100
-    SECOND_PARTITION_VALUE = 101
-    NEXT_PARTITION_VALUE = 102
+    # UI only shows 100+. TODO: pass constant to UI for SSoT
+    COUNT_FAILED_JOBS_LIMIT = 101
+    INPUTS_LIMIT = 20
 
     paginates_per 15
 
     sha_attribute :source_sha
     sha_attribute :target_sha
-    partitionable scope: ->(pipeline) { Ci::Pipeline.current_partition_value(pipeline.project) }
+    query_constraints :id, :partition_id
+    partitionable scope: ->(_) { Ci::Pipeline.current_partition_value }, partitioned: true
+
     # Ci::CreatePipelineService returns Ci::Pipeline so this is the only place
     # where we can pass additional information from the service. This accessor
     # is used for storing the processed metadata for linting purposes.
@@ -52,12 +59,14 @@ module Ci
     alias_method :jobs_git_ref, :git_ref
 
     belongs_to :project, inverse_of: :all_pipelines
+    belongs_to :project_mirror, primary_key: :project_id, foreign_key: :project_id, inverse_of: :pipelines
     belongs_to :user
     belongs_to :auto_canceled_by, class_name: 'Ci::Pipeline', inverse_of: :auto_canceled_pipelines
     belongs_to :pipeline_schedule, class_name: 'Ci::PipelineSchedule'
     belongs_to :merge_request, class_name: 'MergeRequest'
     belongs_to :external_pull_request, class_name: 'Ci::ExternalPullRequest'
     belongs_to :ci_ref, class_name: 'Ci::Ref', foreign_key: :ci_ref_id, inverse_of: :pipelines
+    belongs_to :trigger, class_name: 'Ci::Trigger', inverse_of: :pipelines
 
     has_internal_id :iid, scope: :project, presence: false,
       track_if: -> { !importing? },
@@ -73,9 +82,13 @@ module Ci
     has_many :stages, ->(pipeline) { in_partition(pipeline).order(position: :asc) },
       partition_foreign_key: :partition_id, inverse_of: :pipeline
 
+    has_one :workload, ->(pipeline) { in_partition(pipeline) },
+      class_name: "Ci::Workloads::Workload",
+      partition_foreign_key: :partition_id, inverse_of: :pipeline
+
     #
     # In https://gitlab.com/groups/gitlab-org/-/epics/9991, we aim to convert all CommitStatus related models to
-    # Ci:Job models. With that epic, we aim to replace `statuses` with `jobs`.
+    # Ci::Job models. With that epic, we aim to replace `statuses` with `jobs`.
     #
     # DEPRECATED:
     has_many :statuses, ->(pipeline) { in_partition(pipeline) }, class_name: 'CommitStatus', foreign_key: :commit_id, inverse_of: :pipeline, partition_foreign_key: :partition_id
@@ -97,7 +110,6 @@ module Ci
 
     has_many :job_artifacts, through: :builds
     has_many :build_trace_chunks, class_name: 'Ci::BuildTraceChunk', through: :builds, source: :trace_chunks
-    has_many :trigger_requests, dependent: :destroy, foreign_key: :commit_id, inverse_of: :pipeline # rubocop:disable Cop/ActiveRecordDependent
     has_many :variables, ->(pipeline) { in_partition(pipeline) }, class_name: 'Ci::PipelineVariable', inverse_of: :pipeline, partition_foreign_key: :partition_id
     has_many :latest_builds, ->(pipeline) { in_partition(pipeline).latest.with_project_and_metadata }, foreign_key: :commit_id, inverse_of: :pipeline, class_name: 'Ci::Build'
     has_many :downloadable_artifacts, -> do
@@ -115,6 +127,8 @@ module Ci
 
     has_many :pending_builds, ->(pipeline) { in_partition(pipeline).pending }, foreign_key: :commit_id, class_name: 'Ci::Build', inverse_of: :pipeline
     has_many :failed_builds, ->(pipeline) { in_partition(pipeline).latest.failed }, foreign_key: :commit_id, class_name: 'Ci::Build',
+      inverse_of: :pipeline
+    has_many :limited_failed_builds, ->(pipeline) { in_partition(pipeline).latest.failed.limit(COUNT_FAILED_JOBS_LIMIT) }, foreign_key: :commit_id, class_name: 'Ci::Build',
       inverse_of: :pipeline
     has_many :retryable_builds, ->(pipeline) { in_partition(pipeline).latest.failed_or_canceled.includes(:project) }, foreign_key: :commit_id, class_name: 'Ci::Build', inverse_of: :pipeline
     has_many :cancelable_statuses, ->(pipeline) { in_partition(pipeline).cancelable }, foreign_key: :commit_id, class_name: 'CommitStatus',
@@ -141,8 +155,6 @@ module Ci
     has_one :source_job, through: :source_pipeline, source: :source_job
     has_one :source_bridge, through: :source_pipeline, source: :source_bridge
 
-    has_one :pipeline_config, class_name: 'Ci::PipelineConfig', inverse_of: :pipeline
-
     has_one :pipeline_metadata, class_name: 'Ci::PipelineMetadata', inverse_of: :pipeline
 
     has_many :daily_build_group_report_results, class_name: 'Ci::DailyBuildGroupReportResult',
@@ -150,6 +162,8 @@ module Ci
 
     has_many :latest_builds_report_results, through: :latest_builds, source: :report_results
     has_many :pipeline_artifacts, class_name: 'Ci::PipelineArtifact', inverse_of: :pipeline, dependent: :destroy # rubocop:disable Cop/ActiveRecordDependent
+
+    has_many :job_environments, class_name: 'Environments::Job', inverse_of: :pipeline
 
     accepts_nested_attributes_for :variables, reject_if: :persisted?
 
@@ -167,9 +181,17 @@ module Ci
     validates :status, presence: { unless: :importing? }
     validate :valid_commit_sha, unless: :importing?
     validates :source, exclusion: { in: %w[unknown], unless: :importing? }, on: :create
-    validates :project, presence: true, on: :create
+    validates :project, presence: true
+
+    validates :ref, length: { maximum: MAX_REF_LENGTH }, if: :ref_changed?
+    validates :sha, length: { maximum: MAX_SHA_LENGTH }, if: :sha_changed?
+    validates :before_sha, length: { maximum: MAX_SHA_LENGTH }, if: :before_sha_changed?
+    validates :source_sha, length: { maximum: MAX_SHA_LENGTH }, if: :source_sha_changed?
+    validates :target_sha, length: { maximum: MAX_SHA_LENGTH }, if: :target_sha_changed?
+    validates :yaml_errors, bytesize: { maximum: -> { YAML_ERRORS_MAX_LENGTH } }, if: :yaml_errors_changed?
 
     after_create :keep_around_commits, unless: :importing?
+    after_commit :trigger_status_change_subscriptions, if: :saved_change_to_status?
     after_commit :track_ci_pipeline_created_event, on: :create, if: :internal_pipeline?
     after_find :observe_age_in_minutes, unless: :importing?
 
@@ -178,15 +200,15 @@ module Ci
 
     # We use `Enums::Ci::Pipeline.sources` here so that EE can more easily extend
     # this `Hash` with new values.
-    enum source: Enums::Ci::Pipeline.sources
+    enum :source, Enums::Ci::Pipeline.sources
 
-    enum config_source: Enums::Ci::Pipeline.config_sources
+    enum :config_source, Enums::Ci::Pipeline.config_sources
 
     # We use `Enums::Ci::Pipeline.failure_reasons` here so that EE can more easily
     # extend this `Hash` with new values.
-    enum failure_reason: Enums::Ci::Pipeline.failure_reasons
+    enum :failure_reason, Enums::Ci::Pipeline.failure_reasons
 
-    enum locked: { unlocked: 0, artifacts_locked: 1 }
+    enum :locked, { unlocked: 0, artifacts_locked: 1 }
 
     state_machine :status, initial: :created do
       event :enqueue do
@@ -283,6 +305,7 @@ module Ci
 
       after_transition any => UNLOCKABLE_STATUSES do |pipeline|
         pipeline.run_after_commit do
+          Ci::PipelineFinishedWorker.perform_async(pipeline.id)
           Ci::Refs::UnlockPreviousPipelinesWorker.perform_async(pipeline.ci_ref_id)
         end
       end
@@ -321,11 +344,7 @@ module Ci
 
       after_transition any => ::Ci::Pipeline.completed_statuses do |pipeline|
         pipeline.run_after_commit do
-          pipeline.all_merge_requests.each do |merge_request|
-            next unless merge_request.auto_merge_enabled?
-
-            AutoMergeProcessWorker.perform_async(merge_request.id)
-          end
+          AutoMergeProcessWorker.perform_async({ 'pipeline_id' => self.id })
 
           if pipeline.auto_devops_source?
             self.class.auto_devops_pipelines_completed_total.increment(status: pipeline.status)
@@ -333,14 +352,13 @@ module Ci
         end
       end
 
-      after_transition any => ::Ci::Pipeline.completed_statuses do |pipeline|
+      after_transition any => ::Ci::Pipeline.completed_with_manual_statuses do |pipeline|
         pipeline.run_after_commit do
           ::Ci::PipelineArtifacts::CoverageReportWorker.perform_async(pipeline.id)
-          ::Ci::PipelineArtifacts::CreateQualityReportWorker.perform_async(pipeline.id)
         end
       end
 
-      after_transition any => ::Ci::Pipeline.completed_statuses do |pipeline|
+      after_transition any => ::Ci::Pipeline.completed_with_manual_statuses do |pipeline|
         next unless pipeline.bridge_waiting?
 
         pipeline.run_after_commit do
@@ -350,6 +368,7 @@ module Ci
 
       after_transition any => ::Ci::Pipeline.completed_statuses do |pipeline|
         pipeline.run_after_commit do
+          ::Ci::PipelineArtifacts::CreateQualityReportWorker.perform_async(pipeline.id)
           ::Ci::TestFailureHistoryService.new(pipeline).async.perform_if_needed # rubocop: disable CodeReuse/ServiceClass
         end
       end
@@ -357,19 +376,22 @@ module Ci
       after_transition any => ::Ci::Pipeline.completed_statuses do |pipeline|
         pipeline.run_after_commit do
           ::Ci::JobArtifacts::TrackArtifactReportWorker.perform_async(pipeline.id)
+
+          track_internal_event(
+            'completed_pipeline_execution',
+            project: pipeline.project,
+            user: pipeline.user,
+            additional_properties: {
+              label: pipeline.status
+            }
+          )
         end
       end
 
       # This needs to be kept in sync with `Ci::PipelineRef#should_delete?`
       after_transition any => ::Ci::Pipeline.stopped_statuses do |pipeline|
         pipeline.run_after_commit do
-          if Feature.enabled?(:pipeline_delete_gitaly_refs_in_batches, pipeline.project)
-            pipeline.persistent_ref.async_delete
-          elsif Feature.enabled?(:pipeline_cleanup_ref_worker_async, pipeline.project)
-            ::Ci::PipelineCleanupRefWorker.perform_async(pipeline.id)
-          else
-            pipeline.persistent_ref.delete
-          end
+          Ci::Pipelines::ClearPersistentRefService.new(pipeline).execute # rubocop: disable CodeReuse/ServiceClass
         end
       end
 
@@ -381,7 +403,7 @@ module Ci
           # user been blocked.
           unless pipeline.user&.blocked?
             PipelineNotificationWorker
-              .perform_async(pipeline.id, ref_status: ref_status)
+              .perform_async(pipeline.id, 'ref_status' => ref_status&.to_s)
           end
         end
       end
@@ -436,10 +458,13 @@ module Ci
     end
     scope :for_status, ->(status) { where(status: status) }
     scope :created_after, ->(time) { where(arel_table[:created_at].gt(time)) }
+    scope :created_before, ->(time) { where(arel_table[:created_at].lt(time)) }
     scope :created_before_id, ->(id) { where(arel_table[:id].lt(id)) }
     scope :before_pipeline, ->(pipeline) { created_before_id(pipeline.id).outside_pipeline_family(pipeline) }
     scope :with_pipeline_source, ->(source) { where(source: source) }
     scope :preload_pipeline_metadata, -> { preload(:pipeline_metadata) }
+    scope :not_ref_protected, -> { where("#{quoted_table_name}.protected IS NOT true") }
+    scope :unlocked, -> { where(locked: :unlocked) }
 
     scope :outside_pipeline_family, ->(pipeline) do
       where.not(id: pipeline.same_family_pipeline_ids)
@@ -466,7 +491,14 @@ module Ci
       )
     end
 
+    scope :order_id_asc, -> { order(id: :asc) }
     scope :order_id_desc, -> { order(id: :desc) }
+
+    scope :not_archived, -> do
+      archive_cutoff = Gitlab::CurrentSettings.archive_builds_older_than
+
+      archive_cutoff ? created_after(archive_cutoff) : all
+    end
 
     # Returns the pipelines in descending order (= newest first), optionally
     # limited to a number of references.
@@ -474,11 +506,15 @@ module Ci
     # ref - The name (or names) of the branch(es)/tag(s) to limit the list of
     #       pipelines to.
     # sha - The commit SHA (or multiple SHAs) to limit the list of pipelines to.
-    # limit - This limits a backlog search, default to 100.
-    def self.newest_first(ref: nil, sha: nil, limit: 100)
+    # limit - Number of pipelines to return. Chaining with sampling methods (#pick, #take)
+    #         will cause unnecessary subqueries.
+    def self.newest_first(ref: nil, sha: nil, limit: nil, source: nil)
       relation = order(id: :desc)
       relation = relation.where(ref: ref) if ref
       relation = relation.where(sha: sha) if sha
+      if source && Feature.enabled?(:source_filter_pipelines, :current_request)
+        relation = relation.where(source: source)
+      end
 
       if limit
         ids = relation.limit(limit).select(:id)
@@ -504,12 +540,23 @@ module Ci
       return Ci::Pipeline.none if refs.empty?
 
       refs_values = refs.map { |ref| "(#{connection.quote(ref)})" }.join(",")
-      join_query = success.where("refs_values.ref = ci_pipelines.ref").order(id: :desc).limit(1)
+      query = Arel.sql(sanitize_sql_array(["refs_values.ref = #{quoted_table_name}.ref"]))
+      join_query = success.where(query).order(id: :desc).limit(1)
 
       Ci::Pipeline
         .from("(VALUES #{refs_values}) refs_values (ref)")
-        .joins("INNER JOIN LATERAL (#{join_query.to_sql}) #{Ci::Pipeline.table_name} ON TRUE")
+        .joins("INNER JOIN LATERAL (#{join_query.to_sql}) #{quoted_table_name} ON TRUE")
         .index_by(&:ref)
+    end
+
+    def self.latest_pipelines_for_ref_by_statuses(ref, statuses = AVAILABLE_STATUSES)
+      status_values = Arel::Nodes::ValuesList.new(statuses.map { |s| [s] }).to_sql
+      query = Arel.sql("status_values.status = #{quoted_table_name}.status")
+      join_query = for_ref(ref).where(query).order(id: :desc).limit(1)
+
+      Ci::Pipeline
+        .from(sanitize_sql_array(["(#{status_values}) AS status_values(status)"]))
+        .joins(sanitize_sql_array(["INNER JOIN LATERAL (#{join_query.to_sql}) #{quoted_table_name} ON TRUE"]))
     end
 
     def self.latest_running_for_ref(ref)
@@ -575,17 +622,9 @@ module Ci
       @auto_devops_pipelines_completed_total ||= Gitlab::Metrics.counter(:auto_devops_pipelines_completed_total, 'Number of completed auto devops pipelines')
     end
 
-    def self.current_partition_value(project = nil)
+    def self.current_partition_value
       Gitlab::SafeRequestStore.fetch(:ci_current_partition_value) do
-        if Feature.enabled?(:ci_partitioning_automation, project)
-          Ci::Partition.current&.id || NEXT_PARTITION_VALUE
-        elsif Feature.enabled?(:ci_current_partition_value_102, project)
-          NEXT_PARTITION_VALUE
-        elsif Feature.enabled?(:ci_current_partition_value_101, project)
-          SECOND_PARTITION_VALUE
-        else
-          INITIAL_PARTITION_VALUE
-        end
+        Ci::Partition.current&.id || Ci::Partition::INITIAL_PARTITION_VALUE
       end
     end
 
@@ -593,12 +632,24 @@ module Ci
       ::Gitlab::Ci::PipelineObjectHierarchy.new(relation, options: options)
     end
 
+    def self.internal_id_scope_usage
+      :ci_pipelines
+    end
+
+    def trigger_status_change_subscriptions
+      GraphqlTriggers.ci_pipeline_status_updated(self)
+
+      return unless self.pipeline_schedule_id.present?
+
+      GraphqlTriggers.ci_pipeline_schedule_status_updated(self.pipeline_schedule)
+    end
+
     def uses_needs?
       processables.where(scheduling_type: :dag).any?
     end
 
     def stages_count
-      statuses.select(:stage).distinct.count
+      stages.count
     end
 
     def total_size
@@ -606,16 +657,15 @@ module Ci
     end
 
     def tags_count
-      ActsAsTaggableOn::Tagging.where(taggable: builds).count
+      Ci::BuildTag.in_partition(self).where(build: builds).count
     end
 
     def distinct_tags_count
-      ActsAsTaggableOn::Tagging.where(taggable: builds).count('distinct(tag_id)')
+      Ci::BuildTag.in_partition(self).where(build: builds).count('distinct(tag_id)')
     end
 
     def stages_names
-      statuses.order(:stage_idx).distinct
-        .pluck(:stage, :stage_idx).map(&:first)
+      stages.order(:position).pluck(:name)
     end
 
     def ref_exists?
@@ -629,9 +679,7 @@ module Ci
     end
 
     def valid_commit_sha
-      if Gitlab::Git.blank_ref?(self.sha)
-        self.errors.add(:sha, "can't be 00000000 (branch removal)")
-      end
+      self.errors.add(:sha, "can't be 00000000 (branch removal)") if Gitlab::Git.blank_ref?(self.sha)
     end
 
     def git_author_name
@@ -703,11 +751,26 @@ module Ci
     end
 
     def retryable?
+      return false if archived?
+
       retryable_builds.any?
     end
 
+    def archived?(log: false)
+      archive_builds_older_than = Gitlab::CurrentSettings.current_application_settings.archive_builds_older_than
+      is_archived = archive_builds_older_than.present? && created_at < archive_builds_older_than
+
+      if log
+        ::Gitlab::Ci::Pipeline::AccessLogger
+          .new(pipeline: self, archived: is_archived)
+          .log
+      end
+
+      is_archived
+    end
+
     def cancelable?
-      cancelable_statuses.any?
+      cancelable_statuses.any? && internal_pipeline?
     end
 
     def auto_canceled?
@@ -743,10 +806,8 @@ module Ci
     end
 
     def coverage
-      coverage_array = latest_statuses.map(&:coverage).compact
-      if coverage_array.size >= 1
-        coverage_array.sum / coverage_array.size
-      end
+      coverage_array = latest_statuses.filter_map(&:coverage)
+      coverage_array.sum / coverage_array.size if coverage_array.size >= 1
     end
 
     def update_builds_coverage
@@ -900,11 +961,9 @@ module Ci
     # rubocop: enable Metrics/CyclomaticComplexity
 
     def protected_ref?
-      strong_memoize(:protected_ref) { project.protected_for?(git_ref) }
-    end
-
-    def legacy_trigger
-      strong_memoize(:legacy_trigger) { trigger_requests.first }
+      strong_memoize(:protected_ref) do
+        merge_request? ? protected_for_merge_request? : project.protected_for?(git_ref)
+      end
     end
 
     def variables_builder
@@ -921,9 +980,11 @@ module Ci
     end
 
     def queued_duration
-      return unless started_at
+      queueing_finished_time = started_at || finished_at
+      return unless queueing_finished_time
+      return unless created_at
 
-      seconds = (started_at - created_at).to_i
+      seconds = (queueing_finished_time - created_at).to_i
       seconds unless seconds == 0
     end
 
@@ -992,7 +1053,13 @@ module Ci
     end
 
     def builds_in_self_and_project_descendants
-      Ci::Build.in_partition(self).latest.where(pipeline: self_and_project_descendants)
+      latest_pipelines = self_and_project_descendants.preload(:source_bridge)
+
+      if Feature.enabled?(:show_child_reports_in_mr_page, project)
+        latest_pipelines = latest_pipelines.reject { |pipeline| pipeline&.source_bridge&.retried? }
+      end
+
+      Ci::Build.in_partition(self).latest.where(pipeline: latest_pipelines)
     end
 
     def bridges_in_self_and_project_descendants
@@ -1046,10 +1113,6 @@ module Ci
       object_hierarchy(project_condition: :same).descendants
     end
 
-    def self_and_project_descendants_complete?
-      self_and_project_descendants.all?(&:complete?)
-    end
-
     # Follow the parent-child relationships and return the top-level parent
     def root_ancestor
       return self unless child?
@@ -1075,7 +1138,7 @@ module Ci
     end
 
     def bridge_waiting?
-      source_bridge&.dependent?
+      source_bridge&.has_strategy?
     end
 
     def child?
@@ -1116,12 +1179,35 @@ module Ci
       builds.latest.with_artifacts(reports_scope)
     end
 
+    def latest_test_report_builds_in_self_and_project_descendants
+      latest_report_builds_in_self_and_project_descendants(Ci::JobArtifact.of_report_type(:test)).preload(:project, :metadata, :job_definition, job_artifacts: :artifact_report)
+    end
+
     def latest_test_report_builds
-      latest_report_builds(Ci::JobArtifact.of_report_type(:test)).preload(:project, :metadata)
+      latest_report_builds(Ci::JobArtifact.of_report_type(:test)).preload(:project, :metadata, :job_definition, job_artifacts: :artifact_report)
     end
 
     def latest_report_builds_in_self_and_project_descendants(reports_scope = ::Ci::JobArtifact.all_reports)
       builds_in_self_and_project_descendants.with_artifacts(reports_scope)
+    end
+
+    # Expired artifacts are still valid if
+    # "Keep artifacts from most recent successful jobs" is enabled
+    def downloadable_artifacts_in_self_and_project_descendants
+      hierarchy_builds = builds_in_self_and_project_descendants
+
+      artifacts = Ci::JobArtifact
+        .with_job
+        .where(job_id: hierarchy_builds.select(:id))
+        .downloadable
+        .in_partition(self)
+
+      non_expired = artifacts.not_expired
+
+      locked_pipeline_ids = self_and_project_descendants.artifacts_locked.select(:id)
+      from_locked_pipelines = artifacts.joins(:job).where(p_ci_builds: { commit_id: locked_pipeline_ids })
+
+      non_expired.or(from_locked_pipelines).distinct
     end
 
     def builds_with_coverage
@@ -1137,18 +1223,14 @@ module Ci
     end
 
     def complete_and_has_reports?(reports_scope)
-      if Feature.enabled?(:mr_show_reports_immediately, project, type: :development)
-        latest_report_builds(reports_scope).exists?
-      else
-        complete? && has_reports?(reports_scope)
-      end
+      complete? && has_reports?(reports_scope)
+    end
+
+    def complete_and_has_self_or_descendant_reports?(reports_scope)
+      complete? && latest_report_builds_in_self_and_project_descendants(reports_scope).exists?
     end
 
     def complete_or_manual_and_has_reports?(reports_scope)
-      return complete_and_has_reports?(reports_scope) unless include_manual_to_pipeline_completion_enabled?
-
-      return latest_report_builds(reports_scope).exists? if Feature.enabled?(:mr_show_reports_immediately, project, type: :development)
-
       complete_or_manual? && has_reports?(reports_scope)
     end
 
@@ -1161,19 +1243,35 @@ module Ci
     end
 
     def can_generate_codequality_reports?
-      complete_and_has_reports?(Ci::JobArtifact.of_report_type(:codequality))
+      if Feature.enabled?(:show_child_reports_in_mr_page, project)
+        complete_and_has_self_or_descendant_reports?(Ci::JobArtifact.of_report_type(:codequality))
+      else
+        complete_and_has_reports?(Ci::JobArtifact.of_report_type(:codequality))
+      end
     end
 
     def test_report_summary
       strong_memoize(:test_report_summary) do
-        Gitlab::Ci::Reports::TestReportSummary.new(latest_builds_report_results)
+        if Feature.enabled?(:show_child_reports_in_mr_page, project)
+          Gitlab::Ci::Reports::TestReportSummary.new(latest_builds_report_results_in_self_and_descendants)
+        else
+          Gitlab::Ci::Reports::TestReportSummary.new(latest_builds_report_results)
+        end
       end
     end
 
     def test_reports
-      Gitlab::Ci::Reports::TestReport.new.tap do |test_reports|
-        latest_test_report_builds.find_each do |build|
-          build.collect_test_reports!(test_reports)
+      if Feature.enabled?(:show_child_reports_in_mr_page, project)
+        Gitlab::Ci::Reports::TestReport.new.tap do |test_reports|
+          latest_test_report_builds_in_self_and_project_descendants.find_each do |build|
+            build.collect_test_reports!(test_reports)
+          end
+        end
+      else
+        Gitlab::Ci::Reports::TestReport.new.tap do |test_reports|
+          latest_test_report_builds.find_each do |build|
+            build.collect_test_reports!(test_reports)
+          end
         end
       end
     end
@@ -1187,17 +1285,33 @@ module Ci
     end
 
     def codequality_reports
-      Gitlab::Ci::Reports::CodequalityReports.new.tap do |codequality_reports|
-        latest_report_builds(Ci::JobArtifact.of_report_type(:codequality)).each do |build|
-          build.collect_codequality_reports!(codequality_reports)
+      if Feature.enabled?(:show_child_reports_in_mr_page, project)
+        Gitlab::Ci::Reports::CodequalityReports.new.tap do |codequality_reports|
+          latest_report_builds_in_self_and_project_descendants(Ci::JobArtifact.of_report_type(:codequality)).each do |build|
+            build.collect_codequality_reports!(codequality_reports)
+          end
+        end
+      else
+        Gitlab::Ci::Reports::CodequalityReports.new.tap do |codequality_reports|
+          latest_report_builds(Ci::JobArtifact.of_report_type(:codequality)).each do |build|
+            build.collect_codequality_reports!(codequality_reports)
+          end
         end
       end
     end
 
     def terraform_reports
-      ::Gitlab::Ci::Reports::TerraformReports.new.tap do |terraform_reports|
-        latest_report_builds(::Ci::JobArtifact.of_report_type(:terraform)).each do |build|
-          build.collect_terraform_reports!(terraform_reports)
+      if Feature.enabled?(:show_child_reports_in_mr_page, project)
+        ::Gitlab::Ci::Reports::TerraformReports.new.tap do |terraform_reports|
+          latest_report_builds_in_self_and_project_descendants(::Ci::JobArtifact.of_report_type(:terraform)).each do |build|
+            build.collect_terraform_reports!(terraform_reports)
+          end
+        end
+      else
+        ::Gitlab::Ci::Reports::TerraformReports.new.tap do |terraform_reports|
+          latest_report_builds(::Ci::JobArtifact.of_report_type(:terraform)).each do |build|
+            build.collect_terraform_reports!(terraform_reports)
+          end
         end
       end
     end
@@ -1207,7 +1321,7 @@ module Ci
     end
 
     def has_exposed_artifacts?
-      complete? && builds.latest.with_exposed_artifacts.exists?
+      complete? && builds.latest.any_with_exposed_artifacts?
     end
 
     def has_erasable_artifacts?
@@ -1263,6 +1377,10 @@ module Ci
       merge_request_id.present? && merge_request.present?
     end
 
+    def merge_request_from_forked_project?
+      merge_request? && merge_request.for_fork?
+    end
+
     def external_pull_request?
       external_pull_request_id.present?
     end
@@ -1277,6 +1395,24 @@ module Ci
 
     def merged_result_pipeline?
       merge_request? && target_sha.present?
+    end
+
+    def tag_pipeline?
+      tag?
+    end
+
+    def type
+      if merge_train_pipeline?
+        'merge_train'
+      elsif merged_result_pipeline?
+        'merged_result'
+      elsif merge_request?
+        'merge_request'
+      elsif tag_pipeline?
+        'tag'
+      else
+        'branch'
+      end
     end
 
     def merge_request_ref?
@@ -1331,6 +1467,10 @@ module Ci
       Enums::Ci::Pipeline.dangling_sources.key?(source.to_sym)
     end
 
+    def only_workload_variables?
+      Enums::Ci::Pipeline.workload_sources.key?(source.to_sym)
+    end
+
     def source_ref_path
       if branch? || merge_request?
         Gitlab::Git::BRANCH_REF_PREFIX + source_ref.to_s
@@ -1350,9 +1490,7 @@ module Ci
     end
 
     def ensure_persistent_ref
-      return if persistent_ref.exist?
-
-      persistent_ref.create
+      Pipelines::CreatePersistentRefService.new(self).execute # rubocop: disable CodeReuse/ServiceClass
     end
 
     # For dependent bridge jobs we reset the upstream bridge recursively
@@ -1362,7 +1500,10 @@ module Ci
       return unless bridge_waiting?
       return unless current_user.can?(:update_pipeline, source_bridge.pipeline)
 
-      Ci::EnqueueJobService.new(source_bridge, current_user: current_user).execute(&:pending!) # rubocop:disable CodeReuse/ServiceClass
+      # Before enqueuing the trigger job again, its status must be one of :created, :skipped, :manual, and :scheduled.
+      # Also, we use `skip_pipeline_processing` to prevent processing the pipeline to avoid redundant process.
+      source_bridge.created!(current_user, skip_pipeline_processing: true)
+      Ci::EnqueueJobService.new(source_bridge, current_user: current_user).execute # rubocop:disable CodeReuse/ServiceClass
     end
 
     # EE-only
@@ -1382,16 +1523,18 @@ module Ci
 
     def has_test_reports?
       strong_memoize(:has_test_reports) do
-        has_reports?(::Ci::JobArtifact.of_report_type(:test))
+        if Feature.enabled?(:show_child_reports_in_mr_page, project)
+          latest_report_builds_in_self_and_project_descendants(::Ci::JobArtifact.of_report_type(:test)).exists?
+        else
+          has_reports?(::Ci::JobArtifact.of_report_type(:test))
+        end
       end
     end
 
     def age_in_minutes
       return 0 unless persisted?
 
-      unless has_attribute?(:created_at)
-        raise ArgumentError, 'pipeline not fully loaded'
-      end
+      raise ArgumentError, 'pipeline not fully loaded' unless has_attribute?(:created_at)
 
       return 0 unless created_at
 
@@ -1412,12 +1555,6 @@ module Ci
       pipeline_metadata&.auto_cancel_on_new_commit || 'conservative'
     end
 
-    def include_manual_to_pipeline_completion_enabled?
-      strong_memoize(:include_manual_to_pipeline_completion_enabled) do
-        ::Feature.enabled?(:include_manual_to_pipeline_completion, self.project, type: :beta)
-      end
-    end
-
     def cancel_async_on_job_failure
       case auto_cancel_on_job_failure
       when 'none'
@@ -1433,7 +1570,7 @@ module Ci
     private
 
     def add_message(severity, content)
-      messages.build(severity: severity, content: content)
+      messages.build(severity: severity, content: content, project_id: project_id)
     end
 
     def merge_request_diff_sha
@@ -1483,6 +1620,10 @@ module Ci
         .observe({}, age_in_minutes)
     end
 
+    def latest_builds_report_results_in_self_and_descendants
+      Ci::BuildReportResult.where(build_id: latest_test_report_builds_in_self_and_project_descendants.ids)
+    end
+
     def age_metric_enabled?
       ::Gitlab::SafeRequestStore.fetch(:age_metric_enabled) do
         ::Feature.enabled?(:ci_pipeline_age_histogram, type: :ops)
@@ -1501,7 +1642,39 @@ module Ci
     end
 
     def track_ci_pipeline_created_event
-      Gitlab::InternalEvents.track_event('create_ci_internal_pipeline', project: project, user: user)
+      Gitlab::InternalEvents.track_event(
+        'create_ci_internal_pipeline',
+        project: project,
+        user: user,
+        additional_properties: {
+          label: source,
+          property: config_source
+        }
+      )
+    end
+
+    def protected_for_merge_request?
+      # we do not allow exposing protected variables to merge request pipelines that run against source branches and not merge request refs
+      # see https://gitlab.com/gitlab-org/gitlab/-/merge_requests/196304#note_2611964312
+
+      return false unless merge_request? && merge_request_ref?
+      return false unless project.protect_merge_request_pipelines?
+
+      # Exposing protected variables to MR Pipelines is explicitly prohibited for cross-project MRs
+      return false unless merge_request.source_project_id == merge_request.target_project_id
+
+      access = Gitlab::UserAccess.new(user, container: project)
+      # Exposing protected variables to MR Pipelines is not allowed if user who created the pipeline CANNOT update the source branch
+      return false unless access.can_update_branch?(merge_request.source_branch)
+      # Exposing protected variables to MR Pipelines is not allowed if user who created the pipeline CANNOT update the target branch
+      # Refer to this discussion for more details: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/188008#note_2517290181
+      return false unless access.can_update_branch?(merge_request.target_branch)
+
+      project.protected_for?(merge_request.source_branch) &&
+        project.protected_for?(merge_request.target_branch)
+
+    rescue Repository::AmbiguousRefError
+      false
     end
   end
 end

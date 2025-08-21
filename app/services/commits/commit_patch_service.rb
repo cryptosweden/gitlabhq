@@ -22,12 +22,11 @@ module Commits
     end
 
     def create_commit!
-      if @start_branch && new_branch?
-        prepare_branch!
-      end
+      prepare_branch! if @start_branch && new_branch?
+      target_sha = @start_branch ? project.repository.commit(@start_branch).sha : nil
 
       Gitlab::Git::Patches::CommitPatches
-        .new(current_user, project.repository, @branch_name, @patches)
+        .new(current_user, project.repository, @branch_name, @patches, target_sha)
         .commit
     end
 
@@ -35,9 +34,9 @@ module Commits
       branch_result = ::Branches::CreateService.new(project, current_user)
                         .execute(@branch_name, @start_branch)
 
-      if branch_result[:status] != :success
-        raise ChangeError, branch_result[:message]
-      end
+      return if branch_result[:status] == :success
+
+      raise ChangeError, branch_result[:message]
     end
 
     # Overridden from the Commits::CreateService, to skip some validations we

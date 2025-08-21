@@ -1,89 +1,7 @@
-/**
- * Well styled list
- *
- */
-.hover-list {
-  position: relative;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-
-  > li {
-    padding: 10px 15px;
-    min-height: 20px;
-    border-bottom: 1px solid $list-border;
-    word-wrap: break-word;
-
-    &::after {
-      content: ' ';
-      display: table;
-      clear: both;
-    }
-
-    &.disabled {
-      color: $gl-text-color-tertiary;
-    }
-
-    &:not(.ui-sort-disabled):hover {
-      background: $blue-50;
-    }
-
-    &.unstyled {
-      &:hover {
-        background: none;
-      }
-    }
-
-    &.smoke { background-color: $gray-10; }
-
-    &:last-child {
-      border-bottom: 0;
-
-      &.bottom {
-        background: $gray-10;
-      }
-    }
-
-    .list-item-name {
-      float: left;
-      position: relative;
-      top: 3px;
-    }
-
-    p {
-      padding-top: 1px;
-      margin: 0;
-      color: $gray-50;
-
-      img {
-        position: relative;
-        top: 3px;
-      }
-    }
-
-    .card.card-body-title {
-      font-size: $gl-font-size;
-      line-height: 18px;
-    }
-  }
-}
-
-
 /** light list with border-bottom between li **/
 ul.bordered-list,
 ul.unstyled-list {
   @include basic-list;
-
-  &.top-list {
-    li:first-child {
-      padding-top: 0;
-
-      h4,
-      h5 {
-        margin-top: 0;
-      }
-    }
-  }
 }
 
 ul.unstyled-list > li {
@@ -104,9 +22,9 @@ ul.content-list {
   padding: 0;
 
   li {
-    border-color: $gray-50;
+    @apply gl-border-default;
     font-size: $gl-font-size;
-    color: $gl-text-color;
+    @apply gl-text-default;
     word-break: break-word;
 
     .title {
@@ -114,10 +32,10 @@ ul.content-list {
     }
 
     a {
-      color: $gl-text-color;
+      @apply gl-text-default;
 
       &.inline-link {
-        color: $blue-600;
+        @apply gl-text-link;
       }
     }
 
@@ -128,20 +46,10 @@ ul.content-list {
     .controls {
       float: right;
 
-      > .control-text {
-        margin-right: $grid-size;
-        line-height: $list-text-height;
-
-        &:last-child {
-          margin-right: 0;
-        }
-      }
-
       > .btn,
       > .btn-group,
       > .dropdown.inline {
         margin-right: $grid-size;
-        display: inline-block;
 
         &.has-tooltip,
         &:last-child {
@@ -152,18 +60,6 @@ ul.content-list {
           }
         }
       }
-    }
-
-    // When dragging a list item
-    &.ui-sortable-helper {
-      border-bottom: 0;
-    }
-
-    &.list-placeholder {
-      background-color: $gray-10;
-      border: dotted 1px $gray-50;
-      margin: 1px 0;
-      min-height: 52px;
     }
   }
 }
@@ -176,25 +72,6 @@ ul.content-list {
     white-space: nowrap;
   }
 
-  .row-main-content {
-    flex: 1 1 auto;
-    overflow: hidden;
-    padding-right: 8px;
-  }
-
-  .row-fixed-content {
-    flex: 0 0 auto;
-    margin-left: auto;
-  }
-
-  .row-title {
-    font-weight: $gl-font-weight-bold;
-  }
-
-  .row-second-line {
-    display: block;
-  }
-
   .dropdown {
     .btn-block {
       margin-bottom: 0;
@@ -203,17 +80,12 @@ ul.content-list {
   }
 
   .badge-secondary {
-    color: $gl-text-color-secondary;
-  }
-
-  .avatar-cell {
-    align-self: flex-start;
+    @apply gl-text-subtle;
   }
 }
 
 ul.content-list.content-list-items-padding > li,
 ul.content-list.issuable-list > li,
-ul.content-list.todos-list > li,
 .card > .content-list > li {
   padding: $gl-padding-top $gl-padding;
 }

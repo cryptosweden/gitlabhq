@@ -1,51 +1,53 @@
 # frozen_string_literal: true
 
-# This cop enforces the enum naming conventions from the enum style guide:
-# https://docs.gitlab.com/ee/development/api_graphql_styleguide.html#enums
-#
-# @example
-#
-#   # bad
-#   class FooBar < BaseEnum
-#     value 'FOO'
-#   end
-#
-#   class SubparEnum < BaseEnum
-#   end
-#
-#   class UngoodEnum < BaseEnum
-#     graphql_name 'UngoodEnum'
-#   end
-#
-#   # good
-#
-#   class GreatEnum < BaseEnum
-#     graphql_name 'Great'
-#
-#     value 'BAR'
-#   end
-#
-#   class NiceEnum < BaseEnum
-#     declarative_enum NiceDeclarativeEnum
-#   end
-
 module RuboCop
   module Cop
     module Graphql
+      # This cop enforces the enum naming conventions from the enum style guide:
+      # https://docs.gitlab.com/ee/development/api_graphql_styleguide.html#enums
+      #
+      # @example
+      #
+      #   # bad
+      #   class FooBar < BaseEnum
+      #     value 'FOO'
+      #   end
+      #
+      #   class SubparEnum < BaseEnum
+      #   end
+      #
+      #   class UngoodEnum < BaseEnum
+      #     graphql_name 'UngoodEnum'
+      #   end
+      #
+      #   # good
+      #
+      #   class GreatEnum < BaseEnum
+      #     graphql_name 'Great'
+      #
+      #     value 'BAR'
+      #   end
+      #
+      #   class NiceEnum < BaseEnum
+      #     declarative_enum NiceDeclarativeEnum
+      #   end
       class EnumNames < RuboCop::Cop::Base
         SEE_SG_MSG = "See https://docs.gitlab.com/ee/development/api_graphql_styleguide.html#enums"
         CLASS_NAME_SUFFIX_MSG = "Enum class names must end with `Enum`. #{SEE_SG_MSG}".freeze
         GRAPHQL_NAME_MISSING_MSG = "A `graphql_name` must be defined for a GraphQL enum. #{SEE_SG_MSG}".freeze
         GRAPHQL_NAME_WITH_ENUM_MSG = "The `graphql_name` must not contain the string \"Enum\". #{SEE_SG_MSG}".freeze
 
+        # @!method enum_subclass(node)
         def_node_matcher :enum_subclass, <<~PATTERN
           (class $(const nil? _) (const {nil? cbase} /.*Enum$/) ...)
         PATTERN
 
+        # @!method find_graphql_name(node)
         def_node_search :find_graphql_name, <<~PATTERN
           (... `(send nil? :graphql_name $(...)) ...)
         PATTERN
 
+        # @!method declarative_enum?(node)
         def_node_search :declarative_enum?, <<~PATTERN
           (... (send nil? :declarative_enum ...) ...)
         PATTERN

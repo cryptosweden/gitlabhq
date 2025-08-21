@@ -18,7 +18,7 @@ import {
   EDITOR_APP_STATUS_VALID,
 } from '~/ci/pipeline_editor/constants';
 import {
-  mergeUnwrappedCiConfig,
+  mockMergedConfig,
   mockCiTroubleshootingPath,
   mockCiYml,
   mockYmlHelpPagePath,
@@ -49,7 +49,7 @@ describe('Validation segment component', () => {
         ciTroubleshootingPath: mockCiTroubleshootingPath,
       },
       propsData: {
-        ciConfig: mergeUnwrappedCiConfig(),
+        ciConfig: mockMergedConfig(),
         ciFileContent: mockCiYml,
         ...props,
       },
@@ -61,7 +61,7 @@ describe('Validation segment component', () => {
 
   const findIcon = () => wrapper.findComponent(GlIcon);
   const findHelpLink = () => wrapper.findComponent(GlLink);
-  const findValidationMsg = () => wrapper.findComponent(GlSprintf);
+  const findValidationMsg = () => wrapper.findByTestId('validation-message');
   const findValidationSegment = () => wrapper.findByTestId('validation-segment');
 
   it('shows the loading state', () => {
@@ -105,7 +105,7 @@ describe('Validation segment component', () => {
 
     it('shows the learn more link', () => {
       expect(findValidationMsg().exists()).toBe(true);
-      expect(findValidationMsg().text()).toBe('Learn more');
+      expect(findValidationMsg().text()).toContain('Learn more');
       expect(findHelpLink().attributes('href')).toBe(mockYmlHelpPagePath);
     });
   });
@@ -129,7 +129,7 @@ describe('Validation segment component', () => {
 
     it('shows the learn more link', () => {
       expect(findValidationMsg().exists()).toBe(true);
-      expect(findValidationMsg().text()).toBe('Learn more');
+      expect(findValidationMsg().text()).toContain('Learn more');
       expect(findHelpLink().attributes('href')).toBe(mockYmlHelpPagePath);
     });
 
@@ -140,7 +140,7 @@ describe('Validation segment component', () => {
       beforeEach(() => {
         createComponent({
           props: {
-            ciConfig: mergeUnwrappedCiConfig({
+            ciConfig: mockMergedConfig({
               status: CI_CONFIG_STATUS_INVALID,
               errors: [firstError, secondError],
             }),
@@ -150,7 +150,7 @@ describe('Validation segment component', () => {
 
       it('shows the learn more link', () => {
         expect(findValidationMsg().exists()).toBe(true);
-        expect(findValidationMsg().text()).toBe('Learn more');
+        expect(findValidationMsg().text()).toContain('Learn more');
         expect(findHelpLink().attributes('href')).toBe(mockYmlHelpPagePath);
       });
 
@@ -167,7 +167,7 @@ describe('Validation segment component', () => {
       beforeEach(() => {
         createComponent({
           props: {
-            ciConfig: mergeUnwrappedCiConfig({
+            ciConfig: mockMergedConfig({
               status: CI_CONFIG_STATUS_INVALID,
               errors: [evilError],
             }),

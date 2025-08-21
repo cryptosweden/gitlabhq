@@ -2,27 +2,34 @@
 stage: Plan
 group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Identify issue boards by using GraphQL
 ---
 
-# Identify issue boards with GraphQL
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-This page describes how you can use the GraphiQL explorer to identify
-existing [issue boards](../../user/project/issue_board.md) in the `gitlab-docs` documentation repository.
+{{< /details >}}
 
-## Set up the GraphiQL explorer
+You can identify [issue boards](../../user/project/issue_board.md) for a project by using:
 
-This procedure presents a substantive example that you can copy and paste into your own
-instance of the [GraphiQL explorer](https://gitlab.com/-/graphql-explorer):
+- GraphiQL.
+- [`cURL`](getting_started.md#command-line).
 
-1. Copy the following code excerpt:
+## Use GraphiQL
+
+You can use GraphiQL to list the issue boards for a project.
+
+1. Open GraphiQL:
+   - For GitLab.com, use: `https://gitlab.com/-/graphql-explorer`
+   - For GitLab Self-Managed, use: `https://gitlab.example.com/-/graphql-explorer`
+1. Copy the following text and paste it in the left window. This query
+   gets issue boards for the `docs-gitlab-com` repository.
 
    ```graphql
    query {
-     project(fullPath: "gitlab-org/gitlab-docs") {
+     project(fullPath: "gitlab-org/technical-writing/docs-gitlab-com") {
        name
        forksCount
        statistics {
@@ -39,16 +46,15 @@ instance of the [GraphiQL explorer](https://gitlab.com/-/graphql-explorer):
    }
    ```
 
-1. Open the [GraphiQL Explorer](https://gitlab.com/-/graphql-explorer) page.
-1. Paste the `query` listed above into the left window of your GraphiQL explorer tool.
-1. Select Play to get the result shown here:
+1. Select **Play**.
 
-![GraphiQL explorer search for boards](img/sample_issue_boards_v13_2.png)
+To view one of these issue boards, copy a numeric identifier from the output.
+For example, if the identifier is `7174622`, use this URL to go to the issue board:
 
-If you want to view one of these boards, take one of the numeric identifiers shown in the output. From the screenshot, the first identifier is `105011`. Go to the following URL, which includes the identifier:
-
-```markdown
-https://gitlab.com/gitlab-org/gitlab-docs/-/boards/105011
+```http
+https:/gitlab.com/gitlab-org/technical-writing/docs-gitlab-com/-/boards/7174622
 ```
 
-For more information on each attribute, see the [GraphQL API Resources](reference/index.md).
+## Related topics
+
+- [GraphQL API reference](reference/_index.md)

@@ -1,21 +1,15 @@
 <script>
 import { GlBadge, GlButton, GlModalDirective, GlTooltipDirective, GlIcon } from '@gitlab/ui';
 import { InternalEvents } from '~/tracking';
-import { __, s__, sprintf } from '~/locale';
+import { __ } from '~/locale';
 import { isLoggedIn } from '~/lib/utils/common_utils';
-import {
-  destroyUserCountsManager,
-  createUserCountsManager,
-  userCounts,
-} from '~/super_sidebar/user_counts_manager';
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import BrandLogo from 'jh_else_ce/super_sidebar/components/brand_logo.vue';
 import { JS_TOGGLE_COLLAPSE_CLASS } from '../constants';
 import CreateMenu from './create_menu.vue';
-import Counter from './counter.vue';
-import MergeRequestMenu from './merge_request_menu.vue';
 import UserMenu from './user_menu.vue';
 import SuperSidebarToggle from './super_sidebar_toggle.vue';
+import UserCounts from './user_counts.vue';
 import { SEARCH_MODAL_ID } from './global_search/constants';
 
 const trackingMixin = InternalEvents.mixin();
@@ -27,12 +21,11 @@ export default {
   JS_TOGGLE_COLLAPSE_CLASS,
   SEARCH_MODAL_ID,
   components: {
-    Counter,
     CreateMenu,
     GlBadge,
     GlButton,
-    MergeRequestMenu,
     UserMenu,
+    UserCounts,
     SearchModal: () =>
       import(
         /* webpackChunkName: 'global_search_modal' */ './global_search/components/global_search.vue'
@@ -44,14 +37,6 @@ export default {
       import(/* webpackChunkName: 'organization_switcher' */ './organization_switcher.vue'),
   },
   i18n: {
-    issues: __('Assigned issues'),
-    mergeRequests: __('Merge requests'),
-    searchKbdHelp: sprintf(
-      s__('GlobalSearch|Type %{kbdOpen}/%{kbdClose} to search'),
-      { kbdOpen: '<kbd>', kbdClose: '</kbd>' },
-      false,
-    ),
-    todoList: __('To-Do list'),
     stopImpersonating: __('Stop impersonating'),
     searchBtnText: __('Search or go to…'),
   },
@@ -74,33 +59,14 @@ export default {
   },
   data() {
     return {
-      mrMenuShown: false,
-      searchTooltip: this.$options.i18n.searchKbdHelp,
-      userCounts,
       isLoggedIn: isLoggedIn(),
     };
   },
   computed: {
-    mergeRequestTotalCount() {
-      return userCounts.assigned_merge_requests + userCounts.review_requested_merge_requests;
-    },
-    mergeRequestMenuComponent() {
-      return this.sidebarData.merge_request_menu ? 'merge-request-menu' : 'div';
-    },
-  },
-  created() {
-    Object.assign(userCounts, this.sidebarData.user_counts);
-    createUserCountsManager();
-  },
-  beforeDestroy() {
-    destroyUserCountsManager();
-  },
-  methods: {
-    hideSearchTooltip() {
-      this.searchTooltip = '';
-    },
-    showSearchTooltip() {
-      this.searchTooltip = this.$options.i18n.searchKbdHelp;
+    shouldShowOrganizationSwitcher() {
+      return (
+        this.glFeatures.uiForOrganizations && this.isLoggedIn && window.gon.current_organization
+      );
     },
   },
 };
@@ -108,12 +74,12 @@ export default {
 
 <template>
   <div
-    class="user-bar gl-display-flex gl-p-3 gl-gap-1"
-    :class="{ 'gl-flex-direction-column gl-gap-3': sidebarData.is_logged_in }"
+    class="user-bar gl-flex gl-gap-1 gl-p-3"
+    :class="{ 'gl-flex-col gl-gap-3': sidebarData.is_logged_in }"
   >
     <div
       v-if="hasCollapseButton || sidebarData.is_logged_in"
-      class="gl-display-flex gl-align-items-center gl-gap-1"
+      class="gl-flex gl-items-center gl-gap-1"
     >
       <template v-if="sidebarData.is_logged_in">
         <brand-logo :logo-url="sidebarData.logo_url" />
@@ -125,7 +91,7 @@ export default {
         >
           {{ $options.NEXT_LABEL }}
         </gl-badge>
-        <div class="gl-flex-grow-1"></div>
+        <div class="gl-grow"></div>
       </template>
 
       <super-sidebar-toggle
@@ -134,12 +100,6 @@ export default {
         data-testid="super-sidebar-collapse-button"
         type="collapse"
       />
-      <create-menu
-        v-if="sidebarData.is_logged_in && sidebarData.create_new_menu_groups.length > 0"
-        :groups="sidebarData.create_new_menu_groups"
-      />
-
-      <user-menu v-if="sidebarData.is_logged_in" :data="sidebarData" />
 
       <gl-button
         v-if="isImpersonating"
@@ -152,68 +112,38 @@ export default {
         data-method="delete"
         data-testid="stop-impersonation-btn"
       />
-    </div>
-    <organization-switcher v-if="glFeatures.uiForOrganizations && isLoggedIn" />
-    <div
-      v-if="sidebarData.is_logged_in"
-      class="gl-display-flex gl-justify-content-space-between gl-gap-2"
-    >
-      <counter
-        v-gl-tooltip:super-sidebar.bottom="$options.i18n.issues"
-        class="gl-flex-basis-third dashboard-shortcuts-issues"
-        icon="issues"
-        :count="userCounts.assigned_issues"
-        :href="sidebarData.issues_dashboard_path"
-        :label="$options.i18n.issues"
-        data-testid="issues-shortcut-button"
-        data-track-action="click_link"
-        data-track-label="issues_link"
-        data-track-property="nav_core_menu"
+
+      <create-menu
+        v-if="sidebarData.is_logged_in && sidebarData.create_new_menu_groups.length > 0"
+        :groups="sidebarData.create_new_menu_groups"
       />
-      <component
-        :is="mergeRequestMenuComponent"
-        class="gl-flex-basis-third !gl-block"
-        :items="sidebarData.merge_request_menu"
-        @shown="mrMenuShown = true"
-        @hidden="mrMenuShown = false"
-      >
-        <counter
-          v-gl-tooltip:super-sidebar.bottom="mrMenuShown ? '' : $options.i18n.mergeRequests"
-          class="gl-w-full"
-          icon="merge-request-open"
-          :href="sidebarData.merge_request_dashboard_path"
-          :count="mergeRequestTotalCount"
-          :label="$options.i18n.mergeRequests"
-          data-testid="merge-requests-shortcut-button"
-          data-track-action="click_dropdown"
-          data-track-label="merge_requests_menu"
-          data-track-property="nav_core_menu"
-        />
-      </component>
-      <counter
-        v-gl-tooltip:super-sidebar.bottom="$options.i18n.todoList"
-        class="gl-flex-basis-third shortcuts-todos js-todos-count"
-        icon="todo-done"
-        :count="userCounts.todos"
-        :href="sidebarData.todos_dashboard_path"
-        :label="$options.i18n.todoList"
-        data-testid="todos-shortcut-button"
-        data-track-action="click_link"
-        data-track-label="todos_link"
-        data-track-property="nav_core_menu"
-      />
+
+      <user-menu v-if="isLoggedIn" :data="sidebarData" />
     </div>
-    <button
+
+    <organization-switcher v-if="shouldShowOrganizationSwitcher" />
+
+    <gl-button
       id="super-sidebar-search"
-      v-gl-tooltip.bottom.html="searchTooltip"
       v-gl-modal="$options.SEARCH_MODAL_ID"
-      class="user-bar-button gl-block gl-py-3 gl-bg-gray-10 gl-rounded-base gl-text-gray-900 gl-border-none gl-leading-1 gl-w-full"
+      class="user-bar-button !gl-rounded-lg !gl-px-3 !gl-py-1"
+      button-text-classes="gl-flex gl-w-full !gl-py-3"
+      block
       data-testid="super-sidebar-search-button"
       @click="trackEvent('click_search_button_to_activate_command_palette')"
     >
       <gl-icon name="search" />
-      {{ $options.i18n.searchBtnText }}
-    </button>
-    <search-modal @shown="hideSearchTooltip" @hidden="showSearchTooltip" />
+      <span class="gl-grow gl-text-left">{{ $options.i18n.searchBtnText }}</span>
+      <gl-icon name="quick-actions" />
+    </gl-button>
+    <search-modal />
+
+    <user-counts
+      v-if="sidebarData.is_logged_in"
+      counter-class="user-bar-button gl-grow gl-gap-2 gl-rounded-lg gl-py-3 gl-text-sm hover:gl-no-underline gl-leading-1"
+      :sidebar-data="sidebarData"
+    />
+
+    <hr aria-hidden="true" class="-gl-mb-2 gl-mt-2" />
   </div>
 </template>

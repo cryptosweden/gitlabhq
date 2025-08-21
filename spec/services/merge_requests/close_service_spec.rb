@@ -58,7 +58,7 @@ RSpec.describe MergeRequests::CloseService, feature_category: :code_review_workf
       end
 
       context 'when auto merge is enabled' do
-        let(:merge_request) { create(:merge_request, :merge_when_pipeline_succeeds) }
+        let(:merge_request) { create(:merge_request, :merge_when_checks_pass) }
 
         it 'cancels the auto merge' do
           expect(@merge_request).not_to be_auto_merge_enabled
@@ -141,6 +141,34 @@ RSpec.describe MergeRequests::CloseService, feature_category: :code_review_workf
         expect(GraphqlTriggers).not_to receive(:merge_request_merge_status_updated)
 
         execute
+      end
+    end
+
+    describe 'handling authorization' do
+      let(:service_with_skip) do
+        described_class.new(
+          project: project,
+          current_user: user,
+          params: { skip_authorization: true }
+        )
+      end
+
+      let(:service_without_skip) { described_class.new(project: project, current_user: guest) }
+
+      context 'when authorization is skipped' do
+        it 'closes MR' do
+          result = service_with_skip.execute(merge_request)
+
+          expect(result).to be_closed
+        end
+      end
+
+      context 'when authorization is not skipped' do
+        it 'does not close MR' do
+          result = service_without_skip.execute(merge_request)
+
+          expect(result).to be_open
+        end
       end
     end
   end

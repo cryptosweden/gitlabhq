@@ -1,8 +1,7 @@
-import { GlAlert, GlEmptyState, GlIntersectionObserver, GlLoadingIcon } from '@gitlab/ui';
+import { GlAlert, GlEmptyState, GlKeysetPagination } from '@gitlab/ui';
 import { mount, shallowMount } from '@vue/test-utils';
-import Vue, { nextTick } from 'vue';
+import Vue from 'vue';
 import VueApollo from 'vue-apollo';
-import { s__ } from '~/locale';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import { TEST_HOST } from 'spec/test_constants';
@@ -20,12 +19,20 @@ import {
   mockJobsResponseEmpty,
   mockFailedSearchToken,
   mockJobsCountResponse,
+  mockPushSourceToken,
+  mockBridgeKindToken,
+  mockBuildKindToken,
 } from 'jest/ci/jobs_mock_data';
+import { RAW_TEXT_WARNING, DEFAULT_PAGINATION, JOBS_PER_PAGE } from '~/ci/jobs_page/constants';
 
 const projectPath = 'gitlab-org/gitlab';
 Vue.use(VueApollo);
 
 jest.mock('~/alert');
+jest.mock('~/graphql_shared/utils');
+
+const mockJobName = 'rspec-job';
+const mockJobSource = mockPushSourceToken.value.data;
 
 describe('Job table app', () => {
   let wrapper;
@@ -37,15 +44,12 @@ describe('Job table app', () => {
   const countSuccessHandler = jest.fn().mockResolvedValue(mockJobsCountResponse);
 
   const findSkeletonLoader = () => wrapper.findComponent(JobsSkeletonLoader);
-  const findLoadingSpinner = () => wrapper.findComponent(GlLoadingIcon);
   const findTable = () => wrapper.findComponent(JobsTable);
   const findTabs = () => wrapper.findComponent(JobsTableTabs);
   const findAlert = () => wrapper.findComponent(GlAlert);
   const findEmptyState = () => wrapper.findComponent(GlEmptyState);
   const findFilteredSearch = () => wrapper.findComponent(JobsFilteredSearch);
-
-  const triggerInfiniteScroll = () =>
-    wrapper.findComponent(GlIntersectionObserver).vm.$emit('appear');
+  const findPagination = () => wrapper.findComponent(GlKeysetPagination);
 
   const createMockApolloProvider = (handler, countHandler) => {
     const requestHandlers = [
@@ -60,10 +64,14 @@ describe('Job table app', () => {
     handler = successHandler,
     countHandler = countSuccessHandler,
     mountFn = shallowMount,
+    feSearchBuildByName = false,
   } = {}) => {
     wrapper = mountFn(JobsTableApp, {
       provide: {
         fullPath: projectPath,
+        glFeatures: {
+          feSearchBuildByName,
+        },
       },
       apolloProvider: createMockApolloProvider(handler, countHandler),
     });
@@ -75,7 +83,6 @@ describe('Job table app', () => {
 
       expect(findSkeletonLoader().exists()).toBe(true);
       expect(findTable().exists()).toBe(false);
-      expect(findLoadingSpinner().exists()).toBe(false);
     });
 
     it('when switching tabs only the skeleton loader should show', () => {
@@ -84,7 +91,6 @@ describe('Job table app', () => {
       findTabs().vm.$emit('fetchJobsByStatus', null);
 
       expect(findSkeletonLoader().exists()).toBe(true);
-      expect(findLoadingSpinner().exists()).toBe(false);
     });
   });
 
@@ -98,7 +104,6 @@ describe('Job table app', () => {
     it('should display the jobs table with data', () => {
       expect(findTable().exists()).toBe(true);
       expect(findSkeletonLoader().exists()).toBe(false);
-      expect(findLoadingSpinner().exists()).toBe(false);
     });
 
     it('should refetch jobs query on fetchJobsByStatus event', async () => {
@@ -133,39 +138,11 @@ describe('Job table app', () => {
 
       expect(countSuccessHandler).toHaveBeenCalledTimes(3);
     });
-
-    describe('when infinite scrolling is triggered', () => {
-      it('does not display a skeleton loader', () => {
-        triggerInfiniteScroll();
-
-        expect(findSkeletonLoader().exists()).toBe(false);
-      });
-
-      it('handles infinite scrolling by calling fetch more', async () => {
-        triggerInfiniteScroll();
-
-        await nextTick();
-
-        const pageSize = 30;
-
-        expect(findLoadingSpinner().exists()).toBe(true);
-
-        await waitForPromises();
-
-        expect(findLoadingSpinner().exists()).toBe(false);
-
-        expect(successHandler).toHaveBeenLastCalledWith({
-          first: pageSize,
-          fullPath: projectPath,
-          after: mockJobsResponsePaginated.data.project.jobs.pageInfo.endCursor,
-        });
-      });
-    });
   });
 
   describe('error state', () => {
     it('should show an alert if there is an error fetching the jobs data', async () => {
-      createComponent({ handler: failedHandler });
+      createComponent({ handler: failedHandler, mountFn: mount });
 
       await waitForPromises();
 
@@ -246,6 +223,26 @@ describe('Job table app', () => {
       },
     );
 
+    it('filters jobs by status', async () => {
+      createComponent();
+
+      await findFilteredSearch().vm.$emit('filterJobsBySearch', [mockFailedSearchToken]);
+
+      expect(successHandler).toHaveBeenCalledWith({
+        fullPath: 'gitlab-org/gitlab',
+        statuses: 'FAILED',
+        sources: null,
+        kind: 'BUILD',
+        ...DEFAULT_PAGINATION,
+      });
+      expect(countSuccessHandler).toHaveBeenCalledWith({
+        fullPath: 'gitlab-org/gitlab',
+        statuses: 'FAILED',
+        sources: null,
+        kind: 'BUILD',
+      });
+    });
+
     it('refetches jobs query when filtering', async () => {
       createComponent();
 
@@ -268,22 +265,15 @@ describe('Job table app', () => {
 
     it('shows raw text warning when user inputs raw text', async () => {
       const expectedWarning = {
-        message: s__(
-          'Jobs|Raw text search is not currently supported for the jobs filtered search feature. Please use the available search tokens.',
-        ),
+        message: RAW_TEXT_WARNING,
         variant: 'warning',
       };
 
       createComponent();
 
-      expect(successHandler).toHaveBeenCalledTimes(1);
-      expect(countSuccessHandler).toHaveBeenCalledTimes(1);
-
       await findFilteredSearch().vm.$emit('filterJobsBySearch', ['raw text']);
 
       expect(createAlert).toHaveBeenCalledWith(expectedWarning);
-      expect(successHandler).toHaveBeenCalledTimes(1);
-      expect(countSuccessHandler).toHaveBeenCalledTimes(1);
     });
 
     it('updates URL query string when filtering jobs by status', async () => {
@@ -294,7 +284,7 @@ describe('Job table app', () => {
       await findFilteredSearch().vm.$emit('filterJobsBySearch', [mockFailedSearchToken]);
 
       expect(urlUtils.updateHistory).toHaveBeenCalledWith({
-        url: `${TEST_HOST}/?statuses=FAILED`,
+        url: `${TEST_HOST}/?statuses=FAILED&kind=BUILD`,
       });
     });
 
@@ -303,35 +293,450 @@ describe('Job table app', () => {
 
       jest.spyOn(urlUtils, 'updateHistory');
 
-      findFilteredSearch().vm.$emit('filterJobsBySearch', [mockFailedSearchToken]);
+      findFilteredSearch().vm.$emit('filterJobsBySearch', [
+        mockFailedSearchToken,
+        mockPushSourceToken,
+      ]);
 
       expect(successHandler).toHaveBeenCalledWith({
-        first: 30,
         fullPath: 'gitlab-org/gitlab',
         statuses: 'FAILED',
+        sources: mockJobSource,
+        kind: 'BUILD',
+        ...DEFAULT_PAGINATION,
       });
       expect(countSuccessHandler).toHaveBeenCalledWith({
         fullPath: 'gitlab-org/gitlab',
         statuses: 'FAILED',
+        sources: mockJobSource,
+        kind: 'BUILD',
       });
       expect(urlUtils.updateHistory).toHaveBeenCalledWith({
-        url: `${TEST_HOST}/?statuses=FAILED`,
+        url: `${TEST_HOST}/?statuses=FAILED&sources=${mockJobSource}&kind=BUILD`,
       });
 
       findFilteredSearch().vm.$emit('filterJobsBySearch', []);
 
       expect(urlUtils.updateHistory).toHaveBeenCalledWith({
-        url: `${TEST_HOST}/`,
+        url: `${TEST_HOST}/?kind=BUILD`,
       });
 
       expect(successHandler).toHaveBeenCalledWith({
-        first: 30,
         fullPath: 'gitlab-org/gitlab',
         statuses: null,
+        sources: null,
+        kind: 'BUILD',
+        ...DEFAULT_PAGINATION,
       });
       expect(countSuccessHandler).toHaveBeenCalledWith({
         fullPath: 'gitlab-org/gitlab',
         statuses: null,
+        sources: null,
+        kind: 'BUILD',
+      });
+    });
+
+    it('filters jobs by source', async () => {
+      createComponent();
+
+      await findFilteredSearch().vm.$emit('filterJobsBySearch', [mockPushSourceToken]);
+
+      expect(successHandler).toHaveBeenCalledWith({
+        fullPath: 'gitlab-org/gitlab',
+        sources: mockJobSource,
+        statuses: null,
+        kind: 'BUILD',
+        ...DEFAULT_PAGINATION,
+      });
+      expect(countSuccessHandler).toHaveBeenCalledWith({
+        fullPath: 'gitlab-org/gitlab',
+        sources: mockJobSource,
+        statuses: null,
+        kind: 'BUILD',
+      });
+    });
+
+    it('filters only by source after removing status filter', async () => {
+      createComponent();
+
+      await findFilteredSearch().vm.$emit('filterJobsBySearch', [
+        mockFailedSearchToken,
+        mockPushSourceToken,
+      ]);
+
+      expect(successHandler).toHaveBeenCalledWith({
+        fullPath: 'gitlab-org/gitlab',
+        sources: mockJobSource,
+        statuses: 'FAILED',
+        kind: 'BUILD',
+        ...DEFAULT_PAGINATION,
+      });
+      expect(countSuccessHandler).toHaveBeenCalledWith({
+        fullPath: 'gitlab-org/gitlab',
+        sources: mockJobSource,
+        statuses: 'FAILED',
+        kind: 'BUILD',
+      });
+
+      await findFilteredSearch().vm.$emit('filterJobsBySearch', [mockPushSourceToken]);
+
+      expect(successHandler).toHaveBeenCalledWith({
+        fullPath: 'gitlab-org/gitlab',
+        sources: mockJobSource,
+        statuses: null,
+        kind: 'BUILD',
+        ...DEFAULT_PAGINATION,
+      });
+      expect(countSuccessHandler).toHaveBeenCalledWith({
+        fullPath: 'gitlab-org/gitlab',
+        sources: mockJobSource,
+        statuses: null,
+        kind: 'BUILD',
+      });
+    });
+
+    it('updates URL query string when filtering jobs by source', async () => {
+      createComponent();
+
+      jest.spyOn(urlUtils, 'updateHistory');
+
+      await findFilteredSearch().vm.$emit('filterJobsBySearch', [mockPushSourceToken]);
+
+      expect(urlUtils.updateHistory).toHaveBeenCalledWith({
+        url: `${TEST_HOST}/?sources=${mockJobSource}&kind=BUILD`,
+      });
+    });
+
+    it('updates URL query string when filtering jobs by source and status', async () => {
+      createComponent();
+
+      jest.spyOn(urlUtils, 'updateHistory');
+
+      await findFilteredSearch().vm.$emit('filterJobsBySearch', [
+        mockFailedSearchToken,
+        mockPushSourceToken,
+      ]);
+
+      expect(urlUtils.updateHistory).toHaveBeenCalledWith({
+        url: `${TEST_HOST}/?statuses=FAILED&sources=${mockJobSource}&kind=BUILD`,
+      });
+    });
+
+    describe('with feature flag feSearchBuildByName enabled', () => {
+      beforeEach(() => {
+        createComponent({ feSearchBuildByName: true });
+      });
+
+      it('filters jobs by name', async () => {
+        await findFilteredSearch().vm.$emit('filterJobsBySearch', [mockJobName]);
+
+        expect(successHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          name: mockJobName,
+          statuses: null,
+          sources: null,
+          kind: 'BUILD',
+          ...DEFAULT_PAGINATION,
+        });
+        expect(countSuccessHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          name: mockJobName,
+          statuses: null,
+          sources: null,
+          kind: 'BUILD',
+        });
+      });
+
+      it('filters only by name after removing status filter', async () => {
+        await findFilteredSearch().vm.$emit('filterJobsBySearch', [
+          mockFailedSearchToken,
+          mockJobName,
+        ]);
+
+        expect(successHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          name: mockJobName,
+          statuses: 'FAILED',
+          sources: null,
+          kind: 'BUILD',
+          ...DEFAULT_PAGINATION,
+        });
+        expect(countSuccessHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          name: mockJobName,
+          statuses: 'FAILED',
+          sources: null,
+          kind: 'BUILD',
+        });
+
+        await findFilteredSearch().vm.$emit('filterJobsBySearch', [mockJobName]);
+
+        expect(successHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          name: mockJobName,
+          statuses: null,
+          sources: null,
+          kind: 'BUILD',
+          ...DEFAULT_PAGINATION,
+        });
+        expect(countSuccessHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          name: mockJobName,
+          statuses: null,
+          sources: null,
+          kind: 'BUILD',
+        });
+      });
+
+      it('updates URL query string when filtering jobs by name', async () => {
+        jest.spyOn(urlUtils, 'updateHistory');
+
+        await findFilteredSearch().vm.$emit('filterJobsBySearch', [mockJobName]);
+
+        expect(urlUtils.updateHistory).toHaveBeenCalledWith({
+          url: `${TEST_HOST}/?name=${mockJobName}&kind=BUILD`,
+        });
+      });
+
+      it('updates URL query string when filtering jobs by name and status', async () => {
+        jest.spyOn(urlUtils, 'updateHistory');
+
+        await findFilteredSearch().vm.$emit('filterJobsBySearch', [
+          mockFailedSearchToken,
+          mockJobName,
+        ]);
+
+        expect(urlUtils.updateHistory).toHaveBeenCalledWith({
+          url: `${TEST_HOST}/?statuses=FAILED&name=${mockJobName}&kind=BUILD`,
+        });
+      });
+
+      it('resets query param after clearing tokens', () => {
+        jest.spyOn(urlUtils, 'updateHistory');
+
+        findFilteredSearch().vm.$emit('filterJobsBySearch', [mockFailedSearchToken, mockJobName]);
+
+        expect(successHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          statuses: 'FAILED',
+          sources: null,
+          name: mockJobName,
+          kind: 'BUILD',
+          ...DEFAULT_PAGINATION,
+        });
+        expect(countSuccessHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          statuses: 'FAILED',
+          sources: null,
+          name: mockJobName,
+          kind: 'BUILD',
+        });
+        expect(urlUtils.updateHistory).toHaveBeenCalledWith({
+          url: `${TEST_HOST}/?statuses=FAILED&name=${mockJobName}&kind=BUILD`,
+        });
+
+        findFilteredSearch().vm.$emit('filterJobsBySearch', []);
+
+        expect(urlUtils.updateHistory).toHaveBeenCalledWith({
+          url: `${TEST_HOST}/?kind=BUILD`,
+        });
+
+        expect(successHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          statuses: null,
+          sources: null,
+          name: null,
+          kind: 'BUILD',
+          ...DEFAULT_PAGINATION,
+        });
+        expect(countSuccessHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          statuses: null,
+          sources: null,
+          name: null,
+          kind: 'BUILD',
+        });
+      });
+    });
+
+    describe('filters jobs by kind', () => {
+      beforeEach(async () => {
+        createComponent();
+
+        successHandler.mockClear();
+        countSuccessHandler.mockClear();
+
+        await waitForPromises();
+      });
+
+      it('filters trigger jobs', async () => {
+        jest.spyOn(urlUtils, 'updateHistory');
+
+        await findFilteredSearch().vm.$emit('filterJobsBySearch', [mockBridgeKindToken]);
+
+        expect(successHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          statuses: null,
+          sources: null,
+          kind: 'BRIDGE',
+          ...DEFAULT_PAGINATION,
+        });
+        expect(countSuccessHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          statuses: null,
+          sources: null,
+          kind: 'BRIDGE',
+        });
+        expect(urlUtils.updateHistory).toHaveBeenCalledWith({
+          url: `${TEST_HOST}/?kind=BRIDGE`,
+        });
+      });
+
+      it('filters build jobs', async () => {
+        jest.spyOn(urlUtils, 'updateHistory');
+
+        await findFilteredSearch().vm.$emit('filterJobsBySearch', [mockBuildKindToken]);
+
+        expect(successHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          statuses: null,
+          sources: null,
+          kind: 'BUILD',
+          ...DEFAULT_PAGINATION,
+        });
+        expect(countSuccessHandler).toHaveBeenCalledWith({
+          fullPath: 'gitlab-org/gitlab',
+          statuses: null,
+          sources: null,
+          kind: 'BUILD',
+        });
+        expect(urlUtils.updateHistory).toHaveBeenCalledWith({
+          url: `${TEST_HOST}/?kind=BUILD`,
+        });
+      });
+    });
+  });
+
+  describe('pagination', () => {
+    it('displays keyset pagination', async () => {
+      createComponent();
+
+      await waitForPromises();
+
+      expect(findPagination().exists()).toBe(true);
+    });
+
+    it('binds page info', async () => {
+      createComponent();
+
+      await waitForPromises();
+
+      const { pageInfo } = mockJobsResponsePaginated.data.project.jobs;
+
+      expect(findPagination().props()).toEqual(
+        expect.objectContaining({
+          endCursor: pageInfo.endCursor,
+          hasNextPage: pageInfo.hasNextPage,
+          hasPreviousPage: pageInfo.hasPreviousPage,
+          startCursor: pageInfo.startCursor,
+        }),
+      );
+    });
+
+    it('calls next event correctly', async () => {
+      createComponent();
+
+      await waitForPromises();
+
+      expect(successHandler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          first: JOBS_PER_PAGE,
+          fullPath: 'gitlab-org/gitlab',
+        }),
+      );
+
+      findPagination().vm.$emit('next');
+
+      await waitForPromises();
+
+      const { pageInfo } = mockJobsResponsePaginated.data.project.jobs;
+
+      expect(successHandler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          after: pageInfo.endCursor,
+          before: null,
+          first: JOBS_PER_PAGE,
+          fullPath: 'gitlab-org/gitlab',
+          last: null,
+        }),
+      );
+    });
+
+    it('calls prev event correctly', async () => {
+      createComponent();
+
+      await waitForPromises();
+
+      expect(successHandler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          first: JOBS_PER_PAGE,
+          fullPath: 'gitlab-org/gitlab',
+        }),
+      );
+
+      findPagination().vm.$emit('prev');
+
+      await waitForPromises();
+
+      const { pageInfo } = mockJobsResponsePaginated.data.project.jobs;
+
+      expect(successHandler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          after: null,
+          before: pageInfo.startCursor,
+          first: null,
+          fullPath: 'gitlab-org/gitlab',
+          last: JOBS_PER_PAGE,
+        }),
+      );
+    });
+
+    it('resets pagination after filtering jobs by search', async () => {
+      createComponent();
+
+      await waitForPromises();
+
+      findPagination().vm.$emit('next');
+
+      await waitForPromises();
+
+      await findFilteredSearch().vm.$emit('filterJobsBySearch', [mockFailedSearchToken]);
+
+      expect(successHandler).toHaveBeenCalledWith({
+        fullPath: 'gitlab-org/gitlab',
+        statuses: 'FAILED',
+        sources: null,
+        kind: 'BUILD',
+        ...DEFAULT_PAGINATION,
+      });
+    });
+
+    it('resets pagination after filtering jobs by status tabs', async () => {
+      createComponent();
+
+      await waitForPromises();
+
+      findPagination().vm.$emit('next');
+
+      await waitForPromises();
+
+      await findTabs().vm.$emit('fetchJobsByStatus', ['FAILED', 'SUCCESS', 'CANCELED']);
+
+      expect(successHandler).toHaveBeenCalledWith({
+        fullPath: 'gitlab-org/gitlab',
+        statuses: ['FAILED', 'SUCCESS', 'CANCELED'],
+        kind: 'BUILD',
+        ...DEFAULT_PAGINATION,
       });
     });
   });

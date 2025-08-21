@@ -1,10 +1,22 @@
 # frozen_string_literal: true
 
 class Projects::RunnersController < Projects::ApplicationController
-  before_action :authorize_read_runner!
-  before_action :authorize_admin_runner!, except: [:index, :show]
-  before_action :authorize_create_runner!, only: [:new, :register]
-  before_action :runner, only: [:edit, :update, :destroy, :pause, :resume, :show, :register]
+  before_action :authorize_read_runners!, only: [:index]
+  before_action :authorize_admin_runners!, except: [:index, :show]
+  before_action :authorize_create_runners!, only: [:new, :register]
+  before_action :runner, only: [:edit, :destroy, :pause, :resume, :show, :register]
+
+  before_action only: [:show] do
+    authorize_runner!(:read_runner)
+  end
+
+  before_action only: [:edit, :pause, :resume] do
+    authorize_runner!(:update_runner)
+  end
+
+  before_action only: [:destroy] do
+    authorize_runner!(:delete_runner)
+  end
 
   feature_category :runner
   urgency :low
@@ -14,14 +26,6 @@ class Projects::RunnersController < Projects::ApplicationController
   end
 
   def edit; end
-
-  def update
-    if Ci::Runners::UpdateRunnerService.new(@runner).execute(runner_params).success?
-      redirect_to project_runner_path(@project, @runner), notice: _('Runner was successfully updated.')
-    else
-      render 'edit'
-    end
-  end
 
   def new; end
 
@@ -36,7 +40,7 @@ class Projects::RunnersController < Projects::ApplicationController
   end
 
   def resume
-    if Ci::Runners::UpdateRunnerService.new(@runner).execute(active: true).success?
+    if runner_update_service.execute(active: true).success?
       redirect_to project_runners_path(@project), notice: _('Runner was successfully updated.')
     else
       redirect_to project_runners_path(@project), alert: _('Runner was not updated.')
@@ -44,7 +48,7 @@ class Projects::RunnersController < Projects::ApplicationController
   end
 
   def pause
-    if Ci::Runners::UpdateRunnerService.new(@runner).execute(active: false).success?
+    if runner_update_service.execute(active: false).success?
       redirect_to project_runners_path(@project), notice: _('Runner was successfully updated.')
     else
       redirect_to project_runners_path(@project), alert: _('Runner was not updated.')
@@ -73,11 +77,15 @@ class Projects::RunnersController < Projects::ApplicationController
   protected
 
   def runner
-    @runner ||= project.runners.find(params[:id])
+    @runner ||= Ci::Runner.find(safe_params[:id])
   end
 
-  def runner_params
-    params.require(:runner).permit(Ci::Runner::FORM_EDITABLE)
+  def runner_update_service
+    Ci::Runners::UpdateRunnerService.new(current_user, runner)
+  end
+
+  def authorize_runner!(ability)
+    access_denied! unless can?(current_user, ability, runner)
   end
 end
 

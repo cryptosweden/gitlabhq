@@ -36,7 +36,7 @@ module Milestones
     # rubocop: disable CodeReuse/ActiveRecord
     def milestones_to_transfer
       Milestone.from_union([group_milestones_applied_to_issues, group_milestones_applied_to_merge_requests])
-        .reorder(nil)
+        .without_order
         .distinct
     end
     # rubocop: enable CodeReuse/ActiveRecord
@@ -76,7 +76,7 @@ module Milestones
 
     # rubocop: disable CodeReuse/ActiveRecord
     def update_merge_requests_milestone(old_milestone_id, new_milestone_id)
-      MergeRequest.where(project: project, milestone_id: old_milestone_id)
+      MergeRequest.where(project_id: project.id, milestone_id: old_milestone_id)
         .update_all(milestone_id: new_milestone_id)
     end
     # rubocop: enable CodeReuse/ActiveRecord

@@ -25,6 +25,7 @@ module Gitlab
     PRIVATE  = 0 unless const_defined?(:PRIVATE)
     INTERNAL = 10 unless const_defined?(:INTERNAL)
     PUBLIC   = 20 unless const_defined?(:PUBLIC)
+    LEVELS_FOR_ADMINS = [PRIVATE, INTERNAL, PUBLIC].freeze
 
     class << self
       delegate :values, to: :options
@@ -33,7 +34,7 @@ module Gitlab
         return [PUBLIC] unless user
 
         if user.can_read_all_resources?
-          [PRIVATE, INTERNAL, PUBLIC]
+          LEVELS_FOR_ADMINS
         elsif user.external?
           [PUBLIC]
         else
@@ -82,6 +83,24 @@ module Gitlab
       # Return true if the specified level is allowed for the current user.
       def allowed_level?(level)
         valid_level?(level) && non_restricted_level?(level)
+      end
+
+      def allowed_levels_for_user(user, subject)
+        return [] if user.nil?
+
+        visibility_levels = if user.can_admin_all_resources?
+                              # admin can create groups even with restricted visibility levels
+                              self.values
+                            else
+                              self.allowed_levels
+                            end
+
+        # visibility_level_allowed? is not supporting root-groups, so we have to create a dummy subgroup in the same
+        # organization.
+        subgroup = Group.new(parent_id: subject.id, organization_id: subject.organization_id)
+
+        # return the allowed visibility levels for the subject
+        visibility_levels.select { |level| subgroup.visibility_level_allowed?(level) }
       end
 
       def non_restricted_level?(level)

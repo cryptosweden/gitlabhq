@@ -18,6 +18,8 @@ import projectBoardQuery from './graphql/project_board.query.graphql';
 import listIssuesQuery from './graphql/lists_issues.query.graphql';
 import listDeferredQuery from './graphql/board_lists_deferred.query.graphql';
 
+export const BOARDS_ROUTE_NAME = 'boards';
+
 export const BoardType = {
   project: 'project',
   group: 'group',
@@ -30,12 +32,14 @@ export const ListType = {
   backlog: 'backlog',
   closed: 'closed',
   label: 'label',
+  status: 'status',
 };
 
 export const ListTypeTitles = {
   assignee: __('Assignee'),
   milestone: __('Milestone'),
   iteration: __('Iteration'),
+  status: __('Status'),
   label: __('Label'),
   backlog: __('Open'),
 };
@@ -159,6 +163,7 @@ export const FilterFields = {
     'search',
     'types',
     'weight',
+    'status',
   ],
 };
 
@@ -203,10 +208,30 @@ export const BOARD_CARD_MOVE_TO_POSITIONS_OPTIONS = [
   {
     text: BOARD_CARD_MOVE_TO_POSITIONS_START_OPTION,
     action: () => {},
+    extraAttrs: {
+      role: 'button',
+    },
   },
   {
     text: BOARD_CARD_MOVE_TO_POSITIONS_END_OPTION,
     action: () => {},
+    extraAttrs: {
+      role: 'button',
+    },
+  },
+];
+
+export const WIP_ITEMS = 'issue_count';
+export const WIP_WEIGHT = 'issue_weights';
+
+export const WIP_CATEGORY_LIST = [
+  {
+    value: WIP_ITEMS,
+    text: s__('Boards|Items'),
+  },
+  {
+    value: WIP_WEIGHT,
+    text: s__('Boards|Weight'),
   },
 ];
 

@@ -12,7 +12,7 @@ RSpec.describe Gitlab::Email::Handler::CreateNoteHandler, feature_category: :sha
   let(:note)      { create(:diff_note_on_merge_request, project: project) }
   let(:email_raw) { fixture_file('emails/valid_reply.eml') }
   let!(:sent_notification) do
-    SentNotification.record_note(note, user.id, mail_key)
+    SentNotification.record_note(note, user.id, { reply_key: mail_key })
   end
 
   before do
@@ -41,7 +41,7 @@ RSpec.describe Gitlab::Email::Handler::CreateNoteHandler, feature_category: :sha
 
   context 'when the incoming email is from a different email address' do
     before do
-      SentNotification.find_by(reply_key: mail_key).update!(recipient: original_recipient)
+      SentNotification.for(sent_notification.reply_key).update!(recipient: original_recipient)
     end
 
     context 'when the issue is not a Service Desk issue' do
@@ -236,7 +236,7 @@ RSpec.describe Gitlab::Email::Handler::CreateNoteHandler, feature_category: :sha
     let_it_be(:note) { create(:note, noteable: noteable, project: project) }
 
     let!(:sent_notification) do
-      allow(Gitlab::ServiceDesk).to receive(:enabled?).with(project: project).and_return(true)
+      allow(::ServiceDesk).to receive(:enabled?).with(project).and_return(true)
       SentNotification.record_note(note, Users::Internal.support_bot.id)
     end
 
@@ -267,7 +267,7 @@ RSpec.describe Gitlab::Email::Handler::CreateNoteHandler, feature_category: :sha
       let!(:noteable) { note.noteable }
 
       let!(:sent_notification) do
-        allow(Gitlab::ServiceDesk).to receive(:enabled?).with(project: project).and_return(true)
+        allow(::ServiceDesk).to receive(:enabled?).with(project).and_return(true)
         SentNotification.record_note(note, Users::Internal.support_bot.id)
       end
 

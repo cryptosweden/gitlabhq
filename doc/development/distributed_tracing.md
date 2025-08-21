@@ -1,10 +1,9 @@
 ---
-stage: Monitor
-group: Respond
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Analytics
+group: Platform Insights
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Distributed tracing development guidelines
 ---
-
-# Distributed tracing development guidelines
 
 GitLab is instrumented for distributed tracing. Distributed tracing in GitLab is currently considered **experimental**, as it has not yet been tested at scale on GitLab.com.
 
@@ -14,7 +13,7 @@ According to [Open Tracing](https://opentracing.io/docs/overview/what-is-tracing
 > monitor applications, especially those built using a microservices architecture. Distributed
 > tracing helps to pinpoint where failures occur and what causes poor performance.
 
-Distributed tracing is especially helpful in understanding the life cycle of a request as it passes
+Distributed tracing is especially helpful in understanding the lifecycle of a request as it passes
 through the different components of the GitLab application. At present, Workhorse, Rails, Sidekiq,
 and Gitaly support tracing instrumentation.
 
@@ -55,7 +54,7 @@ all subsystems at GitLab:
     from an upstream system.
 - Correlation IDs are always free text.
   - Correlation IDs should never be used to pass context (for example, a username or an IP address).
-  - Correlation IDs should never be _parsed_, or manipulated in other ways (for example, split).
+  - Correlation IDs should never be parsed, or manipulated in other ways (for example, split).
 
 The [LabKit library](https://gitlab.com/gitlab-org/labkit) provides a standardized interface for working with GitLab
 correlation IDs in the Go programming language. LabKit can be used as a
@@ -113,7 +112,7 @@ tracer:
   jaeger:
     enabled: true
     listen_address: 127.0.0.1
-    version: 1.43.0
+    version: 1.66.0
 ```
 
 After modifying the `gdk.yml` file, reconfigure your GDK by running
@@ -143,7 +142,7 @@ The Jaeger search UI returns a query for the `Correlation-ID` of the current req
 This search should return a single trace result. Selecting this result shows the detail of the
 trace in a hierarchical time-line.
 
-![Jaeger Search UI](img/distributed_tracing_jaeger_ui.png)
+![Jaeger Search UI](img/distributed_tracing_jaeger_ui_v11_9.png)
 
 ## Using Jaeger without the GitLab Developer Kit
 
@@ -199,7 +198,7 @@ This should start the process with the default listening ports.
 
 ### 2. Configure the `GITLAB_TRACING` environment variable
 
-Once you have Jaeger running, configure the `GITLAB_TRACING` variable with the
+After you have Jaeger running, configure the `GITLAB_TRACING` variable with the
 appropriate configuration string.
 
 If you're running everything on the same host, use the following value:
@@ -214,20 +213,23 @@ This configuration string uses the Jaeger driver `opentracing://jaeger` with the
 |------|-------|-------------|
 | `http_endpoint` | `http://localhost:14268/api/traces` | Configures Jaeger to send trace information to the HTTP endpoint running on `http://localhost:14268/`. Alternatively, the `upd_endpoint` can be used. |
 | `sampler` | `const` | Configures Jaeger to use the constant sampler (either on or off). |
-| `sampler_param` | `1` | Configures the `const` sampler to sample _all_ traces. Using `0` would sample _no_ traces. |
+| `sampler_param` | `1` | Configures the `const` sampler to sample all traces. Using `0` would sample no traces. |
 
-**Other parameter values are also possible:**
+**Other parameter values are also possible**:
 
 | Name | Example | Description |
 |------|-------|-------------|
-| `udp_endpoint` | `localhost:6831` | This is the default. Configures Jaeger to send trace information to the UDP listener on port `6831` using compact thrift protocol. Note that we've experienced some issues with the [Jaeger Client for Ruby](https://github.com/salemove/jaeger-client-ruby) when using this protocol. |
+| `udp_endpoint` | `localhost:6831` | This is the default. Configures Jaeger to send trace information to the UDP listener on port `6831` using compact thrift protocol. We've experienced some issues with the [Jaeger Client for Ruby](https://github.com/salemove/jaeger-client-ruby) when using this protocol. |
 | `sampler` | `probabilistic` | Configures Jaeger to use a probabilistic random sampler. The rate of samples is configured by the `sampler_param` value. |
 | `sampler_param` | `0.01` | Use a ratio of `0.01` to configure the `probabilistic` sampler to randomly sample _1%_ of traces. |
 | `service_name` | `api` | Override the service name used by the Jaeger backend. This parameter takes precedence over the application-supplied value. |
 
-NOTE:
+{{< alert type="note" >}}
+
 The same `GITLAB_TRACING` value should to be configured in the environment
 variables for all GitLab processes, including Workhorse, Gitaly, Rails, and Sidekiq.
+
+{{< /alert >}}
 
 ### 3. Start the GitLab application
 
@@ -260,6 +262,9 @@ not set.
 
 By default, the Jaeger search UI is available at <http://localhost:16686/search>.
 
-NOTE:
+{{< alert type="note" >}}
+
 Don't forget that you must generate traces by using the application before
 they appear in the Jaeger UI.
+
+{{< /alert >}}

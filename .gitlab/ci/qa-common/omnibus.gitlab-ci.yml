@@ -1,7 +1,30 @@
+include:
+  - local: .gitlab/ci/qa-common/main.gitlab-ci.yml
+
+.check-release-set:
+  stage: .pre
+  variables:
+    GIT_STRATEGY: none
+  script:
+    - |
+      if [ -z "$RELEASE" ]; then
+        echo "E2E test pipeline requires omnibus installation docker image to be set via $RELEASE environment variable"
+        exit 1
+      else
+        echo "Omnibus installation image is set to '$RELEASE'"
+      fi
+
+.update-script:
+  script:
+    - !reference [.bundle-prefix]
+    - export QA_COMMAND="bundle exec gitlab-qa ${QA_SCENARIO:-Test::Omnibus::UpdateFromPrevious} $RELEASE $GITLAB_SEMVER_VERSION $UPDATE_TYPE $UPDATE_FROM_EDITION -- $QA_RSPEC_TAGS $RSPEC_REPORT_OPTS"
+    - echo "Running - '$QA_COMMAND'"
+    - eval "$QA_COMMAND"
+
 trigger-omnibus-env:
   stage: .pre
   extends:
-    - .ruby-image
+    - .with-ruby-slim-image
     - .rules:trigger-omnibus
   needs:
     # We need this job because we need its `cached-assets-hash.txt` artifact, so that we can pass the assets image tag to the downstream omnibus-gitlab pipeline.
@@ -68,12 +91,13 @@ trigger-omnibus:
     USE_SPECIFIED_RUBY_VERSION: "true"
     RUBY_VERSION: $FULL_RUBY_VERSION
     BUILD_ON_ALL_OS: $OMNIBUS_GITLAB_BUILD_ON_ALL_OS
-    SKIP_QA_TEST: "true"
     ee: $EE
   trigger:
     project: gitlab-org/build/omnibus-gitlab-mirror
     branch: $TRIGGER_BRANCH
     strategy: depend
+    inputs:
+      skip_qa_test: true
 
 trigger-omnibus as-if-foss:
   extends:

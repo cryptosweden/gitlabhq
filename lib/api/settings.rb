@@ -115,6 +115,8 @@ module API
       optional :max_artifacts_size, type: Integer, desc: "Set the maximum file size for each job's artifacts"
       optional :max_attachment_size, type: Integer, desc: 'Maximum attachment size in MB'
       optional :max_export_size, type: Integer, desc: 'Maximum export size in MB'
+      optional :max_github_response_size_limit, type: Integer, desc: "Maximum allowed size in MB for GitHub API responses. 0 for unlimited."
+      optional :max_github_response_json_value_count, type: Integer, desc: "Maximum allowed object count for GitHub API responses. 0 for unlimited. Count is an estimate based on the number of : , { and [ occurrences in the response."
       optional :max_import_size, type: Integer, desc: 'Maximum import size in MB'
       optional :max_import_remote_file_size, type: Integer, desc: 'Maximum remote file size in MB for imports from external object storages'
       optional :max_decompressed_archive_size, type: Integer, desc: 'Maximum decompressed size in MB'
@@ -130,6 +132,7 @@ module API
       optional :performance_bar_allowed_group_path, type: String, desc: 'Path of the group that is allowed to toggle the performance bar.'
       optional :performance_bar_enabled, type: String, desc: 'Deprecated: Pass `performance_bar_allowed_group_path: nil` instead. Allow enabling the performance.' # support legacy names, can be removed in v6
       optional :personal_access_token_prefix, type: String, desc: 'Prefix to prepend to all personal access tokens'
+      optional :require_personal_access_token_expiry, type: Boolean, desc: 'Flag indicating if Personal / Group / Project access token expiry is required'
       optional :kroki_enabled, type: Boolean, desc: 'Enable Kroki'
       given kroki_enabled: ->(val) { val } do
         requires :kroki_url, type: String, desc: 'The Kroki server URL'
@@ -165,6 +168,7 @@ module API
       end
       optional :restricted_visibility_levels, type: Array[String], coerce_with: Validations::Types::CommaSeparatedToArray.coerce, desc: 'Selected levels cannot be used by non-admin users for groups, projects or snippets. If the public level is restricted, user profiles are only visible to logged in users.'
       optional :session_expire_delay, type: Integer, desc: 'Session duration in minutes. GitLab restart is required to apply changes.'
+      optional :session_expire_from_init, type: Boolean, desc: 'Expires sessions based off the creation date rather than last activity'
       optional :shared_runners_enabled, type: Boolean, desc: 'Enable shared runners for new projects'
       given shared_runners_enabled: ->(val) { val } do
         requires :shared_runners_text, type: String, desc: 'Shared runners text '
@@ -204,6 +208,7 @@ module API
       optional :floc_enabled, type: Grape::API::Boolean, desc: 'Enable FloC (Federated Learning of Cohorts)'
       optional :user_deactivation_emails_enabled, type: Boolean, desc: 'Send emails to users upon account deactivation'
       optional :suggest_pipeline_enabled, type: Boolean, desc: 'Enable pipeline suggestion banner'
+      optional :show_migrate_from_jenkins_banner, type: Boolean, desc: 'Enable Jenkins migration banner'
       optional :enable_artifact_external_redirect_warning_page, type: Boolean, desc: 'Show the external redirect page that warns you about user-generated content in GitLab Pages'
       optional :users_get_by_id_limit, type: Integer, desc: "Maximum number of calls to the /users/:id API per 10 minutes per user. Set to 0 for unlimited requests."
       optional :runner_token_expiration_interval, type: Integer, desc: 'Token expiration interval for shared runners, in seconds'
@@ -213,14 +218,19 @@ module API
       optional :jira_connect_application_key, type: String, desc: "ID of the OAuth application used to authenticate with the GitLab for Jira Cloud app."
       optional :jira_connect_public_key_storage_enabled, type: Boolean, desc: 'Enable public key storage for the GitLab for Jira Cloud app.'
       optional :jira_connect_proxy_url, type: String, desc: "URL of the GitLab instance used as a proxy for the GitLab for Jira Cloud app."
-      optional :bulk_import_concurrent_pipeline_batch_limit, type: Integer, desc: 'Maximum simultaneous Direct Transfer pipeline batches to process'
+      optional :bulk_import_concurrent_pipeline_batch_limit, type: Integer, desc: 'Maximum simultaneous direct transfer batch exports to process.'
+      optional :concurrent_relation_batch_export_limit, type: Integer, desc: 'Maximum number of simultaneous batch export jobs to process.'
       optional :bulk_import_enabled, type: Boolean, desc: 'Enable migrating GitLab groups and projects by direct transfer'
       optional :bulk_import_max_download_file, type: Integer, desc: 'Maximum download file size in MB when importing from source GitLab instances by direct transfer'
+      optional :autocomplete_users_limit, type: Integer, desc: 'Rate limit for authenticated requests to users autocomplete endpoint'
+      optional :autocomplete_users_unauthenticated_limit, type: Integer, desc: 'Rate limit for authenticated requests to users autocomplete endpoint'
       optional :concurrent_github_import_jobs_limit, type: Integer, desc: 'Github Importer maximum number of simultaneous import jobs'
       optional :concurrent_bitbucket_import_jobs_limit, type: Integer, desc: 'Bitbucket Cloud Importer maximum number of simultaneous import jobs'
       optional :concurrent_bitbucket_server_import_jobs_limit, type: Integer, desc: 'Bitbucket Server Importer maximum number of simultaneous import jobs'
       optional :allow_runner_registration_token, type: Boolean, desc: 'Allow registering runners using a registration token'
       optional :ci_max_includes, type: Integer, desc: 'Maximum number of includes per pipeline'
+      optional :ci_job_live_trace_enabled, type: Boolean, desc: 'Turn on incremental logging for job logs.'
+      optional :git_push_pipeline_limit, type: Integer, desc: 'Set the limit for pipelines and branches that can be triggered when creating a Git push. Set to 0 to disable the limit'
       optional :security_policy_global_group_approvers_enabled, type: Boolean, desc: 'Query scan result policy approval groups globally'
       optional :slack_app_enabled, type: Grape::API::Boolean, desc: 'Enable the GitLab for Slack app'
       given slack_app_enabled: ->(val) { val } do
@@ -233,6 +243,17 @@ module API
       optional :project_jobs_api_rate_limit, type: Integer, desc: 'Maximum authenticated requests to /project/:id/jobs per minute'
       optional :security_txt_content, type: String, desc: 'Public security contact information made available at https://gitlab.example.com/.well-known/security.txt'
       optional :downstream_pipeline_trigger_limit_per_project_user_sha, type: Integer, desc: 'Maximum number of downstream pipelines that can be triggered per minute (for a given project, user, and commit).'
+      optional :ai_action_api_rate_limit, type: Integer, desc: 'Maximum requests a user can make per 8 hours to aiAction endpoint'
+      optional :code_suggestions_api_rate_limit, type: Integer, desc: 'Maximum requests a user can make per minute to code suggestions endpoint'
+      optional :resource_usage_limits, type: JSON, desc: 'Definition for resource usage limits enforced in Sidekiq workers'
+      optional :ropc_without_client_credentials, type: Boolean, desc: 'Allows the use of Oauth ROPC flow without client credentials'
+      optional :vscode_extension_marketplace, type: Hash, desc: 'Settings for VS Code Extension Marketplace' do
+        optional :enabled, type: Boolean, desc: 'Enables VS Code Extension Marketplace for Web IDE and Workspaces'
+        optional :preset, type: String, desc: "The preset configuration of URL's for the VS Code Extension Marketplace"
+        optional :custom_values, type: Hash, desc: "VS Code Extension Marketplace URL's when preset is 'custom'"
+      end
+      optional :enable_language_server_restrictions, type: Boolean, desc: 'Enables enforcing language server restrictions'
+      optional :minimum_language_server_version, type: String, desc: 'The minimum language server version to accept requests from'
 
       Gitlab::SSHPublicKey.supported_types.each do |type|
         optional :"#{type}_key_restriction",

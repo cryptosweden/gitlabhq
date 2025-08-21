@@ -48,7 +48,7 @@ module QA
           element 'quick-actions-container'
         end
 
-        view 'app/assets/javascripts/repository/components/breadcrumbs.vue' do
+        view 'app/assets/javascripts/repository/components/header_area/breadcrumbs.vue' do
           element 'add-to-tree'
           element 'new-file-menu-item'
         end
@@ -57,7 +57,7 @@ module QA
           element 'spinner-placeholder'
         end
 
-        view 'app/views/projects/tree/_tree_header.html.haml' do
+        view 'app/assets/javascripts/repository/components/header_area.vue' do
           element 'ref-dropdown-container'
         end
 
@@ -76,16 +76,12 @@ module QA
           click_element 'new-file-menu-item'
         end
 
-        # Click by JS is needed to bypass the VSCode Web IDE popover
-        # Change back to regular click_element when vscode_web_ide FF is removed
-        # Rollout issue: https://gitlab.com/gitlab-org/gitlab/-/issues/371084
         def fork_project
-          fork_button = find_element('fork-button')
-          click_by_javascript(fork_button)
+          click_element 'fork-button'
         end
 
         def forked_from?(parent_project_name)
-          has_element?('forked-from-link', text: parent_project_name)
+          has_element?('forked-from-link', text: parent_project_name, wait: 60)
         end
 
         def click_file(filename)
@@ -137,7 +133,12 @@ module QA
         end
 
         def open_web_ide!
-          click_element('action-dropdown')
+          if has_element?('action-dropdown')
+            click_element('action-dropdown')
+          else
+            click_element('code-dropdown')
+          end
+
           click_element('webide-menu-item')
           page.driver.browser.switch_to.window(page.driver.browser.window_handles.last)
         end

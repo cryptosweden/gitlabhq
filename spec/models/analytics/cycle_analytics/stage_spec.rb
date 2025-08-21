@@ -3,8 +3,11 @@
 require 'spec_helper'
 
 RSpec.describe Analytics::CycleAnalytics::Stage, feature_category: :value_stream_management do
+  let_it_be(:organization) { create(:organization) }
+  let_it_be(:group) { create(:group, organization: organization) }
+
   describe 'validations' do
-    subject { build(:cycle_analytics_stage) }
+    subject { build(:cycle_analytics_stage, namespace: group) }
 
     it { is_expected.to validate_uniqueness_of(:name).scoped_to([:group_id, :group_value_stream_id]) }
 
@@ -39,8 +42,8 @@ RSpec.describe Analytics::CycleAnalytics::Stage, feature_category: :value_stream
 
   describe '.distinct_stages_within_hierarchy' do
     let_it_be(:group) { create(:group) }
-    let_it_be(:sub_group) { create(:group, parent: group) }
-    let_it_be(:project) { create(:project, group: sub_group).reload }
+    let_it_be(:sub_group) { create(:group, organization: group.organization, parent: group) }
+    let_it_be(:project) { create(:project, organization: group.organization, group: sub_group).reload }
 
     before do
       # event identifiers are the same

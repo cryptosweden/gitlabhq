@@ -1,4 +1,3 @@
-import { GlToast } from '@gitlab/ui';
 import Vue from 'vue';
 import { parseBoolean } from '~/lib/utils/common_utils';
 import PerformancePlugin from '~/performance/vue_performance_plugin';
@@ -10,7 +9,6 @@ import RegistryExplorer from './pages/index.vue';
 import createRouter from './router';
 
 Vue.use(Translate);
-Vue.use(GlToast);
 
 Vue.use(PerformancePlugin, {
   components: [
@@ -42,19 +40,11 @@ export default () => {
     connectionError,
     invalidPathError,
     securityConfigurationPath,
-    containerScanningForRegistryDocsPath,
+    vulnerabilityReportPath,
     ...config
   } = el.dataset;
 
-  // This is a mini state to help the breadcrumb have the correct name in the details page
-  const breadCrumbState = Vue.observable({
-    name: '',
-    updateName(value) {
-      this.name = value;
-    },
-  });
-
-  const router = createRouter(endpoint, breadCrumbState);
+  const router = createRouter(endpoint);
 
   const attachMainComponent = () =>
     new Vue({
@@ -66,7 +56,6 @@ export default () => {
       },
       provide() {
         return {
-          breadCrumbState,
           config: {
             ...config,
             expirationPolicy: expirationPolicy ? JSON.parse(expirationPolicy) : undefined,
@@ -79,7 +68,7 @@ export default () => {
             invalidPathError: parseBoolean(invalidPathError),
             isMetadataDatabaseEnabled: parseBoolean(isMetadataDatabaseEnabled),
             securityConfigurationPath,
-            containerScanningForRegistryDocsPath,
+            vulnerabilityReportPath,
           },
           /* eslint-disable @gitlab/require-i18n-strings */
           dockerBuildCommand: `docker build -t ${config.repositoryUrl} .`,

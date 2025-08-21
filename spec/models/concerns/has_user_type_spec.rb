@@ -14,7 +14,7 @@ RSpec.describe User, feature_category: :system_access do
     expect(described_class::USER_TYPES.keys)
       .to match_array(%w[human ghost alert_bot project_bot support_bot service_user security_bot
         visual_review_bot migration_bot automation_bot security_policy_bot admin_bot suggested_reviewers_bot
-        service_account llm_bot placeholder duo_code_review_bot])
+        service_account llm_bot placeholder duo_code_review_bot import_user])
     expect(described_class::USER_TYPES).to include(*described_class::BOT_USER_TYPES)
     expect(described_class::USER_TYPES).to include(*described_class::NON_INTERNAL_USER_TYPES)
     expect(described_class::USER_TYPES).to include(*described_class::INTERNAL_USER_TYPES)
@@ -39,9 +39,21 @@ RSpec.describe User, feature_category: :system_access do
       end
     end
 
+    describe '.without_humans' do
+      it 'includes everyone except humans' do
+        expect(described_class.without_humans).to match_array(everyone - [human])
+      end
+    end
+
     describe '.non_internal' do
       it 'includes all non_internal users' do
         expect(described_class.non_internal).to match_array(non_internal)
+      end
+    end
+
+    describe '.with_duo_code_review_bot' do
+      it 'includes all non_internal and duo_code_review_bot users' do
+        expect(described_class.with_duo_code_review_bot).to match_array(non_internal + [duo_code_review_bot])
       end
     end
 
@@ -54,6 +66,18 @@ RSpec.describe User, feature_category: :system_access do
     describe '.without_project_bot' do
       it 'includes everyone except project_bot' do
         expect(described_class.without_project_bot).to match_array(everyone - [project_bot])
+      end
+    end
+
+    describe '.service_accounts' do
+      it 'includes only service accounts' do
+        expect(described_class.service_accounts).to match_array(service_account)
+      end
+    end
+
+    describe '.without_placeholders' do
+      it 'includes everyone except placeholder users' do
+        expect(described_class.without_placeholders).to match_array(everyone - [placeholder])
       end
     end
 
@@ -164,7 +188,7 @@ RSpec.describe User, feature_category: :system_access do
         subject(:owners_and_maintainers) { project_bot.resource_bot_owners_and_maintainers }
 
         it 'returns an empty array when there is no owning resource' do
-          expect(owners_and_maintainers).to match_array([])
+          expect(owners_and_maintainers).to be_empty
         end
 
         it 'returns group owners when owned by a group' do

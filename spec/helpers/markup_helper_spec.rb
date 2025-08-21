@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe MarkupHelper, feature_category: :team_planning do
+RSpec.describe MarkupHelper, feature_category: :markdown do
   let_it_be(:project) { create(:project, :repository) }
   let_it_be(:user) do
     user = create(:user, username: 'gfm')
@@ -381,8 +381,8 @@ RSpec.describe MarkupHelper, feature_category: :team_planning do
     context 'when file is Asciidoc' do
       let(:extension) { 'adoc' }
 
-      it 'renders using Gitlab::Asciidoc' do
-        expect(Gitlab::Asciidoc).to receive(:render)
+      it 'renders using Banzai' do
+        expect(Banzai).to receive(:render)
 
         helper.render_wiki_content(wiki_page)
       end
@@ -420,6 +420,16 @@ RSpec.describe MarkupHelper, feature_category: :team_planning do
       helper.markup('foo.md', content, context)
 
       expect(context).to include(text_source: :blob)
+      expect(context).to include(requested_path: nil)
+    end
+
+    it 'sets the :requested_path to @path when :text_source is a blob' do
+      context = {}
+      assign(:path, 'path')
+
+      helper.markup('foo.md', content, context)
+
+      expect(context).to include(requested_path: 'path')
     end
 
     it 'preserves encoding' do
@@ -444,7 +454,7 @@ RSpec.describe MarkupHelper, feature_category: :team_planning do
       assign(:ref, 'ref')
       assign(:path, 'path')
 
-      expect(Gitlab::Asciidoc).to receive(:render)
+      expect(Banzai).to receive(:render)
 
       helper.markup('foo.adoc', content, context)
 

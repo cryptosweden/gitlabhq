@@ -115,8 +115,8 @@ RSpec.describe HelpController, "routing" do
     path = '/help/user/markdown.md'
     expect(get(path)).to route_to('help#show', path: 'user/markdown', format: 'md')
 
-    path = '/help/user/markdown/markdown_logo.png'
-    expect(get(path)).to route_to('help#show', path: 'user/markdown/markdown_logo', format: 'png')
+    path = '/help/user/markdown/markdown_logo_v17_11.png'
+    expect(get(path)).to route_to('help#show', path: 'user/markdown/markdown_logo_v17_11', format: 'png')
   end
 end
 
@@ -231,6 +231,11 @@ end
 RSpec.describe DashboardController, "routing" do
   it "to #index" do
     expect(get("/dashboard")).to route_to('dashboard/projects#index')
+    expect(get("/dashboard/projects")).to route_to('dashboard/projects#index')
+    expect(get("/dashboard/projects/contributed")).to route_to('dashboard/projects#index')
+    expect(get("/dashboard/projects/personal")).to route_to('dashboard/projects#index')
+    expect(get("/dashboard/projects/member")).to route_to('dashboard/projects#index')
+    expect(get("/dashboard/projects/inactive")).to route_to('dashboard/projects#index')
   end
 
   it "to #issues" do
@@ -383,6 +388,13 @@ RSpec.describe Snippets::BlobsController, "routing" do
   it "to #raw" do
     expect(get('/-/snippets/1/raw/master/lib/version.rb'))
       .to route_to('snippets/blobs#raw', snippet_id: '1', ref: 'master', path: 'lib/version.rb')
+  end
+
+  context 'when reference has special symbols' do
+    it "to #raw" do
+      expect(get('/-/snippets/1/raw/0.0.x-rc/lib/version.rb'))
+        .to route_to('snippets/blobs#raw', snippet_id: '1', ref: '0.0.x-rc', path: 'lib/version.rb')
+    end
   end
 end
 

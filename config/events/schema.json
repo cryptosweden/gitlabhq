@@ -6,8 +6,7 @@
     "product_group",
     "introduced_by_url",
     "milestone",
-    "tiers",
-    "distributions"
+    "tiers"
   ],
   "additionalProperties": false,
   "properties": {
@@ -25,24 +24,6 @@
       "type": "string",
       "pattern": "^[a-z0-9_]+$"
     },
-    "label_description": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "property_description": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "value_description": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
     "extra_properties": {
       "type": [
         "object",
@@ -59,38 +40,79 @@
         "enum": [
           "project",
           "user",
-          "namespace"
+          "namespace",
+          "feature_enabled_by_namespace_ids"
         ]
       }
     },
     "additional_properties": {
-      "type": "object",
-      "properties": {
-        "label": {
+      "anyOf": [
+        {
+          "description": "Only base additional properties are provided",
           "type": "object",
           "properties": {
-            "description": {
-              "type": "string"
+            "label": {
+              "$ref": "#additional_prop"
+            },
+            "property": {
+              "$ref": "#additional_prop"
+            },
+            "value": {
+              "$ref": "#additional_prop"
+            }
+          },
+          "additionalProperties": {
+            "type": "null",
+            "x-error": "Either property/label or value must be used before defining other additional_properties"
+          }
+        },
+        {
+          "description": "All string-type base additional properties are provided, allowing custom properties",
+          "type": "object",
+          "properties": {
+            "label": {
+              "$ref": "#additional_prop"
+            },
+            "property": {
+              "$ref": "#additional_prop"
+            },
+            "value": {
+              "$ref": "#additional_prop"
             }
           },
           "required": [
-            "description"
+            "property",
+            "label"
           ],
-          "additionalProperties": false
+          "additionalProperties": {
+            "$ref": "#additional_prop"
+          }
         },
-        "property": {
+        {
+          "description": "All numeric-type base additional properties are provided, allowing custom properties",
           "type": "object",
           "properties": {
-            "description": {
-              "type": "string"
+            "label": {
+              "$ref": "#additional_prop"
+            },
+            "property": {
+              "$ref": "#additional_prop"
+            },
+            "value": {
+              "$ref": "#additional_prop"
             }
           },
           "required": [
-            "description"
+            "value"
           ],
-          "additionalProperties": false
-        },
-        "value": {
+          "additionalProperties": {
+            "$ref": "#additional_prop"
+          }
+        }
+      ],
+      "$defs": {
+        "additional_prop": {
+          "$anchor": "additional_prop",
           "type": "object",
           "properties": {
             "description": {
@@ -102,8 +124,7 @@
           ],
           "additionalProperties": false
         }
-      },
-      "additionalProperties": false
+      }
     },
     "iglu_schema_url": {
       "type": [
@@ -112,7 +133,14 @@
       ]
     },
     "product_group": {
-      "type": "string"
+      "$ref": "../metrics/schema/product_groups.json"
+    },
+    "product_categories": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "known_product_category"
+      }
     },
     "introduced_by_url": {
       "type": [
@@ -126,17 +154,37 @@
         "string",
         "null"
       ],
-      "pattern": "^[0-9]+\\.[0-9]+$"
+      "pattern": "^<?[0-9]+\\.[0-9]+$"
     },
-    "distributions": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "enum": [
-          "ee",
-          "ce"
-        ]
-      }
+    "status": {
+      "type": [
+        "string"
+      ],
+      "enum": [
+        "active",
+        "removed"
+      ]
+    },
+    "milestone_removed": {
+      "type": [
+        "string"
+      ],
+      "pattern": "^<?[0-9]+\\.[0-9]+$"
+    },
+    "removed_by_url": {
+      "type": [
+        "string"
+      ],
+      "format": "uri"
+    },
+    "classification": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "duo"
+      ]
     },
     "tiers": {
       "type": "array",
@@ -148,6 +196,36 @@
           "ultimate"
         ]
       }
+    },
+    "extra_trackers": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "tracking_class": {
+            "type": "string"
+          },
+          "protected_properties": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "description": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "$ref": "schema/status.json"
+    }
+  ]
 }

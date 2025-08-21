@@ -2,15 +2,23 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Deployments API
 ---
 
-# Deployments API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> Support for [GitLab CI/CD job token](../ci/jobs/ci_job_token.md) authentication [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/414549) in GitLab 16.2.
+{{< /details >}}
+
+{{< history >}}
+
+- Support for [GitLab CI/CD job token](../ci/jobs/ci_job_token.md) authentication [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/414549) in GitLab 16.2.
+
+{{< /history >}}
+
+Use this API to interact with [code deployments](../ci/environments/deployments.md) to GitLab environments.
 
 ## List project deployments
 
@@ -22,22 +30,27 @@ GET /projects/:id/deployments
 
 | Attribute         | Type           | Required | Description                                                                                                     |
 |-------------------|----------------|----------|-----------------------------------------------------------------------------------------------------------------|
-| `id`              | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`              | integer/string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `order_by`        | string         | no       | Return deployments ordered by either one of `id`, `iid`, `created_at`, `updated_at`, `finished_at` or `ref` fields. Default is `id`.    |
 | `sort`            | string         | no       | Return deployments sorted in `asc` or `desc` order. Default is `asc`.                                            |
 | `updated_after`   | datetime       | no       | Return deployments updated after the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`). |
 | `updated_before`  | datetime       | no       | Return deployments updated before the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`). |
 | `finished_after`  | datetime       | no       | Return deployments finished after the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`). |
 | `finished_before` | datetime       | no       | Return deployments finished before the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`). |
-| `environment`     | string         | no       | The [name of the environment](../ci/environments/index.md) to filter deployments by.       |
+| `environment`     | string         | no       | The [name of the environment](../ci/environments/_index.md) to filter deployments by.       |
 | `status`          | string         | no       | The status to filter deployments by. One of `created`, `running`, `success`, `failed`, `canceled`, or `blocked`. |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deployments"
+curl --request "GET" \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/deployments"
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 When using `finished_before` or `finished_after`, you should specify the `order_by` to be `finished_at` and `status` should be `success`.
+
+{{< /alert >}}
 
 Example response:
 
@@ -82,7 +95,6 @@ Example response:
         "bio": null,
         "location": null,
         "public_email": "",
-        "skype": "",
         "linkedin": "",
         "twitter": "",
         "website_url": "",
@@ -155,7 +167,6 @@ Example response:
         "bio": null,
         "location": null,
         "public_email": "",
-        "skype": "",
         "linkedin": "",
         "twitter": "",
         "website_url": "",
@@ -200,11 +211,13 @@ GET /projects/:id/deployments/:deployment_id
 
 | Attribute | Type    | Required | Description         |
 |-----------|---------|----------|---------------------|
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `deployment_id` | integer | yes      | The ID of the deployment |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deployments/1"
+curl --request "GET" \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/deployments/1"
 ```
 
 Example response:
@@ -255,7 +268,6 @@ Example response:
       "created_at": "2015-12-21T13:14:24.077Z",
       "bio": null,
       "location": null,
-      "skype": "",
       "linkedin": "",
       "twitter": "",
       "website_url": "",
@@ -334,16 +346,18 @@ POST /projects/:id/deployments
 
 | Attribute     | Type           | Required | Description                                                                                                     |
 |---------------|----------------|----------|-----------------------------------------------------------------------------------------------------------------|
-| `id`          | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user.|
-| `environment` | string         | yes      | The [name of the environment](../ci/environments/index.md) to create the deployment for.                        |
+| `id`          | integer/string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths).|
+| `environment` | string         | yes      | The [name of the environment](../ci/environments/_index.md) to create the deployment for.                        |
 | `sha`         | string         | yes      | The SHA of the commit that is deployed.                                                                         |
 | `ref`         | string         | yes      | The name of the branch or tag that is deployed.                                                                 |
 | `tag`         | boolean        | yes      | A boolean that indicates if the deployed ref is a tag (`true`) or not (`false`).                                |
 | `status`      | string         | yes      | The status of the deployment that is created. One of `running`, `success`, `failed`, or `canceled`        |
 
 ```shell
-curl --data "environment=production&sha=a91957a858320c0e17f3a0eca7cfacbff50ea29a&ref=main&tag=false&status=success" \
-     --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deployments"
+curl --request "POST" \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --data "environment=production&sha=a91957a858320c0e17f3a0eca7cfacbff50ea29a&ref=main&tag=false&status=success" \
+  --url "https://gitlab.example.com/api/v4/projects/1/deployments"
 ```
 
 Example response:
@@ -392,12 +406,15 @@ PUT /projects/:id/deployments/:deployment_id
 
 | Attribute        | Type           | Required | Description         |
 |------------------|----------------|----------|---------------------|
-| `id`             | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`             | integer/string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `deployment_id`  | integer        | yes      | The ID of the deployment to update. |
 | `status`         | string         | yes      | The new status of the deployment. One of `running`, `success`, `failed`, or `canceled`.                         |
 
 ```shell
-curl --request PUT --data "status=success" --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deployments/42"
+curl --request "PUT" \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --data "status=success" \
+  --url "https://gitlab.example.com/api/v4/projects/1/deployments/42"
 ```
 
 Example response:
@@ -462,11 +479,13 @@ DELETE /projects/:id/deployments/:deployment_id
 
 | Attribute | Type    | Required | Description         |
 |-----------|---------|----------|---------------------|
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `deployment_id` | integer | yes      | The ID of the deployment |
 
 ```shell
-curl --request "DELETE" --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deployments/1"
+curl --request "DELETE" \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/deployments/1"
 ```
 
 Example responses:
@@ -489,10 +508,13 @@ Example responses:
 
 ## List of merge requests associated with a deployment
 
-NOTE:
+{{< alert type="note" >}}
+
 Not all deployments can be associated with merge requests. See
-[Track what merge requests were deployed to an environment](../ci/environments/index.md#track-newly-included-merge-requests-per-deployment)
+[Track what merge requests were deployed to an environment](../ci/environments/deployments.md#track-newly-included-merge-requests-per-deployment)
 for more information.
+
+{{< /alert >}}
 
 This API retrieves the list of merge requests shipped with a given deployment:
 
@@ -500,20 +522,29 @@ This API retrieves the list of merge requests shipped with a given deployment:
 GET /projects/:id/deployments/:deployment_id/merge_requests
 ```
 
-It supports the same parameters as the [Merge Requests API](merge_requests.md#list-merge-requests) and returns a response using the same format:
+It supports the same parameters as the [Merge requests API](merge_requests.md#list-merge-requests) and returns a response using the same format:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deployments/42/merge_requests"
+curl --request "GET" \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/deployments/42/merge_requests"
 ```
 
 ## Approve or reject a blocked deployment
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+{{< details >}}
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/343864) in GitLab 14.7 [with a flag](../administration/feature_flags.md) named `deployment_approvals`. Disabled by default.
-> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/347342) in GitLab 14.8.
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/343864) in GitLab 14.7 [with a flag](../administration/feature_flags/_index.md) named `deployment_approvals`. Disabled by default.
+- [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/347342) in GitLab 14.8.
+
+{{< /history >}}
 
 See [Deployment Approvals](../ci/environments/deployment_approvals.md) for more information about this feature.
 
@@ -523,15 +554,17 @@ POST /projects/:id/deployments/:deployment_id/approval
 
 | Attribute       | Type           | Required | Description                                                                                                     |
 |-----------------|----------------|----------|-----------------------------------------------------------------------------------------------------------------|
-| `id`            | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`            | integer/string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `deployment_id` | integer        | yes      | The ID of the deployment.                                                                                       |
 | `status`        | string         | yes      | The status of the approval (either `approved` or `rejected`).                                                   |
 | `comment`       | string         | no       | A comment to go with the approval                                                                               |
 | `represented_as`| string         | no       | The name of the User/Group/Role to use for the approval, when the user belongs to [multiple approval rules](../ci/environments/deployment_approvals.md#add-multiple-approval-rules). |
 
 ```shell
-curl --data "status=approved&comment=Looks good to me&represented_as=security" \
-     --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deployments/1/approval"
+curl --request "POST" \
+  --data "status=approved&comment=Looks good to me&represented_as=security" \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/deployments/1/approval"
 ```
 
 Example response:

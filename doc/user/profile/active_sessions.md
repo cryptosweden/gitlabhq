@@ -2,13 +2,15 @@
 stage: none
 group: unassigned
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Active sessions
 ---
 
-# Active sessions
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 GitLab lists all devices that have logged into your account. You can
 review the sessions, and revoke any you don't recognize.
@@ -19,9 +21,9 @@ To list all active sessions:
 
 1. On the left sidebar, select your avatar.
 1. Select **Edit profile**.
-1. On the left sidebar, select **Active Sessions**.
+1. On the left sidebar, select **Active sessions**.
 
-![Active sessions list](img/active_sessions_list.png)
+![Active sessions list](img/active_sessions_list_v12_7.png)
 
 ## Active sessions limit
 
@@ -34,22 +36,93 @@ To revoke an active session:
 
 1. On the left sidebar, select your avatar.
 1. Select **Edit profile**.
-1. On the left sidebar, select **Active Sessions**.
+1. On the left sidebar, select **Active sessions**.
 1. Select **Revoke** next to a session. The current session cannot be revoked, as this would sign you out of GitLab.
 
-NOTE:
+{{< alert type="note" >}}
+
 When any session is revoked all **Remember me** tokens for all
 devices are revoked. For details about **Remember me**, see
-[cookies used for sign-in](index.md#cookies-used-for-sign-in).
+[cookies used for sign-in](_index.md#cookies-used-for-sign-in).
 
-<!-- ## Troubleshooting
+{{< /alert >}}
 
-Include any troubleshooting steps that you can foresee. If you know beforehand what issues
-one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
-This is important to minimize requests for support, and to avoid doc comments with
-questions that you know someone might ask.
+## Revoke sessions through the Rails console
 
-Each scenario can be a third-level heading, for example `### Getting error message X`.
-If you have none to add when creating a doc, leave this section in place
-but commented out to help encourage others to add to it in the future. -->
+You can also revoke user sessions through the Rails console. You can use this to revoke
+multiple sessions at the same time.
+
+### Revoke all sessions for all users
+
+To revoke all sessions for all users:
+
+1. [Start a Rails console session](../../administration/operations/rails_console.md#starting-a-rails-console-session).
+1. Optional. List all active sessions with the following command:
+
+   ```ruby
+   ActiveSession.list(User.all)
+1. Revoke all sessions with the following command:
+
+   ```ruby
+   ActiveSession.destroy_all
+   ```
+
+1. Verify sessions are closed with the following command:
+
+   ```ruby
+   # Show all users with active sessions
+    puts "=== Currently Logged In Users ==="
+    User.find_each do |user|
+        sessions = ActiveSession.list(user)
+        if sessions.any?
+            puts "\n#{user.username} (#{user.name}):"
+            sessions.each do |session|
+                puts "  - IP: #{session.ip_address}, Browser: #{session.browser}, Last active: #{session.updated_at}"
+            end
+        end
+    end
+   ```
+
+### Revoke all sessions for a user
+
+To revoke all sessions for a specific user:
+
+1. [Start a Rails console session](../../administration/operations/rails_console.md#starting-a-rails-console-session).
+1. Find the user with the following commands:
+
+   - By username:
+
+     ```ruby
+     user = User.find_by_username 'exampleuser'
+     ```
+
+   - By user ID:
+
+     ```ruby
+     user = User.find(123)
+     ```
+
+   - By email address:
+
+     ```ruby
+     user = User.find_by(email: 'user@example.com')
+     ```
+
+1. Optional. List all active sessions for the user with the following command:
+
+   ```ruby
+   ActiveSession.list(user)
+   ```
+
+1. Revoke all sessions with the following command:
+
+   ```ruby
+   ActiveSession.list(user).each { |session| ActiveSession.destroy_session(user, session.session_private_id) }
+   ```
+
+1. Verify all sessions are closed with the following command:
+
+   ```ruby
+   # If all sessions are closed, returns an empty array.
+   ActiveSession.list(user)
+   ```

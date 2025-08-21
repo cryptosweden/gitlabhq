@@ -1,12 +1,21 @@
 <!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { GlButton, GlLink, GlTooltipDirective, GlLoadingIcon } from '@gitlab/ui';
+import {
+  GlButton,
+  GlLink,
+  GlTooltipDirective,
+  GlLoadingIcon,
+  GlAnimatedChevronLgDownUpIcon,
+} from '@gitlab/ui';
+import { kebabCase } from 'lodash';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import { normalizeHeaders } from '~/lib/utils/common_utils';
 import { logError } from '~/lib/logger';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import SafeHtml from '~/vue_shared/directives/safe_html';
 import { sprintf, __ } from '~/locale';
 import Poll from '~/lib/utils/poll';
+import { joinPaths } from '~/lib/utils/url_utility';
 import HelpPopover from '~/vue_shared/components/help_popover.vue';
 import { DynamicScroller, DynamicScrollerItem } from 'vendor/vue-virtual-scroller';
 import { EXTENSION_ICONS } from '../../constants';
@@ -37,16 +46,20 @@ export default {
     GlLink,
     GlButton,
     GlLoadingIcon,
+    GlAnimatedChevronLgDownUpIcon,
     ContentRow,
     DynamicContent,
     DynamicScroller,
     DynamicScrollerItem,
     HelpPopover,
+    ReportListItem: () => import('~/merge_requests/reports/components/report_list_item.vue'),
   },
   directives: {
     GlTooltip: GlTooltipDirective,
     SafeHtml,
   },
+  mixins: [glFeatureFlagsMixin()],
+  inject: { reportsTabContent: { default: false }, reportsTabSidebar: { default: false } },
   props: {
     loadingText: {
       type: String,
@@ -141,7 +154,7 @@ export default {
     widgetName: {
       type: String,
       required: true,
-      // see https://docs.gitlab.com/ee/development/fe_guide/merge_request_widget_extensions.html#add-new-widgets
+      // see https://docs.gitlab.com/ee/development/fe_guide/merge_request_widgets.html#add-new-widgets
       validator: (val) => val.startsWith(WIDGET_PREFIX),
     },
     telemetry: {
@@ -168,11 +181,21 @@ export default {
       required: false,
       default: false,
     },
+    label: {
+      type: String,
+      required: false,
+      default: null,
+    },
+    path: {
+      type: String,
+      required: false,
+      default: null,
+    },
   },
   data() {
     return {
       isExpandedForTheFirstTime: true,
-      isCollapsed: true,
+      isCollapsed: !this.reportsTabContent,
       isLoadingCollapsedContent: true,
       isLoadingExpandedContent: false,
       summaryError: null,
@@ -205,6 +228,28 @@ export default {
     contentWithKeyField() {
       return this.content?.map((item, index) => ({ ...item, id: item.id || index }));
     },
+    reportsTabActionButtons() {
+      return [
+        {
+          text: __('View report'),
+          href: joinPaths(
+            window.gl?.mrWidgetData?.reportsTabPath || '',
+            kebabCase(this.widgetName.replace(WIDGET_PREFIX, '')),
+          ),
+          onClick(action, e) {
+            e.preventDefault();
+
+            window.history.replaceState(null, null, action.href);
+            window.mrTabs.tabShown('reports');
+          },
+        },
+      ];
+    },
+    routeParams() {
+      if (!this.path) return {};
+
+      return { report: this.path };
+    },
   },
   watch: {
     hasError: {
@@ -225,6 +270,10 @@ export default {
   async mounted() {
     this.isLoadingCollapsedContent = true;
     this.telemetryHub?.viewed();
+
+    if (this.reportsTabContent) {
+      this.fetchExpandedContent();
+    }
 
     try {
       if (this.fetchCollapsedData) {
@@ -320,30 +369,46 @@ export default {
 </script>
 
 <template>
-  <section class="media-section" data-testid="widget-extension">
-    <div class="gl-px-5 gl-pr-4 gl-py-4 gl-display-flex">
+  <report-list-item
+    v-if="reportsTabSidebar"
+    to="report"
+    :params="routeParams"
+    :status-icon="summaryStatusIcon"
+    :is-loading="shouldShowLoadingIcon"
+    class="gl-mb-3"
+  >
+    {{ label }}
+  </report-list-item>
+  <section v-else class="media-section" data-testid="widget-extension">
+    <div
+      v-if="!reportsTabContent"
+      :class="{
+        'gl-pl-9': glFeatures.mrReportsTab,
+        'gl-flex gl-px-5 gl-py-4 gl-pr-4': !reportsTabContent,
+      }"
+    >
       <status-icon
-        :level="1"
+        :level="glFeatures.mrReportsTab ? 2 : 1"
         :name="widgetName"
         :is-loading="shouldShowLoadingIcon"
         :icon-name="summaryStatusIcon"
       />
       <div
-        class="media-body gl-display-flex gl-flex-direction-row! gl-align-self-center"
+        class="media-body gl-flex !gl-flex-row gl-self-center"
         data-testid="widget-extension-top-level"
       >
-        <div class="gl-flex-grow-1" data-testid="widget-extension-top-level-summary">
+        <div class="gl-grow" data-testid="widget-extension-top-level-summary">
           <span v-if="summaryError">{{ summaryError }}</span>
           <slot v-else name="summary"
             ><div v-safe-html="isSummaryLoading ? loadingText : generatedSummary"></div>
             <div
               v-if="!isSummaryLoading && generatedSubSummary"
               v-safe-html="generatedSubSummary"
-              class="gl-font-sm gl-text-gray-700"
+              class="gl-text-sm gl-text-subtle"
             ></div
           ></slot>
         </div>
-        <div class="gl-display-flex">
+        <div class="gl-flex">
           <help-popover
             v-if="helpPopover"
             icon="information-o"
@@ -360,12 +425,15 @@ export default {
                 v-if="helpPopover.content.learnMorePath"
                 :href="helpPopover.content.learnMorePath"
                 target="_blank"
-                class="gl-font-sm"
+                class="gl-text-sm"
                 >{{ $options.i18n.learnMore }}</gl-link
               >
             </template>
           </help-popover>
-          <slot name="action-buttons">
+          <div v-if="glFeatures.mrReportsTab">
+            <action-buttons :tertiary-buttons="reportsTabActionButtons" />
+          </div>
+          <slot v-else name="action-buttons">
             <action-buttons
               v-if="actionButtons.length > 0"
               :tertiary-buttons="actionButtons"
@@ -374,32 +442,38 @@ export default {
           </slot>
         </div>
         <div
-          v-if="isCollapsible && !isSummaryLoading"
-          class="gl-border-l-1 gl-border-l-solid gl-border-gray-100 gl-ml-3 gl-pl-3 gl-h-6"
+          v-if="!glFeatures.mrReportsTab && isCollapsible && !isSummaryLoading"
+          class="gl-border-l gl-ml-3 gl-h-6 gl-border-l-section gl-pl-3"
         >
           <gl-button
             v-gl-tooltip
             :title="collapseButtonLabel"
             :aria-expanded="`${!isCollapsed}`"
             :aria-label="collapseButtonLabel"
-            :icon="isCollapsed ? 'chevron-lg-down' : 'chevron-lg-up'"
             category="tertiary"
             data-testid="toggle-button"
             size="small"
+            class="btn-icon"
             @click="toggleCollapsed"
-          />
+          >
+            <gl-animated-chevron-lg-down-up-icon :is-on="!isCollapsed" />
+          </gl-button>
         </div>
       </div>
     </div>
     <div
       v-if="!isCollapsed || contentError"
-      class="gl-relative gl-bg-gray-10 gl-border-t"
+      :class="{ 'gl-border-t gl-relative gl-border-t-section gl-bg-subtle': !reportsTabContent }"
       data-testid="widget-extension-collapsed-section"
     >
-      <div v-if="isLoadingExpandedContent" class="report-block-container gl-text-center">
+      <div
+        v-if="isLoadingExpandedContent"
+        class="gl-text-center"
+        :class="{ 'report-block-container': !reportsTabContent, 'gl-py-5': reportsTabContent }"
+      >
         <gl-loading-icon size="sm" inline /> {{ loadingText }}
       </div>
-      <div v-else class="gl-pl-5 gl-display-flex" :class="{ 'gl-pr-5': $scopedSlots.content }">
+      <div v-else class="gl-flex gl-pl-5" :class="{ 'gl-pr-5': $scopedSlots.content }">
         <content-row
           v-if="contentError"
           :level="2"
@@ -416,7 +490,8 @@ export default {
               v-if="contentWithKeyField"
               :items="contentWithKeyField"
               :min-item-size="32"
-              :style="{ maxHeight: '170px' }"
+              :style="{ maxHeight: reportsTabContent ? null : '170px' }"
+              :page-mode="glFeatures.mrReportsTab && reportsTabContent"
               data-testid="dynamic-content-scroller"
               class="gl-pr-5"
             >

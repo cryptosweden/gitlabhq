@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class UserStatus < MainClusterwide::ApplicationRecord
+class UserStatus < ApplicationRecord
   include CacheMarkdownField
 
   self.primary_key = :user_id
@@ -19,7 +19,7 @@ class UserStatus < MainClusterwide::ApplicationRecord
 
   belongs_to :user, inverse_of: :status
 
-  enum availability: { not_set: 0, busy: 1 }
+  enum :availability, { not_set: 0, busy: 1 }
 
   validates :user, presence: true
   validates :emoji, 'gitlab/emoji_name': true

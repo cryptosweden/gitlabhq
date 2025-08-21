@@ -1,13 +1,12 @@
 ---
 stage: Verify
 group: Pipeline Execution
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Add new tables to the CI database
 ---
 
-# Add new tables to the CI database
-
-The [pipeline data partitioning](../../architecture/blueprints/ci_data_decay/pipeline_partitioning.md)
-design blueprint describes how to partition existing tables in the CI domain. However,
+The [pipeline data partitioning](https://handbook.gitlab.com/handbook/engineering/architecture/design-documents/ci_data_decay/pipeline_partitioning/)
+design document describes how to partition existing tables in the CI domain. However,
 you still need to add tables for new features. Sometimes these tables hold
 references to larger tables that need to be partitioned. To reduce future
 work, all tables that use a `belongs_to` association to partitionable tables

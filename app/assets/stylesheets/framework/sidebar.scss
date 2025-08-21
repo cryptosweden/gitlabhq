@@ -1,3 +1,5 @@
+@use "sass:map";
+
 .content-wrapper {
   width: 100%;
 
@@ -17,7 +19,7 @@
 }
 
 .page-initialised  .content-wrapper {
-  transition: padding $gl-transition-duration-medium;
+  @apply gl-transition-padding;
 }
 
 .right-sidebar-collapsed {
@@ -31,17 +33,9 @@
     }
   }
 
-  &.is-merge-request {
-    @include media-breakpoint-up(lg) {
-      .content-wrapper {
-        padding-right: $right-sidebar-collapsed-width;
-      }
-    }
-  }
-
   .sidebar-collapsed-icon {
     .btn {
-      background-color: $gray-10;
+      @apply gl-bg-subtle;
     }
 
     &:not(.disabled) {
@@ -85,7 +79,7 @@
   }
 
   @include media-breakpoint-only(sm) {
-    &:not(.wiki-sidebar):not(.build-sidebar):not(.issuable-bulk-update-sidebar) .content-wrapper {
+    &:not(.wiki-sidebar):not(.build-sidebar):not(.issuable-bulk-update-sidebar):not(.is-merge-request) .content-wrapper {
       padding-right: $right-sidebar-collapsed-width;
     }
   }
@@ -108,7 +102,7 @@
 }
 
 .right-sidebar {
-  border-left: 1px solid $border-color;
+  @apply gl-border-l;
 
   &.right-sidebar-merge-requests {
     @include media-breakpoint-up(lg) {
@@ -134,7 +128,7 @@
   @include maintain-sidebar-dimensions;
   width: 0;
   padding: 0;
-  transition: width $gl-transition-duration-medium;
+  @apply gl-transition-width;
 
   &.right-sidebar-expanded {
     @include maintain-sidebar-dimensions;
@@ -158,7 +152,7 @@
     .block {
       padding: 16px 0;
       width: 250px;
-      border-bottom: 1px solid $border-color;
+      @apply gl-border-b;
     }
   }
 
@@ -184,7 +178,7 @@
     font-weight: $gl-font-weight-bold;
 
     .gl-button {
-      color: $gl-text-color;
+      @apply gl-text-default;
     }
   }
 }
@@ -200,7 +194,7 @@
   }
 }
 
-.sidebar-collapsed-icon .sidebar-collapsed-value {
+.sidebar-collapsed-icon {
   font-size: 12px;
 }
 
@@ -217,33 +211,25 @@
       position: absolute;
       top: $gl-padding;
       bottom: $gl-padding;
-      left: map-get($spacers, 2) - px-to-rem(1px);
+      left: map.get($spacers, 2) - px-to-rem(1px);
     }
 
     &-row {
-      margin-top: map-get($spacers, 3);
+      margin-top: map.get($spacers, 3);
 
       &:nth-child(1) {
         margin-top: 0;
       }
     }
 
-    $line-height: map-get($spacers, 4);
+    $line-height: map.get($spacers, 4);
 
     &-icon {
       height: $line-height;
       z-index: 1;
       position: relative;
       padding: $gl-padding-4 0;
-      
-      &.opened {
-        color: $green-500;
-      }
 
-      &.closed {
-        color: $blue-500;
-      }
-      
       svg {
         vertical-align: baseline;
       }
@@ -257,8 +243,20 @@
 }
 
 .toggle-right-sidebar-button {
-  @include side-panel-toggle;
-  border-bottom: 1px solid $border-color;
+  @apply gl-transition-width;
+  height: $toggle-sidebar-height;
+  padding: 0 $gl-padding;
+  @apply gl-bg-subtle;
+  border: 0;
+  @apply gl-text-subtle;
+  display: flex;
+  align-items: center;
+  @apply gl-border-b;
+
+  &:hover {
+    @apply gl-bg-strong;
+    @apply gl-text-default;
+  }
 }
 
 .edit-link {
@@ -270,18 +268,17 @@
 }
 
 .assignee-grid {
-  grid-template-areas: ' attention   user';
+  grid-template-areas: 'attention user';
   grid-template-columns: min-content 1fr;
 }
 
 .reviewer-grid {
-  grid-template-areas: ' user approval    rerequest';
-  grid-template-columns: 1fr  min-content min-content;
+  grid-template-areas: 'user approval rerequest remove';
+  grid-template-columns: 1fr;
+}
 
-  &.attention-requests {
-    grid-template-areas: ' attention   user approval';
-    grid-template-columns: min-content 1fr  min-content;
-  }
+.reviewers-dropdown .gl-new-dropdown-panel {
+  min-width: $right-sidebar-width - $gl-padding;
 }
 
 .merge-request-approved-icon {
@@ -304,14 +301,6 @@
 
 .assignee-grid,
 .reviewer-grid {
-  [data-css-area='attention'] {
-    grid-area: attention;
-
-    button.selected svg {
-      fill: $orange-500;
-    }
-  }
-
   [data-css-area='user'] {
     grid-area: user;
   }
@@ -319,12 +308,12 @@
 
 @mixin right-sidebar {
   position: fixed;
-  bottom: calc(#{$calc-application-footer-height} + var(--mr-review-bar-height));
+  bottom: $calc-application-footer-height;
   right: 0;
-  transition: width $gl-transition-duration-medium;
-  background-color: $white;
+  @apply gl-bg-default;
   z-index: 200;
   overflow: hidden;
+  @apply gl-transition-width;
 }
 
 .right-sidebar {
@@ -353,7 +342,7 @@
     color: inherit;
 
     &:hover {
-      color: $blue-800;
+      @apply gl-text-link;
     }
   }
 
@@ -365,10 +354,6 @@
     color: inherit;
   }
 
-  .issuable-header-text {
-    margin-top: 7px;
-  }
-
   .gutter-toggle {
     display: flex;
     align-items: center;
@@ -378,8 +363,8 @@
     height: 24px;
 
     &:hover {
-      color: $gl-text-color;
-      background: $gray-50;
+      @apply gl-text-default;
+      @apply gl-bg-strong;
     }
 
     &:hover,
@@ -411,7 +396,8 @@
   .issuable-sidebar-header {
     @include clearfix;
     padding: $gl-spacing-scale-4 0 $gl-spacing-scale-5;
-    border-bottom: 1px solid $border-color;
+    @apply gl-border-b;
+    @apply gl-border-subtle;
     // This prevents the mess when resizing the sidebar
     // of elements repositioning themselves..
     width: $right-sidebar-inner-width;
@@ -442,12 +428,8 @@
     }
   }
 
-  .block-first {
-    padding-top: 0;
-  }
-
   .title {
-    color: $gl-text-color;
+    @apply gl-text-default;
     line-height: $gl-line-height-20;
 
     .avatar {
@@ -504,10 +486,10 @@
 
           .issuable-context-form {
             top: calc(#{$calc-application-header-height} + #{$mr-sticky-header-height});
-            height: calc(#{$calc-application-viewport-height} - #{$mr-sticky-header-height} - var(--mr-review-bar-height));
+            height: calc(#{$calc-application-viewport-height} - #{$mr-sticky-header-height});
             position: sticky;
-            padding: 0 15px;
-            margin-bottom: calc((#{$content-wrapper-padding} * -1) + var(--mr-review-bar-height));
+            padding: 0 $gl-spacing-scale-3;
+            margin-bottom: calc((#{$content-wrapper-padding} * -1));
             overflow-y: auto;
             overscroll-behavior: contain;
           }
@@ -526,7 +508,7 @@
     }
 
     .no-value {
-      color: $gl-text-color-secondary;
+      @apply gl-text-subtle;
     }
 
     .sidebar-collapsed-icon {
@@ -589,7 +571,7 @@
     }
 
     .participants {
-      border-bottom: 1px solid $border-color;
+      @apply gl-border-b;
     }
 
     .hide-collapsed {
@@ -601,7 +583,7 @@
       height: $sidebar-toggle-height;
       margin-top: 0;
       margin-left: 0;
-      border-bottom: 1px solid $border-color;
+      @apply gl-border-b #{!important};
       border-radius: 0;
     }
 
@@ -627,18 +609,18 @@
       width: 100%;
       height: $sidebar-toggle-height;
       text-align: center;
-      color: $gl-text-color-secondary;
+      @apply gl-text-subtle;
 
       > svg {
-        fill: $gl-text-color-secondary;
+        @apply gl-fill-icon-subtle;
       }
 
       &:hover:not(.disabled),
       &:hover .todo-undone {
-        color: $gl-text-color;
+        @apply gl-text-default;
 
         > svg {
-          fill: $gl-text-color;
+          @apply gl-fill-icon-default;
         }
       }
 
@@ -736,10 +718,16 @@
       &:focus,
       &.is-focused {
         @include dropdown-item-hover;
+        background-color: transparent;
       }
     }
 
   }
+}
+
+.paneled-view .right-sidebar {
+  position: absolute;
+  top: 0;
 }
 
 .issuable-show-labels {
@@ -777,11 +765,14 @@
 .reviewer-merge-icon,
 .assignee .merge-icon,
 .reviewer .merge-icon {
-  color: $orange-400;
+  color: var(--gl-status-warning-icon-color);
   position: absolute;
   bottom: -3px;
   right: -3px;
-  filter: drop-shadow(0 0 0.5px $white) drop-shadow(0 0 1px $white) drop-shadow(0 0 2px $white);
+  filter: drop-shadow(1px 0 0 var(--gl-background-color-default))
+          drop-shadow(-1px 0 0 var(--gl-background-color-default))
+          drop-shadow(0 -1px 0 var(--gl-background-color-default))
+          drop-shadow(0 1px 0 var(--gl-background-color-default));
 }
 
 .sidebar-help-wrap {
@@ -790,6 +781,8 @@
     padding: 16px 20px;
   }
 
+  // These are composite classes for use with Vue Transition
+  // https://vuejs.org/guide/built-ins/transition
   .help-state-toggle-enter-active {
     transition: all 0.8s ease;
   }
@@ -813,11 +806,11 @@
     svg {
       width: 16px;
       height: 16px;
-      fill: $gl-text-color-secondary;
+      @apply gl-fill-icon-subtle;
     }
 
     &:hover svg {
-      fill: $gl-text-color;
+      @apply gl-fill-icon-default;
     }
   }
 
@@ -825,47 +818,12 @@
     &.over_estimate {
       .time-remaining,
       .compare-value.spent {
-        color: $red-500;
+        @apply gl-text-danger;
       }
     }
   }
 
   .compare-display-container {
     font-size: 13px;
-  }
-}
-
-/*
- * Following overrides are done to prevent
- * legacy dropdown styles from influencing
- * GitLab UI components used within GlDropdown
- */
-.right-sidebar-collapsed {
-  .sidebar-grouped-item {
-    .sidebar-collapsed-icon {
-      margin-bottom: 0;
-    }
-
-    .sidebar-collapsed-divider {
-      line-height: 5px;
-      font-size: 12px;
-      color: $gray-500;
-
-      + .sidebar-collapsed-icon {
-        padding-top: 0;
-      }
-    }
-  }
-}
-
-@include media-breakpoint-down(sm) {
-  // Overriding the following rule with the negative margin
-  // https://gitlab.com/gitlab-org/gitlab/-/blob/146c43c931c3743a140529307aea616e4aa9ff21/app/assets/stylesheets/framework/sidebar.scss#L1-5
-  .container-fluid {
-    .issuable-list,
-    .issues-filters,
-    .epics-filters {
-      margin: 0 (-$gl-padding);
-    }
   }
 }

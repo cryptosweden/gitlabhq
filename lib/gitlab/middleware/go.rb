@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
-# A dumb middleware that returns a Go HTML document if the go-get=1 query string
-# is used irrespective if the namespace/project exists
+# A middleware that returns a Go HTML document if the go-get=1 query string is present
 module Gitlab
   module Middleware
     class Go
@@ -17,7 +16,10 @@ module Gitlab
       def call(env)
         request = ActionDispatch::Request.new(env)
 
-        render_go_doc(request) || @app.call(env)
+        return handle_go_get_request(request) if go_get_request?(request)
+
+        @app.call(env)
+
       rescue Gitlab::Auth::IpBlocked => e
         Gitlab::AuthLogger.error(
           message: 'Rack_Attack',
@@ -25,82 +27,101 @@ module Gitlab
           env: :blocklist,
           remote_ip: request.ip,
           request_method: request.request_method,
-          path: request.fullpath
+          path: request.filtered_path
         )
         Rack::Response.new(e.message, 403).finish
       rescue Gitlab::Auth::MissingPersonalAccessTokenError
-        Rack::Response.new('', 401).finish
+        not_found_response
       end
 
       private
 
-      def render_go_doc(request)
-        return unless go_request?(request)
+      # not_found_response returns a message that the go cli toolchain displays directly.
+      def not_found_response
+        go_help_page_url = Rails.application.routes.url_helpers.help_page_url('user/project/use_project_as_go_package.md')
+        not_found_message = "Go package not found or access denied. If you are trying to access a private project, ensure your ~/.netrc file has credentials so the go toolchain can authenticate. See #{go_help_page_url} for details."
 
-        path, branch = project_path(request)
-        return unless path
-
-        body, code = go_response(path, branch)
-        return unless body
-
-        response = Rack::Response.new(body, code, { 'Content-Type' => 'text/html' })
-        response.finish
+        [404, { 'Content-Type' => 'text/plain' }, [not_found_message]]
       end
 
-      def go_request?(request)
+      # handle_go_get_request responds to `go get` requests by either returning a successful 200
+      # response with meta tags as described in https://go.dev/ref/mod, or a 404 response with a
+      # message that the go toolchain will display.
+      #
+      # The go toolchain authenticates using basic auth. When credentials are not present, a
+      # successful response is always returned as if a project exists (using a two-segment path
+      # like `namespace/project`) in order to prevent leaking information about the existence of
+      # private projects, and to maintain backwards compatibility for users who have not set up
+      # authentication for their go toolchain.
+      def handle_go_get_request(request)
+        path_info = request.env["PATH_INFO"].delete_prefix('/')
+        project = project_for_path(path_info)
+
+        if project && can_read_project?(request, project)
+          return not_found_response unless project.repository_exists?
+
+          create_go_get_html_response(project.full_path)
+        elsif request.authorization.present?
+          not_found_response
+        else
+          path_segments = path_info.split('/')
+          return not_found_response unless path_segments.length >= 2
+
+          two_segment_path = path_segments.first(2).join('/')
+
+          create_go_get_html_response(two_segment_path)
+        end
+      end
+
+      def go_get_request?(request)
         request["go-get"].to_i == 1 && request.env["PATH_INFO"].present?
       end
 
-      def go_response(path, branch)
-        config = Gitlab.config
-        body_tag = content_tag :body, "go get #{config.gitlab.url}/#{path}"
+      def get_repo_url(project_full_path)
+        return ssh_url(project_full_path) if Gitlab::CurrentSettings.enabled_git_access_protocol == 'ssh'
 
-        unless branch
-          html_tag = content_tag :html, body_tag
-          return html_tag, 404
-        end
-
-        project_url = Gitlab::Utils.append_path(config.gitlab.url, path)
-        import_prefix = strip_url(project_url.to_s)
-
-        repository_url = if Gitlab::CurrentSettings.enabled_git_access_protocol == 'ssh'
-                           shell = config.gitlab_shell
-                           user = "#{shell.ssh_user}@" unless shell.ssh_user.empty?
-                           port = ":#{shell.ssh_port}" unless shell.ssh_port == 22
-                           "ssh://#{user}#{shell.ssh_host}#{port}/#{path}.git"
-                         else
-                           "#{project_url}.git"
-                         end
-
-        meta_import_tag = tag.meta(name: 'go-import', content: "#{import_prefix} git #{repository_url}")
-        meta_source_tag = tag.meta(name: 'go-source', content: "#{import_prefix} #{project_url} #{project_url}/-/tree/#{branch}{/dir} #{project_url}/-/blob/#{branch}{/dir}/{file}#L{line}")
-        head_tag = content_tag :head, meta_import_tag + meta_source_tag
-        html_tag = content_tag :html, head_tag + body_tag
-        [html_tag, 200]
+        "#{http_url(project_full_path)}.git"
       end
 
-      def strip_url(url)
-        url.gsub(%r{\Ahttps?://}, '')
+      # create_go_get_html_response creates a HTML document for go get with the expected meta tags.
+      def create_go_get_html_response(project_full_path)
+        root_path = get_root_path(project_full_path)
+        repo_url = get_repo_url(project_full_path)
+
+        go_import_meta_tag = tag.meta(name: 'go-import', content: "#{root_path} git #{repo_url}")
+        head_tag = content_tag :head, go_import_meta_tag
+        body_tag = content_tag :body, "go get #{root_path}"
+        html = content_tag :html, head_tag + body_tag
+
+        response = Rack::Response.new(html, 200, { 'Content-Type' => 'text/html' })
+        response.finish
       end
 
-      def project_path(request)
-        path_info = request.env["PATH_INFO"]
-        path_info.sub!(%r{^/}, '')
+      # get_root_path returns a root path based on the instance URL
+      # that includes a relative part of URL if it was set
+      def get_root_path(project_full_path)
+        http_url(project_full_path).gsub(%r{\Ahttps?://}, '')
+      end
 
+      # http_url returns a direct link to the project
+      def http_url(project_full_path)
+        Gitlab::Utils.append_path(Gitlab.config.gitlab.url, project_full_path)
+      end
+
+      # project_for_path searches for a project based on the path_info
+      def project_for_path(path_info)
         project_path_match = "#{path_info}/".match(PROJECT_PATH_REGEX)
         return unless project_path_match
 
         path = project_path_match[1]
 
-        # Go subpackages may be in the form of `namespace/project/path1/path2/../pathN`.
-        # In a traditional project with a single namespace, this would denote repo
-        # `namespace/project` with subpath `path1/path2/../pathN`, but with nested
-        # groups, this could also be `namespace/project/path1` with subpath
-        # `path2/../pathN`, for example.
+        # A go package path may use a subdirectory. For example a valid package path
+        # is `example.com/namespace/group/group/project/path1/path2/path3`.
+        # So we need to find all potential gitlab project paths from the package path.
+        # For more details on package paths see https://go.dev/ref/mod.
 
-        # We find all potential project paths out of the path segments
-        path_segments = path.split('/')
-        simple_project_path = path_segments.first(2).join('/')
+        # Apply maximum upper limit to number of segments (group + 20 subgroups + project = 22 elements)
+        path_segments = path.split('/').take(22) # rubocop: disable CodeReuse/ActiveRecord -- not an active record operation
 
         project_paths = []
         begin
@@ -108,47 +129,34 @@ module Gitlab
           path_segments.pop
         end while path_segments.length >= 2
 
-        # We see if a project exists with any of these potential paths
-        project = project_for_paths(project_paths, request)
+        project = Project.where_full_path_in(project_paths).first
+        return project if project
 
-        if project
-          # If a project is found and the user has access, we return the full project path
-          [project.full_path, project.default_branch]
-        else
-          # If not, we return the first two components as if it were a simple `namespace/project` path,
-          # so that we don't reveal the existence of a nested project the user doesn't have access to.
-          # This means that for an unauthenticated request to `group/subgroup/project/subpackage`
-          # for a private `group/subgroup/project` with subpackage path `subpackage`, GitLab will respond
-          # as if the user is looking for project `group/subgroup`, with subpackage path `project/subpackage`.
-          # Since `go get` doesn't authenticate by default, this means that
-          # `go get gitlab.com/group/subgroup/project/subpackage` will not work for private projects.
-          # `go get gitlab.com/group/subgroup/project.git/subpackage` will work, since Go is smart enough
-          # to figure that out. `import 'gitlab.com/...'` behaves the same as `go get`.
-          [simple_project_path, 'master']
-        end
+        # It's possible that the project was transferred and has a redirect
+        redirect = RedirectRoute.for_source_type(Project).by_paths(project_paths).first
+        return redirect.source if redirect
+
+        nil
       end
 
-      def project_for_paths(paths, request)
-        project = Project.where_full_path_in(paths).first
-
-        return unless authentication_result(request, project).can_perform_action_on_project?(:read_project, project)
-
-        project
-      end
-
-      def authentication_result(request, project)
-        empty_result = Gitlab::Auth::Result::EMPTY
-        return empty_result unless has_basic_credentials?(request)
+      # can_read_project? checks if the request's credentials have read access to the project
+      def can_read_project?(request, project)
+        return true if project.public?
+        return false unless has_basic_credentials?(request)
 
         login, password = user_name_and_password(request)
         auth_result = Gitlab::Auth.find_for_git_client(login, password, project: project, request: request)
-        return empty_result unless auth_result.success?
 
-        return empty_result unless auth_result.can?(:access_git)
+        auth_result.success? &&
+          auth_result.authentication_abilities_include?(:read_project) &&
+          auth_result.can_perform_action_on_project?(:read_project, project)
+      end
 
-        return empty_result unless auth_result.authentication_abilities_include?(:read_project)
-
-        auth_result
+      def ssh_url(path)
+        shell = Gitlab.config.gitlab_shell
+        user = "#{shell.ssh_user}@" unless shell.ssh_user.empty?
+        port = ":#{shell.ssh_port}" unless shell.ssh_port == 22
+        "ssh://#{user}#{shell.ssh_host}#{port}/#{path}.git"
       end
     end
   end

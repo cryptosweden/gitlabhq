@@ -2,18 +2,21 @@
 
 module SystemNotes
   class BaseService
-    attr_reader :noteable, :project, :author
+    attr_accessor :project, :group
+    attr_reader :noteable, :container, :author
 
-    def initialize(noteable: nil, author: nil, project: nil)
+    def initialize(container: nil, noteable: nil, author: nil)
+      @container = container
       @noteable = noteable
-      @project = project
       @author = author
+
+      handle_container_type(container)
     end
 
     protected
 
-    def create_note(note_summary)
-      note_params = note_summary.note.merge(system: true)
+    def create_note(note_summary, skip_touch_noteable: false)
+      note_params = note_summary.note.merge(system: true, skip_touch_noteable: skip_touch_noteable)
       note_params[:system_note_metadata] = SystemNoteMetadata.new(note_summary.metadata) if note_summary.metadata?
 
       Note.create(note_params)
@@ -25,6 +28,17 @@ module SystemNotes
 
     def url_helpers
       @url_helpers ||= Gitlab::Routing.url_helpers
+    end
+
+    def handle_container_type(container)
+      case container
+      when Project
+        @project = container
+      when Group
+        @group = container
+      when Namespaces::ProjectNamespace
+        @project = container.project
+      end
     end
   end
 end

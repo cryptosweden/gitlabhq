@@ -2,22 +2,21 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Create an Amazon EKS cluster
 ---
 
-# Create an Amazon EKS cluster
-
 You can create a cluster on Amazon Elastic Kubernetes Service (EKS) through
-[Infrastructure as Code (IaC)](../../index.md). This process uses the AWS and
+[Infrastructure as Code (IaC)](../../_index.md). This process uses the AWS and
 Kubernetes Terraform providers to create EKS clusters. You connect the clusters to GitLab
 by using the GitLab agent for Kubernetes.
 
-**Prerequisites:**
+**Before you begin**:
 
 - An Amazon Web Services (AWS) account, with a set of configured
   [security credentials](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-prereqs.html).
 - [A runner](https://docs.gitlab.com/runner/install/) you can use to run the GitLab CI/CD pipeline.
 
-**Steps:**
+**Steps**:
 
 1. [Import the example project](#import-the-example-project).
 1. [Register the agent for Kubernetes](#register-the-agent).
@@ -50,8 +49,11 @@ This project provides you with:
 
 ## Register the agent
 
-FLAG:
-A [flag](../../../../administration/feature_flags.md) named `certificate_based_clusters` changed the **Actions** menu to focus on the agent rather than certificates. The flag is [enabled on GitLab.com, GitLab Dedicated, and self-managed](https://gitlab.com/groups/gitlab-org/configure/-/epics/8).
+{{< history >}}
+
+- [Changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/81054) in GitLab 14.9. A [flag](../../../../administration/feature_flags/_index.md) named `certificate_based_clusters` changed the **Actions** menu to focus on the agent rather than certificates. Disabled by default.
+
+{{< /history >}}
 
 To create a GitLab agent for Kubernetes:
 
@@ -66,41 +68,56 @@ To create a GitLab agent for Kubernetes:
 Set up your AWS credentials when you want to authenticate AWS with GitLab.
 
 1. Create an [IAM User](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users.html) or [IAM Role](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html).
-1. Make sure that your IAM user or role has the appropriate permissions for your project. For this example project, you must have the permissions shown below. You can expand this when you set up your own project.
+1. Make sure that your IAM user or role has the appropriate permissions for your project. For this example project, you must have the permissions listed in the following JSON block. You can expand these permissions when you set up your own project.
 
    ```json
    // IAM custom Policy definition
    {
      "Version": "2012-10-17",
      "Statement": [
-         {
-             "Sid": "VisualEditor0",
-             "Effect": "Allow",
-             "Action": [
-                 "ec2:*",
-                 "eks:*",
-                 "elasticloadbalancing:*",
-                 "autoscaling:*",
-                 "cloudwatch:*",
-                 "logs:*",
-                 "kms:DescribeKey",
-                 "iam:AddRoleToInstanceProfile",
-                 "iam:AttachRolePolicy",
-                 "iam:CreateInstanceProfile",
-                 "iam:CreateRole",
-                 "iam:CreateServiceLinkedRole",
-                 "iam:GetRole",
-                 "iam:ListAttachedRolePolicies",
-                 "iam:ListRolePolicies",
-                 "iam:ListRoles",
-                 "iam:PassRole",
-                 // required for destroy step
-                 "iam:DetachRolePolicy",
-                 "iam:ListInstanceProfilesForRole",
-                 "iam:DeleteRole"
-             ],
-             "Resource": "*"
-         }
+       {
+         "Sid": "VisualEditor0",
+         "Effect": "Allow",
+         "Action": [
+           "ec2:*",
+           "eks:*",
+           "elasticloadbalancing:*",
+           "autoscaling:*",
+           "cloudwatch:*",
+           "logs:*",
+           "kms:DescribeKey",
+           "kms:TagResource",
+           "kms:UntagResource",
+           "kms:ListResourceTags",
+           "kms:CreateKey",
+           "kms:CreateAlias",
+           "kms:ListAliases",
+           "kms:DeleteAlias",
+           "iam:AddRoleToInstanceProfile",
+           "iam:AttachRolePolicy",
+           "iam:CreateInstanceProfile",
+           "iam:CreateRole",
+           "iam:CreateServiceLinkedRole",
+           "iam:GetRole",
+           "iam:ListAttachedRolePolicies",
+           "iam:ListRolePolicies",
+           "iam:ListRoles",
+           "iam:PassRole",
+           "iam:DetachRolePolicy",
+           "iam:ListInstanceProfilesForRole",
+           "iam:DeleteRole",
+           "iam:CreateOpenIDConnectProvider",
+           "iam:CreatePolicy",
+           "iam:TagOpenIDConnectProvider",
+           "iam:GetPolicy",
+           "iam:GetPolicyVersion",
+           "iam:GetOpenIDConnectProvider",
+           "iam:DeleteOpenIDConnectProvider",
+           "iam:ListPolicyVersions",
+           "iam:DeletePolicy"
+         ],
+         "Resource": "*"
+       }
      ]
    }
    ```
@@ -112,7 +129,7 @@ Set up your AWS credentials when you want to authenticate AWS with GitLab.
 
 Use CI/CD environment variables to configure your project.
 
-**Required configuration:**
+**Required configuration**:
 
 1. On the left sidebar, select **Settings > CI/CD**.
 1. Expand **Variables**.
@@ -121,7 +138,7 @@ Use CI/CD environment variables to configure your project.
 1. Set the variable `TF_VAR_agent_token` to the agent token displayed in the previous task.
 1. Set the variable `TF_VAR_kas_address` to the agent server address displayed in the previous task.
 
-**Optional configuration:**
+**Optional configuration**:
 
 The file [`variables.tf`](https://gitlab.com/gitlab-org/configure/examples/gitlab-terraform-eks/-/blob/main/variables.tf)
 contains other variables that you can override according to your needs:
@@ -131,7 +148,7 @@ contains other variables that you can override according to your needs:
 - `TF_VAR_cluster_version`: Set the version of Kubernetes.
 - `TF_VAR_instance_type`: Set the instance type for the Kubernetes nodes.
 - `TF_VAR_instance_count`: Set the number of Kubernetes nodes.
-- `TF_VAR_agent_namespace`: Set the Kubernetes namespace for the GitLab agent.
+- `TF_VAR_agent_namespace`: Set the Kubernetes namespace for the GitLab agent for Kubernetes.
 
 View the [AWS Terraform provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) and the [Kubernetes Terraform provider](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs) documentation for further resource options.
 
@@ -140,7 +157,7 @@ View the [AWS Terraform provider](https://registry.terraform.io/providers/hashic
 After configuring your project, manually trigger the provisioning of your cluster. In GitLab:
 
 1. On the left sidebar, go to **Build > Pipelines**.
-1. Next to **Play** (**{play}**), select the dropdown list icon (**{chevron-lg-down}**).
+1. Next to **Play** ({{< icon name="play" >}}), select the dropdown list icon ({{< icon name="chevron-lg-down" >}}).
 1. Select **Deploy** to manually trigger the deployment job.
 
 When the pipeline finishes successfully, you can view the new cluster:
@@ -155,7 +172,7 @@ After you provision the cluster, it is connected to GitLab and is ready for depl
 1. On the left sidebar, select **Operate > Kubernetes clusters**.
 1. In the list, view the **Connection status** column.
 
-For more information about the capabilities of the connection, see [the GitLab agent for Kubernetes documentation](../index.md).
+For more information about the capabilities of the connection, see [the GitLab agent for Kubernetes documentation](../_index.md).
 
 ## Remove the cluster
 
@@ -181,4 +198,4 @@ To remove all resources:
    ```
 
 1. On the left sidebar, select **Build > Pipelines** and select the most recent pipeline.
-1. For the `destroy` job, select **Play** (**{play}**).
+1. For the `destroy` job, select **Play** ({{< icon name="play" >}}).

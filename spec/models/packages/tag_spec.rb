@@ -4,7 +4,9 @@ require 'spec_helper'
 
 RSpec.describe Packages::Tag, type: :model, feature_category: :package_registry do
   let_it_be(:project) { create(:project) }
-  let_it_be(:package) { create(:npm_package, version: '1.0.2', project: project, updated_at: 3.days.ago) }
+  let_it_be(:package) do
+    create(:npm_package, version: '1.0.2', project: project, updated_at: 3.days.ago, package_files: [])
+  end
 
   describe '#ensure_project_id' do
     it 'sets the project_id before saving' do
@@ -35,13 +37,13 @@ RSpec.describe Packages::Tag, type: :model, feature_category: :package_registry 
   end
 
   describe '.for_package_ids' do
-    let(:package2) { create(:package, project: project, updated_at: 2.days.ago) }
-    let(:package3) { create(:package, project: project, updated_at: 1.day.ago) }
+    let(:package2) { create(:npm_package, project: project, updated_at: 2.days.ago, package_files: []) }
+    let(:package3) { create(:npm_package, project: project, updated_at: 1.day.ago, package_files: []) }
     let!(:tag1) { create(:packages_tag, package: package) }
     let!(:tag2) { create(:packages_tag, package: package2) }
     let!(:tag3) { create(:packages_tag, package: package3) }
 
-    subject { described_class.for_package_ids(project.packages) }
+    subject { described_class.for_package_ids(::Packages::Npm::Package.for_projects(project)) }
 
     it { is_expected.to match_array([tag1, tag2, tag3]) }
 
@@ -54,14 +56,14 @@ RSpec.describe Packages::Tag, type: :model, feature_category: :package_registry 
     end
 
     context 'with package ids' do
-      subject { described_class.for_package_ids(project.packages.select(:id)) }
+      subject { described_class.for_package_ids(::Packages::Npm::Package.for_projects(project).select(:id)) }
 
       it { is_expected.to match_array([tag1, tag2, tag3]) }
     end
   end
 
   describe '.with_name' do
-    let_it_be(:package) { create(:package) }
+    let_it_be(:package) { create(:npm_package, package_files: []) }
     let_it_be(:tag1) { create(:packages_tag, package: package, name: 'tag1') }
     let_it_be(:tag2) { create(:packages_tag, package: package, name: 'tag2') }
     let_it_be(:tag3) { create(:packages_tag, package: package, name: 'tag3') }

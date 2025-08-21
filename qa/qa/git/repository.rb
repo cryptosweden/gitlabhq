@@ -60,7 +60,7 @@ module QA
       end
 
       def use_default_identity
-        configure_identity('GitLab QA', 'root@gitlab.com')
+        configure_identity(default_user.name, default_user.email)
       end
 
       def clone(opts = '')
@@ -110,8 +110,8 @@ module QA
         run_git("git tag #{tag_name}").to_s
       end
 
-      def delete_tag(tag_name)
-        run_git(%(git push origin --delete #{tag_name}), max_attempts: 3).to_s
+      def delete_tag(tag_name, max_attempts: 3)
+        run_git(%(git push origin --delete #{tag_name}), max_attempts: max_attempts).to_s
       end
 
       def commit(message)
@@ -126,12 +126,12 @@ module QA
         run_git("git rev-parse --abbrev-ref HEAD").to_s
       end
 
-      def push_changes(branch = @default_branch, push_options: nil, max_attempts: 3)
+      def push_changes(branch = @default_branch, push_options: nil, max_attempts: 3, raise_on_failure: true)
         cmd = ['git push']
         cmd << push_options_hash_to_string(push_options)
         cmd << uri
         cmd << branch
-        run_git(cmd.compact.join(' '), max_attempts: max_attempts).to_s
+        run_git(cmd.compact.join(' '), raise_on_failure: raise_on_failure, max_attempts: max_attempts).to_s
       end
 
       def push_all_branches
@@ -147,7 +147,9 @@ module QA
       end
 
       def init_repository
-        run_git("git init --initial-branch=#{default_branch}")
+        cmd = "git init --initial-branch=#{default_branch}"
+        cmd += " --object-format=sha256" if Runtime::Env.use_sha256_repository_object_storage
+        run_git(cmd)
       end
 
       def pull(repository = nil, branch = nil)
@@ -211,7 +213,7 @@ module QA
       end
 
       def delete_netrc
-        File.delete(netrc_file_path) if File.exist?(netrc_file_path)
+        FileUtils.rm_f(netrc_file_path)
       end
 
       def remote_branches
@@ -252,6 +254,10 @@ module QA
 
       alias_method :use_lfs?, :use_lfs
 
+      def default_user
+        @default_user ||= Runtime::User::Store.test_user || Runtime::User::Store.admin_user
+      end
+
       def add_credentials?
         return false if !username || !password
         return true unless ssh_key_set?
@@ -275,11 +281,7 @@ module QA
       end
 
       def default_credentials
-        if ::QA::Runtime::User.ldap_user?
-          [Runtime::User.ldap_username, Runtime::User.ldap_password]
-        else
-          [Runtime::User.username, Runtime::User.password]
-        end
+        [default_user.username, default_user.password]
       end
 
       def read_netrc_content
@@ -333,9 +335,10 @@ module QA
         read_netrc_content.grep(/^#{Regexp.escape(netrc_content)}$/).any?
       end
 
-      def run_git(command_str, env: env_vars, max_attempts: 1)
+      def run_git(command_str, raise_on_failure: true, env: env_vars, max_attempts: 1)
         run(
           command_str,
+          raise_on_failure: raise_on_failure,
           env: env,
           max_attempts: max_attempts,
           sleep_internal: command_retry_sleep_interval,

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::HookData::MergeRequestBuilder do
+RSpec.describe Gitlab::HookData::MergeRequestBuilder, feature_category: :code_review_workflow do
   let_it_be(:merge_request) { create(:merge_request) }
 
   let(:builder) { described_class.new(merge_request) }
@@ -53,7 +53,7 @@ RSpec.describe Gitlab::HookData::MergeRequestBuilder do
       let(:builder) { described_class.new(mr_with_description) }
 
       it 'sets the image to use an absolute URL' do
-        expected_path = "#{mr_with_description.project.path_with_namespace}/uploads/abc/MR_Image.png"
+        expected_path = "-/project/#{mr_with_description.project.id}/uploads/abc/MR_Image.png"
 
         expect(data[:description])
           .to eq("test![MR_Image](#{Settings.gitlab.url}/#{expected_path})")

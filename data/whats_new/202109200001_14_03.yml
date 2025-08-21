@@ -11,9 +11,9 @@
   release: 14.3
 - name: Next Generation SAST to reduce Ruby false positives
   description: |
-     GitLab SAST historically has been powered by [over a dozen open-source static analysis security analyzers](https://docs.gitlab.com/ee/user/application_security/sast/#supported-languages-and-frameworks). These analyzers have proactively identified millions of vulnerabilities for developers using GitLab every month. These tools use a variety of different approaches for identifying vulnerabilities from basic regex pattern matching to abstract syntax tree parsing which can lead to issues with false positives. GitLab's Secure tools already offer vulnerability fingerprinting allowing you to dismiss these false positives persistently, however, we want to go a step further and not require this manual triaging.
+     GitLab SAST historically has been powered by [over a dozen open-source static analysis security analyzers](https://docs.gitlab.com/ee/user/application_security/sast/#supported-languages-and-frameworks). These analyzers have proactively identified millions of vulnerabilities for developers using GitLab every month. These tools use a variety of different approaches for identifying vulnerabilities from basic regex pattern matching to abstract syntax tree parsing which can lead to issues with false positives. GitLab Secure tools already offer vulnerability fingerprinting allowing you to dismiss these false positives persistently, however, we want to go a step further and not require this manual triaging.
 
-     Today we're releasing the first version of our proprietary static application security testing engine built in-house and maintained by GitLab's Static Analysis and Vulnerability Research groups. Initially, this tool is focused on Ruby and Rails to help reduce false positives.
+     Today we're releasing the first version of our proprietary static application security testing engine built in-house and maintained by GitLab Static Analysis and Vulnerability Research groups. Initially, this tool is focused on Ruby and Rails to help reduce false positives.
   stage: Secure
   self-managed: true
   gitlab-com: true
@@ -24,7 +24,7 @@
   release: 14.3
 - name: Group-level permissions for Protected Environments
   description: |
-      In this release, we are introducing group-level protected environments, based on the [deployment tier](https://docs.gitlab.com/ee/ci/environments/index.html#deployment-tier-of-environments) as the identifier. This enables operators to responsibly lock down deployments to higher tier environments without unnecessarily preventing developers from doing their work as the maintainers of their individual projects.
+      In this release, we are introducing group-level protected environments, based on the [deployment tier](https://docs.gitlab.com/ee/ci/environments/#deployment-tier-of-environments) as the identifier. This enables operators to responsibly lock down deployments to higher tier environments without unnecessarily preventing developers from doing their work as the maintainers of their individual projects.
   stage: Release
   self-managed: true
   gitlab-com: true
@@ -59,9 +59,9 @@
   release: 14.3
 - name: Add GitLab CI/CD configuration conditionally with `include`
   description: |
-       [`include`](https://docs.gitlab.com/ee/ci/yaml/index.html#include) is one of the most popular keywords to use when writing a full CI/CD pipeline. If you are building larger pipelines, you are probably using the `include` keyword to bring external YAML configuration into your pipeline.
+       [`include`](https://docs.gitlab.com/ee/ci/yaml/#include) is one of the most popular keywords to use when writing a full CI/CD pipeline. If you are building larger pipelines, you are probably using the `include` keyword to bring external YAML configuration into your pipeline.
 
-        In this release, we are expanding the power of the keyword so you can use `include` with [`rules`](https://docs.gitlab.com/ee/ci/yaml/index.html#include) conditions. Now, you can decide when external CI/CD configuration should or shouldn't be included. This will help you write a standardized pipeline with the ability to dynamically modify itself based on the conditions you choose.
+        In this release, we are expanding the power of the keyword so you can use `include` with [`rules`](https://docs.gitlab.com/ee/ci/yaml/#include) conditions. Now, you can decide when external CI/CD configuration should or shouldn't be included. This will help you write a standardized pipeline with the ability to dynamically modify itself based on the conditions you choose.
   stage: Verify
   self-managed: true
   gitlab-com: true

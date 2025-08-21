@@ -1,9 +1,9 @@
 <script>
-import { GlLink } from '@gitlab/ui';
+import LinkCell from '~/ci/runner/components/cells/link_cell.vue';
 
 export default {
   components: {
-    GlLink,
+    LinkCell,
   },
   props: {
     job: {
@@ -22,7 +22,7 @@ export default {
 };
 </script>
 <template>
-  <div class="gl-text-truncate">
-    <gl-link :href="projectUrl" data-testid="job-project-link">{{ projectName }}</gl-link>
+  <div class="gl-truncate">
+    <link-cell :href="projectUrl" data-testid="job-project-link">{{ projectName }}</link-cell>
   </div>
 </template>

@@ -22,13 +22,13 @@ export default {
       required: false,
       default: false,
     },
+    size: {
+      type: String,
+      default: 'medium',
+      required: false,
+    },
   },
   emits: ['deleted'],
-  data() {
-    return {
-      deleting: false,
-    };
-  },
   computed: {
     buttonContent() {
       if (this.compact) {
@@ -38,7 +38,7 @@ export default {
     },
     icon() {
       if (this.compact) {
-        return 'close';
+        return 'remove';
       }
       return '';
     },
@@ -72,12 +72,13 @@ export default {
 </script>
 
 <template>
-  <runner-delete-action class="btn-group" :runner="runner" @done="onDone">
+  <runner-delete-action class="btn-group !gl-ml-0" :runner="runner" @done="onDone">
     <template #default="{ loading, onClick }">
       <gl-button
         v-gl-tooltip="loading ? '' : tooltip"
         :aria-label="ariaLabel"
-        :icon="icon"
+        :icon="loading ? '' : icon"
+        :size="size"
         :class="buttonClass"
         :loading="loading"
         variant="danger"

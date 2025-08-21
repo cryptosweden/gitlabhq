@@ -13,6 +13,7 @@ module Gitlab
     COMMIT_ID = /\A#{Gitlab::Git::Commit::RAW_FULL_SHA_PATTERN}\z/
     TAG_REF_PREFIX = "refs/tags/"
     BRANCH_REF_PREFIX = "refs/heads/"
+    SHA_LIKE_REF = %r{\A(#{TAG_REF_PREFIX}|#{BRANCH_REF_PREFIX})#{Gitlab::Git::Commit::RAW_FULL_SHA_PATTERN}\z}
 
     # NOTE: We don't use linguist anymore, but we'd still want to support it
     # to be backward/GitHub compatible. Using `gitlab-*` prefixed overrides
@@ -58,8 +59,8 @@ module Gitlab
     class << self
       include Gitlab::EncodingHelper
 
-      def ref_name(ref)
-        encode_utf8_with_escaping!(ref).sub(%r{\Arefs/(tags|heads|remotes)/}, '')
+      def ref_name(ref, types: 'tags|heads|remotes')
+        encode_utf8_with_escaping!(ref).sub(%r{\Arefs/(#{types})/}, '')
       end
 
       def branch_name(ref)
@@ -97,7 +98,7 @@ module Gitlab
       end
 
       def version
-        Gitlab::Git::Version.git_version
+        Gitaly::Server.all.first.git_binary_version
       end
 
       def check_namespace!(*objects)
@@ -125,9 +126,9 @@ module Gitlab
 
         # Optimization: prevent unnecessary substring creation
         if sha1.length == sha2.length
-          sha1 == sha2
+          sha1.casecmp(sha2) == 0
         else
-          sha1[0, length] == sha2[0, length]
+          sha1[0, length].casecmp(sha2[0, length]) == 0
         end
       end
     end

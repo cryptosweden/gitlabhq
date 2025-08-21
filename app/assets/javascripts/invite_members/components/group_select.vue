@@ -1,7 +1,7 @@
 <script>
 import { GlAvatarLabeled, GlCollapsibleListbox } from '@gitlab/ui';
-import axios from 'axios';
 import { debounce } from 'lodash';
+import axios from '~/lib/utils/axios_utils';
 import { s__ } from '~/locale';
 import { getGroups, getDescendentGroups, getProjectShareLocations } from '~/rest_api';
 import { normalizeHeaders, parseIntPagination } from '~/lib/utils/common_utils';
@@ -57,9 +57,6 @@ export default {
   computed: {
     toggleText() {
       return this.selectedGroup.name || this.$options.i18n.dropdownText;
-    },
-    isFetchResultEmpty() {
-      return this.groups.length === 0;
     },
     infiniteScroll() {
       return Boolean(this.pagination.nextPage);
@@ -117,13 +114,17 @@ export default {
       };
 
       if (this.isProject) {
-        return this.fetchGroupsNew(axiosConfig);
+        return this.fetchGroupsNew(options, axiosConfig);
       }
 
       return this.fetchGroupsLegacy(options, axiosConfig);
     },
-    fetchGroupsNew(axiosConfig) {
-      return getProjectShareLocations(this.sourceId, { search: this.searchTerm }, axiosConfig);
+    fetchGroupsNew(options, axiosConfig) {
+      return getProjectShareLocations(
+        this.sourceId,
+        { search: this.searchTerm, ...options },
+        axiosConfig,
+      );
     },
     fetchGroupsLegacy(options, axiosConfig) {
       const combinedOptions = {

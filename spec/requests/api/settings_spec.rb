@@ -38,6 +38,7 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
       expect(json_response['default_project_visibility']).to be_a String
       expect(json_response['default_snippet_visibility']).to be_a String
       expect(json_response['default_group_visibility']).to be_a String
+      expect(json_response['deletion_adjourned_period']).to be_a(Integer)
       expect(json_response['rsa_key_restriction']).to eq(0)
       expect(json_response['dsa_key_restriction']).to eq(0)
       expect(json_response['ecdsa_key_restriction']).to eq(0)
@@ -70,6 +71,7 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
       expect(json_response['max_terraform_state_size_bytes']).to eq(0)
       expect(json_response['pipeline_limit_per_project_user_sha']).to eq(0)
       expect(json_response['delete_inactive_projects']).to be(false)
+      expect(json_response['inactive_resource_access_tokens_delete_after_days']).to eq(30)
       expect(json_response['inactive_projects_delete_after_months']).to eq(2)
       expect(json_response['inactive_projects_min_size_mb']).to eq(0)
       expect(json_response['inactive_projects_send_warning_email_after_months']).to eq(1)
@@ -79,6 +81,7 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
       expect(json_response['jira_connect_proxy_url']).to eq(nil)
       expect(json_response['user_defaults_to_private_profile']).to eq(false)
       expect(json_response['default_syntax_highlighting_theme']).to eq(1)
+      expect(json_response['default_dark_syntax_highlighting_theme']).to eq(2)
       expect(json_response['projects_api_rate_limit_unauthenticated']).to eq(400)
       expect(json_response['silent_mode_enabled']).to be(false)
       expect(json_response['slack_app_enabled']).to be(false)
@@ -99,6 +102,8 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
       expect(json_response['concurrent_github_import_jobs_limit']).to eq(1000)
       expect(json_response['concurrent_bitbucket_import_jobs_limit']).to eq(100)
       expect(json_response['concurrent_bitbucket_server_import_jobs_limit']).to eq(100)
+      expect(json_response['require_personal_access_token_expiry']).to eq(true)
+      expect(json_response['organization_cluster_agent_authorization_enabled']).to eq(false)
     end
   end
 
@@ -190,8 +195,10 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
             max_export_size: 6,
             max_decompressed_archive_size: 20000,
             max_terraform_state_size_bytes: 1_000,
+            organization_cluster_agent_authorization_enabled: true,
             disabled_oauth_sign_in_sources: 'unknown',
             import_sources: 'github,bitbucket',
+            inactive_resource_access_tokens_delete_after_days: 42,
             wiki_page_max_content_bytes: 12345,
             wiki_asciidoc_allow_uri_includes: true,
             personal_access_token_prefix: "GL-",
@@ -213,6 +220,7 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
             allow_runner_registration_token: true,
             user_defaults_to_private_profile: true,
             default_syntax_highlighting_theme: 2,
+            default_dark_syntax_highlighting_theme: 3,
             projects_api_rate_limit_unauthenticated: 100,
             silent_mode_enabled: true,
             valid_runner_registrars: ['group'],
@@ -224,13 +232,18 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
             downstream_pipeline_trigger_limit_per_project_user_sha: 300,
             concurrent_github_import_jobs_limit: 2,
             concurrent_bitbucket_import_jobs_limit: 2,
-            concurrent_bitbucket_server_import_jobs_limit: 2
+            concurrent_bitbucket_server_import_jobs_limit: 2,
+            require_personal_access_token_expiry: false,
+            vscode_extension_marketplace: {
+              enabled: false,
+              preset: 'open_vsx'
+            }
           }
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['default_ci_config_path']).to eq('debian/salsa-ci.yml')
         expect(json_response['default_projects_limit']).to eq(3)
-        expect(json_response['default_project_creation']).to eq(::Gitlab::Access::DEVELOPER_MAINTAINER_PROJECT_ACCESS)
+        expect(json_response['default_project_creation']).to eq(::Gitlab::Access::DEVELOPER_PROJECT_ACCESS)
         expect(json_response['password_authentication_enabled_for_web']).to be_falsey
         expect(json_response['repository_storages_weighted']).to eq({ 'default' => 100, 'custom' => 0 })
         expect(json_response['plantuml_enabled']).to be_truthy
@@ -279,8 +292,10 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
         expect(json_response['max_export_size']).to eq(6)
         expect(json_response['max_decompressed_archive_size']).to eq(20000)
         expect(json_response['max_terraform_state_size_bytes']).to eq(1_000)
+        expect(json_response['organization_cluster_agent_authorization_enabled']).to eq(true)
         expect(json_response['disabled_oauth_sign_in_sources']).to eq([])
         expect(json_response['import_sources']).to match_array(%w[github bitbucket])
+        expect(json_response['inactive_resource_access_tokens_delete_after_days']).to eq(42)
         expect(json_response['wiki_page_max_content_bytes']).to eq(12345)
         expect(json_response['wiki_asciidoc_allow_uri_includes']).to be(true)
         expect(json_response['personal_access_token_prefix']).to eq("GL-")
@@ -300,6 +315,7 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
         expect(json_response['allow_runner_registration_token']).to be(true)
         expect(json_response['user_defaults_to_private_profile']).to be(true)
         expect(json_response['default_syntax_highlighting_theme']).to eq(2)
+        expect(json_response['default_dark_syntax_highlighting_theme']).to eq(3)
         expect(json_response['projects_api_rate_limit_unauthenticated']).to be(100)
         expect(json_response['silent_mode_enabled']).to be(true)
         expect(json_response['valid_runner_registrars']).to eq(['group'])
@@ -308,12 +324,14 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
         expect(json_response['namespace_aggregation_schedule_lease_duration_in_seconds']).to be(400)
         expect(json_response['max_import_remote_file_size']).to be(2)
         expect(json_response['bulk_import_max_download_file_size']).to be(1)
-        expect(json_response['security_txt_content']).to be(nil)
+        expect(json_response['security_txt_content']).to be_nil
         expect(json_response['bulk_import_concurrent_pipeline_batch_limit']).to be(2)
         expect(json_response['downstream_pipeline_trigger_limit_per_project_user_sha']).to be(300)
         expect(json_response['concurrent_github_import_jobs_limit']).to be(2)
         expect(json_response['concurrent_bitbucket_import_jobs_limit']).to be(2)
         expect(json_response['concurrent_bitbucket_server_import_jobs_limit']).to be(2)
+        expect(json_response['require_personal_access_token_expiry']).to be(false)
+        expect(json_response['vscode_extension_marketplace']).to eq({ "enabled" => false, "preset" => 'open_vsx' })
       end
     end
 
@@ -532,7 +550,9 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
       end
 
       it "allows updating the settings" do
-        put api("/application/settings", admin), params: settings
+        put api("/application/settings", admin), params: settings.merge({
+          gitlab_product_usage_data_enabled: false
+        })
 
         expect(response).to have_gitlab_http_status(:ok)
         settings.each do |attribute, value|
@@ -640,11 +660,11 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
 
             expect(response).to have_gitlab_http_status(:bad_request)
 
-            expect(json_response['slack_app_enabled']).to be(nil)
-            expect(json_response['slack_app_id']).to be(nil)
-            expect(json_response['slack_app_secret']).to be(nil)
-            expect(json_response['slack_app_signing_secret']).to be(nil)
-            expect(json_response['slack_app_verification_token']).to be(nil)
+            expect(json_response['slack_app_enabled']).to be_nil
+            expect(json_response['slack_app_id']).to be_nil
+            expect(json_response['slack_app_secret']).to be_nil
+            expect(json_response['slack_app_signing_secret']).to be_nil
+            expect(json_response['slack_app_verification_token']).to be_nil
 
             message = json_response['message']
 
@@ -686,10 +706,10 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(json_response['slack_app_enabled']).to be(false)
-          expect(json_response['slack_app_id']).to be(nil)
-          expect(json_response['slack_app_secret']).to be(nil)
-          expect(json_response['slack_app_signing_secret']).to be(nil)
-          expect(json_response['slack_app_verification_token']).to be(nil)
+          expect(json_response['slack_app_id']).to be_nil
+          expect(json_response['slack_app_secret']).to be_nil
+          expect(json_response['slack_app_signing_secret']).to be_nil
+          expect(json_response['slack_app_verification_token']).to be_nil
         end
       end
     end
@@ -1158,6 +1178,22 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
       end
     end
 
+    context 'with rate limit settings' do
+      context 'with users autocomplete rate limits' do
+        it 'updates the settings' do
+          put(
+            api("/application/settings", admin),
+            params: { autocomplete_users_limit: 4242,
+                      autocomplete_users_unauthenticated_limit: 42 }
+          )
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['autocomplete_users_limit']).to eq(4242)
+          expect(json_response['autocomplete_users_unauthenticated_limit']).to eq(42)
+        end
+      end
+    end
+
     context 'security txt settings' do
       let(:content) { "Contact: foo@acme.com" }
 
@@ -1169,6 +1205,43 @@ RSpec.describe API::Settings, 'Settings', :do_not_mock_admin_mode_setting, featu
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['security_txt_content']).to eq(content)
+      end
+    end
+
+    context 'with resource usage limits' do
+      let(:hash) do
+        {
+          'rules' => [
+            {
+              'name' => 'test',
+              'rules' => [{ 'interval' => 1, 'threshold' => 10, 'selector' => '*' }],
+              'resource_key' => 'key',
+              'metadata' => {},
+              'scopes' => ['worker_name']
+            }
+          ]
+        }
+      end
+
+      it 'updates the settings' do
+        put(
+          api("/application/settings", admin),
+          params: { resource_usage_limits: Gitlab::Json.dump(hash) }
+        )
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response['resource_usage_limits']).to eq(hash)
+      end
+    end
+
+    context 'with vscode_extension_marketplace_enabled' do
+      it 'updates underlying vscode_extension_marketplace field' do
+        put api("/application/settings", admin),
+          params: { vscode_extension_marketplace_enabled: true }
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response['vscode_extension_marketplace_enabled']).to eq(true)
+        expect(json_response['vscode_extension_marketplace']).to eq({ "enabled" => true })
       end
     end
   end

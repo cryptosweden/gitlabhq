@@ -1,10 +1,9 @@
 ---
-stage: Secure
+stage: Application Security Testing
 group: Dynamic Analysis
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Performance tuning and testing speed
 ---
-
-# Performance tuning and testing speed
 
 Security tools that perform API fuzz testing, such as API Fuzzing, perform testing by sending requests to an instance of your running application. The requests are mutated by our fuzzing engine to trigger unexpected behavior that might exist in your application. The speed of an API fuzzing test depends on the following:
 
@@ -107,8 +106,11 @@ apifuzzer_fuzz:
     FUZZAPI_EXCLUDE_PATHS: /api/large_response_json
 ```
 
+{{< alert type="warning" >}}
+
 Excluding operations from testing could allow some vulnerabilities to go undetected.
-{: .alert .alert-warning}
+
+{{< /alert >}}
 
 ### Splitting a test into multiple jobs
 
@@ -120,15 +122,14 @@ The rules we are using in the `apifuzzer_v1` and `apifuzzer_v2` jobs are copied 
 # Disable the main apifuzzer_fuzz job
 apifuzzer_fuzz:
   rules:
-  - if: $CI_COMMIT_BRANCH
-    when: never
+    - if: $CI_COMMIT_BRANCH
+      when: never
 
 apifuzzer_v1:
   extends: apifuzzer_fuzz
   variables:
     FUZZAPI_EXCLUDE_PATHS: /api/v1/**
   rules:
-    rules:
     - if: $API_FUZZING_DISABLED == 'true' || $API_FUZZING_DISABLED == '1'
       when: never
     - if: $API_FUZZING_DISABLED_FOR_DEFAULT_BRANCH == 'true' &&
@@ -147,7 +148,6 @@ apifuzzer_v2:
   variables:
     FUZZAPI_EXCLUDE_PATHS: /api/v2/**
   rules:
-    rules:
     - if: $API_FUZZING_DISABLED == 'true' || $API_FUZZING_DISABLED == '1'
       when: never
     - if: $API_FUZZING_DISABLED_FOR_DEFAULT_BRANCH &&
@@ -183,8 +183,8 @@ To verify the operation is excluded, run the API Fuzzing job and review the job 
 # different names
 apifuzzer_fuzz:
   rules:
-  - if: $CI_COMMIT_BRANCH
-    when: never
+    - if: $CI_COMMIT_BRANCH
+      when: never
 
 # API Fuzzing for feature branch work, excludes /api/large_response_json
 apifuzzer_branch:
@@ -192,7 +192,6 @@ apifuzzer_branch:
   variables:
     FUZZAPI_EXCLUDE_PATHS: /api/large_response_json
   rules:
-    rules:
     - if: $API_FUZZING_DISABLED == 'true' || $API_FUZZING_DISABLED == '1'
       when: never
     - if: $API_FUZZING_DISABLED_FOR_DEFAULT_BRANCH &&
@@ -210,7 +209,7 @@ apifuzzer_branch:
 # Includes the long running operations
 apifuzzer_main:
   extends: apifuzzer_fuzz
-    rules:
+  rules:
     - if: $API_FUZZING_DISABLED == 'true' || $API_FUZZING_DISABLED == '1'
       when: never
     - if: $API_FUZZING_DISABLED_FOR_DEFAULT_BRANCH &&

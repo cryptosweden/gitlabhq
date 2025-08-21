@@ -21,6 +21,9 @@ export default function initSignupRestrictions(elementSelector = '#js-signup-for
       'passwordLowercaseRequired',
       'passwordUppercaseRequired',
       'passwordSymbolRequired',
+      'promotionManagementAvailable',
+      'enableMemberPromotionManagement',
+      'canDisableMemberPromotionManagement',
     ],
   });
 

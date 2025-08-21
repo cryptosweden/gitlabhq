@@ -2,45 +2,57 @@
 stage: Create
 group: Code Creation
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Documentation for the REST API for Code Suggestions."
+description: Documentation for the REST API for Code Suggestions.
+title: Code Suggestions API
 ---
 
-# Code Suggestions API
-
-Use the Code Suggestions API to access the Code Suggestions feature.
+Use this API to access the [Code Suggestions](../user/project/repository/code_suggestions/_index.md) feature.
 
 ## Generate code completions
 
-DETAILS:
-**Status:** Experiment
+{{< details >}}
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/415581) in GitLab 16.2 [with a flag](../administration/feature_flags.md) named `code_suggestions_completion_api`. Disabled by default. This feature is an experiment.
-> - Requirement to generate a JWT before calling this endpoint was [removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/127863) in GitLab 16.3.
-> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/416371) in GitLab 16.8. [Feature flag `code_suggestions_completion_api`](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/138174) removed.
-> - `context` and `user_instruction` attributes [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/462750) in GitLab 17.1 [with a flag](../administration/feature_flags.md) named `code_suggestions_context`. Disabled by default.
+- Status: Experiment
 
-FLAG:
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/415581) in GitLab 16.2 [with a flag](../administration/feature_flags/_index.md) named `code_suggestions_completion_api`. Disabled by default. This feature is an experiment.
+- Requirement to generate a JWT before calling this endpoint was [removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/127863) in GitLab 16.3.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/416371) in GitLab 16.8. [Feature flag `code_suggestions_completion_api`](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/138174) removed.
+- `context` and `user_instruction` attributes [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/462750) in GitLab 17.1 [with a flag](../administration/feature_flags/_index.md) named `code_suggestions_context`. Disabled by default.
+
+{{< /history >}}
+
+{{< alert type="flag" >}}
+
 The availability of the `context` and `user_instruction` attributes is controlled by a feature flag.
 For more information, see the history.
 These attributes are available for testing, but are not ready for production use.
+
+{{< /alert >}}
 
 ```plaintext
 POST /code_suggestions/completions
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 This endpoint rate-limits each user to 60 requests per 1-minute window.
+
+{{< /alert >}}
 
 Use the AI abstraction layer to generate code completions.
 
 Requests to this endpoint are proxied to the
-[AI Gateway](https://gitlab.com/gitlab-org/modelops/applied-ml/code-suggestions/ai-assist/-/blob/main/docs/api.md).
+[AI gateway](https://gitlab.com/gitlab-org/modelops/applied-ml/code-suggestions/ai-assist/-/blob/main/docs/api.md).
 
 Parameters:
 
 | Attribute          | Type    | Required | Description |
 |--------------------|---------|----------|-------------|
-| `current_file`     | hash    | yes      | Attributes of file for which Code Suggestions are being generated. See [File attributes](#file-attributes) for a list of strings this attribute accepts. |
+| `current_file`     | hash    | yes      | Attributes of file that suggestions are being generated for. See [File attributes](#file-attributes) for a list of strings this attribute accepts. |
 | `intent`           | string  | no       | The intent of the completion request. This can be either `completion` or `generation`. |
 | `stream`           | boolean | no       | Whether to stream the response as smaller chunks as they are ready (if applicable). Default: `false`. |
 | `project_path`     | string  | no       | The path of the project. |
@@ -103,7 +115,11 @@ Example response:
 
 ## Validate that Code Suggestions is enabled
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/138814) in GitLab 16.7.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/138814) in GitLab 16.7.
+
+{{< /history >}}
 
 Use this endpoint to validate if either:
 
@@ -122,10 +138,10 @@ Supported attributes:
 
 If successful, returns:
 
-- [`200`](rest/index.md#status-codes) if the feature is enabled.
-- [`403`](rest/index.md#status-codes) if the feature is disabled.
+- [`200`](rest/troubleshooting.md#status-codes) if the feature is enabled.
+- [`403`](rest/troubleshooting.md#status-codes) if the feature is disabled.
 
-Additionally, returns a [`404`](rest/index.md#status-codes) if the path is empty or the project does not exist.
+Additionally, returns a [`404`](rest/troubleshooting.md#status-codes) if the path is empty or the project does not exist.
 
 Example request:
 
@@ -140,26 +156,27 @@ curl --request POST \
 
 ```
 
-## Fetch direct connection information
+## Fetch direct connection details for the AI gateway
 
-DETAILS:
-**Status:** Experiment
+{{< history >}}
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/452044) in GitLab 17.0 [with a flag](../administration/feature_flags.md) named `code_suggestions_direct_completions`. Disabled by default. This feature is an experiment.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/452044) in GitLab 17.0 [with a flag](../administration/feature_flags/_index.md) named `code_suggestions_direct_completions`. Disabled by default.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/456443) in GitLab 17.2. Feature flag `code_suggestions_direct_completions` removed.
 
-FLAG:
-On self-managed GitLab, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../administration/feature_flags.md) named `code_suggestions_direct_completions`.
-On GitLab.com and GitLab Dedicated, this feature is not available.
-This feature is not ready for production use.
+{{< /history >}}
 
 ```plaintext
 POST /code_suggestions/direct_access
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 This endpoint rate-limits each user to 10 requests per 5-minute window.
 
-Returns user-specific connection details which can be used by IDEs/clients to send completion requests directly to AI Gateway.
+{{< /alert >}}
+
+Returns user-specific connection details which can be used by IDEs/clients to send `completion` requests directly to
+AI gateway, including headers that must be proxied to the AI gateway as well as the required authentication token.
 
 Example request:
 
@@ -182,5 +199,48 @@ Example response:
     "X-Gitlab-Global-User-Id": "Df0Jhs9xlbetQR8YoZCKDZJflhxO0ZBI8uoRzmpnd1w=",
     "X-Gitlab-Host-Name": "gitlab.example.com"
   }
+}
+```
+
+## Fetch connection details
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/555060) in GitLab 18.3.
+
+{{< /history >}}
+
+```plaintext
+POST /code_suggestions/connection_details
+```
+
+{{< alert type="note" >}}
+
+This endpoint rate-limits each user to 10 requests per 1-minute window.
+
+{{< /alert >}}
+
+Returns user-specific connection details which can be used by IDEs/clients for telemetry, including metadata about
+the GitLab instance the user is connected to.
+
+Example request:
+
+```shell
+curl --request POST \
+  --header "Authorization: Bearer <YOUR_ACCESS_TOKEN>" \
+  --url "https://gitlab.example.com/api/v4/code_suggestions/connection_details"
+```
+
+Example response:
+
+```json
+{
+  "instance_id": "292c3c7c-c5d5-48ec-b4bf-f00b724ce560",
+  "instance_version": "18.2",
+  "realm": "saas",
+  "global_user_id": "Df0Jhs9xlbetQR8YoZCKDZJflhxO0ZBI8uoRzmpnd1w=",
+  "host_name": "gitlab.example.com",
+  "feature_enablement_type": "duo_pro",
+  "saas_duo_pro_namespace_ids": "1000000"
 }
 ```

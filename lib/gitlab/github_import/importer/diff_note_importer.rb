@@ -4,6 +4,8 @@ module Gitlab
   module GithubImport
     module Importer
       class DiffNoteImporter
+        include ::Import::PlaceholderReferences::Pusher
+
         DiffNoteCreationError = Class.new(ActiveRecord::RecordInvalid)
 
         # note - An instance of `Gitlab::GithubImport::Representation::DiffNote`
@@ -71,13 +73,16 @@ module Gitlab
             line_code: note.line_code,
             created_at: note.created_at,
             updated_at: note.updated_at,
-            st_diff: note.diff_hash.to_yaml
+            st_diff: note.diff_hash.to_yaml,
+            imported_from: ::Import::HasImportSource::IMPORT_SOURCES[:github]
           }
 
           diff_note = LegacyDiffNote.new(attributes.merge(importing: true))
           diff_note.validate!
 
-          ApplicationRecord.legacy_bulk_insert(LegacyDiffNote.table_name, [attributes])
+          ids = ApplicationRecord.legacy_bulk_insert(LegacyDiffNote.table_name, [attributes], return_ids: true)
+
+          push_references_by_ids(project, ids, LegacyDiffNote, :author_id, note[:author]&.id)
         end
         # rubocop:enabled Gitlab/BulkInsert
 
@@ -95,14 +100,17 @@ module Gitlab
             commit_id: note.original_commit_id,
             created_at: note.created_at,
             updated_at: note.updated_at,
-            position: note.diff_position
-          }).execute
+            position: note.diff_position,
+            imported_from: ::Import::SOURCE_GITHUB
+          }).execute(importing: true)
 
           raise DiffNoteCreationError, record unless record.persisted?
+
+          push_reference(project, record, :author_id, note.author&.id)
         end
 
         def note_body
-          @note_body ||= MarkdownText.format(note.note, note.author, author_found)
+          @note_body ||= MarkdownText.format(note.note, note.author, author_found, project: project, client: client)
         end
 
         def author

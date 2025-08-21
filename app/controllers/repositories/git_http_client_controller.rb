@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Repositories
-  class GitHttpClientController < Repositories::ApplicationController
+  class GitHttpClientController < ::Repositories::ApplicationController
     include ActionController::HttpAuthentication::Basic
     include KerberosHelper
     include Gitlab::Utils::StrongMemoize
@@ -16,6 +16,12 @@ module Repositories
     skip_before_action :verify_authenticity_token
 
     prepend_before_action :authenticate_user, :parse_repo_path
+
+    # Make sure IP address is set before #authenticate_user evaluates policies
+    # (evaluated policies are cached, and IP enforcement in EE would never be
+    # correctly evaluated otherwise). PAT last_used_ips is also updated during
+    # authentication, which is another reason to track the client IP beforehand.
+    prepend_around_action :set_current_ip_address
 
     skip_around_action :sessionless_bypass_admin_mode!
     around_action :bypass_admin_mode!, if: :authenticated_user
@@ -74,12 +80,12 @@ module Repositories
 
     def render_access_denied
       help_page = help_page_url(
-        'topics/git/troubleshooting_git',
+        'topics/git/troubleshooting_git.md',
         anchor: 'error-on-git-fetch-http-basic-access-denied'
       )
 
       render(
-        plain: format(_("HTTP Basic: Access denied. The provided password or token is incorrect or your account has 2FA enabled and you must use a personal access token instead of a password. See %{help_page_url}"), help_page_url: help_page),
+        plain: format(_("HTTP Basic: Access denied. If a password was provided for Git authentication, the password was incorrect or you're required to use a token instead of a password. If a token was provided, it was either incorrect, expired, or improperly scoped. See %{help_page_url}"), help_page_url: help_page),
         status: :unauthorized
       )
     end
@@ -153,4 +159,4 @@ module Repositories
   end
 end
 
-Repositories::GitHttpClientController.prepend_mod_with('Repositories::GitHttpClientController')
+::Repositories::GitHttpClientController.prepend_mod_with('Repositories::GitHttpClientController')

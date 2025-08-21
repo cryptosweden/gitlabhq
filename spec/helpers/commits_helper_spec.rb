@@ -5,6 +5,43 @@ require 'spec_helper'
 RSpec.describe CommitsHelper do
   include ProjectForksHelper
 
+  describe '#commit_list_app_data' do
+    let_it_be(:project) { create(:project, :repository) }
+    let(:ref) { 'feature-branch' }
+    let(:ref_type) { 'heads' }
+    let(:path) { 'app/javascript/components/app.js' }
+    let(:id) { 'commit-id' }
+
+    before do
+      assign(:project, project)
+      assign(:ref, ref)
+      assign(:ref_type, ref_type)
+      assign(:path, path)
+      assign(:id, id)
+
+      allow(helper).to receive(:project_commits_path).with(project, id, { format: :atom }).and_return("/#{project.full_path}/-/commits/#{id}.atom")
+      allow(helper).to receive(:path_to_browse_file_or_directory).with(project, ref, path).and_return("/#{project.full_path}/-/tree/#{ref}/#{path}")
+      allow(helper).to receive(:rss_url_options).and_return({ format: :atom })
+    end
+
+    subject { helper.commit_list_app_data }
+
+    it 'returns the correct data to commits app' do
+      expect(subject).to include({
+        'project_full_path' => project.full_path,
+        'project_root_path' => "/#{project.full_path}",
+        'project_path' => project.path,
+        'project_id' => project.id.to_s,
+        'escaped_ref' => ref,
+        'ref_type' => ref_type.to_s,
+        'root_ref' => project.default_branch,
+        'path' => path,
+        'browse_files_path' => "/#{project.full_path}/-/tree/#{ref}/#{path}",
+        'commits_feed_path' => "/#{project.full_path}/-/commits/#{id}.atom"
+      })
+    end
+  end
+
   describe 'commit_author_link' do
     it 'escapes the author email' do
       commit = double(
@@ -396,6 +433,41 @@ RSpec.describe CommitsHelper do
 
       it 'uses system timezone' do
         is_expected.to eq('2023-01-01')
+      end
+    end
+  end
+
+  describe '#path_to_browse_file_or_directory' do
+    let_it_be(:project) { create(:project, :repository) }
+    let(:ref) { 'my-branch' }
+
+    before do
+      assign(:repo, project.repository)
+    end
+
+    context 'if path is empty' do
+      let(:path) { '' }
+
+      it 'links to tree at root directory' do
+        expect(helper.path_to_browse_file_or_directory(project, ref, path)).to eq("/#{project.full_path}/-/tree/#{ref}")
+      end
+    end
+
+    context 'if the path is a directory' do
+      let(:path) { 'path/to/directory' }
+
+      it 'links to tree at path' do
+        allow(helper).to receive(:commit_blob).and_return(nil)
+        expect(helper.path_to_browse_file_or_directory(project, ref, path)).to eq("/#{project.full_path}/-/tree/#{ref}/#{path}")
+      end
+    end
+
+    context 'if the path is a file' do
+      let(:path) { 'path/to/file.txt' }
+
+      it 'links to blob at path' do
+        allow(helper).to receive(:commit_blob).and_return(true)
+        expect(helper.path_to_browse_file_or_directory(project, ref, path)).to eq("/#{project.full_path}/-/blob/#{ref}/#{path}")
       end
     end
   end

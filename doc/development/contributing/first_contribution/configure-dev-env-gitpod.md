@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Configure the Gitpod development environment
 ---
-
-# Configure the Gitpod development environment
 
 To contribute code without the overhead of setting up a local development environment,
 you should use Gitpod.
@@ -46,7 +45,7 @@ Set aside about 15 minutes to launch the GDK in Gitpod.
 
    Select the `http://127.0.0.1:3000` to open the GitLab development environment in a new browser tab.
 
-1. After the environment loads, log in as the default `root` user and
+1. After the environment loads, sign in as the default `root` user and
    follow the prompts to change the default password:
 
    - Username: `root`

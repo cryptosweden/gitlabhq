@@ -32,6 +32,8 @@ FactoryBot.define do
 
     runner_manager { nil }
 
+    execution_config { nil }
+
     after(:build) do |build, evaluator|
       if evaluator.runner_manager
         build.runner = evaluator.runner_manager.runner
@@ -55,9 +57,16 @@ FactoryBot.define do
       end
     end
 
+    trait :with_build_source do
+      after(:create) do |build, _|
+        create(:ci_build_source, build: build)
+      end
+    end
+
     trait :degenerated do
       options { nil }
       yaml_variables { nil }
+      execution_config { nil }
     end
 
     trait :unique_name do
@@ -229,7 +238,7 @@ FactoryBot.define do
     end
 
     trait :triggered do
-      trigger_request factory: :ci_trigger_request
+      pipeline factory: :ci_pipeline, traits: [:triggered]
     end
 
     trait :tag do
@@ -251,7 +260,7 @@ FactoryBot.define do
 
       after(:create) do |build, evaluator|
         Gitlab::ExclusiveLease.skipping_transaction_check do
-          build.trace.set("Coverage #{evaluator.trace_coverage}%")
+          build.trace.send(:unsafe_set, "Coverage #{evaluator.trace_coverage}%")
         end
         build.trace.archive! if build.complete?
       end
@@ -259,7 +268,12 @@ FactoryBot.define do
 
     trait :trace_live do
       after(:create) do |build, evaluator|
-        Gitlab::ExclusiveLease.skipping_transaction_check { build.trace.set('BUILD TRACE') }
+        Gitlab::ExclusiveLease.skipping_transaction_check do
+          # We can skip calling `Ci::Build#hide_secrets` because this content is safe.
+          # This allows not to call into potentialy unstubbed ApplicationSetting in specs.
+          # For example: `ci_job_token_signing_key` when in `let_it_be` context.
+          build.trace.send(:unsafe_set, 'BUILD TRACE')
+        end
       end
     end
 
@@ -281,7 +295,9 @@ FactoryBot.define do
           File.expand_path(
             Rails.root.join('spec/fixtures/trace/trace_with_duplicate_sections')))
 
-        Gitlab::ExclusiveLease.skipping_transaction_check { build.trace.set(trace) }
+        Gitlab::ExclusiveLease.skipping_transaction_check do
+          build.trace.send(:unsafe_set, trace)
+        end
       end
     end
 
@@ -291,7 +307,9 @@ FactoryBot.define do
           File.expand_path(
             Rails.root.join('spec/fixtures/trace/trace_with_sections')))
 
-        Gitlab::ExclusiveLease.skipping_transaction_check { build.trace.set(trace) }
+        Gitlab::ExclusiveLease.skipping_transaction_check do
+          build.trace.send(:unsafe_set, trace)
+        end
       end
     end
 
@@ -301,7 +319,7 @@ FactoryBot.define do
           File.expand_path(
             Rails.root.join('spec/fixtures/trace/ansi-sequence-and-unicode')))
 
-        build.trace.set(trace)
+        build.trace.send(:unsafe_set, trace)
       end
     end
 
@@ -344,8 +362,8 @@ FactoryBot.define do
 
     trait :artifacts do
       after(:create) do |build, evaluator|
-        create(:ci_job_artifact, :archive, :public, job: build, expire_at: build.artifacts_expire_at)
-        create(:ci_job_artifact, :metadata, :public, job: build, expire_at: build.artifacts_expire_at)
+        create(:ci_job_artifact, :mocked_checksum, :archive, :public, job: build, expire_at: build.artifacts_expire_at)
+        create(:ci_job_artifact, :mocked_checksum, :metadata, :public, job: build, expire_at: build.artifacts_expire_at)
         build.reload
       end
     end
@@ -369,6 +387,7 @@ FactoryBot.define do
     trait :report_results do
       after(:build) do |build|
         build.report_results << build(:ci_build_report_result)
+        build.job_artifacts << build(:ci_job_artifact, :junit, job: build)
       end
     end
 
@@ -454,7 +473,7 @@ FactoryBot.define do
       artifacts_expire_at { 1.minute.ago }
     end
 
-    trait :with_artifacts_paths do
+    trait :with_archive_artifact do
       options do
         {
           artifacts: {
@@ -465,6 +484,10 @@ FactoryBot.define do
             expire_in: '7d'
           }
         }
+      end
+
+      after(:build) do |build|
+        build.job_artifacts << build(:ci_job_artifact, :archive, job: build)
       end
     end
 
@@ -551,7 +574,7 @@ FactoryBot.define do
     trait :dast do
       options do
         {
-            artifacts: { reports: { dast: 'gl-dast-report.json' } }
+          artifacts: { reports: { dast: 'gl-dast-report.json' } }
         }
       end
     end
@@ -559,7 +582,7 @@ FactoryBot.define do
     trait :sast do
       options do
         {
-            artifacts: { reports: { sast: 'gl-sast-report.json' } }
+          artifacts: { reports: { sast: 'gl-sast-report.json' } }
         }
       end
     end
@@ -567,7 +590,7 @@ FactoryBot.define do
     trait :secret_detection do
       options do
         {
-            artifacts: { reports: { secret_detection: 'gl-secret-detection-report.json' } }
+          artifacts: { reports: { secret_detection: 'gl-secret-detection-report.json' } }
         }
       end
     end
@@ -575,7 +598,7 @@ FactoryBot.define do
     trait :dependency_scanning do
       options do
         {
-            artifacts: { reports: { dependency_scanning: 'gl-dependency-scanning-report.json' } }
+          artifacts: { reports: { dependency_scanning: 'gl-dependency-scanning-report.json' } }
         }
       end
     end
@@ -583,7 +606,7 @@ FactoryBot.define do
     trait :container_scanning do
       options do
         {
-            artifacts: { reports: { container_scanning: 'gl-container-scanning-report.json' } }
+          artifacts: { reports: { container_scanning: 'gl-container-scanning-report.json' } }
         }
       end
     end
@@ -591,7 +614,7 @@ FactoryBot.define do
     trait :cluster_image_scanning do
       options do
         {
-            artifacts: { reports: { cluster_image_scanning: 'gl-cluster-image-scanning-report.json' } }
+          artifacts: { reports: { cluster_image_scanning: 'gl-cluster-image-scanning-report.json' } }
         }
       end
     end
@@ -615,12 +638,12 @@ FactoryBot.define do
     trait :multiple_report_artifacts do
       options do
         {
-            artifacts: {
-              reports: {
-                sast: 'gl-sast-report.json',
-                container_scanning: 'gl-container-scanning-report.json'
-              }
+          artifacts: {
+            reports: {
+              sast: 'gl-sast-report.json',
+              container_scanning: 'gl-container-scanning-report.json'
             }
+          }
         }
       end
     end

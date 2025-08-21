@@ -2,88 +2,81 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "How to view a file's Git history in GitLab."
+description: How to view a file's Git history in GitLab.
+title: Git file history
 ---
 
-# Git file history
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-Git file History provides information about the commit history associated
-with a file. To use it:
+{{< /details >}}
 
-1. Go to your project's **Code > Repository**.
-1. In the upper-right corner, select **History**.
+Git file history provides information about the commit history associated
+with a file:
 
-When you select **History**, this information is displayed:
+![A list of 3 commits for a single file, with the newest commit marked as 'Verified'.](img/file_history_output_v17_2.png)
 
-![Git log output](img/file_history_output_v12_6.png "History button output")
+Each commit shows:
 
-If you hover over a commit in the UI, the precise date and time of the commit modification
-are shown.
+- The date of the commit. GitLab groups together all commits made on the same day.
+- The user's avatar.
+- The user's name. Hover over the name to see the user's job title, location, local time,
+  and current status message.
+- The date of the commit, in time-ago format. To see the precise date and time of
+  the commit, hover over the date.
+- If the [commit is signed](../signed_commits/_index.md), a **Verified** badge.
+- The commit SHA. GitLab shows the first 8 characters.
+  Select **Copy commit SHA** ({{< icon name="copy-to-clipboard" >}}) to copy the entire SHA.
+- A link to browse ({{< icon name="folder-open" >}}) the file as it appeared at the time of
+  this commit.
 
-The name and email information provided are retrieved from the
+GitLab retrieves the user name and email information from the
 [Git configuration](https://git-scm.com/book/en/v2/Customizing-Git-Git-Configuration)
-of the contributor when a commit is made.
+of the contributor when the user creates a commit.
 
-## Limit history range
+## View a file's Git history
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/423108) in GitLab 16.9.
+To see a file's Git history in the UI:
 
-In these cases you can constrain the search period by adding `committed_before` and `committed_after` dates as parameters.
-To do this, add `&` and `committed_before=YYYY-MM-DD` or `committed_after=YYYY-MM-DD` parameters to the URL.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Code > Repository**.
+1. Go to your desired file in the repository.
+1. In the last commit block, select **History**.
 
-For example:
+## Limit history range of results
 
-```plaintext
-https://gitlab.com/gitlab-org/gitlab/-/commits/master/README.md?ref_type=heads&committed_before=2010-11-22&committed_after=2008-05-15
-```
+{{< history >}}
 
-Doing this might be necessary to fix [commit history requests timeouts](https://gitlab.com/gitlab-org/gitaly/-/issues/5426)
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/423108) in GitLab 16.9.
+
+{{< /history >}}
+
+When reviewing history for old files, or files with many commits, you can
+limit the search results by date. Limiting the dates for commits helps fix
+[commit history requests timeouts](https://gitlab.com/gitlab-org/gitaly/-/issues/5426)
 in very large repositories.
 
-## Associated `git` command
+In the GitLab UI, edit the URL. Include these parameters in `YYYY-MM-DD` format:
 
-If you're running `git` from the command line, the equivalent command
-is `git log <filename>`. For example, if you want to find `history`
-information about a `README.md` file in the local directory, run the
-following command:
+- `committed_before`
+- `committed_after`
 
-```shell
-git log README.md
+Separate each key-value pair in the query string with an ampersand (`&`), like this:
+
+```plaintext
+?ref_type=heads&committed_after=2023-05-15&committed_before=2023-11-22
 ```
 
-Git displays output similar to the following, which includes the commit
-time in UTC format:
+The full URL to the range of commits looks like this:
 
-```shell
-commit 0e62ed6d9f39fa9bedf7efc6edd628b137fa781a
-Author: Mike Jang <mjang@gitlab.com>
-Date:   Tue Nov 26 21:44:53 2019 +0000
-
-    Deemphasize GDK as a doc build tool
-
-commit 418879420b1e3a4662067bd07b64bb6988654697
-Author: Marcin Sedlak-Jakubowski <msedlakjakubowski@gitlab.com>
-Date:   Mon Nov 4 19:58:27 2019 +0100
-
-    Fix typo
-
-commit 21cc1fef11349417ed515557748369cfb235fc81
-Author: Jacques Erasmus <jerasmus@gitlab.com>
-Date:   Mon Oct 14 22:13:40 2019 +0000
-
-    Add support for modern JS
-
-    Added rollup to the project
-
-commit 2f5e895aebfa5678e51db303b97de56c51e3cebe
-Author: Achilleas Pipinellis <axil@gitlab.com>
-Date:   Fri Sep 13 14:03:01 2019 +0000
-
-    Remove gitlab-foss Git URLs as we don't need them anymore
-
-    [ci skip]
+```plaintext
+https://gitlab.com/gitlab-org/gitlab/-/commits/master/CONTRIBUTING.md?ref_type=heads&committed_after=2023-05-15&committed_before=2023-11-22
 ```
+
+## Related topics
+
+- [Git blame](git_blame.md)
+- [Common Git commands](../../../../topics/git/commands.md)
+- [File management with Git](../../../../topics/git/file_management.md)

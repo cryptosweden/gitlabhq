@@ -4,11 +4,12 @@ import htmlMergeRequestsWithTaskList from 'test_fixtures/merge_requests/merge_re
 import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import initMrPage from 'helpers/init_vue_mr_page_helper';
 import { stubPerformanceWebAPI } from 'helpers/performance';
+import setWindowLocation from 'helpers/set_window_location_helper';
 import axios from '~/lib/utils/axios_utils';
 import MergeRequestTabs, { getActionFromHref } from '~/merge_request_tabs';
 import Diff from '~/diff';
-import '~/lib/utils/common_utils';
 import { visitUrl } from '~/lib/utils/url_utility';
+import { NO_SCROLL_TO_HASH_CLASS } from '~/lib/utils/common_utils';
 
 jest.mock('~/lib/utils/webpack', () => ({
   resetServiceWorkersPublicPath: jest.fn(),
@@ -47,7 +48,7 @@ describe('MergeRequestTabs', () => {
   });
 
   afterEach(() => {
-    document.body.innerHTML = '';
+    resetHTMLFixture();
   });
 
   describe('clickTab', () => {
@@ -110,10 +111,6 @@ describe('MergeRequestTabs', () => {
           },
         },
       };
-    });
-
-    afterEach(() => {
-      resetHTMLFixture();
     });
 
     describe('meta click', () => {
@@ -232,6 +229,24 @@ describe('MergeRequestTabs', () => {
       expect(testContext.subject('commits')).toBe('/foo/bar/-/merge_requests/1/commits');
     });
 
+    it('changes from notes ending with a trailing slash', () => {
+      setLocation({
+        pathname: '/foo/bar/-/merge_requests/1/',
+      });
+
+      expect(testContext.subject('diffs')).toBe('/foo/bar/-/merge_requests/1/diffs');
+      expect(testContext.subject('commits')).toBe('/foo/bar/-/merge_requests/1/commits');
+    });
+
+    it('changes from diffs ending with a trailing slash', () => {
+      setLocation({
+        pathname: '/foo/bar/-/merge_requests/1/diffs/',
+      });
+
+      expect(testContext.subject('show')).toBe('/foo/bar/-/merge_requests/1');
+      expect(testContext.subject('commits')).toBe('/foo/bar/-/merge_requests/1/commits');
+    });
+
     it('includes search parameters and hash string', () => {
       setLocation({
         pathname: '/foo/bar/-/merge_requests/1/diffs',
@@ -274,6 +289,30 @@ describe('MergeRequestTabs', () => {
 
       expect(testContext.subject('show')).toBe('/foo/bar/-/merge_requests/1');
     });
+
+    it.each`
+      pathname                                                | action       | expected
+      ${'/group/reports/project/-/merge_requests/1'}          | ${'show'}    | ${'/group/reports/project/-/merge_requests/1'}
+      ${'/group/reports/project/-/merge_requests/1'}          | ${'reports'} | ${'/group/reports/project/-/merge_requests/1/reports'}
+      ${'/group/reports/project/-/merge_requests/1/reports'}  | ${'reports'} | ${'/group/reports/project/-/merge_requests/1/reports'}
+      ${'/group/reports/project/-/merge_requests/1/reports'}  | ${'show'}    | ${'/group/reports/project/-/merge_requests/1'}
+      ${'/group/project/-/merge_requests/1/diffs'}            | ${'commits'} | ${'/group/project/-/merge_requests/1/commits'}
+      ${'/group/project/-/merge_requests/1/commits'}          | ${'diffs'}   | ${'/group/project/-/merge_requests/1/diffs'}
+      ${'/group/project/-/merge_requests/1/reports/security'} | ${'show'}    | ${'/group/project/-/merge_requests/1'}
+      ${'/group/project/-/merge_requests/1/reports/security'} | ${'reports'} | ${'/group/project/-/merge_requests/1/reports'}
+      ${'/group/project/-/merge_requests/1/commits'}          | ${'commits'} | ${'/group/project/-/merge_requests/1/commits'}
+      ${'/group/project/-/merge_requests/1/diffs/'}           | ${'show'}    | ${'/group/project/-/merge_requests/1'}
+      ${'/group/project/-/merge_requests/1/commits.html'}     | ${'show'}    | ${'/group/project/-/merge_requests/1'}
+    `(
+      'updates URL to $expected if current URL is $pathname and new action is $action',
+      ({ pathname, action, expected }) => {
+        setLocation({
+          pathname,
+        });
+
+        expect(testContext.subject(action)).toBe(expected);
+      },
+    );
   });
 
   describe('expandViewContainer', () => {
@@ -411,6 +450,70 @@ describe('MergeRequestTabs', () => {
         expect(window.scrollTo).not.toHaveBeenCalled();
       });
     });
+
+    describe('switching to the diffs tab', () => {
+      describe('Rapid Diffs', () => {
+        let createRapidDiffsApp;
+        let init;
+        let hide;
+        let show;
+
+        beforeEach(() => {
+          setWindowLocation('https://example.com?rapid_diffs=true');
+          init = jest.fn();
+          hide = jest.fn();
+          show = jest.fn();
+          createRapidDiffsApp = jest.fn(() => ({
+            init,
+            hide,
+            show,
+          }));
+        });
+
+        it('stats Rapid Diffs app', () => {
+          testContext.class = new MergeRequestTabs({
+            stubLocation,
+            createRapidDiffsApp,
+          });
+          testContext.class.tabShown('diffs', 'not-a-vue-page');
+          expect(createRapidDiffsApp).toHaveBeenCalledTimes(1);
+          expect(init).toHaveBeenCalledTimes(1);
+        });
+
+        it('creates a single Rapid Diffs app instance', () => {
+          testContext.class = new MergeRequestTabs({
+            stubLocation,
+            createRapidDiffsApp,
+          });
+          testContext.class.tabShown('diffs', 'not-a-vue-page');
+          testContext.class.tabShown('new', 'not-a-vue-page');
+          testContext.class.tabShown('diffs', 'not-a-vue-page');
+          expect(createRapidDiffsApp).toHaveBeenCalledTimes(1);
+          expect(init).toHaveBeenCalledTimes(1);
+        });
+
+        it('hides Rapid Diffs', () => {
+          testContext.class = new MergeRequestTabs({
+            stubLocation,
+            createRapidDiffsApp,
+          });
+          testContext.class.tabShown('diffs', 'not-a-vue-page');
+          testContext.class.tabShown('new', 'not-a-vue-page');
+          expect(hide).toHaveBeenCalledTimes(1);
+        });
+
+        it('shows Rapid Diffs', () => {
+          testContext.class = new MergeRequestTabs({
+            stubLocation,
+            createRapidDiffsApp,
+          });
+          testContext.class.tabShown('diffs', 'not-a-vue-page');
+          testContext.class.tabShown('new', 'not-a-vue-page');
+          testContext.class.tabShown('diffs', 'not-a-vue-page');
+          expect(show).toHaveBeenCalledTimes(1);
+        });
+      });
+    });
   });
 
   describe('tabs <-> diff interactions', () => {
@@ -484,14 +587,31 @@ describe('MergeRequestTabs', () => {
 
   describe('getActionFromHref', () => {
     it.each`
-      pathName                                        | action
-      ${'/user/pipelines/-/merge_requests/1/diffs'}   | ${'diffs'}
-      ${'/user/diffs/-/merge_requests/1/pipelines'}   | ${'pipelines'}
-      ${'/user/pipelines/-/merge_requests/1/commits'} | ${'commits'}
-      ${'/user/pipelines/1/-/merge_requests/1/diffs'} | ${'diffs'}
-      ${'/user/pipelines/-/merge_requests/1'}         | ${'show'}
+      pathName                                               | action
+      ${'/user/pipelines/-/merge_requests/1/diffs'}          | ${'diffs'}
+      ${'/user/diffs/-/merge_requests/1/pipelines'}          | ${'pipelines'}
+      ${'/user/pipelines/-/merge_requests/1/commits'}        | ${'commits'}
+      ${'/user/pipelines/1/-/merge_requests/1/diffs'}        | ${'diffs'}
+      ${'/user/gitlab/-/merge_requests/new/diffs'}           | ${'diffs'}
+      ${'/user/pipelines/-/merge_requests/1'}                | ${'show'}
+      ${'/user/pipelines/-/merge_requests/1/reports'}        | ${'reports'}
+      ${'/group/reports/project/-/merge_requests/1/reports'} | ${'reports'}
     `('returns $action for $location', ({ pathName, action }) => {
       expect(getActionFromHref(pathName)).toBe(action);
     });
+  });
+
+  it('does not scroll to targets with no scroll class', () => {
+    setHTMLFixture(htmlMergeRequestsWithTaskList);
+    const target = document.createElement('div');
+    target.id = 'target';
+    target.classList.add(NO_SCROLL_TO_HASH_CLASS);
+    document.body.appendChild(target);
+    testContext.class.currentAction = 'show';
+    window.location.hash = 'target';
+
+    // popstate event handlers are not triggered in the same task
+    jest.runAllTimers();
+    expect(window.scrollTo).not.toHaveBeenCalled();
   });
 });

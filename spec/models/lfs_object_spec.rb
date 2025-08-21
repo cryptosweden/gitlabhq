@@ -2,15 +2,22 @@
 
 require 'spec_helper'
 
-RSpec.describe LfsObject do
+RSpec.describe LfsObject, feature_category: :source_code_management do
   context 'scopes' do
     describe '.not_existing_in_project' do
-      it 'contains only lfs objects not linked to the project' do
-        project = create(:project)
-        create(:lfs_objects_project, project: project)
-        other_lfs_object = create(:lfs_object)
+      let_it_be(:project) { create(:project) }
+      let_it_be(:lfs_objects_project) { create(:lfs_objects_project, project: project) }
+      let_it_be(:design_lfs_object_project) { create(:lfs_objects_project, project: project, repository_type: :design) }
+      let_it_be(:other_lfs_object) { create(:lfs_object) }
 
-        expect(described_class.not_linked_to_project(project)).to contain_exactly(other_lfs_object)
+      subject { described_class.not_linked_to_project(project) }
+
+      it { is_expected.to contain_exactly(other_lfs_object) }
+
+      context 'when repository_type is specified' do
+        subject { described_class.not_linked_to_project(project, repository_type: :design) }
+
+        it { is_expected.to contain_exactly(other_lfs_object, lfs_objects_project.lfs_object) }
       end
     end
 
@@ -98,8 +105,6 @@ RSpec.describe LfsObject do
     subject { create(:lfs_object, :with_file) }
 
     describe 'file is being stored' do
-      subject { create(:lfs_object, :with_file) }
-
       context 'when existing object has local store' do
         it_behaves_like 'mounted file in local store'
       end
@@ -111,6 +116,28 @@ RSpec.describe LfsObject do
 
         it_behaves_like 'mounted file in object store'
       end
+    end
+  end
+
+  it_behaves_like 'object storable' do
+    let(:locally_stored) do
+      lfs_object = create(:lfs_object)
+
+      if lfs_object.file_store == ObjectStorage::Store::REMOTE
+        lfs_object.update_column(described_class::STORE_COLUMN, ObjectStorage::Store::LOCAL)
+      end
+
+      lfs_object
+    end
+
+    let(:remotely_stored) do
+      lfs_object = create(:lfs_object)
+
+      if lfs_object.file_store == ObjectStorage::Store::LOCAL
+        lfs_object.update_column(described_class::STORE_COLUMN, ObjectStorage::Store::REMOTE)
+      end
+
+      lfs_object
     end
   end
 

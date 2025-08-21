@@ -14,11 +14,16 @@ module Gitlab
           ALLOWED_KEYS = %i[tags script image services start_in artifacts
                             cache dependencies before_script after_script hooks
                             coverage retry parallel timeout
-                            release id_tokens publish pages manual_confirmation].freeze
+                            release id_tokens publish pages manual_confirmation run].freeze
+
+          PUBLIC_DIR = 'public'
 
           validations do
             validates :config, allowed_keys: Gitlab::Ci::Config::Entry::Job.allowed_keys + PROCESSABLE_ALLOWED_KEYS
-            validates :script, presence: true
+            validates :config, mutually_exclusive_keys: %i[script run]
+            validates :config, mutually_exclusive_keys: %i[before_script run]
+            validates :config, mutually_exclusive_keys: %i[after_script run]
+            validates :script, presence: true, if: -> { config.is_a?(Hash) && !config.key?(:run) }
 
             with_options allow_nil: true do
               validates :when, type: String, inclusion: {
@@ -29,6 +34,12 @@ module Gitlab
               validates :dependencies, array_of_strings: true
               validates :allow_failure, hash_or_boolean: true
               validates :manual_confirmation, type: String
+              validates :run, json_schema: {
+                base_directory: 'app/validators/json_schemas',
+                detail_errors: true,
+                filename: 'run_steps',
+                hash_conversion: true
+              }
             end
 
             validates :start_in, duration: { limit: '1 week' }, if: :delayed?
@@ -43,17 +54,13 @@ module Gitlab
               else
                 missing_needs = dependencies - needs_value[:job].pluck(:name) # rubocop:disable CodeReuse/ActiveRecord -- Array#pluck
 
-                errors.add(:dependencies, "the #{missing_needs.join(", ")} should be part of needs") if missing_needs.any?
+                errors.add(:dependencies, "the #{missing_needs.join(', ')} should be part of needs") if missing_needs.any?
               end
             end
 
             validates :publish,
               absence: { message: "can only be used within a `pages` job" },
-              unless: -> { pages_job? }
-
-            validates :pages,
-              absence: { message: "can only be used within a `pages` job" },
-              unless: -> { pages_job? }
+              unless: -> { config.is_a?(Hash) && pages_job? }
           end
 
           entry :before_script, Entry::Commands,
@@ -137,11 +144,10 @@ module Gitlab
           attributes :script, :tags, :when, :dependencies,
             :needs, :retry, :parallel, :start_in,
             :timeout, :release,
-            :allow_failure, :publish, :pages, :manual_confirmation
+            :allow_failure, :publish, :pages, :manual_confirmation, :run
 
           def self.matching?(name, config)
-            !name.to_s.start_with?('.') &&
-              config.is_a?(Hash) && config.key?(:script)
+            !name.to_s.start_with?('.') && config.is_a?(Hash) && (config.key?(:script) || config.key?(:run))
           end
 
           def self.visible?
@@ -167,7 +173,7 @@ module Gitlab
               retry: retry_defined? ? retry_value : nil,
               parallel: has_parallel? ? parallel_value : nil,
               timeout: parsed_timeout,
-              artifacts: artifacts_value,
+              artifacts: artifacts_with_pages_publish_path,
               release: release_value,
               after_script: after_script_value,
               hooks: hooks_value,
@@ -178,7 +184,8 @@ module Gitlab
               id_tokens: id_tokens_value,
               publish: publish,
               pages: pages,
-              manual_confirmation: self.manual_confirmation
+              manual_confirmation: self.manual_confirmation,
+              run: run
             ).compact
           end
 
@@ -193,7 +200,20 @@ module Gitlab
           end
 
           def pages_job?
-            name == :pages
+            return true if config[:pages].present?
+
+            name == :pages && config[:pages] != false # legacy behavior, overridable with `pages: false`
+          end
+
+          def artifacts_with_pages_publish_path
+            return artifacts_value unless pages_job?
+
+            artifacts = artifacts_value || {}
+            artifacts = artifacts.reverse_merge(paths: [])
+
+            return artifacts if artifacts[:paths].include?(pages_publish_path)
+
+            artifacts.merge(paths: artifacts[:paths] + [pages_publish_path])
           end
 
           def self.allowed_keys
@@ -212,6 +232,14 @@ module Gitlab
             return false if allow_failure_value.is_a?(Hash)
 
             allow_failure_value
+          end
+
+          def pages_publish_path
+            path = config[:publish] || PUBLIC_DIR
+
+            return path unless config[:pages].is_a?(Hash)
+
+            config.dig(:pages, :publish) || path
           end
         end
       end

@@ -13,10 +13,7 @@ events:
   - name: k8s_api_proxy_requests_unique_users_via_pat_access
     unique: user.id
 performance_indicator_type: []
-distribution:
-- ce
-- ee
-tier:
+tiers:
 - free
 - premium
 - ultimate

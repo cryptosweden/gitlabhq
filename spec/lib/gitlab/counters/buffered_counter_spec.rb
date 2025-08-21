@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Counters::BufferedCounter, :clean_gitlab_redis_shared_state do
+RSpec.describe Gitlab::Counters::BufferedCounter, :clean_gitlab_redis_shared_state, feature_category: :groups_and_projects do
   using RSpec::Parameterized::TableSyntax
 
   subject(:counter) { described_class.new(counter_record, attribute) }
@@ -12,51 +12,14 @@ RSpec.describe Gitlab::Counters::BufferedCounter, :clean_gitlab_redis_shared_sta
   let(:attribute) { :build_artifacts_size }
 
   describe '#get' do
-    it 'returns the value when there is an existing value stored in the counter' do
-      Gitlab::Redis::BufferedCounter.with do |redis|
-        redis.set(counter.key, 456)
-      end
-
-      expect(counter.get).to eq(456)
-    end
-
-    it 'returns 0 when there is no existing value' do
-      expect(counter.get).to eq(0)
-    end
+    it_behaves_like 'handling a buffered counter in redis'
   end
 
   describe '#increment' do
     let(:increment) { Gitlab::Counters::Increment.new(amount: 123, ref: 1) }
     let(:other_increment) { Gitlab::Counters::Increment.new(amount: 100, ref: 2) }
 
-    context 'when the counter is not undergoing refresh' do
-      it 'sets a new key by the given value' do
-        counter.increment(increment)
-
-        expect(counter.get).to eq(increment.amount)
-      end
-
-      it 'increments an existing key by the given value' do
-        counter.increment(other_increment)
-        counter.increment(increment)
-
-        expect(counter.get).to eq(other_increment.amount + increment.amount)
-      end
-
-      it 'returns the value of the key after the increment' do
-        counter.increment(increment)
-        result = counter.increment(other_increment)
-
-        expect(result).to eq(increment.amount + other_increment.amount)
-      end
-
-      it 'schedules a worker to commit the counter key into database' do
-        expect(FlushCounterIncrementsWorker).to receive(:perform_in)
-          .with(described_class::WORKER_DELAY, counter_record.class.to_s, counter_record.id, attribute)
-
-        counter.increment(increment)
-      end
-    end
+    it_behaves_like 'incrementing a buffered counter when not undergoing a refresh'
 
     context 'when the counter is undergoing refresh' do
       let(:increment_1) { Gitlab::Counters::Increment.new(amount: 123, ref: 1) }
@@ -81,7 +44,7 @@ RSpec.describe Gitlab::Counters::BufferedCounter, :clean_gitlab_redis_shared_sta
 
       it 'schedules a worker to commit the counter key into database' do
         expect(FlushCounterIncrementsWorker).to receive(:perform_in)
-          .with(described_class::WORKER_DELAY, counter_record.class.to_s, counter_record.id, attribute)
+          .with(described_class::WORKER_DELAY, counter_record.class.to_s, counter_record.id, attribute.to_s)
 
         counter.increment(increment)
       end
@@ -267,7 +230,7 @@ RSpec.describe Gitlab::Counters::BufferedCounter, :clean_gitlab_redis_shared_sta
 
       it 'schedules a worker to commit the counter into database' do
         expect(FlushCounterIncrementsWorker).to receive(:perform_in)
-          .with(described_class::WORKER_DELAY, counter_record.class.to_s, counter_record.id, attribute)
+          .with(described_class::WORKER_DELAY, counter_record.class.to_s, counter_record.id, attribute.to_s)
 
         counter.bulk_increment(increments)
       end
@@ -393,7 +356,7 @@ RSpec.describe Gitlab::Counters::BufferedCounter, :clean_gitlab_redis_shared_sta
     it 'removes the key from Redis' do
       counter.initiate_refresh!
 
-      Gitlab::Redis::BufferedCounter.with do |redis|
+      Gitlab::Redis::SharedState.with do |redis|
         expect(redis.exists?(counter.key)).to eq(false)
       end
     end
@@ -463,7 +426,7 @@ RSpec.describe Gitlab::Counters::BufferedCounter, :clean_gitlab_redis_shared_sta
 
       it 'schedules a worker to commit the counter key into database' do
         expect(FlushCounterIncrementsWorker).to receive(:perform_in)
-          .with(described_class::WORKER_DELAY, counter_record.class.to_s, counter_record.id, attribute)
+          .with(described_class::WORKER_DELAY, counter_record.class.to_s, counter_record.id, attribute.to_s)
 
         counter.finalize_refresh
       end
@@ -488,7 +451,7 @@ RSpec.describe Gitlab::Counters::BufferedCounter, :clean_gitlab_redis_shared_sta
     end
 
     it 'removes all tracking keys' do
-      Gitlab::Redis::BufferedCounter.with do |redis|
+      Gitlab::Redis::SharedState.with do |redis|
         expect { counter.cleanup_refresh }
           .to change { redis.scan_each(match: "#{counter.refresh_key}*").to_a.count }.from(4).to(0)
       end
@@ -533,7 +496,7 @@ RSpec.describe Gitlab::Counters::BufferedCounter, :clean_gitlab_redis_shared_sta
         let(:flushed_amount) { 10 }
 
         before do
-          Gitlab::Redis::BufferedCounter.with do |redis|
+          Gitlab::Redis::SharedState.with do |redis|
             redis.incrby(counter.flushed_key, flushed_amount)
           end
         end
@@ -546,7 +509,7 @@ RSpec.describe Gitlab::Counters::BufferedCounter, :clean_gitlab_redis_shared_sta
         it 'deletes the relative :flushed key' do
           counter.commit_increment!
 
-          Gitlab::Redis::BufferedCounter.with do |redis|
+          Gitlab::Redis::SharedState.with do |redis|
             key_exists = redis.exists?(counter.flushed_key)
             expect(key_exists).to be_falsey
           end
@@ -555,7 +518,7 @@ RSpec.describe Gitlab::Counters::BufferedCounter, :clean_gitlab_redis_shared_sta
 
       context 'when deleting :flushed key fails' do
         before do
-          Gitlab::Redis::BufferedCounter.with do |redis|
+          Gitlab::Redis::SharedState.with do |redis|
             redis.incrby(counter.flushed_key, 10)
 
             allow(redis).to receive(:del).and_raise('could not delete key')
@@ -614,7 +577,7 @@ RSpec.describe Gitlab::Counters::BufferedCounter, :clean_gitlab_redis_shared_sta
 
     with_them do
       before do
-        Gitlab::Redis::BufferedCounter.with do |redis|
+        Gitlab::Redis::SharedState.with do |redis|
           redis.set(increment_key, increment) if increment
           redis.set(flushed_key, flushed) if flushed
         end
@@ -635,19 +598,19 @@ RSpec.describe Gitlab::Counters::BufferedCounter, :clean_gitlab_redis_shared_sta
   end
 
   def redis_get_key(key)
-    Gitlab::Redis::BufferedCounter.with do |redis|
+    Gitlab::Redis::SharedState.with do |redis|
       redis.get(key)
     end
   end
 
   def redis_exists_key(key)
-    Gitlab::Redis::BufferedCounter.with do |redis|
+    Gitlab::Redis::SharedState.with do |redis|
       redis.exists?(key)
     end
   end
 
   def redis_key_ttl(key)
-    Gitlab::Redis::BufferedCounter.with do |redis|
+    Gitlab::Redis::SharedState.with do |redis|
       redis.ttl(key)
     end
   end

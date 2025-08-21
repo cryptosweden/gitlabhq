@@ -103,6 +103,15 @@ RSpec.describe BoardsHelper do
         allow(helper).to receive(:can?).with(user, :admin_issue, project_board).and_return(true)
         allow(helper).to receive(:can?).with(user, :admin_issue_board_list, project).and_return(false)
         allow(helper).to receive(:can?).with(user, :admin_issue_board, project).and_return(false)
+        allow(helper).to receive(:can?).with(user, :admin_label, project).and_return(false)
+        allow(helper).to receive(:can?).with(user, :create_saved_replies, project.group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :create_saved_replies, project).and_return(false)
+        allow(helper).to receive(:can?).with(user, :create_work_item, project).and_return(false)
+        allow(helper).to receive(:can?).with(user, :bulk_admin_epic, project).and_return(false)
+        allow(helper).to receive(:can?).with(user, :admin_issue, project).and_return(false)
+        allow(helper).to receive(:can?).with(user, :create_projects, project.group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :read_crm_organization, project.crm_group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :read_crm_contact, project.crm_group).and_return(false)
       end
 
       it 'returns board type as parent' do
@@ -157,6 +166,14 @@ RSpec.describe BoardsHelper do
         allow(helper).to receive(:can?).with(user, :admin_issue, group_board).and_return(true)
         allow(helper).to receive(:can?).with(user, :admin_issue_board_list, base_group).and_return(false)
         allow(helper).to receive(:can?).with(user, :admin_issue_board, base_group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :admin_label, base_group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :create_saved_replies, base_group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :create_work_item, base_group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :bulk_admin_epic, base_group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :admin_issue, base_group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :create_projects, base_group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :read_crm_organization, project.crm_group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :read_crm_contact, base_group).and_return(false)
       end
 
       it 'returns correct path for base group' do

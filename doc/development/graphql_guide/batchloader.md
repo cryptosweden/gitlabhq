@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: GraphQL BatchLoader
 ---
-
-# GraphQL BatchLoader
 
 GitLab uses the [batch-loader](https://github.com/exAspArk/batch-loader) Ruby gem to optimize and avoid N+1 SQL queries.
 
@@ -133,10 +132,13 @@ z.sync
 # => will run 1 query
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 There is no dependency analysis in the use of batch-loading. There is
 a pending queue of requests, and as soon as any one result is needed, all pending
 requests are evaluated.
+
+{{< /alert >}}
 
 You should never call `batch.sync` or use `Lazy.force` in resolver code.
 If you depend on a lazy value, use `Lazy.with_value` instead:
@@ -153,6 +155,8 @@ def catalog_url
   end
 end
 ```
+
+We commonly use `#sync` in a mutation after finding a record with `GitlabSchema.find_by_gid` or `.object_from_id`, as those methods return the result in a batch loader wrapper. Mutations are executed serially, so batch loading is not necessary and the object can be evaluated immediately.
 
 ## Testing
 

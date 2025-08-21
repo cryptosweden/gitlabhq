@@ -9,11 +9,13 @@ module RuboCop
       https://gitlab.com/gitlab-com/gl-infra/production/-/issues/6132
       EOF
 
+      # @!method system?(node)
       def_node_matcher :system?, <<~PATTERN
         (send {nil? | const} {:system | :exec | :spawn | :popen}
           (str $_))
       PATTERN
 
+      # @!method subshell?(node)
       def_node_matcher :subshell?, <<~PATTERN
         (xstr
           (str $_))
@@ -23,13 +25,13 @@ module RuboCop
 
       def on_xstr(node)
         subshell?(node) do |match|
-          add_offense(node, message: MSG) if forbidden_command?(match)
+          add_offense(node) if forbidden_command?(match)
         end
       end
 
       def on_send(node)
         system?(node) do |match|
-          add_offense(node, message: MSG) if forbidden_command?(match)
+          add_offense(node) if forbidden_command?(match)
         end
       end
 

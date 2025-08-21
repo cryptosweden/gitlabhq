@@ -1,4 +1,5 @@
-<% custom_abilities_by_feature_category = MemberRole.all_customizable_permissions.group_by { |_k, definition| definition[:feature_category] } %>
+<% active_custom_abilities = MemberRole.all_customizable_permissions.filter { |p| !::Feature::Definition.get("custom_ability_#{p}") } %>
+<% custom_abilities_by_feature_category = active_custom_abilities.group_by { |_k, definition| definition[:feature_category] } %>
 <% def humanize(feature_category) %>
 <%   case feature_category %>
 <%   when 'mlops' %>
@@ -18,10 +19,18 @@
 <%   return unless ability[:feature_flag] %>
 <%   "`#{ability[:feature_flag]}`" %>
 <% end %>
+<% def scope(ability) %>
+<%   scopes = [] %>
+<%   scopes << 'Instance' unless ability[:group_ability] || ability[:project_ability]%>
+<%   scopes << 'Group' if ability[:group_ability]%>
+<%   scopes << 'Project' if ability[:project_ability]%>
+<%   return scopes.join(',<br> ') %>
+<% end %>
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authorization
 info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
+title: Custom permissions
 ---
 
 <!--
@@ -33,22 +42,28 @@ info: "To determine the technical writer assigned to the Stage/Group associated 
   To make changes to the output of the Rake task,
   edit `tooling/custom_roles/docs/templates/custom_abilities.md.erb`.
 -->
+{{< history >}}
 
-# Available custom permissions
+- Custom admin roles [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/181346) in GitLab 17.9 [with a flag](../../administration/feature_flags/_index.md) named `custom_admin_roles`. Disabled by default.
 
-The following permissions are available. You can add these permissions in any combination
-to a base role to create a custom role.
+{{< /history >}}
 
-Some permissions require having other permissions enabled first. For example, administration of vulnerabilities (`admin_vulnerability`) can only be enabled if reading vulnerabilities (`read_vulnerability`) is also enabled.
+You can create a [custom role](_index.md) by adding one or more custom permissions to a base role.
 
-These requirements are documented in the `Required permission` column in the following table.
+{{< alert type="note" >}}
+
+Some permissions depend on other permissions.
+For example, the `admin_vulnerability` permission requires you to also include the `read_vulnerability` permission.
+Any dependencies are noted in the `Description` column for each permission.
+
+{{< /alert >}}
 <% custom_abilities_by_feature_category.sort.each do |category, abilities| %>
 
 ## <%= "#{humanize(category)}" %>
 
-| Name | Required permission | Description | Introduced in | Feature flag | Enabled in |
-|:-----|:------------|:------------------|:---------|:--------------|:---------|
+| Permission | Description | API Attribute | Scope | Introduced |
+|:-----------|:------------|:--------------|:------|:-----------|
 <% abilities.each do |name, ability| %>
-| <%= "[`#{name}`](#{ability[:introduced_by_mr]})" %> | <%= ability[:requirement] %> | <%= ability[:description] %> | GitLab <%= "[#{ability[:milestone]}](#{ability[:introduced_by_issue]})" %> | <%= feature_flag(ability) %> | <%= enabled_link(ability) %> |
+| <%= ability[:title] %> | <%= ability[:description] %> | <%= "[`#{name}`](#{ability[:introduced_by_mr]})" %> | <%= scope(ability) %> | GitLab <%= "[#{ability[:milestone]}](#{ability[:introduced_by_issue]})" %> |
 <% end %>
 <% end %>

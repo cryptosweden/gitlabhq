@@ -14,9 +14,6 @@ export default {
     GlTooltip: GlTooltipDirective,
   },
   inject: {
-    targetProjectFullPath: {
-      default: '',
-    },
     pipelineSchedulesPath: {
       default: '',
     },
@@ -34,17 +31,8 @@ export default {
     isTriggered() {
       return this.pipeline.source === TRIGGER_ORIGIN;
     },
-    isPipelineFromSource() {
-      if (!this.targetProjectFullPath) return true;
-
-      const fullPath = this.pipeline?.project?.full_path;
-      // We may or may not have a trailing slash in `targetProjectFullPath` value, so we account for both cases
-      return (
-        fullPath === `/${this.targetProjectFullPath}` || fullPath === this.targetProjectFullPath
-      );
-    },
-    isInFork() {
-      return !this.isPipelineFromSource;
+    isForked() {
+      return this.pipeline?.project?.forked;
     },
     showMergedResultsBadge() {
       // A merge train pipeline is technically also a merged results pipeline,
@@ -53,20 +41,27 @@ export default {
         this.pipeline.flags.merged_result_pipeline && !this.pipeline.flags.merge_train_pipeline
       );
     },
+    showBranchBadge() {
+      return this.pipeline.flags.type === 'branch';
+    },
+    showTagBadge() {
+      return this.pipeline.flags.type === 'tag';
+    },
     autoDevopsTagId() {
       return `pipeline-url-autodevops-${this.pipeline.id}`;
     },
     autoDevopsHelpPath() {
-      return helpPagePath('topics/autodevops/index.md');
+      return helpPagePath('topics/autodevops/_index.md');
     },
     isApi() {
       return this.pipeline.source === API_ORIGIN;
     },
   },
+  buttonClass: '!gl-cursor-default gl-rounded-pill gl-border-none gl-bg-transparent gl-p-0',
 };
 </script>
 <template>
-  <div class="label-container gl-mt-1">
+  <div class="label-container gl-mt-1 gl-flex gl-flex-wrap gl-gap-2">
     <gl-badge
       v-if="isScheduled"
       v-gl-tooltip
@@ -77,23 +72,27 @@ export default {
       data-testid="pipeline-url-scheduled"
       >{{ __('scheduled') }}</gl-badge
     >
-    <gl-badge
+    <button
       v-if="isTriggered"
       v-gl-tooltip
+      :class="$options.buttonClass"
       :title="__('This pipeline was created by an API call authenticated with a trigger token')"
-      variant="info"
       data-testid="pipeline-url-triggered"
-      >{{ __('trigger token') }}</gl-badge
     >
-    <gl-badge
+      <gl-badge variant="info">{{ __('trigger token') }}</gl-badge>
+    </button>
+
+    <button
       v-if="pipeline.flags.latest"
       v-gl-tooltip
-      :title="__('Latest pipeline for the most recent commit on this branch')"
-      variant="success"
+      :class="$options.buttonClass"
+      :title="__('Latest pipeline for the most recent commit on this ref')"
       data-testid="pipeline-url-latest"
-      >{{ __('latest') }}</gl-badge
     >
-    <gl-badge
+      <gl-badge variant="success">{{ __('latest') }}</gl-badge>
+    </button>
+
+    <button
       v-if="pipeline.flags.merge_train_pipeline"
       v-gl-tooltip
       :title="
@@ -101,26 +100,31 @@ export default {
           'Pipeline|This pipeline ran on the contents of the merge request combined with the contents of all other merge requests queued for merging into the target branch.',
         )
       "
-      variant="info"
+      :class="$options.buttonClass"
       data-testid="pipeline-url-train"
-      >{{ s__('Pipeline|merge train') }}</gl-badge
     >
-    <gl-badge
+      <gl-badge variant="info">{{ s__('Pipeline|merge train') }}</gl-badge>
+    </button>
+
+    <button
       v-if="pipeline.flags.yaml_errors"
       v-gl-tooltip
       :title="pipeline.yaml_errors"
-      variant="danger"
+      :class="$options.buttonClass"
       data-testid="pipeline-url-yaml"
-      >{{ __('yaml invalid') }}</gl-badge
     >
-    <gl-badge
+      <gl-badge variant="danger">{{ __('yaml invalid') }}</gl-badge>
+    </button>
+
+    <button
       v-if="pipeline.flags.failure_reason"
       v-gl-tooltip
       :title="pipeline.failure_reason"
-      variant="danger"
+      :class="$options.buttonClass"
       data-testid="pipeline-url-failure"
-      >{{ __('error') }}</gl-badge
     >
+      <gl-badge variant="danger">{{ __('error') }}</gl-badge>
+    </button>
     <template v-if="pipeline.flags.auto_devops">
       <gl-link
         :id="autoDevopsTagId"
@@ -161,7 +165,27 @@ export default {
     <gl-badge v-if="pipeline.flags.stuck" variant="warning" data-testid="pipeline-url-stuck">{{
       __('stuck')
     }}</gl-badge>
-    <gl-badge
+
+    <button
+      v-if="showTagBadge"
+      v-gl-tooltip
+      :title="s__(`Pipeline|This pipeline ran for a tag.`)"
+      :class="$options.buttonClass"
+      data-testid="pipeline-url-tag"
+    >
+      <gl-badge variant="info">{{ s__('Pipeline|tag') }}</gl-badge>
+    </button>
+
+    <button
+      v-if="showBranchBadge"
+      v-gl-tooltip
+      :title="s__(`Pipeline|This pipeline ran for a branch.`)"
+      :class="$options.buttonClass"
+      data-testid="pipeline-url-branch"
+    >
+      <gl-badge variant="info">{{ s__('Pipeline|branch') }}</gl-badge>
+    </button>
+    <button
       v-if="pipeline.flags.detached_merge_request_pipeline"
       v-gl-tooltip
       :title="
@@ -169,11 +193,12 @@ export default {
           `Pipeline|This pipeline ran on the contents of the merge request's source branch, not the target branch.`,
         )
       "
-      variant="info"
+      :class="$options.buttonClass"
       data-testid="pipeline-url-detached"
-      >{{ s__('Pipeline|merge request') }}</gl-badge
     >
-    <gl-badge
+      <gl-badge variant="info">{{ s__('Pipeline|merge request') }}</gl-badge>
+    </button>
+    <button
       v-if="showMergedResultsBadge"
       v-gl-tooltip
       :title="
@@ -181,25 +206,28 @@ export default {
           `Pipeline|This pipeline ran on the contents of the merge request combined with the contents of the target branch.`,
         )
       "
-      variant="info"
+      :class="$options.buttonClass"
       data-testid="pipeline-url-merged-results"
-      >{{ s__('Pipeline|merged results') }}</gl-badge
     >
-    <gl-badge
-      v-if="isInFork"
+      <gl-badge variant="info">{{ s__('Pipeline|merged results') }}</gl-badge>
+    </button>
+    <button
+      v-if="isForked"
       v-gl-tooltip
       :title="__('Pipeline ran in fork of project')"
-      variant="info"
+      :class="$options.buttonClass"
       data-testid="pipeline-url-fork"
-      >{{ __('fork') }}</gl-badge
     >
-    <gl-badge
+      <gl-badge variant="info">{{ __('fork') }}</gl-badge>
+    </button>
+    <button
       v-if="isApi"
       v-gl-tooltip
       :title="__('This pipeline was triggered using the api')"
-      variant="info"
+      :class="$options.buttonClass"
       data-testid="pipeline-api-badge"
-      >{{ s__('Pipeline|api') }}</gl-badge
     >
+      <gl-badge variant="info">{{ s__('Pipeline|api') }}</gl-badge>
+    </button>
   </div>
 </template>

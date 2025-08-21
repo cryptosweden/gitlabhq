@@ -18,6 +18,23 @@ RSpec.shared_examples 'a valid diff positionable note' do |factory_on_commit|
       )
     end
 
+    describe 'position size validation' do
+      let(:diff_refs) do
+        Gitlab::Diff::DiffRefs.new(
+          base_sha: "not_existing_sha",
+          head_sha: "existing_sha",
+          start_sha: 'x' * 101.kilobytes
+        )
+      end
+
+      it 'is invalid with large start SHA' do
+        expect(subject).to be_invalid
+
+        expect(subject.errors).to have_key(:original_position)
+        expect(subject.errors).to have_key(:position)
+      end
+    end
+
     context 'position diff refs matches commit diff refs' do
       it 'is valid' do
         expect(subject).to be_valid
@@ -52,7 +69,7 @@ RSpec.shared_examples 'a valid diff positionable note' do |factory_on_commit|
       describe "#{method}=" do
         it "doesn't accept non-hash JSON passed as a string" do
           subject.send(:"#{method}=", "true")
-          expect(subject.attributes_before_type_cast[method.to_s]).to be(nil)
+          expect(subject.attributes_before_type_cast[method.to_s]).to be_nil
         end
 
         it "does accept a position hash as a string" do
@@ -62,7 +79,7 @@ RSpec.shared_examples 'a valid diff positionable note' do |factory_on_commit|
 
         it "doesn't accept an array" do
           subject.send(:"#{method}=", ["test"])
-          expect(subject.attributes_before_type_cast[method.to_s]).to be(nil)
+          expect(subject.attributes_before_type_cast[method.to_s]).to be_nil
         end
 
         it "does accept a hash" do

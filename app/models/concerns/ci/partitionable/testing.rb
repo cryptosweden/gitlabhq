@@ -14,12 +14,18 @@ module Ci
         Ci::BuildReportResult
         Ci::BuildRunnerSession
         Ci::BuildSource
+        Ci::BuildTag
         Ci::BuildTraceChunk
         Ci::BuildTraceMetadata
         Ci::BuildPendingState
         Ci::DailyBuildGroupReportResult
         Ci::JobAnnotation
         Ci::JobArtifact
+        Ci::JobArtifactReport
+        Ci::JobDefinition
+        Ci::JobDefinitionInstance
+        Ci::JobInput
+        Ci::JobMessage
         Ci::JobVariable
         Ci::Pipeline
         Ci::PendingBuild
@@ -27,7 +33,6 @@ module Ci
         Ci::RunnerManagerBuild
         Ci::PipelineArtifact
         Ci::PipelineChatData
-        Ci::PipelineConfig
         Ci::PipelineMessage
         Ci::PipelineMetadata
         Ci::PipelineVariable
@@ -35,6 +40,8 @@ module Ci
         Ci::Sources::Project
         Ci::Stage
         Ci::UnitTestFailure
+        Ci::Workloads::Workload
+        Ci::Workloads::VariableInclusions
       ].freeze
 
       def self.check_inclusion(klass)

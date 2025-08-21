@@ -31,10 +31,12 @@ module ApiHelpers
     elsif access_token
       query_string = "access_token=#{access_token.token}"
     elsif user
+      organization = user.organization || FactoryBot.build(:common_organization)
+
       personal_access_token = if admin_mode && user.admin?
-                                create(:personal_access_token, :admin_mode, user: user)
+                                create(:personal_access_token, :admin_mode, user: user, organization: organization)
                               else
-                                create(:personal_access_token, user: user)
+                                create(:personal_access_token, user: user, organization: organization)
                               end
 
       query_string = "private_token=#{personal_access_token.token}"
@@ -64,7 +66,7 @@ module ApiHelpers
     expect(response).to have_gitlab_http_status(:ok)
     expect(response).to include_pagination_headers
     expect(json_response).to be_an Array
-    expect(json_response.map { |item| item['id'] }).to eq(items.flatten)
+    expect(json_response.map { |item| item['id'] }).to match_array(items.flatten)
   end
 
   def expect_response_contain_exactly(*items)
@@ -81,6 +83,8 @@ module ApiHelpers
   end
 
   def stub_last_activity_update
-    allow_any_instance_of(Users::ActivityService).to receive(:execute)
+    allow_next_instance_of(Users::ActivityService) do |service|
+      allow(service).to receive(:execute)
+    end
   end
 end

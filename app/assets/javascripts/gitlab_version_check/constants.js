@@ -1,5 +1,5 @@
 import { helpPagePath } from '~/helpers/help_page_helper';
-import { PROMO_URL } from 'jh_else_ce/lib/utils/url_utility';
+import { PROMO_URL } from '~/constants';
 
 export const STATUS_TYPES = {
   SUCCESS: 'success',
@@ -7,7 +7,7 @@ export const STATUS_TYPES = {
   DANGER: 'danger',
 };
 
-export const UPGRADE_DOCS_URL = helpPagePath('update/index');
+export const UPGRADE_DOCS_URL = helpPagePath('update/_index');
 
 export const ABOUT_RELEASES_PAGE = `${PROMO_URL}/releases/categories/releases/`;
 

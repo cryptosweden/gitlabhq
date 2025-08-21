@@ -4,17 +4,30 @@ module Namespaces
   class ProjectNamespace < Namespace
     self.allow_legacy_sti_class = true
 
+    SYNCED_ATTRIBUTES = %w[
+      name
+      path
+      namespace_id
+      namespace
+      visibility_level
+      shared_runners_enabled
+      organization_id
+    ].freeze
+
     # These aliases are added to make it easier to sync parent/parent_id attribute with
     # project.namespace/project.namespace_id attribute.
     #
     # TODO: we can remove these attribute aliases when we no longer need to sync these with project model,
     # see ProjectNamespace#sync_attributes_from_project
-    alias_attribute :namespace, :parent
+    alias_method :namespace, :parent
     alias_attribute :namespace_id, :parent_id
     has_one :project, inverse_of: :project_namespace
 
     delegate :execute_hooks, :execute_integrations, :group, to: :project, allow_nil: true
-    delegate :external_references_supported?, :default_issues_tracker?, to: :project
+    delegate :external_references_supported?, :default_issues_tracker?, :self_deletion_in_progress?,
+      :markdown_placeholders_feature_flag_enabled?, to: :project
+
+    delegate :crm_group, :hashed_storage?, :disk_path, to: :project
 
     def self.sti_name
       'Project'
@@ -35,11 +48,9 @@ module Namespaces
     end
 
     def sync_attributes_from_project(project)
-      attribute_list = %w[name path namespace_id namespace visibility_level shared_runners_enabled organization_id]
-
       attributes_to_sync = project
                              .changes
-                             .slice(*attribute_list)
+                             .slice(*SYNCED_ATTRIBUTES)
                              .transform_values { |val| val[1] }
 
       # if visibility_level is not set explicitly for project, it defaults to 0,
@@ -60,5 +71,12 @@ module Namespaces
 
       assign_attributes(attributes_to_sync)
     end
+
+    # It's always 1 project but it has to be an AR relation
+    def all_projects
+      Project.where(id: project.id)
+    end
   end
 end
+
+Namespaces::ProjectNamespace.prepend_mod

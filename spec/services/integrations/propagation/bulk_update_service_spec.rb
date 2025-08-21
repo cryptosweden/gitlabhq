@@ -73,7 +73,10 @@ RSpec.describe Integrations::Propagation::BulkUpdateService, feature_category: :
 
     context 'with integration with data fields' do
       let(:excluded_attributes) do
-        %w[id integration_id created_at updated_at encrypted_properties encrypted_properties_iv]
+        %w[
+          id integration_id created_at updated_at encrypted_properties encrypted_properties_iv
+          group_id project_id
+        ]
       end
 
       it 'updates the data fields from the integration', :aggregate_failures do
@@ -276,16 +279,20 @@ RSpec.describe Integrations::Propagation::BulkUpdateService, feature_category: :
       )
     end
 
-    context 'when flag is disabled' do
-      before do
-        stub_feature_flags(gitlab_for_slack_app_instance_and_group_level: false)
+    describe 'propagation from instance integration' do
+      let_it_be(:instance_integration) { create(:jira_integration, :instance) }
+
+      let_it_be(:integration) do
+        create(:jira_integration, project: create(:project), inherit_from_id: instance_integration.id)
       end
 
-      it 'does not update associated SlackIntegration record or scopes' do
-        expect { execute_service }.not_to change { integration.reload.slack_integration.attributes }
-        expect(integration.slack_integration.authorized_scope_names).to eq(
-          %w[project_scope]
-        )
+      it 'does not propagate organization' do
+        batch = Integration.id_in([integration])
+
+        described_class.new(integration.reload, batch).execute
+
+        expect(instance_integration.organization).not_to be_nil
+        expect(integration.reload.organization).to be_nil
       end
     end
   end

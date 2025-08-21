@@ -23,10 +23,13 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching,
   it { is_expected.to have_one(:provider_aws) }
   it { is_expected.to have_one(:platform_kubernetes) }
   it { is_expected.to have_one(:integration_prometheus) }
+  it { is_expected.to have_one(:agent_migration).class_name('Clusters::AgentMigration').inverse_of(:cluster) }
   it { is_expected.to have_many(:kubernetes_namespaces) }
   it { is_expected.to have_one(:cluster_project) }
   it { is_expected.to have_many(:deployment_clusters) }
   it { is_expected.to have_many(:environments).through(:deployments) }
+
+  it { is_expected.to validate_length_of(:environment_scope).is_at_most(described_class::MAX_ENVIRONMENT_SCOPE_LENGTH) }
 
   it { is_expected.to delegate_method(:status).to(:provider) }
   it { is_expected.to delegate_method(:status_reason).to(:provider) }
@@ -340,6 +343,12 @@ RSpec.describe Clusters::Cluster, :use_clean_rails_memory_store_caching,
 
         context 'when name is nil' do
           let(:name) { nil }
+
+          it { is_expected.to be_falsey }
+        end
+
+        context 'when name is too long' do
+          let(:name) { 'a' * 2049 }
 
           it { is_expected.to be_falsey }
         end

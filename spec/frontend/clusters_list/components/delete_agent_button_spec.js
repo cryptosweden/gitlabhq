@@ -11,12 +11,12 @@ import DeleteAgentButton from '~/clusters_list/components/delete_agent_button.vu
 import { DELETE_AGENT_BUTTON } from '~/clusters_list/constants';
 import { stubComponent } from 'helpers/stub_component';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
-import { getAgentResponse, mockDeleteResponse, mockErrorDeleteResponse } from '../mocks/apollo';
+import { mockDeleteResponse, mockErrorDeleteResponse } from '../mocks/apollo';
+import { clusterAgentsResponse } from './mock_data';
 
 Vue.use(VueApollo);
 
-const projectPath = 'path/to/project';
-const defaultBranchName = 'default';
+const fullPath = 'path/to/project';
 const agent = {
   id: 'agent-id',
   name: 'agent-name',
@@ -51,24 +51,25 @@ describe('DeleteAgentButton', () => {
     apolloProvider.clients.defaultClient.cache.writeQuery({
       query: getAgentsQuery,
       variables: {
-        projectPath,
-        defaultBranchName,
+        fullPath,
+        isGroup: false,
       },
-      data: getAgentResponse.data,
+      data: clusterAgentsResponse.data,
     });
   };
 
   const createWrapper = async ({
     mutationResponse = mockDeleteResponse,
     provideData = {},
+    stubs = {},
   } = {}) => {
     apolloProvider = createMockApolloProvider({ mutationResponse });
     const defaultProvide = {
-      projectPath,
+      fullPath,
       canAdminCluster: true,
+      isGroup: false,
     };
     const propsData = {
-      defaultBranchName,
       agent,
     };
 
@@ -91,6 +92,7 @@ describe('DeleteAgentButton', () => {
             hide: jest.fn(),
           },
         }),
+        ...stubs,
       },
     });
 
@@ -117,13 +119,11 @@ describe('DeleteAgentButton', () => {
 
   describe('delete agent action', () => {
     it('displays a delete button', () => {
-      expect(findDeleteBtn().attributes('aria-label')).toBe(DELETE_AGENT_BUTTON.deleteButton);
+      expect(findDeleteBtn().text()).toBe(DELETE_AGENT_BUTTON.deleteButton);
     });
 
-    it('shows a tooltip for the button', () => {
-      expect(getTooltipText(findDeleteAgentButtonTooltip().element)).toBe(
-        DELETE_AGENT_BUTTON.deleteButton,
-      );
+    it("doesn't show a tooltip for the enabled button", () => {
+      expect(getTooltipText(findDeleteAgentButtonTooltip().element)).toBe('');
     });
 
     describe('when clicking the delete button', () => {
@@ -158,7 +158,8 @@ describe('DeleteAgentButton', () => {
       ${'the input with agent name is incorrect'} | ${'wrong-name'} | ${true}    | ${false}
       ${'the input with agent name is correct'}   | ${agent.name}   | ${false}   | ${true}
     `('when $condition', ({ agentName, isDisabled, mutationCalled }) => {
-      beforeEach(() => {
+      beforeEach(async () => {
+        await createWrapper({ stubs: { GlFormInput } });
         findDeleteBtn().vm.$emit('click');
         findInput().vm.$emit('input', agentName);
       });
@@ -185,7 +186,7 @@ describe('DeleteAgentButton', () => {
 
       describe('when user presses the enter button', () => {
         beforeEach(async () => {
-          await findInput().vm.$emit('keydown', new KeyboardEvent({ key: ENTER_KEY }));
+          await findInput().find('input').trigger('keydown', { key: ENTER_KEY });
         });
 
         if (mutationCalled) {

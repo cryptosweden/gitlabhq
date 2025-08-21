@@ -40,7 +40,7 @@ export default {
     },
     classes() {
       return {
-        'retried gl-text-secondary': this.job.retried,
+        'retried gl-text-subtle': this.job.retried,
         'gl-font-bold': this.isActive,
       };
     },
@@ -52,12 +52,12 @@ export default {
 </script>
 
 <template>
-  <div class="build-job gl-relative" :class="classes">
+  <div class="build-job gl-relative gl-px-2" :class="classes">
     <gl-link
       v-gl-tooltip.left.viewport
       :href="job.status.details_path"
       :title="tooltipText"
-      class="gl-display-flex gl-align-items-center gl-py-3 gl-pl-7"
+      class="gl-mb-1 gl-flex gl-items-center gl-py-2 gl-pl-7"
       :data-testid="dataTestId"
     >
       <gl-icon
@@ -67,9 +67,9 @@ export default {
         class="icon-arrow-right gl-absolute gl-block"
       />
 
-      <ci-icon :status="job.status" :show-tooltip="false" class="gl-mr-3" />
+      <ci-icon tabindex="-1" :status="job.status" :show-tooltip="false" class="gl-mr-3" />
 
-      <span class="gl-text-truncate gl-w-full">{{ jobName }}</span>
+      <span class="gl-w-full gl-truncate">{{ jobName }}</span>
 
       <gl-icon v-if="job.retried" name="retry" class="gl-mr-4" />
     </gl-link>

@@ -1,12 +1,21 @@
+import { cloneDeep } from 'lodash';
+import Vue from 'vue';
 import { shallowMount } from '@vue/test-utils';
+import { PiniaVuePlugin } from 'pinia';
+import { createTestingPinia } from '@pinia/testing';
 import discussionFixture from 'test_fixtures/merge_requests/diff_discussion.json';
 import imageDiscussionFixture from 'test_fixtures/merge_requests/image_diff_discussion.json';
-import { createStore } from '~/mr_notes/stores';
 import DiffWithNote from '~/notes/components/diff_with_note.vue';
 import DiffViewer from '~/vue_shared/components/diff_viewer/diff_viewer.vue';
+import DiffFileHeader from '~/diffs/components/diff_file_header.vue';
+import { globalAccessorPlugin } from '~/pinia/plugins';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useNotes } from '~/notes/store/legacy_notes';
+
+Vue.use(PiniaVuePlugin);
 
 describe('diff_with_note', () => {
-  let store;
+  let pinia;
   let wrapper;
 
   const selectors = {
@@ -22,33 +31,28 @@ describe('diff_with_note', () => {
   };
 
   const findDiffViewer = () => wrapper.findComponent(DiffViewer);
+  const findDiffFileHeader = () => wrapper.findComponent(DiffFileHeader);
+
+  const createComponent = (propsData) => {
+    wrapper = shallowMount(DiffWithNote, {
+      propsData,
+      pinia,
+    });
+  };
 
   beforeEach(() => {
-    store = createStore();
-    store.replaceState({
-      ...store.state,
-      notes: {
-        noteableData: {
-          current_user: {},
-        },
-      },
-    });
+    pinia = createTestingPinia({ plugins: [globalAccessorPlugin] });
+    useLegacyDiffs();
+    useNotes().noteableData = { current_user: {} };
   });
 
   describe('text diff', () => {
     beforeEach(() => {
-      const diffDiscussion = discussionFixture[0];
-
-      wrapper = shallowMount(DiffWithNote, {
-        propsData: {
-          discussion: diffDiscussion,
-        },
-        store,
-      });
+      createComponent({ discussion: discussionFixture[0] });
     });
 
     it('removes trailing "+" char', () => {
-      const richText = wrapper.vm.$el
+      const richText = wrapper.element
         .querySelectorAll('.line_holder')[4]
         .querySelector('.line_content').textContent[0];
 
@@ -56,7 +60,8 @@ describe('diff_with_note', () => {
     });
 
     it('removes trailing "-" char', () => {
-      const richText = wrapper.vm.$el.querySelector('#LC13').parentNode.textContent[0];
+      const richText = wrapper.element.querySelector('.line .deletion').closest('.line').parentNode
+        .textContent[0];
 
       expect(richText).not.toEqual('-');
     });
@@ -67,7 +72,7 @@ describe('diff_with_note', () => {
     });
 
     it('shows diff lines', () => {
-      expect(selectors.diffRows.length).toBe(12);
+      expect(selectors.diffRows).toHaveLength(12);
     });
 
     it('shows notes row', () => {
@@ -76,16 +81,64 @@ describe('diff_with_note', () => {
   });
 
   describe('image diff', () => {
-    beforeEach(() => {
-      const imageDiscussion = imageDiscussionFixture[0];
-      wrapper = shallowMount(DiffWithNote, {
-        propsData: { discussion: imageDiscussion, diffFile: {} },
-        store,
+    describe('when discussion has a diff_file', () => {
+      beforeEach(() => {
+        const imageDiscussion = imageDiscussionFixture[0];
+        createComponent({ discussion: imageDiscussion, diffFile: {} });
+      });
+
+      it('shows image diff', () => {
+        expect(selectors.diffTable.exists()).toBe(false);
+        expect(findDiffViewer().exists()).toBe(true);
+        expect(findDiffFileHeader().exists()).toBe(true);
       });
     });
 
-    it('shows image diff', () => {
-      expect(selectors.diffTable.exists()).toBe(false);
+    describe('when discussion does not have a diff_file', () => {
+      beforeEach(() => {
+        const imageDiscussion = cloneDeep(imageDiscussionFixture[0]);
+        delete imageDiscussion.diff_file;
+
+        createComponent({ discussion: imageDiscussion, diffFile: {} });
+      });
+
+      it('does not show image diff', () => {
+        expect(findDiffViewer().exists()).toBe(false);
+        expect(selectors.diffTable.exists()).toBe(false);
+        expect(findDiffFileHeader().exists()).toBe(true);
+      });
+    });
+  });
+
+  describe('file diff', () => {
+    describe('when discussion has a diff_file', () => {
+      beforeEach(() => {
+        const fileDiscussion = JSON.parse(JSON.stringify(discussionFixture[0]));
+        fileDiscussion.position.position_type = 'file';
+        fileDiscussion.original_position.position_type = 'file';
+
+        createComponent({ discussion: fileDiscussion, diffFile: {} });
+      });
+
+      it('shows file header', () => {
+        expect(findDiffFileHeader().exists()).toBe(true);
+      });
+    });
+
+    describe('when discussion does not have a diff_file', () => {
+      beforeEach(() => {
+        const fileDiscussion = JSON.parse(JSON.stringify(discussionFixture[0]));
+        delete fileDiscussion.diff_file;
+
+        fileDiscussion.position.position_type = 'file';
+        fileDiscussion.original_position.position_type = 'file';
+
+        createComponent({ discussion: fileDiscussion, diffFile: {} });
+      });
+
+      it('shows file header', () => {
+        expect(findDiffFileHeader().exists()).toBe(true);
+      });
     });
   });
 
@@ -106,12 +159,7 @@ describe('diff_with_note', () => {
         },
       };
 
-      wrapper = shallowMount(DiffWithNote, {
-        propsData: {
-          discussion: diffDiscussion,
-        },
-        store,
-      });
+      createComponent({ discussion: diffDiscussion });
     });
 
     it('shows file diff', () => {
@@ -125,6 +173,50 @@ describe('diff_with_note', () => {
     it('falls back to discussion.commit_id for baseSha and headSha', () => {
       expect(findDiffViewer().props('oldSha')).toBe(mockCommitId);
       expect(findDiffViewer().props('newSha')).toBe(mockCommitId);
+    });
+  });
+
+  describe('diff header', () => {
+    let fileDiscussion;
+
+    beforeEach(() => {
+      fileDiscussion = JSON.parse(JSON.stringify(discussionFixture[0]));
+      fileDiscussion.position.position_type = 'file';
+      fileDiscussion.original_position.position_type = 'file';
+    });
+
+    describe('when the discussion has a diff_file', () => {
+      beforeEach(() => {
+        wrapper = shallowMount(DiffWithNote, {
+          propsData: { discussion: fileDiscussion, diffFile: {} },
+          pinia,
+        });
+      });
+
+      it('links directly to the file to take advantage of the prioritized Linked File feature', () => {
+        const header = findDiffFileHeader();
+
+        expect(header.attributes('discussionpath')).toContain(
+          `file=${fileDiscussion.diff_file.file_hash}`,
+        );
+      });
+    });
+
+    describe('when the discussion does not have a diff_file', () => {
+      beforeEach(() => {
+        delete fileDiscussion.diff_file;
+
+        wrapper = shallowMount(DiffWithNote, {
+          propsData: { discussion: fileDiscussion, diffFile: {} },
+          pinia,
+        });
+      });
+
+      it('does not include the `file` search parameter in the file link', () => {
+        const header = findDiffFileHeader();
+
+        expect(header.attributes('discussionpath')).not.toContain('file=');
+      });
     });
   });
 });

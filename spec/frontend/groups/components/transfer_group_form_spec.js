@@ -66,7 +66,7 @@ describe('Transfer group form', () => {
 
     it('renders the hidden input field', () => {
       expect(findHiddenInput().exists()).toBe(true);
-      expect(findHiddenInput().attributes('value')).toBeUndefined();
+      expect(findHiddenInput().element.value).toBe('');
     });
 
     it('does not render the alert', () => {
@@ -86,7 +86,7 @@ describe('Transfer group form', () => {
     });
   });
 
-  describe('with a selected project', () => {
+  describe('with a selected group', () => {
     const [selectedItem] = groupNamespaces;
 
     beforeEach(() => {

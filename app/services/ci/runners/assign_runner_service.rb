@@ -8,7 +8,7 @@ module Ci
       # @param [Ci::Runner] runner: the runner to assign to a project
       # @param [Project] project: the new project to assign the runner to
       # @param [User] user: the user performing the operation
-      # @param [Boolean] quiet: true if service should avoid side-effects, such as logging
+      # @param [Boolean] quiet: true if service should avoid side effects, such as logging
       #   (e.g. when used by another service)
       def initialize(runner, project, user, quiet: false)
         @runner = runner
@@ -25,7 +25,7 @@ module Ci
           ServiceResponse.success
         else
           ServiceResponse.error(
-            message: @runner.errors.full_messages_for(:assign_to).presence || _('failed to assign runner to project'),
+            message: @runner.errors[:assign_to] || _('failed to assign runner to project'),
             reason: :runner_error)
         end
       end
@@ -40,12 +40,12 @@ module Ci
             reason: :not_authorized_to_assign_runner)
         end
 
-        unless @user.can?(:create_runner, @project)
+        unless @user.can?(:create_runners, @project)
           return ServiceResponse.error(message: _('user is not authorized to add runners to project'),
             reason: :not_authorized_to_add_runner_in_project)
         end
 
-        if project.organization_id != runner.owner_project.organization_id
+        if runner.owner && project.organization_id != runner.owner.organization_id
           return ServiceResponse.error(message: _('runner can only be assigned to projects in the same organization'),
             reason: :project_not_in_same_organization)
         end

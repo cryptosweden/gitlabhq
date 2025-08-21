@@ -3,14 +3,18 @@
 module Gitlab
   module Kas
     class Client
-      TIMEOUT = 2.seconds.freeze
       JWT_AUDIENCE = 'gitlab-kas'
 
       STUB_CLASSES = {
+        server_info: Gitlab::Agent::ServerInfo::Rpc::ServerInfo::Stub,
         agent_tracker: Gitlab::Agent::AgentTracker::Rpc::AgentTracker::Stub,
         configuration_project: Gitlab::Agent::ConfigurationProject::Rpc::ConfigurationProject::Stub,
-        notifications: Gitlab::Agent::Notifications::Rpc::Notifications::Stub
+        autoflow: Gitlab::Agent::AutoFlow::Rpc::AutoFlow::Stub,
+        notifications: Gitlab::Agent::Notifications::Rpc::Notifications::Stub,
+        managed_resources: Gitlab::Agent::ManagedResources::Rpc::Provisioner::Stub
       }.freeze
+
+      AUTOFLOW_CI_VARIABLE_ENV_SCOPE = 'autoflow/internal-use'
 
       ConfigurationError = Class.new(StandardError)
 
@@ -19,11 +23,23 @@ module Gitlab
         raise ConfigurationError, 'KAS internal URL is not configured' unless Gitlab::Kas.internal_url.present?
       end
 
-      def get_connected_agents_by_agent_ids(agent_ids:)
-        request = Gitlab::Agent::AgentTracker::Rpc::GetConnectedAgentsByAgentIDsRequest.new(agent_ids: agent_ids)
+      # Return GitLab KAS server info
+      # This method only returns information about a single KAS server instance without taking into account
+      # that there are potentially multiple KAS replicas running, which may not have the same server info.
+      # This is particularly the case during a rollout.
+      def get_server_info
+        request = Gitlab::Agent::ServerInfo::Rpc::GetServerInfoRequest.new
+
+        stub_for(:server_info)
+          .get_server_info(request, metadata: metadata)
+          .current_server_info
+      end
+
+      def get_connected_agentks_by_agent_ids(agent_ids:)
+        request = Gitlab::Agent::AgentTracker::Rpc::GetConnectedAgentksByAgentIDsRequest.new(agent_ids: agent_ids)
 
         stub_for(:agent_tracker)
-         .get_connected_agents_by_agent_i_ds(request, metadata: metadata)
+         .get_connected_agentks_by_agent_i_ds(request, metadata: metadata)
          .agents
          .to_a
       end
@@ -35,7 +51,10 @@ module Gitlab
         )
 
         stub_for(:configuration_project)
-          .list_agent_config_files(request, metadata: metadata)
+          .list_agent_config_files(request, metadata: metadata(
+            project: ::Feature::Kas.project_actor(project),
+            group: ::Feature::Kas.group_actor(project)
+          ))
           .config_files
           .to_a
       end
@@ -51,14 +70,119 @@ module Gitlab
         )
 
         stub_for(:notifications)
-          .git_push_event(request, metadata: metadata)
+          .git_push_event(request, metadata: metadata(
+            project: ::Feature::Kas.project_actor(project),
+            group: ::Feature::Kas.group_actor(project)
+          ))
+      end
+
+      def send_autoflow_event(project:, type:, id:, data:)
+        # We only want to send events if AutoFlow is enabled and no-op otherwise
+        return unless Feature.enabled?(:autoflow_enabled, project)
+
+        # retrieve all AutoFlow-relevant variables
+        variables = project.variables.by_environment_scope(AUTOFLOW_CI_VARIABLE_ENV_SCOPE)
+
+        project_proto = Gitlab::Agent::Event::Project.new(
+          id: project.id,
+          full_path: project.full_path
+        )
+        request = Gitlab::Agent::AutoFlow::Rpc::CloudEventRequest.new(
+          event: Gitlab::Agent::Event::CloudEvent.new(
+            id: id,
+            source: "GitLab",
+            spec_version: "v1",
+            type: type,
+            attributes: {
+              datacontenttype: Gitlab::Agent::Event::CloudEvent::CloudEventAttributeValue.new(
+                ce_string: "application/json"
+              )
+            },
+            text_data: data.to_json
+          ),
+          flow_project: project_proto,
+          variables: variables.to_h { |v| [v.key, v.value] }
+        )
+
+        stub_for(:autoflow)
+          .cloud_event(request, metadata: metadata(
+            project: ::Feature::Kas.project_actor(project),
+            group: ::Feature::Kas.group_actor(project)
+          ))
+      end
+
+      def get_environment_template(agent:, template_name:)
+        project = agent.project
+
+        request = Gitlab::Agent::ManagedResources::Rpc::GetEnvironmentTemplateRequest.new(
+          template_name: template_name,
+          agent_name: agent.name,
+          gitaly_info: gitaly_info(project),
+          gitaly_repository: repository(project),
+          default_branch: project.default_branch_or_main
+        )
+
+        stub_for(:managed_resources)
+          .get_environment_template(request, metadata: metadata(
+            project: ::Feature::Kas.project_actor(project),
+            group: ::Feature::Kas.group_actor(project)
+          ))
+          .template
+      end
+
+      def get_default_environment_template
+        request = Gitlab::Agent::ManagedResources::Rpc::GetDefaultEnvironmentTemplateRequest.new
+        stub_for(:managed_resources)
+          .get_default_environment_template(request, metadata: metadata)
+          .template
+      end
+
+      def render_environment_template(template:, environment:, build:)
+        request = Gitlab::Agent::ManagedResources::Rpc::RenderEnvironmentTemplateRequest.new(
+          template: Gitlab::Agent::ManagedResources::EnvironmentTemplate.new(
+            name: template.name,
+            data: template.data),
+          info: templating_info(environment:, build:))
+        stub_for(:managed_resources)
+          .render_environment_template(request, metadata: metadata(
+            project: ::Feature::Kas.project_actor(environment.project),
+            group: ::Feature::Kas.group_actor(environment.project)
+          ))
+          .template
+      end
+
+      def ensure_environment(template:, environment:, build:)
+        request = Gitlab::Agent::ManagedResources::Rpc::EnsureEnvironmentRequest.new(
+          template: Gitlab::Agent::ManagedResources::RenderedEnvironmentTemplate.new(
+            name: template.name,
+            data: template.data),
+          info: templating_info(environment:, build:))
+        stub_for(:managed_resources)
+          .ensure_environment(request, metadata: metadata(
+            project: ::Feature::Kas.project_actor(environment.project),
+            group: ::Feature::Kas.group_actor(environment.project)
+          ))
+      end
+
+      def delete_environment(managed_resource:)
+        request = ::Gitlab::Agent::ManagedResources::Rpc::DeleteEnvironmentRequest.new(
+          agent_id: managed_resource.cluster_agent_id,
+          project_id: managed_resource.project_id,
+          environment_slug: managed_resource.environment.slug,
+          objects: managed_resource.tracked_objects
+        )
+
+        stub_for(:managed_resources).delete_environment(request, metadata: metadata(
+          project: ::Feature::Kas.project_actor(managed_resource.project),
+          group: ::Feature::Kas.group_actor(managed_resource.project)
+        ))
       end
 
       private
 
       def stub_for(service)
         @stubs ||= {}
-        @stubs[service] ||= STUB_CLASSES.fetch(service).new(kas_endpoint_url, credentials, timeout: TIMEOUT)
+        @stubs[service] ||= STUB_CLASSES.fetch(service).new(kas_endpoint_url, credentials, timeout: timeout)
       end
 
       def repository(project)
@@ -87,8 +211,11 @@ module Gitlab
         end
       end
 
-      def metadata
-        { 'authorization' => "bearer #{token}" }
+      def metadata(**feature_flag_actors)
+        {
+          'authorization' => "bearer #{token}",
+          **::Feature::Kas.server_feature_flags_for_grpc_request(**feature_flag_actors)
+        }
       end
 
       def token
@@ -96,6 +223,46 @@ module Gitlab
           token.issuer = Settings.gitlab.host
           token.audience = JWT_AUDIENCE
         end.encoded
+      end
+
+      def timeout
+        Gitlab::Kas.client_timeout_seconds.seconds
+      end
+
+      def templating_info(environment:, build:)
+        agent = environment.cluster_agent
+        project = environment.project
+        return unless agent && project && build && build.user
+
+        Gitlab::Agent::ManagedResources::TemplatingInfo.new(
+          agent: Gitlab::Agent::ManagedResources::Agent.new(
+            id: agent.id,
+            name: agent.name,
+            url: agent_url(agent.project, agent.name)),
+          environment: Gitlab::Agent::ManagedResources::Environment.new(
+            id: environment.id,
+            name: environment.name,
+            slug: environment.slug,
+            page_url: environment_url(project, environment),
+            url: environment.external_url,
+            tier: environment.tier),
+          project: Gitlab::Agent::ManagedResources::Project.new(
+            id: project.id,
+            slug: project.path,
+            path: project.full_path,
+            url: project.web_url),
+          pipeline: Gitlab::Agent::ManagedResources::Pipeline.new(id: build.pipeline_id),
+          job: Gitlab::Agent::ManagedResources::Job.new(id: build.id),
+          user: Gitlab::Agent::ManagedResources::User.new(id: build.user_id, username: build.user.username)
+        )
+      end
+
+      def agent_url(project, agent_name)
+        Gitlab::Routing.url_helpers.project_cluster_agent_url(project, agent_name)
+      end
+
+      def environment_url(project, environment)
+        Gitlab::Routing.url_helpers.project_environment_url(project, environment)
       end
     end
   end

@@ -5,6 +5,7 @@ require 'spec_helper'
 RSpec.describe GroupsHelper, feature_category: :groups_and_projects do
   include ApplicationHelper
   include AvatarsHelper
+  include NumbersHelper
 
   describe '#group_icon_url' do
     it 'returns an url for the avatar' do
@@ -81,45 +82,30 @@ RSpec.describe GroupsHelper, feature_category: :groups_and_projects do
     end
   end
 
-  describe '#group_title' do
+  describe '#push_group_breadcrumbs' do
     let_it_be(:group) { create(:group) }
     let_it_be(:nested_group) { create(:group, parent: group) }
     let_it_be(:deep_nested_group) { create(:group, parent: nested_group) }
     let_it_be(:very_deep_nested_group) { create(:group, parent: deep_nested_group) }
 
-    subject { helper.group_title(very_deep_nested_group) }
+    subject { helper.push_group_breadcrumbs(very_deep_nested_group) }
 
-    context 'traversal queries' do
-      shared_examples 'correct ancestor order' do
-        it 'outputs the groups in the correct order' do
-          expect(subject)
-            .to match(%r{<li.*><a.*>#{deep_nested_group.name}.*</li>.*<a.*>#{very_deep_nested_group.name}</a>}m)
-        end
-      end
-
-      before do
-        very_deep_nested_group.reload # make sure traversal_ids are reloaded
-      end
-
-      include_examples 'correct ancestor order'
-    end
-
-    it 'enqueues the elements in the breadcrumb schema list' do
-      expect(helper).to receive(:push_to_schema_breadcrumb).with(group.name, group_path(group), nil)
-      expect(helper).to receive(:push_to_schema_breadcrumb).with(nested_group.name, group_path(nested_group), nil)
-      expect(helper).to receive(:push_to_schema_breadcrumb).with(deep_nested_group.name, group_path(deep_nested_group), nil)
-      expect(helper).to receive(:push_to_schema_breadcrumb).with(very_deep_nested_group.name, group_path(very_deep_nested_group), nil)
+    it 'enqueues the elements in the breadcrumb schema list in the correct order' do
+      expect(helper).to receive(:push_to_schema_breadcrumb).with(group.name, group_path(group), nil).ordered
+      expect(helper).to receive(:push_to_schema_breadcrumb).with(nested_group.name, group_path(nested_group), nil).ordered
+      expect(helper).to receive(:push_to_schema_breadcrumb).with(deep_nested_group.name, group_path(deep_nested_group), nil).ordered
+      expect(helper).to receive(:push_to_schema_breadcrumb).with(very_deep_nested_group.name, group_path(very_deep_nested_group), nil).ordered
 
       subject
     end
 
     it 'avoids N+1 queries' do
       control = ActiveRecord::QueryRecorder.new do
-        helper.group_title(nested_group)
+        helper.push_group_breadcrumbs(nested_group)
       end
 
       expect do
-        helper.group_title(very_deep_nested_group)
+        helper.push_group_breadcrumbs(very_deep_nested_group)
       end.not_to exceed_query_limit(control)
     end
   end
@@ -311,7 +297,6 @@ RSpec.describe GroupsHelper, feature_category: :groups_and_projects do
 
     before do
       group.update_attribute(:show_diff_preview_in_email, true)
-      stub_feature_flags(diff_preview_in_email: true)
     end
 
     it 'returns true for an owner of the group' do
@@ -446,17 +431,22 @@ RSpec.describe GroupsHelper, feature_category: :groups_and_projects do
     end
   end
 
-  describe '#can_admin_service_accounts?', feature_category: :user_management do
+  describe '#can_invite_group_member?' do
     let_it_be(:user) { create(:user) }
     let_it_be(:group) { create(:group) }
 
     before do
       allow(helper).to receive(:current_user) { user }
-      group.add_owner(user)
     end
 
-    it 'returns false when current_user can not admin members' do
-      expect(helper.can_admin_service_accounts?(group)).to be(false)
+    it 'returns true when current_user can invite members' do
+      group.add_owner(user)
+
+      expect(helper.can_invite_group_member?(group)).to be(true)
+    end
+
+    it 'returns false when current_user can not invite members' do
+      expect(helper.can_invite_group_member?(group)).to be(false)
     end
   end
 
@@ -534,19 +524,17 @@ RSpec.describe GroupsHelper, feature_category: :groups_and_projects do
       expect(helper.group_overview_tabs_app_data(group)).to match(
         {
           group_id: group.id,
-          subgroups_and_projects_endpoint: including("/groups/#{group.path}/-/children.json"),
+          subgroups_and_projects_endpoint:
+            including("/groups/#{group.path}/-/children.json?archived=false&not_aimed_for_deletion=true"),
           shared_projects_endpoint: including("/groups/#{group.path}/-/shared_projects.json"),
-          inactive_projects_endpoint: including("/groups/#{group.path}/-/children.json?archived=only"),
+          inactive_projects_endpoint: including("/groups/#{group.path}/-/children.json?active=false"),
           current_group_visibility: group.visibility,
           initial_sort: initial_sort,
           show_schema_markup: 'true',
           new_subgroup_path: including("groups/new?parent_id=#{group.id}#create-group-pane"),
           new_project_path: including("/projects/new?namespace_id=#{group.id}"),
-          new_subgroup_illustration: including('illustrations/subgroup-create-new-sm'),
-          new_project_illustration: including('illustrations/project-create-new-sm'),
           empty_projects_illustration: including('illustrations/empty-state/empty-projects-md'),
-          empty_subgroup_illustration: including('illustrations/empty-state/empty-subgroup-md'),
-          empty_search_illustration: including('illustrations/empty-state/empty-search-md'),
+          empty_subgroup_illustration: including('illustrations/empty-state/empty-projects-md'),
           render_empty_state: 'true',
           can_create_subgroups: 'true',
           can_create_projects: 'true'
@@ -584,6 +572,53 @@ RSpec.describe GroupsHelper, feature_category: :groups_and_projects do
 
       it 'when user can not see the project' do
         expect(helper.show_group_readme?(group)).to be(false)
+      end
+    end
+  end
+
+  describe '#group_archive_settings_app_data' do
+    let_it_be(:group) { create(:group) }
+
+    subject { helper.group_archive_settings_app_data(group) }
+
+    it 'returns correct data' do
+      is_expected.to match({
+        resource_type: 'group',
+        resource_id: group.id,
+        resource_path: including(group.full_path)
+      })
+    end
+  end
+
+  describe '#group_unarchive_settings_app_data' do
+    let_it_be_with_reload(:ancestor) { create(:group) }
+    let_it_be(:group) { create(:group, parent: ancestor) }
+
+    subject { helper.group_unarchive_settings_app_data(group) }
+
+    context 'when ancestor is not archived' do
+      it 'returns correct data' do
+        is_expected.to match({
+          resource_type: 'group',
+          resource_id: group.id,
+          resource_path: including(group.full_path),
+          ancestors_archived: 'false'
+        })
+      end
+    end
+
+    context 'when ancestor is archived' do
+      before do
+        ancestor.archive
+      end
+
+      it 'returns correct data' do
+        is_expected.to match({
+          resource_type: 'group',
+          resource_id: group.id,
+          resource_path: including(group.full_path),
+          ancestors_archived: 'true'
+        })
       end
     end
   end
@@ -670,6 +705,7 @@ RSpec.describe GroupsHelper, feature_category: :groups_and_projects do
           expect(subject).to eq(
             {
               'Guest' => 10,
+              'Planner' => 15,
               'Reporter' => 20,
               'Developer' => 30
             }
@@ -686,6 +722,7 @@ RSpec.describe GroupsHelper, feature_category: :groups_and_projects do
           expect(subject).to eq(
             {
               'Guest' => 10,
+              'Planner' => 15,
               'Reporter' => 20,
               'Developer' => 30,
               'Maintainer' => 40,
@@ -717,6 +754,7 @@ RSpec.describe GroupsHelper, feature_category: :groups_and_projects do
           expect(helper.access_level_roles_user_can_assign(grand_parent, group.access_level_roles)).to be_empty
           expect(helper.access_level_roles_user_can_assign(parent, group.access_level_roles)).to eq({
             'Guest' => ::Gitlab::Access::GUEST,
+            'Planner' => ::Gitlab::Access::PLANNER,
             'Reporter' => ::Gitlab::Access::REPORTER,
             'Developer' => ::Gitlab::Access::DEVELOPER
           })
@@ -759,6 +797,36 @@ RSpec.describe GroupsHelper, feature_category: :groups_and_projects do
       subgroup = create(:group, parent: group)
 
       expect(helper.show_prevent_inviting_groups_outside_hierarchy_setting?(subgroup)).to eq(false)
+    end
+  end
+
+  describe '#groups_list_with_filtered_search_app_data' do
+    let_it_be(:endpoint) { '/groups' }
+
+    it 'returns expected json' do
+      expect(Gitlab::Json.parse(helper.groups_list_with_filtered_search_app_data(endpoint))).to eq(
+        {
+          'endpoint' => endpoint,
+          'initial_sort' => 'created_desc'
+        }
+      )
+    end
+  end
+
+  describe '#group_merge_requests' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:group) { create(:group) }
+    let_it_be(:project) { create(:project, namespace: group) }
+    let_it_be(:merge_request) { create(:merge_request, :simple, source_project: project, target_project: project) }
+
+    before do
+      group.add_owner(user)
+
+      allow(helper).to receive(:current_user).and_return(user)
+    end
+
+    it 'returns group merge requests' do
+      expect(helper.group_merge_requests(group)).to contain_exactly(merge_request)
     end
   end
 end

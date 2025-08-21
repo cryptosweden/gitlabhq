@@ -6,6 +6,7 @@ import {
   GlLoadingIcon,
   GlToggle,
   GlTooltipDirective,
+  GlAnimatedNotificationIcon,
 } from '@gitlab/ui';
 import { createAlert } from '~/alert';
 import { TYPE_ISSUE, TYPE_EPIC, WORKSPACE_GROUP, WORKSPACE_PROJECT } from '~/issues/constants';
@@ -35,6 +36,7 @@ export default {
     GlIcon,
     GlLoadingIcon,
     GlToggle,
+    GlAnimatedNotificationIcon,
     SidebarEditableItem,
   },
   mixins: [glFeatureFlagMixin()],
@@ -228,19 +230,27 @@ export default {
       :class="{ 'gl-ml-2': isIssuable, 'btn-icon': isNotificationsTodosButtons }"
       @click="toggleSubscribed"
     >
-      <gl-icon :name="notificationIcon" :size="16" :class="{ '!gl-fill-blue-500': subscribed }" />
+      <gl-animated-notification-icon
+        :is-on="!subscribed"
+        :class="{ '!gl-text-status-info': subscribed }"
+        class="gl-button-icon"
+      />
     </gl-button>
     <gl-button
       v-if="!isMergeRequest"
       ref="tooltip"
       v-gl-tooltip.left.viewport
-      category="secondary"
+      category="tertiary"
       data-testid="subscribe-button"
       :title="notificationTooltip"
-      class="sidebar-collapsed-icon sidebar-collapsed-container gl-rounded-0! !gl-shadow-none"
+      class="sidebar-collapsed-icon sidebar-collapsed-container !gl-rounded-none !gl-border-0"
       @click="toggleSubscribed"
     >
-      <gl-icon :name="notificationIcon" :size="16" :class="{ '!gl-fill-blue-500': subscribed }" />
+      <gl-animated-notification-icon
+        :is-on="!subscribed"
+        :class="{ '!gl-text-status-info': subscribed }"
+        class="gl-button-icon"
+      />
     </gl-button>
   </div>
   <sidebar-editable-item
@@ -275,7 +285,7 @@ export default {
         <gl-loading-icon v-if="isLoading" size="sm" class="sidebar-item-icon is-active" />
         <gl-icon v-else :name="notificationIcon" :size="16" class="sidebar-item-icon is-active" />
       </span>
-      <div v-show="emailsDisabled" class="gl-mt-3 hide-collapsed gl-text-gray-500">
+      <div v-show="emailsDisabled" class="hide-collapsed gl-mt-3 gl-text-subtle">
         {{ subscribeDisabledDescription }}
       </div>
     </template>

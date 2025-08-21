@@ -8,6 +8,11 @@ RSpec.describe 'shared/milestones/_issuable.html.haml' do
   let_it_be(:milestone) { create(:milestone, project: project) }
 
   before do
+    # TODO: When removing the feature flag,
+    # we won't need the tests for the issues listing page, since we'll be using
+    # the work items listing page.
+    stub_feature_flags(work_item_planning_view: false)
+
     assign(:project, project)
     assign(:milestone, milestone)
   end
@@ -18,7 +23,7 @@ RSpec.describe 'shared/milestones/_issuable.html.haml' do
     let(:issuable) { create(:issue, project: project, assignees: [user]) }
 
     it 'links to the page for the issue' do
-      expect(rendered).to have_css("a[href='#{project_issue_path(project, issuable)}']", class: 'issue-link')
+      expect(rendered).to have_css("a[href$='#{project_issue_path(project, issuable)}']", class: 'issue-link')
     end
 
     it 'links to issues page for user' do
@@ -34,7 +39,7 @@ RSpec.describe 'shared/milestones/_issuable.html.haml' do
     end
 
     it 'links to the page for the merge request' do
-      expect(rendered).to have_css("a[href='#{project_merge_request_path(project, issuable)}']", class: 'issue-link')
+      expect(rendered).to have_css("a[href$='#{project_merge_request_path(project, issuable)}']", class: 'issue-link')
     end
   end
 end

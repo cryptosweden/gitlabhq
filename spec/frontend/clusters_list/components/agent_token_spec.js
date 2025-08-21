@@ -69,10 +69,6 @@ describe('InstallAgentModal', () => {
       expect(findHelmExternalLinkIcon().props()).toMatchObject({ name: 'external-link', size: 12 });
     });
 
-    it('shows advanced agent installation instructions', () => {
-      expect(wrapper.text()).toContain(I18N_AGENT_TOKEN.advancedInstallTitle);
-    });
-
     it('shows agent token as an input value', () => {
       expect(findInput().props('value')).toBe(agentToken);
     });
@@ -94,12 +90,38 @@ describe('InstallAgentModal', () => {
       expect(findAlert().text()).toBe(I18N_AGENT_TOKEN.tokenSingleUseWarningTitle);
     });
 
-    it('shows code block with agent installation command', () => {
-      expect(findCodeBlock().props('code')).toContain(`helm upgrade --install ${agentName}`);
-      expect(findCodeBlock().props('code')).toContain(`--namespace gitlab-agent-${agentName}`);
-      expect(findCodeBlock().props('code')).toContain(`--set config.token=${agentToken}`);
-      expect(findCodeBlock().props('code')).toContain(`--set config.kasAddress=${kasAddress}`);
-      expect(findCodeBlock().props('code')).toContain(`--set image.tag=v${kasInstallVersion}`);
+    describe('when on dot_com', () => {
+      beforeEach(() => {
+        gon.dot_com = true;
+
+        createWrapper();
+      });
+
+      it('shows code block with agent installation command without image version', () => {
+        expect(findCodeBlock().props('code')).toContain(`helm upgrade --install ${agentName}`);
+        expect(findCodeBlock().props('code')).toContain(`--namespace gitlab-agent-${agentName}`);
+        expect(findCodeBlock().props('code')).toContain(`--set config.token=${agentToken}`);
+        expect(findCodeBlock().props('code')).toContain(`--set config.kasAddress=${kasAddress}`);
+        expect(findCodeBlock().props('code')).not.toContain(
+          `--set image.tag=v${kasInstallVersion}`,
+        );
+      });
+    });
+
+    describe('when not on dot_com', () => {
+      beforeEach(() => {
+        gon.dot_com = false;
+
+        createWrapper();
+      });
+
+      it('shows code block with agent installation command with image version', () => {
+        expect(findCodeBlock().props('code')).toContain(`helm upgrade --install ${agentName}`);
+        expect(findCodeBlock().props('code')).toContain(`--namespace gitlab-agent-${agentName}`);
+        expect(findCodeBlock().props('code')).toContain(`--set config.token=${agentToken}`);
+        expect(findCodeBlock().props('code')).toContain(`--set config.kasAddress=${kasAddress}`);
+        expect(findCodeBlock().props('code')).toContain(`--set image.tag=v${kasInstallVersion}`);
+      });
     });
 
     it('truncates the namespace name if it exceeds the maximum length', () => {

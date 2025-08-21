@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class Projects::PipelineSchedulesController < Projects::ApplicationController
+  include SafeFormatHelper
+
   before_action :schedule, except: [:index, :new, :create]
 
   before_action :check_play_rate_limit!, only: [:play]
@@ -19,8 +21,7 @@ class Projects::PipelineSchedulesController < Projects::ApplicationController
     @schedules = Ci::PipelineSchedulesFinder.new(@project).execute(scope: params[:scope])
   end
 
-  def new
-  end
+  def new; end
 
   def create
     response = Ci::PipelineSchedules::CreateService.new(@project, current_user, schedule_params).execute
@@ -33,8 +34,7 @@ class Projects::PipelineSchedulesController < Projects::ApplicationController
     end
   end
 
-  def edit
-  end
+  def edit; end
 
   def update
     response = Ci::PipelineSchedules::UpdateService.new(schedule, current_user, schedule_params).execute
@@ -47,12 +47,13 @@ class Projects::PipelineSchedulesController < Projects::ApplicationController
   end
 
   def play
-    job_id = RunPipelineScheduleWorker.perform_async(schedule.id, current_user.id) # rubocop:disable CodeReuse/Worker
+    job_id = Ci::PipelineSchedules::PlayService
+              .new(schedule.project, current_user)
+              .execute(schedule)
 
     if job_id
-      pipelines_link_start = "<a href=\"#{project_pipelines_path(@project)}\">"
-      message = _("Successfully scheduled a pipeline to run. Go to the %{pipelines_link_start}Pipelines page%{pipelines_link_end} for details.") % { pipelines_link_start: pipelines_link_start, pipelines_link_end: "</a>" }
-      flash[:notice] = message.html_safe
+      pipelines_link = helpers.link_to('', project_pipelines_path(@project))
+      flash[:notice] = safe_format(_("Successfully scheduled a pipeline to run. Go to the %{pipelines_link_start}Pipelines page%{pipelines_link_end} for details."), tag_pair(pipelines_link, :pipelines_link_start, :pipelines_link_end))
     else
       flash[:alert] = _('Unable to schedule a pipeline to run immediately')
     end

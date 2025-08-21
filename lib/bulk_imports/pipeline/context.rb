@@ -7,6 +7,8 @@ module BulkImports
 
       attr_reader :tracker
 
+      delegate :source_xid, :entity_type, to: :entity
+
       def initialize(tracker, extra = {})
         @tracker = tracker
         @extra = extra
@@ -42,6 +44,28 @@ module BulkImports
 
       def configuration
         @configuration ||= bulk_import.configuration
+      end
+
+      def source_ghost_user_id
+        @source_ghost_user_id ||= BulkImports::SourceInternalUserFinder.new(configuration).cached_ghost_user_id
+      end
+
+      def source_user_mapper
+        @source_user_mapper ||= Gitlab::Import::SourceUserMapper.new(
+          namespace: portable.root_ancestor,
+          import_type: Import::SOURCE_DIRECT_TRANSFER,
+          source_hostname: configuration.url
+        )
+      end
+
+      def importer_user_mapping_enabled?
+        Import::BulkImports::EphemeralData.new(bulk_import_id).importer_user_mapping_enabled?
+      end
+
+      def override_file_size_limit?
+        Feature.enabled?(:import_admin_override_max_file_size, current_user) &&
+          Feature.enabled?(:import_admin_override_max_file_size, portable.root_ancestor) &&
+          current_user.can_admin_all_resources?
       end
     end
   end

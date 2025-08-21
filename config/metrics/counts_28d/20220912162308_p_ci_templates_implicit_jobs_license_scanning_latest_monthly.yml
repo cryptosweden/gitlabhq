@@ -11,10 +11,7 @@ time_frame: 28d
 data_source: redis_hll
 data_category: optional
 instrumentation_class: RedisHLLMetric
-distribution:
-- ce
-- ee
-tier:
+tiers:
 - free
 - premium
 - ultimate

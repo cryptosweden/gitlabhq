@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 class Namespace < ApplicationRecord
-  include CacheMarkdownField
   include Sortable
   include Gitlab::VisibilityLevel
   include Routable
@@ -13,19 +12,24 @@ class Namespace < ApplicationRecord
   include Namespaces::Traversal::Recursive
   include Namespaces::Traversal::Linear
   include Namespaces::Traversal::Cached
+  include Namespaces::Traversal::Traversable
+  include Namespaces::AdjournedDeletable
   include EachBatch
   include BlocksUnsafeSerialization
   include Ci::NamespaceSettings
   include Referable
-  include CrossDatabaseIgnoredTables
-  include IgnorableColumns
   include UseSqlFunctionForPrimaryKeyLookups
+  include SafelyChangeColumnDefault
+  include Todoable
 
-  ignore_column :unlock_membership_to_ldap, remove_with: '16.7', remove_after: '2023-11-16'
+  extend Gitlab::Utils::Override
 
-  cross_database_ignore_tables %w[routes redirect_routes], url: 'https://gitlab.com/gitlab-org/gitlab/-/issues/424277'
+  ignore_columns :description, :description_html, :cached_markdown_version, remove_with: '18.3', remove_after: '2025-07-17'
+  ignore_column :unlock_membership_to_ldap, remove_with: '18.1', remove_after: '2025-05-20'
 
-  ignore_column :emails_disabled, remove_with: '17.0', remove_after: '2024-04-24'
+  ignore_column :emails_disabled, remove_with: '18.1', remove_after: '2025-05-20'
+
+  columns_changing_default :organization_id
 
   # Tells ActiveRecord not to store the full class name, in order to save some space
   # https://gitlab.com/gitlab-org/gitlab/-/merge_requests/69794
@@ -54,14 +58,15 @@ class Namespace < ApplicationRecord
     uploads_size
   ].freeze
 
-  cache_markdown_field :description, pipeline: :description
-
   has_many :projects, dependent: :destroy # rubocop:disable Cop/ActiveRecordDependent
   has_many :non_archived_projects, -> { where.not(archived: true) }, class_name: 'Project'
   has_many :project_statistics
   has_one :namespace_settings, inverse_of: :namespace, class_name: 'NamespaceSetting', autosave: true
+  has_one :namespace_settings_with_ancestors_inherited_settings, -> { with_ancestors_inherited_settings },
+    inverse_of: :namespace, class_name: 'NamespaceSetting', primary_key: :id, foreign_key: :namespace_id
+
   has_one :ci_cd_settings, inverse_of: :namespace, class_name: 'NamespaceCiCdSetting', autosave: true
-  has_one :namespace_details, inverse_of: :namespace, class_name: 'Namespace::Detail', autosave: true
+  has_one :namespace_details, inverse_of: :namespace, class_name: 'Namespace::Detail', autosave: false
   has_one :namespace_statistics
   has_one :namespace_route, foreign_key: :namespace_id, autosave: false, inverse_of: :namespace, class_name: 'Route'
   has_one :catalog_verified_namespace, class_name: 'Ci::Catalog::VerifiedNamespace', inverse_of: :namespace
@@ -71,12 +76,12 @@ class Namespace < ApplicationRecord
   has_one :namespace_ldap_settings, inverse_of: :namespace, class_name: 'Namespaces::LdapSetting', autosave: true
 
   has_one :namespace_descendants, class_name: 'Namespaces::Descendants'
+  attribute :description
   accepts_nested_attributes_for :namespace_descendants, allow_destroy: true
 
   has_many :runner_namespaces, inverse_of: :namespace, class_name: 'Ci::RunnerNamespace'
   has_many :runners, through: :runner_namespaces, source: :runner, class_name: 'Ci::Runner'
   has_many :pending_builds, class_name: 'Ci::PendingBuild'
-  has_one :onboarding_progress, class_name: 'Onboarding::Progress'
 
   # This should _not_ be `inverse_of: :namespace`, because that would also set
   # `user.namespace` when this user creates a group with themselves as `owner`.
@@ -111,14 +116,22 @@ class Namespace < ApplicationRecord
   has_many :jira_connect_subscriptions, class_name: 'JiraConnectSubscription', foreign_key: :namespace_id, inverse_of: :namespace
 
   has_many :import_source_users, class_name: 'Import::SourceUser', foreign_key: :namespace_id, inverse_of: :namespace
+  has_one :namespace_import_user, class_name: 'Import::NamespaceImportUser', foreign_key: :namespace_id, inverse_of: :namespace
+  has_one :import_user, class_name: 'User', through: :namespace_import_user, foreign_key: :user_id
+
+  has_many :bot_user_details, class_name: 'UserDetail', foreign_key: 'bot_namespace_id', inverse_of: :bot_namespace
+  has_many :bot_users, through: :bot_user_details, source: :user
+  has_one :placeholder_user_detail, class_name: 'Import::PlaceholderUserDetail'
+
+  has_one :deletion_schedule, class_name: 'Namespaces::DeletionSchedule'
+  delegate :deleting_user, :marked_for_deletion_at, to: :deletion_schedule, allow_nil: true
 
   validates :owner, presence: true, if: ->(n) { n.owner_required? }
+  validates :organization, presence: true
   validates :name,
     presence: true,
     length: { maximum: 255 }
   validates :name, uniqueness: { scope: [:type, :parent_id] }, if: -> { parent_id.present? }
-
-  validates :description, length: { maximum: 500 }
 
   validates :path,
     presence: true,
@@ -153,39 +166,52 @@ class Namespace < ApplicationRecord
   validate :nesting_level_allowed, unless: -> { project_namespace? }
   validate :changing_shared_runners_enabled_is_allowed, unless: -> { project_namespace? }
   validate :changing_allow_descendants_override_disabled_shared_runners_is_allowed, unless: -> { project_namespace? }
+  validate :parent_organization_match
+  validate :no_conflict_with_organization_user_details, if: :path_changed?
 
   delegate :name, to: :owner, allow_nil: true, prefix: true
   delegate :avatar_url, to: :owner, allow_nil: true
-  delegate :prevent_sharing_groups_outside_hierarchy, :prevent_sharing_groups_outside_hierarchy=,
-    to: :namespace_settings, allow_nil: true
-  delegate :show_diff_preview_in_email, :show_diff_preview_in_email?, :show_diff_preview_in_email=,
-    to: :namespace_settings
-  delegate :runner_registration_enabled, :runner_registration_enabled?, :runner_registration_enabled=,
-    to: :namespace_settings
-  delegate :emails_enabled, :emails_enabled=,
-    to: :namespace_settings, allow_nil: true
-  delegate :allow_runner_registration_token,
-    :allow_runner_registration_token=,
-    to: :namespace_settings
+
   delegate :maven_package_requests_forwarding,
     :pypi_package_requests_forwarding,
     :npm_package_requests_forwarding,
     to: :package_settings
-  delegate :default_branch_protection_defaults, to: :namespace_settings, allow_nil: true
-  delegate :math_rendering_limits_enabled,
-    :lock_math_rendering_limits_enabled,
-    to: :namespace_settings, allow_nil: true
-  delegate :math_rendering_limits_enabled?,
-    :lock_math_rendering_limits_enabled?,
-    to: :namespace_settings
-  delegate :add_creator, to: :namespace_details
+
+  delegate :add_creator, :deleted_at, :deleted_at=, :description, :description=, :description_html,
+    to: :namespace_details, allow_nil: true
+
+  with_options to: :namespace_settings do
+    delegate :runner_registration_enabled, :runner_registration_enabled?, :runner_registration_enabled=
+    delegate :allow_runner_registration_token, :allow_runner_registration_token=
+    delegate :math_rendering_limits_enabled?, :lock_math_rendering_limits_enabled?
+    delegate :resource_access_token_notify_inherited,
+      :resource_access_token_notify_inherited=,
+      :lock_resource_access_token_notify_inherited,
+      :lock_resource_access_token_notify_inherited=,
+      :resource_access_token_notify_inherited?,
+      :resource_access_token_notify_inherited_locked?,
+      :resource_access_token_notify_inherited_locked_by_ancestor?,
+      :resource_access_token_notify_inherited_locked_by_application_setting?
+    delegate :jwt_ci_cd_job_token_enabled?
+
+    with_options allow_nil: true do
+      delegate :show_diff_preview_in_email, :show_diff_preview_in_email?, :show_diff_preview_in_email=
+      delegate :prevent_sharing_groups_outside_hierarchy, :prevent_sharing_groups_outside_hierarchy=
+      delegate :default_branch_protection_defaults
+      delegate :archived, :archived=
+      delegate :math_rendering_limits_enabled, :lock_math_rendering_limits_enabled
+      delegate :emails_enabled, :emails_enabled=
+      delegate :web_based_commit_signing_enabled?, :lock_web_based_commit_signing_enabled?
+      delegate :web_based_commit_signing_enabled, :lock_web_based_commit_signing_enabled
+    end
+  end
 
   before_create :sync_share_with_group_lock_with_parent
   before_update :sync_share_with_group_lock_with_parent, if: :parent_changed?
   after_update :force_share_with_group_lock_on_descendants, if: -> { saved_change_to_share_with_group_lock? && share_with_group_lock? }
   after_update :expire_first_auto_devops_config_cache, if: -> { saved_change_to_auto_devops_enabled? }
 
-  after_save :reload_namespace_details
+  after_save :save_namespace_details_changes
 
   after_commit :refresh_access_of_projects_invited_groups, on: :update, if: -> { previous_changes.key?('share_with_group_lock') }
 
@@ -196,17 +222,29 @@ class Namespace < ApplicationRecord
       saved_change_to_name?) || saved_change_to_path? || saved_change_to_parent_id?
   }
 
+  scope :without_deleted, -> { joins(:namespace_details).where(namespace_details: { deleted_at: nil }) }
   scope :user_namespaces, -> { where(type: Namespaces::UserNamespace.sti_name) }
   scope :group_namespaces, -> { where(type: Group.sti_name) }
+  scope :project_namespaces, -> { where(type: Namespaces::ProjectNamespace.sti_name) }
   scope :without_project_namespaces, -> { where(Namespace.arel_table[:type].not_eq(Namespaces::ProjectNamespace.sti_name)) }
   scope :sort_by_type, -> { order(arel_table[:type].asc.nulls_first) }
   scope :include_route, -> { includes(:route) }
   scope :by_parent, ->(parent) { where(parent_id: parent) }
   scope :by_root_id, ->(root_id) { where('traversal_ids[1] IN (?)', root_id) }
+  scope :by_not_in_root_id, ->(root_id) { where('namespaces.traversal_ids[1] NOT IN (?)', root_id) }
   scope :filter_by_path, ->(query) { where('lower(path) = :query', query: query.downcase) }
   scope :in_organization, ->(organization) { where(organization: organization) }
   scope :by_name, ->(name) { where('name LIKE ?', "#{sanitize_sql_like(name)}%") }
   scope :ordered_by_name, -> { order(:name) }
+  scope :top_level, -> { by_parent(nil) }
+  scope :with_project_statistics, -> { includes(projects: :statistics) }
+  scope :with_namespace_details, -> { preload(:namespace_details) }
+
+  scope :archived, -> { joins(:namespace_settings).where(namespace_settings: { archived: true }) }
+  scope :self_or_ancestors_archived, -> { where(self_or_ancestors_archived_setting_subquery.exists) }
+
+  scope :non_archived, -> { joins(:namespace_settings).where(namespace_settings: { archived: false }) }
+  scope :self_and_ancestors_non_archived, -> { where.not(self_or_ancestors_archived_setting_subquery.exists) }
 
   scope :with_statistics, -> do
     namespace_statistic_columns = STATISTICS_COLUMNS.map { |column| sum_project_statistics_column(column) }
@@ -218,8 +256,8 @@ class Namespace < ApplicationRecord
       .where(project_statistics[:namespace_id].eq(arel_table[:id]))
       .lateral(subquery.name)
 
-    select(arel_table[Arel.star], subquery[Arel.star])
-      .from([arel.as('namespaces'), statistics])
+    model.select(arel_table[Arel.star], subquery[Arel.star])
+         .from([arel.as(arel_table.name), statistics])
   end
 
   scope :with_jira_installation, ->(installation_id) do
@@ -266,6 +304,10 @@ class Namespace < ApplicationRecord
       find_by("lower(path) = :path OR lower(name) = :path", path: path.downcase)
     end
 
+    def find_top_level
+      top_level.take
+    end
+
     # Searches for namespaces matching the given query.
     #
     # This method uses ILIKE on PostgreSQL.
@@ -300,8 +342,13 @@ class Namespace < ApplicationRecord
     # https://gitlab.com/gitlab-org/gitlab/-/blob/5d34e3488faa3982d30d7207773991c1e0b6368a/app/assets/javascripts/gfm_auto_complete.js#L68 and
     # https://gitlab.com/gitlab-org/gitlab/-/blob/5d34e3488faa3982d30d7207773991c1e0b6368a/app/assets/javascripts/gfm_auto_complete.js#L1053
     def gfm_autocomplete_search(query)
-      without_project_namespaces
-        .allow_cross_joins_across_databases(url: "https://gitlab.com/gitlab-org/gitlab/-/issues/420046")
+      namespaces_cte = Gitlab::SQL::CTE.new(table_name, without_order)
+
+      # This scope does not work with `ProjectNamespace` records because they don't have a corresponding `route` association.
+      # We do not chain the `without_project_namespaces` scope because it results in an expensive query plan in certain cases
+      unscoped
+        .with(namespaces_cte.to_arel)
+        .from(namespaces_cte.table)
         .joins(:route)
         .where(
           "REPLACE(routes.name, ' ', '') ILIKE :pattern OR routes.path ILIKE :pattern",
@@ -321,15 +368,7 @@ class Namespace < ApplicationRecord
     def clean_path(path, limited_to: Namespace.all)
       slug = Gitlab::Slug::Path.new(path).generate
       path = Namespaces::RandomizedSuffixPath.new(slug)
-      Gitlab::Utils::Uniquify.new.string(path) { |s| limited_to.find_by_path_or_name(s) }
-    end
-
-    def clean_name(value)
-      value.scan(Gitlab::Regex.group_name_regex_chars).join(' ')
-    end
-
-    def top_most
-      by_parent(nil)
+      Gitlab::Utils::Uniquify.new.string(path) { |s| limited_to.find_by_path_or_name(s) || ProjectSetting.unique_domain_exists?(s) }
     end
 
     def reference_prefix
@@ -346,6 +385,66 @@ class Namespace < ApplicationRecord
       coalesce = Arel::Nodes::NamedFunction.new('COALESCE', [sum, 0])
       coalesce.as(column.to_s)
     end
+
+    def username_reserved?(username)
+      without_project_namespaces.top_level.find_by_path_or_name(username).present?
+    end
+
+    def username_reserved_for_organization?(username, organization, excluding: [])
+      without_project_namespaces
+        .top_level
+        .in_organization(organization)
+        .where.not(id: excluding)
+        .find_by_path_or_name(username)
+        .present?
+    end
+
+    def self_or_ancestors_archived_setting_subquery
+      namespace_setting_reflection = reflect_on_association(:namespace_settings)
+      namespace_setting_table = Arel::Table.new(namespace_setting_reflection.table_name)
+      traversal_ids_ref = "#{arel_table.name}.#{arel_table[:traversal_ids].name}"
+
+      namespace_setting_table
+        .project(1)
+        .where(
+          namespace_setting_table[namespace_setting_reflection.foreign_key]
+            .eq(Arel.sql("ANY (#{traversal_ids_ref})"))
+        )
+        .where(namespace_setting_table[:archived].eq(true))
+    end
+  end
+
+  def archive
+    return false if archived?
+
+    namespace_settings.update(archived: true)
+  end
+
+  def unarchive
+    return false unless archived?
+
+    namespace_settings.update(archived: false)
+  end
+
+  def archived?
+    !!namespace_settings&.archived?
+  end
+
+  def archived_ancestor
+    ancestors(hierarchy_order: :asc, skope: Namespace).archived.first
+  end
+
+  def self_or_ancestors_archived?
+    if association(:namespace_settings_with_ancestors_inherited_settings).loaded? &&
+        namespace_settings_with_ancestors_inherited_settings
+      return namespace_settings_with_ancestors_inherited_settings.archived
+    end
+
+    self_and_ancestors(skope: Namespace).archived.exists?
+  end
+
+  def ancestors_archived?
+    ancestors.archived.exists?
   end
 
   def to_reference_base(from = nil, full: false, absolute_path: false)
@@ -537,7 +636,7 @@ class Namespace < ApplicationRecord
       path_before_last_save
     else
       previous_parent = Group.find_by(id: parent_id_before_last_save)
-      previous_parent.full_path + '/' + path_before_last_save
+      "#{previous_parent.full_path}/#{path_before_last_save}"
     end
   end
 
@@ -605,7 +704,7 @@ class Namespace < ApplicationRecord
     root? && actual_plan.paid?
   end
 
-  def prevent_delete?
+  def linked_to_subscription?
     paid?
   end
 
@@ -699,15 +798,78 @@ class Namespace < ApplicationRecord
     !!namespace_settings&.allow_runner_registration_token?
   end
 
+  def pages_access_control_trie(namespaces = self_and_descendants)
+    strong_memoize_with(:pages_access_control_trie, namespaces) do
+      traversal_ids = namespaces.joins(:namespace_settings).where(namespace_settings: { force_pages_access_control: true }).map(&:traversal_ids)
+
+      Namespaces::Traversal::TrieNode.build(traversal_ids)
+    end
+  end
+
+  def pages_access_control_forced_by_self_or_ancestor?
+    pages_access_control_trie(self_and_ancestors)&.covered?(traversal_ids)
+  end
+
+  def pages_access_control_forced_by_ancestor?
+    pages_access_control_trie(ancestors)&.covered?(traversal_ids)
+  end
+
   def all_projects_with_pages
     all_projects.with_pages_deployed.includes(
       :route,
       :project_setting,
       :project_feature,
-      :active_pages_deployments)
+      :active_pages_deployments,
+      :namespace
+    )
+  end
+
+  def web_url(only_path: nil)
+    Gitlab::UrlBuilder.build(self, only_path: only_path)
+  end
+
+  # Overriding of Namespaces::AdjournedDeletable method
+  override :self_deletion_in_progress?
+  def self_deletion_in_progress?
+    !!deleted_at
+  end
+
+  def uploads_sharding_key
+    { namespace_id: id }
+  end
+
+  def pipeline_variables_default_role
+    return namespace_settings.pipeline_variables_default_role if namespace_settings.present?
+
+    # We could have old namespaces that don't have an associated `namespace_settings` record.
+    # To avoid returning `nil` we return the database-level default.
+    NamespaceSetting.column_defaults['pipeline_variables_default_role']
+  end
+
+  def traversal_ids_as_sql
+    traversal_ids.join(',')
+  end
+
+  def namespace_details
+    super.presence || build_namespace_details
   end
 
   private
+
+  def parent_organization_match
+    return unless parent
+    return if parent.organization_id == organization_id
+
+    errors.add(:organization_id, _("must match the parent organization's ID"))
+  end
+
+  # route / path global uniqueness is handled by Routeable concern
+  # here we are checking only for conflicts with per-organization username aliases
+  def no_conflict_with_organization_user_details
+    return unless Organizations::OrganizationUserDetail.for_organization(organization).with_usernames(path).any?
+
+    errors.add(:path, _('has already been taken'))
+  end
 
   def cross_namespace_reference?(from)
     return false if from == self
@@ -720,7 +882,7 @@ class Namespace < ApplicationRecord
     when Namespaces::ProjectNamespace
       from.parent_id != comparable_namespace_id
     when Namespace
-      parent != from
+      is_a?(Group) ? from.id != id : parent != from
     when User
       true
     end
@@ -767,22 +929,18 @@ class Namespace < ApplicationRecord
   end
 
   def refresh_access_of_projects_invited_groups
-    if Feature.enabled?(:specialized_worker_for_group_lock_update_auth_recalculation)
-      Project
-        .where(namespace_id: id)
-        .joins(:project_group_links)
-        .distinct
-        .find_each do |project|
-        AuthorizedProjectUpdate::ProjectRecalculateWorker.perform_async(project.id)
-      end
-
-      # Until we compare the inconsistency rates of the new specialized worker and
-      # the old approach, we still run AuthorizedProjectsWorker
-      # but with some delay and lower urgency as a safety net.
-      enqueue_jobs_for_groups_requiring_authorizations_refresh(priority: UserProjectAccessChangedService::LOW_PRIORITY)
-    else
-      enqueue_jobs_for_groups_requiring_authorizations_refresh(priority: UserProjectAccessChangedService::HIGH_PRIORITY)
+    Project
+      .where(namespace_id: id)
+      .joins(:project_group_links)
+      .distinct
+      .find_each do |project|
+      AuthorizedProjectUpdate::ProjectRecalculateWorker.perform_async(project.id)
     end
+
+    # Until we compare the inconsistency rates of the new specialized worker and
+    # the old approach, we still run AuthorizedProjectsWorker
+    # but with some delay and lower urgency as a safety net.
+    enqueue_jobs_for_groups_requiring_authorizations_refresh(priority: UserProjectAccessChangedService::LOW_PRIORITY)
   end
 
   def enqueue_jobs_for_groups_requiring_authorizations_refresh(priority:)
@@ -824,10 +982,14 @@ class Namespace < ApplicationRecord
     end
   end
 
-  def reload_namespace_details
-    return unless !project_namespace? && (previous_changes.keys & %w[description description_html cached_markdown_version]).any? && namespace_details.present?
+  def save_namespace_details_changes
+    attribute_names_to_sync = Namespace::Detail.attribute_names - ['namespace_id']
+    attributes_to_sync = namespace_details.changes.slice(*attribute_names_to_sync)
+                                          .transform_values { |val| val[1] }
 
-    namespace_details.reset
+    self.namespace_details = Namespace::Detail.find_by_namespace_id(id) || build_namespace_details
+    namespace_details.assign_attributes(attributes_to_sync)
+    namespace_details.save!
   end
 
   def sync_share_with_group_lock_with_parent

@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_analytics_data_management do
+RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_analytics do
   include TrackingHelpers
   include SnowplowHelpers
 
@@ -10,29 +10,29 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
     allow(Gitlab::AppJsonLogger).to receive(:warn)
     allow(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception)
     allow(redis).to receive(:expire)
+    allow(redis).to receive(:hincrby)
     allow(redis).to receive(:incr)
+    allow(redis).to receive(:incrbyfloat)
     allow(redis).to receive(:multi).and_yield(redis)
     allow(redis).to receive(:pfadd)
     allow(redis).to receive(:set)
+    allow(redis).to receive(:eval)
     allow(redis).to receive(:ttl).and_return(123456)
+    allow(Gitlab::SidekiqMiddleware::ConcurrencyLimit::ConcurrencyLimitService).to receive(:has_jobs_in_queue?)
+                                                                                     .and_return(false)
     allow(Gitlab::Redis::SharedState).to receive(:with).and_yield(redis)
     allow(Gitlab::Tracking).to receive(:tracker).and_return(fake_snowplow)
-    allow(Gitlab::Tracking::EventDefinition).to receive(:find).and_return(event_definition)
-    allow(event_definition).to receive(:event_selection_rules).and_return(event_selection_rules)
-    allow(fake_snowplow).to receive(:event)
-  end
-
-  shared_examples 'an event that logs an error' do
-    it 'logs an error' do
-      described_class.track_event(event_name, additional_properties: additional_properties, **event_kwargs)
-
-      expect(Gitlab::ErrorTracking).to have_received(:track_and_raise_for_dev_exception)
-        .with(error_class,
-          event_name: event_name,
-          kwargs: logged_kwargs,
-          additional_properties: additional_properties
-        )
+    allow(Gitlab::Tracking::EventDefinition).to receive_messages(find: event_definition, internal_event_exists?: true)
+    allow_next_instance_of(Gitlab::Tracking::EventValidator) do |instance|
+      allow(instance).to receive(:validate!)
     end
+    allow(event_definition).to receive_messages(
+      event_selection_rules: event_selection_rules,
+      raw_attributes: {},
+      additional_properties: additional_properties,
+      extra_trackers: {}
+    )
+    allow(fake_snowplow).to receive(:event)
   end
 
   def expect_redis_hll_tracking(value_override = nil, property_name_override = nil)
@@ -49,6 +49,21 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
     expect(redis).to have_received(:expire).with(key_expectations, described_class::KEY_EXPIRY_LENGTH)
   end
 
+  def expect_redis_hash_counter_tracking(value_override = nil, property_name_override = nil)
+    expected_value = value_override || additional_properties[:label]
+    expected_property_name = property_name_override || :label
+
+    key_expectations = satisfy do |key|
+      key.include?(event_name) &&
+        key.include?(expected_property_name.to_s) &&
+        key.include?('operator:total') &&
+        key.end_with?(week_suffix)
+    end
+
+    expect(redis).to have_received(:hincrby).with(key_expectations, expected_value, 1)
+    expect(redis).to have_received(:ttl).with(key_expectations)
+  end
+
   def expect_no_redis_hll_tracking
     expect(redis).not_to have_received(:pfadd)
   end
@@ -59,7 +74,13 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
     end
   end
 
-  def expect_snowplow_tracking(expected_namespace = nil, expected_additional_properties = {})
+  def expect_redis_sum_tracking(value)
+    redis_arguments.each do |redis_argument|
+      expect(redis).to have_received(:incrbyfloat).with(a_string_including(redis_argument), value).once
+    end
+  end
+
+  def expect_snowplow_tracking(expected_namespace = nil, expected_additional_properties = {}, extra: {})
     service_ping_context = Gitlab::Tracking::ServicePingContext
       .new(data_source: :redis_hll, event: event_name)
       .to_context
@@ -80,7 +101,7 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
         c[:schema] == Gitlab::Tracking::StandardContext::GITLAB_STANDARD_SCHEMA_URL
       end
 
-      validate_standard_context(standard_context, expected_namespace)
+      validate_standard_context(standard_context, expected_namespace, extra)
 
       # Verify Service Ping context
       service_ping_context = contexts.find { |c| c[:schema] == Gitlab::Tracking::ServicePingContext::SCHEMA_URL }
@@ -89,12 +110,13 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
     end
   end
 
-  def validate_standard_context(standard_context, expected_namespace)
+  def validate_standard_context(standard_context, expected_namespace, extra)
     namespace = expected_namespace || project&.namespace
     expect(standard_context).not_to eq(nil)
-    expect(standard_context[:data][:user_id]).to eq(user&.id)
+    expect(standard_context[:data][:user_id]).to eq(Gitlab::CryptoHelper.sha256(user&.id)) if user
     expect(standard_context[:data][:namespace_id]).to eq(namespace&.id)
     expect(standard_context[:data][:project_id]).to eq(project&.id)
+    expect(standard_context[:data][:extra]).to eq(extra)
   end
 
   def validate_service_ping_context(service_ping_context)
@@ -114,12 +136,13 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
     [
       Gitlab::Usage::EventSelectionRule.new(name: event_name, time_framed: false),
       Gitlab::Usage::EventSelectionRule.new(name: event_name, time_framed: true),
-      Gitlab::Usage::EventSelectionRule.new(name: event_name, time_framed: true, unique_identifier_name: :user)
+      Gitlab::Usage::EventSelectionRule.new(name: event_name, time_framed: true, unique_identifier_name: :user),
+      Gitlab::Usage::EventSelectionRule.new(name: event_name, time_framed: true, operator: 'sum(value)')
     ]
   end
 
   let(:fake_snowplow) { instance_double(Gitlab::Tracking::Destinations::Snowplow) }
-  let(:event_name) { 'i_search_total' }
+  let(:event_name) { 'an_event' }
   let(:category) { 'InternalEventTracking' }
   let(:unique_value) { user.id }
   let(:property_name) { :user }
@@ -180,15 +203,43 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
       }
     end
 
-    it 'is sent to Snowplow' do
+    let(:properties) { additional_properties }
+
+    subject(:track_event) do
       described_class.track_event(
         event_name,
-        additional_properties: additional_properties,
+        additional_properties: properties,
         user: user,
         project: project
       )
+    end
+
+    it 'is sent to Snowplow' do
+      track_event
 
       expect_snowplow_tracking(nil, additional_properties)
+    end
+
+    it 'updates sums' do
+      track_event
+
+      expect_redis_sum_tracking(16.17)
+    end
+
+    context 'with a custom property' do
+      let(:properties) do
+        additional_properties.merge(custom: 'custom_property')
+      end
+
+      before do
+        allow(event_definition).to receive(:additional_properties).and_return(properties)
+      end
+
+      it 'is sent to Snowplow' do
+        track_event
+
+        expect_snowplow_tracking(nil, additional_properties, extra: { custom: 'custom_property' })
+      end
     end
 
     context 'when a filter is defined' do
@@ -210,6 +261,11 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
             name: event_name,
             time_framed: time_framed,
             filter: { label: 'label_name', value: 16.17 }
+          ),
+          Gitlab::Usage::EventSelectionRule.new(
+            name: event_name,
+            time_framed: time_framed,
+            filter: { custom: 'custom_property' }
           )
         ]
       end
@@ -227,6 +283,32 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
           described_class.track_event(
             event_name,
             additional_properties: additional_properties,
+            user: user,
+            project: project
+          )
+
+          expect_redis_tracking
+        end
+      end
+
+      context 'when event selection rule has a filter on a custom property' do
+        let(:custom_properties) { { custom: 'custom_property' } }
+        let(:redis_arguments) do
+          [
+            "filter:[custom:custom_property]-#{week_suffix}",
+            "#{event_name}-#{week_suffix}"
+          ]
+        end
+
+        before do
+          allow(event_definition).to receive(:additional_properties)
+                                       .and_return(additional_properties.merge(custom_properties))
+        end
+
+        it 'updates the correct redis keys' do
+          described_class.track_event(
+            event_name,
+            additional_properties: custom_properties,
             user: user,
             project: project
           )
@@ -311,6 +393,16 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
         end
       end
     end
+
+    context 'when additional properties are not defined in the event definition' do
+      let(:properties) { additional_properties.merge(unknown: 'unknown') }
+
+      it 'does not send the additional properties to Snowplow' do
+        track_event
+
+        expect_snowplow_tracking(nil, additional_properties, extra: {})
+      end
+    end
   end
 
   context 'when feature_enabled_by_namespace_ids is passed' do
@@ -336,56 +428,18 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
     end
   end
 
-  context 'when arguments are invalid' do
-    let(:error_class) { described_class::InvalidPropertyTypeError }
+  it 'calls the event validator' do
+    fake_validator = instance_double(Gitlab::Tracking::EventValidator, validate!: nil)
+    additional_properties = { label: 'label_name', value: 16.17, property: "lang" }
+    kwargs = { user: user, project: project }
 
-    context 'when user is not an instance of User' do
-      let(:user) { 'a_string' }
+    expect(Gitlab::Tracking::EventValidator)
+      .to receive(:new)
+      .with(event_name, additional_properties, kwargs)
+      .and_return(fake_validator)
+    expect(fake_validator).to receive(:validate!)
 
-      it_behaves_like 'an event that logs an error' do
-        let(:event_kwargs) { { user: user, project: project } }
-        let(:logged_kwargs) { { user: user, project: project.id } }
-      end
-    end
-
-    context 'when project is not an instance of Project' do
-      let(:project) { 42 }
-
-      it_behaves_like 'an event that logs an error' do
-        let(:event_kwargs) { { user: user, project: project } }
-        let(:logged_kwargs) { { user: user.id, project: project } }
-      end
-    end
-
-    context 'when namespace is not an instance of Namespace' do
-      let(:namespace) { false }
-
-      it_behaves_like 'an event that logs an error' do
-        let(:event_kwargs) { { user: user, namespace: namespace } }
-        let(:logged_kwargs) { { user: user.id, namespace: namespace } }
-      end
-    end
-
-    %i[label value property].each do |attribute_name|
-      context "when #{attribute_name} has an invalid value" do
-        let(:additional_properties) { { "#{attribute_name}": :symbol } }
-
-        it_behaves_like 'an event that logs an error' do
-          let(:event_kwargs) { { user: user } }
-          let(:logged_kwargs) { { user: user.id } }
-        end
-      end
-    end
-
-    context "when disallowed additional properties are passed" do
-      let(:error_class) { described_class::InvalidPropertyError }
-      let(:additional_properties) { { new_property: 'value' } }
-
-      it_behaves_like 'an event that logs an error' do
-        let(:event_kwargs) { { user: user } }
-        let(:logged_kwargs) { { user: user.id } }
-      end
-    end
+    described_class.track_event(event_name, additional_properties: additional_properties, **kwargs)
   end
 
   it 'updates Redis, RedisHLL and Snowplow', :aggregate_failures do
@@ -396,26 +450,30 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
     expect_snowplow_tracking
   end
 
-  it 'rescues error', :aggregate_failures do
-    params = { user: user, project: project }
-    error = StandardError.new("something went wrong")
-    allow(fake_snowplow).to receive(:event).and_raise(error)
+  describe 'errors handling' do
+    let(:params) { { user: user, project: project } }
+    let(:error) { StandardError.new("something went wrong") }
 
-    expect(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception)
-      .with(
-        error,
-        snowplow_category: 'InternalEventTracking',
-        snowplow_action: event_name
-      )
+    it 'rescues error from tracking', :aggregate_failures do
+      allow(fake_snowplow).to receive(:event).and_raise(error)
 
-    expect { described_class.track_event(event_name, **params) }.not_to raise_error
-  end
+      expect(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception)
+        .with(
+          error,
+          snowplow_category: 'InternalEventTracking',
+          snowplow_action: event_name
+        )
 
-  it 'logs error on unknown event', :aggregate_failures do
-    expect(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception)
-      .with(described_class::UnknownEventError, event_name: 'unknown_event', kwargs: {}, additional_properties: {})
+      expect { described_class.track_event(event_name, **params) }.not_to raise_error
+    end
 
-    expect { described_class.track_event('unknown_event') }.not_to raise_error
+    it 'rescues error from validator' do
+      allow_next_instance_of(Gitlab::Tracking::EventValidator) do |instance|
+        allow(instance).to receive(:validate!).and_raise(error)
+      end
+
+      expect { described_class.track_event(event_name, **params) }.not_to raise_error
+    end
   end
 
   it 'logs warning on missing property', :aggregate_failures do
@@ -482,6 +540,24 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
         expect_redis_tracking
         expect_redis_hll_tracking(user.id, :user)
         expect_redis_hll_tracking(project.id, :project)
+        expect_snowplow_tracking
+      end
+    end
+
+    context 'when unique key is an additional property' do
+      let(:event_selection_rules) do
+        [
+          Gitlab::Usage::EventSelectionRule.new(name: event_name, time_framed: false),
+          Gitlab::Usage::EventSelectionRule.new(name: event_name, time_framed: true),
+          Gitlab::Usage::EventSelectionRule.new(name: event_name, time_framed: true, unique_identifier_name: :label)
+        ]
+      end
+
+      it 'is used when logging to RedisHLL', :aggregate_failures do
+        described_class.track_event(event_name, user: user, project: project, label: 'label')
+
+        expect_redis_tracking
+        expect_redis_hll_tracking('label'.hash, :label)
         expect_snowplow_tracking
       end
     end
@@ -667,7 +743,6 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
           context 'when namespace is early access program participant' do
             let(:namespace_participating) { true }
             let(:event_name) { 'g_edit_by_snippet_ide' }
-            let(:additional_properties) { { label: 'label_name' } }
             let(:user) { create(:user) }
 
             before do
@@ -690,7 +765,7 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
               expect(user.early_access_program_tracking_events.size).to eq 1
               expect(user.early_access_program_tracking_events.first)
                 .to have_attributes(
-                  event_name: 'g_edit_by_snippet_ide', event_label: 'label_name', category: 'InternalEventTracking'
+                  event_name: 'g_edit_by_snippet_ide', category: 'InternalEventTracking'
                 )
             end
           end
@@ -703,6 +778,190 @@ RSpec.describe Gitlab::InternalEvents, :snowplow, feature_category: :product_ana
         end
 
         it_behaves_like 'does not create early access program tracking event'
+      end
+    end
+  end
+
+  describe 'custom tracking classes' do
+    let(:extra_properties) { { private_property: 'private_prop' } }
+    let(:event_kwargs) do
+      additional_properties.merge(extra_properties).merge({ user: user, project: project })
+    end
+
+    let(:custom_tracking_class) do
+      Class.new do
+        def self.track_event(event_name, **kwargs); end
+      end
+    end
+
+    context 'when custom classes are defined' do
+      before do
+        custom_tracking = { custom_tracking_class => { extra_properties: [:private_property] } }
+        allow(event_definition).to receive(:extra_trackers).and_return(custom_tracking)
+      end
+
+      context 'when event is not defined' do
+        let(:event_name) { 'an_event_that_does_not_exist' }
+
+        before do
+          allow(Gitlab::Tracking::EventDefinition).to receive(:find).with(event_name).and_return(nil)
+        end
+
+        it 'does not call custom classes' do
+          expect(custom_tracking_class).not_to receive(:track_event)
+
+          described_class.track_event(event_name, user: user, project: project)
+        end
+      end
+
+      it 'calls the custom classes with extra tracking properties' do
+        expect(custom_tracking_class).to receive(:track_event).with(event_name, **event_kwargs)
+
+        # expected_kwags= event_kwargs.merge(private_property: 'private_prop')
+        described_class.track_event(event_name, **event_kwargs)
+      end
+    end
+  end
+
+  context 'when unique total counter is defined' do
+    let(:event_selection_rules) do
+      [
+        Gitlab::Usage::EventSelectionRule.new(name: event_name, time_framed: false),
+        Gitlab::Usage::EventSelectionRule.new(name: event_name, time_framed: true),
+        Gitlab::Usage::EventSelectionRule.new(
+          name: event_name,
+          time_framed: true,
+          unique_identifier_name: :label,
+          operator: 'total'
+        )
+      ]
+    end
+
+    let(:additional_properties) { { label: 'label_value' } }
+
+    it 'updates Redis hash counter, standard Redis counter and Snowplow', :aggregate_failures do
+      described_class.track_event(
+        event_name,
+        additional_properties: additional_properties,
+        user: user,
+        project: project
+      )
+
+      expect_redis_tracking
+      expect_redis_hash_counter_tracking
+      expect_snowplow_tracking(project.namespace, additional_properties)
+    end
+
+    context 'when no expiry is needed' do
+      let(:event_selection_rules) do
+        [
+          Gitlab::Usage::EventSelectionRule.new(
+            name: event_name,
+            time_framed: false,
+            unique_identifier_name: :label,
+            operator: 'total'
+          )
+        ]
+      end
+
+      it 'does not set expiry' do
+        described_class.track_event(
+          event_name,
+          additional_properties: additional_properties,
+          user: user,
+          project: project
+        )
+
+        expect(redis).to have_received(:hincrby).with(a_string_including(event_name), 'label_value', 1)
+        expect(redis).not_to have_received(:ttl)
+        expect(redis).not_to have_received(:expire)
+      end
+    end
+
+    context 'when property is missing' do
+      let(:additional_properties) { {} }
+
+      it 'does not update Redis hash counter' do
+        described_class.track_event(
+          event_name,
+          additional_properties: additional_properties,
+          user: user,
+          project: project
+        )
+
+        expect(redis).not_to have_received(:hincrby)
+      end
+    end
+
+    context 'with a filter defined' do
+      let(:event_selection_rules) do
+        [
+          Gitlab::Usage::EventSelectionRule.new(
+            name: event_name,
+            time_framed: true,
+            unique_identifier_name: :label,
+            operator: 'total',
+            filter: { category: 'package' }
+          )
+        ]
+      end
+
+      context 'when event matches the filter' do
+        let(:additional_properties) do
+          {
+            label: 'label_value',
+            category: 'package'
+          }
+        end
+
+        it 'updates Redis hash counter' do
+          described_class.track_event(
+            event_name,
+            additional_properties: additional_properties,
+            user: user,
+            project: project
+          )
+
+          expect(redis).to have_received(:hincrby)
+        end
+      end
+
+      context 'when event does not match the filter' do
+        let(:additional_properties) do
+          {
+            label: 'label_value',
+            category: 'not_package'
+          }
+        end
+
+        it 'does not update Redis hash counter' do
+          described_class.track_event(
+            event_name,
+            additional_properties: additional_properties,
+            user: user,
+            project: project
+          )
+
+          expect(redis).not_to have_received(:hincrby)
+        end
+      end
+    end
+
+    context 'when existing TTL is present' do
+      before do
+        allow(redis).to receive(:ttl).and_return(1)
+      end
+
+      it 'does not override the existing expiry' do
+        described_class.track_event(
+          event_name,
+          additional_properties: additional_properties,
+          user: user,
+          project: project
+        )
+
+        expect(redis).to have_received(:hincrby)
+        expect(redis).not_to have_received(:expire)
       end
     end
   end

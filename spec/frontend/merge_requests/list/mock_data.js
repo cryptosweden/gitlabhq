@@ -1,7 +1,7 @@
 export const getQueryResponse = {
   data: {
-    project: {
-      id: '1',
+    namespace: {
+      id: 1,
       __typename: 'Project',
       mergeRequests: {
         pageInfo: {
@@ -21,9 +21,12 @@ export const getQueryResponse = {
             state: 'opened',
             title: 'Merge request title',
             updatedAt: '2021-05-22T04:08:01Z',
+            mergedAt: '2021-05-22T04:08:01Z',
             upvotes: 3,
-            userDiscussionsCount: 4,
-            webUrl: 'project/-/merge_requests/789',
+            resolvedDiscussionsCount: 4,
+            resolvableDiscussionsCount: 4,
+            webPath: 'project/-/merge_requests/789',
+            draft: false,
             assignees: {
               nodes: [
                 {
@@ -34,6 +37,19 @@ export const getQueryResponse = {
                   username: 'msimpson',
                   webUrl: 'url/msimpson',
                   webPath: '/msimpson',
+                },
+              ],
+            },
+            reviewers: {
+              nodes: [
+                {
+                  __typename: 'UserCore',
+                  id: 'gid://gitlab/User/789',
+                  avatarUrl: 'avatar/url',
+                  name: 'Bart Simpson',
+                  username: 'bsimpson',
+                  webUrl: 'url/bsimpson',
+                  webPath: '/bsimpson',
                 },
               ],
             },
@@ -58,6 +74,25 @@ export const getQueryResponse = {
             },
             milestone: null,
             headPipeline: null,
+            commitCount: 1,
+            conflicts: false,
+            sourceBranchExists: true,
+            targetBranchExists: true,
+            targetBranch: 'main',
+            targetBranchPath: '/target-branch',
+            approved: false,
+            hidden: false,
+            approvedBy: {
+              nodes: [
+                {
+                  id: 1,
+                },
+              ],
+            },
+            taskCompletionStatus: {
+              completedCount: 0,
+              count: 1,
+            },
           },
         ],
       },
@@ -67,7 +102,7 @@ export const getQueryResponse = {
 
 export const getCountsQueryResponse = {
   data: {
-    project: {
+    namespace: {
       id: 1,
       openedMergeRequests: { count: 1 },
       mergedMergeRequests: { count: 1 },

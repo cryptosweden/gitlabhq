@@ -1,13 +1,15 @@
-import { GlAvatar, GlDisclosureDropdown, GlLoadingIcon, GlLink } from '@gitlab/ui';
+import { GlAvatar, GlDisclosureDropdown, GlLoadingIcon } from '@gitlab/ui';
 import VueApollo from 'vue-apollo';
 import Vue from 'vue';
 
-import organizationsGraphQlResponse from 'test_fixtures/graphql/organizations/organizations.query.graphql.json';
+import currentUserOrganizationsGraphQlResponse from 'test_fixtures/graphql/organizations/current_user_organizations.query.graphql.json';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 import OrganizationSwitcher from '~/super_sidebar/components/organization_switcher.vue';
-import { defaultOrganization as currentOrganization } from '~/organizations/mock_data';
-import { pageInfoEmpty } from 'jest/organizations/mock_data';
-import organizationsQuery from '~/organizations/shared/graphql/queries/organizations.query.graphql';
+import {
+  pageInfoEmpty,
+  defaultOrganization as currentOrganization,
+} from 'jest/organizations/mock_data';
+import organizationsQuery from '~/organizations/shared/graphql/queries/current_user_organizations.query.graphql';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import { helpPagePath } from '~/helpers/help_page_helper';
 import createMockApollo from 'helpers/mock_apollo_helper';
@@ -25,7 +27,7 @@ describe('OrganizationSwitcher', () => {
         organizations: { nodes, pageInfo },
       },
     },
-  } = organizationsGraphQlResponse;
+  } = currentUserOrganizationsGraphQlResponse;
 
   const [firstOrganization, secondOrganization] = nodes;
 
@@ -54,6 +56,10 @@ describe('OrganizationSwitcher', () => {
   const findDropdownItemByIndex = (index) =>
     wrapper.findAllByTestId('disclosure-dropdown-item').at(index);
   const showDropdown = () => wrapper.findComponent(GlDisclosureDropdown).vm.$emit('shown');
+
+  beforeEach(() => {
+    window.gon.current_organization = currentOrganization;
+  });
 
   afterEach(() => {
     mockApollo = null;
@@ -103,7 +109,7 @@ describe('OrganizationSwitcher', () => {
         await waitForPromises();
 
         expect(findDropdownItemByIndex(1).text()).toContain(firstOrganization.name);
-        expect(findDropdownItemByIndex(1).element.firstChild.getAttribute('href')).toBe(
+        expect(findDropdownItemByIndex(1).find('a').attributes('href')).toBe(
           firstOrganization.webUrl,
         );
         expect(findDropdownItemByIndex(1).findComponent(GlAvatar).props()).toMatchObject({
@@ -113,7 +119,7 @@ describe('OrganizationSwitcher', () => {
         });
 
         expect(findDropdownItemByIndex(2).text()).toContain(secondOrganization.name);
-        expect(findDropdownItemByIndex(2).element.firstChild.getAttribute('href')).toBe(
+        expect(findDropdownItemByIndex(2).find('a').attributes('href')).toBe(
           secondOrganization.webUrl,
         );
         expect(findDropdownItemByIndex(2).findComponent(GlAvatar).props()).toMatchObject({
@@ -121,6 +127,13 @@ describe('OrganizationSwitcher', () => {
           entityId: getIdFromGraphQLId(secondOrganization.id),
           entityName: secondOrganization.name,
         });
+
+        expect(wrapper.text()).toContain(
+          'Organizations is a new feature. Help us make it better by',
+        );
+        expect(wrapper.findByTestId('feedback-url').attributes('href')).toBe(
+          'https://gitlab.com/gitlab-com/gl-infra/tenant-scale/organizations/organizations-internal-feedback/-/issues/1',
+        );
       });
 
       describe('when there are no organizations to switch to', () => {
@@ -178,8 +191,8 @@ describe('OrganizationSwitcher', () => {
         expect(wrapper.text()).toContain(
           'Switching between organizations is not currently supported.',
         );
-        expect(wrapper.findComponent(GlLink).attributes('href')).toBe(
-          helpPagePath('user/organization/index.md', {
+        expect(wrapper.findByTestId('switching-docs-link').attributes('href')).toBe(
+          helpPagePath('user/organization/_index.md', {
             anchor: 'switch-organizations',
           }),
         );

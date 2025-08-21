@@ -4,12 +4,12 @@ require 'rubocop_spec_helper'
 
 require_relative '../../../../rubocop/cop/graphql/id_type'
 
-RSpec.describe RuboCop::Cop::Graphql::IDType do
+RSpec.describe RuboCop::Cop::Graphql::IDType, feature_category: :api do
   it 'adds an offense when GraphQL::Types::ID is used as a param to #argument' do
-    expect_offense(<<~TYPE)
+    expect_offense(<<~RUBY)
       argument :some_arg, GraphQL::Types::ID, some: other, params: do_not_matter
       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Do not use GraphQL::Types::ID, use a specific GlobalIDType instead
-    TYPE
+    RUBY
   end
 
   context 'allowlisted arguments' do
@@ -26,5 +26,57 @@ RSpec.describe RuboCop::Cop::Graphql::IDType do
     expect_no_offenses(<<~TYPE.strip)
       argument :some_arg, ::Types::GlobalIDType[::Awardable], some: other, params: do_not_matter
     TYPE
+  end
+
+  it 'adds an offense when GraphQL::Types::ID is used with an IID field' do
+    expect_offense(<<~RUBY)
+      field :iid, GraphQL::Types::ID, some: other, params: do_not_matter
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Do not use GraphQL::Types::ID for IIDs, use GraphQL::Types::String instead
+    RUBY
+  end
+
+  it 'adds an offense when GraphQL::Types::ID is used with an IID-like field' do
+    expect_offense(<<~RUBY)
+      field :issue_iid, GraphQL::Types::ID, some: other, params: do_not_matter
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Do not use GraphQL::Types::ID for IIDs, use GraphQL::Types::String instead
+    RUBY
+  end
+
+  it 'adds an offense when GraphQL::Types::ID is used with an IID argument' do
+    expect_offense(<<~RUBY)
+      argument :iid, GraphQL::Types::ID, some: other, params: do_not_matter
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Do not use GraphQL::Types::ID for IIDs, use GraphQL::Types::String instead
+    RUBY
+  end
+
+  it 'adds an offense when GraphQL::Types::ID is used with an IID-like argument' do
+    expect_offense(<<~RUBY)
+      argument :merge_request_iid, GraphQL::Types::ID, some: other, params: do_not_matter
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Do not use GraphQL::Types::ID for IIDs, use GraphQL::Types::String instead
+    RUBY
+  end
+
+  it 'does not add an offense when GraphQL::Types::String is used with an IID field' do
+    expect_no_offenses(<<~RUBY)
+      field :iid, GraphQL::Types::String, some: other, params: do_not_matter
+    RUBY
+  end
+
+  it 'does not add an offense when GraphQL::Types::String is used with an IID-like field' do
+    expect_no_offenses(<<~RUBY)
+      field :issue_iid, GraphQL::Types::String, some: other, params: do_not_matter
+    RUBY
+  end
+
+  it 'does not add an offense when GraphQL::Types::String is used with an IID argument' do
+    expect_no_offenses(<<~RUBY)
+      argument :iid, GraphQL::Types::String, some: other, params: do_not_matter
+    RUBY
+  end
+
+  it 'does not add an offense when GraphQL::Types::String is used with an IID-like argument' do
+    expect_no_offenses(<<~RUBY)
+      argument :merge_request_iid, GraphQL::Types::String, some: other, params: do_not_matter
+    RUBY
   end
 end

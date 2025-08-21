@@ -1,14 +1,16 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Test OIDC/OAuth in GitLab
 ---
 
-# Test OIDC/OAuth in GitLab
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 To test OIDC/OAuth in GitLab, you must:
 
@@ -20,7 +22,7 @@ To test OIDC/OAuth in GitLab, you must:
 
 Before you can test OIDC/OAuth on GitLab, you must:
 
-- Have a publicly accessible GitLab self-managed instance.
+- Have a publicly accessible instance.
 - Be an administrator for that instance.
 - Have a client application that you want to use to test OIDC/OAuth.
 
@@ -28,7 +30,7 @@ Before you can test OIDC/OAuth on GitLab, you must:
 
 First, you must create OIDC/OAuth application on your GitLab instance. To do this:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Applications**.
 1. Select **Add new application**.
 1. Fill in the details for your client application, including the name, redirect URI, and allowed scopes.

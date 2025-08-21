@@ -52,8 +52,7 @@ class Projects::LabelsController < Projects::ApplicationController
     end
   end
 
-  def edit
-  end
+  def edit; end
 
   def update
     @label = Labels::UpdateService.new(label_params).execute(@label)
@@ -149,13 +148,15 @@ class Projects::LabelsController < Projects::ApplicationController
   end
 
   def flash_notice_for(label, group)
-    ''.html_safe + "#{label.title} promoted to " + view_context.link_to('<u>group label</u>'.html_safe, group_labels_path(group)) + '.'
+    safe_link = view_context.link_to('<u>group label</u>'.html_safe, group_labels_path(group))
+    view_context.safe_join([ERB::Util.html_escape(label.title), " promoted to ", safe_link, "."])
   end
 
   protected
 
   def label_params
     allowed = [:title, :description, :color]
+    allowed << :archived if Feature.enabled?(:labels_archive, :instance)
     allowed << :lock_on_merge if @project.supports_lock_on_merge?
 
     params.require(:label).permit(allowed)
@@ -176,6 +177,7 @@ class Projects::LabelsController < Projects::ApplicationController
       include_ancestor_groups: true,
       search: params[:search],
       subscribed: params[:subscribed],
+      archived: params[:archived],
       sort: sort
     ).execute
   end

@@ -20,6 +20,7 @@ const router = new VueRouter();
 describe('Design management toolbar component', () => {
   let wrapper;
 
+  // eslint-disable-next-line max-params
   function createComponent(isLoading = false, createDesign = true, props, isLoggedIn = true) {
     if (isLoggedIn) {
       window.gon.current_user_id = 1;
@@ -47,6 +48,7 @@ describe('Design management toolbar component', () => {
           name: 'Test Name',
         },
         image: '/-/designs/306/7f747adcd4693afadbe968d7ba7d983349b9012d',
+        isSidebarOpen: false,
         ...props,
       },
     });

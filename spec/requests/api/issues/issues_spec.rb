@@ -13,7 +13,9 @@ RSpec.describe API::Issues, feature_category: :team_planning do
 
   let_it_be(:user2) { create(:user) }
   let_it_be(:non_member) { create(:user) }
-  let_it_be(:guest)       { create(:user, guest_of: [project, private_mrs_project]) }
+  let_it_be(:guest) { create(:user, guest_of: [project, private_mrs_project]) }
+  let_it_be(:planner) { create(:user, planner_of: [project]) }
+  let_it_be(:owner) { create(:user, owner_of: [project]) }
   let_it_be(:author)      { create(:author) }
   let_it_be(:assignee)    { create(:assignee) }
   let_it_be(:admin) { create(:user, :admin) }
@@ -378,7 +380,7 @@ RSpec.describe API::Issues, feature_category: :team_planning do
       it 'returns issues reacted by the authenticated user' do
         issue2 = create(:issue, project: project, author: user, assignees: [user])
         create(:award_emoji, awardable: issue2, user: user2, name: 'star')
-        create(:award_emoji, awardable: issue, user: user2, name: 'thumbsup')
+        create(:award_emoji, awardable: issue, user: user2, name: AwardEmoji::THUMBS_UP)
 
         get api('/issues', user2), params: { my_reaction_emoji: 'Any', scope: 'all' }
 
@@ -1095,6 +1097,166 @@ RSpec.describe API::Issues, feature_category: :team_planning do
         let(:target_issue) { issue }
       end
     end
+
+    context 'when authenticated with a token that has the ai_workflows scope' do
+      let(:oauth_token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+
+      subject(:get_issues) { get api('/issues', oauth_access_token: oauth_token) }
+
+      it 'is successful' do
+        get_issues
+
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+    end
+
+    context "when issues are filtered by authorization" do
+      let_it_be(:current_user) { create(:user) }
+
+      let_it_be(:group) { create(:group) }
+      let_it_be(:project) { create(:project, namespace: group, developers: [current_user]) }
+
+      let_it_be(:restricted_issue) { create(:issue, project: project, assignees: [current_user]) }
+      let_it_be(:unrestricted_issue) { create(:issue, project: project, assignees: [current_user]) }
+
+      context "when unauthorized issues are not filtered out" do
+        it "includes all issues" do
+          get api('/issues', current_user), params: { scope: 'assigned_to_me' }
+
+          expect_paginated_array_response(restricted_issue.id, unrestricted_issue.id)
+        end
+      end
+
+      context "when Ability filters out unauthorized issues" do
+        before do
+          allow(Ability).to receive(:issues_readable_by_user).and_return([unrestricted_issue])
+        end
+
+        it "includes only authorized issues" do
+          get api('/issues', current_user), params: { scope: 'assigned_to_me' }
+
+          expect_paginated_array_response(unrestricted_issue.id)
+        end
+      end
+    end
+  end
+
+  describe 'GET /projects/:id/issues' do
+    context 'when authenticated with a token that has the ai_workflows scope' do
+      let(:oauth_token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+
+      subject(:get_project_issues) { get api("/projects/#{project.id}/issues", oauth_access_token: oauth_token) }
+
+      it 'is successful' do
+        get_project_issues
+
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+    end
+
+    context 'when using keyset pagination' do
+      it 'returns first page with cursor to next page' do
+        params = { pagination: 'keyset', per_page: 2, order_by: 'updated_at', sort: 'asc' }
+        get api("/projects/#{project.id}/issues", user), params: params
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response.size).to eq(2)
+        expect(json_response.pluck('id')).to match_array([confidential_issue.id, closed_issue.id])
+        expect(response.headers["Link"]).to include("cursor")
+        next_cursor = response.headers["Link"].match("(?<cursor_data>cursor=.*?)&")["cursor_data"]
+
+        get api("/projects/#{project.id}/issues", user), params: params.merge(Rack::Utils.parse_query(next_cursor))
+
+        expect(json_response.size).to eq(1)
+        expect(json_response.pluck('id')).to match_array([issue.id])
+        expect(response.headers).not_to include("Link")
+      end
+
+      it 'respects state filters' do
+        params = { pagination: 'keyset', per_page: 2, state: 'opened' }
+        get api("/projects/#{project.id}/issues", user), params: params
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response.size).to eq(2)
+        expect(json_response.pluck('id')).to match_array([issue.id, confidential_issue.id])
+        expect(response.headers).not_to include("Link")
+      end
+
+      it 'orders by created_at' do
+        issue.update!(created_at: 1.second.ago)
+        params = { pagination: 'keyset', per_page: 2, order_by: 'created_at' }
+        get api("/projects/#{project.id}/issues", user), params: params
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response.first['id']).to eq(issue.id)
+      end
+
+      it 'orders by title' do
+        issue.update!(title: 'aaaaa')
+
+        params = { pagination: 'keyset', per_page: 2, order_by: 'title', sort: 'asc' }
+        get api("/projects/#{project.id}/issues", user), params: params
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response.first['id']).to eq(issue.id)
+      end
+
+      it 'orders by due date' do
+        issue.update!(due_date: 1.day.from_now)
+        confidential_issue.update!(due_date: 2.days.ago)
+
+        params = { pagination: 'keyset', per_page: 2, order_by: 'due_date' }
+        get api("/projects/#{project.id}/issues", user), params: params
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response.first['id']).to eq(issue.id)
+      end
+
+      it 'orders by relative_position' do
+        issue.update!(relative_position: 10)
+        confidential_issue.update!(relative_position: 9)
+
+        params = { pagination: 'keyset', per_page: 2, order_by: 'relative_position' }
+        get api("/projects/#{project.id}/issues", user), params: params
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response.first['id']).to eq(issue.id)
+      end
+
+      context 'when ordering by not-keyset-supported param is called' do
+        it 'orders by label priority' do
+          params = { pagination: 'keyset', per_page: 1, order_by: 'label_priority' }
+          get api("/projects/#{project.id}/issues", user), params: params
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response.headers["Link"]).not_to include("cursor")
+        end
+
+        it 'orders by popularity' do
+          params = { pagination: 'keyset', per_page: 1, order_by: 'popularity' }
+          get api("/projects/#{project.id}/issues", user), params: params
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response.headers["Link"]).not_to include("cursor")
+        end
+
+        it 'orders by milestone due' do
+          params = { pagination: 'keyset', per_page: 1, order_by: 'milestone_due' }
+          get api("/projects/#{project.id}/issues", user), params: params
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response.headers["Link"]).not_to include("cursor")
+        end
+
+        it 'orders by priority' do
+          params = { pagination: 'keyset', per_page: 1, order_by: 'priority' }
+          get api("/projects/#{project.id}/issues", user), params: params
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response.headers["Link"]).not_to include("cursor")
+        end
+      end
+    end
   end
 
   describe 'GET /projects/:id/issues/:issue_iid' do
@@ -1172,9 +1334,41 @@ RSpec.describe API::Issues, feature_category: :team_planning do
         expect(json_response['message']).to eq('some error')
       end
     end
+
+    context 'when authenticated with a token that has the ai_workflows scope' do
+      let(:oauth_token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+
+      subject(:create_issue) { post api("/projects/#{project.id}/issues", oauth_access_token: oauth_token), params: { title: 'new issue' } }
+
+      it 'is successful' do
+        create_issue
+
+        expect(response).to have_gitlab_http_status(:created)
+      end
+    end
   end
 
   describe 'PUT /projects/:id/issues/:issue_iid' do
+    context 'when user has insufficient permissions' do
+      let(:params) { { title: 'new title' } }
+
+      it 'returns forbidden status for guest' do
+        put api("/projects/#{project.id}/issues/#{issue.iid}", guest), params: params
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+
+      context 'when issue_type is incident' do
+        let_it_be(:incident) { create(:issue, :incident, project: project) }
+
+        it 'returns forbidden status for planner' do
+          put api("/projects/#{project.id}/issues/#{incident.iid}", planner), params: params
+
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
+      end
+    end
+
     it_behaves_like 'issuable update endpoint' do
       let(:entity) { issue }
     end
@@ -1219,6 +1413,18 @@ RSpec.describe API::Issues, feature_category: :team_planning do
         expect(issue.reload.work_item_type.incident?).to be(true)
       end
     end
+
+    context 'when authenticated with a token that has the ai_workflows scope' do
+      let(:oauth_token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+
+      subject(:update_issue) { put api("/projects/#{project.id}/issues/#{issue.iid}", oauth_access_token: oauth_token), params: { title: 'updated issue' } }
+
+      it 'is successful' do
+        update_issue
+
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+    end
   end
 
   describe 'DELETE /projects/:id/issues/:issue_iid' do
@@ -1235,9 +1441,6 @@ RSpec.describe API::Issues, feature_category: :team_planning do
     end
 
     context 'when the user is project owner' do
-      let(:owner)     { create(:user) }
-      let(:project)   { create(:project, namespace: owner.namespace) }
-
       it 'deletes the issue if an admin requests it' do
         delete api("/projects/#{project.id}/issues/#{issue_for_deletion.iid}", owner)
 
@@ -1261,6 +1464,25 @@ RSpec.describe API::Issues, feature_category: :team_planning do
       delete api("/projects/#{project.id}/issues/#{issue_for_deletion.id}", user)
 
       expect(response).to have_gitlab_http_status(:not_found)
+    end
+
+    context 'when issue type is incident' do
+      let_it_be(:incident) { create(:issue, :incident, author: author, assignees: [assignee], project: project) }
+
+      where(:current_user) { [ref(:planner), ref(:author), ref(:assignee)] }
+
+      with_them do
+        it 'rejects user from deleting an incident' do
+          delete api("/projects/#{project.id}/issues/#{incident.iid}", current_user)
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
+      end
+
+      it 'allows an owner to delete an incident' do
+        delete api("/projects/#{project.id}/issues/#{incident.iid}", owner)
+
+        expect(response).to have_gitlab_http_status(:no_content)
+      end
     end
   end
 

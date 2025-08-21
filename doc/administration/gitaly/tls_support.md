@@ -1,10 +1,9 @@
 ---
-stage: Systems
+stage: Data Access
 group: Gitaly
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Gitaly TLS support
 ---
-
-# Gitaly TLS support
 
 Gitaly supports TLS encryption. To communicate with a Gitaly instance that listens for secure
 connections, use the `tls://` URL scheme in the `gitaly_address` of the corresponding
@@ -35,13 +34,19 @@ If you use a load balancer, it must be able to negotiate HTTP/2 using the ALPN T
 
 ## Configure Gitaly with TLS
 
+{{< history >}}
+
+- Minimum TLS version configuration option [introduced](https://gitlab.com/gitlab-org/gitaly/-/merge_requests/7755) in GitLab 17.11.
+
+{{< /history >}}
+
 [Configure Gitaly](configure_gitaly.md) before configuring TLS support.
 
 The process for configuring TLS support depends on your installation type.
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Create certificates for Gitaly servers.
 1. On the Gitaly clients, copy the certificates (or their certificate authority) into
@@ -51,14 +56,14 @@ The process for configuring TLS support depends on your installation type.
    sudo cp cert.pem /etc/gitlab/trusted-certs/
    ```
 
-1. On the Gitaly clients, edit `git_data_dirs` in `/etc/gitlab/gitlab.rb` as follows:
+1. On the Gitaly clients, edit `gitlab_rails['repositories_storages']` in `/etc/gitlab/gitlab.rb` as follows:
 
    ```ruby
-   git_data_dirs({
+   gitlab_rails['repositories_storages'] = {
      'default' => { 'gitaly_address' => 'tls://gitaly1.internal:9999' },
      'storage1' => { 'gitaly_address' => 'tls://gitaly1.internal:9999' },
      'storage2' => { 'gitaly_address' => 'tls://gitaly2.internal:9999' },
-   })
+   }
    ```
 
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation).
@@ -69,7 +74,10 @@ The process for configuring TLS support depends on your installation type.
    sudo mkdir -p /etc/gitlab/ssl
    sudo chmod 755 /etc/gitlab/ssl
    sudo cp key.pem cert.pem /etc/gitlab/ssl/
-   sudo chmod 644 key.pem cert.pem
+   sudo chmod 644 /etc/gitlab/ssl/cert.pem
+   sudo chmod 600 /etc/gitlab/ssl/key.pem
+   # For Linux package installations, 'git' is the default username. Modify the following command if it was changed from the default
+   sudo chown -R git /etc/gitlab/ssl
    ```
 
 1. Copy all Gitaly server certificates (or their certificate authority) to
@@ -92,6 +100,12 @@ The process for configuring TLS support depends on your installation type.
       tls: {
         certificate_path: '/etc/gitlab/ssl/cert.pem',
         key_path: '/etc/gitlab/ssl/key.pem',
+        ## Optionally configure the minimum TLS version Gitaly offers to clients.
+        ##
+        ## Default: "TLS 1.2"
+        ## Options: ["TLS 1.2", "TLS 1.3"].
+        #
+        # min_version: "TLS 1.2"
       },
    }
    ```
@@ -107,7 +121,9 @@ The process for configuring TLS support depends on your installation type.
    1. Saving the file.
    1. [Reconfiguring GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation).
 
-:::TabTitle Self-compiled (source)
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
 
 1. Create certificates for Gitaly servers.
 1. On the Gitaly clients, copy the certificates into the system trusted certificates:
@@ -117,7 +133,8 @@ The process for configuring TLS support depends on your installation type.
    sudo update-ca-certificates
    ```
 
-1. On the Gitaly clients, edit `storages` in `/home/git/gitlab/config/gitlab.yml` as follows:
+1. On the Gitaly clients, edit `storages` in `/home/git/gitlab/config/gitlab.yml` to change `gitaly_address` to use
+   a TLS address. For example:
 
    ```yaml
    gitlab:
@@ -125,19 +142,14 @@ The process for configuring TLS support depends on your installation type.
        storages:
          default:
            gitaly_address: tls://gitaly1.internal:9999
-           path: /some/local/path
+           gitaly_token: AUTH_TOKEN_1
          storage1:
            gitaly_address: tls://gitaly1.internal:9999
-           path: /some/local/path
+           gitaly_token: AUTH_TOKEN_1
          storage2:
            gitaly_address: tls://gitaly2.internal:9999
-           path: /some/local/path
+           gitaly_token: AUTH_TOKEN_2
    ```
-
-   NOTE:
-   `/some/local/path` should be set to a local folder that exists, however no data is stored
-   in this folder. This requirement is scheduled to be removed when
-   [Gitaly issue #1282](https://gitlab.com/gitlab-org/gitaly/-/issues/1282) is resolved.
 
 1. Save the file and [restart GitLab](../restart_gitlab.md#self-compiled-installations).
 1. On the Gitaly servers, create or edit `/etc/default/gitlab` and add:
@@ -152,7 +164,10 @@ The process for configuring TLS support depends on your installation type.
    sudo mkdir -p /etc/gitlab/ssl
    sudo chmod 755 /etc/gitlab/ssl
    sudo cp key.pem cert.pem /etc/gitlab/ssl/
-   sudo chmod 644 key.pem cert.pem
+   sudo chmod 644 /etc/gitlab/ssl/cert.pem
+   sudo chmod 600 /etc/gitlab/ssl/key.pem
+   # Set ownership to the same user that runs Gitaly
+   sudo chown -R git /etc/gitlab/ssl
    ```
 
 1. Copy all Gitaly server certificates (or their certificate authority) to the system trusted
@@ -183,18 +198,20 @@ The process for configuring TLS support depends on your installation type.
    1. Saving the file.
    1. [Restarting GitLab](../restart_gitlab.md#self-compiled-installations).
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### Update the certificates
 
 To update the Gitaly certificates after initial configuration:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 If the content of your SSL certificates under the `/etc/gitlab/ssl` directory have been updated, but no configuration changes have been made to
-`/etc/gitlab/gitlab.rb`, then reconfiguring GitLab doesn’t affect Gitaly. Instead, you must restart Gitaly manually for the certificates to be loaded
+`/etc/gitlab/gitlab.rb`, then reconfiguring GitLab doesn't affect Gitaly. Instead, you must restart Gitaly manually for the certificates to be loaded
 by the Gitaly process:
 
 ```shell
@@ -210,7 +227,9 @@ If you change or update the certificates in `/etc/gitlab/trusted-certs` without 
    sudo gitlab-ctl restart gitaly
    ```
 
-:::TabTitle Self-compiled (source)
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
 
 If the content of your SSL certificates under the `/etc/gitlab/ssl` directory have been updated, you must
 [restart GitLab](../restart_gitlab.md#self-compiled-installations) for the certificates to be loaded by the Gitaly process.
@@ -220,7 +239,9 @@ If you change or update the certificates in `/usr/local/share/ca-certificates`, 
 1. Run `sudo update-ca-certificates` to update the system's trusted store.
 1. [Restart GitLab](../restart_gitlab.md#self-compiled-installations) for the certificates to be loaded by the Gitaly process.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ## Observe type of Gitaly connections
 

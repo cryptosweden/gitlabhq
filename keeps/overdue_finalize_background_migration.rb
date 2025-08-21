@@ -24,12 +24,12 @@ module Keeps
   #   -k Keeps::OverdueFinalizeBackgroundMigration
   # ```
   class OverdueFinalizeBackgroundMigration < ::Gitlab::Housekeeper::Keep
-    def each_change
-      each_batched_background_migration do |migration_yaml_file, migration|
+    def each_identified_change
+      batched_background_migrations.each do |migration_yaml_file, migration|
         next unless before_cuttoff_milestone?(migration['milestone'])
 
         job_name = migration['migration_job_name']
-        next if migration_finalized?(job_name)
+        next if migration_finalized?(migration, job_name)
 
         migration_record = fetch_migration_status(job_name)
         next unless migration_record
@@ -37,62 +37,56 @@ module Keeps
         last_migration_file = last_migration_for_job(job_name)
         next unless last_migration_file
 
-        change = initialize_change(migration, migration_record, job_name, last_migration_file)
-
-        queue_method_node = find_queue_method_node(last_migration_file)
-
-        migration_name = truncate_migration_name("Finalize#{migration['migration_job_name']}")
-        PostDeploymentMigration::PostDeploymentMigrationGenerator
-          .source_root('generator_templates/post_deployment_migration/post_deployment_migration/')
-        generator = ::PostDeploymentMigration::PostDeploymentMigrationGenerator.new([migration_name])
-        migration_file = generator.invoke_all.first
-        change.changed_files = [migration_file]
-
-        add_ensure_call_to_migration(migration_file, queue_method_node, job_name, migration_record)
-        ::Gitlab::Housekeeper::Shell.rubocop_autocorrect(migration_file)
-
-        digest = Digest::SHA256.hexdigest(generator.migration_number)
-        digest_file = Pathname.new('db').join('schema_migrations', generator.migration_number.to_s).to_s
-        File.open(digest_file, 'w') { |f| f.write(digest) }
-
-        add_finalized_by_to_yaml(migration_yaml_file, generator.migration_number)
-
-        change.changed_files << digest_file
-        change.changed_files << migration_yaml_file
-
+        change = ::Gitlab::Housekeeper::Change.new
+        change.identifiers = [self.class.name.demodulize, job_name]
+        change.context = {
+          migration: migration,
+          migration_record: migration_record,
+          job_name: job_name,
+          last_migration_file: last_migration_file,
+          migration_yaml_file: migration_yaml_file
+        }
         yield(change)
       end
     end
 
-    def initialize_change(migration, migration_record, job_name, last_migration_file)
+    def make_change!(change)
+      migration = change.context[:migration]
+      migration_record = change.context[:migration_record]
+      job_name = change.context[:job_name]
+      last_migration_file = change.context[:last_migration_file]
+      migration_yaml_file = change.context[:migration_yaml_file]
+
+      initialize_change_details(change, migration, migration_record, job_name, last_migration_file)
+
+      queue_method_node = find_queue_method_node(last_migration_file)
+
+      migration_name = truncate_migration_name("FinalizeHK#{job_name}")
+      PostDeploymentMigration::PostDeploymentMigrationGenerator
+        .source_root('generator_templates/post_deployment_migration/post_deployment_migration/')
+      generator = ::PostDeploymentMigration::PostDeploymentMigrationGenerator.new([migration_name])
+      migration_file = generator.invoke_all.first
+      change.changed_files = [migration_file]
+
+      add_ensure_call_to_migration(migration_file, queue_method_node, job_name, migration_record)
+      ::Gitlab::Housekeeper::Shell.rubocop_autocorrect(migration_file)
+
+      digest = Digest::SHA256.hexdigest(generator.migration_number)
+      digest_file = Pathname.new('db').join('schema_migrations', generator.migration_number.to_s).to_s
+      File.open(digest_file, 'w') { |f| f.write(digest) }
+
+      add_finalized_by_to_yaml(migration_yaml_file, generator.migration_number)
+
+      change.changed_files << digest_file
+      change.changed_files << migration_yaml_file
+
+      change
+    end
+
+    def initialize_change_details(change, migration, migration_record, job_name, last_migration_file)
       # Finalize the migration
-      change = ::Gitlab::Housekeeper::Change.new
-      change.title = "Finalize migration #{job_name}"
-
-      change.identifiers = [self.class.name.demodulize, job_name]
-
-      # rubocop:disable Gitlab/DocUrl -- Not running inside rails application
-      change.description = <<~MARKDOWN
-      This migration was finished at `#{migration_record.finished_at || migration_record.updated_at}`, you can confirm
-      the status using our
-      [batched background migration chatops commands](https://docs.gitlab.com/ee/development/database/batched_background_migrations.html#monitor-the-progress-and-status-of-a-batched-background-migration).
-        To confirm it is finished you can run:
-
-        ```
-      /chatops run batched_background_migrations status #{migration_record.id}
-      ```
-
-      The last time this background migration was triggered was in [#{last_migration_file}](https://gitlab.com/gitlab-org/gitlab/-/blob/master/#{last_migration_file})
-
-        You can read more about the process for finalizing batched background migrations in
-      https://docs.gitlab.com/ee/development/database/batched_background_migrations.html .
-
-        As part of our process we want to ensure all batched background migrations have had at least one
-      [required stop](https://docs.gitlab.com/ee/development/database/required_stops.html)
-      to process the migration. Therefore we can finalize any batched background migration that was added before the
-      last required stop.
-      MARKDOWN
-      # rubocop:enable Gitlab/DocUrl
+      change.title = "Finalize BBM #{job_name}"
+      change.description = change_description(migration_record, job_name, last_migration_file)
 
       feature_category = migration['feature_category']
 
@@ -100,16 +94,50 @@ module Keeps
         'maintenance::removal'
       ]
 
-      change.reviewers = groups_helper.pick_reviewer_for_feature_category(feature_category, change.identifiers)
+      change.reviewers = groups_helper.pick_reviewer_for_feature_category(
+        feature_category,
+        change.identifiers,
+        fallback_feature_category: 'database'
+      )
+    end
 
-      change
+    def change_description(migration_record, job_name, last_migration_file)
+      # rubocop:disable Gitlab/DocumentationLinks/HardcodedUrl -- Not running inside rails application
+      <<~MARKDOWN
+      #{migration_code_not_present_message unless migration_code_present?(job_name)}
+      This migration was finished at `#{migration_record.finished_at || migration_record.updated_at}`, you can confirm
+      the status using our
+      [batched background migration chatops commands](https://docs.gitlab.com/ee/development/database/batched_background_migrations.html#monitor-the-progress-and-status-of-a-batched-background-migration).
+        To confirm it is finished you can run:
+
+      ```
+      /chatops run batched_background_migrations status #{migration_record.id} --database #{database_name(migration_record)}
+      ```
+
+      The last time this background migration was triggered was in
+      [#{last_migration_file}](https://gitlab.com/gitlab-org/gitlab/-/blob/master/#{last_migration_file})
+
+      You can read more about the process for finalizing batched background migrations in
+      https://docs.gitlab.com/ee/development/database/batched_background_migrations.html .
+
+      As part of our process we want to ensure all batched background migrations
+      have had at least one
+      [required stop](https://docs.gitlab.com/ee/development/database/required_stops.html)
+      to process the migration. Therefore we can finalize any batched background migration that was added before the
+      last required stop.
+      MARKDOWN
+      # rubocop:enable Gitlab/DocumentationLinks/HardcodedUrl
     end
 
     def truncate_migration_name(migration_name)
       # File names not allowed to exceed 100 chars due to Cop/FilenameLength so we truncate to 70 because there will be
       # underscores added.
+      if migration_name.length > 70
+        # Consisten 5 digit integer hash so that we always get the same name every time we run this keep
+        hash = Digest::SHA256.hexdigest(migration_name).to_i(16) % 100000
+      end
 
-      migration_name[0...70]
+      migration_name[0...65] + hash.to_s
     end
 
     def add_finalized_by_to_yaml(yaml_file, migration_number)
@@ -195,7 +223,9 @@ module Keeps
       @postgres_ai ||= Keeps::Helpers::PostgresAi.new
     end
 
-    def migration_finalized?(job_name)
+    def migration_finalized?(migration, job_name)
+      return true if migration['finalized_by'].present?
+
       result = `git grep --name-only "#{job_name}"`.chomp
       result.each_line.select do |file|
         File.read(file.chomp).include?('ensure_batched_background_migration_is_finished')
@@ -216,13 +246,15 @@ module Keeps
     end
 
     def before_cuttoff_milestone?(milestone)
-      Gem::Version.new(milestone) <= Gem::Version.new(::Gitlab::Database::MIN_SCHEMA_GITLAB_VERSION)
+      Gem::Version.new(milestone) <= Gem::Version.new(::Gitlab::Database.min_schema_gitlab_version)
     end
 
-    def each_batched_background_migration
-      all_batched_background_migration_files.map do |f|
-        yield(f, YAML.load_file(f))
+    def batched_background_migrations
+      migrations = all_batched_background_migration_files.index_with do |f|
+        YAML.load_file(f)
       end
+
+      migrations.sort_by { |_f, migration| Gitlab::VersionInfo.parse_from_milestone(migration['milestone']) }
     end
 
     def all_batched_background_migration_files
@@ -231,6 +263,39 @@ module Keeps
 
     def groups_helper
       @groups_helper ||= ::Keeps::Helpers::Groups.new
+    end
+
+    def migration_code_not_present_message
+      <<~MARKDOWN
+      ### Warning
+
+      The migration code was **not found** in the codebase, the finalization cannot complete without it.
+
+      Please re-add the background migration code to this merge request and start database testing pipeline
+      MARKDOWN
+    end
+
+    def migration_code_present?(job_name)
+      file_name = "#{job_name.underscore}.rb"
+      migration_code_in_ce?(file_name) || migration_code_in_ee?(file_name)
+    end
+
+    def migration_code_in_ce?(file_name)
+      File.exist?(
+        Rails.root.join(*%w[lib gitlab background_migration]).join(file_name)
+      )
+    end
+
+    def migration_code_in_ee?(file_name)
+      File.exist?(
+        Rails.root.join(*%w[ee lib ee gitlab background_migration]).join(file_name)
+      )
+    end
+
+    def database_name(migration_record)
+      gitlab_schema = migration_record.gitlab_schema
+      connection = Gitlab::Database.schemas_to_base_models[gitlab_schema].first.connection
+      Gitlab::Database.db_config_name(connection)
     end
   end
 end

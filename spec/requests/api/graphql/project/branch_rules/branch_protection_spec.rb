@@ -10,7 +10,7 @@ RSpec.describe 'getting branch protection for a branch rule', feature_category: 
   let_it_be(:project) { branch_rule.project }
 
   let(:branch_protection_data) do
-    graphql_data_at('project', 'branchRules', 'nodes', 0, 'branchProtection')
+    graphql_data_at('project', 'branchRules', 'nodes', 1, 'branchProtection')
   end
 
   let(:variables) { { path: project.full_path } }
@@ -21,7 +21,7 @@ RSpec.describe 'getting branch protection for a branch rule', feature_category: 
     <<~GQL
     query($path: ID!) {
       project(fullPath: $path) {
-        branchRules(first: 1) {
+        branchRules(first: 2) {
           nodes {
             branchProtection {
               #{fields}

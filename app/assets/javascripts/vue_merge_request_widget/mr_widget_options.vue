@@ -153,8 +153,6 @@ export default {
       service: store && this.createService(store),
       machineState: store?.machineValue || STATE_MACHINE.definition.initial,
       loading: true,
-      recomputeComponentName: 0,
-      issuableId: false,
       startingPollInterval: STATE_QUERY_POLLING_INTERVAL_DEFAULT,
       pollInterval: STATE_QUERY_POLLING_INTERVAL_DEFAULT,
     };
@@ -194,9 +192,9 @@ export default {
       return !hasCI && mergeRequestAddCiConfigPath && !isDismissedSuggestPipeline;
     },
     showRenderMigrateFromJenkins() {
-      const { hasCI, isIntegrationJenkinsDismissed, ciIntegrationJenkins } = this.mr;
+      const { hasCI, isDismissedJenkinsMigration, ciIntegrationJenkins } = this.mr;
 
-      return hasCI && !isIntegrationJenkinsDismissed && ciIntegrationJenkins;
+      return hasCI && !isDismissedJenkinsMigration && ciIntegrationJenkins;
     },
     shouldRenderCollaborationStatus() {
       return this.mr.allowCollaboration && this.mr.isOpen;
@@ -209,8 +207,13 @@ export default {
         this.mr.mergePipelinesEnabled && this.mr.sourceProjectId !== this.mr.targetProjectId,
       );
     },
+    showManageStorageDocsLink() {
+      return this.mr.mergeError?.includes(__('Your namespace storage is full'));
+    },
     mergeError() {
       let { mergeError } = this.mr;
+
+      if (this.showManageStorageDocsLink) return mergeError;
 
       if (mergeError && mergeError.slice(-1) === '.') {
         mergeError = mergeError.slice(0, -1);
@@ -501,7 +504,7 @@ export default {
       this.mr.isDismissedSuggestPipeline = true;
     },
     dismissMigrateFromJenkins() {
-      this.mr.isIntegrationJenkinsDismissed = true;
+      this.mr.isDismissedJenkinsMigration = true;
     },
   },
 };
@@ -525,7 +528,8 @@ export default {
     <mr-widget-migrate-jenkins
       v-if="showRenderMigrateFromJenkins"
       class="mr-widget-workflow"
-      :human-access="formattedHumanAccess"
+      :path="mr.userCalloutsPath"
+      :feature-id="mr.migrateJenkinsFeatureId"
       @dismiss="dismissMigrateFromJenkins"
     />
     <mr-widget-pipeline-container
@@ -542,15 +546,15 @@ export default {
           type="danger"
           dismissible
           data-testid="merge-error"
-          class="mr-widget-section"
+          class="mr-widget-section gl-rounded-b-none gl-border-b-section"
         >
-          <span v-safe-html="mergeError"></span>
+          <span>{{ mergeError }}</span>
         </mr-widget-alert-message>
         <mr-widget-alert-message
           v-if="showMergePipelineForkWarning"
           type="warning"
           :help-path="mr.mergeRequestPipelinesHelpPath"
-          class="mr-widget-section"
+          class="mr-widget-section gl-rounded-b-none gl-border-b-section"
           data-testid="merge-pipeline-fork-warning"
         >
           {{
@@ -570,7 +574,7 @@ export default {
             v-if="autoMergeEnabled"
             :mr="mr"
             :service="service"
-            class="gl-border-b-1 gl-border-b-solid gl-border-gray-100"
+            class="gl-border-b gl-border-b-section"
           />
           <merge-checks :mr="mr" :service="service" />
         </template>

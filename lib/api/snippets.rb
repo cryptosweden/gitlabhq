@@ -8,6 +8,10 @@ module API
     feature_category :source_code_management
     urgency :low
 
+    before do
+      set_current_organization
+    end
+
     helpers do
       def find_snippets(user: current_user, params: {})
         SnippetsFinder.new(user, params).execute
@@ -15,6 +19,14 @@ module API
 
       def snippets_for_current_user
         find_snippets(params: { author: current_user })
+      end
+
+      def find_snippet(id)
+        if ::Feature.enabled?(:optimized_snippet_search_query, current_user)
+          find_snippets(user: current_user, params: { ids: id }).first
+        else
+          find_snippets.find_by_id(id)
+        end
       end
     end
 
@@ -65,7 +77,11 @@ module API
 
         filter_params = declared_params(include_missing: false).merge(only_personal: true)
 
-        present paginate(find_snippets(user: nil, params: filter_params)), with: Entities::PersonalSnippet, current_user: current_user
+        present(
+          paginate(find_snippets(user: nil, params: filter_params)),
+          with: Entities::PersonalSnippet,
+          current_user: current_user
+        )
       end
 
       desc 'List all snippets current_user has access to' do
@@ -104,7 +120,7 @@ module API
         requires :id, type: Integer, desc: 'The ID of a snippet'
       end
       get ':id' do
-        snippet = find_snippets.find_by_id(params[:id])
+        snippet = find_snippet(params[:id])
 
         break not_found!('Snippet') unless snippet
 
@@ -137,14 +153,19 @@ module API
         authorize! :create_snippet
 
         attrs = process_create_params(declared_params(include_missing: false))
-        service_response = ::Snippets::CreateService.new(project: nil, current_user: current_user, params: attrs).execute
+        service_response = ::Snippets::CreateService.new(
+          project: nil,
+          current_user: current_user,
+          params: attrs
+        ).execute
         snippet = service_response.payload[:snippet]
 
         if service_response.success?
           present snippet, with: Entities::PersonalSnippet, current_user: current_user
         else
           with_captcha_check_rest_api(spammable: snippet) do
-            render_api_error!({ error: service_response.message }, service_response.http_status)
+            http_status = Helpers::Snippets::HttpResponseMap.status_for(service_response.reason)
+            render_api_error!({ error: service_response.message }, http_status)
           end
         end
       end
@@ -183,7 +204,12 @@ module API
         validate_params_for_multiple_files(snippet)
 
         attrs = process_update_params(declared_params(include_missing: false))
-        service_response = ::Snippets::UpdateService.new(project: nil, current_user: current_user, params: attrs, perform_spam_check: true).execute(snippet)
+        service_response = ::Snippets::UpdateService.new(
+          project: nil,
+          current_user: current_user,
+          params: attrs,
+          perform_spam_check: true
+        ).execute(snippet)
 
         snippet = service_response.payload[:snippet]
 
@@ -191,7 +217,8 @@ module API
           present snippet, with: Entities::PersonalSnippet, current_user: current_user
         else
           with_captcha_check_rest_api(spammable: snippet) do
-            render_api_error!({ error: service_response.message }, service_response.http_status)
+            http_status = Helpers::Snippets::HttpResponseMap.status_for(service_response.reason)
+            render_api_error!({ error: service_response.message }, http_status)
           end
         end
       end
@@ -219,9 +246,10 @@ module API
         destroy_conditionally!(snippet) do |snippet|
           service = ::Snippets::DestroyService.new(current_user, snippet)
           response = service.execute
+          http_status = Helpers::Snippets::HttpResponseMap.status_for(response.reason)
 
           if response.error?
-            render_api_error!({ error: response.message }, response.http_status)
+            render_api_error!({ error: response.message }, http_status)
           end
         end
       end
@@ -237,7 +265,7 @@ module API
         requires :id, type: Integer, desc: 'The ID of a snippet'
       end
       get ":id/raw" do
-        snippet = find_snippets.find_by_id(params.delete(:id))
+        snippet = find_snippet(params.delete(:id))
         not_found!('Snippet') unless snippet
 
         present content_for(snippet)
@@ -253,7 +281,7 @@ module API
         use :raw_file_params
       end
       get ":id/files/:ref/:file_path/raw", requirements: { file_path: API::NO_SLASH_URL_PART_REGEX } do
-        snippet = find_snippets.find_by_id(params.delete(:id))
+        snippet = find_snippet(params.delete(:id))
         not_found!('Snippet') unless snippet&.repo_exists?
 
         present file_content_for(snippet)

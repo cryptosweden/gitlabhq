@@ -1,10 +1,8 @@
 <script>
 import {
-  GlButton,
   GlDisclosureDropdownItem,
   GlDisclosureDropdownGroup,
   GlDisclosureDropdown,
-  GlIcon,
   GlTooltipDirective,
 } from '@gitlab/ui';
 import { __, s__, sprintf } from '~/locale';
@@ -12,11 +10,9 @@ import { WORKSPACE_GROUP, WORKSPACE_PROJECT } from '~/issues/constants';
 
 export default {
   components: {
-    GlButton,
     GlDisclosureDropdownItem,
     GlDisclosureDropdownGroup,
     GlDisclosureDropdown,
-    GlIcon,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -64,6 +60,7 @@ export default {
       return {
         text: this.leaveTitle,
         href: this.leavePath,
+        variant: 'danger',
         extraAttrs: {
           'aria-label': this.leaveTitle,
           'data-method': 'delete',
@@ -71,7 +68,7 @@ export default {
           'data-confirm-btn-variant': 'danger',
           'data-testid': `leave-${this.namespaceType}-link`,
           rel: 'nofollow',
-          class: 'gl-text-red-500! js-leave-link',
+          class: 'js-leave-link',
         },
       };
     },
@@ -155,33 +152,9 @@ export default {
     :toggle-text="$options.i18n.actionsLabel"
     text-sr-only
     data-testid="groups-projects-more-actions-dropdown"
-    class="gl-relative gl-w-full gl-sm-w-auto"
     @shown="showDropdown"
     @hidden="hideDropdown"
   >
-    <template #toggle>
-      <div class="gl-min-h-7">
-        <gl-button
-          class="md:!gl-hidden gl-new-dropdown-toggle gl-absolute gl-top-0 gl-left-0 gl-w-full gl-sm-w-auto"
-          button-text-classes="gl-w-full"
-          category="secondary"
-          :aria-label="$options.i18n.actionsLabel"
-          :title="$options.i18n.actionsLabel"
-        >
-          <span class="gl-new-dropdown-button-text">{{ $options.i18n.actionsLabel }}</span>
-          <gl-icon class="dropdown-chevron" name="chevron-down" />
-        </gl-button>
-        <gl-button
-          ref="moreActionsDropdown"
-          class="gl-hidden md:!gl-flex gl-new-dropdown-toggle gl-new-dropdown-icon-only gl-new-dropdown-toggle-no-caret"
-          category="tertiary"
-          icon="ellipsis_v"
-          :aria-label="$options.i18n.actionsLabel"
-          :title="$options.i18n.actionsLabel"
-        />
-      </div>
-    </template>
-
     <gl-disclosure-dropdown-item
       v-if="groupOrProjectId"
       :item="copyIdItem"

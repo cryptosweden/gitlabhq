@@ -48,7 +48,7 @@ describe('Issue title suggestions item component', () => {
       createComponent();
 
       expect(findIcon().props('name')).toBe('issue-open-m');
-      expect(findIcon().attributes('class')).toMatch('gl-text-green-500');
+      expect(findIcon().attributes('class')).toMatch('gl-fill-icon-success');
     });
 
     it('renders created timeago', () => {
@@ -68,7 +68,7 @@ describe('Issue title suggestions item component', () => {
       });
 
       expect(findIcon().props('name')).toBe('issue-close');
-      expect(findIcon().attributes('class')).toMatch('gl-text-blue-500');
+      expect(findIcon().attributes('class')).toMatch('gl-fill-icon-info');
     });
 
     it('renders closed timeago', () => {
@@ -94,26 +94,6 @@ describe('Issue title suggestions item component', () => {
     });
   });
 
-  describe('counts', () => {
-    it('renders upvotes count', () => {
-      createComponent();
-
-      const count = wrapper.findAll('.suggestion-counts span').at(0);
-
-      expect(count.text()).toContain('1');
-      expect(count.findComponent(GlIcon).props('name')).toBe('thumb-up');
-    });
-
-    it('renders notes count', () => {
-      createComponent();
-
-      const count = wrapper.findAll('.suggestion-counts span').at(1);
-
-      expect(count.text()).toContain('2');
-      expect(count.findComponent(GlIcon).props('name')).toBe('comment');
-    });
-  });
-
   describe('confidential', () => {
     it('renders confidential icon', () => {
       createComponent({
@@ -121,7 +101,7 @@ describe('Issue title suggestions item component', () => {
       });
 
       expect(findIcon().props('name')).toBe('eye-slash');
-      expect(findIcon().attributes('class')).toMatch('gl-text-orange-500');
+      expect(findIcon().attributes('variant')).toBe('warning');
       expect(findIcon().attributes('title')).toBe('Confidential');
     });
   });

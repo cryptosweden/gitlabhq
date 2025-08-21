@@ -1,4 +1,4 @@
-import { shallowMount } from '@vue/test-utils';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import IssueToken from '~/related_issues/components/issue_token.vue';
 import { PathIdSeparator } from '~/related_issues/constants';
 
@@ -19,15 +19,15 @@ describe('IssueToken', () => {
   };
 
   const createComponent = (props = {}) => {
-    wrapper = shallowMount(IssueToken, {
+    wrapper = shallowMountExtended(IssueToken, {
       propsData: { ...defaultProps, ...props },
     });
   };
 
   const findLink = () => wrapper.findComponent({ ref: 'link' });
   const findReference = () => wrapper.findComponent({ ref: 'reference' });
-  const findReferenceIcon = () => wrapper.find('[data-testid="referenceIcon"]');
-  const findRemoveBtn = () => wrapper.find('[data-testid="removeBtn"]');
+  const findReferenceIcon = () => wrapper.findByTestId('referenceIcon');
+  const findRemoveBtn = () => wrapper.findByTestId('removeBtn');
   const findTitle = () => wrapper.findComponent({ ref: 'title' });
 
   describe('with reference supplied', () => {
@@ -69,18 +69,19 @@ describe('IssueToken', () => {
 
   describe('with state supplied', () => {
     it.each`
-      state         | icon              | cssClass
-      ${'opened'}   | ${'issue-open-m'} | ${'issue-token-state-icon-open'}
-      ${'reopened'} | ${'issue-open-m'} | ${'issue-token-state-icon-open'}
-      ${'closed'}   | ${'issue-close'}  | ${'issue-token-state-icon-closed'}
-    `('shows "$icon" icon when "$state"', ({ state, icon, cssClass }) => {
+      state         | icon              | variant
+      ${'opened'}   | ${'issue-open-m'} | ${'success'}
+      ${'reopened'} | ${'issue-open-m'} | ${'success'}
+      ${'closed'}   | ${'issue-close'}  | ${'info'}
+    `('shows "$icon" icon when "$state"', ({ state, icon, variant }) => {
       createComponent({
         path,
         state,
       });
 
       expect(findReferenceIcon().props('name')).toBe(icon);
-      expect(findReferenceIcon().classes()).toContain(cssClass);
+      expect(findReferenceIcon().classes()).toContain('issue-token-state-icon');
+      expect(findReferenceIcon().props('variant')).toBe(variant);
     });
   });
 
@@ -121,7 +122,7 @@ describe('IssueToken', () => {
       });
 
       it('emits event when clicked', () => {
-        findRemoveBtn().trigger('click');
+        findRemoveBtn().vm.$emit('click');
 
         const emitted = wrapper.emitted(`${eventNamespace}RemoveRequest`);
 

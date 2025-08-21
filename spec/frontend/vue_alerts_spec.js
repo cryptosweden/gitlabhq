@@ -1,5 +1,5 @@
 import { nextTick } from 'vue';
-import { alertVariantOptions } from '@gitlab/ui/dist/utils/constants';
+import { alertVariantOptions } from '@gitlab/ui/src/utils/constants';
 import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import { TEST_HOST } from 'helpers/test_constants';
 import initVueAlerts from '~/vue_alerts';
@@ -65,8 +65,8 @@ describe('VueAlerts', () => {
   });
 
   it('starts with only JsHooks', () => {
-    expect(findJsHooks().length).toEqual(alerts.length);
-    expect(findAlerts().length).toEqual(0);
+    expect(findJsHooks()).toHaveLength(alerts.length);
+    expect(findAlerts()).toHaveLength(0);
   });
 
   describe('when mounted', () => {
@@ -75,8 +75,8 @@ describe('VueAlerts', () => {
     });
 
     it('replaces JsHook with GlAlert', () => {
-      expect(findJsHooks().length).toEqual(0);
-      expect(findAlerts().length).toEqual(alerts.length);
+      expect(findJsHooks()).toHaveLength(0);
+      expect(findAlerts()).toHaveLength(alerts.length);
     });
 
     it('passes along props to gl-alert', () => {
@@ -90,7 +90,7 @@ describe('VueAlerts', () => {
       });
 
       it('hides the alert', () => {
-        expect(findAlerts().length).toEqual(alerts.length - 1);
+        expect(findAlerts()).toHaveLength(alerts.length - 1);
       });
     });
   });

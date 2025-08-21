@@ -1,53 +1,32 @@
 ---
-stage: Govern
-group: Compliance
+stage: none
+group: unassigned
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Events API
 ---
 
-# Events API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-## Filter parameters
+{{< /details >}}
 
-### Actions
+Use this API to review event activity. Events can include a wide range of actions including things
+like joining projects, commenting on issues, pushing changes to MRs, or closing epics.
 
-See [User contribution events](../user/profile/contributions_calendar.md#user-contribution-events) for available types for the `action` parameter.
-These options are in lowercase.
+For information about activity retention limits, see:
 
-### Target Types
+- [User activity time period limit](../user/profile/contributions_calendar.md#event-time-period-limit)
+- [Project activity time period limit](../user/project/working_with_projects.md#view-project-activity)
 
-Available target types for the `target_type` parameter are:
+## List all events
 
-- `issue`
-- `milestone`
-- `merge_request`
-- `note`
-- `project`
-- `snippet`
-- `user`
+Lists all events for the currently authenticated user. Does not return events associated with epics.
 
-These options are in lowercase.
-Events associated with epics are not available using the API.
+Prerequisites:
 
-### Date formatting
-
-Dates for the `before` and `after` parameters should be supplied in the following format:
-
-```plaintext
-YYYY-MM-DD
-```
-
-### Event Time Period Limit
-
-GitLab removes events older than 3 years from the events table for performance reasons.
-
-## List currently authenticated user's events
-
-Get a list of events for the authenticated user. Scope `read_user` or `api` is required.
-Events associated with epics are not available using the API.
+- Your access token must have either the `read_user` or `api` scope.
 
 ```plaintext
 GET /events
@@ -55,19 +34,21 @@ GET /events
 
 Parameters:
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `action` | string | no | Include only events of a particular [action type](#actions) |
-| `target_type` | string | no | Include only events of a particular [target type](#target-types) |
-| `before` | date | no |  Include only events created before a particular date. [View how to format dates](#date-formatting). |
-| `after` | date | no |  Include only events created after a particular date. [View how to format dates](#date-formatting).  |
-| `scope` | string | no | Include all events across a user's projects. |
-| `sort` | string | no | Sort events in `asc` or `desc` order by `created_at`. Default is `desc`. |
+| Parameter     | Type            | Required | Description |
+| ------------- | --------------- | -------- | ----------- |
+| `action`      | string          | no       | If defined, returns events with the specified [action type](../user/profile/contributions_calendar.md#user-contribution-events). |
+| `target_type` | string          | no       | If defined, returns events with the specified [target type](#target-type). |
+| `before`      | date (ISO 8601) | no       | If defined, returns tokens created before the specified date. |
+| `after`       | date (ISO 8601) | no       | If defined, returns tokens created after the specified date. |
+| `scope`       | string          | no       | Include all events across a user's projects. |
+| `sort`        | string          | no       | Direction to sort the results by creation date. Possible values: `asc`, `desc`. Default: `desc`. |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/events?target_type=issue&action=created&after=2017-01-31&before=2017-03-01&scope=all"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/events?target_type=issue&action=created&after=2017-01-31&before=2017-03-01&scope=all"
 ```
 
 Example response:
@@ -76,57 +57,60 @@ Example response:
 [
   {
     "id": 1,
-    "title":null,
-    "project_id":1,
-    "action_name":"opened",
-    "target_id":160,
-    "target_iid":53,
-    "target_type":"Issue",
-    "author_id":25,
-    "target_title":"Qui natus eos odio tempore et quaerat consequuntur ducimus cupiditate quis.",
-    "created_at":"2017-02-09T10:43:19.667Z",
-    "author":{
-      "name":"User 3",
-      "username":"user3",
-      "id":25,
-      "state":"active",
-      "avatar_url":"http://www.gravatar.com/avatar/97d6d9441ff85fdc730e02a6068d267b?s=80\u0026d=identicon",
-      "web_url":"https://gitlab.example.com/user3"
+    "title": null,
+    "project_id": 1,
+    "action_name": "opened",
+    "target_id": 160,
+    "target_iid": 53,
+    "target_type": "Issue",
+    "author_id": 25,
+    "target_title": "Qui natus eos odio tempore et quaerat consequuntur ducimus cupiditate quis.",
+    "created_at": "2017-02-09T10:43:19.667Z",
+    "author": {
+      "name": "User 3",
+      "username": "user3",
+      "id": 25,
+      "state": "active",
+      "avatar_url": "http://www.gravatar.com/avatar/97d6d9441ff85fdc730e02a6068d267b?s=80&d=identicon",
+      "web_url": "https://gitlab.example.com/user3"
     },
-    "author_username":"user3",
-    "imported":false,
+    "author_username": "user3",
+    "imported": false,
     "imported_from": "none"
   },
   {
     "id": 2,
-    "title":null,
-    "project_id":1,
-    "action_name":"opened",
-    "target_id":159,
-    "target_iid":14,
-    "target_type":"Issue",
-    "author_id":21,
-    "target_title":"Nostrum enim non et sed optio illo deleniti non.",
-    "created_at":"2017-02-09T10:43:19.426Z",
-    "author":{
-      "name":"Test User",
-      "username":"ted",
-      "id":21,
-      "state":"active",
-      "avatar_url":"http://www.gravatar.com/avatar/80fb888c9a48b9a3f87477214acaa63f?s=80\u0026d=identicon",
-      "web_url":"https://gitlab.example.com/ted"
+    "title": null,
+    "project_id": 1,
+    "action_name": "opened",
+    "target_id": 159,
+    "target_iid": 14,
+    "target_type": "Issue",
+    "author_id": 21,
+    "target_title": "Nostrum enim non et sed optio illo deleniti non.",
+    "created_at": "2017-02-09T10:43:19.426Z",
+    "author": {
+      "name": "Test User",
+      "username": "ted",
+      "id": 21,
+      "state": "active",
+      "avatar_url": "http://www.gravatar.com/avatar/80fb888c9a48b9a3f87477214acaa63f?s=80&d=identicon",
+      "web_url": "https://gitlab.example.com/ted"
     },
-    "author_username":"ted",
-    "imported":false,
+    "author_username": "ted",
+    "imported": false,
     "imported_from": "none"
   }
 ]
 ```
 
-### Get user contribution events
+## Get contribution events for a user
 
-Get the contribution events for the specified user, sorted from newest to oldest. Scope `read_user` or `api` is required.
-Events associated with epics are not available using API.
+Gets the contribution events for a specified user. Does not return events associated with epics.
+
+Prerequisites:
+
+- Your access token must have either the `read_user` or `api` scope.
 
 ```plaintext
 GET /users/:id/events
@@ -134,19 +118,21 @@ GET /users/:id/events
 
 Parameters:
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id` | integer | yes | The ID or Username of the user |
-| `action` | string | no | Include only events of a particular [action type](#actions) |
-| `target_type` | string | no | Include only events of a particular [target type](#target-types) |
-| `before` | date | no |  Include only events created before a particular date. [View how to format dates](#date-formatting). |
-| `after` | date | no |  Include only events created after a particular date. [View how to format dates](#date-formatting). |
-| `sort` | string | no | Sort events in `asc` or `desc` order by `created_at`. Default is `desc`. |
-| `page` | integer | no | The page of results to return. Defaults to 1. |
-| `per_page` | integer | no | The number of results per page. Defaults to 20. |
+| Parameter     | Type            | Required | Description |
+| ------------- | --------------- | -------- | ----------- |
+| `id`          | integer         | yes      | ID or Username of a user. |
+| `action`      | string          | no       | If defined, returns events with the specified [action type](../user/profile/contributions_calendar.md#user-contribution-events). |
+| `target_type` | string          | no       | If defined, returns events with the specified [target type](#target-type). |
+| `before`      | date (ISO 8601) | no       | If defined, returns tokens created before the specified date. |
+| `after`       | date (ISO 8601) | no       | If defined, returns tokens created after the specified date. |
+| `sort`        | string          | no       | Direction to sort the results by creation date. Possible values: `asc`, `desc`. Default: `desc`. |
+| `page`        | integer         | no       | Returns the specified results page. Default: `1`. |
+| `per_page`    | integer         | no       | Number of results per page. Default: `20`. |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/users/:id/events"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/users/:id/events"
 ```
 
 Example response:
@@ -271,12 +257,9 @@ Example response:
 ]
 ```
 
-## List a Project's visible events
+## List all visible events for a project
 
-NOTE:
-This endpoint has been around longer than the others. Documentation was formerly located in the [Projects API pages](projects.md).
-
-Get a list of visible events for a particular project.
+Lists all visible events for a specified project.
 
 ```plaintext
 GET /projects/:project_id/events
@@ -284,19 +267,21 @@ GET /projects/:project_id/events
 
 Parameters:
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `project_id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) |
-| `action` | string | no | Include only events of a particular [action type](#actions) |
-| `target_type` | string | no | Include only events of a particular [target type](#target-types) |
-| `before` | date | no |  Include only events created before a particular date. [View how to format dates](#date-formatting). |
-| `after` | date | no |  Include only events created after a particular date. [View how to format dates](#date-formatting).  |
-| `sort` | string | no | Sort events in `asc` or `desc` order by `created_at`. Default is `desc`. |
+| Parameter     | Type            | Required | Description |
+| ------------- | --------------- | -------- | ----------- |
+| `project_id`  | integer/string  | yes      | ID or [URL-encoded path](rest/_index.md#namespaced-paths) of a project. |
+| `action`      | string          | no       | If defined, returns events with the specified [action type](../user/profile/contributions_calendar.md#user-contribution-events). |
+| `target_type` | string          | no       | If defined, returns events with the specified [target type](#target-type). |
+| `before`      | date (ISO 8601) | no       | If defined, returns tokens created before the specified date. |
+| `after`       | date (ISO 8601) | no       | If defined, returns tokens created after the specified date. |
+| `sort`        | string          | no       | Direction to sort the results by creation date. Possible values: `asc`, `desc`. Default: `desc`. |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/:project_id/events?target_type=issue&action=created&after=2017-01-31&before=2017-03-01"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/:project_id/events?target_type=issue&action=created&after=2017-01-31&before=2017-03-01"
 ```
 
 Example response:
@@ -305,48 +290,48 @@ Example response:
 [
   {
     "id": 8,
-    "title":null,
-    "project_id":1,
-    "action_name":"opened",
-    "target_id":160,
-    "target_iid":160,
-    "target_type":"Issue",
-    "author_id":25,
-    "target_title":"Qui natus eos odio tempore et quaerat consequuntur ducimus cupiditate quis.",
-    "created_at":"2017-02-09T10:43:19.667Z",
-    "author":{
-      "name":"User 3",
-      "username":"user3",
-      "id":25,
-      "state":"active",
-      "avatar_url":"http://www.gravatar.com/avatar/97d6d9441ff85fdc730e02a6068d267b?s=80\u0026d=identicon",
-      "web_url":"https://gitlab.example.com/user3"
+    "title": null,
+    "project_id": 1,
+    "action_name": "opened",
+    "target_id": 160,
+    "target_iid": 160,
+    "target_type": "Issue",
+    "author_id": 25,
+    "target_title": "Qui natus eos odio tempore et quaerat consequuntur ducimus cupiditate quis.",
+    "created_at": "2017-02-09T10:43:19.667Z",
+    "author": {
+      "name": "User 3",
+      "username": "user3",
+      "id": 25,
+      "state": "active",
+      "avatar_url": "http://www.gravatar.com/avatar/97d6d9441ff85fdc730e02a6068d267b?s=80&d=identicon",
+      "web_url": "https://gitlab.example.com/user3"
     },
-    "author_username":"user3",
-    "imported":false,
+    "author_username": "user3",
+    "imported": false,
     "imported_from": "none"
   },
   {
     "id": 9,
-    "title":null,
-    "project_id":1,
-    "action_name":"opened",
-    "target_id":159,
-    "target_iid":159,
-    "target_type":"Issue",
-    "author_id":21,
-    "target_title":"Nostrum enim non et sed optio illo deleniti non.",
-    "created_at":"2017-02-09T10:43:19.426Z",
-    "author":{
-      "name":"Test User",
-      "username":"ted",
-      "id":21,
-      "state":"active",
-      "avatar_url":"http://www.gravatar.com/avatar/80fb888c9a48b9a3f87477214acaa63f?s=80\u0026d=identicon",
-      "web_url":"https://gitlab.example.com/ted"
+    "title": null,
+    "project_id": 1,
+    "action_name": "opened",
+    "target_id": 159,
+    "target_iid": 159,
+    "target_type": "Issue",
+    "author_id": 21,
+    "target_title": "Nostrum enim non et sed optio illo deleniti non.",
+    "created_at": "2017-02-09T10:43:19.426Z",
+    "author": {
+      "name": "Test User",
+      "username": "ted",
+      "id": 21,
+      "state": "active",
+      "avatar_url": "http://www.gravatar.com/avatar/80fb888c9a48b9a3f87477214acaa63f?s=80&d=identicon",
+      "web_url": "https://gitlab.example.com/ted"
     },
-    "author_username":"ted",
-    "imported":false,
+    "author_username": "ted",
+    "imported": false,
     "imported_from": "none"
   },
   {
@@ -393,3 +378,27 @@ Example response:
   }
 ]
 ```
+
+## Target type
+
+{{< history >}}
+
+- [Added](https://gitlab.com/groups/gitlab-org/-/epics/13056) `epics` in GitLab 17.3.
+
+{{< /history >}}
+
+You can filter the results to return events from a specific target type. Possible values are:
+
+- `epic`<sup>1</sup>
+- `issue`
+- `merge_request`
+- `milestone`
+- `note`<sup>2</sup>
+- `project`
+- `snippet`
+- `user`
+
+Footnotes:
+
+1. Some epic features like child items, linked items, start dates, due dates, and health statuses are not returned by the API.
+1. Some merge request notes may instead use the `DiscussionNote` type. This target type is [not supported by the API](discussions.md#understand-note-types-in-the-api).

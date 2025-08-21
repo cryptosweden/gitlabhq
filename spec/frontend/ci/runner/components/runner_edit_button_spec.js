@@ -39,13 +39,20 @@ describe('RunnerEditButton', () => {
     expect(findButton().attributes('href')).toBe('/edit');
   });
 
+  it('Passes other attributes to the button', () => {
+    createComponent({ props: { size: 'small' } });
+
+    expect(findButton().props('size')).toBe('small');
+    expect(findButton().props('icon')).toBe('pencil');
+  });
+
   describe('When no href is provided', () => {
     beforeEach(() => {
       createComponent({ props: { href: null } });
     });
 
     it('does not render', () => {
-      expect(wrapper.html()).toBe('');
+      expect(wrapper.find('*').exists()).toBe(false);
     });
   });
 });

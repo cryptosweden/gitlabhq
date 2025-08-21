@@ -1,3 +1,4 @@
+import { GlAnimatedChevronLgDownUpIcon } from '@gitlab/ui';
 import { nextTick } from 'vue';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import { shallowMountExtended, mountExtended } from 'helpers/vue_test_utils_helper';
@@ -8,8 +9,10 @@ import StatusIcon from '~/vue_merge_request_widget/components/widget/status_icon
 import ActionButtons from '~/vue_merge_request_widget/components/widget/action_buttons.vue';
 import Widget from '~/vue_merge_request_widget/components/widget/widget.vue';
 import WidgetContentRow from '~/vue_merge_request_widget/components/widget/widget_content_row.vue';
+import ReportListItem from '~/merge_requests/reports/components/report_list_item.vue';
 import * as logger from '~/lib/logger';
 import axios from '~/lib/utils/axios_utils';
+import { parseBoolean } from '~/lib/utils/common_utils';
 import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 
 jest.mock('~/vue_merge_request_widget/components/widget/telemetry', () => ({
@@ -27,10 +30,16 @@ describe('~/vue_merge_request_widget/components/widget/widget.vue', () => {
   const findExpandedSection = () => wrapper.findByTestId('widget-extension-collapsed-section');
   const findActionButtons = () => wrapper.findComponent(ActionButtons);
   const findToggleButton = () => wrapper.findByTestId('toggle-button');
+  const findToggleChevron = () => findToggleButton().findComponent(GlAnimatedChevronLgDownUpIcon);
   const findHelpPopover = () => wrapper.findComponent(HelpPopover);
   const findDynamicScroller = () => wrapper.findByTestId('dynamic-content-scroller');
 
-  const createComponent = async ({ propsData, slots, mountFn = shallowMountExtended } = {}) => {
+  const createComponent = async ({
+    propsData,
+    slots,
+    mountFn = shallowMountExtended,
+    provide = {},
+  } = {}) => {
     wrapper = mountFn(Widget, {
       propsData: {
         isCollapsible: false,
@@ -44,10 +53,12 @@ describe('~/vue_merge_request_widget/components/widget/widget.vue', () => {
         ...propsData,
       },
       slots,
+      provide,
       stubs: {
         StatusIcon,
         ActionButtons,
         ContentRow: WidgetContentRow,
+        RouterLink: true,
       },
     });
 
@@ -274,6 +285,27 @@ describe('~/vue_merge_request_widget/components/widget/widget.vue', () => {
       expect(findToggleButton().attributes('aria-label')).toBe('Show details');
     });
 
+    it('displays the chevron correctly when toggle is clicked', async () => {
+      await createComponent({
+        propsData: {
+          isCollapsible: true,
+        },
+        slots: {
+          content: '<b>More complex content</b>',
+        },
+      });
+
+      // Vue compat doesn't know about component props if it extends other component
+      expect(
+        findToggleChevron().props('isOn') ?? parseBoolean(findToggleChevron().attributes('is-on')),
+      ).toBe(false);
+
+      findToggleButton().vm.$emit('click');
+      await nextTick();
+      expect(
+        findToggleChevron().props('isOn') ?? parseBoolean(findToggleChevron().attributes('is-on')),
+      ).toBe(true);
+    });
     it('does not display the content slot until toggle is clicked', async () => {
       await createComponent({
         propsData: {
@@ -423,7 +455,8 @@ describe('~/vue_merge_request_widget/components/widget/widget.vue', () => {
 
     it('when full report is clicked it should call the respective telemetry event', async () => {
       expect(wrapper.vm.telemetryHub.fullReportClicked).not.toHaveBeenCalled();
-      wrapper.findByText('Full report').vm.$emit('click');
+
+      wrapper.findByTestId('extension-actions-button').vm.$emit('click');
       await nextTick();
       expect(wrapper.vm.telemetryHub.fullReportClicked).toHaveBeenCalledTimes(1);
     });
@@ -474,6 +507,71 @@ describe('~/vue_merge_request_widget/components/widget/widget.vue', () => {
       findToggleButton().vm.$emit('click');
       await waitForPromises();
       expect(wrapper.findByText('Main text for the row').exists()).toBe(true);
+    });
+  });
+
+  describe('when mrReportsTab is enabled', () => {
+    beforeEach(() => {
+      window.gl = { mrWidgetData: { reportsTabPath: 'reportsTabPath' } };
+      window.mrTabs = { tabShown: jest.fn() };
+      jest.spyOn(window.history, 'replaceState');
+    });
+
+    it('does not render toggle button', async () => {
+      await createComponent({
+        propsData: {
+          isCollapsible: true,
+          summary: { title: 'Hello world' },
+        },
+        provide: { glFeatures: { mrReportsTab: true } },
+      });
+
+      expect(findToggleButton().exists()).toBe(false);
+    });
+
+    it('renders view reports action button', async () => {
+      await createComponent({
+        propsData: {
+          isCollapsible: true,
+          summary: { title: 'Hello world' },
+        },
+        provide: { glFeatures: { mrReportsTab: true } },
+      });
+
+      expect(findActionButtons().props('tertiaryButtons')).toEqual([
+        expect.objectContaining({ href: 'reportsTabPath/test', text: 'View report' }),
+      ]);
+    });
+
+    it('calls mrTabs.tabShown when clicking action button', async () => {
+      await createComponent({
+        propsData: {
+          isCollapsible: true,
+          summary: { title: 'Hello world' },
+        },
+        provide: { glFeatures: { mrReportsTab: true } },
+      });
+
+      wrapper.findByTestId('extension-actions-button').vm.$emit('click', { preventDefault() {} });
+
+      await nextTick();
+
+      expect(window.mrTabs.tabShown).toHaveBeenCalledWith('reports');
+      expect(window.history.replaceState).toHaveBeenCalledWith(null, null, 'reportsTabPath/test');
+    });
+  });
+
+  describe('when reportsTabSidebar is true', () => {
+    it('renders ReportListItem', async () => {
+      await createComponent({
+        propsData: {
+          isCollapsible: true,
+          summary: { title: 'Hello world' },
+        },
+        provide: { reportsTabSidebar: true },
+      });
+
+      expect(wrapper.findComponent(ReportListItem).exists()).toBe(true);
     });
   });
 });

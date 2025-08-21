@@ -8,11 +8,12 @@ RSpec.describe Projects::PagesHelper do
 
   before do
     stub_config(pages: {
-                  access_control: true,
-                  external_http: true,
-                  external_https: true,
-                  host: "new.domain.com"
-                })
+      access_control: true,
+      external_http: true,
+      external_https: true,
+      custom_domain_mode: 'http',
+      host: "new.domain.com"
+    })
   end
 
   context 'when the user have permission' do
@@ -23,16 +24,23 @@ RSpec.describe Projects::PagesHelper do
     context 'on custom domain' do
       using RSpec::Parameterized::TableSyntax
 
-      where(:external_http, :external_https, :can_create) do
-        false | false | false
-        false | true  | true
-        true  | false | true
-        true  | true  | true
+      where(:external_http, :external_https, :custom_domain_mode, :can_create) do
+        false | false | nil     | false
+        false | true  | nil     | true
+        true  | false | nil     | true
+        true  | true  | nil     | true
+        false | false | 'http'  | true
+        false | false | 'https' | true
+        false | false | false   | false
       end
 
       with_them do
         it do
-          stub_config(pages: { external_http: external_http, external_https: external_https })
+          stub_config(pages: {
+            external_http: external_http,
+            external_https: external_https,
+            custom_domain_mode: custom_domain_mode
+          })
 
           expect(can_create_pages_custom_domains?(user, project)).to be can_create
         end

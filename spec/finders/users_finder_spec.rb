@@ -7,18 +7,30 @@ RSpec.describe UsersFinder do
     include_context 'UsersFinder#execute filter by project context'
 
     let_it_be(:project_bot) { create(:user, :project_bot) }
+    let_it_be(:service_account_user) { create(:user, :service_account, username: 'service_account') }
 
     shared_examples 'executes users finder as normal user' do
       it 'returns searchable users' do
         users = described_class.new(user).execute
 
-        expect(users).to contain_exactly(user, normal_user, external_user, unconfirmed_user, omniauth_user, internal_user, admin_user, project_bot)
+        expect(users).to contain_exactly(user, normal_user, external_user, unconfirmed_user, omniauth_user, internal_user, admin_user, project_bot, service_account_user)
       end
 
       it 'filters by username' do
         users = described_class.new(user, username: 'johndoe').execute
 
         expect(users).to contain_exactly(normal_user)
+      end
+
+      it 'filters by public email' do
+        user_with_public_email = create(:user)
+        unique_email = "public#{SecureRandom.hex(4)}@example.com"
+        create(:email, :confirmed, user: user_with_public_email, email: unique_email)
+        user_with_public_email.update!(public_email: unique_email)
+
+        users = described_class.new(user, public_email: unique_email).execute
+
+        expect(users).to contain_exactly(user_with_public_email)
       end
 
       it 'filters by id' do
@@ -81,7 +93,33 @@ RSpec.describe UsersFinder do
       it 'filters by non external users' do
         users = described_class.new(user, non_external: true).execute
 
-        expect(users).to contain_exactly(user, normal_user, unconfirmed_user, omniauth_user, internal_user, admin_user, project_bot)
+        expect(users).to contain_exactly(user, normal_user, unconfirmed_user, omniauth_user, internal_user, admin_user, project_bot, service_account_user)
+      end
+
+      it 'filters by human users' do
+        users = described_class.new(user, humans: true).execute
+
+        expect(users).to contain_exactly(user, normal_user, external_user, unconfirmed_user, omniauth_user, admin_user)
+      end
+
+      it 'filters by non-human users' do
+        users = described_class.new(user, without_humans: true).execute
+
+        expect(users).to contain_exactly(internal_user, project_bot, service_account_user)
+      end
+
+      it 'filters by active users' do
+        users = described_class.new(user, active: true).execute
+
+        expect(users).to contain_exactly(user, normal_user, unconfirmed_user, external_user, admin_user, omniauth_user, project_bot, service_account_user)
+      end
+
+      it 'filters by non-active users' do
+        deactivated_user = create(:user, :deactivated)
+
+        users = described_class.new(user, without_active: true).execute
+
+        expect(users).to contain_exactly(deactivated_user)
       end
 
       it 'filters by created_at' do
@@ -100,7 +138,7 @@ RSpec.describe UsersFinder do
       it 'filters by non internal users' do
         users = described_class.new(user, non_internal: true).execute
 
-        expect(users).to contain_exactly(user, normal_user, unconfirmed_user, external_user, omniauth_user, admin_user, project_bot)
+        expect(users).to contain_exactly(user, normal_user, unconfirmed_user, external_user, omniauth_user, admin_user, project_bot, service_account_user)
       end
 
       it 'does not filter by custom attributes' do
@@ -109,18 +147,64 @@ RSpec.describe UsersFinder do
           custom_attributes: { foo: 'bar' }
         ).execute
 
-        expect(users).to contain_exactly(user, normal_user, external_user, unconfirmed_user, omniauth_user, internal_user, admin_user, project_bot)
+        expect(users).to contain_exactly(user, normal_user, external_user, unconfirmed_user, omniauth_user, internal_user, admin_user, project_bot, service_account_user)
       end
 
       it 'orders returned results' do
         users = described_class.new(user, sort: 'id_asc').execute
 
-        expect(users).to eq([normal_user, admin_user, external_user, unconfirmed_user, omniauth_user, internal_user, project_bot, user])
+        expect(users).to eq([normal_user, admin_user, external_user, unconfirmed_user, omniauth_user, internal_user, project_bot, service_account_user, user])
       end
 
       it 'does not filter by admins' do
         users = described_class.new(user, admins: true).execute
-        expect(users).to contain_exactly(user, normal_user, external_user, admin_user, unconfirmed_user, omniauth_user, internal_user, project_bot)
+        expect(users).to contain_exactly(user, normal_user, external_user, admin_user, unconfirmed_user, omniauth_user, internal_user, project_bot, service_account_user)
+      end
+
+      context 'when filtering by_member_source_ids' do
+        let_it_be(:group_user) { create(:user) }
+        let_it_be(:project_user) { create(:user) }
+        let_it_be(:group) { create(:group) }
+        let_it_be(:project) { create(:project) }
+
+        it 'filters by group membership' do
+          group.add_developer(group_user)
+
+          users = described_class.new(user, group_member_source_ids: [group.id]).execute
+
+          expect(users).to contain_exactly(group_user)
+        end
+
+        it 'filters by project membership' do
+          project.add_developer(project_user)
+
+          users = described_class.new(user, project_member_source_ids: [project.id]).execute
+
+          expect(users).to contain_exactly(project_user, project.owner)
+        end
+
+        it 'filters by group and project membership' do
+          group.add_developer(group_user)
+          project.add_developer(project_user)
+
+          users = described_class
+                    .new(user, group_member_source_ids: [group.id], project_member_source_ids: [project.id])
+                    .execute
+
+          expect(users).to contain_exactly(group_user, project_user, project.owner)
+        end
+
+        it 'does not include members not part of the filtered group' do
+          users = described_class.new(user, group_member_source_ids: [group.id]).execute
+
+          expect(users).not_to include(group_user)
+        end
+
+        it 'does not include members not part of the filtered project' do
+          users = described_class.new(user, project_member_source_ids: [project.id]).execute
+
+          expect(users).not_to include(project_user)
+        end
       end
     end
 
@@ -134,7 +218,7 @@ RSpec.describe UsersFinder do
       it 'returns all users' do
         users = described_class.new(user).execute
 
-        expect(users).to contain_exactly(user, normal_user, blocked_user, unconfirmed_user, banned_user, external_user, omniauth_user, internal_user, admin_user, project_bot)
+        expect(users).to contain_exactly(user, normal_user, blocked_user, unconfirmed_user, banned_user, external_user, omniauth_user, internal_user, admin_user, project_bot, service_account_user)
       end
 
       it 'filters by blocked users' do
@@ -146,7 +230,13 @@ RSpec.describe UsersFinder do
       it 'filters by active users' do
         users = described_class.new(user, active: true).execute
 
-        expect(users).to contain_exactly(user, normal_user, unconfirmed_user, external_user, omniauth_user, admin_user, project_bot)
+        expect(users).to contain_exactly(user, normal_user, unconfirmed_user, external_user, omniauth_user, admin_user, project_bot, service_account_user)
+      end
+
+      it 'filters by non-active users' do
+        users = described_class.new(user, without_active: true).execute
+
+        expect(users).to contain_exactly(banned_user, blocked_user)
       end
 
       it 'returns only admins' do

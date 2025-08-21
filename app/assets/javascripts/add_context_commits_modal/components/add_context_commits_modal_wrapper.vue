@@ -5,6 +5,7 @@ import { mapState, mapActions } from 'vuex';
 import ReviewTabContainer from '~/add_context_commits_modal/components/review_tab_container.vue';
 import { createAlert } from '~/alert';
 import { BV_SHOW_MODAL } from '~/lib/utils/constants';
+import { markRaw } from '~/lib/utils/vue3compat/mark_raw';
 import { __, s__ } from '~/locale';
 import {
   OPERATORS_IS,
@@ -51,7 +52,7 @@ export default {
   },
   data() {
     return {
-      availableTokens: [
+      availableTokens: markRaw([
         {
           icon: 'pencil',
           title: __('Author'),
@@ -91,7 +92,7 @@ export default {
           unique: true,
           optionComponent: DateOption,
         },
-      ],
+      ]),
     };
   },
   computed: {
@@ -104,6 +105,7 @@ export default {
       'contextCommits',
       'contextCommitsLoadingError',
       'selectedCommits',
+      // eslint-disable-next-line vue/no-unused-properties -- searchText is mapped from Vuex and used in handleSearchCommits(),
       'searchText',
       'toRemoveCommits',
     ]),
@@ -279,9 +281,6 @@ export default {
     },
     handleModalHide() {
       this.resetModalState();
-    },
-    shouldShowInputDateFormat(value) {
-      return ['Committed-before', 'Committed-after'].indexOf(value) !== -1;
     },
   },
 };

@@ -1,6 +1,6 @@
 <script>
 import { GlIcon, GlSprintf, GlTooltipDirective } from '@gitlab/ui';
-import { sprintf, __, formatNumber } from '~/locale';
+import { formatNumber } from '~/locale';
 
 import TooltipOnTruncate from '~/vue_shared/components/tooltip_on_truncate/tooltip_on_truncate.vue';
 import TimeAgo from '~/vue_shared/components/time_ago_tooltip.vue';
@@ -55,16 +55,6 @@ export default {
     additionalIpAddressCount() {
       return this.managersCount - 1;
     },
-    createdBy() {
-      return this.runner?.createdBy;
-    },
-    createdByImgAlt() {
-      const name = this.createdBy?.name;
-      if (name) {
-        return sprintf(__("%{name}'s avatar"), { name });
-      }
-      return null;
-    },
   },
   methods: {
     formatNumber,
@@ -78,46 +68,49 @@ export default {
 </script>
 
 <template>
-  <div>
-    <div class="gl-mb-3">
+  <div class="gl-flex gl-flex-col gl-gap-3">
+    <div class="gl-flex gl-flex-wrap gl-items-center gl-gap-2">
       <slot :runner="runner" name="runner-name">
         <runner-name :runner="runner" />
       </slot>
 
-      <runner-managers-badge :count="managersCount" class="gl-align-middle" />
+      <runner-managers-badge :count="managersCount" />
       <gl-icon
         v-if="runner.locked"
         v-gl-tooltip
         :title="$options.i18n.I18N_LOCKED_RUNNER_DESCRIPTION"
         name="lock"
       />
-      <runner-type-badge :type="runner.runnerType" class="gl-align-middle" />
+      <runner-type-badge :type="runner.runnerType" />
     </div>
-
     <div
       v-if="runner.version || runner.description"
-      class="gl-mb-3 gl-ml-auto gl-inline-flex gl-max-w-full gl-font-sm gl-align-items-center"
+      class="gl-mb-2 gl-inline-flex gl-text-subtle md:gl-mb-0"
     >
       <template v-if="firstVersion">
-        <div class="gl-flex-shrink-0">
+        <div class="gl-shrink-0">
           <runner-upgrade-status-icon :upgrade-status="runner.upgradeStatus" />
           <gl-sprintf :message="$options.i18n.I18N_VERSION_LABEL">
             <template #version>{{ firstVersion }}</template>
           </gl-sprintf>
         </div>
-        <div v-if="runner.description" class="gl-text-secondary gl-mx-2" aria-hidden="true">·</div>
+        <div v-if="runner.description" class="gl-mx-2 gl-text-subtle" aria-hidden="true">·</div>
       </template>
       <tooltip-on-truncate
         v-if="runner.description"
-        class="gl-text-truncate gl-block"
-        :class="{ 'gl-text-secondary': !runner.description }"
+        class="gl-block gl-truncate gl-text-left"
+        :class="{ 'gl-text-subtle': !runner.description }"
         :title="runner.description"
       >
         {{ runner.description }}
       </tooltip-on-truncate>
     </div>
 
-    <div class="gl-font-sm">
+    <div class="gl-flex gl-flex-wrap gl-gap-x-4 gl-gap-y-2 gl-text-sm">
+      <runner-summary-field icon="pipeline" data-testid="job-count" :tooltip="__('Jobs')">
+        <runner-job-count :runner="runner" />
+      </runner-summary-field>
+
       <runner-summary-field icon="clock" icon-size="sm">
         <gl-sprintf :message="$options.i18n.I18N_LAST_CONTACT_LABEL">
           <template #timeAgo>
@@ -134,15 +127,11 @@ export default {
         >
       </runner-summary-field>
 
-      <runner-summary-field icon="pipeline" data-testid="job-count" :tooltip="__('Jobs')">
-        <runner-job-count :runner="runner" />
-      </runner-summary-field>
-
       <runner-summary-field icon="calendar">
         <runner-created-at :runner="runner" />
       </runner-summary-field>
     </div>
 
-    <runner-tags class="gl-block" :tag-list="runner.tagList" />
+    <runner-tags class="gl-flex gl-flex-wrap gl-gap-2" :tag-list="runner.tagList" :limit="20" />
   </div>
 </template>

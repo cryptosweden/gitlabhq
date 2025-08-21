@@ -3,7 +3,6 @@ import { GlButton, GlLink } from '@gitlab/ui';
 import { createAlert } from '~/alert';
 import { updateHistory } from '~/lib/utils/url_utility';
 import { fetchPolicies } from '~/lib/graphql';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { upgradeStatusTokenConfig } from 'ee_else_ce/ci/runner/components/search_tokens/upgrade_status_token_config';
 import {
   fromUrlQueryToSearch,
@@ -25,7 +24,6 @@ import RunnerStats from '../components/stat/runner_stats.vue';
 import RunnerPagination from '../components/runner_pagination.vue';
 import RunnerTypeTabs from '../components/runner_type_tabs.vue';
 import RunnerActionsCell from '../components/cells/runner_actions_cell.vue';
-import RunnerJobStatusBadge from '../components/runner_job_status_badge.vue';
 
 import { pausedTokenConfig } from '../components/search_tokens/paused_token_config';
 import { statusTokenConfig } from '../components/search_tokens/status_token_config';
@@ -37,7 +35,6 @@ import {
   INSTANCE_TYPE,
   I18N_FETCH_ERROR,
   FILTER_CSS_CLASSES,
-  JOBS_ROUTE_PATH,
 } from '../constants';
 import { captureException } from '../sentry_utils';
 
@@ -56,11 +53,9 @@ export default {
     RunnerPagination,
     RunnerTypeTabs,
     RunnerActionsCell,
-    RunnerJobStatusBadge,
     RunnerDashboardLink: () =>
       import('ee_component/ci/runner/components/runner_dashboard_link.vue'),
   },
-  mixins: [glFeatureFlagMixin()],
   props: {
     newRunnerPath: {
       type: String,
@@ -76,6 +71,10 @@ export default {
       required: false,
       default: null,
     },
+    canAdminRunners: {
+      type: Boolean,
+      required: true,
+    },
   },
   data() {
     return {
@@ -89,7 +88,10 @@ export default {
   apollo: {
     runners: {
       query: allRunnersQuery,
-      fetchPolicy: fetchPolicies.NETWORK_ONLY,
+      // Runners can be updated by users directly in this list.
+      // A "cache and network" policy prevents outdated filtered
+      // results.
+      fetchPolicy: fetchPolicies.CACHE_AND_NETWORK,
       variables() {
         return this.variables;
       },
@@ -174,24 +176,15 @@ export default {
       },
     },
   },
-  errorCaptured(error) {
-    this.reportToSentry(error);
-  },
   methods: {
-    jobsUrl(runner) {
-      const url = new URL(runner.adminUrl);
-      url.hash = `#${JOBS_ROUTE_PATH}`;
-
-      return url.href;
-    },
-    onToggledPaused() {
-      // When a runner becomes Paused, the tab count can
+    onUpdated(event) {
+      // When a runner becomes paused or is deleted, the tab count can
       // become stale, refetch outdated counts.
       this.refetchCounts();
-    },
-    onDeleted({ message }) {
-      this.refetchCounts();
-      this.$root.$toast?.show(message);
+
+      if (event?.message) {
+        this.$root.$toast?.show(event.message);
+      }
     },
     refetchCounts() {
       this.$apollo.getClient().refetchQueries({ include: [allRunnersCountQuery] });
@@ -214,10 +207,11 @@ export default {
       <template #title>{{ s__('Runners|Runners') }}</template>
       <template #actions>
         <runner-dashboard-link />
-        <gl-button :href="newRunnerPath" variant="confirm">
-          {{ s__('Runners|New instance runner') }}
+        <gl-button v-if="canAdminRunners" :href="newRunnerPath" variant="confirm">
+          {{ s__('Runners|Create instance runner') }}
         </gl-button>
         <registration-dropdown
+          v-if="canAdminRunners"
           :allow-registration-token="allowRegistrationToken"
           :registration-token="registrationToken"
           :type="$options.INSTANCE_TYPE"
@@ -225,18 +219,11 @@ export default {
       </template>
     </runner-list-header>
 
-    <div
-      class="gl-display-flex gl-align-items-center gl-flex-direction-column-reverse gl-md-flex-direction-row gl-mt-3 gl-md-mt-0"
-    >
-      <runner-type-tabs
-        v-model="search"
-        :count-scope="$options.INSTANCE_TYPE"
-        :count-variables="countVariables"
-        class="gl-w-full"
-        content-class="gl-display-none"
-        nav-class="gl-border-none!"
-      />
-    </div>
+    <runner-type-tabs
+      v-model="search"
+      :count-scope="$options.INSTANCE_TYPE"
+      :count-variables="countVariables"
+    />
 
     <runner-filtered-search-bar
       v-model="search"
@@ -257,15 +244,10 @@ export default {
       <runner-list
         :runners="runners.items"
         :loading="runnersLoading"
-        :checkable="true"
-        @deleted="onDeleted"
+        :checkable="canAdminRunners"
+        @toggledPaused="onUpdated"
+        @deleted="onUpdated"
       >
-        <template #runner-job-status-badge="{ runner }">
-          <runner-job-status-badge
-            :href="jobsUrl(runner)"
-            :job-status="runner.jobExecutionStatus"
-          />
-        </template>
         <template #runner-name="{ runner }">
           <gl-link :href="runner.adminUrl">
             <runner-name :runner="runner" />
@@ -275,8 +257,8 @@ export default {
           <runner-actions-cell
             :runner="runner"
             :edit-url="runner.editAdminUrl"
-            @toggledPaused="onToggledPaused"
-            @deleted="onDeleted"
+            @toggledPaused="onUpdated"
+            @deleted="onUpdated"
           />
         </template>
       </runner-list>

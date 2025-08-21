@@ -6,9 +6,10 @@ RSpec.describe Ci::RetryPipelineService, '#execute', feature_category: :continuo
   include ProjectForksHelper
 
   let_it_be_with_refind(:user) { create(:user) }
-  let_it_be_with_refind(:project) { create(:project) }
+  let_it_be_with_refind(:project) { create(:project, :repository) }
 
-  let(:pipeline) { create(:ci_pipeline, project: project) }
+  let(:sha) { project.repository.commit.sha }
+  let(:pipeline) { create(:ci_pipeline, sha: sha, project: project) }
   let(:build_stage) { create(:ci_stage, name: 'build', position: 0, pipeline: pipeline) }
   let(:test_stage) { create(:ci_stage, name: 'test', position: 1, pipeline: pipeline) }
   let(:deploy_stage) { create(:ci_stage, name: 'deploy', position: 2, pipeline: pipeline) }
@@ -48,6 +49,11 @@ RSpec.describe Ci::RetryPipelineService, '#execute', feature_category: :continuo
         expect(build('rspec 2')).to be_pending
         expect(build('rspec 3')).to be_pending
         expect(pipeline.reload).to be_running
+      end
+
+      it 'preloads the job definition instances' do
+        expect { service.execute(pipeline) }
+          .to match_query_count(1).for_model(Ci::JobDefinitionInstance)
       end
     end
 
@@ -322,28 +328,21 @@ RSpec.describe Ci::RetryPipelineService, '#execute', feature_category: :continuo
       end
     end
 
-    context 'when the pipeline is a downstream pipeline and the bridge is depended' do
-      let!(:bridge) { create(:ci_bridge, :strategy_depend, status: 'success') }
-
+    shared_examples 'updates the bridge status when authorized' do
       before do
         create(:ci_sources_pipeline, pipeline: pipeline, source_job: bridge)
       end
 
-      context 'without permission' do
-        it 'does nothing to the bridge' do
+      context 'without authorization' do
+        it 'does not change the bridge status' do
           expect { service.execute(pipeline) }.to not_change { bridge.reload.status }
            .and not_change { bridge.reload.user }
         end
       end
 
-      context 'with permission' do
-        let!(:bridge_pipeline) { create(:ci_pipeline, project: create(:project)) }
-        let!(:bridge) do
-          create(:ci_bridge, :strategy_depend, status: 'success', pipeline: bridge_pipeline)
-        end
-
+      context 'with authorization' do
         before do
-          bridge_pipeline.project.add_maintainer(user)
+          downstream_pipeline.project.add_maintainer(user)
         end
 
         it 'marks source bridge as pending' do
@@ -353,6 +352,22 @@ RSpec.describe Ci::RetryPipelineService, '#execute', feature_category: :continuo
         it 'assigns the current user to the source bridge' do
           expect { service.execute(pipeline) }.to change { bridge.reload.user }.to(user)
         end
+      end
+    end
+
+    context 'when the pipeline is a downstream pipeline and the bridge status has a strategy' do
+      let!(:downstream_pipeline) { create(:ci_pipeline, project: create(:project)) }
+
+      context 'when the strategy is `depend`' do
+        let!(:bridge) { create(:ci_bridge, :strategy_depend, status: 'success', pipeline: downstream_pipeline) }
+
+        it_behaves_like 'updates the bridge status when authorized'
+      end
+
+      context 'when the strategy is `mirror`' do
+        let!(:bridge) { create(:ci_bridge, :strategy_mirror, status: 'success', pipeline: downstream_pipeline) }
+
+        it_behaves_like 'updates the bridge status when authorized'
       end
     end
 
@@ -382,6 +397,22 @@ RSpec.describe Ci::RetryPipelineService, '#execute', feature_category: :continuo
         allow_next_instance_of(Ci::RetryJobService) do |service|
           allow(service).to receive(:can?).with(user, :update_build, build).and_return(false)
         end
+      end
+
+      it 'returns an error' do
+        response = service.execute(pipeline)
+
+        expect(response.http_status).to eq(:forbidden)
+        expect(response.errors).to include('403 Forbidden')
+        expect(pipeline.reload).not_to be_running
+      end
+    end
+
+    context 'when the pipeline is archived' do
+      let(:pipeline) { create(:ci_pipeline, project: project, created_at: 1.day.ago) }
+
+      before do
+        stub_application_setting(archive_builds_in_seconds: 3600)
       end
 
       it 'returns an error' do
@@ -445,9 +476,10 @@ RSpec.describe Ci::RetryPipelineService, '#execute', feature_category: :continuo
 
   context 'when maintainer is allowed to push to forked project' do
     let(:user) { create(:user) }
-    let(:project) { create(:project, :public) }
-    let(:forked_project) { fork_project(project) }
-    let(:pipeline) { create(:ci_pipeline, project: forked_project, ref: 'fixes') }
+    let(:project) { create(:project, :public, :repository) }
+    let(:forked_project) { fork_project(project, nil, repository: true) }
+    let(:sha) { forked_project.repository.commit.sha }
+    let(:pipeline) { create(:ci_pipeline, sha: sha, project: forked_project, ref: 'fixes') }
 
     before do
       project.add_maintainer(user)

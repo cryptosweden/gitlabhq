@@ -1,20 +1,19 @@
 ---
 stage: Create
 group: Source Code
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Application and rate limit guidelines
 ---
 
-# Application and rate limit guidelines
-
-GitLab, like most large applications, enforces limits within certain features.
+GitLab, like most large applications, enforces limits in certain features.
 The absences of limits can affect security, performance, data, or could even
 exhaust the allocated resources for the application.
 
 Every new feature should have safe usage limits included in its implementation.
 Limits are applicable for:
 
-- System-level resource pools such as API requests, SSHD connections, database connections, storage, and so on.
-- Domain-level objects such as compute quota, groups, sign-in attempts, and so on.
+- System-level resource pools such as API requests, SSHD connections, database connections, and storage.
+- Domain-level objects such as compute quota, groups, and sign-in attempts.
 
 ## When limits are required
 
@@ -25,4 +24,6 @@ Limits are applicable for:
 
 - Existing [GitLab application limits](../../administration/instance_limits.md)
 - Product processes: [introducing application limits](https://handbook.gitlab.com/handbook/product/product-processes/#introducing-application-limits)
-- Development docs: [guide for adding application limits](../application_limits.md)
+- Development documentation: [guide for adding application limits](../application_limits.md)
+- Infrastructure guide to rate limits: [rate limit architecture](https://handbook.gitlab.com/handbook/engineering/infrastructure/rate-limiting/)
+- A guide for when, where, and how to configure rate limits: [managing rate limits](https://handbook.gitlab.com/handbook/engineering/infrastructure/rate-limiting/managing-limits/)

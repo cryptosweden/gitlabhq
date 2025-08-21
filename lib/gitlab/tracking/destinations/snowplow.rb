@@ -5,14 +5,26 @@ require 'snowplow-tracker'
 module Gitlab
   module Tracking
     module Destinations
-      class Snowplow < Base
-        extend ::Gitlab::Utils::Override
-
+      class Snowplow
         SNOWPLOW_NAMESPACE = 'gl'
+        DEDICATED_APP_ID = 'gitlab_dedicated'
+        SELF_MANAGED_APP_ID = 'gitlab_sm'
 
-        override :event
+        delegate :hostname, :uri, :protocol, to: :@destination_configuration
+
+        attr_reader :destination_configuration
+
+        def initialize(destination_configuration = DestinationConfiguration.snowplow_configuration)
+          @destination_configuration = destination_configuration
+          @event_eligibility_checker = Gitlab::Tracking::EventEligibilityChecker.new
+
+          return if batching_disabled?
+
+          Kernel.at_exit { tracker.flush(async: false) }
+        end
+
         def event(category, action, label: nil, property: nil, value: nil, context: nil)
-          return unless enabled?
+          return unless @event_eligibility_checker.eligible?(action)
 
           tracker.track_struct_event(
             category: category,
@@ -26,34 +38,67 @@ module Gitlab
           increment_total_events_counter
         end
 
-        def options(group)
-          additional_features = Feature.enabled?(:additional_snowplow_tracking, group, type: :ops)
-          {
-            namespace: SNOWPLOW_NAMESPACE,
-            hostname: hostname,
-            cookie_domain: cookie_domain,
-            app_id: app_id,
-            form_tracking: additional_features,
-            link_click_tracking: additional_features
-          }.transform_keys! { |key| key.to_s.camelize(:lower).to_sym }
+        def emit_event_payload(payload)
+          # Using #input as the tracker doesn't have an option to track using a json object
+          # https://snowplow.github.io/snowplow-ruby-tracker/SnowplowTracker/Emitter.html#input-instance_method
+          emitter.input(payload)
         end
 
-        def enabled?
-          Gitlab::CurrentSettings.snowplow_enabled?
+        def frontend_client_options(group)
+          if Gitlab::CurrentSettings.snowplow_enabled?
+            snowplow_options(group)
+          else
+            product_usage_events_options
+          end
         end
 
-        def hostname
-          Gitlab::CurrentSettings.snowplow_collector_hostname
+        def app_id
+          if Gitlab::CurrentSettings.snowplow_enabled?
+            Gitlab::CurrentSettings.snowplow_app_id
+          else
+            product_usage_event_app_id
+          end
         end
 
         private
 
-        def app_id
-          Gitlab::CurrentSettings.snowplow_app_id
+        def snowplow_options(group)
+          additional_features = Feature.enabled?(:additional_snowplow_tracking, group, type: :ops)
+
+          # Using camel case as these keys will be used only in JavaScript
+          {
+            namespace: SNOWPLOW_NAMESPACE,
+            hostname: hostname,
+            cookieDomain: cookie_domain,
+            appId: app_id,
+            formTracking: additional_features,
+            linkClickTracking: additional_features
+          }
         end
 
-        def protocol
-          'https'
+        def product_usage_events_options
+          # Using camel case as these keys will be used only in JavaScript
+          {
+            namespace: SNOWPLOW_NAMESPACE,
+            hostname: Gitlab.host_with_port,
+            postPath: Rails.application.routes.url_helpers.event_forwarding_path,
+            forceSecureTracker: Gitlab.config.gitlab.https,
+            appId: app_id
+          }
+        end
+
+        def product_usage_event_app_id
+          app_id = if ::Gitlab::CurrentSettings.gitlab_dedicated_instance?
+                     DEDICATED_APP_ID
+                   else
+                     SELF_MANAGED_APP_ID
+                   end
+
+          Gitlab::Tracking::Destinations::DestinationConfiguration.non_production_environment? ? "#{app_id}_staging" : app_id
+        end
+
+        def disable_product_usage_event_logging?
+          Gitlab::Utils.to_boolean(ENV['GITLAB_DISABLE_PRODUCT_USAGE_EVENT_LOGGING'], default: false)
         end
 
         def cookie_domain
@@ -70,14 +115,38 @@ module Gitlab
         end
 
         def emitter
-          SnowplowTracker::AsyncEmitter.new(
+          @emitter ||= emitter_class.new(
             endpoint: hostname,
-            options: {
-              protocol: protocol,
-              on_success: method(:increment_successful_events_emissions),
-              on_failure: method(:failure_callback)
-            }
+            options: emitter_options
           )
+        end
+
+        def emitter_class
+          # Use test emitter in test environment to prevent HTTP requests
+          return SnowplowTestEmitter if Rails.env.test?
+
+          # snowplow_enabled? is true for gitlab.com and customers that configured their own Snowplow collector
+          # In both bases we do not want to log the events being sent as the instance is controlled by the same company
+          # controlling the Snowplow collector.
+          return SnowplowTracker::AsyncEmitter if Gitlab::CurrentSettings.snowplow_enabled?
+          return SnowplowTracker::AsyncEmitter if disable_product_usage_event_logging?
+
+          SnowplowLoggingEmitter
+        end
+
+        def emitter_options
+          {
+            protocol: protocol,
+            on_success: method(:increment_successful_events_emissions),
+            on_failure: method(:failure_callback),
+            method: 'post',
+            buffer_size: batching_disabled? ? 1 : 10
+          }
+        end
+
+        def batching_disabled?
+          # disable batching to make local development and testing easier
+          Rails.env.development? || Rails.env.test?
         end
 
         def failure_callback(success_count, failures)
@@ -109,7 +178,7 @@ module Gitlab
 
         def log_failures(failures)
           failures.each do |failure|
-            Gitlab::AppLogger.error("#{failure["se_ca"]} #{failure["se_ac"]} failed to be reported to collector at #{hostname}")
+            Gitlab::AppLogger.error("#{failure['se_ca']} #{failure['se_ac']} failed to be reported to collector at #{hostname}")
           end
         end
       end

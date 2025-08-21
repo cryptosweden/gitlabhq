@@ -81,7 +81,8 @@ module Gitlab
           redis.eval(LUA_INCREMENT_WITH_DEDUPLICATION_SCRIPT, **increment_args(increment)).to_i
         end
 
-        FlushCounterIncrementsWorker.perform_in(WORKER_DELAY, counter_record.class.name, counter_record.id, attribute)
+        FlushCounterIncrementsWorker.perform_in(WORKER_DELAY, counter_record.class.name, counter_record.id,
+          attribute.to_s)
 
         result
       end
@@ -95,7 +96,8 @@ module Gitlab
           end
         end
 
-        FlushCounterIncrementsWorker.perform_in(WORKER_DELAY, counter_record.class.name, counter_record.id, attribute)
+        FlushCounterIncrementsWorker.perform_in(WORKER_DELAY, counter_record.class.name, counter_record.id,
+          attribute.to_s)
 
         result.last.to_i
       end
@@ -127,7 +129,8 @@ module Gitlab
           redis.eval(LUA_FINALIZE_REFRESH_SCRIPT, keys: [key, refresh_key, refresh_indicator_key])
         end
 
-        FlushCounterIncrementsWorker.perform_in(WORKER_DELAY, counter_record.class.name, counter_record.id, attribute)
+        FlushCounterIncrementsWorker.perform_in(WORKER_DELAY, counter_record.class.name, counter_record.id,
+          attribute.to_s)
         ::Counters::CleanupRefreshWorker.perform_async(counter_record.class.name, counter_record.id, attribute)
       end
 
@@ -147,13 +150,9 @@ module Gitlab
           flush_amount = amount_to_be_flushed
           next if flush_amount == 0
 
+          # We need the transaction so we can rollback the counter update if `remove_flushed_key` fails.
           counter_record.transaction do
-            # Exclusive lease is obtained within `counter_record.transaction` which could lead to idle transactions
-            # if exclusive lease Redis I/O is slow. We skip the transaction check for now.
-            # See issue: https://gitlab.com/gitlab-org/gitlab/-/issues/441530
-            Gitlab::ExclusiveLease.skipping_transaction_check do
-              counter_record.update_counters_with_lease({ attribute => flush_amount })
-            end
+            counter_record.update_counters({ attribute => flush_amount })
             remove_flushed_key
           end
 
@@ -174,11 +173,10 @@ module Gitlab
       end
 
       def key
-        project_id = counter_record.project.id
         record_name = counter_record.class
         record_id = counter_record.id
 
-        "project:{#{project_id}}:counters:#{record_name}:#{record_id}:#{attribute}"
+        "#{counter_record.counters_key_prefix}:counters:#{record_name}:#{record_id}:#{attribute}"
       end
 
       def flushed_key
@@ -253,7 +251,7 @@ module Gitlab
       end
 
       def redis_state(&block)
-        Gitlab::Redis::BufferedCounter.with(&block)
+        Gitlab::Redis::SharedState.with(&block)
       end
 
       def with_exclusive_lease(&block)

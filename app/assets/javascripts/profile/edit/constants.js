@@ -11,7 +11,7 @@ export const avatarI18n = {
   ),
   uploadAvatar: s__('Profiles|You can upload your avatar here'),
   uploadNewAvatar: s__('Profiles|Upload new avatar'),
-  chooseFile: s__('Profiles|Choose file...'),
+  chooseFile: s__('Profiles|Choose file…'),
   noFileChosen: s__('Profiles|No file chosen.'),
   maximumFileSize: s__('Profiles|The maximum file size allowed is 200 KiB.'),
   imageDimensions: s__('Profiles|The ideal image size is 192 x 192 pixels.'),
@@ -32,6 +32,12 @@ export const statusI18n = {
 export const timezoneI18n = {
   setTimezoneTitle: s__('Profiles|Time settings'),
   setTimezoneDescription: s__('Profiles|Set your local time zone.'),
+  timezone: s__('Profiles|Timezone'),
+};
+
+export const mainI18n = {
+  mainTitle: s__('Profiles|Main settings'),
+  mainDescription: s__('Profiles|This information will appear on your profile.'),
 };
 
 export const i18n = {

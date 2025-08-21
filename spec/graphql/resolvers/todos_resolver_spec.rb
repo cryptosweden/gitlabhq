@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Resolvers::TodosResolver, feature_category: :team_planning do
+RSpec.describe Resolvers::TodosResolver, feature_category: :notifications do
   include GraphqlHelpers
   include DesignManagementTestHelpers
 
@@ -120,14 +120,28 @@ RSpec.describe Resolvers::TodosResolver, feature_category: :team_planning do
 
         expect(todos).to contain_exactly(todo4, todo5)
       end
+
+      context 'when filtering by is_snoozed' do
+        let_it_be(:new_user) { create(:user) }
+
+        let_it_be(:todo1) { create(:todo, user: new_user, project: project) }
+        let_it_be(:todo2) { create(:todo, user: new_user, snoozed_until: 1.month.from_now, project: project) }
+        let_it_be(:todo3) { create(:todo, user: new_user, snoozed_until: 1.hour.from_now, project: project) }
+
+        it 'only returns snoozed todos' do
+          todos = resolve_todos(args: { is_snoozed: true, sort: 'CREATED_ASC' }, context: { current_user: new_user })
+
+          expect(todos.items).to eq([todo3, todo2])
+        end
+      end
     end
 
     context 'when sort is provided' do
       let_it_be(:new_user) { create(:user) }
 
-      let(:todo1) { create(:todo, user: new_user, project: project, created_at: 5.hours.ago) }
-      let(:todo2) { create(:todo, user: new_user, project: project, created_at: 4.hours.ago) }
-      let(:todo3) { create(:todo, user: new_user, project: project, created_at: 3.hours.ago) }
+      let!(:todo1) { create(:todo, user: new_user, project: project, created_at: 5.hours.ago) }
+      let!(:todo2) { create(:todo, user: new_user, project: project, created_at: 4.hours.ago) }
+      let!(:todo3) { create(:todo, user: new_user, project: project, created_at: 3.hours.ago) }
 
       it 'sorts in ascendent order' do
         todos = resolve_todos(args: { sort: 'CREATED_ASC' }, context: { current_user: new_user })
@@ -167,6 +181,35 @@ RSpec.describe Resolvers::TodosResolver, feature_category: :team_planning do
         todos = resolve(described_class, obj: target, args: {}, ctx: { current_user: current_user })
 
         expect(todos).to contain_exactly(issue_todo_pending)
+      end
+    end
+
+    context 'when user is a human' do
+      it 'does not trigger the tracking events' do
+        expect do
+          resolve_todos
+        end
+          .not_to trigger_internal_events('request_todos_by_bot_user')
+      end
+    end
+
+    context 'when user is a bot' do
+      let(:current_user) { create(:user, :service_account) }
+
+      it 'triggers the tracking events' do
+        expect do
+          resolve_todos
+        end
+          .to trigger_internal_events('request_todos_by_bot_user')
+                .with(
+                  user: current_user,
+                  additional_properties: {
+                    label: 'user_type', property: current_user.user_type
+                  }
+                ).exactly(:once)
+                .and increment_usage_metrics(
+                  'redis_hll_counters.count_distinct_user_id_from_request_todos_by_bot_user_weekly'
+                ).by(1)
       end
     end
   end

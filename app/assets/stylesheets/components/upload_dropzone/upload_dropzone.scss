@@ -1,7 +1,10 @@
+@use "sass:color";
+@use "sass:meta";
+@use "sass:string";
 @function encodecolor($string) {
-  @if type-of($string) == 'color' {
-    $hex: str-slice(ie-hex-str($string), 4);
-    $string: unquote('#{$hex}');
+  @if meta.type-of($string) == 'color' {
+    $hex: string.slice(color.ie-hex-str($string), 4);
+    $string: string.unquote('#{$hex}');
   }
   $string: '%23' + $string;
   @return $string;
@@ -12,48 +15,63 @@
 }
 
 .upload-dropzone-border {
-  border: 0;
   @include dropzone-background($gray-400, 2);
-  border-radius: $gl-border-radius-base;
+}
+
+.upload-dropzone-border-error {
+  @include dropzone-background($red-400, 2);
 }
 
 .upload-dropzone-card {
-  transition: background $gl-transition-duration-medium $general-hover-transition-curve,
-    border $gl-transition-duration-medium $general-hover-transition-curve;
-  color: $gl-text-color;
+  @apply gl-transition-[background,border];
+  @apply gl-text-default;
+  @apply gl-border-0;
+  @apply gl-rounded-base;
 
   &:hover,
   &:focus,
   &:focus-within,
   &:active {
     outline: none;
-    @include dropzone-background($blue-500);
-    color: $gl-text-color;
+    @include dropzone-background($gl-color-blue-500);
+    @apply gl-text-default;
   }
 
   &:focus,
   &:focus-within,
   &:active {
-    @include gl-focus;
+    @apply gl-focus;
   }
 
-  &:hover {
-    border-color: $gray-300;
-  }
 }
 
-.upload-dropzone-overlay {
-  background-color: $blue-50;
-  @include dropzone-background($blue-500);
+.upload-dropzone-overlay,
+.design-upload-dropzone-overlay {
   top: 0;
   left: 0;
   pointer-events: none;
   opacity: 1;
+  border: 0;
 }
 
+.upload-dropzone-overlay {
+  @apply gl-bg-feedback-info;
+  @include dropzone-background($gl-color-blue-500);
+}
+
+.design-upload-dropzone-overlay {
+  background-color: color-mix(in srgb, var(--gl-color-blue-500) 24%, transparent);
+  @include dropzone-background($gl-color-blue-500);
+  border-radius: $gl-border-radius-base;
+}
+
+// These are composite classes for use with Vue Transition
+// https://vuejs.org/guide/built-ins/transition
 .upload-dropzone-fade-enter-active,
 .upload-dropzone-fade-leave-active {
-  transition: opacity $general-hover-transition-duration $general-hover-transition-curve;
+  @apply gl-transition-opacity;
+  @apply gl-duration-fast;
+  @apply gl-ease-linear;
 }
 
 .upload-dropzone-fade-enter,

@@ -91,7 +91,7 @@ module IssuableActions
   end
 
   def destroy
-    Issuable::DestroyService.new(container: issuable.project, current_user: current_user).execute(issuable)
+    destroy_service.execute(issuable)
 
     name = issuable.human_class_name
     flash[:notice] = "The #{name} was successfully deleted."
@@ -166,27 +166,27 @@ module IssuableActions
   private
 
   def notes_filter
-    strong_memoize(:notes_filter) do
-      notes_filter_param = params[:notes_filter]&.to_i
+    notes_filter_param = params[:notes_filter]&.to_i
 
-      # GitLab Geo does not expect database UPDATE or INSERT statements to happen
-      # on GET requests.
-      # This is just a fail-safe in case notes_filter is sent via GET request in GitLab Geo.
-      # In some cases, we also force the filter to not be persisted with the `persist_filter` param
-      if Gitlab::Database.read_only? || params[:persist_filter] == 'false'
-        notes_filter_param || current_user&.notes_filter_for(issuable)
-      else
-        current_user&.set_notes_filter(notes_filter_param, issuable) || notes_filter_param
-      end
+    # GitLab Geo does not expect database UPDATE or INSERT statements to happen
+    # on GET requests.
+    # This is just a fail-safe in case notes_filter is sent via GET request in GitLab Geo.
+    # In some cases, we also force the filter to not be persisted with the `persist_filter` param
+    if Gitlab::Database.read_only? || params[:persist_filter] == 'false'
+      notes_filter_param || current_user&.notes_filter_for(issuable)
+    else
+      current_user&.set_notes_filter(notes_filter_param, issuable) || notes_filter_param
     end
   end
+  strong_memoize_attr :notes_filter
 
   def discussion_cache_context
     [current_user&.cache_key, project.team.human_max_access(current_user&.id), 'v2'].join(':')
   end
 
   def discussion_serializer
-    DiscussionSerializer.new(project: project, noteable: issuable, current_user: current_user, note_entity: ProjectNoteEntity)
+    DiscussionSerializer.new(project: project, noteable: issuable, current_user: current_user,
+      note_entity: ProjectNoteEntity)
   end
 
   def render_conflict_response
@@ -199,7 +199,10 @@ module IssuableActions
       format.json do
         render json: {
           errors: [
-            "Someone edited this #{issuable.human_class_name} at the same time you did. Please refresh your browser and make sure your changes will not unintentionally remove theirs."
+            <<~HEREDOC.squish
+            Someone edited this #{issuable.human_class_name} at the same time you did.
+            Please refresh your browser and make sure your changes will not unintentionally remove theirs.
+            HEREDOC
           ]
         }, status: :conflict
       end
@@ -248,6 +251,7 @@ module IssuableActions
       :state_event,
       :subscription_event,
       :confidential,
+      :status,
       { assignee_ids: [],
         add_label_ids: [],
         remove_label_ids: [] }
@@ -276,11 +280,14 @@ module IssuableActions
     raise NotImplementedError
   end
 
+  def destroy_service
+    Issuable::DestroyService.new(container: issuable.project, current_user: current_user)
+  end
+
   def parent
     @project || @group # rubocop:disable Gitlab/ModuleWithInstanceVariables
   end
 
-  # rubocop:disable Gitlab/ModuleWithInstanceVariables
   def finder_params_for_issuable
     {
       notes_filter: notes_filter,
@@ -288,7 +295,6 @@ module IssuableActions
       per_page: params[:per_page]
     }
   end
-  # rubocop:enable Gitlab/ModuleWithInstanceVariables
 end
 
 IssuableActions.prepend_mod_with('IssuableActions')

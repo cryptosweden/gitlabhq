@@ -26,7 +26,8 @@ RSpec.describe 'Projects tree', :js, feature_category: :web_ide do
     wait_for_requests
 
     expect(page).to be_axe_clean.within('.project-last-commit')
-    expect(page).to be_axe_clean.within('.nav-block')
+    expect(page).to be_axe_clean.within('.tree-ref-container')
+    expect(page).to be_axe_clean.within('.tree-controls')
     expect(page).to be_axe_clean.within('.tree-content-holder').skipping :'link-in-text-block'
   end
 
@@ -80,7 +81,7 @@ RSpec.describe 'Projects tree', :js, feature_category: :web_ide do
 
       # Check last commit
       expect(find('.commit-content').text).to include(message)
-      expect(find('.js-commit-sha-group').text).to eq(short_newrev)
+      expect(find_by_testid('last-commit-id-label').text).to eq(short_newrev)
     end
   end
 
@@ -131,22 +132,6 @@ RSpec.describe 'Projects tree', :js, feature_category: :web_ide do
 
     it 'renders LFS badge on blob item' do
       expect(page).to have_selector('[data-testid="label-lfs"]', text: 'LFS')
-    end
-  end
-
-  context 'web IDE' do
-    before do
-      stub_feature_flags(vscode_web_ide: false)
-    end
-
-    it 'opens folder in IDE' do
-      visit project_tree_path(project, File.join('master', 'bar'))
-      ide_visit_from_link
-
-      wait_for_all_requests
-      find('.ide-file-list')
-      wait_for_requests
-      expect(page).to have_selector('.is-open', text: 'bar')
     end
   end
 

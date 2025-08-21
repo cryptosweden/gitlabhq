@@ -2,14 +2,14 @@
 import {
   GlBadge,
   GlDisclosureDropdown,
-  GlDisclosureDropdownItem,
+  GlDisclosureDropdownGroup,
   GlTooltipDirective,
   GlResizeObserverDirective,
 } from '@gitlab/ui';
-import { GlBreakpointInstance } from '@gitlab/ui/dist/utils';
-import { sprintf } from '~/locale';
-import { reportToSentry } from '~/ci/utils';
-import { JOB_DROPDOWN, SINGLE_JOB } from '../constants';
+import { GlBreakpointInstance } from '@gitlab/ui/src/utils';
+import JobDropdownItem from '~/ci/common/private/job_dropdown_item.vue';
+import { FAILED_STATUS } from '~/ci/constants';
+import { JOB_DROPDOWN } from '../constants';
 import JobItem from './job_item.vue';
 
 /**
@@ -20,10 +20,11 @@ import JobItem from './job_item.vue';
  */
 export default {
   components: {
+    JobDropdownItem,
     JobItem,
     GlBadge,
     GlDisclosureDropdown,
-    GlDisclosureDropdownItem,
+    GlDisclosureDropdownGroup,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -52,7 +53,6 @@ export default {
   },
   jobItemTypes: {
     jobDropdown: JOB_DROPDOWN,
-    singleJob: SINGLE_JOB,
   },
   data() {
     return {
@@ -64,46 +64,31 @@ export default {
     computedJobId() {
       return this.pipelineId > -1 ? `${this.group.name}-${this.pipelineId}` : '';
     },
-    jobStatusText() {
-      return this.jobItemTooltip(this.group);
+    dropdownTooltip() {
+      return !this.showTooltip ? this.group?.status?.tooltip || this.group?.status?.text : '';
     },
     placement() {
       // MR !49053:
       // We change the placement of the dropdown based on the breakpoint.
       // This is not an ideal solution, but rather a temporary solution
       // until we find a better solution in
-      // https://gitlab.com/gitlab-org/gitlab-ui/-/issues/2615
-      return this.isMobile ? 'left' : 'right-start';
+      // https://gitlab.com/gitlab-org/gitlab-services/design.gitlab.com/-/issues/2400
+      return this.isMobile ? 'bottom-start' : 'right-start';
     },
-    moreActionsTooltip() {
-      return !this.showTooltip ? this.jobStatusText : '';
+    isFailed() {
+      return this.group?.status?.group === 'failed';
     },
-  },
-  errorCaptured(err, _vm, info) {
-    reportToSentry('job_group_dropdown', `error: ${err}, info: ${info}`);
+    nonFailedJobs() {
+      return this.group?.jobs.filter((job) => job.status?.group !== FAILED_STATUS);
+    },
+    failedJobs() {
+      return this.group?.jobs.filter((job) => job.status?.group === FAILED_STATUS);
+    },
+    hasFailedJobs() {
+      return this.failedJobs.length > 0;
+    },
   },
   methods: {
-    pipelineActionRequestComplete() {
-      this.$emit('pipelineActionRequestComplete');
-    },
-    jobItem(job) {
-      return {
-        text: job.name,
-        href: job.status?.detailsPath,
-      };
-    },
-    jobItemTooltip(job) {
-      const { tooltip: statusTooltip } = job.status;
-      const { text: statusText } = job.status;
-
-      if (statusTooltip) {
-        if (this.isDelayedJob) {
-          return sprintf(statusTooltip, { remainingTime: job.remainingTime });
-        }
-        return statusTooltip;
-      }
-      return statusText;
-    },
     handleResize() {
       this.isMobile = GlBreakpointInstance.getBreakpointSize() === 'xs';
     },
@@ -121,8 +106,7 @@ export default {
     :id="computedJobId"
     v-gl-resize-observer="handleResize"
     v-gl-tooltip.viewport.left="{ customClass: 'ci-job-component-tooltip' }"
-    :title="moreActionsTooltip"
-    class="ci-job-group-dropdown"
+    :title="dropdownTooltip"
     block
     fluid-width
     :placement="placement"
@@ -131,40 +115,45 @@ export default {
     @hidden="hideDropdown"
   >
     <template #toggle>
-      <button type="button" :class="cssClassJobName" class="gl-w-full gl-bg-transparent gl-pr-4">
-        <div class="gl-flex gl-items-stretch gl-justify-between">
+      <button
+        type="button"
+        :class="[cssClassJobName, { 'ci-job-item-failed': isFailed }]"
+        class="gl-bg-transparent"
+      >
+        <div class="gl-flex gl-items-center gl-justify-between">
           <job-item
             :type="$options.jobItemTypes.jobDropdown"
             :job="group"
             :stage-name="stageName"
             hide-tooltip
           />
-          <gl-badge variant="muted" class="-gl-ml-5 -gl-mr-2 gl-self-center">
+          <gl-badge variant="muted">
             {{ group.size }}
           </gl-badge>
         </div>
       </button>
     </template>
-
-    <gl-disclosure-dropdown-item
-      v-for="job in group.jobs"
-      :key="job.id"
-      v-gl-tooltip.viewport.left="{
-        title: jobItemTooltip(job),
-        customClass: 'ci-job-component-tooltip',
-      }"
-      :item="jobItem(job)"
-    >
-      <template #list-item>
-        <job-item
-          :is-link="false"
+    <ul class="gl-m-0 gl-w-34 gl-overflow-y-auto gl-p-0" @click.stop>
+      <gl-disclosure-dropdown-group v-if="hasFailedJobs" data-testid="failed-jobs">
+        <template #group-label>
+          {{ s__('Pipelines|Failed jobs') }}
+        </template>
+        <job-dropdown-item
+          v-for="job in failedJobs"
+          :key="job.id"
           :job="job"
-          :type="$options.jobItemTypes.singleJob"
-          css-class-job-name="gl-p-3"
-          hide-tooltip
-          @pipelineActionRequestComplete="pipelineActionRequestComplete"
+          @jobActionExecuted="$emit('pipelineActionRequestComplete')"
         />
-      </template>
-    </gl-disclosure-dropdown-item>
+      </gl-disclosure-dropdown-group>
+
+      <gl-disclosure-dropdown-group :bordered="hasFailedJobs">
+        <job-dropdown-item
+          v-for="job in nonFailedJobs"
+          :key="job.id"
+          :job="job"
+          @jobActionExecuted="$emit('pipelineActionRequestComplete')"
+        />
+      </gl-disclosure-dropdown-group>
+    </ul>
   </gl-disclosure-dropdown>
 </template>

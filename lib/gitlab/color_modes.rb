@@ -5,7 +5,8 @@ module Gitlab
   # for accessing them.
   module ColorModes
     # Color mode ID used when no `default_color_mode` configuration setting is provided.
-    APPLICATION_DEFAULT = 1
+    APPLICATION_DEFAULT = 3
+    APPLICATION_LIGHT = 1
     APPLICATION_DARK = 2
     APPLICATION_SYSTEM = 3
 
@@ -14,9 +15,9 @@ module Gitlab
 
     def self.available_modes
       [
-        Mode.new(APPLICATION_DEFAULT, s_('ColorMode|Light'), 'gl-light'),
-        Mode.new(APPLICATION_DARK, s_('ColorMode|Dark (Experiment)'), 'gl-dark'),
-        Mode.new(APPLICATION_SYSTEM, s_('ColorMode|Auto (Experiment)'), 'gl-system')
+        Mode.new(APPLICATION_LIGHT, s_('ColorMode|Light'), 'gl-light'),
+        Mode.new(APPLICATION_DARK, s_('ColorMode|Dark'), 'gl-dark'),
+        Mode.new(APPLICATION_SYSTEM, s_('ColorMode|Auto'), 'gl-system')
       ]
     end
 
@@ -35,7 +36,7 @@ module Gitlab
     #
     # Returns a Mode
     def self.default
-      by_id(1)
+      by_id(default_id)
     end
 
     # Iterate through each Mode
@@ -60,6 +61,13 @@ module Gitlab
 
     def self.valid_ids
       available_modes.map(&:id)
+    end
+
+    def self.default_id
+      @default_id ||= begin
+        id = Gitlab.config.gitlab['default_color_mode']&.to_i
+        available_modes.detect { |s| s.id == id }&.id || APPLICATION_DEFAULT
+      end
     end
   end
 end

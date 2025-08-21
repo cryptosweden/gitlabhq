@@ -109,7 +109,7 @@ module IntegrationsHelper
       id: integration.id,
       project_id: integration.project_id,
       group_id: integration.group_id,
-      show_active: integration.show_active_box?.to_s,
+      manual_activation: integration.manual_activation?.to_s,
       activated: (integration.active || (integration.new_record? && integration.activate_disabled_reason.nil?)).to_s,
       activate_disabled: integration.activate_disabled_reason.present?.to_s,
       type: integration.to_param,
@@ -118,7 +118,7 @@ module IntegrationsHelper
       enable_comments: integration.comment_on_event_enabled.to_s,
       comment_detail: integration.comment_detail,
       learn_more_path: integrations_help_page_path,
-      about_pricing_url: Gitlab::Saas.about_pricing_url,
+      about_pricing_url: promo_pricing_url,
       trigger_events: trigger_events_for_integration(integration),
       sections: integration.sections.to_json,
       fields: fields_for_integration(integration),
@@ -133,15 +133,8 @@ module IntegrationsHelper
       redirect_to: request.referer
     }
 
-    if integration.is_a?(Integrations::Jira)
-      form_data[:jira_issue_transition_automatic] = integration.jira_issue_transition_automatic
-      form_data[:jira_issue_transition_id] = integration.jira_issue_transition_id
-    end
-
-    if integration.is_a?(::Integrations::GitlabSlackApplication)
-      form_data[:upgrade_slack_url] = add_to_slack_link(integration.parent, slack_app_id)
-      form_data[:should_upgrade_slack] = integration.upgrade_needed?.to_s
-    end
+    form_data.merge!(jira_specific_form_data(integration)) if integration.is_a?(Integrations::Jira)
+    form_data.merge!(slack_specific_form_data(integration)) if integration.is_a?(::Integrations::GitlabSlackApplication)
 
     form_data
   end
@@ -160,7 +153,7 @@ module IntegrationsHelper
   end
 
   def integrations_help_page_path
-    help_page_path('administration/settings/project_integration_management')
+    help_page_path('administration/settings/project_integration_management.md')
   end
 
   def project_jira_issues_integration?
@@ -199,23 +192,26 @@ module IntegrationsHelper
 
   def integration_webhook_event_human_name(event)
     event_i18n_map = {
-      repository_update_events: _('Repository update events'),
-      push_events: _('Push events'),
-      tag_push_events: s_('Webhooks|Tag push events'),
-      note_events: _('Comments'),
+      confidential_issues_events: s_('Webhooks|Confidential issue events'),
       confidential_note_events: s_('Webhooks|Confidential comments'),
-      issues_events: s_('Webhooks|Issues events'),
-      confidential_issues_events: s_('Webhooks|Confidential issues events'),
-      subgroup_events: s_('Webhooks|Subgroup events'),
-      member_events: s_('Webhooks|Member events'),
-      merge_requests_events: s_('Webhooks|Merge request events'),
-      job_events: s_('Webhooks|Job events'),
-      pipeline_events: s_('Webhooks|Pipeline events'),
-      wiki_page_events: s_('Webhooks|Wiki page events'),
       deployment_events: s_('Webhooks|Deployment events'),
       feature_flag_events: s_('Webhooks|Feature flag events'),
+      issues_events: s_('Webhooks|Issue events'),
+      job_events: s_('Webhooks|Job events'),
+      member_events: s_('Webhooks|Member events'),
+      merge_requests_events: s_('Webhooks|Merge request events'),
+      note_events: _('Comments'),
+      pipeline_events: s_('Webhooks|Pipeline events'),
+      project_events: s_('Webhooks|Project events'),
+      push_events: _('Push events'),
       releases_events: s_('Webhooks|Releases events'),
-      resource_access_token_events: s_('Webhooks|Project or group access token events')
+      milestone_events: s_('Webhooks|Milestone events'),
+      repository_update_events: _('Repository update events'),
+      resource_access_token_events: s_('Webhooks|Project or group access token events'),
+      subgroup_events: s_('Webhooks|Subgroup events'),
+      tag_push_events: s_('Webhooks|Tag push events'),
+      wiki_page_events: s_('Webhooks|Wiki page events'),
+      vulnerability_events: s_('Webhooks|Vulnerability events')
     }
 
     event_i18n_map[event] || event.to_s.humanize
@@ -254,6 +250,24 @@ module IntegrationsHelper
       slack_link_path: slack_link_profile_slack_path,
       gitlab_logo_path: image_path('illustrations/gitlab_logo.svg'),
       slack_logo_path: image_path('illustrations/slack_logo.svg')
+    }
+  end
+
+  def jira_specific_form_data(integration)
+    return {} unless integration.is_a?(Integrations::Jira)
+
+    {
+      jira_issue_transition_automatic: integration.jira_issue_transition_automatic,
+      jira_issue_transition_id: integration.jira_issue_transition_id
+    }
+  end
+
+  def slack_specific_form_data(integration)
+    return {} unless integration.is_a?(::Integrations::GitlabSlackApplication)
+
+    {
+      upgrade_slack_url: add_to_slack_link(integration.parent, slack_app_id),
+      should_upgrade_slack: integration.upgrade_needed?.to_s
     }
   end
 

@@ -2,24 +2,34 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Feature flag user lists API
 ---
 
-# Feature flag user lists API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/205409) in [GitLab Premium](https://about.gitlab.com/pricing/) 12.10.
-> - [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/212318) to GitLab Free in 13.5.
+{{< /details >}}
 
-API for accessing GitLab feature flag user lists.
+{{< history >}}
 
-Users with at least the Developer [role](../user/permissions.md) can access the feature flag user lists API.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/205409) in [GitLab Premium](https://about.gitlab.com/pricing/) 12.10.
+- [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/212318) to GitLab Free in 13.5.
 
-NOTE:
-`GET` requests return twenty results at a time because the API results
-are [paginated](rest/index.md#pagination). You can change this value.
+{{< /history >}}
+
+Use this API to interact with GitLab feature flags for [user lists](../operations/feature_flags.md#user-list).
+
+Prerequisites:
+
+- You must have at least the Developer role.
+
+{{< alert type="note" >}}
+
+To interact with feature flags for all users, see the [Feature flag API](feature_flags.md).
+
+{{< /alert >}}
 
 ## List all feature flag user lists for a project
 
@@ -29,13 +39,17 @@ Gets all feature flag user lists for the requested project.
 GET /projects/:id/feature_flags_user_lists
 ```
 
+Use the `page` and `per_page` [pagination](rest/_index.md#offset-based-pagination) parameters to
+control the pagination of results.
+
 | Attribute | Type           | Required | Description                                                                      |
 | --------- | -------------- | -------- | -------------------------------------------------------------------------------- |
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `search`  | string         | no       | Return user lists matching the search criteria.                                  |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/feature_flags_user_lists"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/feature_flags_user_lists"
 ```
 
 Example response:
@@ -73,15 +87,16 @@ POST /projects/:id/feature_flags_user_lists
 
 | Attribute           | Type             | Required   | Description                                                                            |
 | ------------------- | ---------------- | ---------- | ---------------------------------------------------------------------------------------|
-| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding).       |
+| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths).       |
 | `name`              | string           | yes        | The name of the list. |
 | `user_xids`         | string           | yes        | A comma-separated list of external user IDs. |
 
 ```shell
-curl "https://gitlab.example.com/api/v4/projects/1/feature_flags_user_lists" \
-     --header "PRIVATE-TOKEN: <your_access_token>" \
-     --header "Content-type: application/json" \
-     --data @- << EOF
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --header "Content-type: application/json" \
+  --url "https://gitlab.example.com/api/v4/projects/1/feature_flags_user_lists" \
+  --data @- << EOF
 {
     "name": "my_user_list",
     "user_xids": "user1,user2,user3"
@@ -111,13 +126,17 @@ Gets a feature flag user list.
 GET /projects/:id/feature_flags_user_lists/:iid
 ```
 
+Use the `page` and `per_page` [pagination](rest/_index.md#offset-based-pagination) parameters to
+control the pagination of results.
+
 | Attribute           | Type             | Required   | Description                                                                            |
 | ------------------- | ---------------- | ---------- | ---------------------------------------------------------------------------------------|
-| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding).       |
+| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths).       |
 | `iid`               | integer/string   | yes        | The internal ID of the project's feature flag user list.                               |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/feature_flags_user_lists/1"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/feature_flags_user_lists/1"
 ```
 
 Example response:
@@ -144,17 +163,17 @@ PUT /projects/:id/feature_flags_user_lists/:iid
 
 | Attribute           | Type             | Required   | Description                                                                            |
 | ------------------- | ---------------- | ---------- | ---------------------------------------------------------------------------------------|
-| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding).       |
+| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths).       |
 | `iid`               | integer/string   | yes        | The internal ID of the project's feature flag user list.                               |
 | `name`              | string           | no         | The name of the list.                                                          |
 | `user_xids`         | string           | no         | A comma-separated list of external user IDs.                                                    |
 
 ```shell
-curl "https://gitlab.example.com/api/v4/projects/1/feature_flags_user_lists/1" \
-     --header "PRIVATE-TOKEN: <your_access_token>" \
-     --header "Content-type: application/json" \
-     --request PUT \
-     --data @- << EOF
+curl --request PUT \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --header "Content-type: application/json" \
+  --url "https://gitlab.example.com/api/v4/projects/1/feature_flags_user_lists/1" \
+  --data @- << EOF
 {
     "user_xids": "user2,user3,user4"
 }
@@ -185,9 +204,11 @@ DELETE /projects/:id/feature_flags_user_lists/:iid
 
 | Attribute           | Type             | Required   | Description                                                                            |
 | ------------------- | ---------------- | ---------- | ---------------------------------------------------------------------------------------|
-| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding).       |
+| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths).       |
 | `iid`               | integer/string   | yes        | The internal ID of the project's feature flag user list                                |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" --request DELETE "https://gitlab.example.com/api/v4/projects/1/feature_flags_user_lists/1"
+curl --request DELETE \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/feature_flags_user_lists/1"
 ```

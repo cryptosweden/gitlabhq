@@ -6,7 +6,6 @@ FactoryBot.define do
     name { generate(:name) }
     username { generate(:username) }
     password { User.random_password }
-    role { 'software_developer' }
     confirmed_at { Time.now }
     confirmation_token { nil }
     can_create_group { true }
@@ -14,6 +13,26 @@ FactoryBot.define do
     color_mode_id { 1 }
 
     after(:build) do |user, evaluator|
+      owner_of = [evaluator.owner_of].grep(Organizations::Organization).first
+      overrides = evaluator.instance_variable_get(:@overrides) || {}
+
+      if overrides.key?(:organizations)
+        user.organizations = overrides.fetch(:organizations, [])
+      end
+
+      if user.organizations.any?
+        user.organization ||= user.organizations.first
+      end
+
+      user.organization ||= owner_of || create(:common_organization)
+
+      # Ensure user.organization will be added to user.organizations
+      # except when the organizations is explicitly overridden
+      # except when 'owner_of' is set
+      unless owner_of || overrides.key?(:organizations) || user.organizations.include?(user.organization)
+        user.organizations << user.organization
+      end
+
       # UserWithNamespaceShim is not defined in gdk reset-data. We assume the shim is enabled in this case.
       assign_ns = if defined?(UserWithNamespaceShim)
                     UserWithNamespaceShim.enabled?
@@ -21,18 +40,16 @@ FactoryBot.define do
                     true
                   end
 
-      user.assign_personal_namespace(create(:organization)) if assign_ns
+      if assign_ns
+        user.assign_personal_namespace(user.organization)
+      end
     end
 
-    trait :without_default_org do
-      before(:create) { |user| user.define_singleton_method(:create_default_organization_user) { nil } }
-    end
-
+    # rubocop:disable RSpec/FactoryBot/InlineAssociation -- we don't use an association here
     trait :with_namespace do
-      # rubocop: disable RSpec/FactoryBot/InlineAssociation -- We need to pass an Organization to this method
-      namespace { assign_personal_namespace(create(:organization)) }
-      # rubocop: enable RSpec/FactoryBot/InlineAssociation
+      namespace { assign_personal_namespace(organization || create(:common_organization)) }
     end
+    # rubocop:enable RSpec/FactoryBot/InlineAssociation
 
     trait :admin do
       admin { true }
@@ -111,6 +128,7 @@ FactoryBot.define do
       name { 'Service account user' }
       user_type { :service_account }
       skip_confirmation { true }
+      email { "#{User::SERVICE_ACCOUNT_PREFIX}_#{generate(:username)}@#{User::NOREPLY_EMAIL_DOMAIN}" }
     end
 
     trait :migration_bot do
@@ -131,6 +149,10 @@ FactoryBot.define do
 
     trait :placeholder do
       user_type { :placeholder }
+    end
+
+    trait :import_user do
+      user_type { :import_user }
     end
 
     trait :external do
@@ -201,6 +223,7 @@ FactoryBot.define do
     transient do
       # rubocop:disable Lint/EmptyBlock -- block is required by factorybot
       guest_of {}
+      planner_of {}
       reporter_of {}
       developer_of {}
       maintainer_of {}
@@ -210,6 +233,7 @@ FactoryBot.define do
 
     after(:create) do |user, evaluator|
       Array.wrap(evaluator.guest_of).each { |target| target.add_guest(user) }
+      Array.wrap(evaluator.planner_of).each { |target| target.add_planner(user) }
       Array.wrap(evaluator.reporter_of).each { |target| target.add_reporter(user) }
       Array.wrap(evaluator.developer_of).each { |target| target.add_developer(user) }
       Array.wrap(evaluator.maintainer_of).each { |target| target.add_maintainer(user) }

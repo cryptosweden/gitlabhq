@@ -11,11 +11,15 @@ module Types
 
       present_using ::Ml::ModelPresenter
 
+      markdown_field :description_html, null: true
+
       field :id, ::Types::GlobalIDType[::Ml::Model], null: false, description: 'ID of the model.'
 
       field :name, ::GraphQL::Types::String, null: false, description: 'Name of the model.'
 
       field :created_at, Types::TimeType, null: false, description: 'Date of creation.'
+
+      field :author, ::Types::UserType, null: true, description: 'User that created the model.'
 
       field :description, ::GraphQL::Types::String,
         null: true,
@@ -38,6 +42,10 @@ module Types
 
       field :candidates, ::Types::Ml::CandidateType.connection_type, null: true,
         description: 'Version candidates of the model.'
+
+      field :default_experiment_path, ::GraphQL::Types::String,
+        null: true,
+        description: 'Path to default experiment page for the model.'
 
       field :version, ::Types::Ml::ModelVersionType, null: true,
         description: 'Version of the model.',

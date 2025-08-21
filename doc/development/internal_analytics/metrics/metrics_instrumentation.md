@@ -1,10 +1,9 @@
 ---
-stage: Monitor
+stage: Analytics
 group: Analytics Instrumentation
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Metrics instrumentation guide
 ---
-
-# Metrics instrumentation guide
 
 This guide describes how to develop Service Ping metrics using metrics instrumentation.
 
@@ -23,9 +22,10 @@ For a video tutorial, see the [Adding Service Ping metric via instrumentation cl
 - **Hardening**:
   Hardening a method is the process that ensures the method fails safe, returning a fallback value like -1.
 
-## How it works
+## How metrics instrumentation works
 
-A metric definition has the [`instrumentation_class`](metrics_dictionary.md) field, which can be set to a class.
+All metrics must have a [corresponding metric definition](metrics_dictionary.md) to be included in the [service ping](../service_ping/_index.md#how-service-ping-works) payload.
+A metric definition may have the [`instrumentation_class`](metrics_dictionary.md) field, which can be set to a class.
 
 The defined instrumentation class should inherit one of the existing metric classes: `DatabaseMetric`, `NumbersMetric` or `GenericMetric`.
 
@@ -35,9 +35,12 @@ Using an instrumentation class ensures that metrics can fail safe individually, 
 
 ## Database metrics
 
-NOTE:
+{{< alert type="note" >}}
+
 Whenever possible we recommend using [internal event tracking](../internal_event_instrumentation/quick_start.md) instead of database metrics.
 Database metrics can create unnecessary load on the database of bigger GitLab instances and potential optimisations can affect instance performance.
+
+{{< /alert >}}
 
 You can use database metrics to track data kept in the database, for example, a count of issues that exist on a given instance.
 
@@ -174,11 +177,14 @@ Estimated batch counter functionality handles `ActiveRecord::StatementInvalid` e
 when used through the provided `estimate_batch_distinct_count` method.
 Errors return a value of `-1`.
 
-WARNING:
+{{< alert type="warning" >}}
+
 This functionality estimates a distinct count of a specific ActiveRecord_Relation in a given column,
 which uses the [HyperLogLog](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/40671.pdf) algorithm.
 As the HyperLogLog algorithm is probabilistic, the **results always include error**.
 The highest encountered error rate is 4.9%.
+
+{{< /alert >}}
 
 When correctly used, the `estimate_batch_distinct_count` method enables efficient counting over
 columns that contain non-unique values, which cannot be assured by other counters.
@@ -343,6 +349,8 @@ rails generate gitlab:usage_metric CountIssues --type database --operation disti
         create spec/lib/gitlab/usage/metrics/instrumentations/count_issues_metric_spec.rb
 ```
 
+After implementation, you should [run service ping locally](../service_ping/troubleshooting.md#generate-service-ping) to verify that the metric is included and functioning as expected.
+
 ## Migrate Service Ping metrics to instrumentation classes
 
 This guide describes how to migrate a Service Ping metric from [`lib/gitlab/usage_data.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/usage_data.rb) or [`ee/lib/ee/gitlab/usage_data.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/lib/ee/gitlab/usage_data.rb) to instrumentation classes.
@@ -363,7 +371,7 @@ This guide describes how to migrate a Service Ping metric from [`lib/gitlab/usag
    - Add tests for the individual metric [`spec/lib/gitlab/usage/metrics/instrumentations/`](https://gitlab.com/gitlab-org/gitlab/-/tree/master/lib/gitlab/usage/metrics/instrumentations).
    - Add tests for Service Ping.
 
-1. [Generate the metric definition file](../metrics/metrics_dictionary.md#create-a-new-metric-definition).
+1. [Generate the metric definition file](metrics_dictionary.md#create-a-new-metric-definition).
 
 1. Remove the code from [`lib/gitlab/usage_data.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/usage_data.rb) or [`ee/lib/ee/gitlab/usage_data.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/lib/ee/gitlab/usage_data.rb).
 

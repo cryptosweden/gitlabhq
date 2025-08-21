@@ -1,16 +1,15 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Generating chaos in a test GitLab instance
 ---
 
-# Generating chaos in a test GitLab instance
-
-<!-- vale gitlab.Spelling = NO -->
+<!-- vale gitlab_base.Spelling = NO -->
 
 As [Werner Vogels](https://twitter.com/Werner), the CTO at Amazon Web Services, famously put it, **Everything fails, all the time**.
 
-<!-- vale gitlab.Spelling = NO -->
+<!-- vale gitlab_base.Spelling = NO -->
 
 As a developer, it's as important to consider the failure modes in which your software may operate as much as typical operation. Doing so can mean the difference between a minor hiccup leading to a scattering of `500` errors experienced by a tiny fraction of users, and a full site outage that affects all users for an extended period.
 
@@ -28,9 +27,12 @@ Currently, there are four endpoints for simulating the following conditions:
 For obvious reasons, these endpoints are not enabled by default on `production`.
 They are enabled by default on **development** environments.
 
-WARNING:
+{{< alert type="warning" >}}
+
 It is required that you secure access to the chaos endpoints using a secret token.
 You should not enable them in production unless you absolutely know what you're doing.
+
+{{< /alert >}}
 
 A secret token can be set through the `GITLAB_CHAOS_SECRET` environment variable.
 For example, when using the [GDK](https://gitlab.com/gitlab-org/gitlab-development-kit)

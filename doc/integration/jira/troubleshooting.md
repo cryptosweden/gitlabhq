@@ -1,46 +1,48 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Plan
+group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting Jira issues integration
 ---
 
-# Troubleshooting Jira issue integration
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-When working with the [Jira issue integration](configure.md), you might encounter the following issues.
+{{< /details >}}
+
+When working with the [Jira issues integration](configure.md), you might encounter the following issues.
 
 ## GitLab cannot link to a Jira issue
 
 When you mention a Jira issue ID in GitLab, the issue link might be missing.
-[`sidekiq.log`](../../administration/logs/index.md#sidekiq-logs) might contain the following exception:
+[`sidekiq.log`](../../administration/logs/_index.md#sidekiq-logs) might contain the following exception:
 
 ```plaintext
 No Link Issue Permission for issue 'JIRA-1234'
 ```
 
-To resolve this issue, ensure the Jira user you created for the [Jira issue integration](configure.md) has permission to link issues.
+To resolve this issue, ensure the Jira user you created for the [Jira issues integration](configure.md) has permission to link issues.
 
 ## GitLab cannot comment on a Jira issue
 
-If GitLab cannot comment on a Jira issue, ensure the Jira user you created for the [Jira issue integration](configure.md) has permission to:
+If GitLab cannot comment on a Jira issue, ensure the Jira user you created for the [Jira issues integration](configure.md) has permission to:
 
 - Post comments on a Jira issue.
 - Transition the Jira issue.
 
-When the [GitLab issue tracker](../../integration/external-issue-tracker.md) is disabled, Jira issue references and comments do not work.
-If you [restrict IP addresses for Jira access](https://support.atlassian.com/security-and-access-policies/docs/specify-ip-addresses-for-product-access/), ensure you add your self-managed IP addresses or [GitLab IP addresses](../../user/gitlab_com/index.md#ip-range) to the allowlist in Jira.
+When the [GitLab issue tracker](../external-issue-tracker.md) is disabled, Jira issue references and comments do not work.
+If you [restrict IP addresses for Jira access](https://support.atlassian.com/security-and-access-policies/docs/specify-ip-addresses-for-product-access/), ensure you add your GitLab Self-Managed IP addresses or [GitLab IP addresses](../../user/gitlab_com/_index.md#ip-range) to the allowlist in Jira.
 
-For the root cause, check the [`integrations_json.log`](../../administration/logs/index.md#integrations_jsonlog) file. When GitLab tries to comment on a Jira issue, an `Error sending message` log entry might appear.
+For the root cause, check the [`integrations_json.log`](../../administration/logs/_index.md#integrations_jsonlog) file. When GitLab tries to comment on a Jira issue, an `Error sending message` log entry might appear.
 
 In GitLab 16.1 and later, when an error occurs, the `integrations_json.log` file contains `client_*` keys in the outgoing API request to Jira.
 You can use the `client_*` keys to check the [Atlassian API documentation](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-group-issues) for why the error has occurred.
 
 In the following example, Jira responds with a `404 Not Found`. This error might happen if:
 
-- The Jira user you created for the Jira issue integration does not have permission to view the issue.
+- The Jira user you created for the Jira issues integration does not have permission to view the issue.
 - The Jira issue ID you specified does not exist.
 
 ```json
@@ -70,10 +72,13 @@ If the user can access the issue, Jira responds with a `200 OK` and the returned
 
 ### Verify GitLab can post a comment to a Jira issue
 
-WARNING:
+{{< alert type="warning" >}}
+
 Commands that change data can cause damage if not run correctly or under the right conditions. Always run commands in a test environment first and have a backup instance ready to restore.
 
-To help troubleshoot your Jira integration, you can check whether
+{{< /alert >}}
+
+To help troubleshoot your Jira issues integration, you can check whether
 GitLab can post a comment to a Jira issue using the project's Jira
 integration settings.
 
@@ -117,7 +122,7 @@ If GitLab cannot close a Jira issue:
 ## CAPTCHA after failed sign-in attempts
 
 CAPTCHA might be triggered after consecutive failed sign-in attempts.
-These failed attempts might lead to a `401 Unauthorized` when testing the Jira issue integration settings.
+These failed attempts might lead to a `401 Unauthorized` when testing the Jira issues integration settings.
 If CAPTCHA has been triggered, you cannot use the Jira REST API
 to authenticate with the Jira site.
 
@@ -125,20 +130,20 @@ To resolve this issue, sign in to your Jira instance and complete the CAPTCHA.
 
 ## Integration does not work for an imported project
 
-The Jira issue integration might not work for a project that has been imported.
+The Jira issues integration might not work for a project that has been imported.
 For more information, see [issue 341571](https://gitlab.com/gitlab-org/gitlab/-/issues/341571).
 
 To resolve this issue, disable and then re-enable the integration.
 
-## `certificate verify failed` when testing the integration settings
+## Error: `certificate verify failed`
 
-When testing the Jira issue integration settings, you might get the following error:
+When you test the Jira issues integration settings, you might get the following error:
 
 ```plaintext
 Connection failed. Check your integration settings. SSL_connect returned=1 errno=0 peeraddr=<jira.example.com> state=error: certificate verify failed (unable to get local issuer certificate)
 ```
 
-This error might also appear in the [`integrations_json.log`](../../administration/logs/index.md#integrations_jsonlog) file:
+This error might also appear in the [`integrations_json.log`](../../administration/logs/_index.md#integrations_jsonlog) file:
 
 ```json
 {
@@ -158,8 +163,11 @@ To resolve this issue, see
 
 ## Change all Jira projects to instance-level or group-level values
 
-WARNING:
+{{< alert type="warning" >}}
+
 Commands that change data can cause damage if not run correctly or under the right conditions. Always run commands in a test environment first and have a backup instance ready to restore.
+
+{{< /alert >}}
 
 ### Change all projects on an instance
 
@@ -195,7 +203,7 @@ To change all Jira projects in a group (and its subgroups) to use group-level in
   def reset_integration(target)
     integration = target.integrations.find_by(type: Integrations::Jira)
 
-    return if integration.nil? # Skip if the project has no Jira issue integration
+    return if integration.nil? # Skip if the project has no Jira issues integration
     return unless integration.inherit_from_id.nil? # Skip integrations that are already inheriting
 
     default_integration = Integration.default_integration(integration.type, target)
@@ -235,10 +243,13 @@ To change all Jira projects in a group (and its subgroups) to use group-level in
 
 ## Update the integration password for all projects
 
-WARNING:
+{{< alert type="warning" >}}
+
 Commands that change data can cause damage if not run correctly or under the right conditions. Always run commands in a test environment first and have a backup instance ready to restore.
 
-To reset the Jira user's password for all projects with active Jira integrations,
+{{< /alert >}}
+
+To reset the Jira user's password for all projects with active Jira issues integrations,
 run the following in a [Rails console](../../administration/operations/rails_console.md#starting-a-rails-console-session):
 
 ```ruby
@@ -253,10 +264,10 @@ end
 
 When [viewing Jira issues](configure.md#view-jira-issues) in GitLab, you might encounter the following issues.
 
-### `500 We're sorry` when accessing a Jira issue in GitLab
+### Error: `500 We're sorry`
 
-When accessing a Jira issue in GitLab, you might get a `500 We're sorry. Something went wrong on our end` error.
-Check [`production.log`](../../administration/logs/index.md#productionlog) to see if the file contains the following exception:
+When you access a Jira issue in GitLab, you might get a `500 We're sorry. Something went wrong on our end` error.
+Check [`production.log`](../../administration/logs/_index.md#productionlog) to see if the file contains the following exception:
 
 ```plaintext
 :NoMethodError (undefined method 'duedate' for #<JIRA::Resource::Issue:0x00007f406d7b3180>)
@@ -264,7 +275,7 @@ Check [`production.log`](../../administration/logs/index.md#productionlog) to se
 
 If that's the case, ensure the [**Due date** field is visible for issues](https://confluence.atlassian.com/jirakb/due-date-field-is-missing-189431917.html) in the integrated Jira project.
 
-### Error when requesting data from Jira
+### Error: `An error occurred while requesting data from Jira`
 
 When you try to view the Jira issue list or create a Jira issue in GitLab, you might get one of the following errors:
 
@@ -276,9 +287,9 @@ An error occurred while requesting data from Jira
 An error occurred while fetching issue list. Connection failed. Check your integration settings.
 ```
 
-These errors occur when the authentication for the Jira issue integration is not complete or correct.
+These errors occur when the authentication for the Jira issues integration is not complete or correct.
 
-To resolve this issue, [configure the Jira issue integration](configure.md#configure-the-integration) again.
+To resolve this issue, [configure the Jira issues integration](configure.md#configure-the-integration) again.
 Ensure the authentication details are correct, enter your API token or password again, and save your changes.
 
 The Jira issue list does not load if the project key contains a reserved JQL word.
@@ -289,14 +300,14 @@ Your Jira project key must not have [restricted words and characters](https://co
 
 When you try to view the Jira issue list in GitLab, you might see one of the following errors.
 
-#### Error: `The value '<project>' does not exist for the field 'project'.`
+#### Error: `The value '<project>' does not exist for the field 'project'`
 
 If you use the wrong authentication credentials for your Jira installation, you might see this error:
 
 ```plaintext
 An error occurred while requesting data from Jira:
 The value '<project>' does not exist for the field 'project'.
-Check your Jira integration configuration and try again.
+Check your Jira issues integration configuration and try again.
 ```
 
 Authentication credentials depend on your type of Jira installation:
@@ -306,26 +317,26 @@ Authentication credentials depend on your type of Jira installation:
 - **For Jira Data Center or Jira Server**, you must have a Jira username and password
   or, in GitLab 16.0 and later, a Jira personal access token.
 
-For more information, see [Jira issue integration](configure.md).
+For more information, see [Jira issues integration](configure.md).
 
 To resolve this issue, update the authentication credentials to match your Jira installation.
 
-#### Error: `The credentials for accessing Jira are not allowed to access the data.`
+#### Error: `The credentials for accessing Jira are not allowed to access the data`
 
 If your Jira credentials cannot access the Jira project key you specified in the
-[Jira issue integration](configure.md#configure-the-integration), you might see this error:
+[Jira issues integration](configure.md#configure-the-integration), you might see this error:
 
 ```plaintext
 The credentials for accessing Jira are not allowed to access the data.
-Check your Jira integration credentials and try again.
+Check your Jira issues integration credentials and try again.
 ```
 
-To resolve this issue, ensure the Jira user you configured in the Jira issue integration has permission to view issues
+To resolve this issue, ensure the Jira user you configured in the Jira issues integration has permission to view issues
 associated with the specified Jira project key.
 
 To verify the Jira user has this permission, do one of the following:
 
-- In your browser, sign in to Jira with the user you configured in the Jira issue integration. Because the Jira API supports
+- In your browser, sign in to Jira with the user you configured in the Jira issues integration. Because the Jira API supports
   [cookie-based authentication](https://developer.atlassian.com/server/jira/platform/security-overview/#cookie-based-authentication),
   you can see if any issues are returned in the browser:
 

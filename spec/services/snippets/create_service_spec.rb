@@ -3,9 +3,11 @@
 require 'spec_helper'
 
 RSpec.describe Snippets::CreateService, feature_category: :source_code_management do
+  let_it_be(:organization) { create(:organization) }
+
   describe '#execute' do
-    let_it_be(:user) { create(:user) }
-    let_it_be(:admin) { create(:user, :admin) }
+    let_it_be(:user) { create(:user, organizations: [organization]) }
+    let_it_be(:admin) { create(:user, :admin, organizations: [organization]) }
 
     let(:action) { :create }
     let(:opts) { base_opts.merge(extra_opts) }
@@ -14,16 +16,16 @@ RSpec.describe Snippets::CreateService, feature_category: :source_code_managemen
         title: 'Test snippet',
         file_name: 'snippet.rb',
         content: 'puts "hello world"',
-        visibility_level: Gitlab::VisibilityLevel::PRIVATE
+        visibility_level: Gitlab::VisibilityLevel::PRIVATE,
+        organization_id: organization.id
       }
     end
 
     let(:extra_opts) { {} }
     let(:creator) { admin }
+    let(:snippet) { subject.payload[:snippet] }
 
     subject { described_class.new(project: project, current_user: creator, params: opts).execute }
-
-    let(:snippet) { subject.payload[:snippet] }
 
     shared_examples 'a service that creates a snippet' do
       it 'creates a snippet with the provided attributes' do
@@ -46,6 +48,10 @@ RSpec.describe Snippets::CreateService, feature_category: :source_code_managemen
 
         it 'responds with an error' do
           expect(subject).to be_error
+        end
+
+        it 'responds with a reason' do
+          expect(subject.reason).to eq(described_class::SNIPPET_ACCESS_ERROR)
         end
 
         it 'does not create a public snippet' do
@@ -116,6 +122,34 @@ RSpec.describe Snippets::CreateService, feature_category: :source_code_managemen
         blob = snippet.repository.blob_at('master', base_opts[:file_name])
 
         expect(blob.data).to eq base_opts[:content]
+      end
+
+      context 'when feature flag is enabled' do
+        before do
+          stub_feature_flags(commit_files_target_sha: true)
+        end
+
+        it 'does not pass skip_target_sha' do
+          expect_next_instance_of(Repository) do |repository|
+            expect(repository).to receive(:commit_files).with(anything, hash_excluding(:skip_target_sha))
+          end
+
+          subject
+        end
+      end
+
+      context 'when feature flag is disabled' do
+        before do
+          stub_feature_flags(commit_files_target_sha: false)
+        end
+
+        it 'passes skip_target_sha as true' do
+          expect_next_instance_of(Repository) do |repository|
+            expect(repository).to receive(:commit_files).with(anything, a_hash_including(skip_target_sha: true))
+          end
+
+          subject
+        end
       end
 
       context 'when repository creation action fails' do
@@ -239,7 +273,8 @@ RSpec.describe Snippets::CreateService, feature_category: :source_code_managemen
         {
           title: 'Test snippet',
           visibility_level: Gitlab::VisibilityLevel::PRIVATE,
-          snippet_actions: snippet_actions
+          snippet_actions: snippet_actions,
+          organization_id: organization.id
         }
       end
 
@@ -330,6 +365,20 @@ RSpec.describe Snippets::CreateService, feature_category: :source_code_managemen
           subject
         end
       end
+
+      context 'when Current.organization is set', :with_current_organization do
+        let(:extra_opts) { { organization_id: current_organization.id } }
+
+        it 'sets the organization_id to nil' do
+          expect(snippet.organization_id).to be_nil
+        end
+      end
+
+      context 'when Current.organization is not set' do
+        it 'sets the organization_id to nil' do
+          expect(snippet.organization_id).to be_nil
+        end
+      end
     end
 
     context 'when PersonalSnippet' do
@@ -345,6 +394,26 @@ RSpec.describe Snippets::CreateService, feature_category: :source_code_managemen
       it_behaves_like 'when snippet_actions param is present'
       it_behaves_like 'invalid params error response'
 
+      context 'when Current.organization is set', :with_current_organization do
+        let(:extra_opts) { { organization_id: current_organization.id } }
+
+        it 'sets the organization_id to the current organization' do
+          expect(snippet.organization_id).to eq(current_organization.id)
+        end
+
+        it 'does not set organization_id to the default organization' do
+          expect(snippet.organization_id)
+            .not_to eq(Organizations::Organization::DEFAULT_ORGANIZATION_ID)
+        end
+      end
+
+      context 'when Current.organization is not set' do
+        it 'uses user organization' do
+          expect(snippet.organization_id)
+            .to eq(user.organization.id)
+        end
+      end
+
       context 'when the snippet description contains files' do
         include FileMoverHelpers
 
@@ -359,12 +428,12 @@ RSpec.describe Snippets::CreateService, feature_category: :source_code_managemen
           "text: [text.txt](/uploads#{text_file})"
         end
 
+        let(:extra_opts) { { description: description, title: title, files: files } }
+
         before do
           allow(FileUtils).to receive(:mkdir_p)
           allow(FileUtils).to receive(:move)
         end
-
-        let(:extra_opts) { { description: description, title: title, files: files } }
 
         it 'stores the snippet description correctly' do
           stub_file_mover(text_file)

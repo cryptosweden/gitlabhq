@@ -14,27 +14,27 @@ module Ci
 
       case status
       when :online
-        title = s_("Runners|Runner is online; last contact was %{runner_contact} ago") % { runner_contact: time_ago_in_words(contacted_at) }
+        title = safe_format(s_("Runners|Runner is online; last contact was %{runner_contact} ago"), runner_contact: time_ago_in_words(contacted_at))
         icon = 'status-active'
-        span_class = 'gl-text-green-500'
+        span_class = 'gl-text-success'
       when :never_contacted
         title = s_("Runners|Runner has never contacted this instance")
         icon = 'warning-solid'
       when :offline
         title =
           if contacted_at
-            s_("Runners|Runner is offline; last contact was %{runner_contact} ago") % { runner_contact: time_ago_in_words(contacted_at) }
+            safe_format(s_("Runners|Runner is offline; last contact was %{runner_contact} ago"), runner_contact: time_ago_in_words(contacted_at))
           else
             s_("Runners|Runner is offline; it has never contacted this instance")
           end
 
         icon = 'status-waiting'
-        span_class = 'gl-text-gray-500'
+        span_class = 'gl-text-subtle'
       when :stale
         # runner may have contacted (or not) and be stale: consider both cases.
-        title = contacted_at ? s_("Runners|Runner is stale; last contact was %{runner_contact} ago") % { runner_contact: time_ago_in_words(contacted_at) } : s_("Runners|Runner is stale; it has never contacted this instance")
+        title = contacted_at ? safe_format(s_("Runners|Runner is stale; last contact was %{runner_contact} ago"), runner_contact: time_ago_in_words(contacted_at)) : s_("Runners|Runner is stale; it has never contacted this instance")
         icon = 'time-out'
-        span_class = 'gl-text-orange-500'
+        span_class = 'gl-text-warning'
       end
 
       content_tag(:span, class: span_class, title: title, data: { toggle: 'tooltip', container: 'body', testid: 'runner-status-icon', qa_status: status }) do
@@ -59,17 +59,34 @@ module Ci
       end
     end
 
-    def admin_runners_data_attributes
-      {
+    def admin_runners_app_data
+      data = {
         # Runner install help page is external, located at
         # https://gitlab.com/gitlab-org/gitlab-runner
         runner_install_help_page: 'https://docs.gitlab.com/runner/install/',
         new_runner_path: new_admin_runner_path,
         allow_registration_token: Gitlab::CurrentSettings.allow_runner_registration_token.to_s,
-        registration_token: Gitlab::CurrentSettings.runners_registration_token,
+        registration_token: nil,
         online_contact_timeout_secs: ::Ci::Runner::ONLINE_CONTACT_TIMEOUT.to_i,
         stale_timeout_secs: ::Ci::Runner::STALE_TIMEOUT.to_i,
-        tag_suggestions_path: tag_list_admin_runners_path(format: :json)
+        tag_suggestions_path: tag_list_admin_runners_path(format: :json),
+        can_admin_runners: false.to_s
+      }
+
+      return data unless current_user.can_admin_all_resources?
+
+      data.merge({
+        registration_token: Gitlab::CurrentSettings.runners_registration_token,
+        can_admin_runners: true.to_s
+      })
+    end
+
+    def admin_runners_fleet_dashboard_data
+      {
+        admin_runners_path: admin_runners_path,
+        new_runner_path: new_admin_runner_path,
+        clickhouse_ci_analytics_available: ::Gitlab::ClickHouse.configured?.to_s,
+        can_admin_runners: current_user.can_admin_all_resources?.to_s
       }
     end
 
@@ -107,6 +124,40 @@ module Ci
         online_contact_timeout_secs: ::Ci::Runner::ONLINE_CONTACT_TIMEOUT.to_i,
         stale_timeout_secs: ::Ci::Runner::STALE_TIMEOUT.to_i
       }
+    end
+
+    def project_runners_settings_data(project)
+      can_create_runner_for_group =
+        can?(current_user, :create_runners, project.group) || can?(current_user, :register_group_runners, project.group)
+
+      data = {
+        project_id: project.id,
+        can_create_runner: can?(current_user, :create_runners, project).to_s,
+        allow_registration_token: project.namespace.allow_runner_registration_token?.to_s,
+        registration_token: can?(current_user, :read_runners_registration_token, project) ? project.runners_token : nil,
+        project_full_path: project.full_path,
+        new_project_runner_path: new_project_runner_path(project),
+
+        # group runners tab
+        can_create_runner_for_group: can_create_runner_for_group.to_s,
+        group_runners_path: project&.group ? group_runners_path(project.group) : nil,
+
+        # instance runners tab
+        instance_runners_enabled: project.shared_runners_enabled?.to_s,
+        instance_runners_disabled_and_unoverridable: (project.group&.shared_runners_setting == Namespace::SR_DISABLED_AND_UNOVERRIDABLE).to_s,
+        instance_runners_update_path: toggle_shared_runners_project_runners_path(project),
+        instance_runners_group_settings_path: nil,
+        group_name: nil
+      }
+
+      if project.group && can?(current_user, :admin_group, project.group)
+        data.merge!({
+          instance_runners_group_settings_path: group_settings_ci_cd_path(project.group, anchor: 'runners-settings'),
+          group_name: project.group.name
+        })
+      end
+
+      data
     end
 
     def toggle_shared_runners_settings_data(project)

@@ -21,11 +21,10 @@ module Gitlab
 
       SEARCH_MAX_REQUESTS_PER_MINUTE = 30
       DEFAULT_PER_PAGE = 100
-      LOWER_PER_PAGE = 50
       CLIENT_CONNECTION_ERROR = ::Faraday::ConnectionFailed # used/set in sawyer agent which octokit uses
 
-      # A single page of data and the corresponding page number.
-      Page = Struct.new(:objects, :number)
+      # A single page of data and the corresponding URL.
+      Page = Struct.new(:objects, :url)
 
       # The minimum number of requests we want to keep available.
       #
@@ -131,30 +130,37 @@ module Gitlab
       # Fetches data from the GitHub API and yields a Page object for every page
       # of data, without loading all of them into memory.
       #
-      # method - The Octokit method to use for getting the data.
-      # args - Arguments to pass to the Octokit method.
+      # @param method [Symbol] The Octokit method to use for getting the data
+      # @param resume_url [String, nil] The GitHub link header URL to resume pagination.
+      #   When nil, the method will be invoked from the first page
+      # @param args [Array] Arguments to pass to the Octokit method
+      # @yield [Page] Each page of data from the API
+      # @return [Enumerator] When no block is given
       #
       # rubocop: disable GitlabSecurity/PublicSend
-      def each_page(method, *args, &block)
-        return to_enum(__method__, method, *args) unless block
+      def each_page(method, resume_url, *args, &block)
+        return to_enum(__method__, method, resume_url, *args) unless block
 
-        page =
-          if args.last.is_a?(Hash) && args.last[:page]
-            args.last[:page]
+        collection = with_rate_limit do
+          if resume_url.present?
+            octokit.get(resume_url)
           else
-            1
+            octokit.public_send(method, *args)
           end
+        end
 
-        collection = with_rate_limit { octokit.public_send(method, *args) }
-        next_url = octokit.last_response.rels[:next]
+        yield Page.new(collection, resume_url)
 
-        yield Page.new(collection, page)
+        next_page = octokit.last_response.rels[:next]
 
-        while next_url
-          response = with_rate_limit { next_url.get }
-          next_url = response.rels[:next]
+        while next_page
+          raise Exceptions::InvalidURLError, 'Invalid pagination URL' unless valid_next_url?(next_page.href)
 
-          yield Page.new(response.data, page += 1)
+          response = with_rate_limit { next_page.get }
+
+          yield Page.new(response.data, next_page.href)
+
+          next_page = response.rels[:next]
         end
       end
 
@@ -165,7 +171,7 @@ module Gitlab
       def each_object(method, *args, &block)
         return to_enum(__method__, method, *args) unless block
 
-        each_page(method, *args) do |page|
+        each_page(method, nil, *args) do |page|
           page.objects.each do |object|
             yield object.to_h
           end
@@ -237,15 +243,23 @@ module Gitlab
       end
 
       def api_endpoint
-        @host || custom_api_endpoint || default_api_endpoint
+        formatted_api_endpoint || custom_api_endpoint || default_api_endpoint
       end
 
       def web_endpoint
-        @host || custom_api_endpoint || ::Octokit::Default.web_endpoint
+        formatted_web_endpoint || custom_web_endpoint || ::Octokit::Default.web_endpoint
       end
 
       def custom_api_endpoint
         github_omniauth_provider.dig('args', 'client_options', 'site')
+      end
+
+      def custom_web_endpoint
+        return unless custom_api_endpoint
+
+        uri = URI.parse(custom_api_endpoint)
+        uri.path = ''
+        uri.to_s.chomp('/')
       end
 
       def default_api_endpoint
@@ -275,6 +289,38 @@ module Gitlab
       end
 
       private
+
+      def formatted_api_endpoint
+        strong_memoize(:formatted_api_endpoint) do
+          next if @host.nil?
+
+          uri = URI.parse(@host)
+          uri.path = '/api/v3' if uri.host != 'github.com' && !uri.path.start_with?('/api/')
+          uri.to_s
+        end
+      end
+
+      def formatted_web_endpoint
+        strong_memoize(:formatted_web_endpoint) do
+          next if @host.nil?
+
+          uri = URI.parse(@host)
+          uri.path = ''
+          uri.to_s
+        end
+      end
+
+      def api_endpoint_host
+        strong_memoize(:api_endpoint_host) do
+          URI.parse(api_endpoint).host
+        end
+      end
+
+      def valid_next_url?(next_url)
+        next_url_host = URI.parse(next_url).host
+
+        next_url_host == api_endpoint_host
+      end
 
       def with_retry
         Retriable.retriable(on: CLIENT_CONNECTION_ERROR, on_retry: on_retry) do

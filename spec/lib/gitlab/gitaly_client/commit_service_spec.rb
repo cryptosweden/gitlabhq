@@ -169,6 +169,7 @@ RSpec.describe Gitlab::GitalyClient::CommitService, feature_category: :gitaly do
 
   describe '#find_changed_paths' do
     let(:mapped_merge_commit_diff_mode) { described_class::MERGE_COMMIT_DIFF_MODES[merge_commit_diff_mode] }
+    let(:find_renames) { false }
     let(:commits) do
       %w[
         ade1c0b4b116209ed2a9958436b26f89085ec383
@@ -204,47 +205,47 @@ RSpec.describe Gitlab::GitalyClient::CommitService, feature_category: :gitaly do
       let(:changed_paths) do
         [
           {
-            path: 'files/locked/foo.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644',
+            path: 'files/locked/foo.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644', old_path: 'files/locked/foo.lfs',
             old_blob_id: "0000000000000000000000000000000000000000",
             new_blob_id: "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
           },
           {
-            path: 'files/locked/foo.lfs', status: 'MODIFIED', old_mode: '100644', new_mode: '100644',
+            path: 'files/locked/foo.lfs', status: 'MODIFIED', old_mode: '100644', new_mode: '100644', old_path: 'files/locked/foo.lfs',
             old_blob_id: "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
             new_blob_id: "3eac02ca74e5b8e5df01dbdfdd7a9905c5e12007"
           },
           {
-            path: 'files/locked/bar.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644',
+            path: 'files/locked/bar.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644', old_path: 'files/locked/bar.lfs',
             old_blob_id: "0000000000000000000000000000000000000000",
             new_blob_id: "ea6c0a2142103f2d9157c1a9d50cc708032ec4a1"
           },
           {
-            path: 'files/locked/foo.lfs', status: 'MODIFIED', old_mode: '100644', new_mode: '100644',
+            path: 'files/locked/foo.lfs', status: 'MODIFIED', old_mode: '100644', new_mode: '100644', old_path: 'files/locked/foo.lfs',
             old_blob_id: "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
             new_blob_id: "3eac02ca74e5b8e5df01dbdfdd7a9905c5e12007"
           },
           {
-            path: 'files/locked/bar.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644',
+            path: 'files/locked/bar.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644', old_path: 'files/locked/bar.lfs',
             old_blob_id: "0000000000000000000000000000000000000000",
             new_blob_id: "ea6c0a2142103f2d9157c1a9d50cc708032ec4a1"
           },
           {
-            path: 'files/locked/bar.lfs', status: 'MODIFIED', old_mode: '100644', new_mode: '100644',
+            path: 'files/locked/bar.lfs', status: 'MODIFIED', old_mode: '100644', new_mode: '100644', old_path: 'files/locked/bar.lfs',
             old_blob_id: "ea6c0a2142103f2d9157c1a9d50cc708032ec4a1",
             new_blob_id: "9d8e9599c93013dee199bfdc13e8365c11652bba"
           },
           {
-            path: 'files/locked/bar.lfs', status: 'MODIFIED', old_mode: '100644', new_mode: '100644',
+            path: 'files/locked/bar.lfs', status: 'MODIFIED', old_mode: '100644', new_mode: '100644', old_path: 'files/locked/bar.lfs',
             old_blob_id: "ea6c0a2142103f2d9157c1a9d50cc708032ec4a1",
             new_blob_id: "9d8e9599c93013dee199bfdc13e8365c11652bba"
           },
           {
-            path: 'files/locked/baz.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644',
+            path: 'files/locked/baz.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644', old_path: 'files/locked/baz.lfs',
             old_blob_id: "0000000000000000000000000000000000000000",
             new_blob_id: "dd1a523861a19addf2cce888119a07560be334b9"
           },
           {
-            path: 'files/locked/baz.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644',
+            path: 'files/locked/baz.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644', old_path: 'files/locked/baz.lfs',
             old_blob_id: "0000000000000000000000000000000000000000",
             new_blob_id: "dd1a523861a19addf2cce888119a07560be334b9"
           }
@@ -260,32 +261,32 @@ RSpec.describe Gitlab::GitalyClient::CommitService, feature_category: :gitaly do
       let(:changed_paths) do
         [
           {
-            path: 'files/locked/foo.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644',
+            path: 'files/locked/foo.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644', old_path: 'files/locked/foo.lfs',
             old_blob_id: "0000000000000000000000000000000000000000",
             new_blob_id: "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
           },
           {
-            path: 'files/locked/foo.lfs', status: 'MODIFIED', old_mode: '100644', new_mode: '100644',
+            path: 'files/locked/foo.lfs', status: 'MODIFIED', old_mode: '100644', new_mode: '100644', old_path: 'files/locked/foo.lfs',
             old_blob_id: "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
             new_blob_id: "3eac02ca74e5b8e5df01dbdfdd7a9905c5e12007"
           },
           {
-            path: 'files/locked/bar.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644',
+            path: 'files/locked/bar.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644', old_path: 'files/locked/bar.lfs',
             old_blob_id: "0000000000000000000000000000000000000000",
             new_blob_id: "ea6c0a2142103f2d9157c1a9d50cc708032ec4a1"
           },
           {
-            path: 'files/locked/bar.lfs', status: 'MODIFIED', old_mode: '100644', new_mode: '100644',
+            path: 'files/locked/bar.lfs', status: 'MODIFIED', old_mode: '100644', new_mode: '100644', old_path: 'files/locked/bar.lfs',
             old_blob_id: "ea6c0a2142103f2d9157c1a9d50cc708032ec4a1",
             new_blob_id: "9d8e9599c93013dee199bfdc13e8365c11652bba"
           },
           {
-            path: 'files/locked/baz.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644',
+            path: 'files/locked/baz.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644', old_path: 'files/locked/baz.lfs',
             old_blob_id: "0000000000000000000000000000000000000000",
             new_blob_id: "dd1a523861a19addf2cce888119a07560be334b9"
           },
           {
-            path: 'files/locked/baz.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644',
+            path: 'files/locked/baz.lfs', status: 'ADDED', old_mode: '0', new_mode: '100644', old_path: 'files/locked/baz.lfs',
             old_blob_id: "0000000000000000000000000000000000000000",
             new_blob_id: "dd1a523861a19addf2cce888119a07560be334b9"
           }
@@ -304,7 +305,8 @@ RSpec.describe Gitlab::GitalyClient::CommitService, feature_category: :gitaly do
           .to have_received(:new).with(
             repository: repository_message,
             requests: requests,
-            merge_commit_diff_mode: mapped_merge_commit_diff_mode
+            merge_commit_diff_mode: mapped_merge_commit_diff_mode,
+            find_renames: find_renames
           )
       end
     end
@@ -349,51 +351,64 @@ RSpec.describe Gitlab::GitalyClient::CommitService, feature_category: :gitaly do
       include_examples 'uses requests format'
     end
 
-    context 'when feature flag "merge_commit_diff_modes" is disabled' do
-      let(:mapped_merge_commit_diff_mode) { nil }
+    context 'when renamed file exists' do
+      let(:branch) { 'gitaly-rename-test' }
+      let(:treeish_objects) { [repository.commit(branch)] }
 
-      before do
-        stub_feature_flags(merge_commit_diff_modes: false)
+      subject(:find_changed_paths) do
+        described_class
+          .new(repository)
+          .find_changed_paths(treeish_objects, find_renames: find_renames)
+          .as_json
       end
 
-      context 'when merge_commit_diff_mode is nil' do
-        let(:merge_commit_diff_mode) { nil }
+      context 'when find_renames is true' do
+        let(:find_renames) { true }
 
-        include_examples 'includes paths different in any parent'
+        it 'detects renamed file and includes old_path' do
+          expected_changed_paths = [
+            {
+              "new_blob_id" => "53855584db773c3df5b5f61f72974cb298822fbb",
+              "new_mode" => "100644",
+              "old_blob_id" => "53855584db773c3df5b5f61f72974cb298822fbb",
+              "old_mode" => "100644",
+              "old_path" => "CHANGELOG",
+              "path" => "CHANGELOG.md",
+              "status" => "RENAMED"
+            }
+          ]
 
-        include_examples 'uses requests format'
+          expect(find_changed_paths).to eq expected_changed_paths
+        end
       end
 
-      context 'when merge_commit_diff_mode is :unspecified' do
-        let(:merge_commit_diff_mode) { :unspecified }
+      context 'when find_renames is false' do
+        let(:find_renames) { false }
 
-        include_examples 'includes paths different in any parent'
+        it 'does not detect renamed file' do
+          expected_changed_paths = [
+            {
+              "new_blob_id" => "0000000000000000000000000000000000000000",
+              "new_mode" => "0",
+              "old_blob_id" => "53855584db773c3df5b5f61f72974cb298822fbb",
+              "old_mode" => "100644",
+              "old_path" => "CHANGELOG",
+              "path" => "CHANGELOG",
+              "status" => "DELETED"
+            },
+            {
+              "new_blob_id" => "53855584db773c3df5b5f61f72974cb298822fbb",
+              "new_mode" => "100644",
+              "old_blob_id" => "0000000000000000000000000000000000000000",
+              "old_mode" => "0",
+              "old_path" => "CHANGELOG.md",
+              "path" => "CHANGELOG.md",
+              "status" => "ADDED"
+            }
+          ]
 
-        include_examples 'uses requests format'
-      end
-
-      context 'when merge_commit_diff_mode is :include_merges' do
-        let(:merge_commit_diff_mode) { :include_merges }
-
-        include_examples 'includes paths different in any parent'
-
-        include_examples 'uses requests format'
-      end
-
-      context 'when merge_commit_diff_mode is invalid' do
-        let(:merge_commit_diff_mode) { 'invalid' }
-
-        include_examples 'includes paths different in any parent'
-
-        include_examples 'uses requests format'
-      end
-
-      context 'when merge_commit_diff_mode is :all_parents' do
-        let(:merge_commit_diff_mode) { :all_parents }
-
-        include_examples 'includes paths different in any parent'
-
-        include_examples 'uses requests format'
+          expect(find_changed_paths).to eq expected_changed_paths
+        end
       end
     end
 
@@ -716,12 +731,14 @@ RSpec.describe Gitlab::GitalyClient::CommitService, feature_category: :gitaly do
   describe '#list_commits' do
     let(:revisions) { 'master' }
     let(:reverse) { false }
+    let(:order) { :date }
     let(:author) { nil }
     let(:ignore_case) { nil }
     let(:commit_message_patterns) { nil }
     let(:before) { nil }
     let(:after) { nil }
     let(:pagination_params) { nil }
+    let(:skip) { '100' }
 
     shared_examples 'a ListCommits request' do
       before do
@@ -738,7 +755,9 @@ RSpec.describe Gitlab::GitalyClient::CommitService, feature_category: :gitaly do
             commit_message_patterns: commit_message_patterns,
             before: before,
             after: after,
-            pagination_params: pagination_params
+            pagination_params: pagination_params,
+            order: order,
+            skip: 100
           )
 
           expect(service).to receive(:list_commits).with(expected_request, kind_of(Hash)).and_return([])
@@ -970,6 +989,22 @@ RSpec.describe Gitlab::GitalyClient::CommitService, feature_category: :gitaly do
 
       client.find_commits(order: 'default', author: "Billy Baggins <bilbo@shire.com>")
     end
+
+    it 'sends an RPC request with a message_regex' do
+      request = Gitaly::FindCommitsRequest.new(
+        repository: repository_message,
+        disable_walk: true,
+        order: 'NONE',
+        message_regex: '^foo',
+        global_options: Gitaly::GlobalOptions.new(literal_pathspecs: false)
+      )
+
+      expect_any_instance_of(Gitaly::CommitService::Stub)
+        .to receive(:find_commits).with(request, kind_of(Hash))
+        .and_return([])
+
+      client.find_commits(message_regex: '^foo')
+    end
   end
 
   describe '#object_existence_map' do
@@ -1127,6 +1162,70 @@ RSpec.describe Gitlab::GitalyClient::CommitService, feature_category: :gitaly do
       end
     end
 
+    context 'with ignore_revisions_blob' do
+      let(:ignore_revisions_blob) { "refs/heads/#{branch_name}:#{file_name}" }
+      let(:branch_name) { generate :branch }
+
+      subject(:blame) do
+        client.raw_blame(revision, path, range: range, ignore_revisions_blob: ignore_revisions_blob).split("\n")
+      end
+
+      shared_examples 'raises error with message' do |error_class, message|
+        it "raises #{error_class} with correct message" do
+          expect { blame }.to raise_error(error_class) do |error|
+            expect(error.message).to eq(message)
+          end
+        end
+      end
+
+      context 'when ignore file exists' do
+        before do
+          project.repository.create_file(
+            project.owner,
+            file_name,
+            file_content,
+            message: "add file",
+            branch_name: branch_name
+          )
+        end
+
+        context "with valid ignore file content" do
+          let(:file_name) { '.git-ignore-revs-file' }
+          let(:file_content) { '3685515c40444faf92774e72835e1f9c0e809672' }
+
+          it 'excludes the specified revision from blame' do
+            expect(blame).to include(*blame_headers[0..2], blame_headers[4])
+            expect(blame).not_to include(file_content)
+          end
+        end
+
+        context 'with invalid ignore file content' do
+          let(:file_name) { '.git-ignore-revs-invalid' }
+          let(:file_content) { 'invalid_content' }
+
+          include_examples 'raises error with message',
+            Gitlab::Git::Blame::IgnoreRevsFormatError,
+            'invalid object name'
+        end
+      end
+
+      context 'with invalid ignore revision' do
+        let(:ignore_revisions_blob) { "refs/heads/invalid" }
+
+        include_examples 'raises error with message',
+          Gitlab::Git::Blame::IgnoreRevsFileError,
+          'cannot resolve ignore-revs blob'
+      end
+
+      context 'when ignore_revision_blob is a directory' do
+        let(:ignore_revisions_blob) { "refs/heads/#{revision}:files" }
+
+        include_examples 'raises error with message',
+          Gitlab::Git::Blame::IgnoreRevsFileError,
+          'ignore revision is not a blob'
+      end
+    end
+
     context 'with a range' do
       let(:range) { '3,4' }
 
@@ -1164,41 +1263,172 @@ RSpec.describe Gitlab::GitalyClient::CommitService, feature_category: :gitaly do
 
   describe '#get_commit_signatures' do
     let(:project) { create(:project, :test_repo) }
-
-    it 'returns commit signatures for specified commit ids', :aggregate_failures do
-      without_signature = "e63f41fe459e62e1228fcef60d7189127aeba95a" # has no signature
-
-      signed_by_user = [
+    let(:without_signature) { "e63f41fe459e62e1228fcef60d7189127aeba95a" } # has no signature
+    let(:signed_by_user) do
+      [
         "a17a9f66543673edf0a3d1c6b93bdda3fe600f32", # has signature
         "7b5160f9bb23a3d58a0accdbe89da13b96b1ece9"  # SSH signature
       ]
+    end
+    let(:large_signed_text) { "8cf8e80a5a0546e391823c250f2b26b9cf15ce88" } # has signature and commit message > 4MB
 
-      large_signed_text = "8cf8e80a5a0546e391823c250f2b26b9cf15ce88" # has signature and commit message > 4MB
-
-      signatures = client.get_commit_signatures(
-        [without_signature, large_signed_text, *signed_by_user]
-      )
-
-      expect(signatures.keys).to match_array([large_signed_text, *signed_by_user])
-
-      [large_signed_text, *signed_by_user].each do |commit_id|
-        expect(signatures[commit_id][:signature]).to be_present
-        expect(signatures[commit_id][:signer]).to eq(:SIGNER_USER)
+    context 'when committer_email feature flag is enabled' do
+      before do
+        stub_feature_flags(committer_email: true)
       end
 
-      signed_by_user.each do |commit_id|
-        commit = project.commit(commit_id)
-        expect(signatures[commit_id][:signed_text]).to include(commit.message)
-        expect(signatures[commit_id][:signed_text]).to include(commit.description)
+      it 'returns commit signatures with committer email for specified commit ids', :aggregate_failures do
+        signatures = client.get_commit_signatures(
+          [without_signature, large_signed_text, *signed_by_user]
+        )
+
+        expect(signatures.keys).to match_array([large_signed_text, *signed_by_user])
+
+        [large_signed_text, *signed_by_user].each do |commit_id|
+          expect(signatures[commit_id][:signature]).to be_present
+          expect(signatures[commit_id][:signer]).to eq(:SIGNER_USER)
+          expect(signatures[commit_id][:author_email]).to be_present
+          expect(signatures[commit_id][:committer_email]).to be_present
+        end
+
+        signed_by_user.each do |commit_id|
+          commit = project.commit(commit_id)
+          expect(signatures[commit_id][:signed_text]).to include(commit.message)
+          expect(signatures[commit_id][:signed_text]).to include(commit.description)
+          expect(signatures[commit_id][:author_email]).to eq(commit.author_email)
+          expect(signatures[commit_id][:committer_email]).to eq(commit.committer_email)
+        end
+
+        expect(signatures[large_signed_text][:signed_text].size).to eq(4971878)
       end
 
-      expect(signatures[large_signed_text][:signed_text].size).to eq(4971878)
+      context 'when committer email is present in Gitaly response' do
+        it 'includes committer email in the signature' do
+          # Mock Gitaly response with committer email
+          allow_any_instance_of(Gitaly::CommitService::Stub).to receive(:get_commit_signatures) do
+            [
+              Gitaly::GetCommitSignaturesResponse.new(
+                commit_id: signed_by_user.first,
+                signature: 'test-signature',
+                signed_text: 'test-signed-text',
+                signer: :SIGNER_USER,
+                author: Gitaly::CommitAuthor.new(email: 'author@example.com'),
+                committer: Gitaly::CommitAuthor.new(email: 'committer@example.com')
+              )
+            ]
+          end
+
+          signatures = client.get_commit_signatures([signed_by_user.first])
+
+          expect(signatures[signed_by_user.first][:committer_email]).to eq('committer@example.com')
+        end
+      end
+    end
+
+    context 'when committer_email feature flag is disabled' do
+      before do
+        stub_feature_flags(committer_email: false)
+      end
+
+      it 'returns commit signatures without committer email for specified commit ids', :aggregate_failures do
+        signatures = client.get_commit_signatures(
+          [without_signature, large_signed_text, *signed_by_user]
+        )
+
+        expect(signatures.keys).to match_array([large_signed_text, *signed_by_user])
+
+        [large_signed_text, *signed_by_user].each do |commit_id|
+          expect(signatures[commit_id][:signature]).to be_present
+          expect(signatures[commit_id][:signer]).to eq(:SIGNER_USER)
+          expect(signatures[commit_id][:author_email]).to be_present
+          expect(signatures[commit_id][:committer_email]).to eq(''.b) # Empty binary string when feature flag is disabled
+        end
+
+        signed_by_user.each do |commit_id|
+          commit = project.commit(commit_id)
+          expect(signatures[commit_id][:signed_text]).to include(commit.message)
+          expect(signatures[commit_id][:signed_text]).to include(commit.description)
+          expect(signatures[commit_id][:author_email]).to eq(commit.author_email)
+          expect(signatures[commit_id][:committer_email]).to eq(''.b) # Empty binary string when feature flag is disabled
+        end
+
+        expect(signatures[large_signed_text][:signed_text].size).to eq(4971878)
+      end
+
+      context 'when committer email is present in Gitaly response' do
+        it 'does not include committer email in the signature when feature flag is disabled' do
+          # Mock Gitaly response with committer email
+          allow_any_instance_of(Gitaly::CommitService::Stub).to receive(:get_commit_signatures) do
+            [
+              Gitaly::GetCommitSignaturesResponse.new(
+                commit_id: signed_by_user.first,
+                signature: 'test-signature',
+                signed_text: 'test-signed-text',
+                signer: :SIGNER_USER,
+                author: Gitaly::CommitAuthor.new(email: 'author@example.com'),
+                committer: Gitaly::CommitAuthor.new(email: 'committer@example.com')
+              )
+            ]
+          end
+
+          signatures = client.get_commit_signatures([signed_by_user.first])
+
+          expect(signatures[signed_by_user.first][:committer_email]).to eq(''.b)
+        end
+      end
+    end
+
+    describe 'presence logic edge cases' do
+      before do
+        allow_any_instance_of(Gitaly::CommitService::Stub).to receive(:get_commit_signatures) do
+          [
+            Gitaly::GetCommitSignaturesResponse.new(
+              commit_id: signed_by_user.first,
+              signature: 'test-signature',
+              signed_text: 'test-signed-text',
+              signer: :SIGNER_USER,
+              author: Gitaly::CommitAuthor.new(email: 'author@example.com'),
+              committer: committer
+            )
+          ]
+        end
+      end
+
+      context 'when committer is nil' do
+        let(:committer) { nil }
+
+        it 'does not populate committer email' do
+          signatures = client.get_commit_signatures([signed_by_user.first])
+
+          expect(signatures[signed_by_user.first][:committer_email]).to eq(''.b)
+        end
+      end
+
+      context 'when committer email is nil' do
+        let(:committer) { Gitaly::CommitAuthor.new(email: nil) }
+
+        it 'does not populate committer email' do
+          signatures = client.get_commit_signatures([signed_by_user.first])
+
+          expect(signatures[signed_by_user.first][:committer_email]).to eq(''.b)
+        end
+      end
+
+      context 'when committer email is empty string' do
+        let(:committer) { Gitaly::CommitAuthor.new(email: '') }
+
+        it 'does not populate committer email' do
+          signatures = client.get_commit_signatures([signed_by_user.first])
+
+          expect(signatures[signed_by_user.first][:committer_email]).to eq(''.b)
+        end
+      end
     end
   end
 
   describe '#get_patch_id' do
     it 'returns patch_id of given revisions' do
-      expect(client.get_patch_id('HEAD~', 'HEAD')).to eq('45435e5d7b339dd76d939508c7687701d0c17fff')
+      expect(client.get_patch_id('HEAD~', 'HEAD')).to eq('67cc1b19744f71ee68e5aa6aa0dbadf03a6ba912')
     end
 
     context 'when one of the param is invalid' do

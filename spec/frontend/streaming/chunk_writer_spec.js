@@ -1,7 +1,9 @@
+import { throttle } from 'lodash';
 import { ChunkWriter } from '~/streaming/chunk_writer';
 import { RenderBalancer } from '~/streaming/render_balancer';
 
 jest.mock('~/streaming/render_balancer');
+jest.mock('lodash/throttle', () => jest.fn());
 
 describe('ChunkWriter', () => {
   let accumulator = '';
@@ -10,6 +12,9 @@ describe('ChunkWriter', () => {
   let abort;
   let config;
   let render;
+  let abortBalancer;
+  let cancelTimer;
+  let runTimer;
 
   const createChunk = (text) => {
     const encoder = new TextEncoder();
@@ -54,7 +59,25 @@ describe('ChunkWriter', () => {
         // render until 'false'
       }
     });
-    RenderBalancer.mockImplementation(() => ({ render }));
+    abortBalancer = jest.fn();
+    RenderBalancer.mockImplementation(() => ({ render, abort: abortBalancer }));
+    cancelTimer = jest.fn();
+    throttle.mockImplementation((fn) => {
+      const promise = new Promise((resolve) => {
+        runTimer = () => {
+          fn();
+          resolve();
+        };
+      });
+      promise.cancel = cancelTimer;
+      const result = () => promise;
+      result.cancel = cancelTimer;
+      return result;
+    });
+  });
+
+  afterEach(() => {
+    throttle.mockReset();
   });
 
   describe('when chunk length must be "1"', () => {
@@ -103,6 +126,7 @@ describe('ChunkWriter', () => {
       const flushAccumulator = jest.spyOn(ChunkWriter.prototype, 'flushAccumulator');
       const text = '1';
       pushChunks(text);
+      runTimer();
       expect(accumulator).toBe(text);
       expect(flushAccumulator).toHaveBeenCalledTimes(1);
     });
@@ -112,7 +136,7 @@ describe('ChunkWriter', () => {
       const text = '1234567890123';
       const writer = createWriter();
       writer.write(createChunk(text));
-      jest.runAllTimers();
+      runTimer();
       expect(accumulator).toBe(text);
       expect(flushAccumulator).toHaveBeenCalledTimes(1);
     });
@@ -210,5 +234,29 @@ describe('ChunkWriter', () => {
     const writer = createWriter();
     writer.abort();
     expect(abort).toHaveBeenCalledTimes(1);
+  });
+
+  it('accumulates chunk with a timeout', () => {
+    const text = '111222223';
+    config = { minChunkSize: 1000, maxChunkSize: 1000 };
+    const writer = createWriter();
+    const chunk = createChunk(text);
+    writer.write(chunk);
+    writer.write(chunk);
+    writer.write(chunk);
+    runTimer();
+    expect(accumulator).toBe(text.repeat(3));
+    expect(write.mock.calls).toMatchObject([[text.repeat(3)]]);
+    expect(cancelTimer).not.toHaveBeenCalled();
+  });
+
+  it('aborts on abort signal', () => {
+    const controller = new AbortController();
+    config = { signal: controller.signal };
+    createWriter().write(createChunk('1234567890'));
+    controller.abort();
+    expect(abortBalancer).toHaveBeenCalledTimes(1);
+    expect(abort).toHaveBeenCalledTimes(1);
+    expect(write).not.toHaveBeenCalled();
   });
 });

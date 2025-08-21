@@ -3,7 +3,6 @@
 module UsageDataHelpers
   COUNTS_KEYS = %i[
     assignee_lists
-    ci_builds
     ci_external_pipelines
     ci_pipeline_config_auto_devops
     ci_pipeline_config_repository
@@ -25,16 +24,13 @@ module UsageDataHelpers
     clusters_platforms_eks
     clusters_platforms_gke
     clusters_platforms_user
-    clusters_integrations_prometheus
     clusters_management_project
     in_review_folder
-    grafana_integrated_projects
     groups
     issues
     issues_created_from_gitlab_error_tracking_ui
     issues_with_associated_zoom_link
     issues_using_zoom_quick_actions
-    issues_with_embedded_grafana_charts_approx
     incident_issues
     keys
     label_lists
@@ -47,14 +43,6 @@ module UsageDataHelpers
     pool_repositories
     projects
     projects_imported_from_github
-    projects_asana_active
-    projects_jenkins_active
-    projects_jira_active
-    projects_slack_active
-    projects_slack_slash_commands_active
-    projects_custom_issue_tracker_active
-    projects_mattermost_active
-    projects_prometheus_active
     projects_with_repositories_enabled
     projects_with_error_tracking_enabled
     projects_with_enabled_alert_integrations

@@ -68,9 +68,52 @@ RSpec.describe Ci::BuildFinishedWorker, feature_category: :continuous_integratio
         end
       end
 
-      context 'when it has a token' do
+      context 'when it has a database token' do
+        before do
+          stub_feature_flags(ci_job_token_jwt: false)
+        end
+
         it 'removes the token' do
           expect { subject }.to change { build.reload.token }.to(nil)
+        end
+      end
+
+      it 'does not call PublishProvenanceWorker when build does not have artifacts' do
+        expect(Ci::Slsa::PublishProvenanceWorker).not_to receive(:perform_async).with(build.id)
+
+        subject
+      end
+
+      context 'when artifacts exist' do
+        let_it_be(:status) { :success }
+        let_it_be(:build) { create(:ci_build, :artifacts, :finished) }
+
+        it 'calls PublishProvenanceWorker when build is successful' do
+          expect(Ci::Slsa::PublishProvenanceWorker).to receive(:perform_async).with(build.id)
+
+          subject
+        end
+
+        context 'when the build fails' do
+          let_it_be(:status) { :failed }
+
+          it 'still calls PublishProvenanceWorker' do
+            expect(Ci::Slsa::PublishProvenanceWorker).to receive(:perform_async).with(build.id)
+
+            subject
+          end
+        end
+
+        context 'and flag is disabled' do
+          before do
+            stub_feature_flags(slsa_provenance_statement: false)
+          end
+
+          it 'does not call PublishProvenanceWorker' do
+            expect(Ci::Slsa::PublishProvenanceWorker).not_to receive(:perform_async).with(build.id)
+
+            subject
+          end
         end
       end
     end

@@ -3,7 +3,6 @@ import {
   GlAlert,
   GlButton,
   GlDisclosureDropdown,
-  GlIcon,
   GlLoadingIcon,
   GlLink,
   GlTooltip,
@@ -14,12 +13,13 @@ import {
 import { s__, __ } from '~/locale';
 import Tracking from '~/tracking';
 import { helpPagePath } from '~/helpers/help_page_helper';
-import { pipelineEditorTrackingOptions } from '../../constants';
+import HelpIcon from '~/vue_shared/components/help_icon/help_icon.vue';
+import { pipelineEditorTrackingOptions, CI_CONFIG_STATUS_VALID } from '../../constants';
 import ValidatePipelinePopover from '../popovers/validate_pipeline_popover.vue';
 import CiLintResults from '../lint/ci_lint_results.vue';
 import getBlobContent from '../../graphql/queries/blob_content.query.graphql';
 import getCurrentBranch from '../../graphql/queries/client/current_branch.query.graphql';
-import lintCiMutation from '../../graphql/mutations/client/lint_ci.mutation.graphql';
+import ciLintMutation from '../../graphql/mutations/ci_lint.mutation.graphql';
 
 export const i18n = {
   alertDesc: s__(
@@ -30,10 +30,11 @@ export const i18n = {
     'PipelineEditor|Configuration content has changed. Re-run validation for updated results.',
   ),
   cta: s__('PipelineEditor|Validate pipeline'),
-  ctaDisabledTooltip: s__('PipelineEditor|Waiting for CI content to load...'),
+  lint: s__('PipelineEditor|Lint CI/CD sample'),
+  ctaDisabledTooltip: s__('PipelineEditor|Waiting for CI content to load…'),
   errorAlertTitle: s__('PipelineEditor|Pipeline simulation completed with errors'),
   help: __('Help'),
-  loading: s__('PipelineEditor|Validating pipeline... It can take up to a minute.'),
+  loading: s__('PipelineEditor|Validating pipeline… It can take up to a minute.'),
   pipelineSource: s__('PipelineEditor|Pipeline Source'),
   pipelineSourceDefault: s__('PipelineEditor|Git push event to the default branch'),
   pipelineSourceTooltip: s__('PipelineEditor|Other pipeline sources are not available yet.'),
@@ -50,12 +51,7 @@ export const i18n = {
 export const VALIDATE_TAB_INIT = 'VALIDATE_TAB_INIT';
 export const VALIDATE_TAB_RESULTS = 'VALIDATE_TAB_RESULTS';
 export const VALIDATE_TAB_LOADING = 'VALIDATE_TAB_LOADING';
-const BASE_CLASSES = [
-  'gl-display-flex',
-  'gl-flex-direction-column',
-  'gl-align-items-center',
-  'gl-mt-11',
-];
+const BASE_CLASSES = ['gl-flex', 'gl-flex-col', 'gl-items-center', 'gl-mt-11'];
 
 export default {
   name: 'CiValidateTab',
@@ -64,13 +60,13 @@ export default {
     GlAlert,
     GlButton,
     GlDisclosureDropdown,
-    GlIcon,
     GlLoadingIcon,
     GlLink,
     GlSprintf,
     GlTooltip,
     GlEmptyState,
     ValidatePipelinePopover,
+    HelpIcon,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -84,6 +80,7 @@ export default {
     },
   },
   apollo: {
+    // eslint-disable-next-line @gitlab/vue-no-undef-apollo-properties
     initialBlobContent: {
       query: getBlobContent,
       variables() {
@@ -97,6 +94,7 @@ export default {
         return data?.project?.repository?.blobs?.nodes[0]?.rawBlob;
       },
     },
+    // eslint-disable-next-line @gitlab/vue-no-undef-apollo-properties
     currentBranch: {
       query: getCurrentBranch,
       update(data) {
@@ -161,25 +159,29 @@ export default {
       this.state = VALIDATE_TAB_LOADING;
 
       try {
-        const {
-          data: {
-            lintCI: { errors, jobs, valid, warnings },
-          },
-        } = await this.$apollo.mutate({
-          mutation: lintCiMutation,
+        const { data } = await this.$apollo.mutate({
+          mutation: ciLintMutation,
           variables: {
-            dry: true,
+            projectPath: this.projectFullPath,
             content: this.yaml,
-            endpoint: this.ciLintPath,
+            ref: this.currentBranch,
+            dryRun: true,
           },
         });
 
+        const ciConfigData = data?.ciLint?.config || {};
+
         // only save the result if the user did not cancel the simulation
         if (this.state === VALIDATE_TAB_LOADING) {
+          const { errors, stages, warnings, status } = ciConfigData;
+
           this.errors = errors;
+          const jobs = stages.flatMap((stage) =>
+            (stage.groups || []).flatMap((group) => group.jobs || []),
+          );
           this.jobs = jobs;
           this.warnings = warnings;
-          this.isValid = valid;
+          this.isValid = status === CI_CONFIG_STATUS_VALID;
           this.state = VALIDATE_TAB_RESULTS;
           this.hasCiContentChanged = false;
         }
@@ -190,39 +192,33 @@ export default {
   },
   i18n,
   BASE_CLASSES,
-  lintHref: helpPagePath('ci/lint.md'),
+  lintHref: helpPagePath('ci/yaml/lint.md'),
 };
 </script>
 
 <template>
   <div>
-    <div class="gl-display-flex gl-justify-content-space-between gl-mt-3">
+    <div class="gl-mt-3 gl-flex gl-justify-between">
       <div>
-        <label>{{ $options.i18n.pipelineSource }}</label>
+        <label id="pipeline-source-dropdown-label">{{ $options.i18n.pipelineSource }}</label>
         <gl-disclosure-dropdown
           v-gl-tooltip.hover
           class="gl-ml-3"
           :title="$options.i18n.pipelineSourceTooltip"
           :toggle-text="$options.i18n.pipelineSourceDefault"
+          toggle-aria-labelled-by="pipeline-source-dropdown-label"
           disabled
         />
         <validate-pipeline-popover />
-        <gl-icon
-          id="validate-pipeline-help"
-          name="question-o"
-          class="gl-ml-1 gl-fill-blue-500"
-          category="secondary"
-          variant="confirm"
-          :aria-label="$options.i18n.help"
-        />
+        <help-icon id="validate-pipeline-help" class="gl-ml-1" :aria-label="$options.i18n.help" />
       </div>
       <div v-if="canResimulatePipeline">
-        <span class="gl-text-gray-400" data-testid="content-status">
+        <span class="gl-text-subtle" data-testid="content-status">
           {{ $options.i18n.contentChange }}
         </span>
         <gl-button
           variant="confirm"
-          class="gl-ml-2 gl-mb-2"
+          class="gl-mb-2 gl-ml-2"
           data-testid="resimulate-pipeline-button"
           @click="validateYaml"
         >
@@ -258,6 +254,14 @@ export default {
             {{ $options.i18n.cta }}
           </gl-button>
         </div>
+        <gl-button
+          v-if="ciLintPath"
+          class="gl-ml-3 gl-mt-3"
+          :href="ciLintPath"
+          data-testid="lint-button"
+        >
+          {{ $options.i18n.lint }}
+        </gl-button>
         <gl-tooltip
           v-if="isInitialCiContentLoading"
           :target="() => $refs.simulatePipelineButton"
@@ -268,7 +272,7 @@ export default {
     </gl-empty-state>
     <div v-else-if="isSimulationLoading" :class="$options.BASE_CLASSES">
       <gl-loading-icon size="lg" class="gl-m-3" />
-      <h1 class="gl-font-size-h1 gl-mb-6">{{ $options.i18n.loading }}</h1>
+      <h1 class="gl-mb-6 gl-text-size-h1">{{ $options.i18n.loading }}</h1>
       <div>
         <gl-button class="gl-mt-3" data-testid="cancel-simulation" @click="cancelSimulation">
           {{ $options.i18n.cancelBtn }}

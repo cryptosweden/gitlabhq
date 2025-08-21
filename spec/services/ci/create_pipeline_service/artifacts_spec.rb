@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, feature_category: :build_artifacts do
+RSpec.describe Ci::CreatePipelineService, feature_category: :job_artifacts do
   let_it_be(:project) { create(:project, :repository) }
   let_it_be(:user) { project.first_owner }
 
@@ -41,7 +41,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
 
         it 'creates pipeline with builds' do
           expect(pipeline).to be_persisted
-          expect(pipeline).not_to have_yaml_errors
+          expect(pipeline.error_messages).to be_empty
           expect(pipeline.builds.pluck(:name)).to contain_exactly('test-job', 'dependency-scanning-job')
         end
       end
@@ -59,7 +59,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
 
         it 'creates pipeline with yaml errors' do
           expect(pipeline).to be_persisted
-          expect(pipeline).to have_yaml_errors
+          expect(pipeline.error_messages).not_to be_empty
         end
       end
     end

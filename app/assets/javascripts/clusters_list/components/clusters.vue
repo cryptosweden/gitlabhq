@@ -59,7 +59,7 @@ export default {
       'totalClusters',
     ]),
     contentAlignClasses() {
-      return 'gl-display-flex gl-align-items-center gl-justify-content-end gl-md-justify-content-start';
+      return 'gl-flex gl-items-center gl-justify-end md:gl-justify-start';
     },
     currentPage: {
       get() {
@@ -71,11 +71,12 @@ export default {
       },
     },
     fields() {
-      const tdClass = 'gl-py-5!';
+      const tdClass = '!gl-py-5';
       return [
         {
           key: 'name',
           label: __('Kubernetes cluster'),
+          isRowHeader: true,
           tdClass,
         },
         {
@@ -241,7 +242,7 @@ export default {
       :fields="fields"
       fixed
       stacked="md"
-      class="gl-mb-4!"
+      class="!gl-mb-4"
       data-testid="cluster_list_table"
     >
       <template #cell(name)="{ item }">
@@ -249,10 +250,10 @@ export default {
           <img
             :src="selectedProvider(item.provider_type).path"
             :alt="selectedProvider(item.provider_type).text"
-            class="gl-w-6 gl-h-6 gl-display-flex gl-align-items-center"
+            class="gl-flex gl-h-6 gl-w-6 gl-items-center"
           />
 
-          <gl-link :href="item.path" class="gl-px-3">
+          <gl-link :href="item.path" class="gl-px-3 gl-font-normal">
             {{ item.name }}
           </gl-link>
 
@@ -268,7 +269,7 @@ export default {
       <template #cell(node_size)="{ item }">
         <span v-if="item.nodes">{{ item.nodes.length }}</span>
 
-        <gl-skeleton-loader v-else-if="loadingNodes" :lines="1" :class="contentAlignClasses" />
+        <gl-skeleton-loader v-else-if="loadingNodes" :lines="1" />
 
         <node-error-help-text
           v-else-if="item.kubernetes_errors"
@@ -289,7 +290,7 @@ export default {
           </gl-sprintf>
         </span>
 
-        <gl-skeleton-loader v-else-if="loadingNodes" :lines="1" :class="contentAlignClasses" />
+        <gl-skeleton-loader v-else-if="loadingNodes" :lines="1" />
 
         <node-error-help-text
           v-else-if="item.kubernetes_errors"
@@ -310,7 +311,7 @@ export default {
           </gl-sprintf>
         </span>
 
-        <gl-skeleton-loader v-else-if="loadingNodes" :lines="1" :class="contentAlignClasses" />
+        <gl-skeleton-loader v-else-if="loadingNodes" :lines="1" />
 
         <node-error-help-text
           v-else-if="item.kubernetes_errors"
@@ -334,8 +335,6 @@ export default {
       v-model="currentPage"
       :per-page="clustersPerPage"
       :total-items="totalClusters"
-      :prev-text="__('Prev')"
-      :next-text="__('Next')"
       align="center"
     />
   </section>

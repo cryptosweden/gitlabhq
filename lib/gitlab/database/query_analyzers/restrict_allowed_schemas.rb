@@ -18,9 +18,14 @@ module Gitlab
           gitlab_shared: nil,
           gitlab_internal: nil,
 
-          # Pods specific changes
+          # Cells specific changes
           gitlab_main_clusterwide: :gitlab_main,
-          gitlab_main_cell: :gitlab_main
+          gitlab_main_cell: :gitlab_main,
+          gitlab_main_org: :gitlab_main,
+          gitlab_main_cell_local: :gitlab_main,
+          gitlab_ci_cell_local: :gitlab_ci,
+          gitlab_main_cell_setting: :gitlab_main,
+          gitlab_main_user: :gitlab_main
         }.freeze
 
         class << self
@@ -37,6 +42,9 @@ module Gitlab
           end
 
           def analyze(parsed)
+            # This analyzer requires the PgQuery parsed query to be present
+            return unless parsed.pg
+
             # If list of schemas is empty, we allow only DDL changes
             if self.dml_mode?
               self.restrict_to_dml_only(parsed)

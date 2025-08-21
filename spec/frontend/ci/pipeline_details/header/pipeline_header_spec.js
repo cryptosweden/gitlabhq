@@ -13,6 +13,8 @@ import retryPipelineMutation from '~/ci/pipeline_details/graphql/mutations/retry
 import HeaderActions from '~/ci/pipeline_details/header/components/header_actions.vue';
 import HeaderBadges from '~/ci/pipeline_details/header/components/header_badges.vue';
 import getPipelineDetailsQuery from '~/ci/pipeline_details/header/graphql/queries/get_pipeline_header_data.query.graphql';
+import pipelineCiStatusUpdatedSubscription from '~/graphql_shared/subscriptions/pipeline_ci_status_updated.subscription.graphql';
+
 import {
   pipelineHeaderSuccess,
   pipelineHeaderRunning,
@@ -24,17 +26,22 @@ import {
   pipelineRetryMutationResponseFailed,
   pipelineCancelMutationResponseFailed,
   pipelineDeleteMutationResponseFailed,
+  mockPipelineStatusUpdatedResponse,
+  mockPipelineStatusNullResponse,
 } from '../mock_data';
 
 Vue.use(VueApollo);
 
 describe('Pipeline header', () => {
   let wrapper;
+  let apolloProvider;
 
   const successHandler = jest.fn().mockResolvedValue(pipelineHeaderSuccess);
   const runningHandler = jest.fn().mockResolvedValue(pipelineHeaderRunning);
   const runningHandlerWithDuration = jest.fn().mockResolvedValue(pipelineHeaderRunningWithDuration);
   const failedHandler = jest.fn().mockResolvedValue(pipelineHeaderFailed);
+  const subscriptionHandler = jest.fn().mockResolvedValue(mockPipelineStatusUpdatedResponse);
+  const subscriptionNullHandler = jest.fn().mockResolvedValue(mockPipelineStatusNullResponse);
 
   const retryMutationHandlerSuccess = jest
     .fn()
@@ -78,12 +85,16 @@ describe('Pipeline header', () => {
     findHeaderActions().vm.$emit(action, id);
   };
 
-  const defaultHandlers = [[getPipelineDetailsQuery, successHandler]];
+  const defaultHandlers = [
+    [getPipelineDetailsQuery, successHandler],
+    [pipelineCiStatusUpdatedSubscription, subscriptionHandler],
+  ];
 
   const defaultProvideOptions = {
     identityVerificationRequired: false,
     identityVerificationPath: '#',
     pipelineIid: 1,
+    pipelineId: 100,
     paths: {
       pipelinesPath: '/namespace/my-project/-/pipelines',
       fullProject: '/namespace/my-project',
@@ -95,10 +106,14 @@ describe('Pipeline header', () => {
   };
 
   const createComponent = (handlers = defaultHandlers) => {
+    apolloProvider = createMockApolloProvider(handlers);
+
     wrapper = shallowMountExtended(PipelineHeader, {
-      provide: defaultProvideOptions,
+      provide: {
+        ...defaultProvideOptions,
+      },
       stubs: { GlSprintf },
-      apolloProvider: createMockApolloProvider(handlers),
+      apolloProvider,
     });
 
     return waitForPromises();
@@ -158,7 +173,12 @@ describe('Pipeline header', () => {
       expect(findBadges().exists()).toBe(true);
     });
 
-    it('passes pipeline prop to HeaderBadges component', () => {
+    it('passes pipeline prop to HeaderBadges component', async () => {
+      await createComponent([
+        [getPipelineDetailsQuery, successHandler],
+        [pipelineCiStatusUpdatedSubscription, subscriptionNullHandler],
+      ]);
+
       expect(findBadges().props('pipeline')).toEqual(pipelineHeaderSuccess.data.project.pipeline);
     });
 
@@ -186,7 +206,10 @@ describe('Pipeline header', () => {
 
   describe('without pipeline name', () => {
     it('displays commit title', async () => {
-      await createComponent([[getPipelineDetailsQuery, runningHandler]]);
+      await createComponent([
+        [getPipelineDetailsQuery, runningHandler],
+        [pipelineCiStatusUpdatedSubscription, subscriptionHandler],
+      ]);
 
       const expectedTitle = pipelineHeaderSuccess.data.project.pipeline.commit.title;
 
@@ -214,7 +237,10 @@ describe('Pipeline header', () => {
 
   describe('running pipeline', () => {
     beforeEach(() => {
-      return createComponent([[getPipelineDetailsQuery, runningHandler]]);
+      return createComponent([
+        [getPipelineDetailsQuery, runningHandler],
+        [pipelineCiStatusUpdatedSubscription, subscriptionHandler],
+      ]);
     });
 
     it('does not display finished time ago', () => {
@@ -237,7 +263,10 @@ describe('Pipeline header', () => {
 
   describe('running pipeline with duration', () => {
     beforeEach(() => {
-      return createComponent([[getPipelineDetailsQuery, runningHandlerWithDuration]]);
+      return createComponent([
+        [getPipelineDetailsQuery, runningHandlerWithDuration],
+        [pipelineCiStatusUpdatedSubscription, subscriptionHandler],
+      ]);
     });
 
     it('does not display pipeline duration text', () => {
@@ -250,6 +279,7 @@ describe('Pipeline header', () => {
       await createComponent([
         [getPipelineDetailsQuery, failedHandler],
         [retryPipelineMutation, retryMutationHandlerSuccess],
+        [pipelineCiStatusUpdatedSubscription, subscriptionNullHandler],
       ]);
 
       expect(findHeaderActions().props()).toEqual({
@@ -265,16 +295,24 @@ describe('Pipeline header', () => {
         return createComponent([
           [getPipelineDetailsQuery, failedHandler],
           [retryPipelineMutation, retryMutationHandlerSuccess],
+          [pipelineCiStatusUpdatedSubscription, subscriptionHandler],
         ]);
       });
 
-      it('should call retryPipeline Mutation with pipeline id', () => {
+      it('should call retryPipeline Mutation with pipeline id', async () => {
         clickActionButton('retryPipeline', pipelineHeaderFailed.data.project.pipeline.id);
 
+        await nextTick();
+
+        expect(findHeaderActions().props('isRetrying')).toBe(true);
         expect(retryMutationHandlerSuccess).toHaveBeenCalledWith({
           id: pipelineHeaderFailed.data.project.pipeline.id,
         });
         expect(findAlert().exists()).toBe(false);
+
+        await waitForPromises();
+
+        expect(findHeaderActions().props('isRetrying')).toBe(false);
       });
     });
 
@@ -283,6 +321,7 @@ describe('Pipeline header', () => {
         return createComponent([
           [getPipelineDetailsQuery, failedHandler],
           [retryPipelineMutation, retryMutationHandlerFailed],
+          [pipelineCiStatusUpdatedSubscription, subscriptionHandler],
         ]);
       });
 
@@ -291,7 +330,7 @@ describe('Pipeline header', () => {
 
         await waitForPromises();
 
-        expect(findAlert().exists()).toBe(true);
+        expect(findAlert().props('title')).toBe('An error occurred while making the request.');
       });
 
       it('retry button loading state should reset on error', async () => {
@@ -313,27 +352,36 @@ describe('Pipeline header', () => {
           await createComponent([
             [getPipelineDetailsQuery, runningHandler],
             [cancelPipelineMutation, cancelMutationHandlerSuccess],
+            [pipelineCiStatusUpdatedSubscription, subscriptionHandler],
           ]);
 
           clickActionButton('cancelPipeline', pipelineHeaderRunning.data.project.pipeline.id);
 
+          await nextTick();
+
+          expect(findHeaderActions().props('isCanceling')).toBe(true);
           expect(cancelMutationHandlerSuccess).toHaveBeenCalledWith({
             id: pipelineHeaderRunning.data.project.pipeline.id,
           });
           expect(findAlert().exists()).toBe(false);
+
+          await waitForPromises();
+
+          expect(findHeaderActions().props('isCanceling')).toBe(false);
         });
 
         it('should display error message on failure', async () => {
           await createComponent([
             [getPipelineDetailsQuery, runningHandler],
             [cancelPipelineMutation, cancelMutationHandlerFailed],
+            [pipelineCiStatusUpdatedSubscription, subscriptionHandler],
           ]);
 
           clickActionButton('cancelPipeline', pipelineHeaderRunning.data.project.pipeline.id);
 
           await waitForPromises();
 
-          expect(findAlert().exists()).toBe(true);
+          expect(findAlert().props('title')).toBe('An error occurred while making the request.');
         });
       });
     });
@@ -343,26 +391,69 @@ describe('Pipeline header', () => {
         await createComponent([
           [getPipelineDetailsQuery, successHandler],
           [deletePipelineMutation, deleteMutationHandlerSuccess],
+          [pipelineCiStatusUpdatedSubscription, subscriptionHandler],
         ]);
 
         clickActionButton('deletePipeline', pipelineHeaderSuccess.data.project.pipeline.id);
 
+        await nextTick();
+
+        expect(findHeaderActions().props('isDeleting')).toBe(true);
         expect(deleteMutationHandlerSuccess).toHaveBeenCalledWith({
           id: pipelineHeaderSuccess.data.project.pipeline.id,
         });
+
+        await waitForPromises();
+
+        expect(findHeaderActions().props('isDeleting')).toBe(false);
       });
 
       it('should display error message on failure', async () => {
         await createComponent([
           [getPipelineDetailsQuery, successHandler],
           [deletePipelineMutation, deleteMutationHandlerFailed],
+          [pipelineCiStatusUpdatedSubscription, subscriptionHandler],
         ]);
 
         clickActionButton('deletePipeline', pipelineHeaderSuccess.data.project.pipeline.id);
 
         await waitForPromises();
 
-        expect(findAlert().exists()).toBe(true);
+        expect(findAlert().props('title')).toBe('An error occurred while deleting the pipeline.');
+      });
+
+      it('delete button loading state should reset on error', async () => {
+        await createComponent([
+          [getPipelineDetailsQuery, successHandler],
+          [deletePipelineMutation, deleteMutationHandlerFailed],
+          [pipelineCiStatusUpdatedSubscription, subscriptionHandler],
+        ]);
+
+        clickActionButton('deletePipeline', pipelineHeaderSuccess.data.project.pipeline.id);
+
+        await nextTick();
+
+        expect(findHeaderActions().props('isDeleting')).toBe(true);
+
+        await waitForPromises();
+
+        expect(findHeaderActions().props('isDeleting')).toBe(false);
+      });
+    });
+
+    describe('subscription', () => {
+      it('calls subscription with correct variables', async () => {
+        await createComponent();
+
+        const {
+          data: {
+            project: { pipeline },
+          },
+        } = pipelineHeaderSuccess;
+
+        expect(subscriptionHandler).toHaveBeenCalledWith({
+          pipelineId: pipeline.id,
+        });
       });
     });
   });

@@ -2,12 +2,21 @@
 
 module API
   class MergeRequests < ::API::Base
+    include ::API::Concerns::McpAccess
+    include APIGuard
     include PaginationParams
     include Helpers::Unidiff
+
+    helpers ::API::Helpers::HeadersHelpers
 
     CONTEXT_COMMITS_POST_LIMIT = 20
 
     before { authenticate_non_get! }
+
+    allow_mcp_access_read
+    allow_access_with_scope :ai_workflows, if: ->(request) do
+      request.get? || request.head? || mr_update?(request) || mr_create?(request)
+    end
 
     rescue_from ActiveRecord::QueryCanceled do |_e|
       render_api_error!({ error: 'Request timed out' }, 408)
@@ -42,6 +51,14 @@ module API
       end
     end
 
+    def self.mr_update?(request)
+      request.put? && request.path.match?(%r{/api/v\d+/projects/\d+/merge_requests/\d+$})
+    end
+
+    def self.mr_create?(request)
+      request.post? && request.path.match?(%r{/api/v\d+/projects/\d+/merge_requests$})
+    end
+
     def self.update_params_at_least_one_of
       %i[
         assignee_id
@@ -60,6 +77,7 @@ module API
         title
         state_event
         discussion_locked
+        merge_after
       ]
     end
 
@@ -73,10 +91,13 @@ module API
         args[:not][:milestone_title] = args[:not]&.delete(:milestone)
         args[:label_name] = args.delete(:labels)
         args[:not][:label_name] = args[:not]&.delete(:labels)
+        args[:sort] = "#{args[:order_by]}_#{args[:sort]}"
         args[:scope] = args[:scope].underscore if args[:scope]
 
+        parent_type = args[:project_id] ? :project : :group
+        args[:"attempt_#{parent_type}_search_optimizations"] = true
+
         merge_requests = MergeRequestsFinder.new(current_user, args).execute
-                           .reorder(order_options_with_tie_breaker(override_created_at: false))
         merge_requests = paginate(merge_requests)
                            .preload(:source_project, :target_project)
 
@@ -87,18 +108,39 @@ module API
       end
       # rubocop: enable CodeReuse/ActiveRecord
 
+      def render_merge_requests(merge_requests, options, skip_cache: false)
+        return present merge_requests, options if skip_cache
+
+        cache_context = ->(mr) do
+          [
+            current_user&.cache_key,
+            mr.merge_status,
+            mr.labels.map(&:cache_key),
+            mr.merge_request_assignees.map(&:cache_key),
+            mr.merge_request_reviewers.map(&:cache_key)
+          ].join(":")
+        end
+
+        present_cached merge_requests,
+          expires_in: 8.hours,
+          cache_context: cache_context,
+          **options
+      end
+
       def merge_request_pipelines_with_access
         mr = find_merge_request_with_access(params[:merge_request_iid])
         ::Ci::PipelinesForMergeRequestFinder.new(mr, current_user).execute
       end
 
-      def automatically_mergeable?(merge_when_pipeline_succeeds, merge_request)
-        pipeline_active = merge_request.head_pipeline_active? || merge_request.diff_head_pipeline_active?
-        merge_when_pipeline_succeeds && merge_request.mergeable_state?(skip_ci_check: true) && pipeline_active
+      def automatically_mergeable?(auto_merge, merge_request)
+        available_strategies = AutoMergeService.new(merge_request.project,
+          current_user).available_strategies(merge_request)
+
+        auto_merge && available_strategies.include?(merge_request.default_auto_merge_strategy)
       end
 
-      def immediately_mergeable?(merge_when_pipeline_succeeds, merge_request)
-        if merge_when_pipeline_succeeds
+      def immediately_mergeable?(auto_merge, merge_request)
+        if auto_merge
           merge_request.diff_head_pipeline_success?
         else
           merge_request.mergeable_state?
@@ -204,6 +246,7 @@ module API
     params do
       requires :id, types: [String, Integer], desc: 'The ID or URL-encoded path of the project.'
     end
+
     resource :projects, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
       include TimeTrackingEndpoints
 
@@ -236,6 +279,7 @@ module API
           optional :allow_collaboration, type: Boolean, desc: 'Allow commits from members who can merge to the target branch.'
           optional :allow_maintainer_to_push, type: Boolean, as: :allow_collaboration, desc: '[deprecated] See allow_collaboration'
           optional :squash, type: Grape::API::Boolean, desc: 'Squash commits into a single commit when merging.'
+          optional :merge_after, type: String, desc: 'Date after which the merge request can be merged.'
 
           use :optional_params_ee
         end
@@ -274,18 +318,11 @@ module API
 
         recheck_mergeability_of(merge_requests: merge_requests) unless options[:skip_merge_status_recheck]
 
-        present_cached merge_requests,
-          expires_in: 8.hours,
-          cache_context: ->(mr) do
-            [
-              current_user&.cache_key,
-              mr.merge_status,
-              mr.labels.map(&:cache_key),
-              mr.merge_request_assignees.map(&:cache_key),
-              mr.merge_request_reviewers.map(&:cache_key)
-            ].join(":")
-          end,
-          **options
+        skip_cache = [
+          declared_params[:with_labels_details] == true
+        ].any?
+
+        render_merge_requests(merge_requests, options, skip_cache: skip_cache)
       end
 
       desc 'Create merge request' do
@@ -406,6 +443,9 @@ module API
         present paginate(reviewers), with: Entities::MergeRequestReviewer
       end
 
+      params do
+        use :pagination
+      end
       desc 'Get single merge request commits' do
         detail 'Get a list of merge request commits.'
         success Entities::Commit
@@ -416,10 +456,16 @@ module API
       end
       get ':id/merge_requests/:merge_request_iid/commits', feature_category: :code_review_workflow, urgency: :low do
         merge_request = find_merge_request_with_access(params[:merge_request_iid])
+        merge_request_diff = merge_request.merge_request_diff
 
-        commits =
-          paginate(merge_request.merge_request_diff.merge_request_diff_commits)
-            .map { |commit| Commit.from_hash(commit.to_hash, merge_request.project) }
+        page = params[:page] > 0 ? params[:page] : 1
+        per_page = params[:per_page] > 0 ? params[:per_page] : Kaminari.config.default_per_page
+        limit = [per_page, Kaminari.config.max_per_page].min
+
+        gitaly_commits = merge_request_diff.commits(limit: limit, page: page, load_from_gitaly: true)
+
+        paginatable_array = Kaminari.paginate_array(gitaly_commits, total_count: merge_request_diff.commits_count).page(page).per(limit)
+        commits = paginate(paginatable_array)
 
         present commits, with: Entities::Commit
       end
@@ -432,7 +478,7 @@ module API
         ]
         tags %w[merge_requests]
       end
-      get ':id/merge_requests/:merge_request_iid/context_commits', feature_category: :code_review_workflow, urgency: :high do
+      get ':id/merge_requests/:merge_request_iid/context_commits', feature_category: :code_review_workflow, urgency: :low do
         merge_request = find_merge_request_with_access(params[:merge_request_iid])
         context_commits =
           paginate(merge_request.merge_request_context_commits).map(&:to_commit)
@@ -456,7 +502,7 @@ module API
         ]
         tags %w[merge_requests]
       end
-      post ':id/merge_requests/:merge_request_iid/context_commits', feature_category: :code_review_workflow do
+      post ':id/merge_requests/:merge_request_iid/context_commits', feature_category: :code_review_workflow, urgency: :low do
         commit_ids = params[:commits]
 
         if commit_ids.size > CONTEXT_COMMITS_POST_LIMIT
@@ -493,7 +539,7 @@ module API
         ]
         tags %w[merge_requests]
       end
-      delete ':id/merge_requests/:merge_request_iid/context_commits', feature_category: :code_review_workflow do
+      delete ':id/merge_requests/:merge_request_iid/context_commits', feature_category: :code_review_workflow, urgency: :low do
         commit_ids = params[:commits]
         merge_request = find_merge_request_with_access(params[:merge_request_iid])
 
@@ -547,7 +593,23 @@ module API
       get ':id/merge_requests/:merge_request_iid/diffs', feature_category: :code_review_workflow, urgency: :low do
         merge_request = find_merge_request_with_access(params[:merge_request_iid])
 
-        present paginate(merge_request.merge_request_diff.paginated_diffs(params[:page], params[:per_page])).diffs, with: Entities::Diff, enable_unidiff: declared_params[:unidiff]
+        present paginate(merge_request.merge_request_diff.paginated_diffs(params[:page], params[:per_page]), skip_pagination_check: true).diffs, with: Entities::Diff, enable_unidiff: declared_params[:unidiff]
+      end
+
+      desc 'Get the merge request raw diffs' do
+        detail 'Get the raw diffs of a merge request that can used programmatically.'
+        failure [
+          { code: 403, message: 'Forbidden' },
+          { code: 404, message: 'Not found' }
+        ]
+        tags %w[merge_requests]
+      end
+      get ':id/merge_requests/:merge_request_iid/raw_diffs', feature_category: :code_review_workflow, urgency: :low do
+        merge_request = find_merge_request_with_access(params[:merge_request_iid])
+
+        no_cache_headers
+
+        send_git_diff(merge_request.project.repository, merge_request.diff_refs)
       end
 
       desc 'Get single merge request pipelines' do
@@ -573,13 +635,29 @@ module API
         ]
         tags %w[merge_requests]
       end
+      params do
+        optional :async, type: Boolean, default: false,
+          desc: 'Indicates if the merge request pipeline creation should be performed asynchronously. If set to `true`, the pipeline will be created outside of the API request and the endpoint will return an empty response with a `202` status code. When the response is `202`, the creation can still fail outside of this request.'
+      end
       post ':id/merge_requests/:merge_request_iid/pipelines', urgency: :low, feature_category: :pipeline_composition do
-        pipeline = ::MergeRequests::CreatePipelineService
-          .new(project: user_project, current_user: current_user, params: { allow_duplicate: true })
-          .execute(find_merge_request_with_access(params[:merge_request_iid]))
-          .payload
+        pipeline = nil
+        merge_request = find_merge_request_with_access(params[:merge_request_iid])
 
-        if pipeline.nil?
+        merge_request_params = { allow_duplicate: true }
+
+        service = ::MergeRequests::CreatePipelineService.new(
+          project: user_project, current_user: current_user, params: merge_request_params
+        )
+
+        if params[:async]
+          service.execute_async(merge_request)
+        else
+          pipeline = service.execute(merge_request).payload
+        end
+
+        if params[:async]
+          status :accepted
+        elsif pipeline.nil?
           not_allowed!
         elsif pipeline.persisted?
           status :ok
@@ -650,7 +728,9 @@ module API
         optional :should_remove_source_branch, type: Boolean,
           desc: 'If `true`, removes the source branch.'
         optional :merge_when_pipeline_succeeds, type: Boolean,
-          desc: 'If `true`, the merge request is merged when the pipeline succeeds.'
+          desc: 'Deprecated: Use auto_merge instead.'
+        optional :auto_merge, type: Boolean,
+          desc: 'If `true`, the merge request is set to auto merge.'
         optional :sha, type: String, desc: 'If present, then this SHA must match the HEAD of the source branch, otherwise the merge fails.'
         optional :squash, type: Grape::API::Boolean, desc: 'If `true`, the commits are squashed into a single commit on merge.'
 
@@ -662,17 +742,16 @@ module API
         merge_request = find_project_merge_request(params[:merge_request_iid])
 
         # Merge request can not be merged because the user doesn't have
-        #   permissions to push into target branch
-        #
+        #   permissions to push into target branch.
         unauthorized! unless merge_request.can_be_merged_by?(current_user)
 
-        merge_when_pipeline_succeeds = to_boolean(params[:merge_when_pipeline_succeeds])
-        automatically_mergeable = automatically_mergeable?(merge_when_pipeline_succeeds, merge_request)
-        immediately_mergeable = immediately_mergeable?(merge_when_pipeline_succeeds, merge_request)
+        auto_merge = to_boolean(params[:merge_when_pipeline_succeeds]) || to_boolean(params[:auto_merge])
+        automatically_mergeable = automatically_mergeable?(auto_merge, merge_request)
+        immediately_mergeable = immediately_mergeable?(auto_merge, merge_request)
 
         not_allowed! if !immediately_mergeable && !automatically_mergeable
 
-        render_api_error!('Branch cannot be merged', 422) unless merge_request.mergeable?(skip_ci_check: automatically_mergeable)
+        render_api_error!('Branch cannot be merged', 422) unless automatically_mergeable || merge_request.mergeable?(skip_ci_check: automatically_mergeable)
 
         check_sha_param!(params, merge_request)
 

@@ -21,11 +21,12 @@ module Import
 
         def initialize(params:, current_user: nil)
           @params = params
+          @current_user = current_user
         end
 
         def project_params
-          @project_parms ||= {
-            import_export_upload: ::ImportExportUpload.new(remote_import_url: file_url)
+          @project_params ||= {
+            import_export_upload: ::ImportExportUpload.new(remote_import_url: file_url, user: current_user)
           }
         end
 
@@ -43,7 +44,7 @@ module Import
 
         private
 
-        attr_reader :params
+        attr_reader :params, :current_user
 
         def s3_request?
           headers['Server'] == 'AmazonS3' && headers['x-amz-request-id'].present?
@@ -52,9 +53,9 @@ module Import
         def headers
           return {} if file_url.blank?
 
-          @headers ||= Gitlab::HTTP.head(file_url, timeout: 1.second).headers
+          @headers ||= Clients::HTTP.head(file_url, timeout: 1.second).headers
         rescue StandardError => e
-          errors.add(:base, "Failed to retrive headers: #{e.message}")
+          errors.add(:base, "Failed to retrieve headers: #{e.message}")
 
           {}
         end

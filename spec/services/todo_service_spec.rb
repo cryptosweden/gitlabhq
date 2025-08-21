@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe TodoService, feature_category: :team_planning do
+RSpec.describe TodoService, feature_category: :notifications do
   include AfterNextHelpers
 
   let_it_be(:group) { create(:group) }
@@ -259,34 +259,6 @@ RSpec.describe TodoService, feature_category: :team_planning do
         should_not_create_todo(user: skipped, target: addressed_issue, action: Todo::DIRECTLY_ADDRESSED)
       end
 
-      it 'does not create a todo if user was already mentioned and todo is pending' do
-        stub_feature_flags(multiple_todos: false)
-
-        create(:todo, :mentioned, user: member, project: project, target: issue, author: author)
-
-        expect { service.update_issue(issue, author, skip_users) }.not_to change(member.todos, :count)
-      end
-
-      it 'does not create a todo if user was already mentioned and todo is done' do
-        create(:todo, :mentioned, :done, user: skipped, project: project, target: issue, author: author)
-
-        expect { service.update_issue(issue, author, skip_users) }.not_to change(skipped.todos, :count)
-      end
-
-      it 'does not create a directly addressed todo if user was already mentioned or addressed and todo is pending' do
-        stub_feature_flags(multiple_todos: false)
-
-        create(:todo, :directly_addressed, user: member, project: project, target: addressed_issue, author: author)
-
-        expect { service.update_issue(addressed_issue, author, skip_users) }.not_to change(member.todos, :count)
-      end
-
-      it 'does not create a directly addressed todo if user was already mentioned or addressed and todo is done' do
-        create(:todo, :directly_addressed, :done, user: skipped, project: project, target: addressed_issue, author: author)
-
-        expect { service.update_issue(addressed_issue, author, skip_users) }.not_to change(skipped.todos, :count)
-      end
-
       it 'does not create todo if user can not see the issue when issue is confidential' do
         service.update_issue(confidential_issue, john_doe)
 
@@ -383,52 +355,23 @@ RSpec.describe TodoService, feature_category: :team_planning do
         expect(second_todo.reload).to be_done
       end
 
+      it 'calls GraphQL.issuable_todo_updated' do
+        expect(GraphqlTriggers).to receive(:issuable_todo_updated).with(issue)
+
+        service.resolve_todos_for_target(issue, john_doe)
+      end
+
       describe 'cached counts' do
         it 'updates when todos change' do
           create(:todo, :assigned, user: john_doe, project: project, target: issue, author: author)
 
-          expect(john_doe.todos_done_count).to eq(0)
           expect(john_doe.todos_pending_count).to eq(1)
           expect(john_doe).to receive(:update_todos_count_cache).and_call_original
 
           service.resolve_todos_for_target(issue, john_doe)
 
-          expect(john_doe.todos_done_count).to eq(1)
           expect(john_doe.todos_pending_count).to eq(0)
         end
-      end
-    end
-
-    describe '#resolve_todos_with_attributes_for_target' do
-      it 'marks related pending todos to the target for all the users as done' do
-        first_todo = create(:todo, :assigned, user: member, project: project, target: issue, author: author)
-        second_todo = create(:todo, :review_requested, user: john_doe, project: project, target: issue, author: author)
-        another_todo = create(:todo, :assigned, user: john_doe, project: project, target: project, author: author)
-
-        service.resolve_todos_with_attributes_for_target(issue, {})
-
-        expect(first_todo.reload).to be_done
-        expect(second_todo.reload).to be_done
-        expect(another_todo.reload).to be_pending
-      end
-
-      it 'marks related only filtered pending todos to the target for all the users as done' do
-        first_todo = create(:todo, :assigned, user: member, project: project, target: issue, author: author)
-        second_todo = create(:todo, :review_requested, user: john_doe, project: project, target: issue, author: author)
-        another_todo = create(:todo, :assigned, user: john_doe, project: project, target: project, author: author)
-
-        service.resolve_todos_with_attributes_for_target(issue, { action: Todo::ASSIGNED })
-
-        expect(first_todo.reload).to be_done
-        expect(second_todo.reload).to be_pending
-        expect(another_todo.reload).to be_pending
-      end
-
-      it 'fetches the pending todos with users preloaded' do
-        expect(PendingTodosFinder).to receive(:new)
-          .with(a_hash_including(preload_user_association: true)).and_call_original
-
-        service.resolve_todos_with_attributes_for_target(issue, { action: Todo::ASSIGNED })
       end
     end
 
@@ -717,44 +660,38 @@ RSpec.describe TodoService, feature_category: :team_planning do
       end
     end
 
-    context 'when multiple_todos are enabled' do
-      before do
-        stub_feature_flags(multiple_todos: true)
-      end
+    it 'creates a MENTIONED todo even if user already has a pending MENTIONED todo' do
+      create(:todo, :mentioned, user: member, project: project, target: issue, author: author)
 
-      it 'creates a MENTIONED todo even if user already has a pending MENTIONED todo' do
-        create(:todo, :mentioned, user: member, project: project, target: issue, author: author)
+      expect { service.update_issue(issue, author) }.to change(member.todos, :count)
+    end
 
-        expect { service.update_issue(issue, author) }.to change(member.todos, :count)
-      end
+    it 'creates a DIRECTLY_ADDRESSED todo even if user already has a pending DIRECTLY_ADDRESSED todo' do
+      create(:todo, :directly_addressed, user: member, project: project, target: issue, author: author)
 
-      it 'creates a DIRECTLY_ADDRESSED todo even if user already has a pending DIRECTLY_ADDRESSED todo' do
-        create(:todo, :directly_addressed, user: member, project: project, target: issue, author: author)
+      issue.update!(description: "#{member.to_reference}, what do you think?")
 
-        issue.update!(description: "#{member.to_reference}, what do you think?")
+      expect { service.update_issue(issue, author) }.to change(member.todos, :count)
+    end
 
-        expect { service.update_issue(issue, author) }.to change(member.todos, :count)
-      end
+    it 'creates an ASSIGNED todo even if user already has a pending MARKED todo' do
+      create(:todo, :marked, user: john_doe, project: project, target: assigned_issue, author: author)
 
-      it 'creates an ASSIGNED todo even if user already has a pending MARKED todo' do
-        create(:todo, :marked, user: john_doe, project: project, target: assigned_issue, author: author)
+      expect { service.reassigned_assignable(assigned_issue, author) }.to change(john_doe.todos, :count)
+    end
 
-        expect { service.reassigned_assignable(assigned_issue, author) }.to change(john_doe.todos, :count)
-      end
+    it 'does not create an ASSIGNED todo if user already has an ASSIGNED todo' do
+      create(:todo, :assigned, user: john_doe, project: project, target: assigned_issue, author: author)
 
-      it 'does not create an ASSIGNED todo if user already has an ASSIGNED todo' do
-        create(:todo, :assigned, user: john_doe, project: project, target: assigned_issue, author: author)
+      expect { service.reassigned_assignable(assigned_issue, author) }.not_to change(john_doe.todos, :count)
+    end
 
-        expect { service.reassigned_assignable(assigned_issue, author) }.not_to change(john_doe.todos, :count)
-      end
+    it 'creates multiple todos if a user is assigned and mentioned in a new issue' do
+      assigned_issue.description = mentions
+      service.new_issue(assigned_issue, author)
 
-      it 'creates multiple todos if a user is assigned and mentioned in a new issue' do
-        assigned_issue.description = mentions
-        service.new_issue(assigned_issue, author)
-
-        should_create_todo(user: john_doe, target: assigned_issue, action: Todo::ASSIGNED)
-        should_create_todo(user: john_doe, target: assigned_issue, action: Todo::MENTIONED)
-      end
+      should_create_todo(user: john_doe, target: assigned_issue, action: Todo::ASSIGNED)
+      should_create_todo(user: john_doe, target: assigned_issue, action: Todo::MENTIONED)
     end
   end
 
@@ -818,13 +755,11 @@ RSpec.describe TodoService, feature_category: :team_planning do
         it 'updates when todos change' do
           create(:todo, :assigned, user: john_doe, project: project, target: work_item, author: author)
 
-          expect(john_doe.todos_done_count).to eq(0)
           expect(john_doe.todos_pending_count).to eq(1)
           expect(john_doe).to receive(:update_todos_count_cache).and_call_original
 
           service.resolve_todos_for_target(work_item, john_doe)
 
-          expect(john_doe.todos_done_count).to eq(1)
           expect(john_doe.todos_pending_count).to eq(0)
         end
       end
@@ -982,34 +917,6 @@ RSpec.describe TodoService, feature_category: :team_planning do
         should_not_create_todo(user: skipped, target: addressed_mr, action: Todo::DIRECTLY_ADDRESSED)
       end
 
-      it 'does not create a todo if user was already mentioned and todo is pending' do
-        stub_feature_flags(multiple_todos: false)
-
-        create(:todo, :mentioned, user: member, project: project, target: mentioned_mr, author: author)
-
-        expect { service.update_merge_request(mentioned_mr, author) }.not_to change(member.todos, :count)
-      end
-
-      it 'does not create a todo if user was already mentioned and todo is done' do
-        create(:todo, :mentioned, :done, user: skipped, project: project, target: mentioned_mr, author: author)
-
-        expect { service.update_merge_request(mentioned_mr, author, skip_users) }.not_to change(skipped.todos, :count)
-      end
-
-      it 'does not create a directly addressed todo if user was already mentioned or addressed and todo is pending' do
-        stub_feature_flags(multiple_todos: false)
-
-        create(:todo, :directly_addressed, user: member, project: project, target: addressed_mr, author: author)
-
-        expect { service.update_merge_request(addressed_mr, author) }.not_to change(member.todos, :count)
-      end
-
-      it 'does not create a directly addressed todo if user was already mentioned or addressed and todo is done' do
-        create(:todo, :directly_addressed, user: skipped, project: project, target: addressed_mr, author: author)
-
-        expect { service.update_merge_request(addressed_mr, author, skip_users) }.not_to change(skipped.todos, :count)
-      end
-
       context 'with a task list' do
         it 'does not create todo when tasks are marked as completed' do
           mentioned_mr.update!(description: "- [x] Task 1\n- [X] Task 2 #{mentions}")
@@ -1115,6 +1022,74 @@ RSpec.describe TodoService, feature_category: :team_planning do
       end
     end
 
+    describe '#ssh_key_expiring_soon' do
+      let_it_be(:ssh_key) { create(:key, user: author) }
+
+      context 'when given a single key' do
+        it 'creates a pending todo for the user' do
+          service.ssh_key_expiring_soon(ssh_key)
+
+          should_create_todo(user: author, author: author, target: ssh_key, project: nil, action: Todo::SSH_KEY_EXPIRING_SOON)
+        end
+      end
+
+      context 'when given an array of keys' do
+        let_it_be(:ssh_key_of_member) { create(:key, user: member) }
+        let_it_be(:ssh_key_of_guest) { create(:key, user: guest) }
+
+        it 'creates a pending todo for each key with the correct user' do
+          service.ssh_key_expiring_soon([ssh_key, ssh_key_of_member, ssh_key_of_guest])
+
+          should_create_todo(user: author, author: author, target: ssh_key, project: nil, action: Todo::SSH_KEY_EXPIRING_SOON)
+          should_create_todo(user: member, author: member, target: ssh_key_of_member, project: nil, action: Todo::SSH_KEY_EXPIRING_SOON)
+          should_create_todo(user: guest, author: guest, target: ssh_key_of_guest, project: nil, action: Todo::SSH_KEY_EXPIRING_SOON)
+        end
+      end
+    end
+
+    describe '#ssh_key_expired' do
+      let_it_be(:ssh_key) { create(:key, user: author) }
+
+      context 'when given a single key' do
+        it 'creates a pending todo for the user' do
+          service.ssh_key_expired(ssh_key)
+
+          should_create_todo(user: author, author: author, target: ssh_key, project: nil, action: Todo::SSH_KEY_EXPIRED)
+        end
+      end
+
+      context 'when given an array of keys' do
+        let_it_be(:ssh_key_of_member) { create(:key, user: member) }
+        let_it_be(:ssh_key_of_guest) { create(:key, user: guest) }
+
+        it 'creates a pending todo for each key with the correct user' do
+          service.ssh_key_expired([ssh_key, ssh_key_of_member, ssh_key_of_guest])
+
+          should_create_todo(user: author, author: author, target: ssh_key, project: nil, action: Todo::SSH_KEY_EXPIRED)
+          should_create_todo(user: member, author: member, target: ssh_key_of_member, project: nil, action: Todo::SSH_KEY_EXPIRED)
+          should_create_todo(user: guest, author: guest, target: ssh_key_of_guest, project: nil, action: Todo::SSH_KEY_EXPIRED)
+        end
+      end
+
+      describe 'auto-resolve behavior' do
+        let_it_be(:ssh_key_2) { create(:key, user: author) }
+        let_it_be(:todo_for_expiring_key_1) { create(:todo, target: ssh_key, action: Todo::SSH_KEY_EXPIRING_SOON, user: author) }
+        let_it_be(:todo_for_expiring_key_2) { create(:todo, target: ssh_key_2, action: Todo::SSH_KEY_EXPIRING_SOON, user: author) }
+
+        it 'resolves the "expiring soon" todo for the same key' do
+          service.ssh_key_expired(ssh_key)
+
+          expect(todo_for_expiring_key_1.reload.state).to eq 'done'
+        end
+
+        it 'does not resolve "expiring soon" todos of other keys' do
+          service.ssh_key_expired(ssh_key)
+
+          expect(todo_for_expiring_key_2.state).to eq 'pending'
+        end
+      end
+    end
+
     describe '#merge_request_build_failed' do
       let(:merge_participants) { [unassigned_mr.author, admin] }
 
@@ -1171,6 +1146,10 @@ RSpec.describe TodoService, feature_category: :team_planning do
 
     describe '#new_note' do
       let_it_be(:project) { create(:project, :repository) }
+      let(:mention) { john_doe.to_reference }
+      let(:diff_note_on_merge_request) { create(:diff_note_on_merge_request, project: project, noteable: unassigned_mr, author: author, note: "Hey #{mention}") }
+      let(:addressed_diff_note_on_merge_request) { create(:diff_note_on_merge_request, project: project, noteable: unassigned_mr, author: author, note: "#{mention}, hey!") }
+      let(:legacy_diff_note_on_merge_request) { create(:legacy_diff_note_on_merge_request, project: project, noteable: unassigned_mr, author: author, note: "Hey #{mention}") }
 
       before_all do
         project.add_guest(guest)
@@ -1180,11 +1159,6 @@ RSpec.describe TodoService, feature_category: :team_planning do
         project.add_developer(john_doe)
         project.add_developer(skipped)
       end
-
-      let(:mention) { john_doe.to_reference }
-      let(:diff_note_on_merge_request) { create(:diff_note_on_merge_request, project: project, noteable: unassigned_mr, author: author, note: "Hey #{mention}") }
-      let(:addressed_diff_note_on_merge_request) { create(:diff_note_on_merge_request, project: project, noteable: unassigned_mr, author: author, note: "#{mention}, hey!") }
-      let(:legacy_diff_note_on_merge_request) { create(:legacy_diff_note_on_merge_request, project: project, noteable: unassigned_mr, author: author, note: "Hey #{mention}") }
 
       it 'creates a todo for mentioned user on new diff note' do
         service.new_note(diff_note_on_merge_request, author)
@@ -1211,6 +1185,45 @@ RSpec.describe TodoService, feature_category: :team_planning do
         should_not_create_todo(user: guest, target: mentioned_mr, action: Todo::MENTIONED)
       end
     end
+
+    describe '#new_review' do
+      it 'marks related pending todos to the target MR for the user as done' do
+        first_todo = create(:todo, :pending, :assigned, user: john_doe, project: project, target: mentioned_mr, author: author)
+        second_todo = create(:todo, :pending, :review_requested, user: john_doe, project: project, target: mentioned_mr, author: author)
+        third_todo = create(:todo, :pending, :mentioned, user: john_doe, project: project, target: mentioned_mr, author: author)
+
+        service.new_review(mentioned_mr, john_doe)
+
+        expect(first_todo.reload).to be_done
+        expect(second_todo.reload).to be_done
+        expect(third_todo.reload).to be_done
+      end
+
+      it 'creates a pending todo for reviewed merge request author and assignees' do
+        service.new_review(assigned_mr, member)
+
+        should_create_todo(user: john_doe, author: member, target: assigned_mr, action: Todo::REVIEW_SUBMITTED)
+        should_create_todo(user: assigned_mr.author, author: member, target: assigned_mr, action: Todo::REVIEW_SUBMITTED)
+      end
+
+      context 'when merge request author is the review author' do
+        it 'does not create a pending todo for reviewed merge request author' do
+          service.new_review(assigned_mr, assigned_mr.author)
+
+          should_create_todo(user: john_doe, author: assigned_mr.author, target: assigned_mr, action: Todo::REVIEW_SUBMITTED)
+          should_not_create_todo(user: assigned_mr.author, author: assigned_mr.author, target: assigned_mr, action: Todo::REVIEW_SUBMITTED)
+        end
+      end
+
+      context 'when merge request assignee is the review author' do
+        it 'does not create a pending todo for reviewed merge request author' do
+          service.new_review(assigned_mr, john_doe)
+
+          should_not_create_todo(user: john_doe, author: john_doe, target: assigned_mr, action: Todo::REVIEW_SUBMITTED)
+          should_create_todo(user: assigned_mr.author, author: john_doe, target: assigned_mr, action: Todo::REVIEW_SUBMITTED)
+        end
+      end
+    end
   end
 
   describe 'Designs' do
@@ -1219,13 +1232,6 @@ RSpec.describe TodoService, feature_category: :team_planning do
     let(:issue) { create(:issue, project: project) }
     let(:design) { create(:design, issue: issue) }
 
-    before do
-      enable_design_management
-
-      project.add_guest(author)
-      project.add_developer(john_doe)
-    end
-
     let(:note) do
       build(
         :diff_note_on_design,
@@ -1233,6 +1239,13 @@ RSpec.describe TodoService, feature_category: :team_planning do
         author: author,
         note: "Hey #{john_doe.to_reference}"
       )
+    end
+
+    before do
+      enable_design_management
+
+      project.add_guest(author)
+      project.add_developer(john_doe)
     end
 
     it 'creates a todo for mentioned user on new diff note' do
@@ -1284,56 +1297,6 @@ RSpec.describe TodoService, feature_category: :team_planning do
       should_create_todo(user: author, target: noteable, action: Todo::DIRECTLY_ADDRESSED)
       should_not_create_todo(user: non_member, target: noteable, action: Todo::DIRECTLY_ADDRESSED)
       should_not_create_todo(user: skipped, target: noteable, action: Todo::DIRECTLY_ADDRESSED)
-    end
-
-    context 'users already have pending todos and the multiple_todos feature is off' do
-      before do
-        stub_feature_flags(multiple_todos: false)
-      end
-
-      let_it_be(:pending_todo_for_member) { create(:todo, :mentioned, user: member, project: project, target: noteable) }
-      let_it_be(:pending_todo_for_guest) { create(:todo, :mentioned, user: guest, project: project, target: noteable) }
-      let_it_be(:pending_todo_for_admin) { create(:todo, :mentioned, user: admin, project: project, target: noteable) }
-      let_it_be(:note_mentioning_1_user) do
-        create(:note, project: project, note: "FYI #{member.to_reference}", noteable: noteable)
-      end
-
-      let_it_be(:note_mentioning_3_users) do
-        create(:note, project: project, note: 'FYI: ' + [member, guest, admin].map(&:to_reference).join(' '), noteable: noteable)
-      end
-
-      it 'does not create a todo if user was already mentioned and todo is pending' do
-        expect { service.update_note(note_mentioning_1_user, author, skip_users) }.not_to change(member.todos, :count)
-      end
-
-      it 'does not create N+1 queries for pending todos' do
-        # Excluding queries for user permissions because those do execute N+1 queries
-        allow_any_instance_of(User).to receive(:can?).and_return(true)
-
-        control = ActiveRecord::QueryRecorder.new { service.update_note(note_mentioning_1_user, author, skip_users) }
-
-        expect { service.update_note(note_mentioning_3_users, author, skip_users) }.not_to exceed_query_limit(control)
-      end
-    end
-
-    it 'does not create a todo if user was already mentioned and todo is done' do
-      create(:todo, :mentioned, :done, user: skipped, project: project, target: noteable, author: author)
-
-      expect { service.update_note(note, author, skip_users) }.not_to change(skipped.todos, :count)
-    end
-
-    it 'does not create a directly addressed todo if user was already mentioned or addressed and todo is pending' do
-      stub_feature_flags(multiple_todos: false)
-
-      create(:todo, :directly_addressed, user: member, project: project, target: noteable, author: author)
-
-      expect { service.update_note(addressed_note, author, skip_users) }.not_to change(member.todos, :count)
-    end
-
-    it 'does not create a directly addressed todo if user was already mentioned or addressed and todo is done' do
-      create(:todo, :directly_addressed, :done, user: skipped, project: project, target: noteable, author: author)
-
-      expect { service.update_note(addressed_note, author, skip_users) }.not_to change(skipped.todos, :count)
     end
   end
 
@@ -1388,6 +1351,20 @@ RSpec.describe TodoService, feature_category: :team_planning do
         service.resolve_todos(collection, john_doe, resolution: :done, resolved_by_action: :mark_done)
       end
     end
+
+    context 'when some to-dos were snoozed' do
+      let!(:todo1) { create(:todo, :pending, user: john_doe) }
+      let!(:todo2) { create(:todo, :pending, user: john_doe, snoozed_until: 1.hour.ago) }
+      let!(:todo3) { create(:todo, :pending, user: john_doe, snoozed_until: 1.day.from_now) }
+
+      it 'nullifies the `snoozed_until` column' do
+        service.resolve_todos(Todo.all, john_doe, resolution: :done, resolved_by_action: :mark_done)
+
+        expect(todo1.reload.snoozed_until).to be_nil
+        expect(todo2.reload.snoozed_until).to be_nil
+        expect(todo3.reload.snoozed_until).to be_nil
+      end
+    end
   end
 
   describe '#restore_todos' do
@@ -1400,12 +1377,20 @@ RSpec.describe TodoService, feature_category: :team_planning do
 
   describe '#resolve_todo' do
     let!(:todo) { create(:todo, :assigned, user: john_doe) }
+    let!(:snoozed_todo) { create(:todo, :assigned, user: john_doe, snoozed_until: 1.day.from_now) }
 
     it 'marks pending todo as done' do
       expect do
         service.resolve_todo(todo, john_doe)
         todo.reload
       end.to change { todo.done? }.to(true)
+    end
+
+    it 'marks snoozed todo as done and nullifies `snoozed_until` column' do
+      service.resolve_todo(snoozed_todo, john_doe)
+      snoozed_todo.reload
+      expect(snoozed_todo.done?).to be true
+      expect(snoozed_todo.snoozed_until).to be_nil
     end
 
     it 'saves resolution mechanism' do
@@ -1415,15 +1400,19 @@ RSpec.describe TodoService, feature_category: :team_planning do
       end.to change { todo.resolved_by_mark_done? }.to(true)
     end
 
+    it 'calls GraphQL.issuable_todo_updated' do
+      expect(GraphqlTriggers).to receive(:issuable_todo_updated).with(todo.target)
+
+      service.resolve_todo(todo, john_doe)
+    end
+
     context 'cached counts' do
       it 'updates when todos change' do
-        expect(john_doe.todos_done_count).to eq(0)
         expect(john_doe.todos_pending_count).to eq(1)
         expect(john_doe).to receive(:update_todos_count_cache).and_call_original
 
         service.resolve_todo(todo, john_doe)
 
-        expect(john_doe.todos_done_count).to eq(1)
         expect(john_doe.todos_pending_count).to eq(0)
       end
     end
@@ -1489,6 +1478,13 @@ RSpec.describe TodoService, feature_category: :team_planning do
       expect(another_pending_todo.reload).to be_pending
       expect(another_project_todo.reload).to be_pending
     end
+
+    it 'fetches the pending todos with users preloaded' do
+      expect(PendingTodosFinder).to receive(:new)
+                                      .with(a_hash_including(preload_user_association: true)).and_call_original
+
+      service.resolve_access_request_todos(project_requester)
+    end
   end
 
   describe '#restore_todo' do
@@ -1503,13 +1499,11 @@ RSpec.describe TodoService, feature_category: :team_planning do
 
     context 'cached counts' do
       it 'updates when todos change' do
-        expect(john_doe.todos_done_count).to eq(1)
         expect(john_doe.todos_pending_count).to eq(0)
         expect(john_doe).to receive(:update_todos_count_cache).and_call_original
 
         service.restore_todo(todo, john_doe)
 
-        expect(john_doe.todos_done_count).to eq(0)
         expect(john_doe.todos_pending_count).to eq(1)
       end
     end

@@ -16,6 +16,13 @@ module Mutations
           required: true,
           description: 'Name of the integration.'
 
+        argument :type, Types::AlertManagement::IntegrationTypeEnum,
+          as: :type_identifier,
+          required: false,
+          default_value: :http,
+          replace_null_with_default: true,
+          description: 'Type of integration to create. Cannot be changed after creation.'
+
         argument :active, GraphQL::Types::Boolean,
           required: true,
           description: 'Whether the integration is receiving alerts.'
@@ -34,4 +41,4 @@ module Mutations
   end
 end
 
-Mutations::AlertManagement::HttpIntegration::Create.prepend_mod_with('Mutations::AlertManagement::HttpIntegration::Create')
+Mutations::AlertManagement::HttpIntegration::Create.prepend_mod

@@ -1,31 +1,31 @@
 # frozen_string_literal: true
 
 resource :dashboard, controller: 'dashboard', only: [] do
-  get :issues, action: :issues_calendar, constraints: lambda { |req| req.format == :ics }
+  get :home
+  get :issues, action: :issues_calendar, constraints: ->(req) { req.format == :ics }
   get :issues
   get :merge_requests
   get :activity
+  get 'merge_requests/following', to: 'dashboard#merge_requests'
+  get 'merge_requests/search', to: 'dashboard#search_merge_requests'
+  get 'merge_requests/merged', to: 'dashboard#merge_requests'
 
   scope module: :dashboard do
     resources :milestones, only: [:index]
     resources :labels, only: [:index]
 
-    resources :groups, only: [:index]
-    resources :snippets, only: [:index]
-
-    resources :todos, only: [:index, :destroy] do
+    resources :groups, only: [:index] do
       collection do
-        delete :destroy_all
-        patch :bulk_restore
-      end
-      member do
-        patch :restore
+        get :member, :inactive, to: 'groups#index'
       end
     end
+    resources :snippets, only: [:index]
+
+    resources :todos, only: [:index, :destroy]
 
     resources :projects, only: [:index] do
       collection do
-        get :starred
+        get :contributed, :starred, :personal, :member, :inactive, to: 'projects#index'
       end
     end
   end

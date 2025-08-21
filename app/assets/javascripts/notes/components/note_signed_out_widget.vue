@@ -1,15 +1,15 @@
 <script>
-// eslint-disable-next-line no-restricted-imports
-import { mapGetters } from 'vuex';
+import { mapState } from 'pinia';
 import SafeHtml from '~/vue_shared/directives/safe_html';
 import { __, sprintf } from '~/locale';
+import { useNotes } from '~/notes/store/legacy_notes';
 
 export default {
   directives: {
     SafeHtml,
   },
   computed: {
-    ...mapGetters(['getNotesDataByProp']),
+    ...mapState(useNotes, ['getNotesDataByProp']),
     registerLink() {
       return this.getNotesDataByProp('registerPath');
     },
@@ -35,5 +35,5 @@ export default {
 </script>
 
 <template>
-  <div v-safe-html="signedOutText" class="disabled-comment gl-text-center gl-text-secondary"></div>
+  <div v-safe-html="signedOutText" class="gl-grow gl-text-center gl-text-subtle"></div>
 </template>

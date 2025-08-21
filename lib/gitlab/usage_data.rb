@@ -13,8 +13,8 @@
 
 # NOTE:
 # Implementing metrics direct in `usage_data.rb` is deprecated,
-# please add new instrumentation class and use add_metric method.
-# For more information, see https://docs.gitlab.com/ee/development/service_ping/metrics_instrumentation.html
+# please add new Metrics Instrumentation class.
+# For more information, see https://docs.gitlab.com/development/internal_analytics/metrics/metrics_instrumentation
 
 module Gitlab
   class UsageData
@@ -57,7 +57,6 @@ module Gitlab
         {
           counts: {
             assignee_lists: count(List.assignee),
-            ci_builds: count(::Ci::Build),
             ci_external_pipelines: count(::Ci::Pipeline.external),
             ci_pipeline_config_auto_devops: count(::Ci::Pipeline.auto_devops_source),
             ci_pipeline_config_repository: count(::Ci::Pipeline.repository_source),
@@ -66,9 +65,7 @@ module Gitlab
             auto_devops_enabled: count(::ProjectAutoDevops.enabled),
             auto_devops_disabled: count(::ProjectAutoDevops.disabled),
             deploy_keys: count(DeployKey),
-            # rubocop: disable UsageData/LargeTable:
             feature_flags: count(Operations::FeatureFlag),
-            # rubocop: enable UsageData/LargeTable:
             environments: count(::Environment),
             clusters: count(::Clusters::Cluster),
             clusters_enabled: count(::Clusters::Cluster.enabled),
@@ -83,18 +80,14 @@ module Gitlab
             clusters_platforms_gke: count(::Clusters::Cluster.gcp_installed.enabled),
             clusters_platforms_user: count(::Clusters::Cluster.user_provided.enabled),
             clusters_management_project: count(::Clusters::Cluster.with_management_project),
-            clusters_integrations_prometheus: count(::Clusters::Integrations::Prometheus.enabled),
             kubernetes_agents: count(::Clusters::Agent),
             kubernetes_agents_with_token: distinct_count(::Clusters::AgentToken, :agent_id),
             in_review_folder: count(::Environment.in_review_folder),
-            grafana_integrated_projects: count(GrafanaIntegration.enabled),
             groups: count(Group),
             issues: add_metric('CountIssuesMetric', time_frame: 'all'),
             issues_created_from_gitlab_error_tracking_ui: count(SentryIssue),
             issues_with_associated_zoom_link: count(ZoomMeeting.added_to_issue),
             issues_using_zoom_quick_actions: distinct_count(ZoomMeeting, :issue_id),
-            issues_with_embedded_grafana_charts_approx: grafana_embed_usage_data,
-            issues_created_from_alerts: total_alert_issues,
             incident_issues: count(::Issue.with_issue_type(:incident), start: minimum_id(Issue), finish: maximum_id(Issue)),
             alert_bot_incident_issues: count(::Issue.authored(::Users::Internal.alert_bot), start: minimum_id(Issue), finish: maximum_id(Issue)),
             keys: count(Key),
@@ -128,7 +121,6 @@ module Gitlab
             merge_requests: count(MergeRequest),
             notes: count(Note)
           }.merge(
-            integrations_usage,
             user_preferences_usage,
             service_desk_counts
           )
@@ -148,14 +140,6 @@ module Gitlab
           counts_weekly: {}
         }
       end
-
-      # rubocop:disable CodeReuse/ActiveRecord
-      def grafana_embed_usage_data
-        count(Issue.joins('JOIN grafana_integrations USING (project_id)')
-          .where("issues.description LIKE '%' || grafana_integrations.grafana_url || '%'")
-          .where(grafana_integrations: { enabled: true }))
-      end
-      # rubocop: enable CodeReuse/ActiveRecord
 
       def features_usage_data = {}
 
@@ -227,45 +211,6 @@ module Gitlab
       def topology_usage_data
         Gitlab::UsageData::Topology.new.topology_usage_data
       end
-
-      # rubocop: disable CodeReuse/ActiveRecord
-      def integrations_usage
-        # rubocop: disable UsageData/LargeTable:
-        Integration.available_integration_names(include_dev: false, include_disabled: true).each_with_object({}) do |name, response|
-          type = Integration.integration_name_to_type(name)
-
-          response[:"projects_#{name}_active"] = count(Integration.active.where.not(project: nil).where(type: type))
-          response[:"groups_#{name}_active"] = count(Integration.active.where.not(group: nil).where(type: type))
-          response[:"instances_#{name}_active"] = count(Integration.active.where(instance: true, type: type))
-          response[:"projects_inheriting_#{name}_active"] = count(Integration.active.where.not(project: nil).where.not(inherit_from_id: nil).where(type: type))
-          response[:"groups_inheriting_#{name}_active"] = count(Integration.active.where.not(group: nil).where.not(inherit_from_id: nil).where(type: type))
-        end.merge(jira_import_usage)
-        # rubocop: enable UsageData/LargeTable:
-      end
-      # rubocop: enable CodeReuse/ActiveRecord
-
-      def jira_import_usage
-        # rubocop: disable UsageData/LargeTable
-        finished_jira_imports = JiraImportState.finished
-
-        {
-          jira_imports_total_imported_count: count(finished_jira_imports),
-          jira_imports_projects_count: distinct_count(finished_jira_imports, :project_id),
-          jira_imports_total_imported_issues_count: add_metric('JiraImportsTotalImportedIssuesCountMetric')
-        }
-        # rubocop: enable UsageData/LargeTable
-      end
-
-      # rubocop: disable CodeReuse/ActiveRecord
-      # rubocop: disable UsageData/LargeTable
-      def successful_deployments_with_cluster(scope)
-        scope
-          .joins(cluster: :deployments)
-          .merge(::Clusters::Cluster.enabled)
-          .merge(Deployment.success)
-      end
-      # rubocop: enable UsageData/LargeTable
-      # rubocop: enable CodeReuse/ActiveRecord
 
       # augmented in EE
       def user_preferences_usage
@@ -359,7 +304,6 @@ module Gitlab
 
         {
           clusters: distinct_count(::Clusters::Cluster.where(time_period), :user_id),
-          clusters_integrations_prometheus: cluster_integrations_user_distinct_count(::Clusters::Integrations::Prometheus, time_period),
           operations_dashboard_default_dashboard: count(::User.active.with_dashboard('operations').where(time_period),
             start: minimum_id(User),
             finish: maximum_id(User)),
@@ -451,7 +395,6 @@ module Gitlab
           Gitlab::Utils::UsageData::FALLBACK
         else
           # rubocop: disable CodeReuse/ActiveRecord
-          # rubocop: disable UsageData/LargeTable
           start = ::Event.where(time_period).select(:id).order(created_at: :asc).first&.id
           finish = ::Event.where(time_period).select(:id).order(created_at: :desc).first&.id
           estimate_batch_distinct_count(::Event.where(time_period), :author_id, start: start, finish: finish)
@@ -500,12 +443,6 @@ module Gitlab
         }
       end
       # rubocop: enable CodeReuse/ActiveRecord
-
-      def total_alert_issues
-        # Remove prometheus table queries once they are deprecated
-        # To be removed with https://gitlab.com/gitlab-org/gitlab/-/issues/217407.
-        add_metric('IssuesCreatedFromAlertsMetric')
-      end
 
       def clear_memoized
         CE_MEMOIZED_VALUES.each { |v| clear_memoization(v) }

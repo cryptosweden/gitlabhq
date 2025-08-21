@@ -1,18 +1,68 @@
 ---
-stage: Systems
-group: Geo
+stage: Data Access
+group: Durability
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Back up GitLab
 ---
 
-# Back up GitLab
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-The exact procedure for backing up GitLab depends on many factors. Your particular deployment's usage and configuration determine what kind of data exists, where it is located, and how much there is. These factors influence your options for how to perform a back up, how to store it, and how to restore it.
+{{< /details >}}
 
-## Simple back up procedure
+GitLab backups protect your data and help with disaster recovery.
+
+The optimal backup strategy depends on your GitLab deployment configuration,
+data volume, and storage locations. These factors determine which backup
+methods to use,
+where to store backups, and how to structure your backup schedule.
+
+For larger GitLab instances, alternative backup strategies include:
+
+- Incremental backups.
+- Backups of specific repositories.
+- Backups across multiple storage locations.
+
+## Data included in a backup
+
+GitLab provides a command-line interface to back up your entire instance.
+By default, the backup creates an archive in a single compressed tar file.
+This file includes:
+
+- Database data and configuration
+- Account and group settings
+- CI/CD artifacts and job logs
+- Git repositories and LFS objects
+- External merge request diffs ([introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/154914) in GitLab 17.1)
+- Package registry data and container registry images
+- Project and [group](../../user/project/wiki/group.md) wikis.
+- Project-level attachments and uploads
+- Secure Files ([introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/121142) in GitLab 16.1)
+- GitLab Pages content
+- Terraform states
+- Snippets
+
+## Data not included in a backup
+
+- [Mattermost data](../../integration/mattermost/_index.md#back-up-gitlab-mattermost)
+- Redis (and thus Sidekiq jobs)
+- [Object storage](#object-storage) on Linux package (Omnibus) / Docker / Self-compiled installations
+
+- [Global server hooks](../server_hooks.md#create-global-server-hooks-for-all-repositories)
+- [File hooks](../file_hooks.md)
+- GitLab configuration files (`/etc/gitlab`)
+- TLS- and SSH-related keys and certificates
+- Other system files
+
+{{< alert type="warning" >}}
+
+You are highly advised to read about [storing configuration files](#storing-configuration-files) to back up those separately.
+
+{{< /alert >}}
+
+## Simple backup procedure
 
 As a rough guideline, if you are using a [1k reference architecture](../reference_architectures/1k_users.md) with less than 100 GB of data, then follow these steps:
 
@@ -23,6 +73,8 @@ As a rough guideline, if you are using a [1k reference architecture](../referenc
 ## Scaling backups
 
 As the volume of GitLab data grows, the [backup command](#backup-command) takes longer to execute. [Backup options](#backup-options) such as [back up Git repositories concurrently](#back-up-git-repositories-concurrently) and [incremental repository backups](#incremental-repository-backups) can help to reduce execution time. At some point, the backup command becomes impractical by itself. For example, it can take 24 hours or more.
+
+Starting with GitLab 18.0, repository backup performance has been significantly improved for repositories with large numbers of references (branches, tags). This improvement can reduce backup times from hours to minutes for affected repositories. No configuration changes are required to benefit from this enhancement. For technical details, see our [blog post about decreasing GitLab repository backup times](https://about.gitlab.com/blog/2025/06/05/how-we-decreased-gitlab-repo-backup-times-from-48-hours-to-41-minutes/).
 
 In some cases, architecture changes may be warranted to allow backups to scale. If you are using a GitLab reference architecture, see [Back up and restore large reference architectures](backup_large_reference_architectures.md).
 
@@ -46,16 +98,16 @@ In general, this data is the single source of truth for most user-generated cont
 PostgreSQL also holds some cached data like HTML-rendered Markdown, and by default, merge request diffs.
 However, merge request diffs can also be configured to be offloaded to the file system or object storage, see [Blobs](#blobs).
 
-Gitaly Cluster's Praefect service uses a PostgreSQL database as a single source of truth to manage its Gitaly nodes.
+Gitaly Cluster (Praefect) uses a PostgreSQL database as a single source of truth to manage its Gitaly nodes.
 
-A common PostgreSQL utility, [`pg_dump`](https://www.postgresql.org/docs/current/app-pgdump.html), produces a backup file which can be used to restore a PostgreSQL database. The [backup command](#backup-command) uses this utility under the hood.
+A common PostgreSQL utility, [`pg_dump`](https://www.postgresql.org/docs/16/app-pgdump.html), produces a backup file which can be used to restore a PostgreSQL database. The [backup command](#backup-command) uses this utility under the hood.
 
 Unfortunately, the larger the database, the longer it takes `pg_dump` to execute. Depending on your situation, the duration becomes impractical at some point (days, for example). If your database is over 100 GB, `pg_dump`, and by extension the [backup command](#backup-command), is likely not usable. For more information, see [alternative backup strategies](#alternative-backup-strategies).
 
 ### Git repositories
 
-A GitLab instance can have one or more repository shards. Each shard is a Gitaly instance or Gitaly Cluster that
-is responsible for allowing access and operations on the locally stored Git repositories. Gitaly can run
+A GitLab instance can have one or more repository shards. Each shard is a Gitaly instance or Gitaly Cluster (Praefect)
+that is responsible for allowing access and operations on the locally stored Git repositories. Gitaly can run
 on a machine:
 
 - With a single disk.
@@ -104,88 +156,71 @@ The [backup command](#backup-command) doesn't back up blobs that aren't stored o
   - Hosted by you (like MinIO).
   - A Storage Appliance that exposes an Object Storage-compatible API.
 
-The backup command backs up registry data when they are stored in the default location on the file system.
+The backup command does not back up registry data when they are stored in Object Storage.
 
 ### Storing configuration files
 
-WARNING:
-The [backup Rake task](#back-up-gitlab) GitLab provides does _not_ store your configuration files. The primary reason for this is that your database contains items including encrypted information for two-factor authentication and the CI/CD _secure variables_. Storing encrypted information in the same location as its key defeats the purpose of using encryption in the first place. For example, the secrets file contains your database encryption key. If you lose it, then the GitLab application will not be able to decrypt any encrypted values in the database.
+{{< alert type="warning" >}}
 
-WARNING:
+The backup Rake task GitLab provides does not store your configuration files. The primary reason for this is that your database contains items including encrypted information for two-factor authentication and the CI/CD secure variables. Storing encrypted information in the same location as its key defeats the purpose of using encryption in the first place. For example, the secrets file contains your database encryption key. If you lose it, then the GitLab application will not be able to decrypt any encrypted values in the database.
+
+{{< /alert >}}
+
+{{< alert type="warning" >}}
+
 The secrets file may change after upgrades.
+{{< /alert >}}
 
-You should back up the configuration directory. At the very **minimum**, you must back up:
+You should back up the configuration directory. At the very minimum, you must back up:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package
+{{< tab title="Linux package" >}}
 
 - `/etc/gitlab/gitlab-secrets.json`
 - `/etc/gitlab/gitlab.rb`
 
 For more information, see [Backup and restore Linux package (Omnibus) configuration](https://docs.gitlab.com/omnibus/settings/backups.html#backup-and-restore-omnibus-gitlab-configuration).
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 - `/home/git/gitlab/config/secrets.yml`
 - `/home/git/gitlab/config/gitlab.yml`
 
-:::TabTitle Docker
+{{< /tab >}}
+
+{{< tab title="Docker" >}}
 
 - Back up the volume where the configuration files are stored. If you created
   the GitLab container according to the documentation, it should be in the
   `/srv/gitlab/config` directory.
 
-:::TabTitle GitLab Helm chart
+{{< /tab >}}
+
+{{< tab title="GitLab Helm chart" >}}
 
 - Follow the [Back up the secrets](https://docs.gitlab.com/charts/backup-restore/backup.html#back-up-the-secrets)
   instructions.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 You may also want to back up any TLS keys and certificates (`/etc/gitlab/ssl`, `/etc/gitlab/trusted-certs`), and your
 [SSH host keys](https://superuser.com/questions/532040/copy-ssh-keys-from-one-server-to-another-server/532079#532079)
 to avoid man-in-the-middle attack warnings if you have to perform a full machine restore.
 
 In the unlikely event that the secrets file is lost, see
-[When the secrets file is lost](../../administration/backup_restore/troubleshooting_backup_gitlab.md#when-the-secrets-file-is-lost).
+[When the secrets file is lost](troubleshooting_backup_gitlab.md#when-the-secrets-file-is-lost).
 
 ### Other data
 
-GitLab uses Redis both as a cache store and to hold persistent data for our background jobs system, Sidekiq. The provided [backup command](#backup-command) does _not_ back up Redis data. This means that in order to take a consistent backup with the [backup command](#backup-command), there must be no pending or running background jobs. It is possible to [manually back up Redis](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/#backing-up-redis-data).
+GitLab uses Redis both as a cache store and to hold persistent data for our background jobs system, Sidekiq. The provided [backup command](#backup-command) does not back up Redis data. This means that in order to take a consistent backup with the [backup command](#backup-command), there must be no pending or running background jobs. It is possible to [manually back up Redis](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/#backing-up-redis-data).
 
 Elasticsearch is an optional database for advanced search. It can improve search
-in both source-code level, and user generated content in issues, merge requests, and discussions. The [backup command](#backup-command) does _not_ back up Elasticsearch data. Elasticsearch data can be regenerated from PostgreSQL data after a restore. It is possible to [manually back up Elasticsearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/snapshot-restore.html).
-
-## Command-line interface
-
-GitLab provides a command-line interface to back up your entire instance,
-including:
-
-- Database
-- Attachments
-- Git repositories data
-- CI/CD job output logs
-- CI/CD job artifacts
-- LFS objects
-- Terraform states
-- Container registry images
-- GitLab Pages content
-- Packages
-- Snippets
-- [Group wikis](../../user/project/wiki/group.md)
-- Project-level Secure Files ([introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/121142) in GitLab 16.1)
-- External merge request diffs ([introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/154914) in GitLab 17.1)
-
-Backups do not include:
-
-- [Mattermost data](../../integration/mattermost/index.md#back-up-gitlab-mattermost)
-- Redis (and thus Sidekiq jobs)
-- [Object storage](#object-storage) on Linux package (Omnibus) / Docker / Self-compiled installations
-
-WARNING:
-GitLab does not back up any configuration files (`/etc/gitlab`), TLS keys and certificates, or system
-files. You are highly advised to read about [storing configuration files](#storing-configuration-files).
+in both source-code level, and user generated content in issues, merge requests, and discussions. The [backup command](#backup-command) does not back up Elasticsearch data. Elasticsearch data can be regenerated from PostgreSQL data after a restore. It is possible to [manually back up Elasticsearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/snapshot-restore.html).
 
 ### Requirements
 
@@ -205,35 +240,49 @@ system. If you installed GitLab:
 
 ### Backup command
 
-WARNING:
+{{< alert type="warning" >}}
+
 The backup command does not back up items in [object storage](#object-storage) on Linux package (Omnibus) / Docker / Self-compiled installations.
 
-WARNING:
+{{< /alert >}}
+
+{{< alert type="warning" >}}
+
 The backup command requires [additional parameters](#back-up-and-restore-for-installations-using-pgbouncer) when
 your installation is using PgBouncer, for either performance reasons or when using it with a Patroni cluster.
+{{< /alert >}}
 
-WARNING:
+{{< alert type="warning" >}}
+
 Before GitLab 15.5.0, the backup command doesn't verify if another backup is already running, as described in
 [issue 362593](https://gitlab.com/gitlab-org/gitlab/-/issues/362593). We strongly recommend
 you make sure that all backups are complete before starting a new one.
+{{< /alert >}}
 
-NOTE:
-You can only restore a backup to **exactly the same version and type (CE/EE)**
+{{< alert type="note" >}}
+
+You can only restore a backup to exactly the same version and type (CE/EE)
 of GitLab on which it was created.
 
-::Tabs
+{{< /alert >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tabs >}}
+
+{{< tab title="Linux package (Omnibus)" >}}
 
 ```shell
 sudo gitlab-backup create
 ```
 
-:::TabTitle Helm chart (Kubernetes)
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
 
 Run the backup task by using `kubectl` to run the `backup-utility` script on the GitLab toolbox pod. For more details, see the [charts backup documentation](https://docs.gitlab.com/charts/backup-restore/backup.html).
 
-:::TabTitle Docker
+{{< /tab >}}
+
+{{< tab title="Docker" >}}
 
 Run the backup from the host.
 
@@ -241,13 +290,17 @@ Run the backup from the host.
 docker exec -t <container name> gitlab-backup create
 ```
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 ```shell
 sudo -u git -H bundle exec rake gitlab:backup:create RAILS_ENV=production
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 If your GitLab deployment has multiple nodes, you need to pick a node for running the backup command. You must ensure that the designated node:
 
@@ -284,6 +337,8 @@ Deleting tmp directories...[DONE]
 Deleting old backups... [SKIPPING]
 ```
 
+For detailed information about the backup process, see [Backup archive process](backup_archive_process.md).
+
 ### Backup options
 
 The command-line tool GitLab provides to back up your instance can accept more
@@ -314,11 +369,14 @@ sudo gitlab-backup create STRATEGY=copy
 
 #### Backup filename
 
-WARNING:
+{{< alert type="warning" >}}
+
 If you use a custom backup filename, you can't
 [limit the lifetime of the backups](#limit-backup-lifetime-for-local-files-prune-old-backups).
 
-Backup files are created with filenames according to [specific defaults](index.md#backup-id). However, you can
+{{< /alert >}}
+
+Backup files are created with filenames according to [specific defaults](backup_archive_process.md#backup-id). However, you can
 override the `<backup-id>` portion of the filename by setting the `BACKUP`
 environment variable. For example:
 
@@ -383,11 +441,17 @@ DECOMPRESS_CMD=tee gitlab-backup restore
 
 ##### Parallel compression with `pigz`
 
-WARNING:
-While we support using `COMPRESS_CMD` and `DECOMPRESS_CMD` to override the default Gzip compression library, we currently only test the default Gzip library with default options on a routine basis. You are responsible for testing and validating the viability of your backups. We strongly recommend this as best practice in general for backups, whether overriding the compression command or not. If you encounter issues with another compression library, you should revert back to the default. Troubleshooting and fixing errors with alternative libraries are a lower priority for GitLab.
+{{< alert type="warning" >}}
 
-NOTE:
+While we support using `COMPRESS_CMD` and `DECOMPRESS_CMD` to override the default Gzip compression library, we only test the default Gzip library with default options on a routine basis. You are responsible for testing and validating the viability of your backups. We strongly recommend this as best practice in general for backups, whether overriding the compression command or not. If you encounter issues with another compression library, you should revert back to the default. Troubleshooting and fixing errors with alternative libraries are a lower priority for GitLab.
+
+{{< /alert >}}
+
+{{< alert type="note" >}}
+
 `pigz` is not included in the GitLab Linux package. You must install it yourself.
+
+{{< /alert >}}
 
 An example of compressing backups with `pigz` using 4 processes:
 
@@ -403,11 +467,17 @@ DECOMPRESS_CMD="pigz --decompress --stdout" sudo gitlab-backup restore
 
 ##### Parallel compression with `zstd`
 
-WARNING:
-While we support using `COMPRESS_CMD` and `DECOMPRESS_CMD` to override the default Gzip compression library, we currently only test the default Gzip library with default options on a routine basis. You are responsible for testing and validating the viability of your backups. We strongly recommend this as best practice in general for backups, whether overriding the compression command or not. If you encounter issues with another compression library, you should revert back to the default. Troubleshooting and fixing errors with alternative libraries are a lower priority for GitLab.
+{{< alert type="warning" >}}
 
-NOTE:
+While we support using `COMPRESS_CMD` and `DECOMPRESS_CMD` to override the default Gzip compression library, we only test the default Gzip library with default options on a routine basis. You are responsible for testing and validating the viability of your backups. We strongly recommend this as best practice in general for backups, whether overriding the compression command or not. If you encounter issues with another compression library, you should revert back to the default. Troubleshooting and fixing errors with alternative libraries are a lower priority for GitLab.
+
+{{< /alert >}}
+
+{{< alert type="note" >}}
+
 `zstd` is not included in the GitLab Linux package. You must install it yourself.
+
+{{< /alert >}}
 
 An example of compressing backups with `zstd` using 4 threads:
 
@@ -439,9 +509,9 @@ sudo gitlab-backup create BACKUP=dump GZIP_RSYNCABLE=yes
 
 Depending on your installation type, slightly different components can be skipped on backup creation.
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus) / Docker / Self-compiled
+{{< tab title="Linux package (Omnibus) / Docker / Self-compiled" >}}
 
 <!-- source: https://gitlab.com/gitlab-org/gitlab/-/blob/d693aa7f894c7306a0d20ab6d138a7b95785f2ff/lib/backup/manager.rb#L117-133 -->
 
@@ -455,10 +525,12 @@ Depending on your installation type, slightly different components can be skippe
 - `terraform_state` (Terraform states)
 - `registry` (Container registry images)
 - `packages` (Packages)
-- `ci_secure_files` (Project-level Secure Files)
-- `external_diffs` (External Merge Request diffs)
+- `ci_secure_files` (Project-level secure files)
+- `external_diffs` (External merge request diffs)
 
-:::TabTitle Helm chart (Kubernetes)
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
 
 <!-- source: https://gitlab.com/gitlab-org/build/CNG/-/blob/068e146db915efcd875414e04403410b71a2e70c/gitlab-toolbox/scripts/bin/backup-utility#L19 -->
 
@@ -474,27 +546,35 @@ Depending on your installation type, slightly different components can be skippe
 - `ci_secure_files` (Project-level Secure Files)
 - `external_diffs` (Merge request diffs)
 
-::EndTabs
+{{< /tab >}}
 
-::Tabs
+{{< /tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tabs >}}
+
+{{< tab title="Linux package (Omnibus)" >}}
 
 ```shell
 sudo gitlab-backup create SKIP=db,uploads
 ```
 
-:::TabTitle Helm chart (Kubernetes)
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
 
 See [Skipping components](https://docs.gitlab.com/charts/backup-restore/backup.html#skipping-components) in charts backup documentation.
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 ```shell
 sudo -u git -H bundle exec rake gitlab:backup:create SKIP=db,uploads RAILS_ENV=production
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 `SKIP=` is also used to:
 
@@ -503,8 +583,11 @@ sudo -u git -H bundle exec rake gitlab:backup:create SKIP=db,uploads RAILS_ENV=p
 
 #### Skipping tar creation
 
-NOTE:
+{{< alert type="note" >}}
+
 It is not possible to skip the tar creation when using [object storage](#upload-backups-to-a-remote-cloud-storage) for backups.
+
+{{< /alert >}}
 
 The last part of creating a backup is generation of a `.tar` file containing all the parts. In some cases, creating a `.tar` file might be wasted effort or even directly harmful, so you can skip this step by adding `tar` to the `SKIP` environment variable. Example use-cases:
 
@@ -516,28 +599,36 @@ backup in the directory used for the intermediate files. These files are
 overwritten when a new backup is created, so you should make sure they are copied
 elsewhere, because you can only have one backup on the system.
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 ```shell
 sudo gitlab-backup create SKIP=tar
 ```
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 ```shell
 sudo -u git -H bundle exec rake gitlab:backup:create SKIP=tar RAILS_ENV=production
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 #### Create server-side repository backups
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/4941) in `gitlab-backup` in GitLab 16.3.
-> - Server-side support in `gitlab-backup` for restoring a specified backup instead of the latest backup [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/132188) in GitLab 16.6.
-> - Server-side support in `gitlab-backup` for creating incremental backups [introduced](https://gitlab.com/gitlab-org/gitaly/-/merge_requests/6475) in GitLab 16.6.
-> - Server-side support in `backup-utility` [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/438393) in GitLab 17.0.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/4941) in `gitlab-backup` in GitLab 16.3.
+- Server-side support in `gitlab-backup` for restoring a specified backup instead of the latest backup [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/132188) in GitLab 16.6.
+- Server-side support in `gitlab-backup` for creating incremental backups [introduced](https://gitlab.com/gitlab-org/gitaly/-/merge_requests/6475) in GitLab 16.6.
+- Server-side support in `backup-utility` [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/438393) in GitLab 17.0.
+
+{{< /history >}}
 
 Instead of storing large repository backups in the backup archive, repository
 backups can be configured so that the Gitaly node that hosts each repository is
@@ -545,23 +636,27 @@ responsible for creating the backup and streaming it to object storage. This
 helps reduce the network resources required to create and restore a backup.
 
 1. [Configure a server-side backup destination in Gitaly](../gitaly/configure_gitaly.md#configure-server-side-backups).
-1. Create a back up using the repositories server-side option. See the following examples.
+1. Create a backup using the repositories server-side option. See the following examples.
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 ```shell
 sudo gitlab-backup create REPOSITORIES_SERVER_SIDE=true
 ```
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 ```shell
 sudo -u git -H bundle exec rake gitlab:backup:create REPOSITORIES_SERVER_SIDE=true
 ```
 
-:::TabTitle Helm chart (Kubernetes)
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
 
 ```shell
 kubectl exec <Toolbox pod name> -it -- backup-utility --repositories-server-side
@@ -570,7 +665,9 @@ kubectl exec <Toolbox pod name> -it -- backup-utility --repositories-server-side
 When you are using [cron-based backups](https://docs.gitlab.com/charts/backup-restore/backup.html#cron-based-backup),
 add the `--repositories-server-side` flag to the extra arguments.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 #### Back up Git repositories concurrently
 
@@ -587,44 +684,66 @@ task:
 
 For example, with 4 repository storages:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 ```shell
 sudo gitlab-backup create GITLAB_BACKUP_MAX_CONCURRENCY=4 GITLAB_BACKUP_MAX_STORAGE_CONCURRENCY=1
 ```
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 ```shell
 sudo -u git -H bundle exec rake gitlab:backup:create GITLAB_BACKUP_MAX_CONCURRENCY=4 GITLAB_BACKUP_MAX_STORAGE_CONCURRENCY=1
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
+
+```yaml
+toolbox:
+#...
+    extra: {}
+    extraEnv:
+      GITLAB_BACKUP_MAX_CONCURRENCY: 4
+      GITLAB_BACKUP_MAX_STORAGE_CONCURRENCY: 1
+
+```
+
+{{< /tab >}}
+
+{{< /tabs >}}
 
 #### Incremental repository backups
 
-> - `PREVIOUS_BACKUP` option [introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/4184) in GitLab 15.0.
-> - Server-side support for creating incremental backups [introduced](https://gitlab.com/gitlab-org/gitaly/-/merge_requests/6475) in GitLab 16.6.
+{{< history >}}
 
-FLAG:
-On self-managed GitLab, by default this feature is available. To hide the feature, an administrator can [disable the feature flag](../feature_flags.md) named `incremental_repository_backup`.
-On GitLab.com and GitLab Dedicated, this feature is not available.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/351383) in GitLab 14.10 [with a flag](../feature_flags/_index.md) named `incremental_repository_backup`. Disabled by default.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/355945) in GitLab 15.3. Feature flag `incremental_repository_backup` removed.
+- Server-side support for creating incremental backups [introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/5461) in GitLab 16.6.
 
-NOTE:
+{{< /history >}}
+
+{{< alert type="note" >}}
+
 Only repositories support incremental backups. Therefore, if you use `INCREMENTAL=yes`, the task
 creates a self-contained backup tar archive. This is because all subtasks except repositories are
 still creating full backups (they overwrite the existing full backup).
 See [issue 19256](https://gitlab.com/gitlab-org/gitlab/-/issues/19256) for a feature request to
 support incremental backups for all subtasks.
 
+{{< /alert >}}
+
 Incremental repository backups can be faster than full repository backups because they only pack changes since the last backup into the backup bundle for each repository.
 The incremental backup archives are not linked to each other: each archive is a self-contained backup of the instance. There must be an existing backup
 to create an incremental backup from.
 
 Use the `PREVIOUS_BACKUP=<backup-id>` option to choose the backup to use. By default, a backup file is created
-as documented in the [Backup ID](index.md#backup-id) section. You can override the `<backup-id>` portion of the filename by setting the
+as documented in the [Backup ID](backup_archive_process.md#backup-id) section. You can override the `<backup-id>` portion of the filename by setting the
 [`BACKUP` environment variable](#backup-filename).
 
 To create an incremental backup, run:
@@ -641,7 +760,11 @@ sudo gitlab-backup create INCREMENTAL=yes SKIP=tar
 
 #### Back up specific repository storages
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/86896) in GitLab 15.0.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/86896) in GitLab 15.0.
+
+{{< /history >}}
 
 When using [multiple repository storages](../repository_storage_paths.md),
 repositories from specific repository storages can be backed up separately
@@ -650,60 +773,84 @@ storage names.
 
 For example:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 ```shell
 sudo gitlab-backup create REPOSITORIES_STORAGES=storage1,storage2
 ```
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 ```shell
 sudo -u git -H bundle exec rake gitlab:backup:create REPOSITORIES_STORAGES=storage1,storage2
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 #### Back up specific repositories
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/88094) in GitLab 15.1.
-> - [Skipping specific repositories added](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/121865) in GitLab 16.1.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/88094) in GitLab 15.1.
+- [Skipping specific repositories added](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/121865) in GitLab 16.1.
+
+{{< /history >}}
 
 You can back up specific repositories using the `REPOSITORIES_PATHS` option.
 Similarly, you can use `SKIP_REPOSITORIES_PATHS` to skip certain repositories.
 Both options accept a comma-separated list of project or group paths. If you
 specify a group path, all repositories in all projects in the group and
-descendent groups are included or skipped, depending on which option you used.
+descendant groups are included or skipped, depending on which option you used.
 
-For example, to back up all repositories for all projects in **Group A** (`group-a`), the repository for **Project C** in **Group B** (`group-b/project-c`),
-and skip the **Project D** in **Group A** (`group-a/project-d`):
+For example, to back up all repositories for all projects in Group A (`group-a`), the repository for
+Project C in Group B (`group-b/project-c`),
+and skip the Project D in Group A (`group-a/project-d`):
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
-  ```shell
-  sudo gitlab-backup create REPOSITORIES_PATHS=group-a,group-b/project-c SKIP_REPOSITORIES_PATHS=group-a/project-d
-  ```
+```shell
+sudo gitlab-backup create REPOSITORIES_PATHS=group-a,group-b/project-c SKIP_REPOSITORIES_PATHS=group-a/project-d
+```
 
-:::TabTitle Self-compiled
+{{< /tab >}}
 
-  ```shell
-  sudo -u git -H bundle exec rake gitlab:backup:create REPOSITORIES_PATHS=group-a,group-b/project-c SKIP_REPOSITORIES_PATHS=group-a/project-d
-  ```
+{{< tab title="Self-compiled" >}}
 
-::EndTabs
+```shell
+sudo -u git -H bundle exec rake gitlab:backup:create REPOSITORIES_PATHS=group-a,group-b/project-c SKIP_REPOSITORIES_PATHS=group-a/project-d
+```
+
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
+
+```shell
+REPOSITORIES_PATHS=group-a SKIP_REPOSITORIES_PATHS=group-a/project_a2 backup-utility --skip db,registry,uploads,artifacts,lfs,packages,external_diffs,terraform_state,ci_secure_files,pages
+```
+
+{{< /tab >}}
+
+{{< /tabs >}}
 
 #### Upload backups to a remote (cloud) storage
 
-NOTE:
+{{< alert type="note" >}}
+
 It is not possible to [skip the tar creation](#skipping-tar-creation) when using object storage for backups.
 
-You can let the backup script upload (using the [Fog library](https://fog.io/))
+{{< /alert >}}
+
+You can let the backup script upload (using the [Fog library](https://fog.github.io/))
 the `.tar` file it creates. In the following example, we use Amazon S3 for
-storage, but Fog also lets you use [other storage providers](https://fog.io/storage/).
+storage, but Fog also lets you use [other storage providers](https://fog.github.io/storage/).
 GitLab also [imports cloud drivers](https://gitlab.com/gitlab-org/gitlab/-/blob/da46c9655962df7d49caef0e2b9f6bbe88462a02/Gemfile#L113)
 for AWS, Google, and Aliyun. A local driver is
 [also available](#upload-to-locally-mounted-shares).
@@ -720,14 +867,35 @@ For Linux package (Omnibus):
    gitlab_rails['backup_upload_connection'] = {
      'provider' => 'AWS',
      'region' => 'eu-west-1',
+     # Choose one authentication method
+     # IAM Profile
+     'use_iam_profile' => true
+     # OR AWS Access and Secret key
      'aws_access_key_id' => 'AKIAKIAKI',
      'aws_secret_access_key' => 'secret123'
-     # If using an IAM Profile, don't configure aws_access_key_id & aws_secret_access_key
-     # 'use_iam_profile' => true
    }
    gitlab_rails['backup_upload_remote_directory'] = 'my.s3.bucket'
-   # Consider using multipart uploads when file size reaches 100MB. Enter a number in bytes.
+   # Consider using multipart uploads when file size reaches 100 MB. Enter a number in bytes.
    # gitlab_rails['backup_multipart_chunk_size'] = 104857600
+   ```
+
+1. If you're using the IAM Profile authentication method, ensure the instance where `backup-utility` is to be run has the following policy set (replace `<backups-bucket>` with the correct bucket name):
+
+   ```json
+   {
+       "Version": "2012-10-17",
+       "Statement": [
+           {
+               "Effect": "Allow",
+               "Action": [
+                   "s3:PutObject",
+                   "s3:GetObject",
+                   "s3:DeleteObject"
+               ],
+               "Resource": "arn:aws:s3:::<backups-bucket>/*"
+           }
+       ]
+   }
    ```
 
 1. [Reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation)
@@ -835,7 +1003,7 @@ For self-compiled installations:
      backup:
        # snip
        upload:
-         # Fog storage connection settings, see https://fog.io/storage/ .
+         # Fog storage connection settings, see https://fog.github.io/storage/ .
          connection:
            provider: AWS
            region: eu-west-1
@@ -869,57 +1037,6 @@ For self-compiled installations:
 
 1. [Restart GitLab](../restart_gitlab.md#self-compiled-installations)
    for the changes to take effect
-
-If you're uploading your backups to S3, you should create a new
-IAM user with restricted access rights. To give the upload user access only for
-uploading backups create the following IAM profile, replacing `my.s3.bucket`
-with the name of your bucket:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "Stmt1412062044000",
-      "Effect": "Allow",
-      "Action": [
-        "s3:AbortMultipartUpload",
-        "s3:GetBucketAcl",
-        "s3:GetBucketLocation",
-        "s3:GetObject",
-        "s3:GetObjectAcl",
-        "s3:ListBucketMultipartUploads",
-        "s3:PutObject",
-        "s3:PutObjectAcl"
-      ],
-      "Resource": [
-        "arn:aws:s3:::my.s3.bucket/*"
-      ]
-    },
-    {
-      "Sid": "Stmt1412062097000",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetBucketLocation",
-        "s3:ListAllMyBuckets"
-      ],
-      "Resource": [
-        "*"
-      ]
-    },
-    {
-      "Sid": "Stmt1412062128000",
-      "Effect": "Allow",
-      "Action": [
-        "s3:ListBucket"
-      ],
-      "Resource": [
-        "arn:aws:s3:::my.s3.bucket"
-      ]
-    }
-  ]
-}
-```
 
 ##### Using Google Cloud Storage
 
@@ -975,9 +1092,9 @@ For self-compiled installations:
 
 ##### Using Azure Blob storage
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb`:
 
@@ -991,10 +1108,23 @@ For self-compiled installations:
    gitlab_rails['backup_upload_remote_directory'] = '<AZURE BLOB CONTAINER>'
    ```
 
+   If you are using [a managed identity](../object_storage.md#azure-workload-and-managed-identities), omit `azure_storage_access_key`:
+
+   ```ruby
+   gitlab_rails['backup_upload_connection'] = {
+     'provider' => 'AzureRM',
+     'azure_storage_account_name' => '<AZURE STORAGE ACCOUNT NAME>',
+     'azure_storage_domain' => '<AZURE STORAGE DOMAIN>' # Optional
+   }
+   gitlab_rails['backup_upload_remote_directory'] = '<AZURE BLOB CONTAINER>'
+   ```
+
 1. [Reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation)
    for the changes to take effect
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 1. Edit `home/git/gitlab/config/gitlab.yml`:
 
@@ -1011,7 +1141,9 @@ For self-compiled installations:
 1. [Restart GitLab](../restart_gitlab.md#self-compiled-installations)
    for the changes to take effect
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 For more details, see the [table of Azure parameters](../object_storage.md#azure-blob-storage).
 
@@ -1030,21 +1162,25 @@ sudo gitlab-backup create DIRECTORY=weekly
 If you have configured GitLab to [upload backups in a remote storage](#upload-backups-to-a-remote-cloud-storage),
 you can use the `SKIP=remote` option to skip uploading your backups to the remote storage.
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 ```shell
 sudo gitlab-backup create SKIP=remote
 ```
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 ```shell
 sudo -u git -H bundle exec rake gitlab:backup:create SKIP=remote RAILS_ENV=production
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 #### Upload to locally-mounted shares
 
@@ -1081,9 +1217,9 @@ remaining after the failed upload attempt.
 
 ##### Configure uploads to locally-mounted shares
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb`:
 
@@ -1101,14 +1237,16 @@ remaining after the failed upload attempt.
 1. [Reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation)
    for the changes to take effect.
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 1. Edit `home/git/gitlab/config/gitlab.yml`:
 
    ```yaml
    backup:
      upload:
-       # Fog storage connection settings, see https://fog.io/storage/ .
+       # Fog storage connection settings, see https://fog.github.io/storage/ .
        connection:
          provider: Local
          local_root: '/mnt/backups'
@@ -1120,7 +1258,9 @@ remaining after the failed upload attempt.
 1. [Restart GitLab](../restart_gitlab.md#self-compiled-installations)
    for the changes to take effect.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 #### Backup archive permissions
 
@@ -1130,9 +1270,9 @@ meant to avoid other system users reading GitLab data. If you need the backup
 archives to have different permissions, you can use the `archive_permissions`
 setting.
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb`:
 
@@ -1143,7 +1283,9 @@ setting.
 1. [Reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation)
    for the changes to take effect.
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 1. Edit `/home/git/gitlab/config/gitlab.yml`:
 
@@ -1155,19 +1297,24 @@ setting.
 1. [Restart GitLab](../restart_gitlab.md#self-compiled-installations)
    for the changes to take effect.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 #### Configuring cron to make daily backups
 
-WARNING:
+{{< alert type="warning" >}}
+
 The following cron jobs do not [back up your GitLab configuration files](#storing-configuration-files)
 or [SSH host keys](https://superuser.com/questions/532040/copy-ssh-keys-from-one-server-to-another-server/532079#532079).
 
+{{< /alert >}}
+
 You can schedule a cron job that backs up your repositories and GitLab metadata.
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit the crontab for the `root` user:
 
@@ -1182,7 +1329,9 @@ You can schedule a cron job that backs up your repositories and GitLab metadata.
    0 2 * * * /opt/gitlab/bin/gitlab-backup create CRON=1
    ```
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 1. Edit the crontab for the `git` user:
 
@@ -1197,7 +1346,9 @@ You can schedule a cron job that backs up your repositories and GitLab metadata.
    0 2 * * * cd /home/git/gitlab && PATH=/usr/local/bin:/usr/bin:/bin bundle exec rake gitlab:backup:create RAILS_ENV=production CRON=1
    ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 The `CRON=1` environment setting directs the backup script to hide all progress
 output if there aren't any errors. This is recommended to reduce cron spam.
@@ -1205,9 +1356,12 @@ When troubleshooting backup problems, however, replace `CRON=1` with `--trace` t
 
 #### Limit backup lifetime for local files (prune old backups)
 
-WARNING:
+{{< alert type="warning" >}}
+
 The process described in this section doesn't work if you used a [custom filename](#backup-filename)
 for your backups.
+
+{{< /alert >}}
 
 To prevent regular backups from using all your disk space, you may want to set a limited lifetime
 for backups. The next time the backup task runs, backups older than the `backup_keep_time` are
@@ -1219,9 +1373,9 @@ because the user may not have permission to list and delete files. It's
 recommended that you configure the appropriate retention policy for your object
 storage (for example, [AWS S3](https://docs.aws.amazon.com/AmazonS3/latest/user-guide/create-lifecycle.html)).
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb`:
 
@@ -1233,7 +1387,9 @@ storage (for example, [AWS S3](https://docs.aws.amazon.com/AmazonS3/latest/user-
 1. [Reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation)
    for the changes to take effect.
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 1. Edit `/home/git/gitlab/config/gitlab.yml`:
 
@@ -1246,7 +1402,9 @@ storage (for example, [AWS S3](https://docs.aws.amazon.com/AmazonS3/latest/user-
 1. [Restart GitLab](../restart_gitlab.md#self-compiled-installations)
    for the changes to take effect.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 #### Back up and restore for installations using PgBouncer
 
@@ -1262,7 +1420,7 @@ ActiveRecord::StatementInvalid: PG::UndefinedTable
 ```
 
 Each time the GitLab backup runs, GitLab starts generating 500 errors and errors about missing
-tables will [be logged by PostgreSQL](../logs/index.md#postgresql-logs):
+tables will [be logged by PostgreSQL](../logs/_index.md#postgresql-logs):
 
 ```plaintext
 ERROR: relation "tablename" does not exist at character 123
@@ -1286,7 +1444,11 @@ There are two ways to fix this:
 
 ###### Environment variable overrides
 
-> - Multiple databases support was [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/133177) in GitLab 16.5.
+{{< history >}}
+
+- Multiple databases support was [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/133177) in GitLab 16.5.
+
+{{< /history >}}
 
 By default, GitLab uses the database configuration stored in a
 configuration file (`database.yml`). However, you can override the database settings
@@ -1311,7 +1473,7 @@ and port 5432 with the Linux package (Omnibus):
 sudo GITLAB_BACKUP_PGHOST=192.168.1.10 GITLAB_BACKUP_PGPORT=5432 /opt/gitlab/bin/gitlab-backup create
 ```
 
-If you run GitLab on [multiple databases](../postgresql/multiple_databases.md), you can override database settings by including
+If you run GitLab on [multiple databases](../postgresql/_index.md), you can override database settings by including
 the database name in the environment variable. For example if your `main` and `ci` databases are
 hosted on different database servers, you would append their name after the `GITLAB_BACKUP_` prefix,
 leaving the `PG*` names as is:
@@ -1320,7 +1482,7 @@ leaving the `PG*` names as is:
 sudo GITLAB_BACKUP_MAIN_PGHOST=192.168.1.10 GITLAB_BACKUP_CI_PGHOST=192.168.1.12 /opt/gitlab/bin/gitlab-backup create
 ```
 
-See the [PostgreSQL documentation](https://www.postgresql.org/docs/12/libpq-envars.html)
+See the [PostgreSQL documentation](https://www.postgresql.org/docs/16/libpq-envars.html)
 for more details on what these parameters do.
 
 #### `gitaly-backup` for repository backup and restore
@@ -1353,15 +1515,18 @@ In the following cases, consider using file system data transfer or snapshots as
 - Your GitLab instance has a lot of forked projects and the regular backup task duplicates the Git data for all of them.
 - Your GitLab instance has a problem and using the regular backup and import Rake tasks isn't possible.
 
-WARNING:
-Gitaly Cluster [does not support snapshot backups](../gitaly/index.md#snapshot-backup-and-recovery-limitations).
+{{< alert type="warning" >}}
+
+Gitaly Cluster (Praefect) [does not support snapshot backups](../gitaly/praefect/_index.md#snapshot-backup-and-recovery).
+
+{{< /alert >}}
 
 When considering using file system data transfer or snapshots:
 
 - Don't use these methods to migrate from one operating system to another. The operating systems of the source and destination should be as similar as possible. For example,
   don't use these methods to migrate from Ubuntu to RHEL.
 - Data consistency is very important. You should stop GitLab (`sudo gitlab-ctl stop`) before
-  doing a file system transfer (with `rsync`, for example) or taking a snapshot.
+  doing a file system transfer (with `rsync`, for example) or taking a snapshot to ensure all data in memory is flushed to disk. GitLab consists of multiple subsystems (Gitaly, database, file storage) that have their own buffers, queues, and storage layers. GitLab transactions can span these subsystems, which results in parts of a transaction taking different paths to disk. On live systems, file system transfers and snapshot runs fail to capture parts of the transaction still in memory.
 
 Example: Amazon Elastic Block Store (EBS)
 
@@ -1387,39 +1552,44 @@ practical use.
 
 First, ensure you back up existing GitLab data while [skipping repositories](#excluding-specific-data-from-the-backup):
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 ```shell
 sudo gitlab-backup create SKIP=repositories
 ```
 
-:::TabTitle Self-compiled
+{{< /tab >}}
+
+{{< tab title="Self-compiled" >}}
 
 ```shell
 sudo -u git -H bundle exec rake gitlab:backup:create SKIP=repositories RAILS_ENV=production
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 For manually backing up the Git repository data on disk, there are multiple possible strategies:
 
 - Use snapshots, such as the previous examples of Amazon EBS drive snapshots, or LVM snapshots + rsync.
-- Use [GitLab Geo](../geo/index.md) and rely on the repository data on a Geo secondary site.
+- Use [GitLab Geo](../geo/_index.md) and rely on the repository data on a Geo secondary site.
 - [Prevent writes and copy the Git repository data](#prevent-writes-and-copy-the-git-repository-data).
 - [Create an online backup by marking repositories as read-only (experimental)](#online-backup-through-marking-repositories-as-read-only-experimental).
 
 #### Prevent writes and copy the Git repository data
 
-Git repositories must be copied in a consistent way. They should not be copied during concurrent write
-operations, as this can lead to inconsistencies or corruption issues. For more details,
-[issue #270422](https://gitlab.com/gitlab-org/gitlab/-/issues/270422 "Provide documentation on preferred method of migrating Gitaly servers")
-has a longer discussion explaining the potential problems.
+Git repositories must be copied in a consistent way. If repositories
+are copied during concurrent write operations,
+inconsistencies or corruption issues can occur. For more details,
+[issue 270422](https://gitlab.com/gitlab-org/gitlab/-/issues/270422)
+has a longer discussion that explains the potential problems.
 
 To prevent writes to the Git repository data, there are two possible approaches:
 
-- Use [maintenance mode](../maintenance_mode/index.md) to place GitLab in a read-only state.
+- Use [maintenance mode](../maintenance_mode/_index.md) to place GitLab in a read-only state.
 - Create explicit downtime by stopping all Gitaly services before backing up the repositories:
 
   ```shell
@@ -1454,5 +1624,5 @@ There are a few possible downsides to this:
   the last project that gets backed up.
 - Fork networks should be entirely read-only while the projects inside get backed up to prevent potential changes to the pool repository.
 
-There is an **experimental** script that attempts to automate this process in
+There is an experimental script that attempts to automate this process in
 [the Geo team Runbooks project](https://gitlab.com/gitlab-org/geo-team/runbooks/-/tree/main/experimental-online-backup-through-rsync).

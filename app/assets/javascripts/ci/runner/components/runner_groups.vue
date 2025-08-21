@@ -1,8 +1,10 @@
 <script>
+import CrudComponent from '~/vue_shared/components/crud_component.vue';
 import RunnerAssignedItem from './runner_assigned_item.vue';
 
 export default {
   components: {
+    CrudComponent,
     RunnerAssignedItem,
   },
   props: {
@@ -20,9 +22,12 @@ export default {
 </script>
 
 <template>
-  <div class="gl-border-t-gray-100 gl-border-t-1 gl-border-t-solid">
-    <h3 class="gl-font-lg gl-mt-5 gl-mb-0">{{ s__('Runners|Assigned Group') }}</h3>
-    <template v-if="groups.length">
+  <crud-component
+    v-if="groups.length"
+    :title="s__('Runners|Assigned Group')"
+    data-testid="runner-groups"
+  >
+    <ul class="content-list">
       <runner-assigned-item
         v-for="group in groups"
         :key="group.id"
@@ -31,7 +36,6 @@ export default {
         :full-name="group.fullName"
         :avatar-url="group.avatarUrl"
       />
-    </template>
-    <span v-else class="gl-text-secondary">{{ __('None') }}</span>
-  </div>
+    </ul>
+  </crud-component>
 </template>

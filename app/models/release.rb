@@ -37,6 +37,7 @@ class Release < ApplicationRecord
   validates :description, length: { maximum: Gitlab::Database::MAX_TEXT_SIZE_LIMIT }, if: :description_changed?
   validates_associated :milestone_releases, message: ->(_, obj) { obj[:value].map(&:errors).map(&:full_messages).join(",") }
   validates :links, nested_attributes_duplicates: { scope: :release, child_attributes: %i[name url filepath] }
+  validates :name, length: { maximum: 255 }, if: :name_changed?
 
   # Custom validation methods
   validate :sha_unchanged, on: :update
@@ -152,7 +153,7 @@ class Release < ApplicationRecord
   end
 
   def milestone_titles
-    self.milestones.order_by_dates_and_title.map { |m| m.title }.join(', ')
+    self.milestones.order_by_dates_and_title.map(&:title).join(', ')
   end
 
   def to_hook_data(action)
@@ -162,6 +163,14 @@ class Release < ApplicationRecord
   def execute_hooks(action)
     hook_data = to_hook_data(action)
     project.execute_hooks(hook_data, :release_hooks)
+  end
+
+  def related_deployments
+    Deployment
+      .with(Gitlab::SQL::CTE.new(:available_environments, project.environments.available.select(:id)).to_arel)
+      .where('environment_id IN (SELECT * FROM available_environments)')
+      .where(ref: tag)
+      .with_environment_page_associations
   end
 
   private

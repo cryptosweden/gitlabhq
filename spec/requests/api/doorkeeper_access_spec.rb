@@ -3,9 +3,43 @@
 require 'spec_helper'
 
 RSpec.describe 'doorkeeper access', feature_category: :system_access do
-  let!(:user) { create(:user) }
-  let!(:application) { Doorkeeper::Application.create!(name: "MyApp", redirect_uri: "https://app.com", owner: user) }
-  let!(:token) { Doorkeeper::AccessToken.create! application_id: application.id, resource_owner_id: user.id, scopes: "api" }
+  let_it_be(:organization) { create(:organization) }
+  let_it_be_with_reload(:user) { create(:user) }
+  let!(:application) { Authn::OauthApplication.create!(name: "MyApp", redirect_uri: "https://app.com", owner: user) }
+  let!(:token) { Doorkeeper::AccessToken.create! application_id: application.id, resource_owner_id: user.id, scopes: "api", organization_id: organization.id }
+
+  describe 'access token with composite identity scope', :request_store do
+    let!(:scopes) { "user:#{scope_user.id} api" }
+    let!(:scoped_token) { OauthAccessToken.create!(application_id: application.id, user: user, scopes: scopes, organization_id: organization.id) }
+
+    let(:scope_user) { create(:user) }
+    let(:group) { create(:group, :private) }
+
+    context 'when user one has a composite identity token scoped to user two' do
+      before do
+        user.update!(composite_identity_enforced: true, user_type: :service_account)
+        group.add_developer(user) # user one has access, user two doesn't have access
+      end
+
+      it 'restricts user access permissions' do
+        get api("/groups/#{group.id}"), params: { access_token: scoped_token.plaintext_token }
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+
+      context 'when both users have access to a resource' do
+        before do
+          group.add_developer(scope_user)
+        end
+
+        it 'allows access' do
+          get api("/groups/#{group.id}"), params: { access_token: scoped_token.plaintext_token }
+
+          expect(response).to have_gitlab_http_status(:ok)
+        end
+      end
+    end
+  end
 
   describe "unauthenticated" do
     it "returns authentication success" do

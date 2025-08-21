@@ -10,6 +10,7 @@ module API
     content_type :txt, 'text/plain'
 
     helpers ::API::Helpers::HeadersHelpers
+    helpers ::API::Helpers::BlobHelpers
 
     helpers do
       params :release_params do
@@ -39,6 +40,16 @@ module API
           desc: 'The Git trailer to use for determining if commits are to be included in the changelog',
           default: ::Repositories::ChangelogService::DEFAULT_TRAILER,
           documentation: { example: 'Changelog' }
+
+        optional :config_file,
+          type: String,
+          documentation: { example: '.gitlab/changelog_config.yml' },
+          desc: "The file path to the configuration file as stored in the project's Git repository. Defaults to '.gitlab/changelog_config.yml'"
+
+        optional :config_file_ref,
+          type: String,
+          desc: 'The git reference (for example, branch) where the changelog configuration file is defined. Defaults to the default repository branch.',
+          documentation: { example: 'main' }
       end
     end
 
@@ -96,10 +107,6 @@ module API
             params
           ]
         end
-
-        def rescue_not_found?
-          Feature.disabled?(:handle_structured_gitaly_errors)
-        end
       end
 
       desc 'Get a project repository tree' do
@@ -128,7 +135,7 @@ module API
         end
       end
       get ':id/repository/tree', urgency: :low do
-        tree_finder = ::Repositories::TreeFinder.new(user_project, declared_params(include_missing: false).merge(rescue_not_found: rescue_not_found?))
+        tree_finder = ::Repositories::TreeFinder.new(user_project, declared_params(include_missing: false).merge(rescue_not_found: false))
 
         not_found!("Tree") unless tree_finder.commit_exists?
 
@@ -146,7 +153,6 @@ module API
           desc: 'The commit hash', documentation: { example: '7d70e02340bac451f281cecf0a980907974bd8be' }
       end
       get ':id/repository/blobs/:sha/raw' do
-        # Load metadata enough to ask Workhorse to load the whole blob
         assign_blob_vars!(limit: 0)
 
         no_cache_headers
@@ -160,6 +166,14 @@ module API
           desc: 'The commit hash', documentation: { example: '7d70e02340bac451f281cecf0a980907974bd8be' }
       end
       get ':id/repository/blobs/:sha' do
+        # Load metadata for @blob, but not not the actual data
+        #
+        assign_blob_vars!(limit: 0)
+        check_rate_limit_for_blob(@blob)
+
+        # If #check_rate_limit_for_blob hasn't stopped the request, allow data
+        #   to actually be loaded without limit.
+        #
         assign_blob_vars!(limit: -1)
 
         {
@@ -178,6 +192,12 @@ module API
         optional :format, type: String, desc: 'The archive format', documentation: { example: 'tar.gz' }
         optional :path, type: String,
           desc: 'Subfolder of the repository to be downloaded', documentation: { example: 'files/archives' }
+        optional :include_lfs_blobs, type: Boolean, default: true,
+          desc: 'Used to exclude LFS objects from archive'
+        optional :exclude_paths, type: Array[String],
+          coerce_with: ::API::Validations::Types::CommaSeparatedToArray.coerce,
+          default: [],
+          desc: 'Comma-separated list of paths to exclude from the archive'
       end
       get ':id/repository/archive', requirements: { format: Gitlab::PathRegex.archive_formats_regex } do
         check_archive_rate_limit!(current_user, user_project) do
@@ -186,7 +206,7 @@ module API
 
         not_acceptable! if Gitlab::HotlinkingDetector.intercept_hotlinking?(request)
 
-        send_git_archive user_project.repository, ref: params[:sha], format: params[:format], append_sha: true, path: params[:path]
+        send_git_archive user_project.repository, ref: params[:sha], format: params[:format], append_sha: true, path: params[:path], include_lfs_blobs: params[:include_lfs_blobs], exclude_paths: params[:exclude_paths]
       rescue StandardError
         not_found!('File')
       end
@@ -229,16 +249,48 @@ module API
         end
       end
 
+      desc 'Get repository health' do
+        success Entities::RepositoryHealth
+      end
+      params do
+        optional :generate, type: Boolean, default: false, desc: 'Triggers a new health report to be generated'
+      end
+      get ':id/repository/health', urgency: :low do
+        unless Feature.enabled?(:project_repositories_health, user_project)
+          not_found!
+        end
+
+        authorize! :admin_project, user_project
+
+        generate = params[:generate] || false
+        if generate
+          check_rate_limit!(:project_repositories_health, scope: [user_project]) do
+            render_api_error!({ error: 'Repository health has been requested too many times. Try again later.' }, 429)
+          end
+        end
+
+        health = user_project.repository.health(generate)
+
+        if health.nil?
+          not_found!
+        end
+
+        present health, with: Entities::RepositoryHealth
+      end
+
       desc 'Get repository contributors' do
         success Entities::Contributor
       end
       params do
         use :pagination
+        optional :ref, type: String,
+          desc: 'The name of a repository branch or tag, if not given the default branch is used',
+          documentation: { example: 'main' }
         optional :order_by, type: String, values: %w[email name commits], default: 'commits', desc: 'Return contributors ordered by `name` or `email` or `commits`'
         optional :sort, type: String, values: %w[asc desc], default: 'asc', desc: 'Sort by asc (ascending) or desc (descending)'
       end
       get ':id/repository/contributors' do
-        contributors = ::Kaminari.paginate_array(user_project.repository.contributors(order_by: params[:order_by], sort: params[:sort]))
+        contributors = ::Kaminari.paginate_array(user_project.repository.contributors(ref: params[:ref], order_by: params[:order_by], sort: params[:sort]))
         present paginate(contributors), with: Entities::Contributor
       rescue StandardError
         not_found!
@@ -281,13 +333,15 @@ module API
       end
       params do
         use :release_params
-
-        optional :config_file,
-          type: String,
-          documentation: { example: '.gitlab/changelog_config.yml' },
-          desc: "The file path to the configuration file as stored in the project's Git repository. Defaults to '.gitlab/changelog_config.yml'"
       end
+      route_setting :authentication, job_token_allowed: true
+      route_setting :authorization, job_token_policies: :read_releases,
+        allow_public_access_for_enabled_project_features: :repository
       get ':id/repository/changelog' do
+        check_rate_limit!(:project_repositories_changelog, scope: [current_user, user_project]) do
+          render_api_error!({ error: 'This changelog has been requested too many times. Try again later.' }, 429)
+        end
+
         service = ::Repositories::ChangelogService.new(
           user_project,
           current_user,
@@ -312,11 +366,6 @@ module API
           desc: 'The branch to commit the changelog changes to',
           documentation: { example: 'main' }
 
-        optional :config_file,
-          type: String,
-          documentation: { example: '.gitlab/changelog_config.yml' },
-          desc: "The file path to the configuration file as stored in the project's Git repository. Defaults to '.gitlab/changelog_config.yml'"
-
         optional :file,
           type: String,
           desc: 'The file to commit the changelog changes to',
@@ -329,6 +378,10 @@ module API
           documentation: { example: 'Initial commit' }
       end
       post ':id/repository/changelog' do
+        check_rate_limit!(:project_repositories_changelog, scope: [current_user, user_project]) do
+          render_api_error!({ error: 'This changelog has been requested too many times. Try again later.' }, 429)
+        end
+
         branch = params[:branch] || user_project.default_branch_or_main
         access = Gitlab::UserAccess.new(current_user, container: user_project)
 

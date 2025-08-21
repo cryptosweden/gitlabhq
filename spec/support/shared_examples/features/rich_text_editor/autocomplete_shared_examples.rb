@@ -69,31 +69,46 @@ RSpec.shared_examples 'rich text editor - autocomplete' do |params = {
         expect(find(suggestions_dropdown)).to have_text('/label')
       end
 
-      it 'adds the correct prefix for /assign' do
+      it 'adds the correct prefix and explanation for /assign' do
         type_in_content_editor '/assign'
 
         expect(find(suggestions_dropdown)).to have_text('/assign')
         send_keys :enter
 
         expect(page).to have_text('/assign @')
+        type_in_content_editor 'abc'
+        expect(find(suggestions_dropdown)).to have_text('abc123')
+        send_keys :enter
+
+        expect(find(content_editor_testid)).to have_text('Assigns @abc123.')
       end
 
-      it 'adds the correct prefix for /label' do
+      it 'adds the correct prefix and explanation for /label' do
         type_in_content_editor '/label'
 
         expect(find(suggestions_dropdown)).to have_text('/label')
         send_keys :enter
 
         expect(page).to have_text('/label ~')
+        type_in_content_editor 'My'
+        expect(find(suggestions_dropdown)).to have_text('My Cool Label')
+        send_keys :enter
+
+        expect(find(content_editor_testid)).to have_text('Adds a label.')
       end
 
-      it 'adds the correct prefix for /milestone' do
+      it 'adds the correct prefix and explanation for /milestone' do
         type_in_content_editor '/milestone'
 
         expect(find(suggestions_dropdown)).to have_text('/milestone')
         send_keys :enter
 
         expect(page).to have_text('/milestone %')
+        type_in_content_editor 'My'
+        expect(find(suggestions_dropdown)).to have_text('My Cool Milestone')
+        send_keys :enter
+
+        expect(find(content_editor_testid)).to have_text('Sets the milestone to %My Cool Milestone.')
       end
 
       it 'scrolls selected item into view when navigating with keyboard' do
@@ -124,6 +139,23 @@ RSpec.shared_examples 'rich text editor - autocomplete' do |params = {
       expect(page).to have_text('@abc123')
     end
 
+    it 'does not leave leftover parts when selecting a suggestion in the middle of a word' do
+      type_in_content_editor '@abc123'
+
+      expect(find(suggestions_dropdown)).to have_text('abc123')
+
+      send_keys [:arrow_left, :arrow_left, :arrow_left]
+      send_keys :enter
+
+      expect(page).not_to have_css(suggestions_dropdown)
+      expect(page).to have_text('@abc123')
+
+      switch_to_markdown_editor
+
+      expect(page.find('textarea').value).not_to include('@abc123 123')
+      expect(page.find('textarea').value).to include('@abc123')
+    end
+
     it 'allows selecting element with tab key' do
       type_in_content_editor '@abc'
 
@@ -133,6 +165,23 @@ RSpec.shared_examples 'rich text editor - autocomplete' do |params = {
 
       expect(page).not_to have_css(suggestions_dropdown)
       expect(page).to have_text('@abc123')
+    end
+
+    it 'allows adding text before a username' do
+      type_in_content_editor '@abc'
+
+      expect(find(suggestions_dropdown)).to have_text('abc123')
+
+      send_keys :tab
+      expect(page).to have_text('@abc123')
+
+      send_keys [:arrow_left, :arrow_left]
+      type_in_content_editor 'foo'
+
+      sleep 0.1 # wait for the text to be added
+      switch_to_markdown_editor
+
+      expect(page.find('textarea').value).to include('foo @abc123')
     end
 
     it 'allows dismissing the suggestion popup and typing more text' do
@@ -158,9 +207,10 @@ RSpec.shared_examples 'rich text editor - autocomplete' do |params = {
 
       expect(find(suggestions_dropdown)).to have_text('abc123')
 
-      type_in_content_editor 'foo'
-      type_in_content_editor :enter
-      type_in_content_editor 'bar'
+      send_keys :backspace, :backspace, :backspace
+      send_keys '@abfoo'
+      send_keys :enter
+      send_keys 'bar'
 
       # ensure that the texts are in separate paragraphs
       expect(page).to have_selector('p', text: '@abfoo')
@@ -179,9 +229,9 @@ RSpec.shared_examples 'rich text editor - autocomplete' do |params = {
         expect(find(suggestions_dropdown)).to have_text('abc123')
         expect(find(suggestions_dropdown)).not_to have_text('All Group Members')
 
-        type_in_content_editor 'bc'
-
-        send_keys [:arrow_down, :enter]
+        send_keys :backspace, :backspace
+        send_keys '@abc'
+        send_keys :enter
 
         expect(page).not_to have_css(suggestions_dropdown)
         expect(page).to have_text('@abc123')
@@ -239,6 +289,9 @@ RSpec.shared_examples 'rich text editor - autocomplete' do |params = {
 
       expect(find(suggestions_dropdown)).to have_text('My Cool Wiki Page')
 
+      send_keys :backspace, :backspace, :backspace, :backspace
+      send_keys '[[My'
+      wait_for_requests
       send_keys :enter
 
       expect(page).not_to have_css(suggestions_dropdown)
@@ -258,6 +311,13 @@ RSpec.shared_examples 'rich text editor - autocomplete' do |params = {
 
       type_in_content_editor 'x'
 
+      expect(page).not_to have_css(suggestions_dropdown)
+    end
+
+    it 'does not show suggestions in code blocks' do
+      type_in_content_editor '```'
+      type_in_content_editor :enter
+      type_in_content_editor '@'
       expect(page).not_to have_css(suggestions_dropdown)
     end
 

@@ -20,6 +20,9 @@ export default {
       default: () => [],
     },
   },
+  emits: {
+    toggleCollapsibleLine: () => true,
+  },
   computed: {
     ...mapState(['jobLog', 'jobLogSections', 'isJobLogComplete']),
     highlightedLines() {
@@ -30,15 +33,19 @@ export default {
     if (window.location.hash) {
       const lineNumber = getLocationHash();
 
-      this.unwatchJobLog = this.$watch('jobLog', async () => {
-        if (this.jobLog.length) {
-          await this.$nextTick();
+      this.unwatchJobLog = this.$watch(
+        'jobLog',
+        async () => {
+          if (this.jobLog.length) {
+            await this.$nextTick();
 
-          const el = document.getElementById(lineNumber);
-          scrollToElement(el);
-          this.unwatchJobLog();
-        }
-      });
+            const el = document.getElementById(lineNumber);
+            scrollToElement(el);
+            this.unwatchJobLog();
+          }
+        },
+        { immediate: true },
+      );
     }
 
     this.setupFullScreenListeners();
@@ -47,6 +54,7 @@ export default {
     ...mapActions(['toggleCollapsibleLine', 'scrollBottom', 'setupFullScreenListeners']),
     handleOnClickCollapsibleLine(section) {
       this.toggleCollapsibleLine(section);
+      this.$emit('toggleCollapsibleLine');
     },
     isLineVisible(line) {
       const { lineNumber, section } = line;

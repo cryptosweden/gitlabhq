@@ -6,12 +6,13 @@
 /*
 * Dark syntax colors
 */
-$dark-new-bg: rgba(51, 255, 51, 0.1);
+$dark-new-bg: #233726;
 $dark-new-idiff: rgba(51, 255, 51, 0.2);
-$dark-old-bg: rgba(255, 51, 51, 0.2);
+$dark-old-bg: #4b2526;
 $dark-old-idiff: rgba(255, 51, 51, 0.25);
 $dark-border: #808080;
 $dark-code-border: #666;
+$dark-code-mark: #1d3043;
 $dark-main-bg: #1d1f21;
 $dark-main-color: #1d1f21;
 $dark-line-color: #c5c8c6;
@@ -20,7 +21,7 @@ $dark-line-num-color-new: #627165;
 $dark-line-num-color-old: #806565;
 $dark-diff-not-empty-bg: #557;
 $dark-highlight-bg: #ffe792;
-$dark-highlight-color: $black;
+$dark-highlight-color: $gl-color-neutral-1000;
 $dark-pre-hll-bg: #373b41;
 $dark-hll-bg: #373b41;
 $dark-expanded-bg: #3e3e3e;
@@ -122,9 +123,53 @@ $dark-il: #de935f;
   --color-hljs-selector-pseudo: #{$dark-nd};
   --default-diff-color-deletion: #ff3333;
   --default-diff-color-addition: #288f2a;
+  --diff-addition-color: #{$dark-new-bg};
+  --diff-deletion-color: #{$dark-old-bg};
 }
 
-.code.dark {
+.code.dark,
+.code.code-syntax-highlight-theme {
+  --code-dark-theme: 1;
+  --code-border-lightness-adjust: 0.1;
+  --diff-expansion-background-color: #{$gl-color-neutral-600};
+
+  --code-empty-background: #{$gl-color-neutral-900};
+  --code-line-number-background-color: #{$dark-main-bg};
+  --code-line-number-color: #{$dark-line-num-color};
+  --code-line-number-hover-background-color: #{$gl-color-purple-800};
+  --code-line-number-hover-border-color: #{$gl-color-purple-700};
+  --code-line-number-hover-color: #{$gl-color-purple-50};
+
+  --code-old-diff-line-number-background-color: #{$dark-old-bg};
+  --code-old-diff-line-number-color: #{$dark-line-num-color-old};
+  --code-old-diff-sign-color: #{$dark-line-num-color-old};
+  --code-old-diff-background-color: #{$dark-old-bg};
+  --code-old-diff-border-color: #{$dark-border};
+  --code-old-diff-color: #{$dark-line-num-color-old};
+  --code-old-inline-diff-background-color: #{$dark-old-idiff};
+
+  --code-new-diff-line-number-background-color: #{$dark-new-bg};
+  --code-new-diff-line-number-color: #{$dark-line-num-color-new};
+  --code-new-diff-sign-color: #{$dark-line-num-color-new};
+  --code-new-diff-background-color: #{$dark-new-bg};
+  --code-new-diff-border-color: #{$dark-border};
+  --code-new-diff-color: #{$dark-line-num-color-new};
+  --code-new-inline-diff-background-color: #{$dark-new-idiff};
+
+  --code-meta-diff-background-color: #{$dark-diff-match-color};
+  --code-meta-diff-color: #{$dark-diff-match-bg};
+
+  --code-diff-hunk-header-background-color: #{$dark-diff-match-color};
+  --code-diff-hunk-header-color: #{$dark-diff-match-bg};
+
+  --code-diff-expand-button-background-color: #{$gl-color-neutral-600};
+  --code-diff-expand-button-color: #{$gl-color-neutral-200};
+  --code-diff-expand-button-hover-background-color: #{$gl-color-neutral-300};
+  --code-diff-expand-button-hover-color: #{$gl-color-neutral-0};
+
+  --code-highlighted-line-background-color: #{$gl-color-orange-800};
+  --code-highlighted-line-border-color: #{$gl-color-orange-500};
+
   // Highlight.js theme overrides (https://gitlab.com/gitlab-org/gitlab/-/issues/365167)
   // We should be able to remove the overrides once the upstream issue is fixed (https://github.com/sourcegraph/sourcegraph/issues/23251)
   @include hljs-override('title\\.class', $dark-nc);
@@ -135,7 +180,7 @@ $dark-il: #de935f;
 
   // Line numbers
   .file-line-blame {
-    @include line-link($white, 'git');
+    @include line-link($gl-color-neutral-0, 'git');
   }
 
   .line-links {
@@ -162,17 +207,18 @@ $dark-il: #de935f;
   &,
   pre.code,
   .line_holder .line_content {
+    --code-background: #{$dark-main-bg};
     background-color: $dark-main-bg;
     color: $dark-line-color;
   }
 
   .diff-line-expand-button {
-    @include diff-expansion($gray-600, $gray-200, $gray-300, $white);
+    @include diff-expansion($gl-color-neutral-600, $gl-color-neutral-200, $gl-color-neutral-300, $gl-color-neutral-0);
   }
 
   .diff-grid-row.line_holder.diff-tr .diff-td.commented:not(.hll) {
-    --highlight-border-color: #{$blue-600};
-    background-color: $blue-900;
+    --highlight-border-color: #{$gl-color-blue-600};
+    background-color: $gl-color-blue-900;
   }
 
   // Diff line
@@ -184,8 +230,6 @@ $dark-il: #de935f;
     }
 
     &.diff-grid-row {
-      --diff-expansion-background-color: #{$gray-600};
-
       @include dark-diff-expansion-line;
     }
 
@@ -196,8 +240,8 @@ $dark-il: #de935f;
     td.diff-line-num.hll,
     td.line-coverage.hll,
     td.line_content.hll {
-      --highlight-border-color: #{$orange-500};
-      background-color: $orange-800;
+      --highlight-border-color: #{$gl-color-orange-500};
+      background-color: $gl-color-orange-800;
     }
 
     .line-coverage {
@@ -260,7 +304,7 @@ $dark-il: #de935f;
       > .diff-line-num,
       > .line-coverage,
       > .line_content {
-        border-top: 1px solid $black;
+        border-top: 1px solid $gl-color-neutral-1000;
       }
     }
 
@@ -280,6 +324,28 @@ $dark-il: #de935f;
   pre .hll {
     background-color: $dark-pre-hll-bg !important;
   }
+
+  // mark lines via mark_multiple_lines
+  pre.dark code {
+    .selected-inline-section-marker {
+      background: $dark-code-mark !important;
+    }
+
+    .inline-section-marker {
+      background: $dark-pre-hll-bg;
+    }
+  }
+
+  .file-holder div.code.dark {
+    .selected-inline-number-mark {
+      color: $gl-color-neutral-200;
+    }
+
+    .unselected-inline-number-mark {
+      color: $gl-color-neutral-600;
+    }
+  }
+
 
   // Search result highlight
   span.highlight_word {
@@ -367,3 +433,5 @@ $dark-il: #de935f;
   .vi { color: $dark-vi; } /* Name.Variable.Instance */
   .il { color: $dark-il; } /* Literal.Number.Integer.Long */
 }
+
+@include merge-conflicts-syntax-highlight-theme('dark');

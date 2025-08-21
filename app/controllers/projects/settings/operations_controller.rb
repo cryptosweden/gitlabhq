@@ -5,13 +5,12 @@ module Projects
     class OperationsController < Projects::ApplicationController
       layout 'project_settings'
       before_action :authorize_admin_operations!
-      before_action :authorize_read_prometheus_alerts!, only: [:reset_alerting_token]
 
       before_action do
         push_frontend_feature_flag(:integrated_error_tracking, project)
       end
 
-      respond_to :json, only: [:reset_alerting_token, :reset_pagerduty_token]
+      respond_to :json, only: [:reset_pagerduty_token]
 
       helper_method :error_tracking_setting
 
@@ -23,18 +22,6 @@ module Projects
 
         track_events(result)
         render_update_response(result)
-      end
-
-      def reset_alerting_token
-        result = ::Projects::Operations::UpdateService
-          .new(project, current_user, alerting_params)
-          .execute
-
-        if result[:status] == :success
-          render json: { token: project.alerting_setting.token }
-        else
-          render json: {}, status: :unprocessable_entity
-        end
       end
 
       def reset_pagerduty_token
@@ -60,10 +47,6 @@ module Projects
             update_params[:incident_management_setting_attributes]
           )
         end
-      end
-
-      def alerting_params
-        { alerting_setting_attributes: { regenerate_token: true } }
       end
 
       def pagerduty_token_params
@@ -119,7 +102,7 @@ module Projects
 
       # overridden in EE
       def permitted_project_params
-        {
+        [
           incident_management_setting_attributes: ::Gitlab::Tracking::IncidentManagement.tracking_keys.keys,
 
           error_tracking_setting_attributes: [
@@ -129,7 +112,7 @@ module Projects
             :token,
             { project: [:slug, :name, :organization_slug, :organization_name, :sentry_project_id] }
           ]
-        }
+        ]
       end
     end
   end

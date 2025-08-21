@@ -2,7 +2,7 @@
 
 module Groups
   module GroupLinks
-    class DestroyService < ::Groups::BaseService
+    class DestroyService < ::Groups::GroupLinks::BaseService
       def execute(one_or_more_links, skip_authorization: false)
         unless skip_authorization || (group && can?(current_user, :admin_group_member, group))
           return error('Not Found', 404)
@@ -18,7 +18,15 @@ module Groups
           groups_to_refresh.uniq.each do |group|
             next if Feature.enabled?(:skip_group_share_unlink_auth_refresh, group.root_ancestor)
 
-            group.refresh_members_authorized_projects(direct_members_only: true)
+            if Feature.enabled?(:project_authorizations_update_in_background_for_group_shares, group.root_ancestor)
+              AuthorizedProjectUpdate::EnqueueGroupMembersRefreshAuthorizedProjectsWorker.perform_async(group.id,
+                { 'priority' => priority_for_refresh, 'direct_members_only' => true })
+            else
+              group.refresh_members_authorized_projects(
+                priority: priority_for_refresh,
+                direct_members_only: true
+              )
+            end
           end
         else
           Gitlab::AppLogger.info(

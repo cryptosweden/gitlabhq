@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Frontend FAQ
 ---
-
-# Frontend FAQ
 
 ## Rules of Frontend FAQ
 
@@ -57,7 +56,7 @@ bound on mounting and destroyed when the button is, mitigating the above
 issue. It also has bindings to a particular container or modal ID
 available, to work with the focus trap created by our GlModal.
 
-### 3. A `gitlab-ui` component not conforming to [Pajamas Design System](https://design.gitlab.com/)
+### 3. A `gitlab-ui` component not conforming to Pajamas Design System
 
 Some [Pajamas Design System](https://design.gitlab.com/) components implemented in
 `gitlab-ui` do not conform with the design system specs. This is because they lack some
@@ -106,7 +105,7 @@ When referencing Backend rails paths, avoid using `*_url`, and use `*_path` inst
 
 Example:
 
-```haml
+```ruby
 -# Bad :(
 #js-foo{ data: { foo_url: some_rails_foo_url } }
 
@@ -190,12 +189,12 @@ To see what polyfills are being used:
 1. Select the [`compile-production-assets`](https://gitlab.com/gitlab-org/gitlab/-/jobs/641770154) job.
 1. In the right-hand sidebar, scroll to **Job Artifacts**, and select **Browse**.
 1. Select the **webpack-report** folder to open it, and select **index.html**.
-1. In the upper-left corner of the page, select the right arrow (**{chevron-lg-right}**)
+1. In the upper-left corner of the page, select the right arrow ({{< icon name="chevron-lg-right" >}})
    to display the explorer.
 1. In the **Search modules** field, enter `gitlab/node_modules/core-js` to see
    which polyfills are being loaded and where:
 
-   ![Image of webpack report](img/webpack_report_v12_8.png)
+   ![A list of core-js polyfills being loaded, including their count and total size, filtered by the Search modules field](img/webpack_report_v12_8.png)
 
 ### 9. Why is my page broken in dark mode?
 
@@ -203,7 +202,7 @@ See [dark mode docs](dark_mode.md)
 
 ### 10. How to render GitLab-flavored Markdown?
 
-If you need to render [GitLab-flavored Markdown](../gitlab_flavored_markdown/index.md), then there are two things that you require:
+If you need to render [GitLab-flavored Markdown](../gitlab_flavored_markdown/_index.md), then there are two things that you require:
 
 - Pass the GLFM content with the `v-safe-html` directive to a `div` HTML element inside your Vue component
 - Add the `md` class to the root div, which will apply the appropriate CSS styling

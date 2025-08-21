@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe 'Getting Grafana Integration', feature_category: :metrics do
+RSpec.describe 'Getting Grafana Integration', feature_category: :observability do
   include GraphqlHelpers
 
   let_it_be(:project) { create(:project, :repository) }
@@ -35,7 +35,7 @@ RSpec.describe 'Getting Grafana Integration', feature_category: :metrics do
 
       it_behaves_like 'a working graphql query'
 
-      specify { expect(integration_data).to be nil }
+      specify { expect(integration_data).to be_nil }
     end
 
     context 'with project admin permissions' do

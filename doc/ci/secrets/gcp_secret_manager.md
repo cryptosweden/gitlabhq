@@ -1,16 +1,22 @@
 ---
-stage: Verify
+stage: Software Supply Chain Security
 group: Pipeline Security
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Use GCP Secret Manager secrets in GitLab CI/CD
 ---
 
-# Use GCP Secret Manager secrets in GitLab CI/CD
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/11739) in GitLab and GitLab Runner 16.8.
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/11739) in GitLab and GitLab Runner 16.8.
+
+{{< /history >}}
 
 You can use secrets stored in the [Google Cloud (GCP) Secret Manager](https://cloud.google.com/security/products/secret-manager)
 in your GitLab CI/CD pipelines.
@@ -44,8 +50,8 @@ The principal is used to authorize access to the Secret Manager resources:
    1. Select **Default audience**, or select **Allowed audiences** for a custom audience, which is used in the `aud` for the GitLab CI/CD ID token.
 1. Under **Attribute Mapping**, create the following mappings, where:
 
-   - `attribute.X` is the name of the attribute you want to be present on Google's claims.
-   - `assertion.X` is the value to extract from the [GitLab claim](../cloud_services/index.md#how-it-works).
+   - `attribute.X` is the name of the attribute to include as a claim in the Google token.
+   - `assertion.X` is the value to extract from the [GitLab claim](../cloud_services/_index.md#id-token-authentication-for-cloud-services).
 
    | Attribute (on Google)         | Assertion (from GitLab) |
    |-------------------------------|-------------------------|
@@ -69,15 +75,15 @@ After setting up WIF, you must grant the WIF principal access to the secrets in 
 
    - `PROJECT_NUMBER`: Your Google Cloud project number (not ID) which can be found in the
      [Project's dashboard](https://console.cloud.google.com/home/dashboard).
-   - `POOL_ID`: The ID (not name) of the Workload Identity Pool created in the first section,
+   - `POOL_ID`: The ID (not name) of the workload identity pool created in the first section,
      for example `gitlab-pool`.
-   - `GITLAB_PROJECT_ID`: The GitLab project ID found on the [project overview page](../../user/project/working_with_projects.md#access-a-project-by-using-the-project-id).
+   - `GITLAB_PROJECT_ID`: The GitLab project ID found on the [project overview page](../../user/project/working_with_projects.md#find-the-project-id).
 
 1. Assign the role **Secret Manager Secret Accessor**.
 
 ## Configure GitLab CI/CD to use GCP Secret Manager secrets
 
-You must [add these CI/CD variables](../variables/index.md#for-a-project) to provide details about
+You must [add these CI/CD variables](../variables/_index.md#for-a-project) to provide details about
 your GCP Secret Manager:
 
 - `GCP_PROJECT_NUMBER`: The GCP [Project Number](https://cloud.google.com/resource-manager/docs/creating-managing-projects).
@@ -103,7 +109,11 @@ job_using_gcp_sm:
 
 ### Use secrets from a different GCP project
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab-runner/-/issues/37487) in GitLab 17.0.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab-runner/-/issues/37487) in GitLab 17.0.
+
+{{< /history >}}
 
 Secret names in GCP are per-project. By default the secret named in `gcp_secret_manager:name`
 is read from the project specified in `GCP_PROJECT_NUMBER`.
@@ -116,7 +126,7 @@ then you can access the secret with:
 
 ```yaml
 job_using_gcp_sm:
-  # ... configured as above ...
+  # ... as previously configured ...
   secrets:
     DATABASE_PASSWORD:
       gcp_secret_manager:
@@ -127,10 +137,10 @@ job_using_gcp_sm:
 
 ## Troubleshooting
 
-### `The size of mapped attribute google.subject exceeds the 127 bytes limit` error
+### Error: The size of mapped attribute `google.subject` exceeds the 127 bytes limit
 
-A long merge request branch name can cause a job to fail with the following error if
-[the `assertion.sub` attribute](id_token_authentication.md#token-payload) is more than 127 characters:
+Long branch paths can cause a job to fail with this error, because the
+[`assertion.sub` attribute](id_token_authentication.md#token-payload) becomes longer than 127 characters:
 
 ```plaintext
 ERROR: Job failed (system failure): resolving secrets: failed to exchange sts token: googleapi: got HTTP response code 400 with body:
@@ -138,8 +148,31 @@ ERROR: Job failed (system failure): resolving secrets: failed to exchange sts to
 Either modify your attribute mapping or the incoming assertion to produce a mapped attribute that is less than 127 bytes."}
 ```
 
-For example, for a `gitlab-org/gitlab` branch, the payload would be `project_path:gitlab-org/gitlab:ref_type:branch:ref:{branch_name}`,
-so the branch name should be 76 characters or less.
+Long branch paths can be caused by:
+
+- Deeply nested subgroups.
+- Long group, repository, or branch names.
+
+For example, for a `gitlab-org/gitlab` branch, the payload is `project_path:gitlab-org/gitlab:ref_type:branch:ref:{branch_name}`.
+For the string to remain shorter than 127 characters, the branch name must be 76 characters or fewer.
+This limit is imposed by Google Cloud IAM, tracked in [Google issue #264362370](https://issuetracker.google.com/issues/264362370?pli=1).
+
+The only fix for this issue is to use shorter names
+[for your branch and repository](https://github.com/google-github-actions/auth/blob/main/docs/TROUBLESHOOTING.md#subject-exceeds-the-127-byte-limit).
+
+### `The secrets provider can not be found. Check your CI/CD variables and try again.` message
+
+You might receive this error when attempting to start a job configured to access GCP Secret Manager:
+
+```plaintext
+The secrets provider can not be found. Check your CI/CD variables and try again.
+```
+
+The job can't be created because one or more of the required variables are not defined:
+
+- `GCP_PROJECT_NUMBER`
+- `GCP_WORKLOAD_IDENTITY_FEDERATION_POOL_ID`
+- `GCP_WORKLOAD_IDENTITY_FEDERATION_PROVIDER_ID`
 
 ### `WARNING: Not resolved: no resolver that can handle the secret` warning
 

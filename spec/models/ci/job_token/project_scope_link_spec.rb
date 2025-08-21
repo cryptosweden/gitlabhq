@@ -15,6 +15,19 @@ RSpec.describe Ci::JobToken::ProjectScopeLink, feature_category: :continuous_int
     let!(:model) { create(:ci_job_token_project_scope_link, added_by: parent) }
   end
 
+  it_behaves_like 'a BulkInsertSafe model', described_class do
+    let(:current_time) { Time.zone.now }
+
+    let(:valid_items_for_bulk_insertion) do
+      build_list(:ci_job_token_project_scope_link, 10, source_project_id: project.id,
+        created_at: current_time) do |project_scope_link|
+        project_scope_link.target_project = create(:project)
+      end
+    end
+
+    let(:invalid_items_for_bulk_insertion) { [] } # class does not have any validations defined
+  end
+
   describe 'unique index' do
     let!(:link) { create(:ci_job_token_project_scope_link) }
 
@@ -67,11 +80,31 @@ RSpec.describe Ci::JobToken::ProjectScopeLink, feature_category: :continuous_int
       expect(link.errors[:target_project]).to contain_exactly("can't be blank")
     end
 
-    it 'must have a target project different than source project', :aggregate_failures do
+    it 'can have a target project that is the source project', :aggregate_failures do
       link = build(:ci_job_token_project_scope_link, target_project: project, source_project: project)
 
-      expect(link).not_to be_valid
-      expect(link.errors[:target_project]).to contain_exactly("can't be the same as the source project")
+      expect(link).to be_valid
+    end
+
+    describe 'job token policies' do
+      using RSpec::Parameterized::TableSyntax
+
+      where(:value, :valid) do
+        nil                                | true
+        []                                 | true
+        %w[read_deployments]               | true
+        %w[read_deployments read_packages] | true
+        %w[read_issue]                     | false
+        { project: %w[read_build] }        | false
+      end
+
+      with_them do
+        let(:link) { build(:ci_job_token_project_scope_link, job_token_policies: value) }
+
+        it 'matches the json_schema for policies' do
+          expect(link.valid?).to eq(valid)
+        end
+      end
     end
   end
 
@@ -123,6 +156,7 @@ RSpec.describe Ci::JobToken::ProjectScopeLink, feature_category: :continuous_int
 
   context 'loose foreign key on ci_job_token_project_scope_links.source_project_id' do
     it_behaves_like 'cleanup by a loose foreign key' do
+      let(:lfk_column) { :source_project_id }
       let!(:parent) { create(:project, namespace: group) }
       let!(:model) { create(:ci_job_token_project_scope_link, source_project: parent) }
     end
@@ -130,6 +164,7 @@ RSpec.describe Ci::JobToken::ProjectScopeLink, feature_category: :continuous_int
 
   context 'loose foreign key on ci_job_token_project_scope_links.target_project_id' do
     it_behaves_like 'cleanup by a loose foreign key' do
+      let(:lfk_column) { :target_project_id }
       let!(:parent) { create(:project, namespace: group) }
       let!(:model) { create(:ci_job_token_project_scope_link, target_project: parent) }
     end

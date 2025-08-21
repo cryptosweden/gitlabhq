@@ -10,11 +10,6 @@
   grid-template-columns: auto minmax(0, 1fr) #{$gl-spacing-scale-7};
 }
 
-.gl-dark .timeline-event-icon {
-  background-color: $gray-950;
-  color: $gl-text-secondary;
-}
-
 .create-timeline-event,
 .edit-timeline-event,
 .timeline-event {
@@ -24,8 +19,9 @@
 .create-timeline-event,
 .edit-timeline-event {
   .md-area {
+    // stylelint-disable-next-line gitlab/no-gl-class
     .gl-form-textarea {
-      @include gl-shadow-none;
+      @apply gl-shadow-none;
     }
   }
 }
@@ -39,15 +35,11 @@
   &::before,
   &::after {
     content: '';
-    border-left: 2px solid $gray-50;
+    @apply gl-border-l-subtle gl-border-l-2 gl-border-l-solid;
     position: absolute;
     left: 20px;
     height: calc(100% + #{$gl-spacing-scale-5});
     top: -#{$gl-spacing-scale-5};
-
-    .gl-dark & {
-      border-color: var(--gray-50);
-    }
   }
 
   &:first-child::before {
@@ -80,16 +72,12 @@
     &::after {
       content: '';
       position: absolute;
-      @include gl-border-gray-50;
-      @include gl-border-1;
-      @include gl-border-b-solid;
+      @apply gl-border-subtle;
+      @apply gl-border-1;
+      @apply gl-border-b-solid;
       // Border spans the whole container minus icon width and grid gap
       width: calc(100% - $gl-spacing-scale-8 - $gl-spacing-scale-5);
       bottom: $gl-spacing-scale-3;
-
-      .gl-dark & {
-        border-color: var(--gray-50);
-      }
     }
   }
 }
@@ -98,14 +86,14 @@
   .timeline-entry:last-child,
   .create-timeline-event {
     .timeline-event-bottom-border {
-      border-bottom: solid $gl-border-size-1 $border-color;
+      @apply gl-border-b;
       padding-top: $gl-spacing-scale-5;
     }
   }
 }
 
 .timeline-event-note .md p {
-  color: var(--gray-700);
+  @apply gl-text-subtle;
 }
 
 .timeline-event-note-date {

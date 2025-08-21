@@ -13,10 +13,7 @@ module Gitlab
 
           def predefined_variables
             Gitlab::Ci::Variables::Collection.new.tap do |variables|
-              variables.append(key: 'CI_PIPELINE_IID', value: pipeline.iid.to_s)
-              variables.append(key: 'CI_PIPELINE_SOURCE', value: pipeline.source.to_s)
-              variables.append(key: 'CI_PIPELINE_CREATED_AT', value: pipeline.created_at&.iso8601)
-              variables.append(key: 'CI_PIPELINE_NAME', value: pipeline.name)
+              variables.concat(predefined_pipeline_variables)
 
               variables.concat(predefined_commit_variables) if pipeline.sha.present?
               variables.concat(predefined_commit_tag_variables) if pipeline.tag?
@@ -40,6 +37,19 @@ module Gitlab
           private
 
           attr_reader :pipeline
+
+          def predefined_pipeline_variables
+            Gitlab::Ci::Variables::Collection.new.tap do |variables|
+              variables.append(key: 'CI_PIPELINE_IID', value: pipeline.iid.to_s)
+              variables.append(key: 'CI_PIPELINE_SOURCE', value: pipeline.source.to_s)
+              variables.append(key: 'CI_PIPELINE_CREATED_AT', value: pipeline.created_at&.iso8601)
+              variables.append(key: 'CI_PIPELINE_NAME', value: pipeline.name)
+
+              if pipeline.pipeline_schedule
+                variables.append(key: 'CI_PIPELINE_SCHEDULE_DESCRIPTION', value: pipeline.pipeline_schedule.description)
+              end
+            end
+          end
 
           def predefined_commit_variables
             Gitlab::Ci::Variables::Collection.new.tap do |variables|
@@ -74,6 +84,8 @@ module Gitlab
           strong_memoize_attr :predefined_commit_tag_variables
 
           def predefined_merge_request_variables
+            Preloader::MergeRequest.new(pipeline.merge_request).preload
+
             Gitlab::Ci::Variables::Collection.new.tap do |variables|
               variables.append(key: 'CI_MERGE_REQUEST_EVENT_TYPE', value: pipeline.merge_request_event_type.to_s)
               variables.append(key: 'CI_MERGE_REQUEST_SOURCE_BRANCH_SHA', value: pipeline.source_sha.to_s)

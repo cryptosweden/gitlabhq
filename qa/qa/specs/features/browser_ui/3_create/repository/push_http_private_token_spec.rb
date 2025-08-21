@@ -1,15 +1,15 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create' do
-    describe 'Git push over HTTP', :smoke, :skip_fips_env, product_group: :source_code do
+  RSpec.describe 'Create', feature_category: :source_code_management do
+    describe 'Git push over HTTP', :smoke, :skip_fips_env do
+      let(:test_user) { Runtime::User::Store.test_user }
+
       it 'user using a personal access token pushes code to the repository',
         testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347749' do
         Flow::Login.sign_in
 
-        access_token = Resource::PersonalAccessToken.fabricate!.token
-
-        user = build(:user, username: Runtime::User.username, password: access_token)
+        user = build(:user, username: test_user.username, password: test_user.api_client.personal_access_token)
 
         push = Resource::Repository::ProjectPush.fabricate! do |push|
           push.user = user

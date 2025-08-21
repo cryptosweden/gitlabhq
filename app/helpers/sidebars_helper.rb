@@ -36,33 +36,31 @@ module SidebarsHelper
     Sidebars::Context.new(**context_data, **args)
   end
 
-  def super_sidebar_context(user, group:, project:, panel:, panel_type:) # rubocop:disable Metrics/AbcSize
+  def super_sidebar_context(user, group:, project:, panel:, panel_type:)
     return super_sidebar_logged_out_context(panel: panel, panel_type: panel_type) unless user
 
     super_sidebar_logged_in_context(user, group: group, project: project, panel: panel, panel_type: panel_type)
   end
 
-  def super_sidebar_logged_out_context(panel:, panel_type:) # rubocop:disable Metrics/AbcSize
-    {
+  def super_sidebar_logged_out_context(panel:, panel_type:)
+    super_sidebar_instance_version_data.merge(super_sidebar_whats_new_data).merge({
       is_logged_in: false,
+      compare_plans_url: compare_plans_url,
       context_switcher_links: context_switcher_links,
       current_menu_items: panel.super_sidebar_menu_items,
       current_context_header: panel.super_sidebar_context_header,
       support_path: support_url,
       docs_path: help_docs_path,
       display_whats_new: display_whats_new?,
-      whats_new_most_recent_release_items_count: whats_new_most_recent_release_items_count,
-      whats_new_version_digest: whats_new_version_digest,
       show_version_check: show_version_check?,
-      gitlab_version: Gitlab.version_info,
-      gitlab_version_check: gitlab_version_check,
       search: search_data,
       panel_type: panel_type,
-      shortcut_links: shortcut_links
-    }
+      shortcut_links: shortcut_links,
+      terms: terms_link
+    })
   end
 
-  def super_sidebar_logged_in_context(user, group:, project:, panel:, panel_type:) # rubocop:disable Metrics/AbcSize
+  def super_sidebar_logged_in_context(user, group:, project:, panel:, panel_type:)
     super_sidebar_logged_out_context(panel: panel, panel_type: panel_type).merge({
       is_logged_in: true,
       is_admin: user.can_admin_all_resources?,
@@ -74,10 +72,7 @@ module SidebarsHelper
         admin_mode_active: current_user_mode.admin_mode?,
         enter_admin_mode_url: new_admin_session_path,
         leave_admin_mode_url: destroy_admin_session_path,
-        # Usually, using current_user.admin? is discouraged because it does not
-        # check for admin mode, but since here we want to check admin? and admin mode
-        # separately, we'll have to ignore the cop rule.
-        user_is_admin: user.admin? # rubocop: disable Cop/UserAdmin
+        user_is_admin: user.can_access_admin_area?
       },
       avatar_url: user.avatar_url,
       has_link_to_profile: current_user_menu?(:profile),
@@ -91,8 +86,8 @@ module SidebarsHelper
       },
       user_counts: {
         assigned_issues: user.assigned_open_issues_count,
-        assigned_merge_requests: user.assigned_open_merge_requests_count,
-        review_requested_merge_requests: user.review_requested_open_merge_requests_count,
+        assigned_merge_requests: user.assigned_open_merge_requests_count(cached_only: true),
+        review_requested_merge_requests: user.review_requested_open_merge_requests_count(cached_only: true),
         todos: user.todos_pending_count,
         last_update: time_in_milliseconds
       },
@@ -101,6 +96,7 @@ module SidebarsHelper
       issues_dashboard_path: issues_dashboard_path(assignee_username: user.username),
       merge_request_dashboard_path: user.merge_request_dashboard_enabled? ? merge_requests_dashboard_path : nil,
       todos_dashboard_path: dashboard_todos_path,
+      compare_plans_url: compare_plans_url(user: user, project: project, group: group),
       create_new_menu_groups: create_new_menu_groups(group: group, project: project),
       merge_request_menu: create_merge_request_menu(user),
       projects_path: dashboard_projects_path,
@@ -115,16 +111,52 @@ module SidebarsHelper
       stop_impersonation_path: admin_impersonation_path,
       shortcut_links: shortcut_links(user: user, project: project),
       track_visits_path: track_namespace_visits_path,
-      work_items: work_items_modal_data(group)
+      work_items: work_items_modal_data(group, project)
     })
   end
 
-  def work_items_modal_data(group)
-    return unless group
+  def super_sidebar_instance_version_data
+    return {} unless show_version_check?
+
+    {
+      gitlab_version: Gitlab.version_info,
+      gitlab_version_check: gitlab_version_check
+    }
+  end
+
+  def super_sidebar_whats_new_data
+    return {} unless display_whats_new?
+
+    {
+      whats_new_most_recent_release_items_count: whats_new_most_recent_release_items_count,
+      whats_new_version_digest: whats_new_version_digest
+    }
+  end
+
+  def work_items_modal_data(group, project)
+    if project&.persisted?
+      return {
+        full_path: project.full_path,
+        has_issuable_health_status_feature: project.licensed_feature_available?(:issuable_health_status).to_s,
+        issues_list_path: project_issues_path(project),
+        labels_manage_path: project_labels_path(project),
+        can_admin_label: can?(current_user, :admin_label, project).to_s,
+        has_issue_weights_feature: project.licensed_feature_available?(:issue_weights).to_s,
+        has_iterations_feature: project.licensed_feature_available?(:iterations).to_s,
+        work_item_planning_view_enabled: ::Feature.enabled?(:work_item_planning_view, project.group).to_s
+      }
+    end
+
+    return unless group && group.id
 
     {
       full_path: group.full_path,
-      has_issuable_health_status_feature: group.licensed_feature_available?(:issuable_health_status).to_s
+      has_issuable_health_status_feature: group.licensed_feature_available?(:issuable_health_status).to_s,
+      issues_list_path: issues_group_path(group),
+      labels_manage_path: group_labels_path(group),
+      can_admin_label: can?(current_user, :admin_label, group).to_s,
+      has_issue_weights_feature: group.licensed_feature_available?(:issue_weights).to_s,
+      work_item_planning_view_enabled: ::Feature.enabled?(:work_item_planning_view, group).to_s
     }
   end
 
@@ -146,7 +178,14 @@ module SidebarsHelper
               context = Sidebars::Context.new(current_user: user, container: viewed_user, **context_adds)
               Sidebars::UserProfile::Panel.new(context)
             when 'explore'
-              Sidebars::Explore::Panel.new(Sidebars::Context.new(current_user: user, container: nil, **context_adds))
+              Sidebars::Explore::Panel.new(
+                Sidebars::Context.new(
+                  current_user: user,
+                  container: nil,
+                  current_organization: Current.organization,
+                  **context_adds
+                )
+              )
             when 'search'
               context = Sidebars::Context.new(current_user: user, container: nil, **context_adds)
               Sidebars::Search::Panel.new(context)
@@ -163,13 +202,7 @@ module SidebarsHelper
     # We only return the panel if any menu item is rendered, otherwise fallback
     return panel if panel&.render?
 
-    # Fallback menu "Your work" for logged-in users, "Explore" for logged-out
-    if user
-      context = your_work_sidebar_context(user, **context_adds)
-      Sidebars::YourWork::Panel.new(context)
-    else
-      Sidebars::Explore::Panel.new(Sidebars::Context.new(current_user: nil, container: nil, **context_adds))
-    end
+    fallback_sidebar_panel(nav, context_adds, user)
   end
 
   def command_palette_data(project: nil, current_ref: nil)
@@ -182,7 +215,30 @@ module SidebarsHelper
     }
   end
 
+  def compare_plans_url(*)
+    "#{promo_url}/pricing"
+  end
+
   private
+
+  def fallback_sidebar_panel(nav, context_adds, user = nil)
+    # Fallback when panels fail to render:
+    # - UserProfile panel failures (no accessible content) -> Explore navigation for private/blocked users
+    # - Other panel failures -> Your Work (logged-in) or Explore (anonymous)
+    if nav != 'user_profile' && user
+      context = your_work_sidebar_context(user, **context_adds)
+      return Sidebars::YourWork::Panel.new(context)
+    end
+
+    Sidebars::Explore::Panel.new(
+      Sidebars::Context.new(
+        current_user: user,
+        container: nil,
+        current_organization: Current.organization,
+        **context_adds
+      )
+    )
+  end
 
   def search_data
     {
@@ -242,7 +298,7 @@ module SidebarsHelper
           {
             text: _('Assigned'),
             href: merge_requests_dashboard_path(assignee_username: user.username),
-            count: user.assigned_open_merge_requests_count,
+            count: user.assigned_open_merge_requests_count(cached_only: true),
             userCount: 'assigned_merge_requests',
             extraAttrs: {
               'data-track-action': 'click_link',
@@ -254,7 +310,7 @@ module SidebarsHelper
           {
             text: _('Review requests'),
             href: merge_requests_dashboard_path(reviewer_username: user.username),
-            count: user.review_requested_open_merge_requests_count,
+            count: user.review_requested_open_merge_requests_count(cached_only: true),
             userCount: 'review_requested_merge_requests',
             extraAttrs: {
               'data-track-action': 'click_link',
@@ -348,6 +404,7 @@ module SidebarsHelper
           id: project.id,
           name: project.name,
           namespace: project.full_name,
+          fullPath: project.full_path,
           webUrl: project_path(project),
           avatarUrl: project.avatar_url
         }
@@ -361,6 +418,7 @@ module SidebarsHelper
           id: group.id,
           name: group.name,
           namespace: group.full_name,
+          fullPath: group.full_path,
           webUrl: group_path(group),
           avatarUrl: group.avatar_url
         }
@@ -378,9 +436,9 @@ module SidebarsHelper
       ({ title: s_('Navigation|Preferences'), link: profile_preferences_path, icon: 'preferences' } if current_user)
     ]
 
-    if current_user&.can_admin_all_resources?
+    if display_admin_area_link?
       links.append(
-        { title: s_('Navigation|Admin Area'), link: admin_root_path, icon: 'admin' }
+        { title: s_('Navigation|Admin area'), link: admin_area_link, icon: 'admin' }
       )
     end
 
@@ -462,6 +520,18 @@ module SidebarsHelper
     else
       []
     end
+  end
+
+  def terms_link
+    Gitlab::CurrentSettings.terms ? '/-/users/terms' : nil
+  end
+
+  def admin_area_link
+    admin_root_path
+  end
+
+  def display_admin_area_link?
+    current_user&.can?(:access_admin_area)
   end
 end
 

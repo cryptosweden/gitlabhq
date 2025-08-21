@@ -20,10 +20,10 @@ module Analytics
         validate :validate_stage_event_pairs
         validate :validate_labels
 
-        enum start_event_identifier: Gitlab::Analytics::CycleAnalytics::StageEvents.to_enum,
-          _prefix: :start_event_identifier
-        enum end_event_identifier: Gitlab::Analytics::CycleAnalytics::StageEvents.to_enum,
-          _prefix: :end_event_identifier
+        enum :start_event_identifier, Gitlab::Analytics::CycleAnalytics::StageEvents.to_enum,
+          prefix: :start_event_identifier
+        enum :end_event_identifier, Gitlab::Analytics::CycleAnalytics::StageEvents.to_enum,
+          prefix: :end_event_identifier
 
         alias_attribute :custom_stage?, :custom
         scope :default_stages, -> { where(custom: false) }
@@ -135,7 +135,9 @@ module Analytics
 
         return unless previous_stage_event_hash.blank? || events_hash_code != previous_stage_event_hash
 
-        self.stage_event_hash_id = Analytics::CycleAnalytics::StageEventHash.record_id_by_hash_sha256(events_hash_code)
+        organization_id = namespace.organization_id
+        self.stage_event_hash_id = Analytics::CycleAnalytics::StageEventHash.record_id_by_hash_sha256(organization_id,
+          events_hash_code)
       end
 
       def cleanup_old_stage_event_hash

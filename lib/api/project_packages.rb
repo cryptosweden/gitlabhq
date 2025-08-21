@@ -54,6 +54,8 @@ module API
           desc: 'Return packages with specified status'
       end
       route_setting :authentication, job_token_allowed: true
+      route_setting :authorization, job_token_policies: :read_packages,
+        allow_public_access_for_enabled_project_features: :package_registry
       get ':id/packages' do
         packages = ::Packages::PackagesFinder.new(
           user_project,
@@ -76,8 +78,10 @@ module API
         requires :package_id, type: Integer, desc: 'The ID of a package'
       end
       route_setting :authentication, job_token_allowed: true
+      route_setting :authorization, job_token_policies: :read_packages,
+        allow_public_access_for_enabled_project_features: :package_registry
       get ':id/packages/:package_id' do
-        render_api_error!('Package not found', 404) unless package.default?
+        render_api_error!('Package not found', 404) unless package.detailed_info?
 
         present package, with: ::API::Entities::Package, user: current_user, namespace: user_project.namespace
       end
@@ -102,8 +106,10 @@ module API
           values: 1..20
       end
       route_setting :authentication, job_token_allowed: true
+      route_setting :authorization, job_token_policies: :read_pipelines,
+        allow_public_access_for_enabled_project_features: :package_registry
       get ':id/packages/:package_id/pipelines' do
-        not_found!('Package not found') unless package.default?
+        not_found!('Package not found') unless package.detailed_info?
 
         params[:pagination] = 'keyset' # keyset is the only available pagination
         pipelines = paginate_with_strategies(
@@ -129,8 +135,20 @@ module API
         requires :package_id, type: Integer, desc: 'The ID of a package'
       end
       route_setting :authentication, job_token_allowed: true
+      route_setting :authorization, job_token_policies: :admin_packages
       delete ':id/packages/:package_id' do
         authorize_destroy_package!(user_project)
+
+        if Feature.enabled?(:packages_protected_packages_delete, user_project)
+          service_response =
+            Packages::Protection::CheckRuleExistenceService.for_delete(
+              project: user_project,
+              current_user: current_user,
+              params: { package_name: package.name, package_type: package.package_type }
+            ).execute
+
+          forbidden!('Package is deletion protected.') if service_response[:protection_rule_exists?]
+        end
 
         destroy_conditionally!(package) do |package|
           ::Packages::MarkPackageForDestructionService.new(container: package, current_user: current_user).execute

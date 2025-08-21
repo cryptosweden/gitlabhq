@@ -1,22 +1,27 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Build
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: PostgreSQL versions shipped with the Linux package
 ---
 
-# PostgreSQL versions shipped with the Linux package
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-NOTE:
+{{< /details >}}
+
+{{< alert type="note" >}}
+
 This table lists only GitLab versions where a significant change happened in the
 package regarding PostgreSQL versions, not all.
 
+{{< /alert >}}
+
 Usually, PostgreSQL versions change with major or minor GitLab releases. However, patch versions
 of the Linux package sometimes update the patch level of PostgreSQL. We've established a
-[yearly cadence for PostgreSQL upgrades](https://handbook.gitlab.com/handbook/engineering/infrastructure/core-platform/data_stores/database/postgresql-upgrade-cadence/)
+yearly cadence for PostgreSQL upgrades
 and trigger automatic database upgrades in the release before the new version is required.
 
 For example:
@@ -28,13 +33,20 @@ Find out [which versions of PostgreSQL (and other components) ship](https://gitl
 with each Linux package release.
 
 The lowest supported PostgreSQL versions are listed in the
-[installation requirements](../../install/requirements.md#postgresql-requirements).
+[installation requirements](../../install/requirements.md#postgresql).
 
 Read more about update policies and warnings in the PostgreSQL
 [upgrade docs](https://docs.gitlab.com/omnibus/settings/database.html#upgrade-packaged-postgresql-server).
 
 | First GitLab version | PostgreSQL versions | Default version for fresh installs | Default version for upgrades | Notes |
 | -------------- | ------------------- | ---------------------------------- | ---------------------------- | ----- |
+| 18.0.0 | 16.8 | 16.8 | 16.8 | Package upgrades are aborted if PostgreSQL is not upgraded to 16 already. |
+| 17.11.0 | 14.17, 16.8 | 16.8 | 16.8 | Package upgrades automatically perform an upgrade to PostgreSQL 16 for nodes that are not part of a Geo or HA cluster, unless [opted out](https://docs.gitlab.com/omnibus/settings/database/#opt-out-of-automatic-postgresql-upgrades). |
+| 17.10.0 | 14.17, 16.8 | 16.8 | 16.8 | Fresh installs now default to PostgreSQL 16. |
+| 17.9.2, 17.8.5, 17.7.7 | 14.17, 16.8 | 14.17 | 16.8 | |
+| 17.8.0 | 14.15, 16.6 | 14.15 | 16.6 | |
+| 17.5.0 | 14.11, 16.4 | 14.11 | 16.4 | Single node upgrades from PostgreSQL 14 to PostgreSQL 16 are now supported. Starting with GitLab 17.5.0, PostgreSQL 16 is fully supported for both new installations and upgrades in Geo deployments (the restriction from 17.4.0 no longer applies). |
+| 17.4.0 | 14.11, 16.4 | 14.11 | 14.11 | PostgreSQL 16 is available for new installations if not using [Geo](../geo/_index.md#requirements-for-running-geo) or [Patroni](../postgresql/_index.md#postgresql-replication-and-failover-for-linux-package-installations). |
 | 17.0.0 | 14.11 | 14.11 | 14.11 | Package upgrades are aborted if PostgreSQL is not upgraded to 14 already. |
 | 16.10.1, 16.9.3, 16.8.5 | 13.14, 14.11 | 14.11 | 14.11 | |
 | 16.6.7, 16.7.5, 16.8.2 | 13.13, 14.10 | 14.10 | 14.10 | |
@@ -47,7 +59,7 @@ Read more about update policies and warnings in the PostgreSQL
 | 15.10.8 | 13.11 | 13.11 | 12.12 | |
 | 15.6 | 12.12, 13.8 | 13.8 | 12.12 | For upgrades, you can manually upgrade to 13.8 following the [upgrade documentation](../../update/versions/gitlab_15_changes.md#linux-package-installations-2). |
 | 15.0 | 12.10, 13.6 | 13.6 | 12.10 | For upgrades, you can manually upgrade to 13.6 following the [upgrade documentation](../../update/versions/gitlab_15_changes.md#linux-package-installations-2). |
-| 14.1 | 12.7, 13.3 | 12.7 | 12.7 | PostgreSQL 13 available for fresh installations if not using [Geo](../geo/index.md#requirements-for-running-geo) or [Patroni](../postgresql/index.md#postgresql-replication-and-failover-for-linux-package-installations). |
+| 14.1 | 12.7, 13.3 | 12.7 | 12.7 | PostgreSQL 13 available for fresh installations if not using [Geo](../geo/_index.md#requirements-for-running-geo) or [Patroni](../postgresql/_index.md#postgresql-replication-and-failover-for-linux-package-installations). |
 | 14.0 | 12.7       | 12.7 | 12.7 | HA installations with repmgr are no longer supported and are prevented from upgrading to Linux package 14.0 |
 | 13.8 | 11.9, 12.4 | 12.4 | 12.4 | Package upgrades automatically performed PostgreSQL upgrade for nodes that are not part of a Geo or HA cluster. |
 | 13.7 | 11.9, 12.4 | 12.4 | 11.9 | For upgrades users can manually upgrade to 12.4 following the [upgrade documentation](https://docs.gitlab.com/omnibus/settings/database.html#upgrade-packaged-postgresql-server). |

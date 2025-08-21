@@ -5,6 +5,9 @@ module Gitlab
     module Group
       class RelationTreeRestorer
         include Gitlab::Utils::StrongMemoize
+        include ::Import::Framework::ProgressTracking
+
+        attr_reader :importable
 
         def initialize( # rubocop:disable Metrics/ParameterLists
           user:,
@@ -38,7 +41,7 @@ module Gitlab
           end
         end
 
-        def restore_single_relation(relation_key)
+        def restore_single_relation(relation_key, extra_track_scope: {})
           # NO-OP. This is currently only available for file-based project import.
         end
 
@@ -86,9 +89,11 @@ module Gitlab
           end
         end
 
-        def process_relation!(relation_key, relation_definition)
+        def process_relation!(relation_key, relation_definition, extra_track_scope: {})
           @relation_reader.consume_relation(@importable_path, relation_key).each do |data_hash, relation_index|
-            process_relation_item!(relation_key, relation_definition, relation_index, data_hash)
+            with_progress_tracking(**progress_tracking_options(relation_key, relation_index, extra_track_scope)) do
+              process_relation_item!(relation_key, relation_definition, relation_index, data_hash)
+            end
           end
         end
 
@@ -142,6 +147,7 @@ module Gitlab
             saver.execute
 
             log_invalid_subrelations(saver.invalid_subrelations, relation_key)
+            log_failed_subrelations(saver.failed_subrelations, relation_key)
           else
             if relation_object.invalid?
               Gitlab::Import::Errors.merge_nested_errors(relation_object)
@@ -355,6 +361,35 @@ module Gitlab
           end
         end
 
+        def log_failed_subrelations(failed_subrelations, relation_key)
+          failed_subrelations.each do |failure|
+            record = failure[:record]
+            exception = failure[:exception]
+
+            exception_class = exception.class.to_s
+            exception_message = exception.message
+            subrelation_class = record.class.to_s
+
+            @shared.logger.info(
+              message: '[Project/Group Import] Failed subrelation',
+              importable_column_name => @importable.id,
+              relation_key: relation_key,
+              exception_class: exception_class,
+              exception_message: exception_message,
+              subrelation: subrelation_class
+            )
+
+            ::ImportFailure.create(
+              source: 'RelationTreeRestorer#save_relation_object',
+              relation_key: relation_key,
+              exception_class: exception_class,
+              exception_message: exception_message,
+              correlation_id_value: Labkit::Correlation::CorrelationId.current_or_new_id,
+              importable_column_name => @importable.id
+            )
+          end
+        end
+
         def importable_column_name
           @column_name ||= @importable.class.reflect_on_association(:import_failures).foreign_key.to_sym
         end
@@ -365,6 +400,17 @@ module Gitlab
 
         def persist_relation(attributes)
           @relation_factory.create(**attributes)
+        end
+
+        def progress_tracking_options(relation_key, relation_index, extra_track_scope)
+          {
+            scope: {
+              "#{importable_class_sym}_id" => @importable.id,
+              'relation_key' => relation_key,
+              **extra_track_scope
+            },
+            data: relation_index
+          }
         end
       end
     end

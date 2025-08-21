@@ -59,10 +59,22 @@ FactoryBot.define do
       status { :created }
     end
 
+    trait :triggered do
+      trigger { association :ci_trigger, project_id: project_id }
+    end
+
     factory :ci_pipeline do
       trait :invalid do
         status { :failed }
+        # TODO: This trait will be removed soon. Please use `invalid_config_error`. If an error message is necessary,
+        # use pipeline.add_error_message
+        # https://gitlab.com/gitlab-org/gitlab/-/issues/516915
         yaml_errors { 'invalid YAML' }
+        failure_reason { :config_error }
+      end
+
+      trait :invalid_config_error do
+        status { :failed }
         failure_reason { :config_error }
       end
 
@@ -123,7 +135,7 @@ FactoryBot.define do
         status { :success }
 
         after(:build) do |pipeline, evaluator|
-          pipeline.builds << build(:ci_build, :report_results, pipeline: pipeline, project: pipeline.project)
+          pipeline.builds << build(:ci_build, :success, :report_results, pipeline: pipeline, project: pipeline.project)
         end
       end
 

@@ -1,14 +1,21 @@
 import { shallowMount } from '@vue/test-utils';
-import { __ } from '~/locale';
+import Vue from 'vue';
+import { PiniaVuePlugin } from 'pinia';
+import { createTestingPinia } from '@pinia/testing';
 import NotesActivityHeader from '~/notes/components/notes_activity_header.vue';
 import DiscussionFilter from '~/notes/components/discussion_filter.vue';
 import TimelineToggle from '~/notes/components/timeline_toggle.vue';
-import createStore from '~/notes/stores';
 import waitForPromises from 'helpers/wait_for_promises';
+import { globalAccessorPlugin } from '~/pinia/plugins';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useNotes } from '~/notes/store/legacy_notes';
 import { notesFilters } from '../mock_data';
+
+Vue.use(PiniaVuePlugin);
 
 describe('~/notes/components/notes_activity_header.vue', () => {
   let wrapper;
+  let pinia;
 
   const findTitle = () => wrapper.find('h2');
 
@@ -18,11 +25,18 @@ describe('~/notes/components/notes_activity_header.vue', () => {
         notesFilters,
         ...props,
       },
-      // why: Rendering async timeline toggle requires store
-      store: createStore(),
+      pinia,
       ...options,
     });
   };
+
+  beforeEach(() => {
+    pinia = createTestingPinia({
+      plugins: [globalAccessorPlugin],
+    });
+    useLegacyDiffs();
+    useNotes();
+  });
 
   describe('default', () => {
     beforeEach(() => {
@@ -30,7 +44,7 @@ describe('~/notes/components/notes_activity_header.vue', () => {
     });
 
     it('renders title', () => {
-      expect(findTitle().text()).toBe(__('Activity'));
+      expect(findTitle().text()).toBe('Activity');
     });
 
     it('renders discussion filter', () => {

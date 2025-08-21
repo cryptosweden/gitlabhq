@@ -1,42 +1,52 @@
 ---
-stage: Govern
-group: Authentication
+stage: Software Supply Chain Security
+group: Authorization
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Member roles API
 ---
 
-# Member roles API
+{{< details >}}
 
-DETAILS:
-**Tier:** Ultimate
-**Offering:** GitLab.com, Self-managed
+- Tier: Ultimate
+- Offering: GitLab.com, GitLab Self-Managed
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/96996) in GitLab 15.4. [Deployed behind the `customizable_roles` flag](../administration/feature_flags.md), disabled by default.
-> - [Enabled by default](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/110810) in GitLab 15.9.
-> - [Read vulnerability added](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/114734) in GitLab 16.0.
-> - [Admin vulnerability added](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/121534) in GitLab 16.1.
-> - [Read dependency added](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/126247) in GitLab 16.3.
-> - [Name and description fields added](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/126423) in GitLab 16.3.
-> - [Admin merge request introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/128302) in GitLab 16.4 [with a flag](../administration/feature_flags.md) named `admin_merge_request`. Disabled by default.
-> - [Feature flag `admin_merge_request` removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/132578) in GitLab 16.5.
-> - [Admin group members introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/131914) in GitLab 16.5 [with a flag](../administration/feature_flags.md) named `admin_group_member`. Disabled by default. The feature flag has been removed in GitLab 16.6.
-> - [Manage project access tokens introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/132342) in GitLab 16.5 in [with a flag](../administration/feature_flags.md) named `manage_project_access_tokens`. Disabled by default.
-> - [Archive project introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/134998) in GitLab 16.7.
-> - [Delete project introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/139696) in GitLab 16.8.
-> - [Manage group access tokens introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/140115) in GitLab 16.8.
-> - [Admin terraform state introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/140759) in GitLab 16.8.
-> - Ability to create and remove an instance-wide custom role on GitLab self-managed [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/141562) in GitLab 16.9.
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/96996) in GitLab 15.4. [Deployed behind the `customizable_roles` flag](../administration/feature_flags/_index.md), disabled by default.
+- [Enabled by default](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/110810) in GitLab 15.9.
+- [Read vulnerability added](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/114734) in GitLab 16.0.
+- [Admin vulnerability added](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/121534) in GitLab 16.1.
+- [Read dependency added](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/126247) in GitLab 16.3.
+- [Name and description fields added](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/126423) in GitLab 16.3.
+- [Admin merge request introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/128302) in GitLab 16.4 [with a flag](../administration/feature_flags/_index.md) named `admin_merge_request`. Disabled by default.
+- [Feature flag `admin_merge_request` removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/132578) in GitLab 16.5.
+- [Admin group members introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/131914) in GitLab 16.5 [with a flag](../administration/feature_flags/_index.md) named `admin_group_member`. Disabled by default. The feature flag has been removed in GitLab 16.6.
+- [Manage project access tokens introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/132342) in GitLab 16.5 in [with a flag](../administration/feature_flags/_index.md) named `manage_project_access_tokens`. Disabled by default.
+- [Archive project introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/134998) in GitLab 16.7.
+- [Delete project introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/139696) in GitLab 16.8.
+- [Manage group access tokens introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/140115) in GitLab 16.8.
+- [Admin terraform state introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/140759) in GitLab 16.8.
+- Allow to create and remove an instance-wide custom role on GitLab Self-Managed [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/141562) in GitLab 16.9.
+- [Admin security testing introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/176628) in GitLab 17.9 [with a flag](../administration/feature_flags/_index.md) named `custom_ability_admin_security_testing`. Disabled by default.
+
+{{< /history >}}
+
+Use this API to interact with member roles for your GitLab.com groups or entire GitLab Self-Managed instance.
 
 ## Manage instance member roles
 
-DETAILS:
-**Tier:** Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+{{< details >}}
+
+- Tier: Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Prerequisites:
 
-- [Authenticate yourself](rest/index.md#authentication) as an administrator.
-
-You can get, create and delete instance-wide member roles.
+- [Authenticate yourself](rest/authentication.md) as an administrator.
 
 ### Get all instance member roles
 
@@ -100,7 +110,7 @@ Supported attributes:
 |:----------|:--------|:---------|:-------------------------------------|
 | `name`         | string         | yes      | The name of the member role. |
 | `description`  | string         | no       | The description of the member role. |
-| `base_access_level` | integer   | yes      | Base access level for configured role. Valid values are `10` (Guest), `20` (Reporter), `30` (Developer), `40` (Maintainer), or `50` (Owner).|
+| `base_access_level` | integer   | yes      | Base access level for configured role. Valid values are `10` (Guest), `15` (Planner), `20` (Reporter), `30` (Developer), `40` (Maintainer), or `50` (Owner).|
 | `admin_cicd_variables` | boolean | no       | Permission to create, read, update, and delete CI/CD variables. |
 | `admin_compliance_framework` | boolean | no       | Permission to administer compliance frameworks. |
 | `admin_group_member` | boolean | no       | Permission to add, remove and assign members in a group. |
@@ -176,7 +186,7 @@ Supported attributes:
 |:----------|:--------|:---------|:-------------------------------------|
 | `member_role_id` | integer | yes   | The ID of the member role. |
 
-If successful, returns [`204`](rest/index.md#status-codes) and an empty response.
+If successful, returns [`204`](rest/troubleshooting.md#status-codes) and an empty response.
 
 Example request:
 
@@ -186,15 +196,16 @@ curl --request DELETE --header "Content-Type: application/json" --header "Author
 
 ## Manage group member roles
 
-DETAILS:
-**Tier:** Ultimate
-**Offering:** GitLab.com
+{{< details >}}
+
+- Tier: Ultimate
+- Offering: GitLab.com
+
+{{< /details >}}
 
 Prerequisites:
 
-- You must have the Owner role in the group.
-
-Use this API to manage group specific member roles. You can only create member roles at the root level of the group.
+- You must have the Owner role for the group.
 
 ### Get all group member roles
 
@@ -206,7 +217,7 @@ Supported attributes:
 
 | Attribute | Type | Required | Description |
 |:----------|:--------|:---------|:-------------------------------------|
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) of the group |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths) of the group |
 
 Example request:
 
@@ -277,9 +288,13 @@ Example response:
 
 ### Add a member role to a group
 
-> - Ability to add a name and description when creating a custom role [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/126423) in GitLab 16.3.
+{{< history >}}
 
-Adds a member role to a group.
+- Ability to add a name and description when creating a custom role [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/126423) in GitLab 16.3.
+
+{{< /history >}}
+
+Adds a member role to a group. You can only add member roles at the root level of the group.
 
 ```plaintext
 POST /groups/:id/member_roles
@@ -289,7 +304,7 @@ Parameters:
 
 | Attribute | Type                | Required | Description |
 |:----------|:--------|:---------|:-------------------------------------|
-| `id`      | integer/string      | yes      | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) of the group. |
+| `id`      | integer/string      | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths) of the group. |
 | `admin_cicd_variables` | boolean | no       | Permission to create, read, update, and delete CI/CD variables. |
 | `admin_compliance_framework` | boolean | no       | Permission to administer compliance frameworks. |
 | `admin_group_member` | boolean | no       | Permission to add, remove and assign members in a group. |
@@ -352,7 +367,7 @@ Example response:
 In GitLab 16.3 and later, you can use the API to:
 
 - Add a name (required) and description (optional) when you
-  [create a new custom role](../user/custom_roles.md#create-a-custom-role).
+  [create a new custom role](../user/custom_roles/_index.md#create-a-custom-member-role).
 - Update an existing custom role's name and description.
 
 ### Remove member role of a group
@@ -365,10 +380,10 @@ DELETE /groups/:id/member_roles/:member_role_id
 
 | Attribute | Type | Required | Description |
 |:----------|:--------|:---------|:-------------------------------------|
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) of the group. |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths) of the group. |
 | `member_role_id` | integer | yes   | The ID of the member role. |
 
-If successful, returns [`204`](rest/index.md#status-codes) and an empty response.
+If successful, returns [`204`](rest/troubleshooting.md#status-codes) and an empty response.
 
 Example request:
 

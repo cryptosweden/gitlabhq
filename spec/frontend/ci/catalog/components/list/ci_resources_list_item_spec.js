@@ -1,5 +1,3 @@
-import Vue from 'vue';
-import VueRouter from 'vue-router';
 import { update, cloneDeep } from 'lodash';
 import { GlAvatar, GlBadge, GlSprintf, GlTruncate } from '@gitlab/ui';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
@@ -7,18 +5,24 @@ import { createRouter } from '~/ci/catalog/router/index';
 import CiResourcesListItem from '~/ci/catalog/components/list/ci_resources_list_item.vue';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import CiVerificationBadge from '~/ci/catalog/components/shared/ci_verification_badge.vue';
+import ProjectVisibilityIcon from '~/ci/catalog/components/shared/project_visibility_icon.vue';
 import Markdown from '~/vue_shared/components/markdown/non_gfm_markdown.vue';
-import { catalogSinglePageResponse } from '../../mock';
-
-Vue.use(VueRouter);
+import TopicBadges from '~/vue_shared/components/topic_badges.vue';
+import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
+import { catalogSinglePageResponse, longResourceDescription } from '../../mock';
 
 const defaultEvent = { preventDefault: jest.fn, ctrlKey: false, metaKey: false };
+const baseRoute = '/';
+const resourcesPageComponentStub = {
+  name: 'page-component',
+  template: '<div>Hello</div>',
+};
 
 describe('CiResourcesListItem', () => {
   let wrapper;
   let routerPush;
+  let router;
 
-  const router = createRouter();
   const resource = catalogSinglePageResponse.data.ciCatalogResources.nodes[0];
   const release = {
     author: { id: 'author-id', name: 'author', username: 'author-username', webUrl: '/user/1' },
@@ -36,6 +40,9 @@ describe('CiResourcesListItem', () => {
         ...defaultProps,
         ...props,
       },
+      directives: {
+        GlTooltip: createMockDirective('gl-tooltip'),
+      },
       stubs: {
         GlSprintf,
         GlTruncate,
@@ -45,16 +52,22 @@ describe('CiResourcesListItem', () => {
 
   const findAvatar = () => wrapper.findComponent(GlAvatar);
   const findBadge = () => wrapper.findComponent(GlBadge);
-  const findComponentNames = () => wrapper.findByTestId('ci-resource-component-names');
-  const findResourceName = () => wrapper.findByTestId('ci-resource-link');
-  const findUserLink = () => wrapper.findByTestId('user-link');
-  const findVerificationBadge = () => wrapper.findComponent(CiVerificationBadge);
-  const findTimeAgoMessage = () => wrapper.findComponent(GlSprintf);
-  const findFavorites = () => wrapper.findByTestId('stats-favorites');
-  const findUsage = () => wrapper.findByTestId('stats-usage');
   const findMarkdown = () => wrapper.findComponent(Markdown);
+  const findTimeAgoMessage = () => wrapper.findComponent(GlSprintf);
+  const findTopicBadgesComponent = () => wrapper.findComponent(TopicBadges);
+  const findVerificationBadge = () => wrapper.findComponent(CiVerificationBadge);
+  const findVisibilityIcon = () => wrapper.findComponent(ProjectVisibilityIcon);
+  const findVersionBadge = () => wrapper.findComponent(GlBadge);
+  const findArchiveBadge = () => wrapper.findByTestId('archive-badge');
+
+  const findComponentNames = () => wrapper.findByTestId('ci-resource-component-names');
+  const findFavorites = () => wrapper.findByTestId('stats-favorites');
+  const findResourceName = () => wrapper.findByTestId('ci-resource-link');
+  const findUsage = () => wrapper.findByTestId('stats-usage');
+  const findUserLink = () => wrapper.findByTestId('user-link');
 
   beforeEach(() => {
+    router = createRouter(baseRoute, resourcesPageComponentStub);
     routerPush = jest.spyOn(router, 'push').mockImplementation(() => {});
   });
 
@@ -87,6 +100,19 @@ describe('CiResourcesListItem', () => {
       const markdown = findMarkdown();
       expect(markdown.exists()).toBe(true);
       expect(markdown.props().markdown).toBe(defaultProps.resource.description);
+    });
+
+    it('renders a truncated resource description', () => {
+      defaultProps.resource.description = longResourceDescription;
+      createComponent();
+
+      const markdown = findMarkdown();
+      expect(markdown.props().markdown).toHaveLength(260);
+    });
+
+    it('hides the resource description on mobile devices', () => {
+      const markdown = findMarkdown();
+      expect(markdown.classes()).toEqual(expect.arrayContaining(['gl-hidden', 'md:gl-block']));
     });
   });
 
@@ -144,6 +170,50 @@ describe('CiResourcesListItem', () => {
     });
   });
 
+  describe('project topics', () => {
+    describe('when there are no topics', () => {
+      it('does not render the topic badges component', () => {
+        createComponent();
+
+        expect(findTopicBadgesComponent().exists()).toBe(false);
+      });
+    });
+
+    describe('when there are topics', () => {
+      it('renders the topic badges component', () => {
+        const topics = ['vue.js', 'Ruby'];
+        createComponent({ props: { resource: { ...resource, topics } } });
+
+        expect(findTopicBadgesComponent().exists()).toBe(true);
+        expect(findTopicBadgesComponent().props('topics')).toBe(topics);
+      });
+    });
+  });
+
+  describe('visibility level', () => {
+    describe('when the project is public', () => {
+      beforeEach(() => {
+        createComponent();
+      });
+
+      it('does not render the private icon', () => {
+        expect(findVisibilityIcon().exists()).toBe(false);
+      });
+    });
+
+    describe('when the project is private', () => {
+      beforeEach(() => {
+        createComponent({
+          props: { resource: { ...resource, ...{ visibilityLevel: 'private' } } },
+        });
+      });
+
+      it('renders the private icon', () => {
+        expect(findVisibilityIcon().exists()).toBe(true);
+      });
+    });
+  });
+
   describe('verification badge', () => {
     describe('when the resource is not verified', () => {
       beforeEach(() => {
@@ -188,6 +258,12 @@ describe('CiResourcesListItem', () => {
         expect(findBadge().exists()).toBe(true);
         expect(findBadge().text()).toBe('Unreleased');
       });
+
+      it('does not have tooltip attributes on the badge', () => {
+        const badge = findVersionBadge();
+        expect(badge.attributes('title')).toBeUndefined();
+        expect(badge.attributes('href')).toBeUndefined();
+      });
     });
 
     describe('when there is release data', () => {
@@ -221,6 +297,18 @@ describe('CiResourcesListItem', () => {
       it('renders the version badge', () => {
         expect(findBadge().exists()).toBe(true);
         expect(findBadge().text()).toBe(release.name);
+      });
+
+      it('has tooltip with release information on the badge', () => {
+        const badge = findVersionBadge();
+        const tooltip = getBinding(badge.element, 'gl-tooltip');
+        const title = 'Released Jan 26, 2024 7:40pm UTC';
+
+        expect(badge.attributes()).toMatchObject({
+          title,
+          href: resource.versions.nodes[0].path,
+        });
+        expect(tooltip).toBeDefined();
       });
     });
   });
@@ -317,6 +405,34 @@ describe('CiResourcesListItem', () => {
           expect(findUsage().text()).toBe('4');
         });
       });
+    });
+  });
+
+  describe('archive badge', () => {
+    it('renders the archive badge when resource is archived', () => {
+      createComponent({
+        props: {
+          resource: {
+            ...resource,
+            archived: true,
+          },
+        },
+      });
+
+      expect(findArchiveBadge().exists()).toBe(true);
+    });
+
+    it('does not render the archive badge when resource is not archived', () => {
+      createComponent({
+        props: {
+          resource: {
+            ...resource,
+            archived: false,
+          },
+        },
+      });
+
+      expect(findArchiveBadge().exists()).toBe(false);
     });
   });
 });

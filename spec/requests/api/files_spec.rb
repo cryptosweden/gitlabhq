@@ -104,6 +104,55 @@ RSpec.describe API::Files, feature_category: :source_code_management do
     end
   end
 
+  shared_examples 'ai_workflows scope' do
+    subject(:file_action) { nil }
+
+    let(:expected_status) { nil }
+    let(:oauth_token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+
+    context 'when authenticated with a token that has the ai_workflows scope' do
+      before do
+        allow(Ability).to receive(:allowed?).and_call_original
+        allow(Ability).to receive(:allowed?).with(user, :duo_workflow, project)
+                                          .and_return(true)
+      end
+
+      it 'is successful' do
+        file_action
+
+        expect(response).to have_gitlab_http_status(expected_status)
+      end
+
+      context 'when the user has agentic chat permission for the project' do
+        before do
+          allow(Ability).to receive(:allowed?).and_call_original
+          allow(Ability).to receive(:allowed?).with(user, :access_duo_agentic_chat, project)
+                                              .and_return(true)
+        end
+
+        it 'is successful' do
+          file_action
+
+          expect(response).to have_gitlab_http_status(expected_status)
+        end
+      end
+
+      context 'when the user does not have duo_workflow permission for the project' do
+        before do
+          allow(Ability).to receive(:allowed?).and_call_original
+          allow(Ability).to receive(:allowed?).with(user, :duo_workflow, project)
+            .and_return(false)
+        end
+
+        it 'returns a forbidden error' do
+          file_action
+
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
+      end
+    end
+  end
+
   describe 'HEAD /projects/:id/repository/files/:file_path' do
     shared_examples_for 'repository files' do
       let(:options) { {} }
@@ -226,6 +275,12 @@ RSpec.describe API::Files, feature_category: :source_code_management do
           let(:request) { head api(route(file_path), guest), params: params }
         end
       end
+
+      it_behaves_like 'ai_workflows scope' do
+        subject(:file_action) { head api(route(file_path), oauth_access_token: oauth_token), params: params }
+
+        let(:expected_status) { :ok }
+      end
     end
   end
 
@@ -247,13 +302,6 @@ RSpec.describe API::Files, feature_category: :source_code_management do
     end
 
     shared_examples_for 'repository files' do
-      it 'returns 400 for invalid file path' do
-        get api(route(invalid_file_path), api_user, **options), params: params
-
-        expect(response).to have_gitlab_http_status(:bad_request)
-        expect(json_response['error']).to eq(invalid_file_message)
-      end
-
       it_behaves_like 'when path is absolute' do
         subject { get api(route(absolute_path), api_user, **options), params: params }
       end
@@ -424,9 +472,7 @@ RSpec.describe API::Files, feature_category: :source_code_management do
           end
         end
       end
-    end
 
-    context 'when authenticated' do
       context 'and user is an inherited member from the group' do
         context 'when project is public with private repository' do
           let(:project) { public_project_private_repo }
@@ -471,6 +517,23 @@ RSpec.describe API::Files, feature_category: :source_code_management do
             end
           end
         end
+      end
+
+      it_behaves_like 'ai_workflows scope' do
+        subject(:file_action) { get api(route(file_path), oauth_access_token: oauth_token), params: params }
+
+        let(:expected_status) { :ok }
+      end
+    end
+
+    context 'when a large file/blob is requested' do
+      it 'rate limits user when thresholds hit' do
+        stub_const("API::Helpers::BlobHelpers::MAX_BLOB_SIZE", 5)
+        allow(::Gitlab::ApplicationRateLimiter).to receive(:throttled_request?).and_return(true)
+
+        get api(route(file_path), user), params: params
+
+        expect(response).to have_gitlab_http_status(:too_many_requests)
       end
     end
   end
@@ -529,13 +592,6 @@ RSpec.describe API::Files, feature_category: :source_code_management do
             expect(response.headers['X-Gitlab-Execute-Filemode']).to eq('true')
           end
         end
-      end
-
-      it 'returns 400 when file path is invalid' do
-        get api(route(invalid_file_path) + '/blame', current_user), params: params
-
-        expect(response).to have_gitlab_http_status(:bad_request)
-        expect(json_response['error']).to eq(invalid_file_message)
       end
 
       it_behaves_like 'when path is absolute' do
@@ -703,6 +759,12 @@ RSpec.describe API::Files, feature_category: :source_code_management do
           let(:request) { get api(route(file_path) + '/blame', guest), params: params }
         end
       end
+
+      it_behaves_like 'ai_workflows scope' do
+        subject(:file_action) { get api(route(file_path) + '/blame', oauth_access_token: oauth_token), params: params }
+
+        let(:expected_status) { :ok }
+      end
     end
 
     context 'when PATs are used' do
@@ -796,13 +858,6 @@ RSpec.describe API::Files, feature_category: :source_code_management do
 
   describe 'GET /projects/:id/repository/files/:file_path/raw' do
     shared_examples_for 'repository raw files' do
-      it 'returns 400 when file path is invalid' do
-        get api(route(invalid_file_path) + '/raw', current_user), params: params
-
-        expect(response).to have_gitlab_http_status(:bad_request)
-        expect(json_response['error']).to eq(invalid_file_message)
-      end
-
       it_behaves_like 'when path is absolute' do
         subject { get api(route(absolute_path) + '/raw', current_user), params: params }
       end
@@ -957,6 +1012,15 @@ RSpec.describe API::Files, feature_category: :source_code_management do
           let(:request) { get api(route(file_path), guest), params: params }
         end
       end
+
+      it_behaves_like 'ai_workflows scope' do
+        subject(:file_action) do
+          url = route(file_path) + '/raw'
+          get api(url, oauth_access_token: oauth_token), params: params
+        end
+
+        let(:expected_status) { :ok }
+      end
     end
 
     context 'when PATs are used' do
@@ -1009,13 +1073,6 @@ RSpec.describe API::Files, feature_category: :source_code_management do
     context 'when authenticated', 'as a direct project member' do
       context 'when project is private' do
         context 'and user is a developer' do
-          it 'returns 400 when file path is invalid' do
-            post api(route(invalid_file_path), user), params: params
-
-            expect(response).to have_gitlab_http_status(:bad_request)
-            expect(json_response['error']).to eq(invalid_file_message)
-          end
-
           it_behaves_like 'when path is absolute' do
             subject { post api(route(absolute_path), user), params: params }
           end
@@ -1227,17 +1284,6 @@ RSpec.describe API::Files, feature_category: :source_code_management do
       end
     end
 
-    context 'when file path is invalid' do
-      let(:params_with_correct_id) { params.merge(last_commit_id: last_commit_for_path.id) }
-
-      it 'returns a 400 bad request' do
-        put api(route(invalid_file_path), user), params: params_with_correct_id
-
-        expect(response).to have_gitlab_http_status(:bad_request)
-        expect(json_response['error']).to eq(invalid_file_message)
-      end
-    end
-
     it_behaves_like 'when path is absolute' do
       let(:params_with_correct_id) { params.merge(last_commit_id: last_commit_for_path.id) }
 
@@ -1345,13 +1391,6 @@ RSpec.describe API::Files, feature_category: :source_code_management do
     describe 'when files are not deleted' do
       it_behaves_like 'when path is absolute' do
         subject { delete api(route(absolute_path), user), params: params }
-      end
-
-      it 'returns 400 when file path is invalid' do
-        delete api(route(invalid_file_path), user), params: params
-
-        expect(response).to have_gitlab_http_status(:bad_request)
-        expect(json_response['error']).to eq(invalid_file_message)
       end
 
       context 'when no params given' do

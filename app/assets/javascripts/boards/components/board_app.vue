@@ -1,13 +1,9 @@
 <script>
 import { omit } from 'lodash';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import AccessorUtilities from '~/lib/utils/accessor';
 import { historyPushState, parseBoolean } from '~/lib/utils/common_utils';
-import {
-  refreshCurrentPage,
-  queryToObject,
-  mergeUrlParams,
-  removeParams,
-} from '~/lib/utils/url_utility';
+import { queryToObject, mergeUrlParams, removeParams } from '~/lib/utils/url_utility';
 import { s__ } from '~/locale';
 import BoardContent from '~/boards/components/board_content.vue';
 import BoardSettingsSidebar from '~/boards/components/board_settings_sidebar.vue';
@@ -29,6 +25,7 @@ export default {
     BoardSettingsSidebar,
     BoardTopBar,
   },
+  mixins: [glFeatureFlagsMixin()],
   inject: [
     'fullPath',
     'initialBoardId',
@@ -37,6 +34,7 @@ export default {
     'isGroupBoard',
     'issuableType',
     'boardType',
+    'hasCustomFieldsFeature',
   ],
   data() {
     return {
@@ -47,9 +45,11 @@ export default {
       addColumnFormVisible: false,
       isShowingEpicsSwimlanes: false,
       error: null,
+      isWorkItemDrawerOpened: false,
     };
   },
   apollo: {
+    // eslint-disable-next-line @gitlab/vue-no-undef-apollo-properties
     activeBoardItem: {
       query: activeBoardItemQuery,
       variables() {
@@ -86,8 +86,15 @@ export default {
       update: (data) => data.boardsAppError,
     },
   },
-
   computed: {
+    issuesDrawerEnabled() {
+      if (this.glFeatures.workItemViewForIssues) {
+        return true;
+      }
+      return Boolean(
+        this.isIssueBoard ? this.glFeatures.issuesListDrawer : this.glFeatures.epicsListDrawer,
+      );
+    },
     listQueryVariables() {
       return {
         ...(this.isIssueBoard && {
@@ -114,18 +121,18 @@ export default {
         issuableType: this.issuableType,
         filterInfo: FiltersInfo,
         filterFields: FilterFields,
+        options: { hasCustomFieldsFeature: this.hasCustomFieldsFeature },
       });
     },
     isShowingEpicSwimlanesLocalStorageKey() {
       return `board.${this.fullPath}.${this.boardId}.isShowingEpicSwimlanes`;
     },
+    isBoardWidthDynamic() {
+      return this.isAnySidebarOpen && this.issuesDrawerEnabled && this.isWorkItemDrawerOpened;
+    },
   },
   created() {
-    window.addEventListener('popstate', refreshCurrentPage);
     this.initIsShowingEpicSwimlanes();
-  },
-  destroyed() {
-    window.removeEventListener('popstate', refreshCurrentPage);
   },
   methods: {
     refetchLists() {
@@ -133,6 +140,7 @@ export default {
     },
     setActiveId(id) {
       this.activeListId = id;
+      if (!id && !this.isAnySidebarOpen) this.isWorkItemDrawerOpened = false;
     },
     switchBoard(id) {
       this.boardId = id;
@@ -195,12 +203,19 @@ export default {
     removeGroupByParam() {
       historyPushState(removeParams(['group_by']), window.location.href, true);
     },
+    handleWorkItemDrawerClose() {
+      if (!this.isAnySidebarOpen || !this.issuesDrawerEnabled) this.isWorkItemDrawerOpened = false;
+    },
   },
 };
 </script>
 
 <template>
-  <div class="boards-app gl-relative" :class="{ 'is-compact': isAnySidebarOpen }">
+  <div
+    class="boards-app gl-relative"
+    :class="{ 'is-compact': isAnySidebarOpen && !issuesDrawerEnabled }"
+  >
+    <router-view />
     <board-top-bar
       :board-id="boardId"
       :is-swimlanes-on="isSwimlanesOn"
@@ -212,6 +227,10 @@ export default {
       @updateBoard="refetchLists"
     />
     <board-content
+      :class="{
+        'lg:gl-w-[calc(100%-480px)] xl:gl-w-[calc(100%-768px)] min-[1440px]:gl-w-[calc(100%-912px)]':
+          isBoardWidthDynamic,
+      }"
       :board-id="boardId"
       :add-column-form-visible="addColumnFormVisible"
       :is-swimlanes-on="isSwimlanesOn"
@@ -219,9 +238,12 @@ export default {
       :board-lists="boardLists"
       :error="error"
       :list-query-variables="listQueryVariables"
+      :use-work-item-drawer="issuesDrawerEnabled"
       @setActiveList="setActiveId"
       @setAddColumnFormVisibility="addColumnFormVisible = $event"
       @setFilters="setFilters"
+      @drawer-closed="handleWorkItemDrawerClose"
+      @drawer-opened="isWorkItemDrawerOpened = true"
     />
     <board-settings-sidebar
       v-if="activeList"

@@ -26,7 +26,84 @@ RSpec.describe ProjectSetting, type: :model, feature_category: :groups_and_proje
     it { is_expected.to allow_value([]).for(:target_platforms) }
     it { is_expected.to validate_length_of(:issue_branch_template).is_at_most(255) }
 
-    it { is_expected.to validate_inclusion_of(:suggested_reviewers_enabled).in_array([true, false]) }
+    it 'validates the length of merge_request_title_regex_description' do
+      is_expected.to validate_length_of(:merge_request_title_regex_description)
+        .is_at_most(Project::MAX_MERGE_REQUEST_TITLE_REGEX_DESCRIPTION)
+    end
+
+    it 'validates the length of merge_request_title_regex' do
+      is_expected.to validate_length_of(:merge_request_title_regex)
+        .is_at_most(Project::MAX_MERGE_REQUEST_TITLE_REGEX)
+    end
+
+    describe '#presence_of_merge_request_title_regex_settings' do
+      subject(:project_setting) do
+        build(:project_setting, merge_request_title_regex: regex,
+          merge_request_title_regex_description: description)
+      end
+
+      let(:regex) { '/aaa/' }
+      let(:description) { 'Must be aaa' }
+
+      context 'when only the regex is set' do
+        let(:description) { nil }
+
+        it 'is not valid' do
+          expect(project_setting).not_to be_valid
+          expect(project_setting.errors[:merge_request_title_regex])
+            .to include("and regex description must be either both set, or neither.")
+          expect(project_setting.errors[:merge_request_title_regex_description])
+            .to include("and regex must be either both set, or neither.")
+        end
+
+        context 'when is off' do
+          before do
+            stub_feature_flags(merge_request_title_regex: false)
+          end
+
+          it 'is valid' do
+            expect(project_setting).to be_valid
+          end
+        end
+      end
+
+      context 'when only the description is set' do
+        let(:regex) { nil }
+
+        it 'is not valid' do
+          expect(project_setting).not_to be_valid
+          expect(project_setting.errors[:merge_request_title_regex])
+            .to include("and regex description must be either both set, or neither.")
+          expect(project_setting.errors[:merge_request_title_regex_description])
+            .to include("and regex must be either both set, or neither.")
+        end
+
+        context 'when is off' do
+          before do
+            stub_feature_flags(merge_request_title_regex: false)
+          end
+
+          it 'is valid' do
+            expect(project_setting).to be_valid
+          end
+        end
+      end
+
+      context 'when neither are set' do
+        let(:regex) { nil }
+        let(:description) { nil }
+
+        it 'is valid' do
+          expect(project_setting).to be_valid
+        end
+      end
+
+      context 'when both are set' do
+        it 'is valid' do
+          expect(project_setting).to be_valid
+        end
+      end
+    end
 
     it 'allows any combination of the allowed target platforms' do
       valid_target_platform_combinations.each do |target_platforms|
@@ -101,6 +178,61 @@ RSpec.describe ProjectSetting, type: :model, feature_category: :groups_and_proje
     end
   end
 
+  describe 'calls backs' do
+    let_it_be(:project_1) { create(:project) }
+
+    describe '#enqueue_auto_merge_workers' do
+      context 'when the project setting is created' do
+        it 'does not enqueue the worker' do
+          expect(AutoMergeProcessWorker).not_to receive(:perform_async)
+
+          create(:project_setting, project: project_1)
+        end
+      end
+
+      context 'when the project setting is updated' do
+        let(:project_setting) { create(:project_setting, project: project_1) }
+
+        context 'when the regex is updated' do
+          it 'enqueues a auto merge process worker' do
+            expect(AutoMergeProcessWorker).to receive(:perform_async).with({ 'project_id' => project_1.id })
+
+            project_setting.update!(merge_request_title_regex_description: '1', merge_request_title_regex: '/asa/')
+          end
+
+          context 'when regex is updated with the same value' do
+            it 'enqueues a auto merge process worker only one' do
+              expect(AutoMergeProcessWorker).to receive(:perform_async).with({ 'project_id' => project_1.id }).once
+
+              project_setting.update!(merge_request_title_regex_description: '1', merge_request_title_regex: '/asa/')
+              project_setting.update!(merge_request_title_regex_description: '1', merge_request_title_regex: '/asa/')
+            end
+          end
+
+          context 'when the merge_request_title_regex FF is off' do
+            before do
+              stub_feature_flags(merge_request_title_regex: false)
+            end
+
+            it 'does not enqueue the worker' do
+              expect(AutoMergeProcessWorker).not_to receive(:perform_async)
+
+              project_setting.update!(merge_request_title_regex_description: '1', merge_request_title_regex: '/asa/')
+            end
+          end
+        end
+
+        context 'when the regex is not updated' do
+          it 'does not enqueue the worker' do
+            expect(AutoMergeProcessWorker).not_to receive(:perform_async)
+
+            project_setting.update!(merge_commit_template: '/asa/')
+          end
+        end
+      end
+    end
+  end
+
   describe 'target_platforms=' do
     it 'stringifies and sorts' do
       project_setting = build(:project_setting, target_platforms: [:watchos, :ios])
@@ -108,22 +240,7 @@ RSpec.describe ProjectSetting, type: :model, feature_category: :groups_and_proje
     end
   end
 
-  describe '#human_squash_option' do
-    where(:squash_option, :human_squash_option) do
-      'never'       | 'Do not allow'
-      'always'      | 'Require'
-      'default_on'  | 'Encourage'
-      'default_off' | 'Allow'
-    end
-
-    with_them do
-      let(:project_setting) { create(:project_setting, squash_option: ProjectSetting.squash_options[squash_option]) }
-
-      subject { project_setting.human_squash_option }
-
-      it { is_expected.to eq(human_squash_option) }
-    end
-  end
+  it_behaves_like 'projects squash option'
 
   def valid_target_platform_combinations
     target_platforms = described_class::ALLOWED_TARGET_PLATFORMS
@@ -258,5 +375,10 @@ RSpec.describe ProjectSetting, type: :model, feature_category: :groups_and_proje
         expect(project.runner_registration_enabled).to eq false
       end
     end
+  end
+
+  describe '#web_based_commit_signing_enabled' do
+    it_behaves_like 'a cascading project setting boolean attribute',
+      settings_attribute_name: :web_based_commit_signing_enabled
   end
 end

@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+# We need to take some precautions when using the `gitlab` gem in this project.
+#
+# See https://docs.gitlab.com/development/pipelines/internals/#using-the-gitlab-ruby-gem-in-the-canonical-project.
 require 'gitlab'
 require "net/http"
 require "uri"

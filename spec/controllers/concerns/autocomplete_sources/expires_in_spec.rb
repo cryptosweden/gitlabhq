@@ -18,6 +18,10 @@ RSpec.describe AutocompleteSources::ExpiresIn, feature_category: :global_search 
       render json: []
     end
 
+    def issues
+      render json: []
+    end
+
     def not_cached
       render json: []
     end
@@ -28,6 +32,7 @@ RSpec.describe AutocompleteSources::ExpiresIn, feature_category: :global_search 
       get "members" => "anonymous#members"
       get "commands" => "anonymous#commands"
       get "labels" => "anonymous#labels"
+      get "issues" => "anonymous#issues"
       get "not_cached" => "anonymous#not_cached"
     end
   end
@@ -41,19 +46,6 @@ RSpec.describe AutocompleteSources::ExpiresIn, feature_category: :global_search 
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response.headers['Cache-Control']).to eq(expected_cache_control)
-      end
-    end
-
-    context "when action is #{action} with feature flag disabled" do
-      before do
-        stub_feature_flags("cache_autocomplete_sources_#{action}" => false)
-      end
-
-      it 'does not set cache-control' do
-        get action
-
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(response.headers['Cache-Control']).to be_nil
       end
     end
   end

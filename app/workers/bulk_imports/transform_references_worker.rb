@@ -17,7 +17,7 @@ module BulkImports
 
       project = tracker.entity.project
 
-      klass.constantize.where(id: object_ids, project: project).find_each do |object|
+      klass.constantize.where(id: object_ids, project_id: project.id).find_each do |object|
         transform_and_save(object)
       end
     end
@@ -34,7 +34,9 @@ module BulkImports
 
       object.refresh_markdown_cache!
 
-      body.gsub!(username_regex(mapped_usernames), mapped_usernames)
+      unless Import::BulkImports::EphemeralData.new(tracker.entity.bulk_import_id).importer_user_mapping_enabled?
+        body.gsub!(username_regex(mapped_usernames), mapped_usernames)
+      end
 
       if object_has_reference?(body)
         matching_urls(object).each do |old_url, new_url|
@@ -42,6 +44,7 @@ module BulkImports
         end
       end
 
+      object.importing = true
       object.assign_attributes(body_field(object) => body)
       object.save!(touch: false) if object_body_changed?(object)
 
@@ -88,6 +91,8 @@ module BulkImports
         next unless parsed_url.path&.start_with?("/#{source_full_path}")
 
         array << [url, new_url(object, parsed_url)]
+      rescue URI::InvalidURIError
+        # Some strings like http://[127.0.0.1] are captured by URI.extract, but fail to parse. We can ignore these cases
       end
     end
 

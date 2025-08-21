@@ -138,6 +138,8 @@ module Gitlab
           transaction = Gitlab::Metrics::BackgroundTransaction.new
           transaction.run { yield }
           @job_succeeded = true
+        rescue Gitlab::SidekiqMiddleware::RetryError => e
+          raise
         ensure
           monotonic_time_end = Gitlab::Metrics::System.monotonic_time
           job_thread_cputime_end = get_thread_cputime
@@ -170,7 +172,7 @@ module Gitlab
           end
 
           @sli_labels = labels.slice(*SIDEKIQ_SLI_LABELS)
-          record_execution_sli
+          record_execution_sli unless e.is_a?(Gitlab::SidekiqMiddleware::RetryError)
           record_queueing_sli
           record_db_txn_sli if Feature.enabled?(:emit_db_transaction_sli_metrics, type: :ops)
         end
@@ -187,7 +189,7 @@ module Gitlab
           @metrics[:sidekiq_jobs_completion_seconds_sum].increment(labels, monotonic_time)
           @metrics[:sidekiq_jobs_completion_count].increment(labels, 1)
           @metrics[:sidekiq_jobs_cpu_seconds_sum].increment(labels, job_thread_cputime)
-          @metrics[:sidekiq_jobs_db_seconds_sum].increment(labels, ActiveRecord::LogSubscriber.runtime / 1000)
+          @metrics[:sidekiq_jobs_db_seconds_sum].increment(labels, ActiveRecord::RuntimeRegistry.sql_runtime / 1000)
           @metrics[:sidekiq_jobs_gitaly_seconds_sum].increment(labels, get_gitaly_time(instrumentation))
           @metrics[:sidekiq_redis_requests_duration_seconds_sum].increment(labels, get_redis_time(instrumentation))
           @metrics[:sidekiq_elasticsearch_requests_duration_seconds_sum].increment(labels, get_elasticsearch_time(instrumentation))
@@ -199,7 +201,7 @@ module Gitlab
 
         @metrics[:sidekiq_jobs_completion_seconds]&.observe(labels, monotonic_time)
 
-        @metrics[:sidekiq_jobs_db_seconds]&.observe(labels, ActiveRecord::LogSubscriber.runtime / 1000)
+        @metrics[:sidekiq_jobs_db_seconds]&.observe(labels, ActiveRecord::RuntimeRegistry.sql_runtime / 1000)
         @metrics[:sidekiq_jobs_gitaly_seconds]&.observe(labels, get_gitaly_time(instrumentation))
         @metrics[:sidekiq_redis_requests_duration_seconds]&.observe(labels, get_redis_time(instrumentation))
         @metrics[:sidekiq_elasticsearch_requests_duration_seconds]&.observe(labels, get_elasticsearch_time(instrumentation))

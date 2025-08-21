@@ -8,7 +8,7 @@ describe('GroupsList', () => {
   let wrapper;
 
   const defaultPropsData = {
-    groups,
+    items: groups,
     listItemClass: 'gl-px-5',
   };
 
@@ -25,33 +25,26 @@ describe('GroupsList', () => {
     const expectedProps = groupsListItemWrappers.map((groupsListItemWrapper) =>
       groupsListItemWrapper.props(),
     );
-    const expectedClasses = groupsListItemWrappers.map((groupsListItemWrapper) =>
-      groupsListItemWrapper.classes(),
-    );
 
     expect(expectedProps).toEqual(
-      defaultPropsData.groups.map((group) => ({
+      defaultPropsData.items.map((group) => ({
         group,
         showGroupIcon: false,
+        listItemClass: defaultPropsData.listItemClass,
         timestampType: TIMESTAMP_TYPE_CREATED_AT,
       })),
     );
-    expect(expectedClasses).toEqual(
-      defaultPropsData.groups.map(() => [defaultPropsData.listItemClass]),
-    );
   });
 
-  describe('when `GroupsListItem` emits `delete` event', () => {
-    const [firstGroup] = defaultPropsData.groups;
-
+  describe('when `GroupsListItem` emits `refetch` event', () => {
     beforeEach(() => {
       createComponent();
 
-      wrapper.findComponent(GroupsListItem).vm.$emit('delete', firstGroup);
+      wrapper.findComponent(GroupsListItem).vm.$emit('refetch');
     });
 
-    it('emits `delete` event', () => {
-      expect(wrapper.emitted('delete')).toEqual([[firstGroup]]);
+    it('emits `refetch` event', () => {
+      expect(wrapper.emitted('refetch')).toEqual([[]]);
     });
   });
 });

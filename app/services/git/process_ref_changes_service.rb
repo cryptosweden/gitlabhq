@@ -2,8 +2,6 @@
 
 module Git
   class ProcessRefChangesService < BaseService
-    PIPELINE_PROCESS_LIMIT = 4
-
     def execute
       changes = params[:changes]
 
@@ -48,15 +46,22 @@ module Git
       merge_request_branches = merge_request_branches_for(ref_type, changes)
 
       changes.each do |change|
-        push_service_class.new(
-          project,
-          current_user,
+        options = {
           change: change,
           push_options: params[:push_options],
+          gitaly_context: params[:gitaly_context],
           merge_request_branches: merge_request_branches,
           create_pipelines: under_process_limit?(change),
           execute_project_hooks: execute_project_hooks,
           create_push_event: !create_bulk_push_event
+        }
+
+        options[:process_commit_worker_pool] = process_commit_worker_pool if ref_type == :branch
+
+        push_service_class.new(
+          project,
+          current_user,
+          **options
         ).execute
       end
 
@@ -64,11 +69,13 @@ module Git
     end
 
     def under_process_limit?(change)
-      change[:index] < process_limit || Feature.enabled?(:git_push_create_all_pipelines, project)
+      return true if process_limit == 0 # 0 allows for unlimited pipelines
+
+      change[:index] < process_limit
     end
 
     def process_limit
-      PIPELINE_PROCESS_LIMIT
+      Gitlab::CurrentSettings.git_push_pipeline_limit
     end
 
     def warn_if_over_process_limit(changes)
@@ -127,10 +134,14 @@ module Git
     end
 
     def perform_housekeeping
-      housekeeping = Repositories::HousekeepingService.new(project)
+      housekeeping = ::Repositories::HousekeepingService.new(project)
       housekeeping.increment!
       housekeeping.execute if housekeeping.needed?
-    rescue Repositories::HousekeepingService::LeaseTaken
+    rescue ::Repositories::HousekeepingService::LeaseTaken
+    end
+
+    def process_commit_worker_pool
+      @process_commit_worker_pool ||= Gitlab::Git::ProcessCommitWorkerPool.new
     end
   end
 end

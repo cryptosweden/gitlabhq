@@ -25,11 +25,7 @@ module Gitlab
         @email = email
         @gl_id = gl_id
 
-        @timezone = if Feature.enabled?(:add_timezone_to_web_operations)
-                      timezone
-                    else
-                      Time.zone.tzinfo.name
-                    end
+        @timezone = convert_timezone(timezone)
       end
 
       def ==(other)
@@ -38,6 +34,17 @@ module Gitlab
 
       def to_gitaly
         Gitaly::User.new(gl_username: username, gl_id: gl_id, name: name.b, email: email.b, timezone: timezone)
+      end
+
+      def convert_timezone(timezone)
+        return system_timezone if timezone.nil?
+
+        tz = ActiveSupport::TimeZone[timezone]
+        tz ? tz.tzinfo.identifier : system_timezone
+      end
+
+      def system_timezone
+        Time.zone.tzinfo.name
       end
     end
   end

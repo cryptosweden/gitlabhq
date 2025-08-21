@@ -57,20 +57,20 @@ export default {
     size="lg"
     :title="$options.i18n.title"
     data-testid="modal-shortcuts"
-    body-class="shortcut-help-body gl-p-0!"
+    body-class="shortcut-help-body !gl-p-0"
     :visible="true"
     :hide-footer="true"
     @hidden="$emit('hidden')"
   >
     <div
-      class="gl-sticky gl-top-0 gl-py-5 gl-px-5 gl-display-flex gl-align-items-center gl-bg-white"
+      class="gl-sticky gl-top-0 gl-flex gl-flex-wrap gl-items-center gl-bg-overlap gl-px-5 gl-py-5"
     >
       <gl-search-box-by-type
         v-model.trim="searchTerm"
         :aria-label="$options.i18n.search"
-        class="gl-w-1/2 gl-mr-3"
+        class="gl-mr-3 gl-w-full"
       />
-      <span>
+      <p class="gl-mb-0 gl-mt-2">
         <gl-sprintf
           :message="
             __(
@@ -82,7 +82,7 @@ export default {
             <gl-link :href="absoluteUserPreferencesPath">{{ content }}</gl-link>
           </template>
         </gl-sprintf>
-      </span>
+      </p>
     </div>
     <div v-if="filteredKeybindings.length === 0" class="gl-px-5">
       {{ $options.i18n.noMatch }}
@@ -93,22 +93,25 @@ export default {
         :key="group.id"
         class="shortcut-help-mapping gl-mb-4"
       >
-        <strong class="shortcut-help-mapping-title gl-w-1/2 gl-display-inline-block">
-          {{ group.name }}
-        </strong>
-        <div
-          v-for="keybinding in group.keybindings"
-          :key="keybinding.id"
-          class="gl-display-flex gl-align-items-center"
+        <h3
+          class="shortcut-help-mapping-title gl-heading-5 gl-mb-0 gl-mt-4 gl-inline-block gl-w-1/2"
         >
-          <shortcut
-            class="gl-w-2/5 gl-flex-shrink-0 gl-text-right gl-pr-4"
-            :shortcuts="keybinding.defaultKeys"
-          />
-          <div class="gl-w-1/2 gl-flex-shrink-0 gl-flex-grow-1">
-            {{ keybinding.description }}
+          {{ group.name }}
+        </h3>
+        <dl class="gl-m-0">
+          <div
+            v-for="keybinding in group.keybindings"
+            :key="keybinding.id"
+            class="gl-flex gl-items-center"
+          >
+            <dt class="gl-w-2/5 gl-shrink-0 gl-pr-4 gl-text-right gl-font-normal">
+              <shortcut :shortcuts="keybinding.defaultKeys" />
+            </dt>
+            <dd class="gl-m-0 gl-w-1/2 gl-shrink-0 gl-grow">
+              {{ keybinding.description }}
+            </dd>
           </div>
-        </div>
+        </dl>
       </section>
     </div>
   </gl-modal>

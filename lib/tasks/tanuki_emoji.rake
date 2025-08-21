@@ -6,7 +6,7 @@ namespace :tanuki_emoji do
     ALLOWED_ALIASES = [':)', ':('].freeze
     aliases = {}
 
-    TanukiEmoji.index.all.each do |emoji|
+    TanukiEmoji.index.all.find_each do |emoji|
       emoji.aliases.each do |emoji_alias|
         aliases[TanukiEmoji::Character.format_name(emoji_alias)] = emoji.name
       end
@@ -80,10 +80,10 @@ namespace :tanuki_emoji do
     puts "Importing emojis into: #{emoji_dir} ..."
 
     # Re-create the assets folder and copy emojis renaming them to use name instead of unicode hex
-    FileUtils.rm_rf(emoji_dir) if Dir.exist?(emoji_dir)
+    FileUtils.rm_rf(emoji_dir)
     FileUtils.mkdir_p(emoji_dir, mode: 0700)
 
-    TanukiEmoji.index.all.each do |emoji|
+    TanukiEmoji.index.all.find_each do |emoji|
       source = File.join(TanukiEmoji.images_path, emoji.image_name)
       destination = File.join(emoji_dir, "#{emoji.name}.png")
 
@@ -117,10 +117,10 @@ namespace :tanuki_emoji do
     SIZE   = 20
     RETINA = SIZE * 2
 
-    # Update these values to the width and height of the spritesheet when
+    # Update these values to the width and height of the sprite sheet when
     # new emoji are added.
-    SPRITESHEET_WIDTH = 860
-    SPRITESHEET_HEIGHT = 840
+    SPRITESHEET_WIDTH = 1240
+    SPRITESHEET_HEIGHT = 1220
 
     emoji_dir = Gitlab::Emoji.emoji_public_absolute_path
 
@@ -235,7 +235,7 @@ namespace :tanuki_emoji do
       To enable this task, *temporarily* add the following lines to Gemfile and
       re-bundle:
 
-      gem 'rmagick', '~> 3.2'
+      gem 'rmagick', '~> 6.0'
 
       It depends on ImageMagick 6, which can be installed via HomeBrew with:
 

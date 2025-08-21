@@ -2,7 +2,7 @@
  * @module common-utils
  */
 
-import { GlBreakpointInstance as breakpointInstance } from '@gitlab/ui/dist/utils';
+import { GlBreakpointInstance as breakpointInstance } from '@gitlab/ui/src/utils';
 import $ from 'jquery';
 import { isFunction, defer, escape, partial, toLower } from 'lodash';
 import Cookies from '~/lib/utils/cookies';
@@ -28,11 +28,13 @@ export const checkPageAndAction = (page, action) => {
 
 export const isInIncidentPage = () => checkPageAndAction('incidents', 'show');
 export const isInIssuePage = () => checkPageAndAction('issues', 'show');
+export const isInWorkItemPage = () => checkPageAndAction('work_items', 'show');
 export const isInDesignPage = () => checkPageAndAction('issues', 'designs');
 export const isInMRPage = () =>
   checkPageAndAction('merge_requests', 'show') ||
   checkPageAndAction('merge_requests', 'diffs') ||
-  checkPageAndAction('merge_requests', 'rapid_diffs');
+  checkPageAndAction('merge_requests', 'rapid_diffs') ||
+  checkPageAndAction('merge_requests', 'reports');
 export const isInEpicPage = () => checkPageAndAction('epics', 'show');
 
 export const getDashPath = (path = window.location.pathname) => path.split('/-/')[1] || null;
@@ -92,6 +94,8 @@ export const handleLocationHash = () => {
   const getFixedIssuableTitle = () => document.querySelector('.issue-sticky-header');
   const getMRStickyHeader = () => document.querySelector('.merge-request-sticky-header');
   const isIssuePage = isInIssuePage();
+  const isEpicPage = isInEpicPage();
+  const isWorkItemPage = isInWorkItemPage();
 
   let adjustment = 0;
   let fixedIssuableTitleOffset = 0;
@@ -122,7 +126,7 @@ export const handleLocationHash = () => {
     window.scrollBy(0, adjustment);
   });
 
-  if (isIssuePage) {
+  if (isIssuePage || isEpicPage || isWorkItemPage) {
     if (fixedIssuableTitleOffset === 0) {
       setTimeout(() => {
         fixedIssuableTitleOffset = -1 * getElementOffsetHeight(getFixedIssuableTitle());
@@ -145,13 +149,29 @@ export const isInViewport = (el, offset = {}) => {
   );
 };
 
-export const isMetaKey = (e) => e.metaKey || e.ctrlKey || e.altKey || e.shiftKey;
+export const isElementClipped = (element, scrollContainer) => {
+  const elementRect = element.getBoundingClientRect();
+  const containerRect = scrollContainer.getBoundingClientRect();
+
+  return (
+    elementRect.top < containerRect.top ||
+    elementRect.bottom > containerRect.bottom ||
+    elementRect.left < containerRect.left ||
+    elementRect.right > containerRect.right
+  );
+};
+
+export const isModifierKey = (e) => e.metaKey || e.ctrlKey || e.altKey || e.shiftKey;
+
+export const isMetaKey = (e) => e.metaKey || e.ctrlKey;
 
 // Identify following special clicks
 // 1) Cmd + Click on Mac (e.metaKey)
 // 2) Ctrl + Click on PC (e.ctrlKey)
 // 3) Middle-click or Mouse Wheel Click (e.which is 2)
 export const isMetaClick = (e) => e.metaKey || e.ctrlKey || e.which === 2;
+
+export const isMetaEnterKeyPair = (e) => isMetaKey(e) && e.key === 'Enter';
 
 /**
  * Get the current computed outer height for given selector.
@@ -207,7 +227,18 @@ export const contentTop = () => {
   }, 0);
 };
 
+/**
+ * Scrolls to the top of a particular element.
+ *
+ * @param {jQuery | HTMLElement | String} element The target jQuery element, HTML element, or query selector to scroll to.
+ * @param {Object} [options={}] Object containing additional options.
+ * @param {Number} [options.duration=200] The scroll animation duration.
+ * @param {Number} [options.offset=0] The scroll offset.
+ * @param {String} [options.behavior=smooth|auto] The scroll animation behavior.
+ * @param {HTMLElement | String} [options.parent] The parent HTML element or query selector to scroll.
+ */
 export const scrollToElement = (element, options = {}) => {
+  let scrollingEl = window;
   let el = element;
   if (element instanceof $) {
     // eslint-disable-next-line prefer-destructuring
@@ -220,9 +251,21 @@ export const scrollToElement = (element, options = {}) => {
     // In the previous implementation, jQuery naturally deferred this scrolling.
     // Unfortunately, we're quite coupled to this implementation detail now.
     defer(() => {
-      const { duration = 200, offset = 0, behavior = duration ? 'smooth' : 'auto' } = options;
+      const {
+        duration = 200,
+        offset = 0,
+        behavior = duration ? 'smooth' : 'auto',
+        parent,
+      } = options;
       const y = el.getBoundingClientRect().top + window.pageYOffset + offset - contentTop();
-      window.scrollTo({ top: y, behavior });
+
+      if (parent && typeof parent === 'string') {
+        scrollingEl = document.querySelector(parent);
+      } else if (parent) {
+        scrollingEl = parent;
+      }
+
+      scrollingEl.scrollTo({ top: y, behavior });
     });
   }
 };
@@ -321,6 +364,12 @@ export const insertText = (target, text) => {
   const insertedText = text instanceof Function ? text(textBefore, textAfter) : text;
   const hasSelection = selectionEnd !== selectionStart;
 
+  const currentActiveElement = document.activeElement;
+
+  if (document.activeElement !== target) {
+    target.focus();
+  }
+
   // The `execCommand` is officially deprecated.  However, for `insertText`,
   // there is currently no alternative. We need to use it in order to trigger
   // the browser's undo tracking when we insert text.
@@ -355,6 +404,10 @@ export const insertText = (target, text) => {
   const event = document.createEvent('Event');
   event.initEvent('autosize:update', true, false);
   target.dispatchEvent(event);
+
+  if (currentActiveElement !== target) {
+    currentActiveElement.focus();
+  }
 };
 
 /**
@@ -483,10 +536,14 @@ export const backOff = (fn, timeout = 60000) => {
   });
 };
 
-export const spriteIcon = (icon, className = '') => {
+export const spriteIcon = (icon, className = '', color = '') => {
   const classAttribute = className.length > 0 ? `class="${className}"` : '';
+  // Leading space before `style` attribute is kept on purpose
+  // to prevent causing all snapshot tests to fail when `color`
+  // is not provided.
+  const styleAttribute = color ? ` style="color: ${color};"` : '';
 
-  return `<svg ${classAttribute}><use xlink:href="${gon.sprite_icons}#${escape(icon)}" /></svg>`;
+  return `<svg ${classAttribute}${styleAttribute}><use xlink:href="${gon.sprite_icons}#${escape(icon)}" /></svg>`;
 };
 
 /**
@@ -676,7 +733,8 @@ export const navigationType = {
  * @param {Object} label
  * @returns Boolean
  */
-export const isScopedLabel = ({ title = '' } = {}) => title.includes(SCOPED_LABEL_DELIMITER);
+export const isScopedLabel = ({ title = '', name = '' } = {}) =>
+  title.includes(SCOPED_LABEL_DELIMITER) || name.includes(SCOPED_LABEL_DELIMITER);
 
 const scopedLabelRegex = new RegExp(`(.*)${SCOPED_LABEL_DELIMITER}.*`);
 
@@ -747,6 +805,8 @@ export const isCurrentUser = (userId) => {
 /**
  * Clones an object via JSON stringifying and re-parsing.
  * This ensures object references are not persisted (e.g. unlike lodash cloneDeep)
+ * See https://github.com/lodash/lodash/issues/4710#issuecomment-606892867 for details on cloneDeep circular references
+ * See https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm for the underlying mechanism used by Lodash
  */
 export const cloneWithoutReferences = (obj) => {
   return JSON.parse(JSON.stringify(obj));

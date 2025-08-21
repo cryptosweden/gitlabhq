@@ -7,7 +7,7 @@ RSpec.describe Issuable, feature_category: :team_planning do
   using RSpec::Parameterized::TableSyntax
 
   let(:issuable_class) { Issue }
-  let(:issue) { create(:issue, title: 'An issue', description: 'A description') }
+  let(:issue) { create(:issue, title: 'An _issue_', description: 'A **description**') }
   let(:user) { create(:user) }
 
   describe "Associations" do
@@ -104,10 +104,11 @@ RSpec.describe Issuable, feature_category: :team_planning do
         stub_const('Example', Class.new(ActiveRecord::Base))
 
         Example.class_eval do
-          include Issuable # adds :labels and :metrics, among others
+          include Issuable # adds :labels, among others
 
           belongs_to :author
           has_many :assignees
+          has_one :metrics
         end
       end
 
@@ -333,6 +334,26 @@ RSpec.describe Issuable, feature_category: :team_planning do
     end
   end
 
+  describe '.gfm_autocomplete_search' do
+    let_it_be(:project) { create(:project) }
+
+    let_it_be(:issue_1) { create(:issue, project: project, iid: 1, title: 'gitlab 2') }
+    let_it_be(:issue_10) { create(:issue, project: project, iid: 10, title: 'some gitlab issue') }
+    let_it_be(:issue_20) { create(:issue, project: project, iid: 20, title: 'other title') }
+
+    it 'returns issuables with matching iid or title ordered by id desc' do
+      expect(issuable_class.gfm_autocomplete_search('2')).to eq([issue_20, issue_1])
+    end
+
+    it 'returns issuables with matching title ordered by id desc' do
+      expect(issuable_class.gfm_autocomplete_search('gitlab')).to eq([issue_10, issue_1])
+    end
+
+    it 'allows partial string matches' do
+      expect(issuable_class.gfm_autocomplete_search('the')).to eq([issue_20])
+    end
+  end
+
   describe '.to_ability_name' do
     it { expect(Issue.to_ability_name).to eq("issue") }
     it { expect(MergeRequest.to_ability_name).to eq("merge_request") }
@@ -452,7 +473,7 @@ RSpec.describe Issuable, feature_category: :team_planning do
     end
 
     it 'skips coercion for not Integer values' do
-      expect { issue.time_estimate = nil }.to change { issue.time_estimate }.to(nil)
+      expect { issue.time_estimate = nil }.to change { issue.read_attribute(:time_estimate) }.to(nil)
       expect { issue.time_estimate = 'invalid time' }.not_to raise_error
       expect { issue.time_estimate = 22.33 }.not_to raise_error
     end
@@ -533,7 +554,7 @@ RSpec.describe Issuable, feature_category: :team_planning do
           .to receive(:new).with(issue).and_return(builder)
       end
 
-      it 'delegates to Gitlab::DataBuilder::Issuable#build' do
+      it 'delegates to Gitlab::DataBuilder::Issuable#build', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/450843' do
         expect(builder).to receive(:build).with(
           user: user,
           action: 'update',
@@ -915,15 +936,15 @@ RSpec.describe Issuable, feature_category: :team_planning do
     let(:contributor) { create(:user) }
     let(:first_time_contributor) { create(:user) }
 
+    let(:merged_mr) { create(:merge_request, :merged, author: contributor, target_project: project, source_project: project) }
+    let(:open_mr) { create(:merge_request, author: first_time_contributor, target_project: project, source_project: project) }
+    let(:merged_mr_other_project) { create(:merge_request, :merged, author: first_time_contributor, target_project: other_project, source_project: other_project) }
+
     before do
       project.add_guest(guest)
       project.add_guest(contributor)
       project.add_guest(first_time_contributor)
     end
-
-    let(:merged_mr) { create(:merge_request, :merged, author: contributor, target_project: project, source_project: project) }
-    let(:open_mr) { create(:merge_request, author: first_time_contributor, target_project: project, source_project: project) }
-    let(:merged_mr_other_project) { create(:merge_request, :merged, author: first_time_contributor, target_project: other_project, source_project: other_project) }
 
     context "for merge requests" do
       it "is true when you don't have any merged MR" do
@@ -1136,5 +1157,21 @@ RSpec.describe Issuable, feature_category: :team_planning do
 
       it_behaves_like 'an exportable'
     end
+  end
+
+  describe '#title_html' do
+    let(:expected_title) { 'An <em>issue</em>' }
+
+    subject { issue.title_html }
+
+    it { is_expected.to eq(expected_title) }
+  end
+
+  describe '#description_html' do
+    let(:expected_description) { '<p dir="auto">A <strong>description</strong></p>' }
+
+    subject { issue.description_html }
+
+    it { is_expected.to eq_no_sourcepos(expected_description) }
   end
 end

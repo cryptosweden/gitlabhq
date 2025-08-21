@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Adding Database Indexes
 ---
-
-# Adding Database Indexes
 
 Indexes can be used to speed up database queries, but when should you add a new
 index? Traditionally the answer to this question has been to add an index for
@@ -75,13 +74,67 @@ In short:
 1. Run the query using `EXPLAIN ANALYZE` and study the output to find the most
    ideal query.
 
+## Partial Indexes
+
+Partial indexes are indexes with a `WHERE` clause that limits them to a subset of matching rows.
+They can offer several advantages over full indexes, including:
+
+- Reduced index size and memory usage
+- Less write and vacuum overhead
+- Improved query performance for selective conditions
+
+Partial indexes work best for queries that always filter on known conditions and target a specific subset of data.
+Common use cases include:
+
+- Nullable columns: `WHERE column IS NOT NULL`
+- Boolean flags: `WHERE feature_enabled = true`
+- Soft deletes: `WHERE deleted_at IS NULL`
+- Status filters: `WHERE status IN ('queued', 'running')`
+
+Before creating any new partial index, first examine existing indexes for potential reuse or modification.
+Since each index incurs maintenance overhead, prioritize adapting current indexes over adding new ones.
+
+### Example
+
+Consider the following application code which introduces a new count query:
+
+```ruby
+def namespace_count
+  NamespaceSetting.where(duo_features_enabled: duo_settings_value).count
+end
+
+def duo_settings_value
+  params['duo_settings_value'] == 'default_on'
+end
+```
+
+where `namespace_settings` is a table with 1 million records,
+and `duo_features_enabled` is a nullable Boolean column.
+
+Let's assume that we recently introduced this column and it was not backfilled.
+This means we know that the majority of the records in the `namespace_settings` table have a `NULL`
+value for `duo_features_enabled`. We can also see that `duo_settings_value` will only either yield
+`true` or `false`.
+
+Indexing all rows would be inefficient as we mostly have `NULL` values. Instead,
+we can introduce a partial index that targets only the data of interest:
+
+```sql
+CREATE INDEX index_namespace_settings_on_duo_features_enabled_not_null
+ON namespace_settings (duo_features_enabled)
+WHERE duo_features_enabled IS NOT NULL;
+```
+
+Now we have an index that is just a small fraction of the full index size and the
+query planner can effectively skip over hundreds of thousands of irrelevant records.
+
 ## Data Size
 
 A database may not use an index even when a regular sequence scan
 (iterating over all rows) is faster, especially for small tables.
 
 Consider adding an index if a table is expected to grow, and your query has to filter a lot of rows.
-You may _not_ want to add an index if the table size is small (<`1,000` records),
+You may not want to add an index if the table size is small (<`1,000` records),
 or if existing indexes already filter out enough rows.
 
 ## Maintenance Overhead
@@ -91,10 +144,28 @@ existing indexes are updated whenever data is written to a table. As a
 result, having many indexes on the same table slows down writes. It's therefore important
 to balance query performance with the overhead of maintaining an extra index.
 
-Let's say that adding an index reduces SELECT timings by 5 milliseconds but increases
-INSERT/UPDATE/DELETE timings by 10 milliseconds. In this case, the new index may not be worth
+For example, if adding an index reduces SELECT timings by 5 milliseconds but increases
+INSERT/UPDATE/DELETE timings by 10 milliseconds, the new index may not be worth
 it. A new index is more valuable when SELECT timings are reduced and INSERT/UPDATE/DELETE
 timings are unaffected.
+
+### Index limitations
+
+GitLab enforces a limit of **15 indexes** per table. This limitation:
+
+- Helps maintain optimal database performance
+- Reduces maintenance overhead
+- Prevents excessive disk space usage
+
+{{< alert type="note" >}}
+
+If you need to add an index to a table that already has 15 indexes, consider:
+
+{{< /alert >}}
+
+- Removing unused indexes
+- Combining existing indexes
+- Using a composite index that can serve multiple query patterns
 
 ### Some tables should not have any more indexes
 
@@ -136,7 +207,7 @@ consider [indexing asynchronously](#create-indexes-asynchronously).
 ### Add an index to support new or updated queries
 
 Always examine the query plans for new or updated queries. First, confirm they do not time-out
-or significantly exceed [the recommended query timings](query_performance.md#query-performance-guidelines)
+or significantly exceed [the recommended query timings](query_performance.md)
 without a dedicated index.
 
 If the queries don't time-out or breach the query timings:
@@ -158,10 +229,13 @@ Use two MRs to create the index in a post-deployment migration and make the appl
 - The second MR makes application code changes. It should merge only after the first MR's
   post-deployment migrations are executed on GitLab.com.
 
-NOTE:
+{{< alert type="note" >}}
+
 If you can use a feature flag, you might be able to use a single MR
 to make the code changes behind the feature flag. Include the post-deployment migration at the same time.
 After the post-deployment migration executes, you can enable the feature flag.
+
+{{< /alert >}}
 
 For GitLab.com, we execute post-deployment migrations throughout a single release through continuous integration:
 
@@ -177,16 +251,16 @@ the post-deployment migrations included in the first MR were executed before mer
 
 #### New or updated queries might be slow on a large GitLab instance
 
-It's not possible to check query performance directly on self-managed instances.
+It's not possible to check query performance directly on GitLab Self-Managed instances.
 PostgreSQL produces an execution plan based on the data distribution, so
 guessing query performance is a hard task.
 
-If you are concerned about the performance of a query on self-managed instances
-and decide that self-managed instances must have an index, follow these recommendations:
+If you are concerned about the performance of a query on GitLab Self-Managed instances
+and decide that GitLab Self-Managed instances must have an index, follow these recommendations:
 
-- For self-managed instances following [zero-downtime](../../update/zero_downtime.md)
+- For GitLab Self-Managed instances following [zero-downtime](../../update/zero_downtime.md)
   upgrades, post-deploy migrations execute when performing an upgrade after the application code deploys.
-- For self-managed instances that do not follow a zero-downtime upgrade,
+- For GitLab Self-Managed instances that do not follow a zero-downtime upgrade,
   the administrator might choose to execute the post-deployment migrations for a release later,
   at the time of their choosing, after the regular migrations execute. The application code deploys when they upgrade.
 
@@ -209,7 +283,7 @@ You have two options depending on [how long it takes to create the index](../mig
 
 PostgreSQL's unique index acts as a constraint. Adding one to an existing table can be tricky.
 
-Unless the table is absolutely guaranteed to be tiny for GitLab.com and self-managed instances,
+Unless the table is absolutely guaranteed to be tiny for GitLab.com and GitLab Self-Managed instances,
 you must use multiple post-deployment migrations over multiple releases to:
 
 - Remove and(or) fix the duplicate records.
@@ -225,9 +299,21 @@ for new and updated records while the removal and fix are in progress.
 The details of the work might vary and require different approaches.
 Consult the Database team, reviewers, or maintainers to plan the work.
 
-## Finding Unused Indexes
+## Dropping unused indexes
 
-To see which indexes are unused you can run the following query:
+Unused indexes should be dropped because they increase [maintenance overhead](#maintenance-overhead), consume
+disk space, and can degrade query planning efficiency without providing any performance benefit.
+However, dropping an index that's still used could result in query performance degradation or timeouts,
+potentially leading to incidents. It's important to [verify the index is unused](#verifying-that-an-index-is-unused)
+on both on GitLab.com and GitLab Self-Managed instances prior to removal.
+
+- For large tables, consider [dropping the index asynchronously](#drop-indexes-asynchronously).
+- For partitioned tables, only the parent index can be dropped. PostgreSQL does not permit child indexes
+  (i.e. the corresponding indexes on its partitions) to be independently removed.
+
+### Finding possible unused indexes
+
+To see which indexes are candidates for removal, you can run the following query:
 
 ```sql
 SELECT relname as table_name, indexrelname as index_name, idx_scan, idx_tup_read, idx_tup_fetch, pg_size_pretty(pg_relation_size(indexrelname::regclass))
@@ -239,28 +325,126 @@ AND idx_tup_fetch = 0
 ORDER BY pg_relation_size(indexrelname::regclass) desc;
 ```
 
-This query outputs a list containing all indexes that are never used and sorts
-them by indexes sizes in descending order. This query helps in
-determining whether existing indexes are still required. More information on
-the meaning of the various columns can be found at
-<https://www.postgresql.org/docs/current/monitoring-stats.html>.
+This query outputs a list containing all indexes that have not been used since the stats were last reset and sorts
+them by index size in descending order. More information on the meaning of the various columns can be found at
+<https://www.postgresql.org/docs/16/monitoring-stats.html>.
 
-To determine if an index is still being used on production, use [Thanos](https://thanos-query.ops.gitlab.net/graph?g0.expr=sum%20by%20(type)(rate(pg_stat_user_indexes_idx_scan%7Benv%3D%22gprd%22%2C%20indexrelname%3D%22INSERT%20INDEX%20NAME%20HERE%22%7D%5B30d%5D))&g0.tab=1&g0.stacked=0&g0.range_input=1h&g0.max_source_resolution=0s&g0.deduplicate=1&g0.partial_response=0&g0.store_matches=%5B%5D):
+For GitLab.com, you can check the latest generated [production reports](https://console.postgres.ai/gitlab/reports/)
+on postgres.ai and inspect the `H002 Unused Indexes` file.
 
-```sql
-sum by (type)(rate(pg_stat_user_indexes_idx_scan{env="gprd", indexrelname="INSERT INDEX NAME HERE"}[30d]))
-```
+{{< alert type="warning" >}}
 
-Because the query output relies on the actual usage of your database, it
-may be affected by factors such as:
+These reports only show indexes that have no recorded usage **since the last statistics reset.**
+They do not guarantee that the indexes are never used.
 
-- Certain queries never being executed, thus not being able to use certain
-  indexes.
-- Certain tables having little data, resulting in PostgreSQL using sequence
-  scans instead of index scans.
+{{< /alert >}}
 
-This data is only reliable for a frequently used database with
-plenty of data, and using as many GitLab features as possible.
+### Verifying that an index is unused
+
+This section contains resources to help you evaluate an index and confirm that it's safe to remove. Note that
+this is only a suggested guide and is not exhaustive. Ultimately, the goal is to gather enough data to justify
+dropping the index.
+
+Be aware that certain factors can give the false impression that an index is unused, such as:
+
+- There may be queries that run on GitLab Self-Managed but not on GitLab.com.
+- The index may be used for very infrequent processes such as periodic cron jobs.
+- On tables that have little data, PostgreSQL may initially prefer a sequential scan over an index scan
+  until the table is large enough.
+
+#### Investigating index usage
+
+1. Start by gathering all the metadata available for the index, verifying its name and definition.
+   - The index name in the development environment may not match production. It's important to correlate the indexes
+    based on definition rather than name. To check its definition, you can:
+      - Manually inspect [db/structure.sql](https://gitlab.com/gitlab-org/gitlab/-/blob/master/db/structure.sql)
+         (This file does **not** include data on dynamically generated partitions.)
+      - [Use Database Lab to check the status of an index.](database_lab.md#checking-indexes)
+   - For partitioned tables, child indexes are often named differently than the parent index.
+     To list all child indexes, you can:
+      - Run `\d+ <PARENT_INDEX_NAME>` in [Database Lab](database_lab.md).
+      - Run the following query to see the full parent-child index structure in more detail:
+
+        ```sql
+        SELECT
+          parent_idx.relname AS parent_index,
+          child_tbl.relname AS child_table,
+          child_idx.relname AS child_index,
+          dep.deptype,
+          pg_get_indexdef(child_idx.oid) AS child_index_def
+        FROM
+          pg_class parent_idx
+        JOIN pg_depend dep ON dep.refobjid = parent_idx.oid
+        JOIN pg_class child_idx ON child_idx.oid = dep.objid
+        JOIN pg_index i ON i.indexrelid = child_idx.oid
+        JOIN pg_class child_tbl ON i.indrelid = child_tbl.oid
+        WHERE
+          parent_idx.relname = '<PARENT_INDEX_NAME>';
+        ```
+
+1. For GitLab.com, you can view index usage data in [Grafana](https://dashboards.gitlab.net/goto/TsYVxcBHR?orgId=1).
+   - Query the metric `pg_stat_user_indexes_idx_scan` filtered by the relevant index(s) for at least the last 6 months.
+     The query below shows index usage rate across all database instances combined.
+
+     ```sql
+     sum by (indexrelname) (rate(pg_stat_user_indexes_idx_scan{env="gprd", relname=~"<TABLE_NAME_REGEX>", indexrelname=~"<INDEX_NAME_REGEX>"}[30d]))
+     ```
+
+   - For partitioned tables, we must check that **all child indexes are unused** prior to dropping the parent.
+
+If the data shows that an index has zero or negligible usage, it's a strong candidate for removal. However, keep in mind that
+this is limited to usage on GitLab.com. We should still [investigate all related queries](#investigating-related-queries) to
+ensure it can be safely removed for GitLab Self-Managed instances.
+
+An index that shows low usage may still be dropped **if** we can confirm that other existing indexes would sufficiently
+support the queries using it. PostgreSQL decides which index to use based on data distribution statistics, so in certain
+situations it may slightly prefer one index over another even if both indexes adequately support the query, which may
+account for the occasional usage.
+
+#### Investigating related queries
+
+The following are ways to find all queries that may utilize the index. It's important to understand the context in
+which the queries are or may be executed so that we can determine if the index either:
+
+- Has no queries on GitLab.com nor on GitLab Self-Managed that depend on it.
+- Can be sufficiently supported by other existing indexes.
+
+1. Investigate the origins of the index.
+   - Dig through the commit history, related merge requests, and issues that introduced the index.
+   - Try to find answers to questions such as:
+      - Why was the index added in the first place? What query was it meant to support?
+      - Does that query still exist and get executed?
+      - Is it only applicable to GitLab Self-Managed instances?
+
+1. Examine queries outputted from running the [`rspec:merge-auto-explain-logs`](https://gitlab.com/gitlab-org/gitlab/-/jobs/9805995367) CI job.
+   - This job collects and analyzes queries executed through tests. The output is saved as an artifact: `auto_explain/auto_explain.ndjson.gz`
+   - Since we don't always have 100% test coverage, this job may not capture all possible queries and variations.
+
+1. Examine queries recorded in [postgres logs](https://log.gprd.gitlab.net/app/r/s/A55hK) on Kibana.
+   - Generally, you can filter for `json.sql` values that contain the table name and key column(s) from the index definition. Example KQL:
+
+     ```plaintext
+     json.sql: <TABLE_NAME> AND json.sql: *<COLUMN_NAME>*
+     ```
+
+   - While there are many factors that affect index usage, the query's filtering and ordering clauses often have the most influence.
+     A general guideline is to find queries whose conditions align with the index structure. For example, PostgreSQL is more likely
+     to utilize a B-Tree index for queries that filter on the index's leading column(s) and satisfy its partial predicate (if any).
+   - Caveat: We only keep the last 7 days of logs and this data does not apply to GitLab Self-Managed usage.
+
+1. Manually search through the GitLab codebase.
+   - This process may be tedious but it's the most reliable way to ensure there are no other queries we missed from the previous actions,
+     especially ones that are infrequent or only apply to GitLab Self-Managed instances.
+   - It's possible there are queries that were introduced some time after the index was initially added,
+     so we can't always depend on the index origins; we must also examine the current state of the codebase.
+   - To help direct your search, try to gather context about how the table is used and what features access it. Look for queries
+     that involve key columns from the index definition, particularly those that are part of the filtering or ordering clauses.
+   - Another approach is to conduct a keyword search for the model/table name and any relevant columns. However, this could be a
+     trickier and long-winded process since some queries may be dynamically compiled from code across multiple files.
+
+After collecting the relevant queries, you can then obtain [EXPLAIN plans](understanding_explain_plans.md) to help you assess if a query
+relies on the index in question. For this process, it's necessary to have a good understanding of how indexes support queries and how
+their usage is affected by data distribution changes. We recommend seeking guidance from a database domain expert to help with your assessment.
 
 ## Requirements for naming indexes
 
@@ -386,7 +570,7 @@ It is commonly done by creating two [post deployment migrations](post_deployment
 In most cases, no additional work is needed. The new index is created and is used
 as expected when queuing and executing the batched background migration.
 
-[Expression indexes](https://www.postgresql.org/docs/current/indexes-expressional.html),
+[Expression indexes](https://www.postgresql.org/docs/16/indexes-expressional.html),
 however, do not generate statistics for the new index on creation. Autovacuum
 eventually runs `ANALYZE`, and updates the statistics so the new index is used.
 Run `ANALYZE` explicitly only if it is needed right after the index
@@ -520,9 +704,19 @@ def down
 end
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
+Async indexes are only supported for GitLab.com environments,
+so `prepare_async_index` and `prepare_partitioned_async_index` are no-ops for other environments.
+
+{{< /alert >}}
+
+{{< alert type="note" >}}
+
 `prepare_partitioned_async_index` only creates the indexes for partitions asynchronously. It doesn't attach the partition indexes to the partitioned table.
 In the [next step for the partitioned table](#create-the-index-synchronously-for-partitioned-table), `add_concurrent_partitioned_index` will not only add the index synchronously but also attach the partition indexes to the partitioned table.
+
+{{< /alert >}}
 
 ### Verify the MR was deployed and the index exists in production
 
@@ -545,10 +739,13 @@ migration as expected for other installations. The below block
 demonstrates how to create the second migration for the previous
 asynchronous example.
 
-**WARNING:**
+{{< alert type="warning" >}}
+
 Verify that the index exists in production before merging a second migration with `add_concurrent_index`.
 If the second migration is deployed before the index has been created,
 the index is created synchronously when the second migration executes.
+
+{{< /alert >}}
 
 ```ruby
 # in db/post_migrate/
@@ -600,6 +797,7 @@ Use the asynchronous index helpers on your local environment to test changes for
 1. Run `bundle exec rails gitlab:db:execute_async_index_operations:all` so that the index is created asynchronously on all databases.
 <!-- markdownlint-enable MD044 -->
 1. To verify the index, open the PostgreSQL console using the [GDK](https://gitlab.com/gitlab-org/gitlab-development-kit/-/blob/main/doc/howto/postgresql.md) command `gdk psql` and run the command `\d <index_name>` to check that your newly created index exists.
+      - For indexes created on partitions, check that a unique name has been autogenerated for that table `\d gitlab_partitions_dynamic.<table_name>`
 
 ## Drop indexes asynchronously
 
@@ -672,10 +870,13 @@ The synchronous migration results in a no-op on GitLab.com, but you should still
 migration as expected for other installations. For example, to
 create the second migration for the previous asynchronous example:
 
-**WARNING:**
+{{< alert type="warning" >}}
+
 Verify that the index no longer exists in production before merging a second migration with `remove_concurrent_index_by_name`.
 If the second migration is deployed before the index has been destroyed,
 the index is destroyed synchronously when the second migration executes.
+
+{{< /alert >}}
 
 ```ruby
 # in db/post_migrate/

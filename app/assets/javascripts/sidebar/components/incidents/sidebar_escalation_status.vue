@@ -27,10 +27,6 @@ export default {
       type: String,
       required: true,
     },
-    issuableType: {
-      required: true,
-      type: String,
-    },
   },
   data() {
     return {
@@ -129,7 +125,7 @@ export default {
       >
         <gl-icon name="status" :size="16" />
       </div>
-      <span class="hide-collapsed text-secondary">{{ currentStatusLabel }}</span>
+      <span class="hide-collapsed gl-text-subtle">{{ currentStatusLabel }}</span>
     </template>
   </sidebar-editable-item>
 </template>

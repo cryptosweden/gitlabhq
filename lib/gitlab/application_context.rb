@@ -10,8 +10,11 @@ module Gitlab
 
     LOG_KEY = Labkit::Context::LOG_KEY
     KNOWN_KEYS = [
+      :organization_id,
       :user,
       :user_id,
+      :scoped_user,
+      :scoped_user_id,
       :project,
       :root_namespace,
       :client_id,
@@ -28,14 +31,31 @@ module Gitlab
       :root_caller_id,
       :merge_action_status,
       :bulk_import_entity_id,
-      :sidekiq_destination_shard_redis
+      :sidekiq_destination_shard_redis,
+      :auth_fail_reason,
+      :auth_fail_token_id,
+      :auth_fail_requested_scopes,
+      :http_router_rule_action,
+      :http_router_rule_type,
+      :kubernetes_agent_id
     ].freeze
     private_constant :KNOWN_KEYS
 
+    WEB_ONLY_KEYS = [
+      :auth_fail_reason,
+      :auth_fail_token_id,
+      :auth_fail_requested_scopes,
+      :http_router_rule_action,
+      :http_router_rule_type
+    ].freeze
+    private_constant :WEB_ONLY_KEYS
+
     APPLICATION_ATTRIBUTES = [
+      Attribute.new(:organization, ::Organizations::Organization),
       Attribute.new(:project, Project),
       Attribute.new(:namespace, Namespace),
       Attribute.new(:user, User),
+      Attribute.new(:scoped_user, User),
       Attribute.new(:runner, ::Ci::Runner),
       Attribute.new(:caller_id, String),
       Attribute.new(:remote_ip, String),
@@ -49,12 +69,24 @@ module Gitlab
       Attribute.new(:root_caller_id, String),
       Attribute.new(:merge_action_status, String),
       Attribute.new(:bulk_import_entity_id, Integer),
-      Attribute.new(:sidekiq_destination_shard_redis, String)
+      Attribute.new(:sidekiq_destination_shard_redis, String),
+      Attribute.new(:auth_fail_reason, String),
+      Attribute.new(:auth_fail_token_id, String),
+      Attribute.new(:auth_fail_requested_scopes, String),
+      Attribute.new(:http_router_rule_action, String),
+      Attribute.new(:http_router_rule_type, String),
+      Attribute.new(:kubernetes_agent, ::Clusters::Agent)
     ].freeze
     private_constant :APPLICATION_ATTRIBUTES
 
     def self.known_keys
       KNOWN_KEYS
+    end
+
+    # Sidekiq jobs may be deleted by matching keys in ApplicationContext.
+    # Filter out keys that aren't available in Sidekiq jobs.
+    def self.allowed_job_keys
+      known_keys - WEB_ONLY_KEYS
     end
 
     def self.application_attributes
@@ -97,9 +129,11 @@ module Gitlab
       set_attr_readers
     end
 
-    # rubocop: disable Metrics/CyclomaticComplexity
-    # rubocop: disable Metrics/PerceivedComplexity
     # rubocop: disable Metrics/AbcSize
+    # rubocop: disable Metrics/CyclomaticComplexity -- inherently leads to higher cyclomatic due to
+    #   all the conditional assignments, the added complexity from adding more abstractions like
+    #   `assign_hash_if_value` is not worth the tradeoff.
+    # rubocop: disable Metrics/PerceivedComplexity -- same as above
     def to_lazy_hash
       {}.tap do |hash|
         assign_hash_if_value(hash, :caller_id)
@@ -113,21 +147,30 @@ module Gitlab
         assign_hash_if_value(hash, :merge_action_status)
         assign_hash_if_value(hash, :bulk_import_entity_id)
         assign_hash_if_value(hash, :sidekiq_destination_shard_redis)
+        assign_hash_if_value(hash, :auth_fail_reason)
+        assign_hash_if_value(hash, :auth_fail_token_id)
+        assign_hash_if_value(hash, :auth_fail_requested_scopes)
+        assign_hash_if_value(hash, :http_router_rule_action)
+        assign_hash_if_value(hash, :http_router_rule_type)
+        assign_hash_if_value(hash, :bulk_import_entity_id)
 
         hash[:user] = -> { username } if include_user?
         hash[:user_id] = -> { user_id } if include_user?
+        hash[:scoped_user] = -> { scoped_user&.username } if include_scoped_user?
+        hash[:scoped_user_id] = -> { scoped_user&.id } if include_scoped_user?
         hash[:project] = -> { project_path } if include_project?
+        hash[:organization_id] = -> { organization&.id } if set_values.include?(:organization)
         hash[:root_namespace] = -> { root_namespace_path } if include_namespace?
         hash[:client_id] = -> { client } if include_client?
         hash[:pipeline_id] = -> { job&.pipeline_id } if set_values.include?(:job)
         hash[:job_id] = -> { job&.id } if set_values.include?(:job)
         hash[:artifact_size] = -> { artifact&.size } if set_values.include?(:artifact)
-        hash[:bulk_import_entity_id] = -> { bulk_import_entity_id } if set_values.include?(:bulk_import_entity_id)
+        hash[:kubernetes_agent_id] = -> { kubernetes_agent&.id } if set_values.include?(:kubernetes_agent)
       end
     end
     # rubocop: enable Metrics/CyclomaticComplexity
-    # rubocop: enable Metrics/PerceivedComplexity
     # rubocop: enable Metrics/AbcSize
+    # rubocop: enable Metrics/PerceivedComplexity
 
     def use
       Labkit::Context.with_context(to_lazy_hash) { yield }
@@ -195,6 +238,10 @@ module Gitlab
       set_values.include?(:user) || set_values.include?(:job)
     end
 
+    def include_scoped_user?
+      set_values.include?(:scoped_user)
+    end
+
     def include_project?
       set_values.include?(:project) || set_values.include?(:runner) || set_values.include?(:job)
     end
@@ -213,8 +260,7 @@ module Gitlab
       strong_memoize(:runner_project) do
         next unless runner&.project_type?
 
-        runner_projects = runner.runner_projects.take(2) # rubocop: disable CodeReuse/ActiveRecord
-        runner_projects.first.project if runner_projects.one?
+        runner.owner
       end
     end
 
@@ -222,7 +268,7 @@ module Gitlab
       strong_memoize(:runner_group) do
         next unless runner&.group_type?
 
-        runner.groups.first
+        runner.owner
       end
     end
 

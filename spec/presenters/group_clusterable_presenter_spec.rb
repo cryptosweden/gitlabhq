@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe GroupClusterablePresenter do
+RSpec.describe GroupClusterablePresenter, feature_category: :environment_management do
   include Gitlab::Routing.url_helpers
 
   let(:presenter) { described_class.new(group) }
@@ -61,21 +61,37 @@ RSpec.describe GroupClusterablePresenter do
     it { is_expected.to eq(clear_cache_group_cluster_path(group, cluster)) }
   end
 
+  describe '#create_cluster_migration_path' do
+    subject { presenter.create_cluster_migration_path(cluster) }
+
+    it { is_expected.to eq(migrate_group_cluster_path(group, cluster)) }
+  end
+
+  describe '#update_cluster_migration_path' do
+    subject { presenter.update_cluster_migration_path(cluster) }
+
+    it { is_expected.to eq(update_migration_group_cluster_path(group, cluster)) }
+  end
+
   describe '#cluster_path' do
     subject { presenter.cluster_path(cluster) }
 
     it { is_expected.to eq(group_cluster_path(group, cluster)) }
   end
 
-  describe '#metrics_dashboard_path' do
-    subject { presenter.metrics_dashboard_path(cluster) }
+  describe '#sidebar_text' do
+    subject { presenter.sidebar_text }
 
-    it { is_expected.to eq(metrics_dashboard_group_cluster_path(group, cluster)) }
+    it 'renders correct sidebar text' do
+      is_expected.to eq(s_('ClusterIntegration|Connect your group to a Kubernetes cluster with the GitLab agent and ' \
+        'share the connection across multiple projects. Use review apps, deploy your applications, ' \
+        'and easily run your pipelines for all projects using the same cluster.'))
+    end
   end
 
   describe '#learn_more_link' do
     subject { presenter.learn_more_link }
 
-    it { is_expected.to include('user/group/clusters/index') }
+    it { is_expected.to include('user/group/clusters/_index') }
   end
 end

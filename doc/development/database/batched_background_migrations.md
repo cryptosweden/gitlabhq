@@ -1,27 +1,31 @@
 ---
-stage: Data Stores
-group: Database
-info: "See the Technical Writers assigned to Development Guidelines: https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-development-guidelines"
+stage: Data Access
+group: Database Frameworks
+info: 'See the Technical Writers assigned to Development Guidelines: https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-development-guidelines'
+title: Batched background migrations
 ---
 
-# Batched background migrations
-
-Batched Background Migrations should be used to perform data migrations whenever a
+Batched background migrations should be used to perform data migrations whenever a
 migration exceeds [the time limits](../migration_style_guide.md#how-long-a-migration-should-take)
 in our guidelines. For example, you can use batched background
 migrations to migrate data that's stored in a single JSON column
 to a separate table instead.
 
-NOTE:
+{{< alert type="note" >}}
+
 Batched background migrations replaced the legacy background migrations framework.
 Check that documentation in reference to any changes involving that framework.
 
-NOTE:
+{{< /alert >}}
+
+{{< alert type="note" >}}
+
 The batched background migrations framework has ChatOps support. Using ChatOps, GitLab engineers can interact with the batched background migrations present in the system.
+{{< /alert >}}
 
 ## When to use batched background migrations
 
-Use a batched background migration when you migrate _data_ in tables containing
+Use a batched background migration when you migrate data in tables containing
 so many rows that the process would exceed
 [the time limits in our guidelines](../migration_style_guide.md#how-long-a-migration-should-take)
 if performed using a regular Rails migration.
@@ -73,7 +77,7 @@ batch size may be increased or decreased, based on the performance of the last 2
 hide empty description
 skinparam ConditionEndStyle hline
 left to right direction
-rectangle "Batched Background Migration Queue" as migrations {
+rectangle "Batched background migration queue" as migrations {
   rectangle "Migration N (active)" as migrationn
   rectangle "Migration 1 (completed)" as migration1
   rectangle "Migration 2 (active)" as migration2
@@ -129,7 +133,7 @@ rectangle Runner {
 
 Batched background migrations are executed in a context of a Sidekiq process.
 The usual Sidekiq rules apply, especially the rule that jobs should be small
-and idempotent. Make sure that in case that your migration job is retried, data
+and idempotent. Ensure that in the case where your migration job is retried, data
 integrity is guaranteed.
 
 See [Sidekiq best practices guidelines](https://github.com/mperham/sidekiq/wiki/Best-Practices)
@@ -141,6 +145,12 @@ After each job execution, a verification takes place to check if the migration c
 The optimization underlying mechanic is based on the concept of time efficiency. It calculates
 the exponential moving average of time efficiencies for the last N jobs and updates the batch
 size of the batched background migration to its optimal value.
+
+This mechanism, however, makes it hard for us to provide an accurate estimation for total
+execution time of the migration when using the [database migration pipeline](database_migration_pipeline.md).
+
+We are discussing the ways to fix this problem in
+[this issue](https://gitlab.com/gitlab-org/database-team/gitlab-com-database-testing/-/issues/162)
 
 ### Job retry mechanism
 
@@ -187,19 +197,33 @@ the migration as `failed`) if any of the following is true:
 
 ### Throttling batched migrations
 
-Because batched migrations are update heavy and there were few incidents in the past because of the heavy load from migrations while the database was underperforming, a throttling mechanism exists to mitigate them.
+Because batched migrations are update heavy and there have been incidents due to the heavy load from these migrations while the database was underperforming, a throttling mechanism exists to mitigate future incidents.
 
-These database indicators are checked to throttle a migration. On getting a
+These database indicators are checked to throttle a migration. Upon receiving a
 stop signal, the migration is paused for a set time (10 minutes):
 
 - WAL queue pending archival crossing the threshold.
-- Active autovacuum on the tables on which the migration works on.
+- Active autovacuum on the tables on which the migration works on (enabled by default as of GitLab 18.0).
 - Patroni apdex SLI dropping below the SLO.
 - WAL rate crossing the threshold.
 
-It's an ongoing effort to add more indicators to further enhance the
+There is an ongoing effort to add more indicators to further enhance the
 database health check framework. For more details, see
 [epic 7594](https://gitlab.com/groups/gitlab-org/-/epics/7594).
+
+#### How to disable/enable autovacuum indicator on tables
+
+As of GitLab 18.0, this health indicator is enabled by default. To disable it, run the following command on the rails console:
+
+```ruby
+Feature.disable(:batched_migrations_health_status_autovacuum)
+```
+
+Alternatively, if you want to enable it again, run the following command in rails console:
+
+```ruby
+Feature.enable(:batched_migrations_health_status_autovacuum)
+```
 
 ### Isolation
 
@@ -220,7 +244,12 @@ data fully migrated. ([See an example](https://gitlab.com/gitlab-org/gitlab/-/bl
 ### Generate a batched background migration
 
 The custom generator `batched_background_migration` scaffolds necessary files and
-accepts `table_name`, `column_name`, and `feature_category` as arguments. Usage:
+accepts `table_name`, `column_name`, and `feature_category` as arguments. When
+choosing the `column_name`, ensure that you are using a column type that can be iterated over distinctly,
+preferably the table's primary key. The table will be iterated over based on the column defined here.
+For more information, see [Batch over non-distinct columns](#batch-over-non-distinct-columns).
+
+Usage:
 
 ```shell
 bundle exec rails g batched_background_migration my_batched_migration --table_name=<table-name> --column_name=<column-name> --feature_category=<feature-category>
@@ -244,14 +273,16 @@ from your migration:
 queue_batched_background_migration(
   JOB_CLASS_NAME,
   TABLE_NAME,
-  JOB_ARGUMENTS,
-  JOB_INTERVAL
+  JOB_ARGUMENTS
   )
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 This helper raises an error if the number of provided job arguments does not match
 the number of [job arguments](#use-job-arguments) defined in `JOB_CLASS_NAME`.
+
+{{< /alert >}}
 
 Make sure the newly-created data is either migrated, or
 saved in both the old and new version upon creation. Removals in
@@ -260,19 +291,26 @@ turn can be handled by defining foreign keys with cascading deletes.
 ### Finalize a batched background migration
 
 Finalizing a batched background migration is done by calling
-`ensure_batched_background_migration_is_finished`.
+`ensure_batched_background_migration_is_finished`, but only if the migration was added
+in or before the last required stop. This ensures a smooth upgrade process for
+GitLab Self-Managed instances.
 
 It is important to finalize all batched background migrations when it is safe
 to do so. Leaving around old batched background migration is a form of
 technical debt that needs to be maintained in tests and in application
-behavior. It is important to note that you cannot depend on any batched
-background migration being completed until after it is finalized.
+behavior.
+
+{{< alert type="note" >}}
+
+You cannot depend on any batched background migration being completed until after it is finalized.
+
+{{< /alert >}}
 
 We recommend that batched background migrations are finalized after all of the
 following conditions are met:
 
 - The batched background migration is completed on GitLab.com
-- The batched background migration was added in or before the last [required stop](required_stops.md)
+- The batched background migration was added in or before the last [required stop](required_stops.md). For example if 17.8 is a required stop and the migration was added in 17.7, the [finalizing migration can be added in 17.9](required_stops.md#long-running-migrations-being-finalized).
 
 The `ensure_batched_background_migration_is_finished` call must exactly match
 the migration that was used to enqueue it. Pay careful attention to:
@@ -292,6 +330,167 @@ finalize it.
 See the below [Examples](#examples) for specific details on what the actual
 migration code should be.
 
+{{< alert type="note" >}}
+
+If the migration is being finalized before one required stop since it was enqueued, an early finalization
+error will be raised. If the migration requires to be finalized before one required stop,
+use `skip_early_finalization_validation: true` option to skip this check.
+
+{{< /alert >}}
+
+### Deleting batched background migration code
+
+Once a batched background migration has completed, is finalized and has not been [re-queued](#re-queue-batched-background-migrations),
+the migration code in `lib/gitlab/background_migration/` and its associated tests can be deleted after the next required stop following
+the finalization.
+
+Here is an example scenario:
+
+- 17.3 and 17.5 are required stops.
+- In 17.1 the batched background migration is queued.
+- In 17.4 the migration may be finalized, provided that it's completed in GitLab.com.
+- In 17.6 the code related to the migration may be deleted.
+
+Batched background migration code is routinely deleted when [migrations are squashed](migration_squashing.md).
+
+### Re-queue batched background migrations
+
+A batched background migration might need to be re-run for one of several
+reasons:
+
+- The migration contains a bug ([example](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/93546)).
+- The migration cleaned up data but the data became de-normalized again due to a
+  bypass in application logic ([example](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/123002)).
+- The batch size of the original migration causes the migration to fail ([example](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/121404)).
+
+To requeue a batched background migration, you must:
+
+- No-op the contents of the `#up` and `#down` methods of the
+  original migration file. Otherwise, the batched background migration is created,
+  deleted, then created again on systems that are upgrading multiple patch
+  releases at once.
+- Add a new post-deployment migration that re-runs the batched background
+  migration.
+- In the new post-deployment migration, delete the existing batched background
+  migration using the `delete_batched_background_migration` method at the start
+  of the `#up` method to ensure that any existing runs are cleaned up.
+- Update the `db/docs/batched_background_migration/*.yml` file from the original
+  migration to include information about the requeue.
+
+#### Example
+
+**Original Migration**:
+
+```ruby
+# frozen_string_literal: true
+
+class QueueResolveVulnerabilitiesForRemovedAnalyzers < Gitlab::Database::Migration[2.2]
+  milestone '17.3'
+
+  MIGRATION = "ResolveVulnerabilitiesForRemovedAnalyzers"
+
+  def up
+    # no-op because there was a bug in the original migration, which has been
+    # fixed by
+  end
+
+  def down
+    # no-op because there was a bug in the original migration, which has been
+    # fixed in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/162527
+  end
+end
+```
+
+**Requeued migration**:
+
+```ruby
+# frozen_string_literal: true
+
+class RequeueResolveVulnerabilitiesForRemovedAnalyzers < Gitlab::Database::Migration[2.2]
+  milestone '17.4'
+
+  restrict_gitlab_migration gitlab_schema: :gitlab_main_org
+
+  MIGRATION = "ResolveVulnerabilitiesForRemovedAnalyzers"
+  BATCH_SIZE = 10_000
+  SUB_BATCH_SIZE = 100
+
+  def up
+    # Clear previous background migration execution from QueueResolveVulnerabilitiesForRemovedAnalyzers
+    delete_batched_background_migration(MIGRATION, :vulnerability_reads, :id, [])
+
+    queue_batched_background_migration(
+      MIGRATION,
+      :vulnerability_reads,
+      :id,
+      batch_size: BATCH_SIZE,
+      sub_batch_size: SUB_BATCH_SIZE
+    )
+  end
+
+  def down
+    delete_batched_background_migration(MIGRATION, :vulnerability_reads, :id, [])
+  end
+end
+```
+
+**Batched migration dictionary**:
+
+The `milestone` and `queued_migration_version` should be the ones of requeued migration (in this example: RequeueResolveVulnerabilitiesForRemovedAnalyzers).
+
+```markdown
+---
+migration_job_name: ResolveVulnerabilitiesForRemovedAnalyzers
+description: Resolves all detected vulnerabilities for removed analyzers.
+feature_category: static_application_security_testing
+introduced_by_url: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/162691
+milestone: '17.4'
+queued_migration_version: 20240814085540
+finalized_by: # version of the migration that finalized this BBM
+```
+
+### Stop and remove batched background migrations
+
+A batched background migration in running state can be stopped and removed for several reasons:
+
+- When the migration is no longer relevant or required as the product use case changed.
+- The migration has to be superseded with another migration with a different logic.
+
+To stop and remove an in-progress batched background migration, you must:
+
+- In Release N, No-op the contents of the `#up` and `#down` methods of the scheduling database migration.
+
+```ruby
+class BackfillNamespaceType < Gitlab::Database::Migration[2.1]
+  # Reason why we don't need the BBM anymore. E.G: This BBM is no longer needed because it will be superseded by another BBM with different logic.
+  def up; end
+
+  def down; end
+end
+```
+
+- In Release N, add a regular migration, to delete the existing batched migration.
+  Delete the existing batched background migration using the `delete_batched_background_migration` method at the
+  start of the `#up` method to ensure that any existing runs are cleaned up.
+
+```ruby
+class CleanupBackfillNamespaceType < Gitlab::Database::Migration[2.1]
+  MIGRATION = "MyMigrationClass"
+
+  restrict_gitlab_migration gitlab_schema: :gitlab_main_org
+
+  def up
+    delete_batched_background_migration(MIGRATION, :vulnerabilities, :id, [])
+  end
+
+  def down; end
+end
+```
+
+- In Release N, also delete the migration class file (`lib/gitlab/background_migration/my_batched_migration.rb`) and its specs.
+
+All the above steps can be implemented in a single MR.
+
 ### Use job arguments
 
 `BatchedMigrationJob` provides the `job_arguments` helper method for job classes to define the job arguments they need.
@@ -302,14 +501,16 @@ Batched migrations scheduled with `queue_batched_background_migration` **must** 
 queue_batched_background_migration(
   'CopyColumnUsingBackgroundMigrationJob',
   TABLE_NAME,
-  'name', 'name_convert_to_text',
-  job_interval: DELAY_INTERVAL
+  'name', 'name_convert_to_text'
 )
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 If the number of defined job arguments does not match the number of job arguments provided when
 scheduling the migration, `queue_batched_background_migration` raises an error.
+
+{{< /alert >}}
 
 In this example, `copy_from` returns `name`, and `copy_to` returns `name_convert_to_text`:
 
@@ -346,17 +547,31 @@ Namespace.each_batch(of: 100) do |relation|
 end
 ```
 
-In some cases, only a subset of records must be examined. If only 10% of the 1000 records
-need examination, apply a filter to the initial relation when the jobs are created:
+#### Using a composite or partial index to iterate a subset of the table
+
+When applying additional filters, it is important to ensure they are properly
+[covered by an index](iterating_tables_in_batches.md#example-2-iteration-with-filters)
+to optimize `EachBatch` performance.
+In the below examples we need an index on `(type, id)` or `id WHERE type IS NULL`
+to support the filters. See
+the [`EachBatch` documentation](iterating_tables_in_batches.md) for more information.
+
+If you have a suitable index and you want to iterate only a subset of the table
+you can apply a `where` clause before the `each_batch` like:
 
 ```ruby
+# Works well if there is an index like either of:
+#  - `id WHERE type IS NULL`
+#  - `(type, id)`
+# Does not work well otherwise.
 Namespace.where(type: nil).each_batch(of: 100) do |relation|
   relation.update_all(type: 'User')
 end
 ```
 
-In the first example, we don't know how many records will be updated in each batch.
-In the second (filtered) example, we know exactly 100 will be updated with each batch.
+An advantage of this approach is that you get consistent batch sizes. But it is
+only suitable where there is an index that matches the `where` clauses as well
+as the batching strategy.
 
 `BatchedMigrationJob` provides a `scope_to` helper method to apply additional filters and achieve this:
 
@@ -364,6 +579,11 @@ In the second (filtered) example, we know exactly 100 will be updated with each 
 
    ```ruby
    class BackfillNamespaceType < BatchedMigrationJob
+
+     # Works well if there is an index like either of:
+     #  - `id WHERE type IS NULL`
+     #  - `(type, id)`
+     # Does not work well otherwise.
      scope_to ->(relation) { relation.where(type: nil) }
      operation_name :update_all
      feature_category :source_code_management
@@ -376,25 +596,26 @@ In the second (filtered) example, we know exactly 100 will be updated with each 
    end
    ```
 
-   NOTE:
+   {{< alert type="note" >}}
+
    For EE migrations that define `scope_to`, ensure the module extends `ActiveSupport::Concern`.
    Otherwise, records are processed without taking the scope into consideration.
+
+   {{< /alert >}}
 
 1. In the post-deployment migration, enqueue the batched background migration:
 
    ```ruby
    class BackfillNamespaceType < Gitlab::Database::Migration[2.1]
      MIGRATION = 'BackfillNamespaceType'
-     DELAY_INTERVAL = 2.minutes
 
-     restrict_gitlab_migration gitlab_schema: :gitlab_main
+     restrict_gitlab_migration gitlab_schema: :gitlab_main_org
 
      def up
        queue_batched_background_migration(
          MIGRATION,
          :namespaces,
-         :id,
-         job_interval: DELAY_INTERVAL
+         :id
        )
      end
 
@@ -404,13 +625,9 @@ In the second (filtered) example, we know exactly 100 will be updated with each 
    end
    ```
 
-NOTE:
-When applying additional filters, it is important to ensure they are properly covered by an index to optimize `EachBatch` performance.
-In the example above we need an index on `(type, id)` to support the filters. See [the `EachBatch` documentation for more information](iterating_tables_in_batches.md).
-
 ### Access data for multiple databases
 
-Background Migration contrary to regular migrations does have access to multiple databases
+Background migration contrary to regular migrations does have access to multiple databases
 and can be used to efficiently access and update data across them. To properly indicate
 a database to be used it is desired to create ActiveRecord model inline the migration code.
 Such model should use a correct [`ApplicationRecord`](multiple_databases.md#gitlab-schema)
@@ -455,30 +672,6 @@ ApplicationRecord.connection.execute("SELECT * FROM projects")
 ActiveRecord::Base.connection.execute("SELECT * FROM projects")
 ```
 
-### Re-queue batched background migrations
-
-A batched background migration might need to be re-run for one of several
-reasons:
-
-- The migration contains a bug ([example](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/93546)).
-- The migration cleaned up data but the data became de-normalized again due to a
-  bypass in application logic ([example](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/123002)).
-- The batch size of the original migration causes the migration to fail ([example](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/121404)).
-
-To requeue a batched background migration, you must:
-
-- No-op the contents of the `#up` and `#down` methods of the
-  original migration file. Otherwise, the batched background migration is created,
-  deleted, then created again on systems that are upgrading multiple patch
-  releases at once.
-- Add a new post-deployment migration that re-runs the batched background
-  migration.
-- In the new post-deployment migration, delete the existing batched background
-  migration using the `delete_batched_background_migration` method at the start
-  of the `#up` method to ensure that any existing runs are cleaned up.
-- Update the `db/docs/batched_background_migration/*.yml` file from the original
-  migration to include information about the requeue.
-
 ### Batch over non-distinct columns
 
 The default batching strategy provides an efficient way to iterate over primary key columns.
@@ -496,10 +689,9 @@ Database post-migration:
 ```ruby
 class ProjectsWithIssuesMigration < Gitlab::Database::Migration[2.1]
   MIGRATION = 'BatchProjectsWithIssues'
-  INTERVAL = 2.minutes
   BATCH_SIZE = 5000
   SUB_BATCH_SIZE = 500
-  restrict_gitlab_migration gitlab_schema: :gitlab_main
+  restrict_gitlab_migration gitlab_schema: :gitlab_main_org
 
   disable_ddl_transaction!
   def up
@@ -507,7 +699,6 @@ class ProjectsWithIssuesMigration < Gitlab::Database::Migration[2.1]
       MIGRATION,
       :issues,
       :project_id,
-      job_interval: INTERVAL,
       batch_size: BATCH_SIZE,
       batch_class_name: 'LooseIndexScanBatchingStrategy', # Override the default batching strategy
       sub_batch_size: SUB_BATCH_SIZE
@@ -541,8 +732,11 @@ module Gitlab
 end
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 [Additional filters](#use-filters) defined with `scope_to` are ignored by `LooseIndexScanBatchingStrategy` and `distinct_each_batch`.
+
+{{< /alert >}}
 
 ### Calculate overall time estimation of a batched background migration
 
@@ -553,14 +747,20 @@ calculate all the singularities around the records being migrated, making furthe
 `interval * number of records / max batch size` can be used to determine an approximate estimation of how long the migration takes.
 Where `interval` and `max batch size` refer to options defined for the job, and the `total tuple count` is the number of records to be migrated.
 
-NOTE:
+{{< alert type="note" >}}
+
 Estimations may be affected by the [migration optimization mechanism](#migration-optimization).
+
+{{< /alert >}}
 
 ### Cleaning up a batched background migration
 
-NOTE:
+{{< alert type="note" >}}
+
 Cleaning up any remaining background migrations must be done in either a major
 or minor release. You must not do this in a patch release.
+
+{{< /alert >}}
 
 Because background migrations can take a long time, you can't immediately clean
 things up after queueing them. For example, you can't drop a column used in the
@@ -599,8 +799,11 @@ creation.
 
 ### Execute a particular batch on the database testing pipeline
 
-NOTE:
+{{< alert type="note" >}}
+
 Only [database maintainers](https://gitlab.com/groups/gitlab-org/maintainers/database/-/group_members?with_inherited_permissions=exclude) can view the database testing pipeline artifacts. Ask one for help if you need to use this method.
+
+{{< /alert >}}
 
 Let's assume that a batched background migration failed on a particular batch on GitLab.com and you want to figure out which query failed and why. At the moment, we don't have a good way to retrieve query information (especially the query parameters) and rerunning the entire migration with more logging would be a long process.
 
@@ -631,7 +834,7 @@ def up
       batch_table: <table name>,
       batch_column: <batching column>,
       sub_batch_size: <sub batch size>,
-      pause_ms: <miliseconds between batches>,
+      pause_ms: <milliseconds between batches>,
       job_arguments: <job arguments if any>,
       connection: connection
     )
@@ -646,7 +849,7 @@ end
 
 #### Apply a workaround for our migration helpers (optional)
 
-If your batched background migration touches tables from a schema other than the one you specified by using `restrict_gitlab_migration` helper (example: the scheduling migration has `restrict_gitlab_migration gitlab_schema: :gitlab_main` but the background job uses tables from the `:gitlab_ci` schema) then the migration will fail. To prevent that from happening you must to monkey patch database helpers so they don't fail the testing pipeline job:
+If your batched background migration touches tables from a schema other than the one you specified by using `restrict_gitlab_migration` helper (example: the scheduling migration has `restrict_gitlab_migration gitlab_schema: :gitlab_main_org` but the background job uses tables from the `:gitlab_ci` schema) then the migration will fail. To prevent that from happening you must to monkey patch database helpers so they don't fail the testing pipeline job:
 
 1. Add the schema names to [`RestrictGitlabSchema`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/database/migration_helpers/restrict_gitlab_schema.rb#L57)
 
@@ -696,7 +899,7 @@ the previously enqueued BBM to handle any duplicate records.
 
 The following process has been configured to make dependencies more evident while writing a migration.
 
-- Version of the migration that queued the BBM is stored in _batched_background_migrations_ table and in BBM dictionary file.
+- Version of the migration that queued the BBM is stored in `batched_background_migrations` table and in BBM dictionary file.
 - `DEPENDENT_BATCHED_BACKGROUND_MIGRATIONS` constant is added (commented by default) in each migration file.
   To establish the dependency, add `queued_migration_version` of the dependent BBMs. If not, remove
   the commented line.
@@ -711,7 +914,7 @@ Example:
 class QueueBackfillRoutesNamespaceId < Gitlab::Database::Migration[2.1]
   MIGRATION = 'BackfillRouteNamespaceId'
 
-  restrict_gitlab_migration gitlab_schema: :gitlab_main
+  restrict_gitlab_migration gitlab_schema: :gitlab_main_org
   ...
   ...
 
@@ -739,18 +942,13 @@ class AddNotNullToRoutesNamespaceId < Gitlab::Database::Migration[2.1]
 end
 ```
 
-#### Notes
-
-- `BackgroundMigration::DictionaryFile` cop ensures the presence of `finalize_after` and `introduced_by_url` keys in the
-  BBM dictionary.
-  - `finalize_after`: Captures the (approximate) date after which the BBM is expected to be finalized.
-  - `introduced_by_url`: After the `finalize_after` date, an issue is created using the labels and author from `introduced_by_url`.
-    - As of writing (2023-08-11), issue [#424886](https://gitlab.com/gitlab-org/gitlab/-/issues/424886) is still open.
-
 ## Managing
 
-NOTE:
+{{< alert type="note" >}}
+
 BBM management takes place through `chatops` integration, which is limited to GitLab team members only.
+
+{{< /alert >}}
 
 ### List batched background migrations
 
@@ -769,13 +967,19 @@ This command supports the following options:
   - `--staging`: Uses the `staging` environment.
   - `--staging_ref`: Uses the `staging_ref` environment.
   - `--production` : Uses the `production` environment (default).
+- Filter by job class
+  - `--job-class-name JOB_CLASS_NAME`: Only list jobs for the given job class.
+  - This is the `migration_job_name` in the YAML definition of the background migration.
 
 Output example:
 
-![List command](img/list_v15_4.png)
+![Output of the ChatOps command listing all the active batched background migrations.](img/list_v15_4.png)
 
-NOTE:
+{{< alert type="note" >}}
+
 ChatOps returns 20 batched background migrations order by `created_at` (DESC).
+
+{{< /alert >}}
 
 ### Monitor the progress and status of a batched background migration
 
@@ -797,19 +1001,21 @@ This command supports the following options:
 
 Output example:
 
-![Status command](img/status_v15_4.png)
+![Output of the ChatOps command to know the progress and status of a specific batched background migration using MIGRATION_ID.](img/status_v15_4.png)
 
 `Progress` represents the percentage of the background migration that has been completed.
 
 Definitions of the batched background migration states:
 
-- **Active:** Either:
+- **Active**: Either:
   - Ready to be picked by the runner.
   - Running batched jobs.
-- **Finalizing:** Running batched jobs.
-- **Failed:** Failed batched background migration.
-- **Finished:** Completed batched background migration.
-- **Paused:** Not visible to the runner.
+- **Finalizing**: Running batched jobs.
+- **Failed**: Failed batched background migration.
+- **Finished**: All jobs were executed successfully and the batched background migration is complete.
+- **Paused**: Not visible to the runner.
+- **Finalized**: Batched migration was verified with
+  [`ensure_batched_background_migration_is_finished`](#finalize-a-batched-background-migration) and is complete.
 
 ### Pause a batched background migration
 
@@ -831,10 +1037,13 @@ This command supports the following options:
 
 Output example:
 
-![Pause command](img/pause_v15_4.png)
+![Output of the ChatOps command to pause a specific batched background migration using MIGRATION_ID.](img/pause_v15_4.png)
 
-NOTE:
+{{< alert type="note" >}}
+
 You can pause only `active` batched background migrations.
+
+{{< /alert >}}
 
 ### Resume a batched background migration
 
@@ -856,15 +1065,18 @@ This command supports the following options:
 
 Output example:
 
-![Resume command](img/resume_v15_4.png)
+![Output of the ChatOps command to resume a specific batched background migration using MIGRATION_ID.](img/resume_v15_4.png)
 
-NOTE:
+{{< alert type="note" >}}
+
 You can resume only `active` batched background migrations
+
+{{< /alert >}}
 
 ### Enable or disable background migrations
 
 In extremely limited circumstances, a GitLab administrator can disable either or
-both of these [feature flags](../../administration/feature_flags.md):
+both of these [feature flags](../../administration/feature_flags/_index.md):
 
 - `execute_background_migrations`
 - `execute_batched_migrations_on_schedule`
@@ -872,10 +1084,13 @@ both of these [feature flags](../../administration/feature_flags.md):
 These flags are enabled by default. Disable them only as a last resort
 to limit database operations in special circumstances, like database host maintenance.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Do not disable either of these flags unless you fully understand the ramifications. If you disable
 the `execute_background_migrations` or `execute_batched_migrations_on_schedule` feature flag,
 GitLab upgrades might fail and data loss might occur.
+
+{{< /alert >}}
 
 ## Batched background migrations for EE-only features
 
@@ -884,10 +1099,13 @@ For this purpose, create an empty class for GitLab FOSS, and extend it for GitLa
 as explained in the guidelines for
 [implementing Enterprise Edition features](../ee_features.md#code-in-libgitlabbackground_migration).
 
-NOTE:
+{{< alert type="note" >}}
+
 Background migration classes for EE-only features that use job arguments should define them
 in the GitLab FOSS class. Definitions are required to prevent job arguments validation from failing when
 migration is scheduled in the GitLab FOSS context.
+
+{{< /alert >}}
 
 You can use the [generator](#generate-a-batched-background-migration) to generate an EE-only migration scaffold by passing
 `--ee-only` flag when generating a new batched background migration.
@@ -992,6 +1210,143 @@ for more details.
    end
    ```
 
+1. If possible update the entire sub-batch in a single query
+   instead of updating each model separately.
+   This can be achieve in different ways, depending on the scenario.
+
+   - Generate an `UPDATE` query, and use `FROM` to join the tables
+   that provide the necessary values
+   ([example](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/184051)).
+   - Generate an `UPDATE` query, and use `FROM(VALUES( ...))` to
+   pass values calculated beforehand
+   ([example](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/177993)).
+   - Pass all keys and values to `ActiveRelation#update`.
+
+   ```ruby
+   # good
+   def perform
+     each_sub_batch do |sub_batch|
+       connection.execute <<~SQL
+         UPDATE fork_networks
+         SET organization_id = projects.organization_id
+         FROM projects
+         WHERE fork_networks.id IN (#{sub_batch.pluck(:id)})
+         AND fork_networks.root_project_id = projects.id
+         AND fork_networks.organization_id IS NULL
+       SQL
+     end
+   end
+
+   # bad
+   def perform
+     each_sub_batch do |sub_batch|
+       sub_batch.each |fork_network|
+         fork_network.update!(organization_id: fork_network.root_project.organization_id)
+       end
+     end
+   end
+   ```
+
+### Use of scope_to
+
+When writing a batched background migration class, you have the option to define a `scope_to` block. This block adds an additional qualifier to the query that determines the minimum and maximum range for each batch.
+
+By default, the batching range is determined using the primary key index, which is highly efficient. However, using `scope_to` means the query must consider only rows matching the given condition, potentially impacting performance.
+
+Consider the following simple query:
+
+```sql
+SELECT id FROM users WHERE id BETWEEN 1 AND 3000;
+```
+
+This query is fast because the `id` column is indexed. PostgreSQL can use an index-only scan to return results efficiently. The query plan might look like this:
+
+```plain
+QUERY PLAN
+---------------------------------------------------------------------------------------------------------------------------------
+Index Only Scan using users_pkey on users  (cost=0.44..307.24 rows=2751 width=4) (actual time=0.016..177.028 rows=2654 loops=1)
+  Index Cond: ((id >= 1) AND (id <= 3000))
+  Heap Fetches: 219
+Planning Time: 0.183 ms
+Execution Time: 177.158 ms
+```
+
+Now, let's apply a scope:
+
+```ruby
+scope_to ->(relation) { relation.where(theme_id: 4) }
+```
+
+This results in the following query:
+
+```sql
+SELECT id FROM users WHERE id BETWEEN 1 AND 3000 AND theme_id = 4;
+```
+
+The associated query plan is less efficient:
+
+```plain
+QUERY PLAN
+--------------------------------------------------------------------------------------------------------------------------
+Index Scan using users_pkey on users  (cost=0.44..3773.66 rows=10 width=4) (actual time=8.047..2290.528 rows=28 loops=1)
+  Index Cond: ((id >= 1) AND (id <= 3000))
+  Filter: (theme_id = 4)
+  Rows Removed by Filter: 2626
+Planning Time: 1.292 ms
+Execution Time: 2290.582 ms
+```
+
+In this case, PostgreSQL uses an index scan on `id` but applies the `theme_id` filter after row access. This causes many rows to be discarded after retrieval, resulting in degraded performance, over 12x slower in this case.
+
+#### When to override
+
+Use `scope_to` **only when the scoped column is indexed**, and ideally, the batching query avoids filtering out rows.
+
+A strong indicator of good performance is the absence of the `Rows Removed by Filter` line in the query plan.
+
+Let's improve performance by indexing the `theme_id` column:
+
+```sql
+CREATE INDEX idx_users_theme_id ON users (theme_id);
+```
+
+Re-running the same query produces this plan:
+
+```plain
+QUERY PLAN
+--------------------------------------------------------------------------------------------------------------------------------
+Bitmap Heap Scan on users  (cost=691.28..706.53 rows=10 width=4) (actual time=13.532..13.578 rows=28 loops=1)
+  Recheck Cond: ((id >= 1) AND (id <= 3000) AND (theme_id = 4))
+  Heap Blocks: exact=28
+  Buffers: shared hit=41 read=62
+  I/O Timings: shared read=0.721
+  ->  BitmapAnd  (cost=691.28..691.28 rows=10 width=0) (actual time=13.509..13.511 rows=0 loops=1)
+        Buffers: shared hit=13 read=62
+        I/O Timings: shared read=0.721
+        ->  Bitmap Index Scan on users_pkey  (cost=0.00..45.95 rows=2751 width=0) (actual time=0.390..0.390 rows=2654 loops=1)
+              Index Cond: ((id >= 1) AND (id <= 3000))
+              Buffers: shared hit=10
+        ->  Bitmap Index Scan on idx_users_theme_id  (cost=0.00..645.08 rows=73352 width=0) (actual time=12.933..12.933 rows=69872 loops=1)
+              Index Cond: (theme_id = 4)
+              Buffers: shared hit=3 read=62
+              I/O Timings: shared read=0.721
+Planning:
+  Buffers: shared hit=35 read=1 dirtied=2
+  I/O Timings: shared read=0.045
+Planning Time: 0.514 ms
+Execution Time: 13.634 ms
+```
+
+#### Summary
+
+Use `scope_to` **only** when:
+
+- The scoped column is backed by an index.
+- Query plans avoid significant row filtering (`Rows Removed by Filter` is low or absent).
+- Batching remains efficient under real data loads.
+
+Otherwise, scoping can drastically reduce performance.
+
 ## Examples
 
 ### Routes use-case
@@ -1031,11 +1386,14 @@ background migration.
    end
    ```
 
-   NOTE:
+   {{< alert type="note" >}}
+
    Job classes inherit from `BatchedMigrationJob` to ensure they are
    correctly handled by the batched migration framework. Any subclass of
    `BatchedMigrationJob` is initialized with the necessary arguments to
    execute the batch, and a connection to the tracking database.
+
+   {{< /alert >}}
 
 1. Create a database migration that adds a new trigger to the database. Example:
 
@@ -1068,23 +1426,21 @@ background migration.
    end
    ```
 
-1. Update the created post-deployment migration with required delay and batch sizes:
+1. Update the created post-deployment migration with required batch sizes:
 
    ```ruby
    class QueueBackfillRoutesNamespaceId < Gitlab::Database::Migration[2.1]
      MIGRATION = 'BackfillRouteNamespaceId'
-     DELAY_INTERVAL = 2.minutes
      BATCH_SIZE = 1000
      SUB_BATCH_SIZE = 100
 
-     restrict_gitlab_migration gitlab_schema: :gitlab_main
+     restrict_gitlab_migration gitlab_schema: :gitlab_main_org
 
      def up
        queue_batched_background_migration(
          MIGRATION,
          :routes,
          :id,
-         job_interval: DELAY_INTERVAL,
          batch_size: BATCH_SIZE,
          sub_batch_size: SUB_BATCH_SIZE
        )
@@ -1105,17 +1461,19 @@ background migration.
     introduced_by_url: "https://mr_url"
     milestone: 16.6
     queued_migration_version: 20231113120650
-    finalize_after: "2023-11-15"
     finalized_by: # version of the migration that ensured this bbm
    ```
 
-   NOTE:
+   {{< alert type="note" >}}
+
    When queuing a batched background migration, you need to restrict
    the schema to the database where you make the actual changes.
    In this case, we are updating `routes` records, so we set
-   `restrict_gitlab_migration gitlab_schema: :gitlab_main`. If, however,
+   `restrict_gitlab_migration gitlab_schema: :gitlab_main_org`. If, however,
    you need to perform a CI data migration, you would set
    `restrict_gitlab_migration gitlab_schema: :gitlab_ci`.
+
+   {{< /alert >}}
 
    After deployment, our application:
      - Continues using the data as before.
@@ -1126,14 +1484,13 @@ background migration.
 
    ```ruby
    class FinalizeBackfillRouteNamespaceId < Gitlab::Database::Migration[2.1]
-     MIGRATION = 'BackfillRouteNamespaceId'
      disable_ddl_transaction!
 
-     restrict_gitlab_migration gitlab_schema: :gitlab_main
+     restrict_gitlab_migration gitlab_schema: :gitlab_main_org
 
      def up
        ensure_batched_background_migration_is_finished(
-         job_class_name: MIGRATION,
+         job_class_name: 'BackfillRouteNamespaceId',
          table_name: :routes,
          column_name: :id,
          job_arguments: [],
@@ -1156,14 +1513,16 @@ background migration.
     introduced_by_url: "https://mr_url"
     milestone: 16.6
     queued_migration_version: 20231113120650
-    finalize_after: "2023-11-15"
     finalized_by: 20231115120912
    ```
 
-   NOTE:
+   {{< alert type="note" >}}
+
    If the batched background migration is not finished, the system will
    execute the batched background migration inline. If you don't want
    to see this behavior, you need to pass `finalize: false`.
+
+   {{< /alert >}}
 
    If the application does not depend on the data being 100% migrated (for
    instance, the data is advisory, and not mission-critical), then you can skip this

@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require 'set' # rubocop:disable Lint/RedundantRequireStatement -- Ruby 3.1 and earlier needs this. Drop this line after Ruby 3.2+ is only supported.
 require 'rubocop'
 require 'yaml'
 
@@ -23,8 +22,7 @@ module RuboCop
       # with offenses.
       #
       # See https://gitlab.com/gitlab-org/gitlab/-/issues/415330#caveats
-      # on why the entry must end with `.haml.rb`.
-      RETAIN_EXCLUSIONS = %r{\.haml\.rb$}
+      RETAIN_EXCLUSIONS = %r{\.haml$}
 
       class << self
         attr_accessor :base_directory
@@ -37,8 +35,6 @@ module RuboCop
         @todos = Hash.new { |hash, cop_name| hash[cop_name] = CopTodo.new(cop_name) }
         @todo_dir = TodoDir.new(directory)
         @config_inspect_todo_dir = load_config_inspect_todo_dir
-        @config_old_todo_yml = load_config_old_todo_yml
-        check_multiple_configurations!
         create_todos_retaining_exclusions(@config_inspect_todo_dir)
 
         super
@@ -81,14 +77,6 @@ module RuboCop
         path.delete_prefix("#{parent}/")
       end
 
-      def check_multiple_configurations!
-        cop_names = @config_inspect_todo_dir.keys & @config_old_todo_yml.keys
-        return if cop_names.empty?
-
-        list = cop_names.sort.map { |cop_name| "- #{cop_name}" }.join("\n")
-        raise "Multiple configurations found for cops:\n#{list}\n"
-      end
-
       def create_todos_retaining_exclusions(inspected_cop_config)
         inspected_cop_config.each do |cop_name, config|
           todo = @todos[cop_name]
@@ -100,7 +88,7 @@ module RuboCop
       def config_for(todo)
         cop_name = todo.cop_name
 
-        @config_old_todo_yml[cop_name] || @config_inspect_todo_dir[cop_name] || {}
+        @config_inspect_todo_dir[cop_name] || {}
       end
 
       def previously_disabled?(todo)
@@ -116,9 +104,19 @@ module RuboCop
         GracefulFormatter.grace_period?(todo.cop_name, config)
       end
 
+      def todos_increased?(todo)
+        return false if todo.previously_disabled
+
+        config = config_for(todo)
+        before = (config['Exclude'] || []).size
+        after = todo.files.size
+
+        after > before
+      end
+
       def configure_and_validate_todo(todo)
         todo.previously_disabled = previously_disabled?(todo)
-        todo.grace_period = grace_period?(todo)
+        todo.grace_period = grace_period?(todo) || todos_increased?(todo)
 
         if todo.previously_disabled && todo.grace_period
           raise "#{todo.cop_name}: Cop must be enabled to use `#{GracefulFormatter.grace_period_key_value}`."
@@ -132,15 +130,6 @@ module RuboCop
           config = YAML.load_file(path)
           combined.update(config) if Hash === config
         end
-      end
-
-      # Load YAML configuration from `.rubocop_todo.yml`.
-      # We consider this file already old, obsolete, and to be removed soon.
-      def load_config_old_todo_yml
-        path = File.expand_path(File.join(directory, '../.rubocop_todo.yml'))
-        config = YAML.load_file(path) if File.exist?(path)
-
-        config || {}
       end
     end
   end

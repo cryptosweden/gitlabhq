@@ -1,30 +1,35 @@
 ---
-stage: Systems
+stage: Tenant Scale
 group: Geo
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Geo with external PostgreSQL instances
 ---
 
-# Geo with external PostgreSQL instances
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 This document is relevant if you are using a PostgreSQL instance that is not
 managed by the Linux package. This includes
-[cloud-managed instances](../../reference_architectures/index.md#recommendation-notes-for-the-database-services),
+[cloud-managed instances](../../reference_architectures/_index.md#best-practices-for-the-database-services),
 or manually installed and configured PostgreSQL instances.
 
 Ensure that you are using one of the PostgreSQL versions that
 the [Linux package ships with](../../package_information/postgresql_versions.md)
-to [avoid version mismatches](../index.md#requirements-for-running-geo)
+to [avoid version mismatches](../_index.md#requirements-for-running-geo)
 in case a Geo site has to be rebuilt.
 
-NOTE:
-If you’re using GitLab Geo, we strongly recommend running instances installed by using the Linux package or using
-[validated cloud-managed instances](../../reference_architectures/index.md#recommended-cloud-providers-and-services),
+{{< alert type="note" >}}
+
+If you're using GitLab Geo, we strongly recommend running instances installed by using the Linux package or using
+[validated cloud-managed instances](../../reference_architectures/_index.md#recommended-cloud-providers-and-services),
 as we actively develop and test based on those.
 We cannot guarantee compatibility with other external databases.
+
+{{< /alert >}}
 
 ## **Primary** site
 
@@ -68,7 +73,7 @@ We cannot guarantee compatibility with other external databases.
 
 To set up an external database, you can either:
 
-- Set up [streaming replication](https://www.postgresql.org/docs/12/warm-standby.html#STREAMING-REPLICATION-SLOTS) yourself (for example Amazon RDS, or bare metal not managed by the Linux package).
+- Set up [streaming replication](https://www.postgresql.org/docs/16/warm-standby.html#STREAMING-REPLICATION-SLOTS) yourself (for example Amazon RDS, or bare metal not managed by the Linux package).
 - Manually perform the configuration of your Linux package installations as follows.
 
 #### Leverage your cloud provider's tools to replicate the primary database
@@ -86,10 +91,13 @@ cloud providers:
 
 When your read-only replica is set up, you can skip to [configure your secondary site](#configure-secondary-site-to-use-the-external-read-replica)
 
-WARNING:
+{{< alert type="warning" >}}
+
 The use of logical replication methods such as [AWS Database Migration Service](https://aws.amazon.com/dms/)
 or [Google Cloud Database Migration Service](https://cloud.google.com/database-migration) to, for instance,
-replicate from an on-premise primary database to an RDS secondary are not supported.  
+replicate from an on-premise primary database to an RDS secondary are not supported.
+
+{{< /alert >}}
 
 #### Manually configure the primary database for replication
 
@@ -159,7 +167,7 @@ has three main functions:
 
 1. Configure the replica database.
 1. Configure the tracking database.
-1. Enable the [Geo Log Cursor](../index.md#geo-log-cursor) (not covered in this section).
+1. Enable the [Geo Log Cursor](../_index.md#geo-log-cursor) (not covered in this section).
 
 To configure the connection to the external read-replica database and enable Log Cursor:
 
@@ -185,7 +193,7 @@ To configure the connection to the external read-replica database and enable Log
    gitlab_rails['db_username'] = 'gitlab'
    gitlab_rails['db_host'] = '<database_read_replica_host>'
 
-   # Disable the bundled Omnibus PostgreSQL, since we are
+   # Disable the bundled Omnibus PostgreSQL because we are
    # using an external PostgreSQL
    postgresql['enable'] = false
    ```
@@ -200,6 +208,15 @@ potential replication issues. The Linux package automatically configures a track
 when `roles ['geo_secondary_role']` is set.
 If you want to run this database external to your Linux package installation, use the following instructions.
 
+#### Understanding internal and external tracking databases
+
+You can configure the tracking database to be either:
+
+- Internal (`geo_postgresql['enable'] = true`): The tracking database runs as a managed PostgreSQL instance on the same server as the Rails application. This is the default.
+- External (`geo_postgresql['enable'] = false`): The tracking database runs on a separate server or as a cloud-managed service.
+
+In multi-node secondary site setups, if you enable the tracking database on one Rails node, it becomes "external" to all other Rails nodes in the site. All other Rails nodes must set `geo_postgresql['enable'] = false` and specify connection details to connect to that tracking database.
+
 #### Cloud-managed database services
 
 If you are using a cloud-managed service for the tracking database, you may need
@@ -213,21 +230,24 @@ to grant additional roles to your tracking database user (by default, this is
 This is for the installation of extensions during installation and upgrades. As an alternative,
 [ensure the extensions are installed manually, and read about the problems that may arise during future GitLab upgrades](../../../install/postgresql_extensions.md).
 
-NOTE:
+{{< alert type="note" >}}
+
 If you want to use Amazon RDS as a tracking database, make sure it has access to
 the secondary database. Unfortunately, just assigning the same security group is not enough as
 outbound rules do not apply to RDS PostgreSQL databases. Therefore, you need to explicitly add an inbound
 rule to the read-replica's security group allowing any TCP traffic from
 the tracking database on port 5432.
 
+{{< /alert >}}
+
 #### Create the tracking database
 
 Create and configure the tracking database in your PostgreSQL instance:
 
 1. Set up PostgreSQL according to the
-   [database requirements document](../../../install/requirements.md#database).
+   [database requirements document](../../../install/requirements.md#postgresql).
 1. Set up a `gitlab_geo` user with a password of your choice, create the `gitlabhq_geo_production` database, and make the user an owner of the database.
-   You can see an example of this setup in the [self-compiled installation documentation](../../../install/installation.md#7-database).
+   You can see an example of this setup in the [self-compiled installation documentation](../../../install/self_compiled/_index.md#7-database).
 1. If you are **not** using a cloud-managed PostgreSQL database, ensure that your secondary
    site can communicate with your tracking database by manually changing the
    `pg_hba.conf` that is associated with your tracking database.
@@ -240,6 +260,7 @@ Create and configure the tracking database in your PostgreSQL instance:
    ##
    host    all         all               <trusted tracking IP>/32      md5
    host    all         all               <trusted secondary IP>/32     md5
+   # In multi-node setups, add entries for all Rails nodes that will connect
    ```
 
 #### Configure GitLab
@@ -263,12 +284,14 @@ Configure GitLab to use this database. These steps are for Linux package and Doc
    geo_secondary['db_port'] = <tracking_database_port>      # change to the correct port
    geo_postgresql['enable'] = false     # don't use internal managed instance
    ```
+   
+   In multi-node setups, apply this configuration to each Rails node that needs to connect to the external tracking database.
 
 1. Save the file and [reconfigure GitLab](../../restart_gitlab.md#reconfigure-a-linux-package-installation)
 
 #### Set up the database schema
 
-The reconfigure in the [steps above](#configure-gitlab) for Linux package and Docker deployments should handle these steps automatically.
+The reconfigure command in the [previously listed steps](#configure-gitlab) for Linux package and Docker deployments should handle these steps automatically.
 
 1. This task creates the database schema. It requires the database user to be a superuser.
 

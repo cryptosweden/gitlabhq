@@ -4,8 +4,10 @@ import { InternalEvents } from '~/tracking';
 import {
   RICH_BLOB_VIEWER,
   RICH_BLOB_VIEWER_TITLE,
+  RICH_BLOB_VIEWER_LABEL,
   SIMPLE_BLOB_VIEWER,
   SIMPLE_BLOB_VIEWER_TITLE,
+  SIMPLE_BLOB_VIEWER_LABEL,
   BLAME_VIEWER,
   BLAME_TITLE,
 } from './constants';
@@ -23,11 +25,6 @@ export default {
     value: {
       type: String,
       default: SIMPLE_BLOB_VIEWER,
-      required: false,
-    },
-    docIcon: {
-      type: String,
-      default: 'document',
       required: false,
     },
     showViewerToggles: {
@@ -67,39 +64,44 @@ export default {
   SIMPLE_BLOB_VIEWER,
   RICH_BLOB_VIEWER,
   SIMPLE_BLOB_VIEWER_TITLE,
+  SIMPLE_BLOB_VIEWER_LABEL,
   RICH_BLOB_VIEWER_TITLE,
+  RICH_BLOB_VIEWER_LABEL,
   BLAME_TITLE,
   BLAME_VIEWER,
 };
 </script>
 <template>
-  <gl-button-group class="js-blob-viewer-switcher mx-2">
+  <gl-button-group class="js-blob-viewer-switcher">
     <gl-button
       v-if="showViewerToggles"
       v-gl-tooltip.hover
       :aria-label="$options.SIMPLE_BLOB_VIEWER_TITLE"
       :title="$options.SIMPLE_BLOB_VIEWER_TITLE"
       :selected="isSimpleViewer"
-      icon="code"
+      data-testid="simple-blob-viewer-button"
       category="primary"
       variant="default"
       class="js-blob-viewer-switch-btn"
       data-viewer="simple"
       @click="switchToViewer($options.SIMPLE_BLOB_VIEWER)"
-    />
+      >{{ $options.SIMPLE_BLOB_VIEWER_LABEL }}</gl-button
+    >
     <gl-button
       v-if="showViewerToggles"
       v-gl-tooltip.hover
       :aria-label="$options.RICH_BLOB_VIEWER_TITLE"
       :title="$options.RICH_BLOB_VIEWER_TITLE"
       :selected="isRichViewer"
-      :icon="docIcon"
+      icon=""
+      data-testid="rich-blob-viewer-button"
       category="primary"
       variant="default"
       class="js-blob-viewer-switch-btn"
       data-viewer="rich"
       @click="switchToViewer($options.RICH_BLOB_VIEWER)"
-    />
+      >{{ $options.RICH_BLOB_VIEWER_LABEL }}</gl-button
+    >
     <gl-button
       v-if="showBlameToggle"
       v-gl-tooltip.hover
@@ -107,7 +109,6 @@ export default {
       :selected="isBlameViewer"
       category="primary"
       variant="default"
-      data-test-id="blame-toggle"
       @click="switchToViewer($options.BLAME_VIEWER)"
       >{{ __('Blame') }}</gl-button
     >

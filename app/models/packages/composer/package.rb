@@ -5,15 +5,14 @@ module Packages
     class Package < ::Packages::Package
       self.allow_legacy_sti_class = true
 
-      INSTALLABLE_STATUSES = ::Packages::Package::INSTALLABLE_STATUSES
-
       has_one :composer_metadatum, inverse_of: :package, class_name: 'Packages::Composer::Metadatum'
 
-      delegate :target_sha, to: :composer_metadatum
+      delegate :target_sha, :composer_json, to: :composer_metadatum, allow_nil: true
 
       validate :valid_composer_global_name
       validates :version, format: { with: Gitlab::Regex.semver_regex, message: Gitlab::Regex.semver_regex_message },
         unless: -> { Gitlab::Regex.composer_dev_version_regex.match(version.to_s) }
+      validates :name, format: { with: Gitlab::Regex.package_name_regex }
 
       scope :with_composer_target, ->(target) do
         includes(:composer_metadatum)

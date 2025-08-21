@@ -83,23 +83,6 @@ RSpec.describe VisibilityLevelHelper, feature_category: :system_access do
       it 'returns default description for public group' do
         expect(descriptions[2]).to eq('The group and any public projects can be viewed without any authentication.')
       end
-
-      context 'when application setting `should_check_namespace_plan` is true', if: Gitlab.ee? do
-        let(:group) { build_stubbed(:group) }
-        let(:public_option_description) { visibility_level_description(public_vis, group) }
-
-        before do
-          allow(Gitlab::CurrentSettings.current_application_settings).to receive(:should_check_namespace_plan?)
-                                                                     .and_return(true)
-        end
-
-        it 'returns updated description for public visibility option in group general settings' do
-          expect(public_option_description).to match(
-            'The group, any public projects, and any of their members, issues, and merge requests can be viewed ' \
-              'without authentication.'
-          )
-        end
-      end
     end
   end
 
@@ -147,13 +130,33 @@ RSpec.describe VisibilityLevelHelper, feature_category: :system_access do
     end
 
     describe "snippet" do
-      let(:snippet) { build_stubbed(:snippet, :internal) }
+      let(:snippet) { build_stubbed(:personal_snippet, :internal) }
 
       it "disallows levels" do
         expect(disallowed_visibility_level?(snippet, public_vis)).to be_falsey
         expect(disallowed_visibility_level?(snippet, internal_vis)).to be_falsey
         expect(disallowed_visibility_level?(snippet, private_vis)).to be_falsey
       end
+    end
+  end
+
+  describe '#disallowed_visibility_level_by_organization?' do
+    let(:organization) { build_stubbed(:organization, organization_visibility_level) }
+    let(:group) { build(:group, :private, organization: organization) }
+
+    subject { helper.disallowed_visibility_level_by_organization?(group, visibility_level) }
+
+    where(:organization_visibility_level, :visibility_level, :expected) do
+      :public   | public_vis   | false
+      :public   | internal_vis | false
+      :public   | private_vis  | false
+      :private  | public_vis   | true
+      :private  | internal_vis | true
+      :private  | private_vis  | false
+    end
+
+    with_them do
+      it { is_expected.to eq expected }
     end
   end
 
@@ -342,27 +345,6 @@ RSpec.describe VisibilityLevelHelper, feature_category: :system_access do
       [public_vis]                            | false
       [public_vis, internal_vis]              | true
       [public_vis, internal_vis, private_vis] | true
-    end
-
-    with_them do
-      before do
-        allow(helper).to receive(:current_user) { user }
-        stub_application_setting(restricted_visibility_levels: restricted_visibility_levels)
-      end
-
-      it { is_expected.to eq(expected) }
-    end
-  end
-
-  describe '#all_visibility_levels_restricted?' do
-    let(:user) { build(:user) }
-
-    subject { helper.all_visibility_levels_restricted? }
-
-    where(:restricted_visibility_levels, :expected) do
-      [public_vis]                   | false
-      [public_vis, internal_vis]     | false
-      Gitlab::VisibilityLevel.values | true
     end
 
     with_them do

@@ -143,7 +143,7 @@ module Gitlab
 
         case detailed_error.try(:error)
         when :invalid_format
-          raise Gitlab::Git::InvalidRefFormatError, "references have an invalid format: #{detailed_error.invalid_format.refs.join(",")}"
+          raise Gitlab::Git::InvalidRefFormatError, "references have an invalid format: #{detailed_error.invalid_format.refs.join(',')}"
         when :references_locked
           raise Gitlab::Git::ReferencesLockedError
         when :reference_state_mismatch
@@ -168,7 +168,7 @@ module Gitlab
 
         case detailed_error.try(:error)
         when :invalid_format
-          raise Gitlab::Git::InvalidRefFormatError, "references have an invalid format: #{detailed_error.invalid_format.refs.join(",")}"
+          raise Gitlab::Git::InvalidRefFormatError, "references have an invalid format: #{detailed_error.invalid_format.refs.join(',')}"
         when :references_locked
           raise Gitlab::Git::ReferencesLockedError
         else
@@ -237,15 +237,19 @@ module Gitlab
       end
 
       # peel_tags slows down the request by a factor of 3-4
-      def list_refs(patterns = [Gitlab::Git::BRANCH_REF_PREFIX], pointing_at_oids: [], peel_tags: false)
+      def list_refs(patterns = [Gitlab::Git::BRANCH_REF_PREFIX], pointing_at_oids: [], peel_tags: false, dynamic_timeout: nil, sort_by: nil, pagination_params: nil)
         request = Gitaly::ListRefsRequest.new(
           repository: @gitaly_repo,
           patterns: patterns,
           pointing_at_oids: pointing_at_oids,
-          peel_tags: peel_tags
+          peel_tags: peel_tags,
+          pagination_params: pagination_params
         )
+        request.sort_by = Gitlab::GitalyClient::ListRefsSort.new(sort_by).gitaly_sort_by if sort_by
 
-        response = gitaly_client_call(@storage, :ref_service, :list_refs, request, timeout: GitalyClient.fast_timeout)
+        timeout = dynamic_timeout || GitalyClient.fast_timeout
+
+        response = gitaly_client_call(@storage, :ref_service, :list_refs, request, timeout: timeout)
         consume_list_refs_response(response)
       end
 

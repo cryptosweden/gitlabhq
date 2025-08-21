@@ -14,6 +14,7 @@ import {
 import { __, s__, sprintf } from '~/locale';
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import CrudComponent from '~/vue_shared/components/crud_component.vue';
+import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
 import { convertEnvironmentScope } from '~/ci/common/private/ci_environments_dropdown';
 import {
   DEFAULT_EXCEEDS_VARIABLE_LIMIT_TEXT,
@@ -27,7 +28,6 @@ export default {
     {
       key: 'key',
       label: s__('CiVariables|Key'),
-      tdClass: 'text-plain',
       sortable: true,
       thClass: 'gl-w-2/5',
     },
@@ -42,14 +42,14 @@ export default {
     {
       key: 'actions',
       label: __('Actions'),
-      thClass: 'gl-text-right gl-w-15',
+      thAlignRight: true,
+      thClass: 'gl-w-15',
     },
   ],
   inheritedVarsFields: [
     {
       key: 'key',
       label: s__('CiVariables|Key'),
-      tdClass: 'text-plain',
     },
     {
       key: 'environmentScope',
@@ -70,6 +70,7 @@ export default {
     GlTable,
     GlModal,
     CrudComponent,
+    ClipboardButton,
   },
   directives: {
     GlModalDirective,
@@ -84,6 +85,9 @@ export default {
     deleteButton: __('Delete'),
     modalDeleteTitle: s__('CiVariables|Delete variable'),
     modalDeleteMessage: s__('CiVariables|Do you want to delete the variable %{key}?'),
+    insufficientPermissions: s__(
+      'CiVariables|Insufficient permissions to view Group CI/CD variable.',
+    ),
   },
   props: {
     entity: {
@@ -194,6 +198,9 @@ export default {
       if (item.masked) {
         attributes.push(s__('CiVariables|Masked'));
       }
+      if (item.hidden) {
+        attributes.push(s__('CiVariables|Hidden'));
+      }
       if (!item.raw) {
         attributes.push(s__('CiVariables|Expanded'));
       }
@@ -219,7 +226,7 @@ export default {
       :data-testid="tableDataTestId"
     >
       <template #actions>
-        <div v-if="!isInheritedGroupVars" class="gl-new-card-actions gl-font-size-0">
+        <div v-if="!isInheritedGroupVars" class="gl-font-size-0">
           <gl-button
             v-if="!isTableEmpty"
             category="tertiary"
@@ -265,26 +272,21 @@ export default {
         </template>
         <template #cell(key)="{ item }">
           <div data-testid="ci-variable-table-row-variable">
-            <div
-              class="gl-display-flex gl-align-items-flex-start gl-justify-content-end gl-md-justify-content-start -gl-mr-3"
-            >
+            <div class="-gl-mr-3 gl-flex gl-items-start gl-justify-end md:gl-justify-start">
               <span
                 :id="`ci-variable-key-${item.id}`"
-                class="gl-display-inline-block gl-max-w-full gl-break-anywhere"
+                class="gl-inline-block gl-max-w-full gl-break-anywhere"
                 >{{ item.key }}</span
               >
-              <gl-button
-                v-gl-tooltip
-                category="tertiary"
-                icon="copy-to-clipboard"
-                class="-gl-my-2 gl-ml-2"
-                size="small"
+              <clipboard-button
+                :text="item.key"
                 :title="__('Copy key')"
-                :data-clipboard-text="item.key"
-                :aria-label="__('Copy to clipboard')"
+                category="tertiary"
+                size="small"
+                class="-gl-my-2 gl-ml-2"
               />
             </div>
-            <div v-if="item.description" class="gl-mt-2 gl-text-secondary gl-font-sm">
+            <div v-if="item.description" class="gl-mt-2 gl-text-sm gl-text-subtle">
               {{ item.description }}
             </div>
             <div data-testid="ci-variable-table-row-attributes" class="gl-mt-2">
@@ -301,65 +303,66 @@ export default {
         </template>
         <template v-if="!isInheritedGroupVars" #cell(value)="{ item }">
           <div
-            class="gl-display-flex gl-align-items-flex-start gl-justify-content-end gl-md-justify-content-start -gl-mr-3"
+            v-if="!item.hidden"
+            class="-gl-mr-3 gl-flex gl-items-start gl-justify-end md:gl-justify-start"
           >
-            <span v-if="areValuesHidden" data-testid="hiddenValue">*****</span>
+            <span v-if="areValuesHidden" data-testid="hiddenValue">•••••</span>
             <span
               v-else
               :id="`ci-variable-value-${item.id}`"
-              class="gl-display-inline-block gl-max-w-full gl-text-truncate"
+              class="gl-inline-block gl-max-w-full gl-truncate"
               data-testid="revealedValue"
               >{{ item.value }}</span
             >
-            <gl-button
-              v-gl-tooltip
-              category="tertiary"
-              icon="copy-to-clipboard"
-              class="-gl-my-2 gl-ml-2"
-              size="small"
+            <clipboard-button
+              :text="item.value"
               :title="__('Copy value')"
-              :data-clipboard-text="item.value"
-              :aria-label="__('Copy to clipboard')"
+              category="tertiary"
+              size="small"
+              class="-gl-my-2 gl-ml-2"
             />
           </div>
         </template>
         <template #cell(environmentScope)="{ item }">
-          <div
-            class="gl-display-flex gl-align-items-flex-start gl-justify-content-end gl-md-justify-content-start -gl-mr-3"
-          >
+          <div class="-gl-mr-3 gl-flex gl-items-start gl-justify-end md:gl-justify-start">
             <span
               :id="`ci-variable-env-${item.id}`"
-              class="gl-display-inline-block gl-max-w-full gl-break-anywhere"
+              class="gl-inline-block gl-max-w-full gl-break-anywhere"
               >{{ convertEnvironmentScopeValue(item.environmentScope) }}</span
             >
-            <gl-button
-              v-gl-tooltip
-              category="tertiary"
-              icon="copy-to-clipboard"
-              class="-gl-my-2 gl-ml-2"
-              size="small"
+            <clipboard-button
+              :text="convertEnvironmentScopeValue(item.environmentScope)"
               :title="__('Copy environment')"
-              :data-clipboard-text="convertEnvironmentScopeValue(item.environmentScope)"
-              :aria-label="__('Copy to clipboard')"
+              category="tertiary"
+              size="small"
+              class="-gl-my-2 gl-ml-2"
             />
           </div>
         </template>
         <template v-if="isInheritedGroupVars" #cell(group)="{ item }">
-          <div
-            class="gl-display-flex gl-align-items-flex-start gl-justify-content-end gl-md-justify-content-start -gl-mr-3"
-          >
+          <div class="-gl-mr-3 gl-flex gl-items-start gl-justify-end md:gl-justify-start">
             <gl-link
+              v-if="item.groupCiCdSettingsPath"
               :id="`ci-variable-group-${item.id}`"
               data-testid="ci-variable-table-row-cicd-path"
-              class="gl-display-inline-block gl-max-w-full gl-break-anywhere"
+              class="gl-inline-block gl-max-w-full gl-break-anywhere"
               :href="item.groupCiCdSettingsPath"
             >
               {{ item.groupName }}
             </gl-link>
+            <span
+              v-else
+              v-gl-tooltip
+              :title="$options.i18n.insufficientPermissions"
+              data-testid="ci-variable-table-row-group-name"
+              class="gl-inline-block gl-max-w-full gl-break-anywhere"
+            >
+              {{ item.groupName }}
+            </span>
           </div>
         </template>
         <template v-if="!isInheritedGroupVars" #cell(actions)="{ item }">
-          <div class="gl-flex gl-justify-end gl-gap-2 -gl-mt-3 -gl-mb-2">
+          <div class="-gl-mb-2 -gl-mt-3 gl-flex gl-justify-end gl-gap-2">
             <gl-button
               v-gl-tooltip
               category="tertiary"
@@ -390,7 +393,7 @@ export default {
           </div>
         </template>
         <template #empty>
-          <p class="gl-text-secondary gl-text-center gl-py-1 gl-mb-0">
+          <p class="gl-mb-0 gl-py-1 gl-text-center gl-text-subtle">
             {{ __('There are no variables yet.') }}
           </p>
         </template>
@@ -405,7 +408,7 @@ export default {
       </gl-alert>
     </crud-component>
     <div v-if="!isInheritedGroupVars">
-      <div v-if="showPagination" class="gl-display-flex gl-justify-content-center gl-mt-5">
+      <div v-if="showPagination" class="gl-mt-5 gl-flex gl-justify-center">
         <gl-keyset-pagination
           v-bind="pageInfo"
           @prev="$emit('handle-prev-page')"

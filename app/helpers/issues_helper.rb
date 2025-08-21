@@ -21,7 +21,7 @@ module IssuesHelper
   end
 
   def confidential_icon(issue)
-    sprite_icon('eye-slash', css_class: 'gl-vertical-align-text-bottom') if issue.confidential?
+    sprite_icon('eye-slash', css_class: 'gl-align-text-bottom') if issue.confidential?
   end
 
   def issue_hidden?(issue)
@@ -54,9 +54,9 @@ module IssuesHelper
   def awards_sort(awards)
     awards.sort_by do |award, award_emojis|
       case award
-      when "thumbsup"
+      when AwardEmoji::THUMBS_UP
         0
-      when "thumbsdown"
+      when AwardEmoji::THUMBS_DOWN
         1
       else
         2
@@ -80,7 +80,7 @@ module IssuesHelper
 
   def show_new_issue_link?(project)
     return false unless project
-    return false if project.archived?
+    return false if project.self_or_ancestors_archived?
 
     # We want to show the link to users that are not signed in, that way they
     # get directed to the sign-in/sign-up flow and afterwards to the new issue page.
@@ -102,7 +102,8 @@ module IssuesHelper
     return false unless issue.moved_from
     return false unless issue.from_service_desk?
 
-    issue.moved_from.project.service_desk_enabled? && !issue.project.service_desk_enabled?
+    ::ServiceDesk.enabled?(issue.moved_from.project) &&
+      !::ServiceDesk.enabled?(issue.project)
   end
 
   def issue_header_actions_data(project, issuable, current_user, issuable_sidebar)
@@ -136,6 +137,7 @@ module IssuesHelper
       autocomplete_award_emojis_path: autocomplete_award_emojis_path,
       calendar_path: url_for(safe_params.merge(calendar_url_options)),
       full_path: namespace.full_path,
+      has_issue_date_filter_feature: has_issue_date_filter_feature?(namespace, current_user).to_s,
       initial_sort: current_user&.user_preference&.issues_sort,
       is_issue_repositioning_disabled: issue_repositioning_disabled?.to_s,
       is_public_visibility_restricted:
@@ -143,8 +145,19 @@ module IssuesHelper
       is_signed_in: current_user.present?.to_s,
       rss_path: url_for(safe_params.merge(rss_url_options)),
       sign_in_path: new_user_session_path,
-      has_issue_date_filter_feature: has_issue_date_filter_feature?(namespace, current_user).to_s
+      wi: work_items_data(namespace, current_user),
+      has_subepics_feature: has_subepics_feature?(namespace).to_s
     }
+  end
+
+  def has_subepics_feature?(namespace)
+    if namespace.is_a?(Group)
+      return namespace.licensed_feature_available?(:subepics)
+    elsif namespace.respond_to?(:group) && namespace.group
+      return namespace.group.licensed_feature_available?(:subepics)
+    end
+
+    false
   end
 
   def has_issue_date_filter_feature?(namespace, current_user)
@@ -163,39 +176,38 @@ module IssuesHelper
       can_create_issue: can?(current_user, :create_issue, project).to_s,
       can_edit: can?(current_user, :admin_project, project).to_s,
       can_import_issues: can?(current_user, :import_issues, @project).to_s,
-      can_read_crm_contact: can?(current_user, :read_crm_contact, project.group).to_s,
-      can_read_crm_organization: can?(current_user, :read_crm_organization, project.group).to_s,
+      can_read_crm_contact: can?(current_user, :read_crm_contact, project.crm_group).to_s,
+      can_read_crm_organization: can?(current_user, :read_crm_organization, project.crm_group).to_s,
       email: current_user&.notification_email_or_default,
-      emails_help_page_path: help_page_path('development/emails', anchor: 'email-namespace'),
+      emails_help_page_path: help_page_path('development/emails.md', anchor: 'email-namespace'),
       export_csv_path: export_csv_project_issues_path(project),
       has_any_issues: project_issues(project).exists?.to_s,
       import_csv_issues_path: import_csv_namespace_project_issues_path,
       initial_email: project.new_issuable_address(current_user, 'issue'),
       is_project: true.to_s,
-      markdown_help_path: help_page_path('user/markdown'),
+      markdown_help_path: help_page_path('user/markdown.md'),
       max_attachment_size: number_to_human_size(Gitlab::CurrentSettings.max_attachment_size.megabytes),
       new_issue_path: new_project_issue_path(project),
       project_import_jira_path: project_import_jira_path(project),
-      quick_actions_help_path: help_page_path('user/project/quick_actions'),
+      quick_actions_help_path: help_page_path('user/project/quick_actions.md'),
       releases_path: project_releases_path(project, format: :json),
       reset_path: new_issuable_address_project_path(project, issuable_type: 'issue'),
+      project_namespace_full_path: project.namespace.full_path,
       show_new_issue_link: show_new_issue_link?(project).to_s,
-      report_abuse_path: add_category_abuse_reports_path,
-      register_path: new_user_registration_path(redirect_to_referer: 'yes'),
-      issues_list_path: project_issues_path(project)
+      time_tracking_limit_to_hours: Gitlab::CurrentSettings.time_tracking_limit_to_hours.to_s
     )
   end
 
   def group_issues_list_data(group, current_user)
     common_issues_list_data(group, current_user).merge(
       can_create_projects: can?(current_user, :create_projects, group).to_s,
-      can_read_crm_contact: can?(current_user, :read_crm_contact, group).to_s,
-      can_read_crm_organization: can?(current_user, :read_crm_organization, group).to_s,
+      can_read_crm_contact: can?(current_user, :read_crm_contact, group.crm_group).to_s,
+      can_read_crm_organization: can?(current_user, :read_crm_organization, group.crm_group).to_s,
+      group_id: group.id,
       has_any_issues: @has_issues.to_s,
       has_any_projects: @has_projects.to_s,
       new_project_path: new_project_path(namespace_id: group.id),
-      group_id: group.id,
-      issues_list_path: issues_group_path(group)
+      time_tracking_limit_to_hours: Gitlab::CurrentSettings.time_tracking_limit_to_hours.to_s
     )
   end
 
@@ -213,7 +225,8 @@ module IssuesHelper
       is_public_visibility_restricted:
         Gitlab::CurrentSettings.restricted_visibility_levels&.include?(Gitlab::VisibilityLevel::PUBLIC).to_s,
       is_signed_in: current_user.present?.to_s,
-      rss_path: url_for(safe_params.merge(rss_url_options))
+      rss_path: url_for(safe_params.merge(rss_url_options)),
+      is_status_feature_enabled_on_instance: Feature.enabled?(:work_item_status_feature_flag, :instance).to_s
     }
   end
 

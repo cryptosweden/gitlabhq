@@ -174,7 +174,7 @@ module Gitlab
             raise AlreadyArchivedError, 'Could not write to the archived trace'
           elsif current_path
             File.open(current_path, mode)
-          elsif Feature.enabled?(:ci_enable_live_trace, job.project)
+          elsif Gitlab::CurrentSettings.ci_job_live_trace_enabled?
             Gitlab::Ci::Trace::ChunkedIO.new(job)
           else
             File.open(ensure_path, mode)
@@ -245,9 +245,7 @@ module Gitlab
       end
 
       def ensure_directory
-        unless Dir.exist?(default_directory)
-          FileUtils.mkdir_p(default_directory)
-        end
+        FileUtils.mkdir_p(default_directory)
       end
 
       def current_path
@@ -277,31 +275,33 @@ module Gitlab
       end
 
       def destroy_stream(build)
-        if consistent_archived_trace?(build)
-          ::Ci::Build
-            .sticking
-            .stick(LOAD_BALANCING_STICKING_NAMESPACE, build.id)
-        end
+        ::Ci::Build
+          .sticking
+          .stick(LOAD_BALANCING_STICKING_NAMESPACE, build.id)
 
         yield
       end
 
       def read_trace_artifact(build)
-        if consistent_archived_trace?(build)
-          ::Ci::Build
-            .sticking
-            .find_caught_up_replica(LOAD_BALANCING_STICKING_NAMESPACE, build.id)
-        end
+        ::Ci::Build
+          .sticking
+          .find_caught_up_replica(LOAD_BALANCING_STICKING_NAMESPACE, build.id)
 
         yield
       end
 
-      def consistent_archived_trace?(build)
-        ::Feature.enabled?(:gitlab_ci_archived_trace_consistent_reads, build.project)
-      end
-
       def being_watched_cache_key
         "gitlab:ci:trace:#{job.id}:watched"
+      end
+
+      # Like `set` it writes the whole trace but doesn't hide secrets!
+      # This is solely used in spec factories to avoid calling unstubbed
+      # ApplicationSetting(ci_job_token_signing_key) attribute outside
+      # spec examples (like in `let_it_be`).
+      def unsafe_set(data)
+        write('w+b') do |stream|
+          stream.set(data.dup)
+        end
       end
     end
   end

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness,
+RSpec.describe Ci::CreatePipelineService,
   feature_category: :continuous_integration do
   context 'cache' do
     let(:project)  { create(:project, :custom_repo, files: files) }
@@ -176,7 +176,8 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness,
 
       it 'has errors' do
         expect(pipeline).to be_persisted
-        expect(pipeline.yaml_errors).to eq("jobs:job:cache:key:files config has too many items (maximum is 2)")
+        expect(pipeline.error_messages[0].content).to eq(
+          "jobs:job:cache:key:files config has too many items (maximum is 2)")
         expect(job).to be_nil
       end
     end

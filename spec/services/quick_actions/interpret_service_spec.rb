@@ -2,9 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe QuickActions::InterpretService, feature_category: :team_planning do
+RSpec.describe QuickActions::InterpretService, feature_category: :text_editors do
   include AfterNextHelpers
 
+  let_it_be(:support_bot) { Users::Internal.support_bot }
   let_it_be(:group) { create(:group) }
   let_it_be(:public_project) { create(:project, :public, group: group) }
   let_it_be(:repository_project) { create(:project, :repository) }
@@ -32,6 +33,8 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
     )
     project.add_developer(current_user)
   end
+
+  before_all { Users::Internal.support_bot_id }
 
   describe '#execute' do
     let_it_be(:work_item) { create(:work_item, :task, project: project) }
@@ -251,7 +254,7 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
       it 'returns the todo message' do
         _, _, message = service.execute(content, issuable)
 
-        expect(message).to eq(_('Added a to do.'))
+        expect(message).to eq(_('Added a to-do item.'))
       end
     end
 
@@ -267,7 +270,7 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
         TodoService.new.mark_todo(issuable, developer)
         _, _, message = service.execute(content, issuable)
 
-        expect(message).to eq(_('Marked to do as done.'))
+        expect(message).to eq(_('Marked to-do item as done.'))
       end
     end
 
@@ -399,11 +402,11 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
           _, updates, _ = service.execute(content, issuable)
 
           expect(updates).to eq(spend_time: {
-                                  category: nil,
-                                  duration: 3600,
-                                  user_id: developer.id,
-                                  spent_at: DateTime.current
-                                })
+            category: nil,
+            duration: 3600,
+            user_id: developer.id,
+            spent_at: DateTime.current
+          })
         end
       end
     end
@@ -414,11 +417,11 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
           _, updates, _ = service.execute(content, issuable)
 
           expect(updates).to eq(spend_time: {
-                                  category: nil,
-                                  duration: -7200,
-                                  user_id: developer.id,
-                                  spent_at: DateTime.current
-                                })
+            category: nil,
+            duration: -7200,
+            user_id: developer.id,
+            spent_at: DateTime.current
+          })
         end
       end
 
@@ -430,15 +433,21 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
     end
 
     shared_examples 'spend command with valid date' do
+      let(:timezone) { 'Europe/Athens' }
+
+      before do
+        allow(developer).to receive(:timezone).and_return(timezone)
+      end
+
       it 'populates spend time: 1800 with date in date type format' do
         _, updates, _ = service.execute(content, issuable)
 
         expect(updates).to eq(spend_time: {
-                                category: nil,
-                                duration: 1800,
-                                user_id: developer.id,
-                                spent_at: Date.parse(date)
-                              })
+          category: nil,
+          duration: 1800,
+          user_id: developer.id,
+          spent_at: Date.parse(date).in_time_zone(timezone).midday
+        })
       end
     end
 
@@ -463,6 +472,20 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
         _, updates, _ = service.execute(content, issuable)
 
         expect(updates).to match(spend_time: a_hash_including(category: 'pm'))
+      end
+    end
+
+    shared_examples 'spend command with empty timezone' do
+      let(:timezone) { '' }
+
+      before do
+        allow(developer).to receive(:timezone).and_return(timezone)
+      end
+
+      it 'uses the default timezone if developer timezone is an empty string' do
+        _, updates, _ = service.execute(content, issuable)
+
+        expect(updates[:spend_time][:spent_at].zone).to eq(Time.zone.name)
       end
     end
 
@@ -529,7 +552,8 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
     end
 
     shared_examples 'failed command' do |error_msg|
-      let(:match_msg) { error_msg ? eq(error_msg) : be_empty }
+      let(:msg) { error_msg || try(:output_msg) }
+      let(:match_msg) { msg ? eq(msg) : be_empty }
 
       it 'populates {} if content contains an unsupported command' do
         _, updates, _ = service.execute(content, issuable)
@@ -539,6 +563,17 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
 
       it "returns #{error_msg || 'an empty'} message" do
         _, _, message = service.execute(content, issuable)
+
+        expect(message).to match_msg
+      end
+    end
+
+    shared_examples 'explain message' do |error_msg|
+      let(:msg) { error_msg || try(:output_msg) }
+      let(:match_msg) { msg ? include(msg) : be_empty }
+
+      it "returns #{error_msg || 'an empty'} message" do
+        _, message = service.explain(content, issuable)
 
         expect(message).to match_msg
       end
@@ -590,31 +625,6 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
       end
     end
 
-    shared_examples 'duplicate command' do
-      it 'fetches issue and populates canonical_issue_id if content contains /duplicate issue_reference' do
-        issue_duplicate # populate the issue
-        _, updates, _ = service.execute(content, issuable)
-
-        expect(updates).to eq(canonical_issue_id: issue_duplicate.id)
-      end
-
-      it 'returns the duplicate message' do
-        _, _, message = service.execute(content, issuable)
-        translated_string = _("Closed this issue. Marked as related to, and a duplicate of, %{issue_duplicate_to_reference}.")
-        formatted_message = format(translated_string, issue_duplicate_to_reference: issue_duplicate.to_reference(project).to_s)
-
-        expect(message).to eq(formatted_message)
-      end
-
-      it 'includes duplicate reference' do
-        _, explanations = service.explain(content, issuable)
-        translated_string = _("Closes this issue. Marks as related to, and a duplicate of, %{issue_duplicate_to_reference}.")
-        formatted_message = format(translated_string, issue_duplicate_to_reference: issue_duplicate.to_reference(project).to_s)
-
-        expect(explanations).to eq([formatted_message])
-      end
-    end
-
     shared_examples 'copy_metadata command' do
       it 'fetches issue or merge request and copies labels and milestone if content contains /copy_metadata reference' do
         source_issuable # populate the issue
@@ -643,16 +653,65 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
     describe 'move issue command' do
       it 'returns the move issue message' do
         _, _, message = service.execute("/move #{project.full_path}", issue)
-        translated_string = _("Moved this issue to %{project_full_path}.")
+        translated_string = _("Moved this item to %{project_full_path}.")
         formatted_message = format(translated_string, project_full_path: project.full_path.to_s)
 
         expect(message).to eq(formatted_message)
       end
 
-      it 'returns move issue failure message when the referenced issue is not found' do
+      it 'returns move issue failure message when the referenced project is not found' do
         _, _, message = service.execute('/move invalid', issue)
 
-        expect(message).to eq(_("Failed to move this issue because target project doesn't exist."))
+        expect(message).to eq(_("Unable to move. Target project or group doesn't exist or doesn't support this item type."))
+      end
+
+      it 'returns move issue failure message when the path provided is to a group' do
+        _, _, message = service.execute("/move #{group.full_path}", issue)
+
+        expect(message).to eq(_("Unable to move. Target project or group doesn't exist or doesn't support this item type."))
+      end
+
+      context "when we pass a work_item" do
+        let(:work_item) { create(:work_item, :issue, project: project) }
+        let(:move_command) { "/move #{project.full_path}" }
+
+        it '/move execution method message' do
+          _, _, message = service.execute(move_command, work_item)
+
+          expect(message).to eq("Moved this item to #{project.full_path}.")
+        end
+      end
+    end
+
+    describe 'clone issue command' do
+      it 'returns the clone issue message' do
+        _, _, message = service.execute("/clone #{project.full_path}", issue)
+        translated_string = _("Cloned this item to %{project_full_path}.")
+        formatted_message = format(translated_string, project_full_path: project.full_path.to_s)
+
+        expect(message).to eq(formatted_message)
+      end
+
+      it 'returns clone issue failure message when the referenced project is not found' do
+        _, _, message = service.execute('/clone invalid', issue)
+
+        expect(message).to eq(_("Unable to clone. Target project or group doesn't exist or doesn't support this item type."))
+      end
+
+      it 'returns clone issue failure message when the path provided is to a group' do
+        _, _, message = service.execute("/clone #{group.full_path}", issue)
+
+        expect(message).to eq(_("Unable to clone. Target project or group doesn't exist or doesn't support this item type."))
+      end
+
+      context "when we pass a work_item" do
+        let(:work_item) { create(:work_item, :issue, project: project) }
+
+        it '/clone execution method message' do
+          _, _, message = service.execute("/clone #{project.full_path}", work_item)
+
+          expect(message).to eq("Cloned this item to #{project.full_path}.")
+        end
       end
     end
 
@@ -707,18 +766,18 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
     end
 
     shared_examples 'shrug command' do
-      it 'appends ¯\_(ツ)_/¯ to the comment' do
+      it 'adds ¯\_(ツ)_/¯' do
         new_content, _, _ = service.execute(content, issuable)
 
-        expect(new_content).to end_with(described_class::SHRUG)
+        expect(new_content).to eq(described_class::SHRUG)
       end
     end
 
     shared_examples 'tableflip command' do
-      it 'appends (╯°□°)╯︵ ┻━┻ to the comment' do
+      it 'adds (╯°□°)╯︵ ┻━┻' do
         new_content, _, _ = service.execute(content, issuable)
 
-        expect(new_content).to end_with(described_class::TABLEFLIP)
+        expect(new_content).to eq(described_class::TABLEFLIP)
       end
     end
 
@@ -1162,12 +1221,6 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
         it_behaves_like 'assign_reviewer command'
       end
 
-      context 'with the "request_review" alias' do
-        let(:content) { "/request_review @#{developer.username}" }
-
-        it_behaves_like 'assign_reviewer command'
-      end
-
       context 'with no user' do
         let(:content) { '/assign_reviewer' }
 
@@ -1180,6 +1233,101 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
         it_behaves_like 'failed command', 'a parse error' do
           let(:match_msg) { eq _("Could not apply assign_reviewer command. Failed to find users for 'do' and 'it!'.") }
         end
+      end
+    end
+
+    describe 'request_review command' do
+      let(:content) { "/request_review @#{developer.username}" }
+      let(:issuable) { merge_request }
+
+      context 'with one user' do
+        it 'assigns a reviewer to a single user' do
+          _, updates, message = service.execute(content, issuable)
+          translated_string = _("Requested a review from %{developer_to_reference}.")
+          formatted_message = format(translated_string, developer_to_reference: developer.to_reference.to_s)
+
+          expect(updates).to eq(reviewer_ids: [developer.id])
+          expect(message).to eq(formatted_message)
+        end
+
+        it 'explains command' do
+          _, explanations = service.explain(content, issuable)
+
+          expect(explanations).to eq(["Requests a review from #{developer.to_reference}."])
+        end
+      end
+
+      context 'when user is already assigned' do
+        let(:merge_request) { create(:merge_request, source_project: project, reviewers: [developer]) }
+
+        it 'requests a review' do
+          expect_next_instance_of(::MergeRequests::RequestReviewService) do |service|
+            expect(service).to receive(:execute).with(merge_request, developer)
+          end
+
+          _, _, message = service.execute(content, issuable)
+
+          translated_string = _("Requested a review from %{developer_to_reference}.")
+          formatted_message = format(translated_string, developer_to_reference: developer.to_reference.to_s)
+
+          expect(message).to eq(formatted_message)
+        end
+      end
+
+      # CE does not have multiple reviewers
+      context 'assign command with multiple reviewers' do
+        before do
+          project.add_developer(developer2)
+        end
+
+        # There's no guarantee that the reference extractor will preserve
+        # the order of the mentioned users since this is dependent on the
+        # order in which rows are returned. We just ensure that at least
+        # one of the mentioned users is assigned.
+        context 'assigns to one of the two users' do
+          let(:content) { "/request_review @#{developer.username} @#{developer2.username}" }
+
+          it 'assigns to a single reviewer' do
+            _, updates, message = service.execute(content, issuable)
+
+            expect(updates[:reviewer_ids].count).to eq(1)
+            reviewer = updates[:reviewer_ids].first
+            expect([developer.id, developer2.id]).to include(reviewer)
+
+            user = reviewer == developer.id ? developer : developer2
+
+            expect(message).to match("Requested a review from #{user.to_reference}.")
+          end
+        end
+      end
+
+      context 'when users are not set' do
+        let(:content) { "/request_review , " }
+
+        it 'returns an error message' do
+          _, explanations = service.explain(content, issuable)
+
+          expect(explanations).to eq(['Failed to request a review because no user was specified.'])
+        end
+      end
+
+      context 'with "me" alias' do
+        let(:content) { '/request_review me' }
+
+        it 'assigns a reviewer to a single user' do
+          _, updates, message = service.execute(content, issuable)
+          translated_string = _("Requested a review from %{developer_to_reference}.")
+          formatted_message = format(translated_string, developer_to_reference: developer.to_reference.to_s)
+
+          expect(updates).to eq(reviewer_ids: [developer.id])
+          expect(message).to eq(formatted_message)
+        end
+      end
+
+      context 'with no user' do
+        let(:content) { '/request_review' }
+
+        it_behaves_like 'failed command', "Failed to request a review because no user was specified."
       end
     end
 
@@ -1198,6 +1346,26 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
         let(:issuable) { issue }
 
         it_behaves_like 'failed command', 'Could not apply unassign_reviewer command.'
+      end
+
+      context 'with a not-yet-persisted merge request and a preceding assign_reviewer command' do
+        let(:content) do
+          <<-QUICKACTION
+/assign_reviewer #{developer.to_reference}
+/unassign_reviewer #{developer.to_reference}
+          QUICKACTION
+        end
+
+        let(:issuable) { build(:merge_request) }
+
+        it 'adds and then removes a single reviewer in a single step' do
+          _, updates, message = service.execute(content, issuable)
+          translated_string = _("Assigned %{developer_to_reference} as reviewer. Removed reviewer %{developer_to_reference}.")
+          formatted_message = format(translated_string, developer_to_reference: developer.to_reference.to_s)
+
+          expect(updates).to eq(reviewer_ids: [])
+          expect(message).to eq(formatted_message)
+        end
       end
 
       context 'with anything after the command' do
@@ -1370,6 +1538,91 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
 
         it_behaves_like 'label command' do
           let(:issuable) { issue }
+        end
+      end
+    end
+
+    context 'with an archived label' do
+      let(:archived) { create(:label, :archived, project: project, title: 'archived') }
+
+      it_behaves_like 'label command' do
+        let(:content) { %(/label ~"#{inprogress.title}" ~#{bug.title} ~#{archived.title}) }
+        let(:issuable) { issue }
+      end
+
+      it_behaves_like 'label command' do
+        let(:content) { %(/label ~"#{inprogress.title}" ~#{bug.title} ~#{archived.title}) }
+        let(:issuable) { merge_request }
+      end
+
+      it_behaves_like 'relabel command' do
+        let(:content) { %(/relabel ~"#{inprogress.title}" ~#{archived.title}) }
+        let(:issuable) { issue }
+      end
+
+      it_behaves_like 'relabel command' do
+        let(:content) { %(/relabel ~"#{inprogress.title}" ~#{archived.title}) }
+        let(:issuable) { merge_request }
+      end
+
+      context 'with the feature flag :labels_archived disabled' do
+        before do
+          stub_feature_flags(labels_archive: false)
+        end
+
+        shared_examples 'label command with archived label' do
+          it 'fetches label ids and populates add_label_ids if content contains /label' do
+            _, updates, _ = service.execute(content, issuable)
+
+            expect(updates).to match(add_label_ids: contain_exactly(bug.id, inprogress.id, archived.id))
+          end
+
+          it 'returns the label message' do
+            _, _, message = service.execute(content, issuable)
+
+            expect(message).to match %r{Added ~".*" ~".*" ~".*" labels.}
+            expect(message).to include(bug.to_reference(format: :name))
+            expect(message).to include(inprogress.to_reference(format: :name))
+            expect(message).to include(archived.to_reference(format: :name))
+          end
+        end
+
+        shared_examples 'relabel command with archived label' do
+          it 'populates label_ids: [] if content contains /relabel' do
+            issuable.update!(label_ids: [bug.id])
+            _, updates, _ = service.execute(content, issuable)
+
+            expect(updates).to match(label_ids: contain_exactly(inprogress.id, archived.id))
+          end
+
+          it 'returns the relabel message' do
+            issuable.update!(label_ids: [bug.id])
+            _, _, message = service.execute(content, issuable)
+
+            expect(message).to match %r{Replaced all labels with ~".*" ~".*" labels.}
+            expect(message).to include(inprogress.to_reference(format: :name))
+            expect(message).to include(archived.to_reference(format: :name))
+          end
+        end
+
+        it_behaves_like 'label command with archived label' do
+          let(:content) { %(/label ~"#{inprogress.title}" ~#{bug.title} ~#{archived.title}) }
+          let(:issuable) { issue }
+        end
+
+        it_behaves_like 'label command with archived label' do
+          let(:content) { %(/label ~"#{inprogress.title}" ~#{bug.title} ~#{archived.title}) }
+          let(:issuable) { merge_request }
+        end
+
+        it_behaves_like 'relabel command with archived label' do
+          let(:content) { %(/relabel ~"#{inprogress.title}" ~#{archived.title}) }
+          let(:issuable) { issue }
+        end
+
+        it_behaves_like 'relabel command with archived label' do
+          let(:content) { %(/relabel ~"#{inprogress.title}" ~#{archived.title}) }
+          let(:issuable) { merge_request }
         end
       end
     end
@@ -1592,6 +1845,18 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
       let(:issuable) { issue }
     end
 
+    it_behaves_like 'spend command with empty timezone' do
+      let(:date) { '2016-02-02' }
+      let(:content) { "/spend 30m #{date}" }
+      let(:issuable) { issue }
+    end
+
+    it_behaves_like 'spend command with empty timezone' do
+      let(:date) { '2016-02-02' }
+      let(:content) { "/spent 30m #{date}" }
+      let(:issuable) { issue }
+    end
+
     it_behaves_like 'spend command with invalid date' do
       let(:content) { '/spend 30m 17-99-99' }
       let(:issuable) { issue }
@@ -1760,33 +2025,6 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
       end
     end
 
-    context '/label command' do
-      context 'when target is a group level work item' do
-        let_it_be(:new_group) { create(:group, developers: developer) }
-        let_it_be(:group_level_work_item) { create(:work_item, :group_level, namespace: new_group) }
-        # this label should not be show on the list as belongs to another group
-        let_it_be(:invalid_label) { create(:group_label, title: 'not_from_group', group: group) }
-        let(:container) { new_group }
-
-        # This spec was introduced just to validate that the label finder scopes que query to a single group.
-        # The command checks that labels are available as part of the condition.
-        # Query was timing out in .com https://gitlab.com/gitlab-org/gitlab/-/issues/441123
-        it 'is not available when there are no labels associated with the group' do
-          expect(service.available_commands(group_level_work_item)).not_to include(a_hash_including(name: :label))
-        end
-
-        context 'when a label exists at the group level' do
-          before do
-            create(:group_label, group: new_group)
-          end
-
-          it 'is available' do
-            expect(service.available_commands(group_level_work_item)).to include(a_hash_including(name: :label))
-          end
-        end
-      end
-    end
-
     context '/copy_metadata command' do
       let(:todo_label) { create(:label, project: project, title: 'To Do') }
       let(:inreview_label) { create(:label, project: project, title: 'In Review') }
@@ -1821,6 +2059,28 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
 
         let(:content) { "/copy_metadata #{source_issuable.to_reference}" }
         let(:issuable) { issue }
+      end
+
+      context "when a work item type issue is passed" do
+        let(:content) { "/copy_metadata #{source_issuable.to_reference(project)}" }
+        let(:issuable) { create(:work_item, project: project) }
+
+        it_behaves_like 'copy_metadata command' do
+          let(:source_issuable) do
+            create(:work_item, project: project, milestone: milestone).tap do |wi|
+              wi.labels << [todo_label, inreview_label]
+            end
+          end
+        end
+
+        it_behaves_like 'failed command' do
+          let(:other_project) { build(:project, :public) }
+          let(:source_issuable) do
+            create(:work_item, project: other_project).tap do |wi|
+              wi.labels << [todo_label, inreview_label]
+            end
+          end
+        end
       end
 
       context 'when the parent issuable has a milestone' do
@@ -1867,10 +2127,43 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
     end
 
     context '/duplicate command' do
-      it_behaves_like 'duplicate command' do
-        let(:issue_duplicate) { create(:issue, project: project) }
-        let(:content) { "/duplicate #{issue_duplicate.to_reference}" }
-        let(:issuable) { issue }
+      let_it_be(:other_public_project) { create(:project, :public) }
+      let_it_be(:other_private_project) { create(:project, :private) }
+
+      context 'when duplicating an issue' do
+        let(:duplicate_item) { create(:issue, project: project) }
+
+        context 'with reference' do
+          it_behaves_like 'duplicate command' do
+            let(:content) { "/duplicate #{duplicate_item.to_reference}" }
+            let(:issuable) { issue }
+          end
+        end
+
+        context 'with url' do
+          it_behaves_like 'duplicate command' do
+            let(:content) { "/duplicate #{Gitlab::UrlBuilder.build(duplicate_item)}" }
+            let(:issuable) { issue }
+          end
+        end
+      end
+
+      context 'when duplicating a work item' do
+        let(:duplicate_item) { create(:work_item, project: project) }
+
+        context 'with reference' do
+          it_behaves_like 'duplicate command' do
+            let(:content) { "/duplicate #{duplicate_item.to_reference}" }
+            let(:issuable) { issue }
+          end
+        end
+
+        context 'with url' do
+          it_behaves_like 'duplicate command' do
+            let(:content) { "/duplicate #{Gitlab::UrlBuilder.build(duplicate_item)}" }
+            let(:issuable) { issue }
+          end
+        end
       end
 
       it_behaves_like 'failed command' do
@@ -1880,23 +2173,93 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
 
       context 'cross project references' do
         it_behaves_like 'duplicate command' do
-          let(:other_project) { create(:project, :public) }
-          let(:issue_duplicate) { create(:issue, project: other_project) }
-          let(:content) { "/duplicate #{issue_duplicate.to_reference(project)}" }
+          let(:duplicate_item) { create(:issue, project: other_public_project) }
+          let(:content) { "/duplicate #{duplicate_item.to_reference(project)}" }
           let(:issuable) { issue }
         end
 
-        it_behaves_like 'failed command', _('Failed to mark this issue as a duplicate because referenced issue was not found.') do
-          let(:content) { "/duplicate imaginary##{non_existing_record_iid}" }
-          let(:issuable) { issue }
+        context 'when executing command' do
+          context 'when item not found' do
+            let(:output_msg) do
+              _('Failed to mark this Issue as a duplicate because referenced item was not found.')
+            end
+
+            context 'when referencing an non-existent item' do
+              let(:content) { "/duplicate imaginary##{non_existing_record_iid}" }
+              let(:issuable) { issue }
+
+              it_behaves_like 'failed command'
+            end
+
+            context 'when referencing an inaccessible item' do
+              let(:duplicate_item) { create(:issue, project: other_private_project) }
+              let(:content) { "/duplicate #{duplicate_item.to_reference(project)}" }
+              let(:issuable) { issue }
+
+              it_behaves_like 'failed command'
+            end
+          end
+
+          context 'when trying to mark item duplicate of itself' do
+            let(:output_msg) { _('Failed to mark the Issue as duplicate of itself.') }
+            let(:issuable) { issue }
+            let(:content) { "/duplicate #{issuable.to_reference(project)}" }
+
+            it_behaves_like 'failed command'
+          end
+
+          context 'with insufficient permissions' do
+            let(:output_msg) { _('Failed to mark this Issue as duplicate due to insufficient permissions.') }
+            let(:duplicate_item) { create(:issue, project: project) }
+            let(:issuable) { issue }
+            let(:content) { "/duplicate #{duplicate_item.to_reference(project)}" }
+
+            before do
+              allow(service).to receive(:can_mark_as_duplicate?).and_return(false)
+            end
+
+            it_behaves_like 'failed command'
+          end
         end
 
-        it_behaves_like 'failed command', _('Failed to mark this issue as a duplicate because referenced issue was not found.') do
-          let(:other_project) { create(:project, :private) }
-          let(:issue_duplicate) { create(:issue, project: other_project) }
+        context 'when explaining the command' do
+          let(:output_msg) { _('Cannot mark this Issue as a duplicate because referenced item was not found.') }
 
-          let(:content) { "/duplicate #{issue_duplicate.to_reference(project)}" }
-          let(:issuable) { issue }
+          context 'when referencing an non-existent item' do
+            let(:content) { "/duplicate imaginary##{non_existing_record_iid}" }
+            let(:issuable) { issue }
+
+            it_behaves_like 'explain message'
+          end
+
+          context 'when referencing an inaccessible item' do
+            let(:duplicate_item) { create(:issue, project: other_private_project) }
+            let(:content) { "/duplicate #{duplicate_item.to_reference(project)}" }
+            let(:issuable) { issue }
+
+            it_behaves_like 'explain message'
+          end
+
+          context 'when trying to mark item duplicate of itself' do
+            let(:output_msg) { _('Cannot mark the Issue as duplicate of itself.') }
+            let(:issuable) { issue }
+            let(:content) { "/duplicate #{issuable.to_reference(project)}" }
+
+            it_behaves_like 'explain message'
+          end
+
+          context 'with insufficient permissions' do
+            let(:output_msg) { _('Cannot mark this Issue as duplicate due to insufficient permissions.') }
+            let(:duplicate_item) { create(:issue, project: project) }
+            let(:issuable) { issue }
+            let(:content) { "/duplicate #{duplicate_item.to_reference(project)}" }
+
+            before do
+              allow(service).to receive(:can_mark_as_duplicate?).and_return(false)
+            end
+
+            it_behaves_like 'explain message'
+          end
         end
       end
     end
@@ -2084,6 +2447,7 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
       end
     end
 
+    # rubocop:disable RSpec/MultipleMemoizedHelpers -- we need a few extra helpers for these examples
     context '/board_move command' do
       let_it_be(:todo) { create(:label, project: project, title: 'To Do') }
       let_it_be(:inreview) { create(:label, project: project, title: 'In Review') }
@@ -2171,6 +2535,7 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
         it_behaves_like 'failed command', 'Could not apply board_move command.'
       end
     end
+    # rubocop:enable RSpec/MultipleMemoizedHelpers
 
     context '/tag command' do
       let(:issuable) { commit }
@@ -2204,7 +2569,7 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
       text, commands = service.execute(content, issue, only: [:shrug])
 
       expect(commands).to be_empty
-      expect(text).to eq("test #{described_class::SHRUG}\n/close")
+      expect(text).to eq("#{described_class::SHRUG}\n/close")
     end
 
     it 'preserves leading whitespace' do
@@ -2220,15 +2585,15 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
 
       expect(Gitlab::UsageDataCounters::QuickActionActivityUniqueCounter)
         .to receive(:track_unique_action)
-        .with('shrug', args: 'test', user: developer)
+        .with('shrug', args: 'test', user: developer, project: project)
 
       expect(Gitlab::UsageDataCounters::QuickActionActivityUniqueCounter)
         .to receive(:track_unique_action)
-        .with('assign', args: 'me', user: developer)
+        .with('assign', args: 'me', user: developer, project: project)
 
       expect(Gitlab::UsageDataCounters::QuickActionActivityUniqueCounter)
         .to receive(:track_unique_action)
-        .with('milestone', args: '%4', user: developer)
+        .with('milestone', args: '%4', user: developer, project: project)
 
       service.execute(content, issue)
     end
@@ -2304,12 +2669,24 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
             expect_next_instance_of(
               MergeRequests::ApprovalService, project: merge_request.project, current_user: current_user
             ) do |service|
-              expect(service).to receive(:execute).with(merge_request)
+              expect(service).to receive(:execute).with(merge_request).and_return(true)
             end
 
             _, _, message = service.execute('/submit_review approve', merge_request)
 
-            expect(message).to eq(_('Submitted the current review.'))
+            expect(message).to eq(_('Submitted the current review. Approved the current merge request.'))
+          end
+
+          it 'adds error message when approval service fails' do
+            expect_next_instance_of(
+              MergeRequests::ApprovalService, project: merge_request.project, current_user: current_user
+            ) do |service|
+              expect(service).to receive(:execute).with(merge_request).and_return(false)
+            end
+
+            _, _, message = service.execute('/submit_review approve', merge_request)
+
+            expect(message).to eq(_('Submitted the current review. Failed to approve the current merge request.'))
           end
         end
 
@@ -2405,7 +2782,7 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
 
         it 'executes command successfully' do
           expect { unlink_issues }.to change { IssueLink.count }.by(-1)
-          expect(unlink_issues[2]).to eq("Removed link with #{other_issue.to_reference(issue)}.")
+          expect(unlink_issues[2]).to eq("Removed linked item #{other_issue.to_reference(issue)}.")
           expect(issue.notes.last.note).to eq("removed the relation with #{other_issue.to_reference}")
           expect(other_issue.notes.last.note).to eq("removed the relation with #{issue.to_reference}")
         end
@@ -2422,8 +2799,62 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
       end
     end
 
+    shared_examples 'only available when issue_or_work_item_feature_flag_enabled' do |command|
+      context 'when issue' do
+        it 'is available' do
+          _, explanations = service.explain(command, issue)
+
+          expect(explanations).not_to be_empty
+        end
+      end
+
+      context 'when project work item' do
+        let_it_be(:work_item) { create(:work_item, project: project) }
+
+        it 'is available' do
+          _, explanations = service.explain(command, work_item)
+
+          expect(explanations).not_to be_empty
+        end
+
+        context 'when feature flag disabled' do
+          before do
+            stub_feature_flags(work_items_alpha: false)
+          end
+
+          it 'is not available' do
+            _, explanations = service.explain(command, work_item)
+
+            expect(explanations).to be_empty
+          end
+        end
+      end
+
+      context 'when group work item' do
+        let_it_be(:work_item) { create(:work_item, :group_level) }
+
+        it 'is not available' do
+          _, explanations = service.explain(command, work_item)
+
+          expect(explanations).to be_empty
+        end
+      end
+    end
+
     describe 'add_email command' do
       let_it_be(:issuable) { issue }
+
+      shared_examples 'command available' do
+        it 'is not part of the available commands' do
+          expect(service.available_commands(issuable)).to include(a_hash_including(name: :add_email))
+        end
+      end
+
+      shared_examples 'command not available' do
+        it 'is not part of the available commands' do
+          expect(service.available_commands(issuable)).not_to include(a_hash_including(name: :add_email))
+        end
+      end
 
       it_behaves_like 'failed command', "No email participants were added. Either none were provided, or they already exist." do
         let(:content) { '/add_email' }
@@ -2539,16 +2970,30 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
         end
       end
 
-      it 'is part of the available commands' do
-        expect(service.available_commands(issuable)).to include(a_hash_including(name: :add_email))
+      it_behaves_like 'command available'
+
+      context 'when issuable is work item of type issue' do
+        let(:issuable) { create(:work_item, :issue, project: project) }
+
+        it_behaves_like 'command available'
+      end
+
+      context 'when the issuable is a work item of type incident' do
+        let(:issuable) { create(:work_item, :incident, project: project) }
+
+        it_behaves_like 'command available'
+      end
+
+      context 'when issuable is a work item of type task' do
+        let(:issuable) { create(:work_item, :task, project: project) }
+
+        it_behaves_like 'command not available'
       end
 
       context 'with non-persisted issue' do
         let(:issuable) { build(:issue) }
 
-        it 'is not part of the available commands' do
-          expect(service.available_commands(issuable)).not_to include(a_hash_including(name: :add_email))
-        end
+        it_behaves_like 'command not available'
       end
     end
 
@@ -2654,7 +3099,7 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
           _, _, message = convert_to_ticket
 
           expect(message).to eq(expected_message)
-          expect(issuable).to have_attributes(
+          expect(item).to have_attributes(
             confidential: false,
             author_id: original_author.id,
             service_desk_reply_to: nil
@@ -2667,26 +3112,35 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
           _, _, message = convert_to_ticket
 
           expect(message).to eq(s_('ServiceDesk|Converted issue to Service Desk ticket.'))
-          expect(issuable).to have_attributes(
+          expect(item).to have_attributes(
             confidential: expected_confidentiality,
-            author_id: Users::Internal.support_bot.id,
+            author_id: Users::Internal.support_bot_id,
             service_desk_reply_to: 'user@example.com'
           )
+
+          reopen_note = item.notes.last
+          expect(reopen_note.author).to eq(Users::Internal.support_bot)
+          expect(reopen_note).to be_confidential
         end
       end
 
-      let_it_be_with_reload(:issuable) { issue }
-      let_it_be(:original_author) { issue.author }
+      let_it_be_with_reload(:item) { create(:issue, project: project) }
+      let_it_be(:original_author) { item.author }
 
       let(:content) { '/convert_to_ticket' }
       let(:expected_message) do
         s_("ServiceDesk|Cannot convert issue to ticket because no email was provided or the format was invalid.")
       end
 
-      subject(:convert_to_ticket) { service.execute(content, issuable) }
+      subject(:convert_to_ticket) { service.execute(content, item) }
+
+      before do
+        # Support bot only has abilities in project if Service Desk enabled
+        allow(::ServiceDesk).to receive(:enabled?).with(project).and_return(true)
+      end
 
       it 'is part of the available commands' do
-        expect(service.available_commands(issuable)).to include(a_hash_including(name: :convert_to_ticket))
+        expect(service.available_commands(item)).to include(a_hash_including(name: :convert_to_ticket))
       end
 
       it_behaves_like 'a failed command execution'
@@ -2708,19 +3162,19 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
             create(:service_desk_setting, project: project, tickets_confidential_by_default: false)
           end
 
-          context 'when issuable is in a public project' do
+          context 'when item is in a public project' do
             it_behaves_like 'a successful command execution'
 
-            context 'when issuable is already confidential' do
+            context 'when item is already confidential' do
               before do
-                issuable.update!(confidential: true)
+                item.update!(confidential: true)
               end
 
               it_behaves_like 'a successful command execution'
             end
           end
 
-          context 'when issuable is in a private project' do
+          context 'when item is in a private project' do
             let(:expected_confidentiality) { false }
 
             before do
@@ -2730,12 +3184,18 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
             it_behaves_like 'a successful command execution'
           end
 
-          context 'when issuable is already confidential' do
+          context 'when item is already confidential' do
             let(:expected_confidentiality) { true }
 
             before do
-              issuable.update!(confidential: true)
+              item.update!(confidential: true)
             end
+
+            it_behaves_like 'a successful command execution'
+          end
+
+          context 'when item is a work item of type issue' do
+            let_it_be_with_reload(:item) { create(:work_item, :issue, project: project) }
 
             it_behaves_like 'a successful command execution'
           end
@@ -2744,22 +3204,32 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
 
       context 'when issue is Service Desk issue' do
         before do
-          issue.update!(
-            author: Users::Internal.support_bot,
+          item.update!(
+            author: support_bot,
             service_desk_reply_to: 'user@example.com'
           )
         end
 
         it 'is not part of the available commands' do
-          expect(service.available_commands(issuable)).not_to include(a_hash_including(name: :convert_to_ticket))
+          expect(service.available_commands(item)).not_to include(a_hash_including(name: :convert_to_ticket))
         end
       end
 
       context 'with non-persisted issue' do
-        let(:issuable) { build(:issue) }
+        let(:item) { build(:issue) }
 
         it 'is not part of the available commands' do
-          expect(service.available_commands(issuable)).not_to include(a_hash_including(name: :convert_to_ticket))
+          expect(service.available_commands(item)).not_to include(a_hash_including(name: :convert_to_ticket))
+        end
+      end
+
+      context 'when Service Desk is disabled' do
+        before do
+          allow(::ServiceDesk).to receive(:enabled?).with(project).and_return(false)
+        end
+
+        it 'is not part of the available commands' do
+          expect(service.available_commands(item)).not_to include(a_hash_including(name: :convert_to_ticket))
         end
       end
     end
@@ -2996,21 +3466,134 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
 
     context '/set_parent command' do
       let_it_be(:parent) { create(:work_item, :issue, project: project) }
-      let_it_be(:work_item) { create(:work_item, :task, project: project) }
+      let_it_be(:task_work_item) { create(:work_item, :task, project: project) }
       let_it_be(:parent_ref) { parent.to_reference(project) }
 
-      let(:content) { "/set_parent #{parent_ref}" }
+      context 'on a work item' do
+        context 'with a valid parent reference' do
+          let(:content) { "/set_parent #{parent_ref}" }
 
-      it 'returns success message' do
-        _, _, message = service.execute(content, work_item)
+          it 'returns success message' do
+            _, _, message = service.execute(content, task_work_item)
 
-        expect(message).to eq(_('Parent set successfully'))
+            expect(message).to eq(_('Parent item set successfully.'))
+          end
+
+          it 'sets correct update params' do
+            _, updates, _ = service.execute(content, task_work_item)
+
+            expect(updates).to eq(set_parent: parent)
+          end
+
+          context 'when the user does not have permission to read the work item' do
+            before do
+              allow(Ability).to receive(:allowed?).and_call_original
+              allow(Ability).to receive(:allowed?).with(current_user, :read_work_item, parent).and_return(false)
+            end
+
+            it 'does not assign the parent and returns an appropriate error' do
+              _, updates, message = service.execute(content, task_work_item)
+
+              expect(updates).to be_empty
+              expect(message).to eq("This parent item does not exist or you don't have sufficient permission.")
+              expect(task_work_item.reload.work_item_parent).to be_nil
+            end
+          end
+
+          context 'when the parent is already set to the same work item' do
+            let_it_be(:task_work_item_with_parent) do
+              create(:work_item, :task, project: project, work_item_parent: parent)
+            end
+
+            it 'does not assign the parent and returns an appropriate error' do
+              _, updates, message = service.execute(content, task_work_item_with_parent)
+
+              expect(updates).to be_empty
+              expect(message).to eq("#{task_work_item_with_parent.to_reference} has already been added to " \
+                "parent #{parent.to_reference}.")
+              expect(task_work_item_with_parent.reload.work_item_parent).to eq parent
+            end
+          end
+
+          context 'when the child is not confidential but the parent is confidential' do
+            let_it_be(:confidential_parent) { create(:work_item, :issue, :confidential, project: project) }
+            let(:content) { "/set_parent #{confidential_parent.to_reference(project)}" }
+
+            it 'does not assign the parent and returns an appropriate error' do
+              _, updates, message = service.execute(content, task_work_item)
+
+              expect(updates).to be_empty
+              expect(message).to eq("Cannot assign a confidential parent item to a non-confidential child item. Make " \
+                "the child item confidential and try again.")
+              expect(task_work_item.reload.work_item_parent).to be_nil
+            end
+          end
+
+          context 'when the child will become confidential, and the parent is confidential' do
+            let_it_be(:confidential_parent) { create(:work_item, :issue, :confidential, project: project) }
+            let(:content) { "/confidential\n/set_parent #{confidential_parent.to_reference(project)}" }
+
+            it 'sets correct update params' do
+              _, updates, _ = service.execute(content, task_work_item)
+
+              expect(updates).to eq({ set_parent: confidential_parent, confidential: true })
+            end
+          end
+
+          context 'when the child and parent are incompatible types' do
+            let(:other_task_work_item) { create(:work_item, :task, project: project) }
+            let(:content) { "/set_parent #{other_task_work_item.to_reference(project)}" }
+
+            it 'does not assign the parent and returns an appropriate error' do
+              _, updates, message = service.execute(content, task_work_item)
+
+              expect(updates).to be_empty
+              expect(message).to eq("Cannot assign this child type to parent type.")
+              expect(task_work_item.reload.work_item_parent).to be_nil
+            end
+          end
+        end
+
+        context 'with an invalid parent reference' do
+          let(:content) { "/set_parent not_a_valid_parent" }
+
+          it 'does not assign the parent and returns an appropriate error' do
+            _, updates, message = service.execute(content, task_work_item)
+
+            expect(updates).to be_empty
+            expect(message).to eq("This parent item does not exist or you don't have sufficient permission.")
+          end
+        end
+
+        context 'when epics are disabled' do
+          before do
+            stub_licensed_features(epics: false)
+          end
+
+          let_it_be(:issue_work_item) { create(:work_item, :issue, project: project) }
+
+          it 'does not contain command for issue work item types' do
+            expect(service.available_commands(issue_work_item)).not_to include(a_hash_including(name: :set_parent))
+          end
+
+          it 'contains command for task work item types' do
+            expect(service.available_commands(task_work_item)).to include(a_hash_including(name: :set_parent))
+          end
+        end
       end
 
-      it 'sets correct update params' do
-        _, updates, _ = service.execute(content, work_item)
+      context 'on an issue' do
+        context 'when epics are disabled' do
+          before do
+            stub_licensed_features(epics: false)
+          end
 
-        expect(updates).to eq(set_parent: parent)
+          let_it_be(:issue) { create(:issue, project: project) }
+
+          it 'does not contain command' do
+            expect(service.available_commands(issue)).not_to include(a_hash_including(name: :set_parent))
+          end
+        end
       end
     end
 
@@ -3036,7 +3619,7 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
 
         it 'returns correct explanation' do
           _, explanations = service.explain(content, work_item)
-          translated_string = _("Remove %{parent_to_reference} as this item's parent.")
+          translated_string = _("Remove %{parent_to_reference} as this item's parent item.")
           formatted_message = format(translated_string, parent_to_reference: parent.to_reference(work_item).to_s)
 
           expect(explanations)
@@ -3047,7 +3630,7 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
           _, updates, message = service.execute(content, work_item)
 
           expect(updates).to eq(remove_parent: true)
-          expect(message).to eq(_('Parent removed successfully'))
+          expect(message).to eq(_('Parent item removed successfully.'))
         end
       end
     end
@@ -3168,6 +3751,16 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
 
         expect(explanations).to eq([formatted_message])
       end
+
+      context 'when users are not set' do
+        let(:content) { "/assign_reviewer , " }
+
+        it 'returns an error message' do
+          _, explanations = service.explain(content, merge_request)
+
+          expect(explanations).to eq(['Failed to assign a reviewer because no user was specified.'])
+        end
+      end
     end
 
     describe 'milestone command' do
@@ -3238,7 +3831,7 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
           _, explanations = service.explain(content, merge_request)
 
           expect(explanations)
-            .to contain_exactly _("Problem with copy_metadata command: Failed to find issue or merge request.")
+            .to contain_exactly _("Problem with copy_metadata command: Failed to find work item or merge request.")
         end
       end
     end
@@ -3403,7 +3996,38 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
       it 'includes the project name' do
         _, explanations = service.explain(content, issue)
 
-        expect(explanations).to eq([_("Moves this issue to test/project.")])
+        expect(explanations).to eq([_("Moves this item to test/project.")])
+      end
+
+      context "when work item type is an issue" do
+        let(:move_command) { "/move test/project" }
+        let(:work_item) { create(:work_item, :issue, project: project) }
+
+        it "/move is available" do
+          _, explanations = service.explain(move_command, work_item)
+
+          expect(explanations).to match_array(["Moves this item to test/project."])
+        end
+      end
+    end
+
+    describe 'clone issue to another project command' do
+      let(:content) { '/clone test/project' }
+
+      it 'includes the project name' do
+        _, explanations = service.explain(content, issue)
+
+        expect(explanations).to match_array([_("Clones this item, without comments, to test/project.")])
+      end
+
+      context "when work item type is an issue" do
+        let(:work_item) { create(:work_item, :issue, project: project) }
+
+        it "/clone is available" do
+          _, explanations = service.explain("/clone test/project", work_item)
+
+          expect(explanations).to match_array(["Clones this item, without comments, to test/project."])
+        end
       end
     end
 
@@ -3570,15 +4194,19 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
       context 'when user has permissions' do
         it '/relate command is available' do
           _, explanations = service.explain(relate_content, issue)
-          translated_string = _("Marks this issue as related to %{issue}.")
-          formatted_message = format(translated_string, issue: other_issue.to_s)
+          translated_string = _("Added %{target} as a linked item related to this %{work_item_type}.")
+          formatted_message = format(
+            translated_string,
+            target: other_issue,
+            work_item_type: "issue"
+          )
 
           expect(explanations).to eq([formatted_message])
         end
 
         it '/unlink command is available' do
           _, explanations = service.explain(unlink_content, issue)
-          translated_string = _("Removes link with %{issue}.")
+          translated_string = _("Removes linked item %{issue}.")
           formatted_message = format(translated_string, issue: other_issue.to_s)
 
           expect(explanations).to eq([formatted_message])
@@ -3647,7 +4275,7 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
       shared_examples 'command is available' do
         it 'explanation contains correct message' do
           _, explanations = service.explain(command, work_item)
-          translated_string = _("Change item's parent to %{parent_ref}.")
+          translated_string = _("Set %{parent_ref} as this item's parent item.")
           formatted_message = format(translated_string, parent_ref: parent_ref.to_s)
 
           expect(explanations).to contain_exactly(formatted_message)
@@ -3797,6 +4425,9 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
   describe '#available_commands' do
     context 'when Guest is creating a new issue' do
       let_it_be(:guest) { create(:user) }
+      let_it_be(:developer) { create(:user) }
+
+      let(:current_user) { guest }
 
       let(:issue) { build(:issue, project: public_project) }
       let(:service) { described_class.new(container: project, current_user: guest) }
@@ -3818,6 +4449,26 @@ RSpec.describe QuickActions::InterpretService, feature_category: :team_planning 
           a_hash_including(name: :assign),
           a_hash_including(name: :due)
         )
+      end
+    end
+
+    context 'when target is a work item type of issue' do
+      let(:target) { create(:work_item, :issue, project: project) }
+
+      context "when work_item supports move and clone commands" do
+        it 'does recognize the actions' do
+          expect(service.available_commands(target).pluck(:name)).to include(:move, :clone)
+        end
+      end
+
+      context "when work_item does not support move and clone commands" do
+        before do
+          allow(target).to receive(:supports_move_and_clone?).and_return(false)
+        end
+
+        it 'does not recognize the action' do
+          expect(service.available_commands(target).pluck(:name)).not_to include(:move, :clone)
+        end
       end
     end
   end

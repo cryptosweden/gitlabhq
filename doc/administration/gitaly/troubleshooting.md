@@ -1,17 +1,16 @@
 ---
-stage: Systems
+stage: Data Access
 group: Gitaly
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting Gitaly
 ---
 
-# Troubleshooting Gitaly
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-Refer to the information below when troubleshooting Gitaly. For information on troubleshooting Gitaly Cluster (Praefect),
-see [Troubleshooting Gitaly Cluster](troubleshooting_gitaly_cluster.md).
+{{< /details >}}
 
 The following sections provide possible solutions to Gitaly errors.
 
@@ -23,8 +22,8 @@ and our advice on [parsing the `gitaly/current` file](../logs/log_parsing.md#par
 When using standalone Gitaly servers, you must make sure they are the same version
 as GitLab to ensure full compatibility:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Gitaly Servers**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview > Gitaly servers**.
 1. Confirm all Gitaly servers indicate that they are up to date.
 
 ## Find storage resource details
@@ -34,7 +33,7 @@ to determine the available and used space on a Gitaly storage:
 
 ```ruby
 Gitlab::GitalyClient::ServerService.new("default").storage_disk_statistics
-# For Gitaly Cluster
+# For Gitaly Cluster (Praefect)
 Gitlab::GitalyClient::ServerService.new("<storage name>").disk_statistics
 ```
 
@@ -48,6 +47,24 @@ To see the help page of `gitaly-debug` for a list of supported sub-commands, run
 
 ```shell
 gitaly-debug -h
+```
+
+## Use `gitaly git` when Git is required for troubleshooting
+
+Use `gitaly git` to execute Git commands by using the same Git execution environment as Gitaly for debugging or
+testing purposes. `gitaly git` is the preferred method to ensure version compatibility.
+
+`gitaly git` passes all arguments through to the underlying Git invocation and
+supports all forms of input that Git supports. To use `gitaly git`, run:
+
+```shell
+sudo -u git -- /opt/gitlab/embedded/bin/gitaly git <git-command>
+```
+
+For example, to run `git ls-tree` through Gitaly on a Linux package instance in the working directory of a repository:
+
+```shell
+sudo -u git -- /opt/gitlab/embedded/bin/gitaly git ls-tree --name-status HEAD
 ```
 
 ## Commits, pushes, and clones return a 401
@@ -88,7 +105,7 @@ check for an SSL or TLS problem:
 ```
 
 Check whether `Verify return code` field indicates a
-[known Linux package installation configuration problem](https://docs.gitlab.com/omnibus/settings/ssl/index.html).
+[known Linux package installation configuration problem](https://docs.gitlab.com/omnibus/settings/ssl/).
 
 If `openssl` succeeds but `gitlab-rake gitlab:gitaly:check` fails,
 check [certificate requirements](tls_support.md#certificate-requirements) for Gitaly.
@@ -113,7 +130,7 @@ environment variable. To set this in a Linux package installation:
 Sometimes you need to find out which Gitaly RPC created a particular Git process.
 
 One method for doing this is by using `DEBUG` logging. However, this needs to be enabled
-ahead of time and the logs produced are quite verbose.
+ahead of time and the logs produced are verbose.
 
 A lightweight method for doing this correlation is by inspecting the environment
 of the Git process (using its `PID`) and looking at the `CORRELATION_ID` variable:
@@ -151,11 +168,11 @@ Confirm the following are all true:
 
 - When any user adds or modifies a file from the repository using the GitLab
   UI, it immediately fails with a red `401 Unauthorized` banner.
-- Creating a new project and [initializing it with a README](../../user/project/index.md#create-a-blank-project)
+- Creating a new project and [initializing it with a README](../../user/project/_index.md#create-a-blank-project)
   successfully creates the project but doesn't create the README.
 - When [tailing the logs](https://docs.gitlab.com/omnibus/settings/logs.html#tail-logs-in-a-console-on-the-server)
   on a Gitaly client and reproducing the error, you get `401` errors
-  when reaching the [`/api/v4/internal/allowed`](../../development/internal_api/index.md) endpoint:
+  when reaching the `/api/v4/internal/allowed` endpoint:
 
   ```shell
   # api_json.log
@@ -224,8 +241,6 @@ update the secrets file on the Gitaly server to match the Gitaly client, then
 If you've confirmed that your `gitlab-secrets.json` file is the same on all Gitaly servers and clients,
 the application might be fetching this secret from a different file. Your Gitaly server's
 `config.toml file` indicates the secrets file in use.
-If that setting is missing, GitLab defaults to using `.gitlab_shell_secret` under
-`/opt/gitlab/embedded/service/gitlab-rails/.gitlab_shell_secret`.
 
 ## Repository pushes fail with `401 Unauthorized` and `JWT::VerificationError`
 
@@ -246,7 +261,7 @@ When attempting `git push`, you can see:
 This combination of errors occurs when the GitLab server has been upgraded to GitLab 15.5 or later but Gitaly has not yet been upgraded.
 
 From GitLab 15.5, GitLab [authenticates with GitLab Shell using a JWT token instead of a shared secret](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/86148).
-You should follow the [recommendations on upgrading external Gitaly](../../update/plan_your_upgrade.md#external-gitaly) and upgrade Gitaly before the GitLab
+You should follow the [recommendations on upgrading external Gitaly](../../update/upgrade.md#external-gitaly) and upgrade Gitaly before the GitLab
 server.
 
 ## Repository pushes fail with a `deny updating a hidden ref` error
@@ -264,10 +279,11 @@ The following references are read-only:
 To mirror-push branches and tags only, and avoid attempting to mirror-push protected refs, run:
 
 ```shell
-git push origin +refs/heads/*:refs/heads/* +refs/tags/*:refs/tags/*
+git push --force-with-lease origin 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
 ```
 
-Any other namespaces that the administrator wants to push can be included there as well via additional patterns.
+Any other namespaces that the administrator wants to push can be included there as well via
+additional [refspecs](https://git-scm.com/docs/git-push#_options).
 
 ## Command-line tools cannot connect to Gitaly
 
@@ -315,7 +331,7 @@ You might see the following in Gitaly and Praefect logs:
 ```shell
 {
   ...
-  "error":"rpc error: code = PermissionDenied desc = permission denied",
+  "error":"rpc error: code = PermissionDenied desc = permission denied: token has expired",
   "grpc.code":"PermissionDenied",
   "grpc.meta.client_name":"gitlab-web",
   "grpc.request.fullMethod":"/gitaly.ServerService/ServerInfo",
@@ -329,7 +345,7 @@ This information in the logs is a gRPC call
 [error response code](https://grpc.github.io/grpc/core/md_doc_statuscodes.html).
 
 If this error occurs, even though
-[the Gitaly auth tokens are set up correctly](troubleshooting_gitaly_cluster.md#praefect-errors-in-logs),
+[the Gitaly auth tokens are set up correctly](praefect/troubleshooting.md#praefect-errors-in-logs),
 it's likely that the Gitaly servers are experiencing
 [clock drift](https://en.wikipedia.org/wiki/Clock_drift). The auth tokens sent to Gitaly include a timestamp. To be considered valid, Gitaly requires that timestamp to be within 60 seconds of the Gitaly server time.
 
@@ -343,16 +359,6 @@ continue to listen on the old address after a `sudo gitlab-ctl reconfigure`.
 
 When this occurs, run `sudo gitlab-ctl restart` to resolve the issue. This should no longer be
 necessary because [this issue](https://gitlab.com/gitlab-org/gitaly/-/issues/2521) is resolved.
-
-## Errors in Gitaly logs when accessing repositories from a standalone Gitaly node
-
-You might see permission-denied errors in the Gitaly logs when you access a repository
-from a standalone Gitaly node. This error occurs even though file permissions are correct.
-It's likely that the Gitaly node is
-experiencing [clock drift](https://en.wikipedia.org/wiki/Clock_drift).
-
-Ensure that the GitLab and Gitaly nodes are synchronized and use an NTP time
-server to keep them synchronized if possible.
 
 ## Health check warnings
 
@@ -377,7 +383,7 @@ that do not exist in a repository.
 
 ## Git pushes are slow when Dynatrace is enabled
 
-Dynatrace can cause the `/opt/gitlab/embedded/bin/gitaly-hooks` reference transaction hook,
+Dynatrace can cause the `sudo -u git -- /opt/gitlab/embedded/bin/gitaly-hooks` reference transaction hook,
 to take several seconds to start up and shut down. `gitaly-hooks` is executed twice when users
 push, which causes a significant delay.
 
@@ -401,7 +407,7 @@ Building your merge request... This page will update when the build is complete
 Gitaly must be able to connect to itself to complete some operations. If the Gitaly certificate is not trusted by the Gitaly server,
 merge request diffs can't be generated.
 
-If Gitaly can't connect to itself, you see messages in the [Gitaly logs](../../administration/logs/index.md#gitaly-logs) like the following messages:
+If Gitaly can't connect to itself, you see messages in the [Gitaly logs](../logs/_index.md#gitaly-logs) like the following messages:
 
 ```json
 {
@@ -452,7 +458,7 @@ This error happens because Gitaly commit signing is headless and not associated 
 ## Gitaly logs show errors in `info` messages
 
 Because of a bug [introduced](https://gitlab.com/gitlab-org/gitaly/-/merge_requests/6201) in GitLab 16.3, additional entries were written to the
-[Gitaly logs](../logs/index.md#gitaly-logs). These log entries contained `"level":"info"` but the `msg` string appeared to contain an error.
+[Gitaly logs](../logs/_index.md#gitaly-logs). These log entries contained `"level":"info"` but the `msg` string appeared to contain an error.
 
 For example:
 
@@ -510,11 +516,18 @@ go tool trace heap.bin
 
 ### Profile Git operations
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/5700) in GitLab 16.9 [with a flag](../../administration/feature_flags.md) named `log_git_traces`. Disabled by default.
+{{< history >}}
 
-FLAG:
-On self-managed GitLab, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../../administration/feature_flags.md)
+- [Introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/5700) in GitLab 16.9 [with a flag](../feature_flags/_index.md) named `log_git_traces`. Disabled by default.
+
+{{< /history >}}
+
+{{< alert type="flag" >}}
+
+On GitLab Self-Managed, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../feature_flags/_index.md)
 named `log_git_traces`. On GitLab.com, this feature is available but can be configured by GitLab.com administrators only. On GitLab Dedicated, this feature is not available.
+
+{{< /alert >}}
 
 You can profile Git operations that Gitaly performs by sending additional information about Git operations to Gitaly logs. With this information, users have more insight
 for performance optimization, debugging, and general telemetry collection. For more information, see the [Git Trace2 API reference](https://git-scm.com/docs/api-trace2).
@@ -596,15 +609,22 @@ The new rule takes effect after the daemon restarts.
 
 ## Update repositories after removing a storage with a duplicate path
 
-> - Rake task `gitlab:gitaly:update_removed_storage_projects` [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/153008) in GitLab 17.1.
+{{< history >}}
+
+- Rake task `gitlab:gitaly:update_removed_storage_projects` [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/153008) in GitLab 17.1.
+
+{{< /history >}}
 
 In GitLab 17.0, support for configuring storages with duplicate paths [was removed](https://gitlab.com/gitlab-org/gitaly/-/issues/5598). This can mean that you
 must remove duplicate storage configuration from `gitaly` configuration.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Only use this Rake task when the old and new storages share the same disk path on the same Gitaly server. Using the this Rake task in any other situation
 causes the repository to become unavailable. Use the [project repository storage moves API](../../api/project_repository_storage_moves.md) to transfer
 projects between storages in all other situations.
+
+{{< /alert >}}
 
 When removing from the Gitaly configuration a storage that used the same path as another storage,
 the projects associated with the old storage must be reassigned to the new one.
@@ -629,18 +649,22 @@ gitaly['configuration'] = {
 If you were removing `duplicate-path` from the configuration, you would run the following
 Rake task to associate any projects assigned to it to `default` instead:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package installations
+{{< tab title="Linux package installations" >}}
 
 ```shell
 sudo gitlab-rake "gitlab:gitaly:update_removed_storage_projects[duplicate-path, default]"
 ```
 
-:::TabTitle Self-compiled installations
+{{< /tab >}}
+
+{{< tab title="Self-compiled installations" >}}
 
 ```shell
 sudo -u git -H bundle exec rake "gitlab:gitaly:update_removed_storage_projects[duplicate-path, default]" RAILS_ENV=production
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}

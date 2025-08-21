@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Iterating tables in batches
 ---
-
-# Iterating tables in batches
 
 Rails provides a method called `in_batches` that can be used to iterate over
 rows in batches. For example:
@@ -40,7 +39,7 @@ User Load (0.7ms)  SELECT  "users"."id" FROM "users" WHERE ("users"."id" >= 4165
 
 The API of this method is similar to `in_batches`, though it doesn't support
 all of the arguments that `in_batches` supports. You should always use
-`each_batch` _unless_ you have a specific need for `in_batches`.
+`each_batch` unless you have a specific need for `in_batches`.
 
 ## Iterating over non-unique columns
 
@@ -107,11 +106,14 @@ end
 
 The query above iterates over the project creators and prints them out without duplications.
 
-NOTE:
+{{< alert type="note" >}}
+
 In case the column is not unique (no unique index definition), calling the `distinct` method on
 the relation is necessary. Using not unique column without `distinct` may result in `each_batch`
 falling into an endless loop as described in following
 [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/285097).
+
+{{< /alert >}}
 
 ## `EachBatch` in data migrations
 
@@ -139,20 +141,20 @@ This table is a simplified version of the `users` table which contains several r
 smaller gaps in the `id` column to make the example a bit more realistic (a few records were
 already deleted). One index exists on the `id` field:
 
-| `ID` | `sign_in_count` | `created_at` |
-| -- | :-------------: | ------------ |
-| 1 | 1 | 2020-01-01 |
-| 2 | 4 | 2020-01-01 |
-| 9 | 1 | 2020-01-03 |
-| 300 | 5 | 2020-01-03 |
-| 301 | 9 | 2020-01-03 |
-| 302 | 8 | 2020-01-03 |
-| 303 | 2 | 2020-01-03 |
-| 350 | 1 | 2020-01-03 |
-| 351 | 3 | 2020-01-04 |
-| 352 | 0 | 2020-01-05 |
-| 353 | 9 | 2020-01-11 |
-| 354 | 3 | 2020-01-12 |
+| `ID`  | `sign_in_count` | `created_at` |
+|-------|:----------------|--------------|
+| `1`   | `1`             | 2020-01-01   |
+| `2`   | `4`             | 2020-01-01   |
+| `9`   | `1`             | 2020-01-03   |
+| `300` | `5`             | 2020-01-03   |
+| `301` | `9`             | 2020-01-03   |
+| `302` | `8`             | 2020-01-03   |
+| `303` | `2`             | 2020-01-03   |
+| `350` | `1`             | 2020-01-03   |
+| `351` | `3`             | 2020-01-04   |
+| `352` | `0`             | 2020-01-05   |
+| `353` | `9`             | 2020-01-11   |
+| `354` | `3`             | 2020-01-12   |
 
 Loading all users into memory (avoid):
 
@@ -180,7 +182,7 @@ database query:
 SELECT "users"."id" FROM "users" ORDER BY "users"."id" ASC LIMIT 1
 ```
 
-![Reading the start ID value](../img/each_batch_users_table_iteration_1_v13_7.png)
+![A users table and an ID column with a value of 1 highlighted.](img/each_batch_users_table_iteration_1_v13_7.png)
 
 Notice that the query only reads data from the index (`INDEX ONLY SCAN`), the table is not
 accessed. Database indexes are sorted so taking out the first item is a very cheap operation.
@@ -193,7 +195,7 @@ to get a "shifted" `id` value.
 SELECT "users"."id" FROM "users" WHERE "users"."id" >= 1 ORDER BY "users"."id" ASC LIMIT 1 OFFSET 5
 ```
 
-![Reading the end ID value](../img/each_batch_users_table_iteration_2_v13_7.png)
+![A users table and an ID column with the values 1, 2, 9, 300, 301, and 302 highlighted.](img/each_batch_users_table_iteration_2_v13_7.png)
 
 Again, the query only looks into the index. The `OFFSET 5` takes out the sixth `id` value: this
 query reads a maximum of six items from the index regardless of the table size or the iteration
@@ -206,7 +208,7 @@ for the `relation` block.
 SELECT "users".* FROM "users" WHERE "users"."id" >= 1 AND "users"."id" < 302
 ```
 
-![Reading the rows from the `users` table](../img/each_batch_users_table_iteration_3_v13_7.png)
+![A users table with the first four rows highlighted and an ID column with the first four rows highlighted.](img/each_batch_users_table_iteration_3_v13_7.png)
 
 Notice the `<` sign. Previously six items were read from the index and in this query, the last
 value is "excluded". The query looks at the index to get the location of the five `user`
@@ -219,7 +221,7 @@ previous iteration to find out the next end `id` value.
 SELECT "users"."id" FROM "users" WHERE "users"."id" >= 302 ORDER BY "users"."id" ASC LIMIT 1 OFFSET 5
 ```
 
-![Reading the second end ID value](../img/each_batch_users_table_iteration_4_v13_7.png)
+![Reading the second end ID value](img/each_batch_users_table_iteration_4_v13_7.png)
 
 Now we can easily construct the `users` query for the second iteration.
 
@@ -227,7 +229,7 @@ Now we can easily construct the `users` query for the second iteration.
 SELECT "users".* FROM "users" WHERE "users"."id" >= 302 AND "users"."id" < 353
 ```
 
-![Reading the rows for the second iteration from the users table](../img/each_batch_users_table_iteration_5_v13_7.png)
+![Reading the rows for the second iteration from the users table](img/each_batch_users_table_iteration_5_v13_7.png)
 
 ### Example 2: Iteration with filters
 
@@ -253,10 +255,13 @@ index on the `id` (primary key index) column however, we also have an extra cond
 `sign_in_count` column. The column is not part of the index, so the database needs to look into
 the actual table to find the first matching row.
 
-![Reading the index with extra filter](../img/each_batch_users_table_filter_v13_7.png)
+![Reading the index with extra filter](img/each_batch_users_table_filter_v13_7.png)
 
-NOTE:
+{{< alert type="note" >}}
+
 The number of scanned rows depends on the data distribution in the table.
+
+{{< /alert >}}
 
 - Best case scenario: the first user was never logged in. The database reads only one row.
 - Worst case scenario: all users were logged in at least once. The database reads all rows.
@@ -265,7 +270,7 @@ In this particular example, the database had to read 10 rows (regardless of our 
 to determine the first `id` value. In a "real-world" application it's hard to predict whether the
 filtering causes problems or not. In the case of GitLab, verifying the data on a
 production replica is a good start, but keep in mind that data distribution on GitLab.com can be
-different from self-managed instances.
+different from GitLab Self-Managed instances.
 
 #### Improve filtering with `each_batch`
 
@@ -277,7 +282,7 @@ CREATE INDEX index_on_users_never_logged_in ON users (id) WHERE sign_in_count = 
 
 This is how our table and the newly created index looks like:
 
-![Reading the specialized index](../img/each_batch_users_table_filtered_index_v13_7.png)
+![Reading the specialized index](img/each_batch_users_table_filtered_index_v13_7.png)
 
 This index definition covers the conditions on the `id` and `sign_in_count` columns thus makes the
 `each_batch` queries very effective (similar to the simple iteration example).
@@ -296,9 +301,12 @@ To address this problem, we have two options:
 - Create another, conditional index to cover the new query.
 - Replace the index with a more generalized configuration.
 
-NOTE:
+{{< alert type="note" >}}
+
 Having multiple indexes on the same table and on the same columns could be a performance bottleneck
 when writing data.
+
+{{< /alert >}}
 
 Let's consider the following index (avoid):
 
@@ -317,7 +325,7 @@ Executing the query above results in an `INDEX ONLY SCAN`. However, the query st
 iterate over an unknown number of entries in the index, and then find the first item where the
 `sign_in_count` is `0`.
 
-![Reading an ineffective index](../img/each_batch_users_table_bad_index_v13_7.png)
+![Reading an ineffective index](img/each_batch_users_table_bad_index_v13_7.png)
 
 We can improve the query significantly by swapping the columns in the index definition (prefer).
 
@@ -325,7 +333,7 @@ We can improve the query significantly by swapping the columns in the index defi
 CREATE INDEX index_on_users_never_logged_in ON users (sign_in_count, id)
 ```
 
-![Reading a good index](../img/each_batch_users_table_good_index_v13_7.png)
+![Reading a good index](img/each_batch_users_table_good_index_v13_7.png)
 
 The following index definition does not work well with `each_batch` (avoid).
 
@@ -375,8 +383,11 @@ constant "load" on the query which often ends up in statement timeouts. We have 
 of [confidential issues](../../user/project/issues/confidential_issues.md), the execution time
 and the accessed database rows depend on the data distribution in the `issues` table.
 
-NOTE:
+{{< alert type="note" >}}
+
 Using subqueries works only when the subquery returns a small number of rows.
+
+{{< /alert >}}
 
 #### Improving Subqueries
 
@@ -424,10 +435,10 @@ When to use `JOINS`:
 Example:
 
 ```ruby
-users = User.joins("LEFT JOIN personal_access_tokens on personal_access_tokens.user_id = users.id")
-
-users.each_batch do |relation|
-  relation.where("personal_access_tokens.name = 'name'")
+User.each_batch do |relation|
+  relation
+    .joins("LEFT JOIN personal_access_tokens on personal_access_tokens.user_id = users.id")
+    .where("personal_access_tokens.name = 'name'")
 end
 ```
 
@@ -614,8 +625,11 @@ iterator.each_batch(of: 100) do |records|
 end
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 To keep the iteration stable and predictable, avoid updating the columns in the `ORDER BY` clause.
+
+{{< /alert >}}
 
 ### Iterate over the `merge_request_diff_commits` table
 

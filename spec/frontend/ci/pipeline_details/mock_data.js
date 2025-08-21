@@ -1205,3 +1205,29 @@ export const failedRetryMutationResponse = {
     },
   },
 };
+
+export const mockPipelineStatusUpdatedResponse = {
+  data: {
+    ciPipelineStatusUpdated: {
+      id: 'gid://gitlab/Ci::Pipeline/1257',
+      retryable: false,
+      cancelable: false,
+      __typename: 'Pipeline',
+      detailedStatus: {
+        detailsPath: '/root/simple-ci-project/-/pipelines/1257',
+        deploymentDetailsPath: null,
+        icon: 'status_success',
+        id: 'success-1255-1255',
+        label: 'passed',
+        text: 'Passed',
+        __typename: 'DetailedStatus',
+      },
+    },
+  },
+};
+
+export const mockPipelineStatusNullResponse = {
+  data: {
+    ciPipelineStatusUpdated: null,
+  },
+};

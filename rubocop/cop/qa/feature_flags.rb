@@ -23,7 +23,7 @@ module RuboCop
       #   describe 'some test' do
       #     before do
       #       Runtime::Feature.enable(:flag)
-      class FeatureFlags < RuboCop::Cop::Cop
+      class FeatureFlags < RuboCop::Cop::Base
         APPLY_MESSAGE = "Apply the `feature_flag: { name: :flag }` metadata to the test to use `%{feature}` in " \
           "end-to-end tests."
         BLOCK_MESSAGE = "Feature flags must specify a name. Use a block with `feature_flag: { name: :flag }` instead."
@@ -33,10 +33,12 @@ module RuboCop
         FEATURE_METHODS = %i[enable disable set enabled?].freeze
         RESTRICT_ON_SEND = RSPEC_METHODS + FEATURE_METHODS
 
+        # @!method const_receiver(node)
         def_node_matcher :const_receiver, <<~PATTERN
           (send $const ...)
         PATTERN
 
+        # @!method feature_flag_metatag?(node)
         def_node_matcher :feature_flag_metatag?, <<~PATTERN
           (hash <(pair (sym :feature_flag) (hash <(pair (sym :name) _) ...>)) ...>)
         PATTERN

@@ -34,6 +34,10 @@ RSpec.describe 'Registration enabled callout', feature_category: :system_access 
       end
 
       it 'does not display callout on pages other than root, admin, or dashboard' do
+        # TODO: When removing the feature flag,
+        # we won't need the tests for the issues listing page, since we'll be using
+        # the work items listing page.
+        stub_feature_flags(work_item_planning_view: false)
         visit project_issues_path(project)
 
         expect(page).not_to have_content callout_title
@@ -43,14 +47,16 @@ RSpec.describe 'Registration enabled callout', feature_category: :system_access 
         before do
           visit admin_root_path
 
-          find_by_testid('close-registration-enabled-callout').click
+          within('body.page-initialised') do
+            find_by_testid('close-registration-enabled-callout').click
+          end
 
           wait_for_requests
 
           visit root_dashboard_path
         end
 
-        it 'does not display callout', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/391192' do
+        it 'does not display callout' do
           expect(page).not_to have_content callout_title
         end
       end

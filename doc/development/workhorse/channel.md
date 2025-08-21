@@ -1,10 +1,9 @@
 ---
 stage: Create
 group: Source Code
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Websocket channel support for Workhorse
 ---
-
-# Websocket channel support for Workhorse
 
 In some cases, GitLab can provide the following through a WebSocket:
 
@@ -19,7 +18,7 @@ the architecture of these connections.
 ## Introduction to WebSockets
 
 Websockets are an "upgraded" `HTTP/1.1` request. They permit bidirectional
-communication between a client and a server. **Websockets are not HTTP**.
+communication between a client and a server. Websockets are not HTTP.
 Clients can send messages (known as frames) to the server at any time, and
 vice versa. Client messages are not necessarily requests, and server messages are
 not necessarily responses. WebSocket URLs have schemes like `ws://` (unencrypted) or
@@ -40,7 +39,7 @@ At this point, the connection is still HTTP, so this is a request.
 The server can send a standard HTTP response, such as `404 Not Found` or
 `500 Internal Server Error`.
 
-If the server decides to permit the upgrade, it sends a HTTP
+If the server decides to permit the upgrade, it sends an HTTP
 `101 Switching Protocols` response. From this point, the connection is no longer
 HTTP. It is now a WebSocket and frames, not HTTP requests, flow over it. The connection
 persists until the client or server closes the connection.
@@ -122,7 +121,7 @@ This returns a JSON response containing details of where the
 terminal can be found, and how to connect it. In particular,
 the following details are returned in case of success:
 
-- WebSocket URL to connect** to, such as `wss://example.com/terminals/1.ws?tty=1`.
+- WebSocket URL to connect to, such as `wss://example.com/terminals/1.ws?tty=1`.
 - WebSocket sub-protocols to support, such as `["channel.k8s.io"]`.
 - Headers to send, such as `Authorization: Token xxyyz`.
 - Optional. Certificate authority to verify `wss` connections with.
@@ -143,7 +142,7 @@ remote end.
 
 Before upgrading the browser's connection to a websocket, Workhorse:
 
-1. Opens a HTTP client connection, according to the details given to it by Workhorse.
+1. Opens an HTTP client connection, according to the details given to it by Workhorse.
 1. Attempts to upgrade that connection to a websocket.
    - If it fails, an error response is sent to the browser.
    - If it succeeds, the browser is also upgraded.
@@ -172,7 +171,7 @@ Supporting new deployment services requires new sub-protocols to be supported.
 
 ### `channel.k8s.io`
 
-Used by Kubernetes, this sub-protocol defines a simple multiplexed channel.
+Used by Kubernetes, this sub-protocol defines a multiplexed channel.
 
 Control frames have their usual meanings. `TextMessage` frames are
 invalid. `BinaryMessage` frames represent I/O to a specific file

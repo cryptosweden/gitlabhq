@@ -4,7 +4,11 @@ module Packages
   module Conan
     class CreatePackageService < ::Packages::CreatePackageService
       def execute
-        create_package!(:conan,
+        if package_protected?(package_name: params[:package_name], package_type: :conan)
+          return ERROR_RESPONSE_PACKAGE_PROTECTED
+        end
+
+        created_package = create_package!(:conan,
           name: params[:package_name],
           version: params[:package_version],
           conan_metadatum_attributes: {
@@ -12,6 +16,12 @@ module Packages
             package_channel: params[:package_channel]
           }
         )
+
+        ServiceResponse.success(payload: { package: created_package })
+      rescue ActiveRecord::RecordInvalid => e
+        ServiceResponse.error(message: e.message, reason: :record_invalid)
+      rescue ArgumentError => e
+        ServiceResponse.error(message: e.message, reason: :invalid_parameter)
       end
     end
   end

@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Sidekiq worker attributes
 ---
-
-# Sidekiq worker attributes
 
 Worker classes can define certain attributes to control their behavior and add metadata.
 
@@ -108,7 +107,7 @@ shard_consumption = shard_rps * shard_duration_avg
 
 If we expect an increase of **less than 5%**, then no further action is needed.
 
-Otherwise, ping `@gitlab-org/scalability` on the merge request and ask
+Otherwise, ping `@gitlab-com/gl-infra/data-access/durability` on the merge request and ask
 for a review.
 
 ## Jobs with External Dependencies
@@ -224,7 +223,7 @@ We use the following approach to determine whether a worker is CPU-bound:
 
 ## Feature category
 
-All Sidekiq workers must define a known [feature category](../feature_categorization/index.md#sidekiq-workers).
+All Sidekiq workers must define a known [feature category](../feature_categorization/_index.md#sidekiq-workers).
 
 ## Job data consistency strategies
 
@@ -248,38 +247,19 @@ We require Sidekiq workers to make an explicit decision around whether they need
 primary database node for all reads and writes, or whether reads can be served from replicas. This is
 enforced by a RuboCop rule, which ensures that the `data_consistency` field is set.
 
-When setting this field, consider the following trade-off:
-
-- Ensure immediately consistent reads, but increase load on the primary database.
-- Prefer read replicas to add relief to the primary, but increase the likelihood of stale reads that have to be retried.
-
-To maintain the same behavior compared to before this field was introduced, set it to `:always`, so
-database operations only target the primary. Reasons for having to do so include workers
-that mostly or exclusively perform writes, or workers that read their own writes and who might run
-into data consistency issues should a stale record be read back from a replica. **Try to avoid
-these scenarios, since `:always` should be considered the exception, not the rule.**
-
-To allow for reads to be served from replicas, we added two additional consistency modes: `:sticky` and `:delayed`. A RuboCop rule
-reminds the developer when `:always` data consistency mode is used. If workers require the primary database, you can disable the rule in-line.
-
-When you declare either `:sticky` or `:delayed` consistency, workers become eligible for database
-load-balancing.
-
-In both cases, if the replica is not up-to-date and the time from scheduling the job was less than the minimum delay interval,
- the jobs sleep up to the minimum delay interval (0.8 seconds). This gives the replication process time to finish.
-The difference is in what happens when there is still replication lag after the delay: `sticky` workers
-switch over to the primary right away, whereas `delayed` workers fail fast and are retried once.
-If the workers still encounter replication lag, they switch to the primary instead. **If your worker never performs any writes,
-it is strongly advised to apply `:sticky` or `:delayed` consistency settings, since the worker never needs to rely on the primary database node.**
+Before `data_consistency` was introduced, the default behavior mimicked that of `:always`. Since jobs are
+now enqueued along with the current database LSN, the replica (for `:sticky` or `:delayed`) is guaranteed
+to be caught up to that point, or the job will be retried, or use the primary. This means that the data
+will be consistent at least to the point at which the job was enqueued.
 
 The table below shows the `data_consistency` attribute and its values, ordered by the degree to which
 they prefer read replicas and wait for replicas to catch up:
 
 | **Data consistency**  | **Description**  | **Guideline** |
 |--------------|-----------------------------|----------|
-| `:always`    | The job is required to use the primary database (default). | It should be used for workers that primarily perform writes, have strict requirements around data consistency when reading their own writes, or are cron jobs. |
-| `:sticky`    | The job prefers replicas, but switches to the primary for writes or when encountering replication lag. | It should be used for jobs that require to be executed as fast as possible but can sustain a small initial queuing delay.  |
-| `:delayed`   | The job prefers replicas, but switches to the primary for writes. When encountering replication lag before the job starts, the job is retried once. If the replica is still not up to date on the next retry, it switches to the primary. | It should be used for jobs where delaying execution further typically does not matter, such as cache expiration or web hooks execution. |
+| `:always`    | The job is required to use the primary database for all queries. (Deprecated) | **Deprecated** Only needed for jobs that encounter edge cases around primary stickiness. |
+| `:sticky`    | The job prefers replicas, but switches to the primary for writes or when encountering replication lag. | This is the preferred option. It should be used for jobs that require to be executed as fast as possible. Replicas are guaranteed to be caught up to the point at which the job was enqueued in Sidekiq. |
+| `:delayed`   | The job prefers replicas, but switches to the primary for writes. When encountering replication lag before the job starts, the job is retried once. If the replica is still not up to date on the next retry, it switches to the primary. | It should be used for jobs where delaying execution further typically does not matter, such as cache expiration or web hooks execution. It should not be used for jobs where retry is disabled, such as cron jobs. |
 
 In all cases workers read either from a replica that is fully caught up,
 or from the primary node, so data consistency is always ensured.
@@ -296,6 +276,31 @@ class DelayedWorker
 end
 ```
 
+### Overriding data consistency for a decomposed database
+
+GitLab uses multiple decomposed databases. Sidekiq workers usage of the respective databases may be skewed towards
+a particular database. For example, `PipelineProcessWorker` has a higher write traffic to the `ci` database compared to the
+`main` database. In the event of edge cases around primary stickiness, having separate data consistency defined for each
+database allows the worker to more efficiently use read replicas.
+
+If the `overrides` keyword argument is set, the `Gitlab::Database::LoadBalancing::SidekiqServerMiddleware` loads the load
+balancing strategy using the data consistency which most prefers the read replicas.
+The order of preference in increasing preference is: `:always`, `:sticky`, then `:delayed`.
+
+The overrides only apply if the GitLab instance is using multiple databases or `Gitlab::Database.database_mode == Gitlab::Database::MODE_MULTIPLE_DATABASES`.
+
+To set a data consistency for a worker, use the `data_consistency` class method with the `overrides` keyword argument:
+
+```ruby
+class MultipleDataConsistencyWorker
+  include ApplicationWorker
+
+  data_consistency :always, overrides: { ci: :sticky }
+
+  # ...
+end
+```
+
 ### `feature_flag` property
 
 The `feature_flag` property allows you to toggle a job's `data_consistency`,
@@ -303,9 +308,9 @@ which permits you to safely toggle load balancing capabilities for a specific jo
 When `feature_flag` is disabled, the job defaults to `:always`, which means that the job always uses the primary database.
 
 The `feature_flag` property does not allow the use of
-[feature gates based on actors](../feature_flags/index.md).
+[feature gates based on actors](../feature_flags/_index.md).
 This means that the feature flag cannot be toggled only for particular
-projects, groups, or users, but instead, you can safely use [percentage of time rollout](../feature_flags/index.md).
+projects, groups, or users, but instead, you can safely use [percentage of time rollout](../feature_flags/_index.md).
 Since we check the feature flag on both Sidekiq client and server, rolling out a 10% of the time,
 likely results in 1% (`0.1` `[from client]*0.1` `[from server]`) of effective jobs using replicas.
 
@@ -316,6 +321,21 @@ class DelayedWorker
   include ApplicationWorker
 
   data_consistency :delayed, feature_flag: :load_balancing_for_delayed_worker
+
+  # ...
+end
+```
+
+When using the `feature_flag` property with `overrides`, the jobs defaults to `always` for all database connections.
+When the feature flag is enabled, the configured data consistency is then applied to each database independently.
+For the below example, when the flag is enabled, the `main` database connections will use the `:always` data consistency while
+`ci` database connections will use `:sticky` data consistency.
+
+```ruby
+class DelayedWorker
+  include ApplicationWorker
+
+  data_consistency :always, overrides: { ci: :sticky }, feature_flag: :load_balancing_for_delayed_worker
 
   # ...
 end
@@ -366,23 +386,42 @@ class PausedWorker
 end
 ```
 
+{{< alert type="warning" >}}
+
+In case you want to remove the middleware for a worker, set the strategy to `:deprecated` to disable it and wait until
+a required stop before removing it completely. That ensures that all paused jobs are resumed correctly.
+
+{{< /alert >}}
+
 ## Concurrency limit
 
 With the `concurrency_limit` property, you can limit the worker's concurrency. It will put the jobs that are over this limit in
 a separate `LIST` and re-enqueued when it falls under the limit. `ConcurrencyLimit::ResumeWorker` is a cron
 worker that checks if any throttled jobs should be re-enqueued.
 
-The first job that crosses the defined concurency limit initiates the throttling process for all other jobs of this class.
+The first job that crosses the defined concurrency limit initiates the throttling process for all other jobs of this class.
 Until this happens, jobs are scheduled and executed as usual.
 
 When the throttling starts, newly scheduled and executed jobs will be added to the end of the `LIST` to ensure that
 the execution order is preserved. As soon as the `LIST` is empty again, the throttling process ends.
 
-WARNING:
+Prometheus metrics are exposed to monitor workers using concurrency limit middleware:
+
+- `sidekiq_concurrency_limit_deferred_jobs_total`
+- `sidekiq_concurrency_limit_queue_jobs`
+- `sidekiq_concurrency_limit_queue_jobs_total`
+- `sidekiq_concurrency_limit_max_concurrent_jobs`
+- `sidekiq_concurrency_limit_current_concurrent_jobs_total`
+
+{{< alert type="warning" >}}
+
 If there is a sustained workload over the limit, the `LIST` is going to grow until the limit is disabled or
 the workload drops under the limit.
 
-You should use a lambda to define the limit. If it returns `nil`, `0`, or a negative value, the limit won't be applied.
+{{< /alert >}}
+
+You should use a lambda to define the limit. If it returns `nil` or `0`, the limit won't be applied.
+Negative numbers pause the execution.
 
 ```ruby
 class LimitedWorker

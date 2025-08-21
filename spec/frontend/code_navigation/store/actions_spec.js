@@ -85,42 +85,6 @@ describe('Code navigation actions', () => {
           [],
         );
       });
-
-      it('calls addInteractionClass with data', () => {
-        return testAction(
-          actions.fetchData,
-          null,
-          state,
-          [
-            { type: 'REQUEST_DATA' },
-            {
-              type: 'REQUEST_DATA_SUCCESS',
-              payload: {
-                path: 'index.js',
-                normalizedData: {
-                  '0:0': {
-                    definitionLineNumber: 0,
-                    start_line: 0,
-                    start_char: 0,
-                    hover: { value: '123' },
-                  },
-                },
-              },
-            },
-          ],
-          [],
-        ).then(() => {
-          expect(addInteractionClass).toHaveBeenCalledWith({
-            path: 'index.js',
-            d: {
-              start_line: 0,
-              start_char: 0,
-              hover: { value: '123' },
-            },
-            wrapTextNodes,
-          });
-        });
-      });
     });
 
     describe('error', () => {
@@ -152,7 +116,7 @@ describe('Code navigation actions', () => {
       actions.showBlobInteractionZones({ state }, 'index.js');
 
       expect(addInteractionClass).toHaveBeenCalled();
-      expect(addInteractionClass.mock.calls.length).toBe(2);
+      expect(addInteractionClass.mock.calls).toHaveLength(2);
       expect(addInteractionClass.mock.calls[0]).toEqual([
         { path: 'index.js', d: 'test', wrapTextNodes },
       ]);

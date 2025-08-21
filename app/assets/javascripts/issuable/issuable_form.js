@@ -2,11 +2,11 @@ import $ from 'jquery';
 import Pikaday from 'pikaday';
 import GfmAutoComplete from 'ee_else_ce/gfm_auto_complete';
 import Autosave from '~/autosave';
-import { parsePikadayDate, pikadayToString } from '~/lib/utils/datetime_utility';
+import { newDate, toISODateFormat } from '~/lib/utils/datetime_utility';
 import { queryToObject, objectToQuery } from '~/lib/utils/url_utility';
 import UsersSelect from '~/users_select';
 import ZenMode from '~/zen_mode';
-import { containsSensitiveToken, confirmSensitiveAction, i18n } from '~/lib/utils/secret_detection';
+import { detectAndConfirmSensitiveTokens, CONTENT_TYPE } from '~/lib/utils/secret_detection';
 import { trackSavedUsingEditor } from '~/vue_shared/components/markdown/tracking';
 import { EDITING_MODE_CONTENT_EDITOR } from '~/vue_shared/constants';
 import { ISSUE_NOTEABLE_TYPE, MERGE_REQUEST_NOTEABLE_TYPE } from '~/notes/constants';
@@ -58,6 +58,7 @@ function getIssuableType() {
 }
 
 export default class IssuableForm {
+  // eslint-disable-next-line max-params
   static addAutosave(map, id, element, searchTerm, fallbackKey) {
     if (!element) return;
     map.set(
@@ -112,15 +113,15 @@ export default class IssuableForm {
         theme: 'gl-datepicker-theme animate-picker',
         format: 'yyyy-mm-dd',
         container: $issuableDueDate.parent().get(0),
-        parse: (dateString) => parsePikadayDate(dateString),
-        toString: (date) => pikadayToString(date),
+        parse: (dateString) => newDate(dateString),
+        toString: (date) => toISODateFormat(date),
         onSelect: (dateText) => {
           $issuableDueDate.val(calendar.toString(dateText));
           if (this.autosaves.has('due_date')) this.autosaves.get('due_date').save();
         },
         firstDay: gon.first_day_of_week,
       });
-      calendar.setDate(parsePikadayDate($issuableDueDate.val()));
+      calendar.setDate(newDate($issuableDueDate.val()));
     }
   }
 
@@ -162,14 +163,17 @@ export default class IssuableForm {
     const form = event.target;
     const descriptionText = this.descriptionField().val();
 
-    if (containsSensitiveToken(descriptionText)) {
-      const confirmed = await confirmSensitiveAction(i18n.descriptionPrompt);
-      if (!confirmed) {
-        this.submitButton.removeAttr('disabled');
-        this.submitButton.removeClass('disabled');
-        return false;
-      }
+    const confirmSubmit = await detectAndConfirmSensitiveTokens({
+      content: descriptionText,
+      contentType: CONTENT_TYPE.DESCRIPTION,
+    });
+
+    if (!confirmSubmit) {
+      this.submitButton.removeAttr('disabled');
+      this.submitButton.removeClass('disabled');
+      return false;
     }
+
     form.submit();
     return this.resetAutosave();
   }

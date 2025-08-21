@@ -19,7 +19,6 @@
   }
 
   .sidebar-container {
-    padding: 20px 0;
     padding-right: 100px;
     height: 100%;
     overflow-y: scroll;
@@ -28,32 +27,22 @@
   }
 
   li > .wiki-list {
-    min-height: 30px;
-    padding: 0 $gl-padding-8;
-
     &:hover,
     &.active {
-      background: var(--gray-50, $gray-50);
+      @apply gl-bg-neutral-50 dark:gl-bg-neutral-900;
     }
 
     &:hover {
       a {
-        color: var(--black, $black);
+        color: var(--gl-text-color-default);
       }
     }
 
     &:hover, &:focus, &:focus-within {
       .wiki-list-create-child-button {
-        display: block;
+        display: inline-flex;
       }
     }
-  }
-
-  .wiki-list-expand-button,
-  .wiki-list-collapse-button {
-    color: $gray-400;
-    position: absolute;
-    right: $gl-spacing-scale-2;
   }
 
   ul.wiki-pages,
@@ -66,13 +55,51 @@
   ul.wiki-pages ul {
     padding-left: 20px;
   }
+
+  .wiki-sidebar-custom-content {
+    h1 {
+      @apply gl-heading-3;
+    }
+
+    h2 {
+      @apply gl-heading-4;
+    }
+
+    h3 {
+      @apply gl-heading-5;
+    }
+
+    h1, h2, h3 {
+      @apply gl-mb-4;
+    }
+
+    h4, h5, h6 {
+      @apply gl-text-base gl-mt-0 gl-mb-2;
+    }
+
+    h5 {
+      @apply gl-font-semibold;
+    }
+
+    h6 {
+      @apply gl-font-normal;
+    }
+
+    ul, ol {
+      @apply gl-p-0 gl-mb-5;
+
+      ul, ol {
+        @apply gl-mb-0;
+      }
+
+      li {
+        @apply gl-ml-6 gl-leading-20;
+      }
+    }
+  }
 }
 
 ul.wiki-pages-list.content-list {
-  a {
-    color: var(--blue-600, $blue-600);
-  }
-
   ul {
     list-style: none;
     margin-left: 0;
@@ -122,19 +149,8 @@ ul.wiki-pages-list.content-list {
     }
   }
 
-  &.collapsed + ul {
+  &.collapsed + .wiki-pages-list-container {
     display: none;
-  }
-}
-
-.wiki-templates-list {
-  li {
-    padding-left: $gl-spacing-scale-4 !important;
-    padding-right: $gl-spacing-scale-4 !important;
-
-    li {
-      padding: 0 !important;
-    }
   }
 }
 
@@ -162,8 +178,10 @@ ul.wiki-pages-list.content-list {
   .container-limited.limit-container-width {
     max-width: 100%;
   }
+}
 
-  .gl-disclosure-dropdown {
-    display: none !important;
+.discussion {
+  .toggle-replies-widget {
+    border: 0;
   }
 }

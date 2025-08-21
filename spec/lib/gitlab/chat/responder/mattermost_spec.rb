@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Chat::Responder::Mattermost do
+RSpec.describe Gitlab::Chat::Responder::Mattermost, feature_category: :integrations do
   let(:chat_name) { create(:chat_name, chat_id: 'U123') }
 
   let(:pipeline) do
@@ -10,6 +10,7 @@ RSpec.describe Gitlab::Chat::Responder::Mattermost do
 
     pipeline.create_chat_data!(
       response_url: 'http://example.com',
+      project_id: pipeline.project_id,
       chat_name_id: chat_name.id
     )
 
@@ -23,7 +24,7 @@ RSpec.describe Gitlab::Chat::Responder::Mattermost do
     it 'sends a response back to Slack' do
       expect(Gitlab::HTTP).to receive(:post).with(
         'http://example.com',
-        { headers: { 'Content-Type': 'application/json' }, body: 'hello'.to_json }
+        { headers: { 'Content-Type': 'application/json' }, body: 'hello'.to_json, max_bytes: an_instance_of(Integer) }
       )
 
       responder.send_response('hello')

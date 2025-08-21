@@ -7,6 +7,8 @@ module Types
     graphql_name 'User'
     description 'Representation of a GitLab user.'
 
+    implements Types::TodoableInterface
+
     field :user_permissions,
       type: Types::PermissionTypes::User,
       description: 'Permissions for the current user on the resource.',
@@ -14,9 +16,9 @@ module Types
       method: :itself
 
     field :id,
-      type: GraphQL::Types::ID,
+      type: Types::GlobalIDType[::User],
       null: false,
-      description: 'ID of the user.'
+      description: 'Global ID of the user.'
     field :bot,
       type: GraphQL::Types::Boolean,
       null: false,
@@ -25,13 +27,15 @@ module Types
     field :username,
       type: GraphQL::Types::String,
       null: false,
-      description: 'Username of the user. Unique within this instance of GitLab.'
+      scopes: [:api, :read_api, :ai_workflows],
+      description: 'Username of the user. Unique within the instance of GitLab.'
     field :name,
       type: GraphQL::Types::String,
       null: false,
+      scopes: [:api, :read_api, :ai_workflows],
       resolver_method: :redacted_name,
       description: 'Human-readable name of the user. ' \
-      'Returns `****` if the user is a project bot and the requester does not have permission to view the project.'
+        'Returns `****` if the user is a project bot and the requester does not have permission to view the project.'
 
     field :state,
       type: Types::UserStateEnum,
@@ -74,7 +78,7 @@ module Types
     field :organizations,
       resolver: Resolvers::Users::OrganizationsResolver,
       null: true,
-      alpha: { milestone: '16.6' },
+      experiment: { milestone: '16.6' },
       description: 'Organizations where the user has access.'
     field :group_memberships,
       type: Types::GroupMemberType.connection_type,
@@ -86,6 +90,9 @@ module Types
     field :group_count,
       resolver: Resolvers::Users::GroupCountResolver,
       description: 'Group count for the user.'
+    field :project_count,
+      resolver: Resolvers::Users::ProjectCountResolver,
+      description: 'Project count for the user.'
     field :status,
       type: Types::UserStatusType,
       null: true,
@@ -107,7 +114,8 @@ module Types
     field :namespace,
       type: Types::NamespaceType,
       null: true,
-      description: 'Personal namespace of the user.'
+      description: 'Personal namespace of the user.',
+      resolver_method: :resolve_user_namespace
 
     field :todos,
       Types::TodoType.connection_type,
@@ -151,6 +159,11 @@ module Types
     field :gitpod_enabled, GraphQL::Types::Boolean, null: true,
       description: 'Whether Gitpod is enabled at the user level.'
 
+    field :user_preferences, ::Types::UserPreferencesType,
+      null: true,
+      description: 'Preferences for the user.',
+      method: :user_preference
+
     field :preferences_gitpod_path,
       GraphQL::Types::String,
       null: true,
@@ -162,9 +175,9 @@ module Types
     field :user_achievements,
       Types::Achievements::UserAchievementType.connection_type,
       null: true,
-      alpha: { milestone: '15.10' },
+      experiment: { milestone: '15.10' },
       description: "Achievements for the user. " \
-                   "Only returns for namespaces where the `achievements` feature flag is enabled.",
+        "Only returns for namespaces where the `achievements` feature flag is enabled.",
       extras: [:lookahead],
       resolver: ::Resolvers::Achievements::UserAchievementsForUserResolver
 
@@ -172,6 +185,18 @@ module Types
       type: ::GraphQL::Types::String,
       null: true,
       description: 'Bio of the user.'
+
+    field :active,
+      type: ::GraphQL::Types::Boolean,
+      null: true,
+      method: :active?,
+      description: 'Indicates if the user is active.'
+
+    field :human,
+      type: ::GraphQL::Types::Boolean,
+      null: true,
+      method: :human?,
+      description: 'Indicates if the user is a regular user.'
 
     field :linkedin,
       type: ::GraphQL::Types::String,
@@ -188,10 +213,16 @@ module Types
       null: true,
       description: 'Discord ID of the user.'
 
+    field :github,
+      type: ::GraphQL::Types::String,
+      null: true,
+      description: 'GitHub profile name of the user.'
+
     field :organization,
       type: ::GraphQL::Types::String,
       null: true,
-      description: 'Who the user represents or works for.'
+      description: 'Who the user represents or works for.',
+      method: :user_detail_organization
 
     field :job_title,
       type: ::GraphQL::Types::String,
@@ -219,6 +250,12 @@ module Types
       description: 'IDE settings.',
       method: :itself
 
+    field :type,
+      type: Types::Users::TypeEnum,
+      null: false,
+      description: 'Type of the user.',
+      method: :user_type
+
     definition_methods do
       def resolve_type(object, context)
         # in the absence of other information, we cannot tell - just default to
@@ -229,6 +266,12 @@ module Types
 
     def redacted_name
       object.redacted_name(context[:current_user])
+    end
+
+    def resolve_user_namespace
+      return object.namespace if object.namespace&.organization_id == context[:current_organization].id
+
+      nil
     end
   end
 end

@@ -51,7 +51,7 @@ RSpec.describe Gitlab::DataBuilder::Pipeline, feature_category: :continuous_inte
         username: user.username,
         avatar_url: user.avatar_url(only_path: false),
         email: user.public_email
-        })
+      })
       expect(data[:source_pipeline]).to be_nil
     end
 
@@ -67,7 +67,7 @@ RSpec.describe Gitlab::DataBuilder::Pipeline, feature_category: :continuous_inte
 
     context 'build with runner' do
       let_it_be(:tag_names) { %w[tag-1 tag-2] }
-      let_it_be(:ci_runner) { create(:ci_runner, tag_list: tag_names.map { |n| ActsAsTaggableOn::Tag.create!(name: n) }) }
+      let_it_be(:ci_runner) { create(:ci_runner, tag_list: tag_names.map { |n| create(:ci_tag, name: n) }) }
       let_it_be(:build) { create(:ci_build, pipeline: pipeline, runner: ci_runner) }
 
       it 'has runner attributes', :aggregate_failures do
@@ -209,6 +209,48 @@ RSpec.describe Gitlab::DataBuilder::Pipeline, feature_category: :continuous_inte
         create(:ci_build, :stop_review_app, :retried, :with_deployment, user: user, project: project, pipeline: pipeline)
 
         expect { described_class.build(pipeline.reload).with_retried_builds.to_json }.not_to exceed_query_limit(control)
+      end
+
+      it 'with environments' do
+        pipeline = create(:ci_pipeline, user: user, project: project)
+
+        staging_env = create(:environment, project: project, name: 'staging')
+        prod_env = create(:environment, project: project, name: 'production')
+
+        create(:ci_build, :with_deployment,
+          :environment_with_deployment_tier,
+          user: user,
+          project: project,
+          pipeline: pipeline,
+          environment: staging_env.name)
+
+        create(:ci_build, :with_deployment,
+          :environment_with_deployment_tier,
+          user: user,
+          project: project,
+          pipeline: pipeline,
+          environment: prod_env.name)
+
+        control = ActiveRecord::QueryRecorder.new { described_class.build(pipeline.reload).to_json }
+
+        review_env = create(:environment, project: project, name: 'review/feat-1')
+        dev_env = create(:environment, project: project, name: 'development')
+
+        create_list(:ci_build, 3, :with_deployment,
+          :environment_with_deployment_tier,
+          user: user,
+          project: project,
+          pipeline: pipeline,
+          environment: review_env.name)
+
+        create(:ci_build, :with_deployment,
+          :environment_with_deployment_tier,
+          user: user,
+          project: project,
+          pipeline: pipeline,
+          environment: dev_env.name)
+
+        expect { described_class.build(pipeline.reload).to_json }.not_to exceed_query_limit(control)
       end
     end
   end

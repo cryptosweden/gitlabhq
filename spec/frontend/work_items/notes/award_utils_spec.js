@@ -1,15 +1,19 @@
-import { getMutation, optimisticAwardUpdate } from '~/work_items/notes/award_utils';
+import {
+  getMutation,
+  optimisticAwardUpdate,
+  getNewCustomEmojiPath,
+} from '~/work_items/notes/award_utils';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import mockApollo from 'helpers/mock_apollo_helper';
-import { __ } from '~/locale';
-import groupWorkItemNotesByIidQuery from '~/work_items/graphql/notes/group_work_item_notes_by_iid.query.graphql';
 import workItemNotesByIidQuery from '~/work_items/graphql/notes/work_item_notes_by_iid.query.graphql';
+import workItemAwardEmojiQuery from '~/work_items/graphql/award_emoji.query.graphql';
 import addAwardEmojiMutation from '~/work_items/graphql/notes/work_item_note_add_award_emoji.mutation.graphql';
 import removeAwardEmojiMutation from '~/work_items/graphql/notes/work_item_note_remove_award_emoji.mutation.graphql';
 import {
-  mockWorkItemNotesResponseWithComments,
   mockAwardEmojiThumbsUp,
   mockAwardEmojiThumbsDown,
+  mockWorkItemNotesResponseWithComments,
+  workItemResponseFactory,
 } from '../mock_data';
 
 function getWorkItem(data) {
@@ -20,14 +24,14 @@ function getFirstNote(workItem) {
 }
 
 describe('Work item note award utils', () => {
-  const workItem = getWorkItem(mockWorkItemNotesResponseWithComments.data);
+  const workItem = getWorkItem(mockWorkItemNotesResponseWithComments().data);
   const firstNote = getFirstNote(workItem);
   const fullPath = 'test-project-path';
   const workItemIid = workItem.iid;
   const currentUserId = getIdFromGraphQLId(mockAwardEmojiThumbsDown.user.id);
 
   beforeEach(() => {
-    window.gon = { current_user_id: currentUserId };
+    window.gon = { current_user_id: currentUserId, current_user_fullname: 'root' };
   });
 
   describe('getMutation', () => {
@@ -38,7 +42,7 @@ describe('Work item note award utils', () => {
       expect(getMutation({ note, name })).toEqual({
         mutation: removeAwardEmojiMutation,
         mutationName: 'awardEmojiRemove',
-        errorMessage: __('Failed to remove emoji. Please try again'),
+        errorMessage: 'Failed to remove emoji. Please try again',
       });
     });
 
@@ -49,7 +53,7 @@ describe('Work item note award utils', () => {
       expect(getMutation({ note, name })).toEqual({
         mutation: addAwardEmojiMutation,
         mutationName: 'awardEmojiAdd',
-        errorMessage: __('Failed to add emoji. Please try again'),
+        errorMessage: 'Failed to add emoji. Please try again',
       });
     });
   });
@@ -62,7 +66,7 @@ describe('Work item note award utils', () => {
       apolloProvider.clients.defaultClient.writeQuery({
         query: workItemNotesByIidQuery,
         variables: { fullPath, iid: workItemIid },
-        ...mockWorkItemNotesResponseWithComments,
+        ...mockWorkItemNotesResponseWithComments(),
       });
     });
 
@@ -72,6 +76,30 @@ describe('Work item note award utils', () => {
 
       const updateFn = optimisticAwardUpdate({ note, name, fullPath, workItemIid });
 
+      updateFn(apolloProvider.clients.defaultClient.cache);
+
+      const updatedResult = apolloProvider.clients.defaultClient.readQuery({
+        query: workItemNotesByIidQuery,
+        variables: { fullPath, iid: workItemIid },
+      });
+
+      const updatedWorkItem = getWorkItem(updatedResult);
+      const updatedNote = getFirstNote(updatedWorkItem);
+
+      expect(updatedNote.awardEmoji.nodes).toEqual([
+        mockAwardEmojiThumbsDown,
+        mockAwardEmojiThumbsUp,
+      ]);
+    });
+
+    it("doesn't add duplicate new emoji to cache", () => {
+      const note = firstNote;
+      const { name } = mockAwardEmojiThumbsUp;
+
+      const updateFn = optimisticAwardUpdate({ note, name, fullPath, workItemIid });
+
+      // call update twice to simulate two identical optimistic updates
+      updateFn(apolloProvider.clients.defaultClient.cache);
       updateFn(apolloProvider.clients.defaultClient.cache);
 
       const updatedResult = apolloProvider.clients.defaultClient.readQuery({
@@ -107,21 +135,43 @@ describe('Work item note award utils', () => {
       expect(updatedNote.awardEmoji.nodes).toEqual([]);
     });
 
-    it.each`
-      description                                      | isGroup  | query
-      ${'calls project query when in project context'} | ${false} | ${workItemNotesByIidQuery}
-      ${'calls group query when in group context'}     | ${true}  | ${groupWorkItemNotesByIidQuery}
-    `('$description', ({ isGroup, query }) => {
+    it('calls cache updateQuery', () => {
       const note = firstNote;
       const { name } = mockAwardEmojiThumbsUp;
       const cacheSpy = { updateQuery: jest.fn() };
 
-      optimisticAwardUpdate({ note, name, fullPath, isGroup, workItemIid })(cacheSpy);
+      optimisticAwardUpdate({ note, name, fullPath, workItemIid })(cacheSpy);
 
       expect(cacheSpy.updateQuery).toHaveBeenCalledWith(
-        { query, variables: { fullPath, iid: workItemIid } },
+        { query: workItemNotesByIidQuery, variables: { fullPath, iid: workItemIid } },
         expect.any(Function),
       );
+    });
+  });
+
+  describe('getNewCustomEmojiPath', () => {
+    const newCustomEmojiPath = '/groups/gitlab-org/-/custom_emoji/new';
+    const cacheData = workItemResponseFactory({ newCustomEmojiPath });
+    const mockCache = {
+      readQuery: jest.fn().mockReturnValue({
+        workspace: {
+          workItem: cacheData.data.workItem,
+        },
+      }),
+    };
+
+    it('returns newCustomEmojiPath when it exists', () => {
+      const result = getNewCustomEmojiPath({
+        cache: mockCache,
+        fullPath,
+        workItemIid,
+      });
+
+      expect(mockCache.readQuery).toHaveBeenCalledWith({
+        query: workItemAwardEmojiQuery,
+        variables: { fullPath, iid: workItemIid, pageSize: 1 },
+      });
+      expect(result).toBe(newCustomEmojiPath);
     });
   });
 });

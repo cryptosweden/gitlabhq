@@ -2,32 +2,33 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Set and configure Git protocol v2 for your self-managed GitLab instance."
+description: Set and configure Git protocol v2 for GitLab Self-Managed.
+title: Configuring Git Protocol v2
 ---
 
-# Configuring Git Protocol v2
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 Git protocol v2 improves the v1 wire protocol in several ways and is
 enabled by default in GitLab for HTTP requests. To enable SSH, additional
 configuration is required by an administrator.
 
 More details about the new features and improvements are available in
-the [Google Open Source Blog](https://opensource.googleblog.com/2018/05/introducing-git-protocol-version-2.html)
-and the [protocol documentation](https://github.com/git/git/blob/master/Documentation/gitprotocol-v2.txt).
+the [Google Open Source Blog](https://opensource.googleblog.com/2018/05/introducing-git-protocol-version-2.html).
 
 ## Prerequisites
 
-From the client side, `git` `v2.18.0` or newer must be installed.
+From the client side, `git` `v2.18.0` or later must be installed.
 
 From the server side, if we want to configure SSH we need to set the `sshd`
 server to accept the `GIT_PROTOCOL` environment.
 
 In installations using [GitLab Helm Charts](https://docs.gitlab.com/charts/)
-and [All-in-one Docker image](../install/docker.md), the SSH
+and [All-in-one Docker image](../install/docker/_index.md), the SSH
 service is already configured to accept the `GIT_PROTOCOL` environment. Users
 need not do anything more.
 

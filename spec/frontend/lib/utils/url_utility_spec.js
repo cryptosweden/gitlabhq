@@ -2,7 +2,12 @@ import setWindowLocation from 'helpers/set_window_location_helper';
 import { TEST_HOST } from 'helpers/test_constants';
 import * as urlUtils from '~/lib/utils/url_utility';
 import { setGlobalAlerts } from '~/lib/utils/global_alerts';
-import { safeUrls, unsafeUrls } from './mock_data';
+import {
+  appendLineRangeHashToUrl,
+  getLineRangeFromHash,
+  setLocationHash,
+} from '~/lib/utils/url_utility';
+import { validURLs, invalidURLs } from './mock_data';
 
 jest.mock('~/lib/utils/global_alerts', () => ({
   getGlobalAlerts: jest.fn().mockImplementation(() => [
@@ -76,10 +81,12 @@ describe('URL utility', () => {
         gon.relative_url_root = '/gitlab';
       });
 
-      it('returns IDE path with route', () => {
-        expect(urlUtils.webIDEUrl('/gitlab/gitlab-org/gitlab-foss/merge_requests/1')).toBe(
-          '/gitlab/-/ide/project/gitlab-org/gitlab-foss/merge_requests/1',
-        );
+      it.each`
+        route                                                | result
+        ${'/gitlab/gitlab-org/gitlab-foss/merge_requests/1'} | ${'/gitlab/-/ide/project/gitlab-org/gitlab-foss/merge_requests/1'}
+        ${'/gitlab-org/gitlab-foss/edit/main/-/'}            | ${'/gitlab/-/ide/project/gitlab-org/gitlab-foss/edit/main/-/'}
+      `('returns $result for $route', ({ route, result }) => {
+        expect(urlUtils.webIDEUrl(route)).toBe(result);
       });
     });
   });
@@ -359,6 +366,50 @@ describe('URL utility', () => {
     });
   });
 
+  describe('setLocationHash', () => {
+    let originalLocation;
+    let originalHistory;
+    const mockPathname = '/some/path';
+    const mockSearch = '?some=query';
+
+    beforeEach(() => {
+      originalLocation = window.location;
+      originalHistory = window.history;
+
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: {
+          hash: jest.fn(),
+          pathname: mockPathname,
+          search: mockSearch,
+        },
+      });
+      Object.defineProperty(window, 'history', {
+        writable: true,
+        value: {
+          replaceState: jest.fn(),
+        },
+      });
+    });
+
+    afterEach(() => {
+      window.location = originalLocation;
+      window.history = originalHistory;
+    });
+
+    it('when hash is undefined', () => {
+      setLocationHash();
+
+      expect(window.history.replaceState).toHaveBeenCalledWith({}, '', mockPathname + mockSearch);
+    });
+
+    it('when hash is a string', () => {
+      setLocationHash('hash-value');
+
+      expect(window.location.hash).toBe('hash-value');
+    });
+  });
+
   describe('doesHashExistInUrl', () => {
     beforeEach(() => {
       setWindowLocation('#note_1');
@@ -426,6 +477,61 @@ describe('URL utility', () => {
       const url = urlUtils.setUrlFragment('/home/feature#overview', '#install');
 
       expect(url).toBe('/home/feature#install');
+    });
+  });
+
+  describe('getLineRangeFromHash', () => {
+    beforeEach(() => {
+      window.location.hash = '';
+    });
+
+    it('returns null when no line number hash is present', () => {
+      expect(getLineRangeFromHash()).toBe(null);
+    });
+
+    it('returns line number when hash is present in URL', () => {
+      window.location.hash = '#L42';
+      expect(getLineRangeFromHash()).toStrictEqual({ beginning: 42, end: 42 });
+    });
+
+    it('returns line number range when hash is present in URL', () => {
+      window.location.hash = '#L10-42';
+      expect(getLineRangeFromHash()).toStrictEqual({ beginning: 10, end: 42 });
+    });
+
+    it('returns null when hash is not a line number', () => {
+      window.location.hash = '#L42InvalidHash123';
+      expect(getLineRangeFromHash()).toBe(null);
+    });
+  });
+
+  describe('appendLineRangeHashToUrl', () => {
+    beforeEach(() => {
+      window.location.hash = '';
+    });
+
+    it('appends line number hash when present in URL', () => {
+      window.location.hash = '#L42';
+      expect(appendLineRangeHashToUrl('https://example.com/ide')).toBe(
+        'https://example.com/ide#L42',
+      );
+    });
+
+    it('appends line number range hash when present in URL', () => {
+      window.location.hash = '#L10-42';
+      expect(appendLineRangeHashToUrl('https://example.com/ide')).toBe(
+        'https://example.com/ide#L10-42',
+      );
+    });
+
+    it('returns original URL when no line number hash is present', () => {
+      window.location.hash = '#something-else';
+      expect(appendLineRangeHashToUrl('https://example.com/ide')).toBe('https://example.com/ide');
+    });
+
+    it('returns original URL when hash is not a line number', () => {
+      window.location.hash = '#L42InvalidHash123';
+      expect(appendLineRangeHashToUrl('https://example.com/ide')).toBe('https://example.com/ide');
     });
   });
 
@@ -781,25 +887,15 @@ describe('URL utility', () => {
     );
   });
 
-  describe('isSafeUrl', () => {
+  describe('isValidURL', () => {
     describe('with URL constructor support', () => {
-      it.each(safeUrls)('returns true for %s', (url) => {
-        expect(urlUtils.isSafeURL(url)).toBe(true);
+      it.each(validURLs)('returns true for %s', (url) => {
+        expect(urlUtils.isValidURL(url)).toBe(true);
       });
 
-      it.each(unsafeUrls)('returns false for %s', (url) => {
-        expect(urlUtils.isSafeURL(url)).toBe(false);
+      it.each(invalidURLs)('returns false for %s', (url) => {
+        expect(urlUtils.isValidURL(url)).toBe(false);
       });
-    });
-  });
-
-  describe('sanitizeUrl', () => {
-    it.each(safeUrls)('returns the url for %s', (url) => {
-      expect(urlUtils.sanitizeUrl(url)).toBe(url);
-    });
-
-    it.each(unsafeUrls)('returns `about:blank` for %s', (url) => {
-      expect(urlUtils.sanitizeUrl(url)).toBe('about:blank');
     });
   });
 
@@ -864,23 +960,24 @@ describe('URL utility', () => {
 
   describe('queryToObject', () => {
     it.each`
-      case                                                                      | query                               | options                                             | result
-      ${'converts query'}                                                       | ${'?one=1&two=2'}                   | ${undefined}                                        | ${{ one: '1', two: '2' }}
-      ${'converts query without ?'}                                             | ${'one=1&two=2'}                    | ${undefined}                                        | ${{ one: '1', two: '2' }}
-      ${'removes undefined values'}                                             | ${'?one=1&two=2&three'}             | ${undefined}                                        | ${{ one: '1', two: '2' }}
-      ${'overwrites values with same key and does not change key'}              | ${'?one[]=1&one[]=2&two=2&two=3'}   | ${undefined}                                        | ${{ 'one[]': '2', two: '3' }}
-      ${'gathers values with the same array-key, strips `[]` from key'}         | ${'?one[]=1&one[]=2&two=2&two=3'}   | ${{ gatherArrays: true }}                           | ${{ one: ['1', '2'], two: '3' }}
-      ${'overwrites values with the same array-key name'}                       | ${'?one=1&one[]=2&two=2&two=3'}     | ${{ gatherArrays: true }}                           | ${{ one: ['2'], two: '3' }}
-      ${'overwrites values with the same key name'}                             | ${'?one[]=1&one=2&two=2&two=3'}     | ${{ gatherArrays: true }}                           | ${{ one: '2', two: '3' }}
-      ${'ignores plus symbols'}                                                 | ${'?search=a+b'}                    | ${{ legacySpacesDecode: true }}                     | ${{ search: 'a+b' }}
-      ${'ignores plus symbols in keys'}                                         | ${'?search+term=a'}                 | ${{ legacySpacesDecode: true }}                     | ${{ 'search+term': 'a' }}
-      ${'ignores plus symbols when gathering arrays'}                           | ${'?search[]=a+b'}                  | ${{ gatherArrays: true, legacySpacesDecode: true }} | ${{ search: ['a+b'] }}
-      ${'replaces plus symbols with spaces'}                                    | ${'?search=a+b'}                    | ${undefined}                                        | ${{ search: 'a b' }}
-      ${'replaces plus symbols in keys with spaces'}                            | ${'?search+term=a'}                 | ${undefined}                                        | ${{ 'search term': 'a' }}
-      ${'preserves square brackets in array params'}                            | ${'?search[]=a&search[]=b'}         | ${{ gatherArrays: true }}                           | ${{ search: ['a', 'b'] }}
-      ${'decodes encoded square brackets in array params'}                      | ${'?search%5B%5D=a&search%5B%5D=b'} | ${{ gatherArrays: true }}                           | ${{ search: ['a', 'b'] }}
-      ${'replaces plus symbols when gathering arrays'}                          | ${'?search[]=a+b'}                  | ${{ gatherArrays: true }}                           | ${{ search: ['a b'] }}
-      ${'replaces plus symbols when gathering arrays for values with same key'} | ${'?search[]=a+b&search[]=c+d'}     | ${{ gatherArrays: true }}                           | ${{ search: ['a b', 'c d'] }}
+      case                                                                      | query                                                 | options                                             | result
+      ${'converts query'}                                                       | ${'?one=1&two=2'}                                     | ${undefined}                                        | ${{ one: '1', two: '2' }}
+      ${'converts query without ?'}                                             | ${'one=1&two=2'}                                      | ${undefined}                                        | ${{ one: '1', two: '2' }}
+      ${'removes undefined values'}                                             | ${'?one=1&two=2&three'}                               | ${undefined}                                        | ${{ one: '1', two: '2' }}
+      ${'overwrites values with same key and does not change key'}              | ${'?one[]=1&one[]=2&two=2&two=3'}                     | ${undefined}                                        | ${{ 'one[]': '2', two: '3' }}
+      ${'gathers values with the same array-key, strips `[]` from key'}         | ${'?one[]=1&one[]=2&two=2&two=3'}                     | ${{ gatherArrays: true }}                           | ${{ one: ['1', '2'], two: '3' }}
+      ${'overwrites values with the same array-key name'}                       | ${'?one=1&one[]=2&two=2&two=3'}                       | ${{ gatherArrays: true }}                           | ${{ one: ['2'], two: '3' }}
+      ${'overwrites values with the same key name'}                             | ${'?one[]=1&one=2&two=2&two=3'}                       | ${{ gatherArrays: true }}                           | ${{ one: '2', two: '3' }}
+      ${'ignores plus symbols'}                                                 | ${'?search=a+b'}                                      | ${{ legacySpacesDecode: true }}                     | ${{ search: 'a+b' }}
+      ${'ignores plus symbols in keys'}                                         | ${'?search+term=a'}                                   | ${{ legacySpacesDecode: true }}                     | ${{ 'search+term': 'a' }}
+      ${'ignores plus symbols when gathering arrays'}                           | ${'?search[]=a+b'}                                    | ${{ gatherArrays: true, legacySpacesDecode: true }} | ${{ search: ['a+b'] }}
+      ${'replaces plus symbols with spaces'}                                    | ${'?search=a+b'}                                      | ${undefined}                                        | ${{ search: 'a b' }}
+      ${'replaces plus symbols in keys with spaces'}                            | ${'?search+term=a'}                                   | ${undefined}                                        | ${{ 'search term': 'a' }}
+      ${'preserves square brackets in array params'}                            | ${'?search[]=a&search[]=b'}                           | ${{ gatherArrays: true }}                           | ${{ search: ['a', 'b'] }}
+      ${'decodes encoded square brackets in array params'}                      | ${'?search%5B%5D=a&search%5B%5D=b'}                   | ${{ gatherArrays: true }}                           | ${{ search: ['a', 'b'] }}
+      ${'handles special (i.e. or/not) operators'}                              | ${'?or[search][]=feature&or[search][]=documentation'} | ${{ specialOperators: true }}                       | ${{ 'or[search][]': ['feature', 'documentation'] }}
+      ${'replaces plus symbols when gathering arrays'}                          | ${'?search[]=a+b'}                                    | ${{ gatherArrays: true }}                           | ${{ search: ['a b'] }}
+      ${'replaces plus symbols when gathering arrays for values with same key'} | ${'?search[]=a+b&search[]=c+d'}                       | ${{ gatherArrays: true }}                           | ${{ search: ['a b', 'c d'] }}
     `('$case', ({ query, options, result }) => {
       expect(urlUtils.queryToObject(query, options)).toEqual(result);
     });
@@ -1303,5 +1400,22 @@ describe('URL utility', () => {
     `('path $path with ref $refType becomes $output', ({ path, refType, output }) => {
       expect(urlUtils.buildURLwithRefType({ base, path, refType })).toBe(output);
     });
+  });
+
+  describe('stripRelativeUrlRootFromPath', () => {
+    it.each`
+      relativeUrlRoot | path                   | expectation
+      ${''}           | ${'/foo/bar'}          | ${'/foo/bar'}
+      ${'/'}          | ${'/foo/bar'}          | ${'/foo/bar'}
+      ${'/foo'}       | ${'/foo/bar'}          | ${'/bar'}
+      ${'/gitlab/'}   | ${'/gitlab/-/ide/foo'} | ${'/-/ide/foo'}
+    `(
+      'with relative_url_root="$relativeUrlRoot", "$path" should return "$expectation"',
+      ({ relativeUrlRoot, path, expectation }) => {
+        window.gon.relative_url_root = relativeUrlRoot;
+
+        expect(urlUtils.stripRelativeUrlRootFromPath(path)).toBe(expectation);
+      },
+    );
   });
 });

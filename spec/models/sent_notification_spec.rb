@@ -4,7 +4,8 @@ require 'spec_helper'
 
 RSpec.describe SentNotification, :request_store, feature_category: :shared do
   let_it_be(:user) { create(:user) }
-  let_it_be(:project) { create(:project) }
+  let_it_be(:group) { create(:group) }
+  let_it_be(:project) { create(:project, :repository, group: group) }
 
   describe 'validation' do
     describe 'note validity' do
@@ -46,6 +47,63 @@ RSpec.describe SentNotification, :request_store, feature_category: :shared do
     it { is_expected.to belong_to(:issue_email_participant) }
   end
 
+  describe 'callbacks' do
+    describe '#ensure_sharding_key' do
+      let(:additional_args) { {} }
+
+      subject(:notification_namespace_id) do
+        record = described_class.new(noteable: noteable, **additional_args)
+        record.valid?
+
+        record.namespace_id
+      end
+
+      context 'when noteable is a DesignManagement::Design' do
+        let(:noteable) { create(:design, issue: create(:issue, project: project)).reload }
+
+        # Using project.namespace_id here instead of project.project_namespace_id as that's the value the trigger
+        # sets for design_management_designs records in the DB. That shouls also be a valid sharding key.
+        it { is_expected.to eq(project.namespace_id) }
+      end
+
+      context 'when noteable is a Issue' do
+        let(:noteable) { create(:issue, project: project) }
+
+        it { is_expected.to eq(noteable.namespace_id) }
+      end
+
+      context 'when noteable is a MergeRequest' do
+        let(:noteable) { create(:merge_request, source_project: project) }
+
+        it { is_expected.to eq(project.project_namespace_id) }
+      end
+
+      context 'when noteable is a ProjectSnippet' do
+        let(:noteable) { create(:project_snippet, project: project) }
+
+        it { is_expected.to eq(project.project_namespace_id) }
+      end
+
+      context 'when noteable is a Commit' do
+        let(:commit) { create(:commit, project: project) }
+        let(:noteable) { nil }
+        let(:additional_args) { { project: project, noteable_type: commit.class.name, commit_id: commit.id } }
+
+        it { is_expected.to eq(project.project_namespace_id) }
+      end
+
+      context 'when noteable type is not supported' do
+        let(:noteable) { create(:personal_snippet) }
+
+        it 'raises an error' do
+          expect do
+            notification_namespace_id
+          end.to raise_error(SentNotification::INVALID_NOTEABLE)
+        end
+      end
+    end
+  end
+
   shared_examples 'a successful sent notification' do
     it 'creates a new SentNotification' do
       expect { subject }.to change { described_class.count }.by(1)
@@ -56,7 +114,47 @@ RSpec.describe SentNotification, :request_store, feature_category: :shared do
     it 'writes without sticking to primary' do
       subject
 
-      expect(Gitlab::Database::LoadBalancing::Session.current.use_primary?).to be false
+      Gitlab::Database::LoadBalancing.each_load_balancer do |lb|
+        expect(Gitlab::Database::LoadBalancing::SessionMap.current(lb).use_primary?).to be false
+      end
+    end
+  end
+
+  describe '.for' do
+    let_it_be(:sent_notification) { create(:sent_notification, project: project) }
+
+    subject { described_class.for(reply_key) }
+
+    context 'when reply key uses old format' do
+      let(:reply_key) { sent_notification.reply_key }
+
+      it { is_expected.to eq(sent_notification) }
+
+      context 'when sent_notifications_partitioned_reply_key FF is disabled' do
+        before do
+          stub_feature_flags(sent_notifications_partitioned_reply_key: false)
+        end
+
+        it { is_expected.to eq(sent_notification) }
+      end
+    end
+
+    context 'when reply key uses partitioned table format' do
+      let(:reply_key) do
+        # TODO: This can be simplified to calling partitioned_reply_key when the FF is removed
+        microseconds = (sent_notification.created_at.to_r * 1_000_000).to_i
+        "i_#{sent_notification.id}-k_#{sent_notification.reply_key}-t_#{microseconds}"
+      end
+
+      it { is_expected.to eq(sent_notification) }
+
+      context 'when sent_notifications_partitioned_reply_key FF is disabled' do
+        before do
+          stub_feature_flags(sent_notifications_partitioned_reply_key: false)
+        end
+
+        it { is_expected.to be_nil }
+      end
     end
   end
 
@@ -72,7 +170,7 @@ RSpec.describe SentNotification, :request_store, feature_category: :shared do
       let!(:issue_email_participant) { create(:issue_email_participant, issue: issue) }
 
       subject(:sent_notification) do
-        described_class.record(issue, user.id, described_class.reply_key, {
+        described_class.record(issue, user.id, {
           issue_email_participant: issue_email_participant
         })
       end
@@ -139,10 +237,6 @@ RSpec.describe SentNotification, :request_store, feature_category: :shared do
       let(:noteable) { project.commit }
     end
 
-    it_behaves_like 'a non-unsubscribable notification', 'personal snippet' do
-      let(:noteable) { create(:personal_snippet, project: project) }
-    end
-
     it_behaves_like 'a non-unsubscribable notification', 'project snippet' do
       let(:noteable) { create(:project_snippet, project: project) }
     end
@@ -178,10 +272,6 @@ RSpec.describe SentNotification, :request_store, feature_category: :shared do
       let(:noteable) { project.commit }
     end
 
-    it_behaves_like 'a non-commit notification', 'personal snippet' do
-      let(:noteable) { create(:personal_snippet, project: project) }
-    end
-
     it_behaves_like 'a non-commit notification', 'project snippet' do
       let(:noteable) { create(:project_snippet, project: project) }
     end
@@ -215,10 +305,6 @@ RSpec.describe SentNotification, :request_store, feature_category: :shared do
     it_behaves_like 'a non-snippet notification', 'commit' do
       let(:project) { create(:project, :repository) }
       let(:noteable) { project.commit }
-    end
-
-    it_behaves_like 'a snippet notification', 'personal snippet' do
-      let(:noteable) { create(:personal_snippet, project: project) }
     end
 
     it_behaves_like 'a snippet notification', 'project snippet' do

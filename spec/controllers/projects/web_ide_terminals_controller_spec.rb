@@ -121,10 +121,10 @@ RSpec.describe Projects::WebIdeTerminalsController do
       end
 
       post :check_config, params: {
-                            namespace_id: project.namespace.to_param,
-                            project_id: project.to_param,
-                            branch: 'master'
-                          }
+        namespace_id: project.namespace.to_param,
+        project_id: project.to_param,
+        branch: 'master'
+      }
     end
 
     it_behaves_like 'terminal access rights'
@@ -144,10 +144,10 @@ RSpec.describe Projects::WebIdeTerminalsController do
 
     subject do
       post :create, params: {
-                      namespace_id: project.namespace.to_param,
-                      project_id: project.to_param,
-                      branch: branch
-                    }
+        namespace_id: project.namespace.to_param,
+        project_id: project.to_param,
+        branch: branch
+      }
     end
 
     context 'when terminal job is created successfully' do
@@ -167,20 +167,6 @@ RSpec.describe Projects::WebIdeTerminalsController do
           end
         end
       end
-
-      it 'increases the web ide terminal counter' do
-        expect(Gitlab::UsageDataCounters::WebIdeCounter).to receive(:increment_terminals_count)
-
-        subject
-      end
-    end
-
-    shared_examples 'web ide terminal usage counter' do
-      it 'does not increase', :enable_admin_mode do
-        expect(Gitlab::UsageDataCounters::WebIdeCounter).not_to receive(:increment_terminals_count)
-
-        subject
-      end
     end
 
     context 'when branch does not exist' do
@@ -192,8 +178,6 @@ RSpec.describe Projects::WebIdeTerminalsController do
 
         expect(response).to have_gitlab_http_status(:bad_request)
       end
-
-      it_behaves_like 'web ide terminal usage counter'
     end
 
     context 'when there is an error creating the job' do
@@ -210,8 +194,6 @@ RSpec.describe Projects::WebIdeTerminalsController do
 
         expect(response).to have_gitlab_http_status(:bad_request)
       end
-
-      it_behaves_like 'web ide terminal usage counter'
     end
 
     context 'when the current build is nil' do
@@ -229,8 +211,6 @@ RSpec.describe Projects::WebIdeTerminalsController do
 
         expect(response).to have_gitlab_http_status(:bad_request)
       end
-
-      it_behaves_like 'web ide terminal usage counter'
     end
   end
 
@@ -239,10 +219,10 @@ RSpec.describe Projects::WebIdeTerminalsController do
 
     before do
       post(:cancel, params: {
-                      namespace_id: project.namespace.to_param,
-                      project_id: project.to_param,
-                      id: job.id
-                    })
+        namespace_id: project.namespace.to_param,
+        project_id: project.to_param,
+        id: job.id
+      })
     end
 
     it_behaves_like 'terminal access rights'
@@ -263,10 +243,10 @@ RSpec.describe Projects::WebIdeTerminalsController do
 
     before do
       post(:retry, params: {
-                     namespace_id: project.namespace.to_param,
-                     project_id: project.to_param,
-                     id: job.id
-                   })
+        namespace_id: project.namespace.to_param,
+        project_id: project.to_param,
+        id: job.id
+      })
     end
 
     it_behaves_like 'terminal access rights'

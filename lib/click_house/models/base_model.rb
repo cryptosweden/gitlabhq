@@ -3,12 +3,12 @@
 # rubocop: disable CodeReuse/ActiveRecord
 module ClickHouse
   module Models
-    class BaseModel
+    class BaseModel < ClickHouse::Client::QueryLike
       extend Forwardable
 
-      def_delegators :@query_builder, :to_sql
+      def_delegators :@query_builder, :to_sql, :to_redacted_sql
 
-      def initialize(query_builder = ClickHouse::QueryBuilder.new(self.class.table_name))
+      def initialize(query_builder = ClickHouse::Client::QueryBuilder.new(self.class.table_name))
         @query_builder = query_builder
       end
 
@@ -30,6 +30,10 @@ module ClickHouse
 
       def offset(count)
         self.class.new(@query_builder.offset(count))
+      end
+
+      def group(...)
+        self.class.new(@query_builder.group(...))
       end
 
       def select(...)

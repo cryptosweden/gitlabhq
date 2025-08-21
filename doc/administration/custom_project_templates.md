@@ -2,45 +2,47 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Configure project templates and make them available to all projects on your GitLab instance."
+gitlab_dedicated: yes
+description: Configure project templates and make them available to all projects on your GitLab instance.
+title: Custom project templates for your instance
 ---
 
-# Custom instance-level project templates
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
 
-As an administrator, you can configure a group that contains projects available for
-use as the source of project templates on your instance. You can then
-[create a new project](../user/project/index.md#create-a-project-from-a-custom-template),
-that starts from the template project's contents.
+{{< /details >}}
 
-To learn more about what is copied from the template project, see
-[What is copied from the templates](../user/group/custom_project_templates.md#what-is-copied-from-the-templates).
+To speed up the creation of projects on your instance, configure a group that contains template
+projects. Users can then create
+[new projects based on your templates](../user/project/_index.md#create-a-project-from-a-custom-template) that include the common tooling and configuration you specify.
 
-## Select a group to manage template projects
+To learn more about what data is copied from template projects, see
+[what is copied from the templates](../user/group/custom_project_templates.md#what-is-copied-from-the-templates).
 
 Before you make template projects available to your instance, select a group
 to manage the templates. To prevent any unexpected changes to templates, create a new
 group for this purpose, rather than reusing an existing group. If you reuse an
-existing group already in use for development work, users with the Maintainer role
-might modify the template projects without understanding the side effects.
+existing group created for a different purpose, users with the Maintainer role
+might edit the template projects without understanding the side effects.
+
+## Select a group to manage template projects
 
 To select the group to manage the project templates for your instance:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Templates**.
 1. Expand **Custom project templates**.
 1. Select a group to use.
 1. Select **Save changes**.
 
-After the group is configured as a source for project templates, any new projects
-subsequently added to this group are available for use as templates.
+After you configure the group as a source for project templates, new projects added to this group
+become available as templates.
 
 ## Configure a project for use as a template
 
-After you create a group to manage the templates for your instance, configure the
+After you create a group to manage the template projects, configure the
 visibility and feature availability of each template project.
 
 Prerequisites:
@@ -55,13 +57,13 @@ Prerequisites:
    - **Public** and **Internal** projects can be selected by any authenticated user.
    - **Private** projects can be selected only by members of that project.
 1. Review the project's
-   [feature settings](../user/project/settings/index.md#configure-project-features-and-permissions).
+   [feature settings](../user/project/settings/_index.md#configure-project-features-and-permissions).
    All enabled project features should be set to **Everyone With Access**, except
-   **GitLab Pages** and **Security and Compliance**.
+   **GitLab Pages** and **Security and compliance**.
 
 Repository and database information that are copied over to each new project are
 identical to the data exported with the [GitLab Project Import/Export](../user/project/settings/import_export.md).
 
 ## Related topics
 
-- [Custom group-level project templates](../user/group/custom_project_templates.md).
+- [Custom project templates for groups](../user/group/custom_project_templates.md).

@@ -1,15 +1,15 @@
 # frozen_string_literal: true
 
 # WARNING: This module has been deprecated and will be removed in the future
-# Use InternalEvents.track_event instead https://docs.gitlab.com/ee/development/internal_analytics/internal_event_instrumentation/index.html
+# Use InternalEvents.track_event instead https://docs.gitlab.com/ee/development/internal_analytics/internal_event_instrumentation/
 
 module Gitlab
   module Tracking
     class << self
       delegate :flush, to: :tracker
 
-      def enabled?
-        tracker.enabled?
+      def frontend_connect_directly_to_snowplow_collector?
+        Gitlab::CurrentSettings.snowplow_enabled? && !Gitlab::CurrentSettings.snowplow_collector_hostname.blank?
       end
 
       def micro_verification_enabled?
@@ -23,18 +23,17 @@ module Gitlab
 
         contexts = [
           Tracking::StandardContext.new(
-            namespace_id: namespace&.id,
-            plan_name: namespace&.actual_plan_name,
+            namespace: namespace,
             project_id: project_id,
-            user_id: user&.id,
+            user: user,
             **extra).to_context, *context
         ]
 
         track_struct_event(tracker, category, action, label: label, property: property, value: value, contexts: contexts)
       end
 
-      def options(group)
-        tracker.options(group)
+      def frontend_client_options(group)
+        tracker.frontend_client_options(group)
       end
 
       def collector_hostname
@@ -42,9 +41,7 @@ module Gitlab
       end
 
       def snowplow_micro_enabled?
-        (Rails.env.development? || micro_verification_enabled?) && Gitlab.config.snowplow_micro.enabled
-      rescue GitlabSettings::MissingSetting
-        false
+        Rails.env.development? || micro_verification_enabled?
       end
 
       def tracker
@@ -57,7 +54,7 @@ module Gitlab
 
       private
 
-      def track_struct_event(destination, category, action, label:, property:, value:, contexts:) # rubocop:disable Metrics/ParameterLists
+      def track_struct_event(destination, category, action, label:, property:, value:, contexts:)
         destination
           .event(category, action, label: label, property: property, value: value, context: contexts)
       rescue StandardError => error

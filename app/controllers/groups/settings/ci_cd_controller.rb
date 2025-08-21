@@ -29,7 +29,9 @@ module Groups
         if update_group_service.execute
           flash[:notice] = s_('GroupSettings|Group CI/CD settings were successfully updated.')
         else
-          flash[:alert] = format(s_("GroupSettings|There was a problem updating the group CI/CD settings: %{error_messages}."), error_messages: group.errors.full_messages)
+          flash[:alert] =
+            format(s_("GroupSettings|There was a problem updating the group CI/CD settings: %{error_messages}."),
+              error_messages: group.errors.full_messages)
         end
 
         redirect_to group_settings_ci_cd_path
@@ -39,7 +41,9 @@ module Groups
         if auto_devops_service.execute
           flash[:notice] = s_('GroupSettings|Auto DevOps pipeline was updated for the group')
         else
-          flash[:alert] = format(s_("GroupSettings|There was a problem updating Auto DevOps pipeline: %{error_messages}."), error_messages: group.errors.full_messages)
+          flash[:alert] =
+            format(s_("GroupSettings|There was a problem updating Auto DevOps pipeline: %{error_messages}."),
+              error_messages: group.errors.full_messages)
         end
 
         redirect_to group_settings_ci_cd_path
@@ -50,7 +54,8 @@ module Groups
       def authorize_show_cicd_settings!
         return if can_any?(current_user, [
           :admin_cicd_variables,
-          :admin_runner
+          :admin_protected_environments,
+          :admin_runners
         ], group)
 
         access_denied!
@@ -90,16 +95,18 @@ module Groups
       end
 
       def update_group_params
-        params.require(:group).permit(:max_artifacts_size, :allow_runner_registration_token)
+        params.require(:group).permit(
+          :max_artifacts_size,
+          :allow_runner_registration_token,
+          :jwt_ci_cd_job_token_enabled
+        )
       end
 
       # Overridden in EE
-      def push_licensed_features
-      end
+      def push_licensed_features; end
 
       # Overridden in EE
-      def assign_variables_to_gon
-      end
+      def assign_variables_to_gon; end
     end
   end
 end

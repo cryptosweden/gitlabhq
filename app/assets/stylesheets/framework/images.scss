@@ -5,7 +5,7 @@
 }
 
 .appearance-light-logo-preview {
-  background-color: $gray-10;
+  @apply gl-bg-subtle;
   max-width: 72px;
   padding: 10px;
   margin-bottom: 10px;
@@ -32,11 +32,6 @@
   }
 }
 
-@mixin svg-size($size) {
-  width: $size;
-  height: $size;
-}
-
 svg {
   fill: currentColor;
 }
@@ -46,7 +41,8 @@ svg {
   $svg-sizes: 8 10 12 14 16 18 24 32 48 72;
   @each $svg-size in $svg-sizes {
     &.s#{$svg-size} {
-      @include svg-size(#{$svg-size}px);
+      width: #{$svg-size}px;
+      height: #{$svg-size}px;
     }
   }
 
@@ -56,5 +52,18 @@ svg {
 
   &.s16 {
     vertical-align: -3px;
+  }
+}
+
+.integration-logo {
+  &[alt='Diffblue Cover'],
+  &[alt='Drone'],
+  &[alt='GitHub'],
+  &[alt='Mattermost notifications'],
+  &[alt='Mattermost slash commands'],
+  &[alt='Phorge'] {
+    .gl-dark & {
+      filter: invert(1) brightness(2);
+    }
   }
 }

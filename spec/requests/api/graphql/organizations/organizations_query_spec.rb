@@ -2,10 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'getting organizations information', feature_category: :cell do
+RSpec.describe 'getting organizations information', feature_category: :organization do
   include GraphqlHelpers
-
-  let_it_be(:user) { create(:user) }
 
   let(:query) { graphql_query_for(:organizations, organizations_fields) }
   let(:organizations) { graphql_data_at(:organizations, :nodes) }
@@ -15,12 +13,14 @@ RSpec.describe 'getting organizations information', feature_category: :cell do
       id
       path
     }
+    count
     FIELDS
   end
 
-  let_it_be(:private_organization) { create(:organization) }
-
-  before_all { create_list(:organization, 3, :public) }
+  let_it_be(:private_organization) { create(:organization, :private) }
+  let_it_be(:public_organizations) { create_list(:organization, 3, :public) }
+  let_it_be(:organization) { public_organizations.first }
+  let_it_be(:user) { create(:user, organization: organization, organizations: [organization]) }
 
   subject(:request_organization) { post_graphql(query, current_user: current_user) }
 
@@ -49,8 +49,8 @@ RSpec.describe 'getting organizations information', feature_category: :cell do
       let(:first_param) { 2 }
       let(:data_path) { [:organizations] }
       let(:all_records) do
-        Organizations::Organization
-          .where.not(id: private_organization).order(id: :desc).map { |o| global_id_of(o).to_s }
+        Organizations::Organization.where(id: public_organizations)
+          .order(id: :desc).map { |o| global_id_of(o).to_s }
       end
     end
 

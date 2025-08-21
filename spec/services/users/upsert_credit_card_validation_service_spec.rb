@@ -5,7 +5,7 @@ require 'spec_helper'
 RSpec.describe Users::UpsertCreditCardValidationService, feature_category: :user_profile do
   include CryptoHelpers
 
-  let_it_be(:user) { create(:user) }
+  let_it_be_with_reload(:user) { create(:user) }
 
   let(:user_id) { user.id }
 
@@ -43,7 +43,7 @@ RSpec.describe Users::UpsertCreditCardValidationService, feature_category: :user
     context 'successfully set credit card validation record for the user' do
       context 'when user does not have credit card validation record' do
         it 'creates the credit card validation and returns a success', :aggregate_failures do
-          expect(user.credit_card_validated_at).to be nil
+          expect(user.credit_card_validated_at).to be_nil
 
           service_result = service.execute
 
@@ -196,6 +196,22 @@ RSpec.describe Users::UpsertCreditCardValidationService, feature_category: :user
 
         expect(service_result.status).to eq(:error)
         expect(service_result.message).to eq(_('Error saving credit card validation record'))
+      end
+    end
+
+    context 'when the credit card verification limit has been reached' do
+      before do
+        allow_next_instance_of(Users::CreditCardValidation) do |instance|
+          allow(instance).to receive(:exceeded_daily_verification_limit?).and_return(true)
+        end
+      end
+
+      it 'returns an error', :aggregate_failures do
+        service_result = service.execute
+
+        expect(service_result).to be_error
+        expect(service_result.message).to eq('Credit card verification limit exceeded')
+        expect(service_result.reason).to eq(:rate_limited)
       end
     end
   end

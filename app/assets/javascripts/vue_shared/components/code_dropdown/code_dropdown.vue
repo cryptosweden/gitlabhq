@@ -2,13 +2,13 @@
 import { GlDisclosureDropdown, GlDisclosureDropdownGroup, GlTooltipDirective } from '@gitlab/ui';
 import { getHTTPProtocol } from '~/lib/utils/url_utility';
 import { __, sprintf } from '~/locale';
-import CodeDropdownItem from './code_dropdown_item.vue';
+import CodeDropdownCloneItem from '~/repository/components/code_dropdown/code_dropdown_clone_item.vue';
 
 export default {
   components: {
     GlDisclosureDropdown,
     GlDisclosureDropdownGroup,
-    CodeDropdownItem,
+    CodeDropdownCloneItem,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -61,22 +61,37 @@ export default {
         Boolean(this.sshUrl) && {
           text: __('Visual Studio Code (SSH)'),
           href: `${this.$options.vsCodeBaseUrl}${this.sshUrlEncoded}`,
+          extraAttrs: {
+            isUnsafeLink: true,
+          },
         },
         Boolean(this.httpUrl) && {
           text: __('Visual Studio Code (HTTPS)'),
           href: `${this.$options.vsCodeBaseUrl}${this.httpUrlEncoded}`,
+          extraAttrs: {
+            isUnsafeLink: true,
+          },
         },
         Boolean(this.sshUrl) && {
           text: __('IntelliJ IDEA (SSH)'),
           href: `${this.$options.jetBrainsBaseUrl}${this.sshUrlEncoded}`,
+          extraAttrs: {
+            isUnsafeLink: true,
+          },
         },
         Boolean(this.httpUrl) && {
           text: __('IntelliJ IDEA (HTTPS)'),
           href: `${this.$options.jetBrainsBaseUrl}${this.httpUrlEncoded}`,
+          extraAttrs: {
+            isUnsafeLink: true,
+          },
         },
         Boolean(this.xcodeUrl) && {
           text: __('Xcode'),
           href: this.xcodeUrl,
+          extraAttrs: {
+            isUnsafeLink: true,
+          },
         },
       ].filter(Boolean);
 
@@ -147,9 +162,8 @@ export default {
     :auto-close="false"
   >
     <gl-disclosure-dropdown-group v-if="sshUrl">
-      <code-dropdown-item
+      <code-dropdown-clone-item
         :label="$options.i18n.cloneWithSsh"
-        label-class="gl-font-sm! gl-pt-2!"
         :link="sshUrl"
         name="ssh_project_clone"
         input-id="copy-ssh-url-input"
@@ -157,9 +171,8 @@ export default {
       />
     </gl-disclosure-dropdown-group>
     <gl-disclosure-dropdown-group v-if="httpUrl">
-      <code-dropdown-item
+      <code-dropdown-clone-item
         :label="httpLabel"
-        label-class="gl-font-sm! gl-pt-2!"
         :link="httpUrl"
         name="http_project_clone"
         input-id="copy-http-url-input"
@@ -167,9 +180,8 @@ export default {
       />
     </gl-disclosure-dropdown-group>
     <gl-disclosure-dropdown-group v-if="kerberosUrl">
-      <code-dropdown-item
+      <code-dropdown-clone-item
         :label="$options.i18n.cloneWithKerberos"
-        label-class="gl-font-sm! gl-pt-2!"
         :link="kerberosUrl"
         name="kerberos_project_clone"
         input-id="copy-http-url-input"
@@ -194,7 +206,7 @@ export default {
 <style>
 /* Temporary override until we have
    * widths available in GlDisclosureDropdown
-   * https://gitlab.com/gitlab-org/gitlab-ui/-/issues/2501
+   * https://gitlab.com/gitlab-org/gitlab-services/design.gitlab.com/-/issues/2439
    */
 .code-dropdown .gl-new-dropdown-panel {
   width: 100%;

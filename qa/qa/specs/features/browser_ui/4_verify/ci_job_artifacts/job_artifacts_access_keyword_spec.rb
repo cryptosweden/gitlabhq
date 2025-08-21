@@ -1,18 +1,14 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Verify', :runner, product_group: :pipeline_security do
+  RSpec.describe 'Verify', :requires_admin, feature_category: :continuous_integration do
     describe 'Pipeline configuration access keyword' do
       let(:executor) { "qa-runner-#{Faker::Alphanumeric.alphanumeric(number: 8)}" }
       let(:project) { create(:project, name: 'project-with-artifacts', initialize_with_readme: true) }
-      let!(:runner) { create(:project_runner, project: project, name: executor, tags: [executor]) }
-      let!(:developer_user) do
-        create(:user, username: Runtime::Env.gitlab_qa_username_1, password: Runtime::Env.gitlab_qa_password_1)
-      end
 
-      let!(:non_member_user) do
-        create(:user, username: Runtime::Env.gitlab_qa_username_2, password: Runtime::Env.gitlab_qa_password_2)
-      end
+      let!(:runner) { create(:project_runner, project: project, name: executor, tags: [executor]) }
+      let!(:developer_user) { create(:user) }
+      let!(:non_member_user) { create(:user) }
 
       let(:merge_request) do
         create(:merge_request,
@@ -35,8 +31,18 @@ module QA
           create_mr
         end
 
+        before do
+          # Ensure clean browser state
+          if defined?(Capybara.current_session) && Capybara.current_session.driver.browser
+            Capybara.current_session.reset!
+            Support::WaitForRequests.wait_for_requests
+          end
+        end
+
         it "verifies artifact access for developer user with #{access_level} access", testcase: member_testcase do
-          Flow::Login.sign_in(as: developer_user)
+          Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
+            Flow::Login.sign_in(as: developer_user)
+          end
 
           merge_request.visit!
 
@@ -46,6 +52,9 @@ module QA
             end
 
             if developer_access
+              Support::Waiter.wait_until(max_duration: 30) do
+                show.has_artifacts_dropdown?
+              end
               expect(show).to have_artifacts_dropdown
             else
               expect(show).to have_no_artifacts_dropdown
@@ -54,7 +63,9 @@ module QA
         end
 
         it "verifies artifact access for non-member user with #{access_level} access", testcase: non_member_testcase do
-          Flow::Login.sign_in(as: non_member_user)
+          Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
+            Flow::Login.sign_in(as: non_member_user)
+          end
 
           merge_request.visit!
 
@@ -64,6 +75,9 @@ module QA
             end
 
             if non_member_access
+              Support::Waiter.wait_until(max_duration: 30) do
+                show.has_artifacts_dropdown?
+              end
               expect(show).to have_artifacts_dropdown
             else
               expect(show).to have_no_artifacts_dropdown

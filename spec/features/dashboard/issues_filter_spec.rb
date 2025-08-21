@@ -19,6 +19,11 @@ RSpec.describe 'Dashboard Issues filtering', :js, feature_category: :team_planni
   let_it_be(:label2) { create(:label, title: 'bug') }
 
   before do
+    # TODO: When removing the feature flag,
+    # we won't need the tests for the issues listing page, since we'll be using
+    # the work items listing page.
+    stub_feature_flags(work_item_planning_view: false)
+
     project.labels << label
     project2.labels << label2
     project.add_maintainer(user)
@@ -62,13 +67,13 @@ RSpec.describe 'Dashboard Issues filtering', :js, feature_category: :team_planni
       auto_discovery_params = CGI.parse(URI.parse(auto_discovery_link[:href]).query)
 
       feed_token_param = params['feed_token']
-      expect(feed_token_param).to match([Gitlab::Auth::AuthFinders::PATH_DEPENDENT_FEED_TOKEN_REGEX])
+      expect(feed_token_param).to match([Gitlab::Auth::AuthFinders.path_dependent_feed_token_regex])
       expect(feed_token_param.first).to end_with(user.id.to_s)
       expect(params).to include('milestone_title' => [''])
       expect(params).to include('assignee_username' => [user.username.to_s])
 
       feed_token_param = auto_discovery_params['feed_token']
-      expect(feed_token_param).to match([Gitlab::Auth::AuthFinders::PATH_DEPENDENT_FEED_TOKEN_REGEX])
+      expect(feed_token_param).to match([Gitlab::Auth::AuthFinders.path_dependent_feed_token_regex])
       expect(feed_token_param.first).to end_with(user.id.to_s)
       expect(auto_discovery_params).to include('milestone_title' => [''])
       expect(auto_discovery_params).to include('assignee_username' => [user.username.to_s])
@@ -92,7 +97,7 @@ RSpec.describe 'Dashboard Issues filtering', :js, feature_category: :team_planni
       send_keys 'bu'
 
       expect_suggestion('bug')
-      expect_suggestion_count(3) # Expect None, Any, and bug
+      expect_suggestion_count(1) # Expect bug
     end
   end
 
@@ -110,7 +115,8 @@ RSpec.describe 'Dashboard Issues filtering', :js, feature_category: :team_planni
       expect(page).to have_button('Updated date')
     end
 
-    it 'keeps sorting issues after visiting Projects Issues page' do
+    it 'keeps sorting issues after visiting Projects Issues page',
+      quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/480735' do
       pajamas_sort_by 'Due date', from: 'Created date'
 
       visit project_issues_path(project)

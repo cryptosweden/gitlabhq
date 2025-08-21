@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Gotchas
 ---
-
-# Gotchas
 
 The purpose of this guide is to document potential "gotchas" that contributors
 might encounter or should avoid during development of GitLab CE and EE.
@@ -207,7 +206,7 @@ refresh_service.execute(oldrev, newrev, ref)
 
 See ["Why is it bad style to `rescue Exception => e` in Ruby?"](https://stackoverflow.com/questions/10048173/why-is-it-bad-style-to-rescue-exception-e-in-ruby).
 
-This rule is [enforced automatically by RuboCop](https://gitlab.com/gitlab-org/gitlab-foss/blob/8-4-stable/.rubocop.yml#L911-914)._
+This rule is [enforced automatically by RuboCop](https://gitlab.com/gitlab-org/gitlab-foss/blob/8-4-stable/.rubocop.yml#L911-914).
 
 ## Do not use inline JavaScript in views
 

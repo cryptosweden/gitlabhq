@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create' do
-    describe 'Multiple file snippet', product_group: :source_code do
+  RSpec.describe 'Create', feature_category: :source_code_management do
+    describe 'Multiple file snippet' do
       let(:snippet) do
         Resource::Snippet.fabricate_via_browser_ui! do |snippet|
           snippet.title = 'Personal snippet with multiple files'
@@ -22,7 +22,7 @@ module QA
         Flow::Login.sign_in
       end
 
-      it 'creates a personal snippet with multiple files', :blocking, testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347723' do
+      it 'creates a personal snippet with multiple files', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347723' do
         snippet
 
         Page::Dashboard::Snippet::Show.perform do |snippet|

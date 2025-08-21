@@ -5,8 +5,13 @@ import { setCookie } from '~/lib/utils/common_utils';
 import { hide, fixTitle } from '~/tooltips';
 import { __ } from './locale';
 
-const updateSidebarClasses = (layoutPage, rightSidebar) => {
-  if (window.innerWidth >= 992) {
+const updateSidebarClasses = (layoutPage, rightSidebar, windowSize = window.innerWidth) => {
+  let scrollBarWidth = 0;
+
+  if (window.innerWidth && document?.documentElement?.clientWidth) {
+    scrollBarWidth = window.innerWidth - document.documentElement.clientWidth;
+  }
+  if (windowSize + scrollBarWidth >= 992) {
     layoutPage.classList.remove('right-sidebar-expanded', 'right-sidebar-collapsed');
     rightSidebar.classList.remove('right-sidebar-collapsed');
     rightSidebar.classList.add('right-sidebar-expanded');
@@ -59,7 +64,13 @@ Sidebar.prototype.addEventListeners = function () {
 
   if (rightSidebar.classList.contains('right-sidebar-merge-requests')) {
     updateSidebarClasses(layoutPage, rightSidebar);
-    window.addEventListener('resize', () => updateSidebarClasses(layoutPage, rightSidebar));
+
+    const resizeHandler = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        updateSidebarClasses(layoutPage, rightSidebar, entry.contentRect.width);
+      }
+    });
+    resizeHandler.observe(document.querySelector('html'));
   }
 };
 

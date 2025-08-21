@@ -8,7 +8,10 @@ module Gitlab
   module ApplicationRateLimiter
     InvalidKeyError = Class.new(StandardError)
 
+    LIMIT_USAGE_BUCKET = [0.25, 0.5, 0.75, 1].freeze
+
     class << self
+      include ::Gitlab::Utils::StrongMemoize
       # Application rate limits
       #
       # Threshold value can be either an Integer or a Proc
@@ -16,74 +19,93 @@ module Gitlab
       # and only do that when it's needed.
       def rate_limits # rubocop:disable Metrics/AbcSize
         {
-          issues_create: { threshold: -> { application_settings.issues_create_limit }, interval: 1.minute },
-          notes_create: { threshold: -> { application_settings.notes_create_limit }, interval: 1.minute },
-          project_export: { threshold: -> { application_settings.project_export_limit }, interval: 1.minute },
-          project_download_export: { threshold: -> { application_settings.project_download_export_limit }, interval: 1.minute },
-          project_repositories_archive: { threshold: 5, interval: 1.minute },
-          project_generate_new_export: { threshold: -> { application_settings.project_export_limit }, interval: 1.minute },
-          project_import: { threshold: -> { application_settings.project_import_limit }, interval: 1.minute },
-          play_pipeline_schedule: { threshold: 1, interval: 1.minute },
-          raw_blob: { threshold: -> { application_settings.raw_blob_request_limit }, interval: 1.minute },
-          group_export: { threshold: -> { application_settings.group_export_limit }, interval: 1.minute },
-          group_download_export: { threshold: -> { application_settings.group_download_export_limit }, interval: 1.minute },
-          group_import: { threshold: -> { application_settings.group_import_limit }, interval: 1.minute },
-          group_api: { threshold: -> { application_settings.group_api_limit }, interval: 1.minute },
-          group_shared_groups_api: { threshold: -> { application_settings.group_shared_groups_api_limit }, interval: 1.minute },
-          group_projects_api: { threshold: -> { application_settings.group_projects_api_limit }, interval: 1.minute },
-          groups_api: { threshold: -> { application_settings.groups_api_limit }, interval: 1.minute },
-          project_api: { threshold: -> { application_settings.project_api_limit }, interval: 1.minute },
-          projects_api: { threshold: -> { application_settings.projects_api_limit }, interval: 10.minutes },
-          user_contributed_projects_api: { threshold: -> { application_settings.user_contributed_projects_api_limit }, interval: 1.minute },
-          user_projects_api: { threshold: -> { application_settings.user_projects_api_limit }, interval: 1.minute },
-          user_starred_projects_api: { threshold: -> { application_settings.user_starred_projects_api_limit }, interval: 1.minute },
-          members_delete: { threshold: -> { application_settings.members_delete_limit }, interval: 1.minute },
-          profile_add_new_email: { threshold: 5, interval: 1.minute },
-          web_hook_calls: { interval: 1.minute },
-          web_hook_calls_mid: { interval: 1.minute },
-          web_hook_calls_low: { interval: 1.minute },
-          web_hook_test: { threshold: 5, interval: 1.minute },
-          users_get_by_id: { threshold: -> { application_settings.users_get_by_id_limit }, interval: 10.minutes },
-          username_exists: { threshold: 20, interval: 1.minute },
-          user_followers: { threshold: 100, interval: 1.minute },
-          user_following: { threshold: 100, interval: 1.minute },
-          user_status: { threshold: 240, interval: 1.minute },
-          user_keys: { threshold: 120, interval: 1.minute },
-          user_specific_key: { threshold: 120, interval: 1.minute },
-          user_gpg_keys: { threshold: 120, interval: 1.minute },
-          user_specific_gpg_key: { threshold: 120, interval: 1.minute },
-          user_sign_up: { threshold: 20, interval: 1.minute },
-          user_sign_in: { threshold: 5, interval: 10.minutes },
-          profile_resend_email_confirmation: { threshold: 5, interval: 1.minute },
-          profile_update_username: { threshold: 10, interval: 1.minute },
-          update_environment_canary_ingress: { threshold: 1, interval: 1.minute },
+          ai_action: { threshold: -> { application_settings.ai_action_api_rate_limit }, interval: 8.hours },
           auto_rollback_deployment: { threshold: 1, interval: 3.minutes },
-          search_rate_limit: { threshold: -> { application_settings.search_rate_limit }, interval: 1.minute },
-          search_rate_limit_unauthenticated: { threshold: -> { application_settings.search_rate_limit_unauthenticated }, interval: 1.minute },
-          gitlab_shell_operation: { threshold: application_settings.gitlab_shell_operation_limit, interval: 1.minute },
-          pipelines_create: { threshold: -> { application_settings.pipeline_limit_per_project_user_sha }, interval: 1.minute },
-          temporary_email_failure: { threshold: 300, interval: 1.day },
-          permanent_email_failure: { threshold: 5, interval: 1.day },
-          notification_emails: { threshold: 1000, interval: 1.day },
-          project_testing_integration: { threshold: 5, interval: 1.minute },
+          autocomplete_users: { threshold: -> { application_settings.autocomplete_users_limit }, interval: 1.minute },
+          autocomplete_users_unauthenticated: { threshold: -> { application_settings.autocomplete_users_unauthenticated_limit }, interval: 1.minute },
+          bulk_delete_todos: { threshold: 6, interval: 1.minute },
+          bulk_import: { threshold: 6, interval: 1.minute },
+          code_suggestions_api_endpoint: { threshold: -> { application_settings.code_suggestions_api_rate_limit }, interval: 1.minute },
+          create_organization_api: { threshold: -> { application_settings.create_organization_api_limit }, interval: 1.minute },
+          delete_all_todos: { threshold: 1, interval: 5.minutes },
+          downstream_pipeline_trigger: {
+            threshold: -> { application_settings.downstream_pipeline_trigger_limit_per_project_user_sha }, interval: 1.minute
+          },
           email_verification: { threshold: 10, interval: 10.minutes },
           email_verification_code_send: { threshold: 10, interval: 1.hour },
+          expanded_diff_files: { threshold: 6, interval: 1.minute },
+          fetch_google_ip_list: { threshold: 10, interval: 1.minute },
+          github_import: { threshold: 6, interval: 1.minute },
+          fogbugz_import: { threshold: 1, interval: 1.minute },
+          gitlab_shell_operation: { threshold: application_settings.gitlab_shell_operation_limit, interval: 1.minute },
+          glql: { threshold: 1, interval: 15.minutes },
+          group_api: { threshold: -> { application_settings.group_api_limit }, interval: 1.minute },
+          group_archive_unarchive_api: { threshold: -> { application_settings.group_archive_unarchive_api_limit }, interval: 1.minute },
+          group_download_export: { threshold: -> { application_settings.group_download_export_limit }, interval: 1.minute },
+          group_export: { threshold: -> { application_settings.group_export_limit }, interval: 1.minute },
+          group_import: { threshold: -> { application_settings.group_import_limit }, interval: 1.minute },
+          group_invited_groups_api: { threshold: -> { application_settings.group_invited_groups_api_limit }, interval: 1.minute },
+          group_projects_api: { threshold: -> { application_settings.group_projects_api_limit }, interval: 1.minute },
+          group_shared_groups_api: { threshold: -> { application_settings.group_shared_groups_api_limit }, interval: 1.minute },
+          groups_api: { threshold: -> { application_settings.groups_api_limit }, interval: 1.minute },
+          import_source_user_notification: { threshold: 1, interval: 8.hours },
+          issues_create: { threshold: -> { application_settings.issues_create_limit }, interval: 1.minute },
+          jobs_index: { threshold: -> { application_settings.project_jobs_api_rate_limit }, interval: 1.minute },
+          large_blob_download: { threshold: 5, interval: 1.minute },
+          members_delete: { threshold: -> { application_settings.members_delete_limit }, interval: 1.minute },
+          namespace_exists: { threshold: 20, interval: 1.minute },
+          notes_create: { threshold: -> { application_settings.notes_create_limit }, interval: 1.minute },
+          notification_emails: { threshold: 1000, interval: 1.day },
+          oauth_dynamic_registration: { threshold: 5, interval: 1.hour },
+          permanent_email_failure: { threshold: 5, interval: 1.day },
           phone_verification_send_code: { threshold: 5, interval: 1.day },
           phone_verification_verify_code: { threshold: 5, interval: 1.day },
-          namespace_exists: { threshold: 20, interval: 1.minute },
-          update_namespace_name: { threshold: -> { application_settings.update_namespace_name_rate_limit }, interval: 1.hour },
-          fetch_google_ip_list: { threshold: 10, interval: 1.minute },
+          pipelines_create: { threshold: -> { application_settings.pipeline_limit_per_project_user_sha }, interval: 1.minute },
+          play_pipeline_schedule: { threshold: 1, interval: 1.minute },
+          profile_add_new_email: { threshold: 5, interval: 1.minute },
+          profile_resend_email_confirmation: { threshold: 5, interval: 1.minute },
+          profile_update_username: { threshold: 10, interval: 1.minute },
+          project_api: { threshold: -> { application_settings.project_api_limit }, interval: 1.minute },
+          project_download_export: { threshold: -> { application_settings.project_download_export_limit }, interval: 1.minute },
+          project_export: { threshold: -> { application_settings.project_export_limit }, interval: 1.minute },
           project_fork_sync: { threshold: 10, interval: 30.minutes },
-          ai_action: { threshold: 160, interval: 8.hours },
-          vertex_embeddings_api: { threshold: 450, interval: 1.minute },
-          jobs_index: { threshold: -> { application_settings.project_jobs_api_rate_limit }, interval: 1.minute },
-          bulk_import: { threshold: 6, interval: 1.minute },
+          project_generate_new_export: { threshold: -> { application_settings.project_export_limit }, interval: 1.minute },
+          project_import: { threshold: -> { application_settings.project_import_limit }, interval: 1.minute },
+          project_invited_groups_api: { threshold: -> { application_settings.project_invited_groups_api_limit }, interval: 1.minute },
+          project_repositories_archive: { threshold: 5, interval: 1.minute },
+          project_repositories_changelog: { threshold: 5, interval: 1.minute },
+          project_repositories_health: { threshold: 5, interval: 1.hour },
+          project_testing_integration: { threshold: 5, interval: 1.minute },
+          projects_api: { threshold: -> { application_settings.projects_api_limit }, interval: 10.minutes },
           projects_api_rate_limit_unauthenticated: {
             threshold: -> { application_settings.projects_api_rate_limit_unauthenticated }, interval: 10.minutes
           },
-          downstream_pipeline_trigger: {
-            threshold: -> { application_settings.downstream_pipeline_trigger_limit_per_project_user_sha }, interval: 1.minute
-          }
+          raw_blob: { threshold: -> { application_settings.raw_blob_request_limit }, interval: 1.minute },
+          search_rate_limit: { threshold: -> { application_settings.search_rate_limit }, interval: 1.minute },
+          search_rate_limit_unauthenticated: { threshold: -> { application_settings.search_rate_limit_unauthenticated }, interval: 1.minute },
+          temporary_email_failure: { threshold: 300, interval: 1.day },
+          update_environment_canary_ingress: { threshold: 1, interval: 1.minute },
+          update_namespace_name: { threshold: -> { application_settings.update_namespace_name_rate_limit }, interval: 1.hour },
+          user_contributed_projects_api: { threshold: -> { application_settings.user_contributed_projects_api_limit }, interval: 1.minute },
+          user_followers: { threshold: -> { application_settings.users_api_limit_followers }, interval: 1.minute },
+          user_following: { threshold: -> { application_settings.users_api_limit_following }, interval: 1.minute },
+          user_gpg_key: { threshold: -> { application_settings.users_api_limit_gpg_key }, interval: 1.minute },
+          user_gpg_keys: { threshold: -> { application_settings.users_api_limit_gpg_keys }, interval: 1.minute },
+          user_projects_api: { threshold: -> { application_settings.user_projects_api_limit }, interval: 1.minute },
+          user_sign_in: { threshold: 5, interval: 10.minutes },
+          user_sign_up: { threshold: 20, interval: 1.minute },
+          user_ssh_key: { threshold: -> { application_settings.users_api_limit_ssh_key }, interval: 1.minute },
+          user_ssh_keys: { threshold: -> { application_settings.users_api_limit_ssh_keys }, interval: 1.minute },
+          user_starred_projects_api: { threshold: -> { application_settings.user_starred_projects_api_limit }, interval: 1.minute },
+          user_status: { threshold: -> { application_settings.users_api_limit_status }, interval: 1.minute },
+          username_exists: { threshold: 20, interval: 1.minute },
+          users_get_by_id: { threshold: -> { application_settings.users_get_by_id_limit }, interval: 10.minutes },
+          vertex_embeddings_api: { threshold: 450, interval: 1.minute },
+          web_hook_calls: { interval: 1.minute },
+          web_hook_calls_low: { interval: 1.minute },
+          web_hook_calls_mid: { interval: 1.minute },
+          web_hook_event_resend: { threshold: 5, interval: 1.minute },
+          web_hook_test: { threshold: 5, interval: 1.minute }
         }.freeze
       end
 
@@ -113,34 +135,27 @@ module Gitlab
 
         strategy = resource.present? ? IncrementPerActionedResource.new(resource.id) : IncrementPerAction.new
 
-        ::Gitlab::Instrumentation::RateLimitingGates.track(key)
+        _throttled?(key, scope: scope, strategy: strategy, threshold: threshold, interval: interval, users_allowlist: users_allowlist, peek: peek)
+      end
 
-        return false if scoped_user_in_allowlist?(scope, users_allowlist)
+      # Increments the resource usage for a given key and returns true if the action should
+      # be throttled.
+      #
+      # @param key [Symbol] Key attribute registered in `.rate_limits`
+      # @param scope [<ActiveRecord>] Array of ActiveRecord models, Strings
+      #     or Symbols to scope throttling to a specific request (e.g. per user
+      #     per project)
+      # @param resource_key [Symbol] Key attribute in SafeRequestStore
+      # @param threshold [Integer] Threshold value to override default
+      #     one registered in `.rate_limits`
+      # @param interval [Integer] Interval value to override default
+      #     one registered in `.rate_limits`
+      #
+      # @return [Boolean] Whether or not a request should be throttled
+      def resource_usage_throttled?(key, scope:, resource_key:, threshold:, interval:, peek: false)
+        strategy = IncrementResourceUsagePerAction.new(resource_key)
 
-        threshold_value = threshold || threshold(key)
-
-        return false if threshold_value == 0
-
-        interval_value = interval || interval(key)
-
-        return false if interval_value == 0
-
-        # `period_key` is based on the current time and interval so when time passes to the next interval
-        # the key changes and the rate limit count starts again from 0.
-        # Based on https://github.com/rack/rack-attack/blob/886ba3a18d13c6484cd511a4dc9b76c0d14e5e96/lib/rack/attack/cache.rb#L63-L68
-        period_key, time_elapsed_in_period = Time.now.to_i.divmod(interval_value)
-        cache_key = cache_key(key, scope, period_key)
-
-        value = if peek
-                  strategy.read(cache_key)
-                else
-                  # We add a 1 second buffer to avoid timing issues when we're at the end of a period
-                  expiry = interval_value - time_elapsed_in_period + 1
-
-                  strategy.increment(cache_key, expiry)
-                end
-
-        value > threshold_value
+        _throttled?(key, scope: scope, strategy: strategy, threshold: threshold, interval: interval, peek: peek)
       end
 
       # Similar to #throttled? above but checks for the bypass header in the request and logs the request when it is over the rate limit
@@ -188,6 +203,26 @@ module Gitlab
         throttled?(key, peek: true, scope: scope, threshold: threshold, interval: interval, users_allowlist: users_allowlist)
       end
 
+      def report_metrics(key, value, threshold, peek)
+        return if threshold == 0 # guard against div-by-zero
+
+        label = {
+          throttle_key: key,
+          peek: peek,
+          feature_category: Gitlab::ApplicationContext.current_context_attribute(:feature_category)
+        }
+        application_rate_limiter_histogram.observe(label, value / threshold.to_f)
+      end
+
+      def application_rate_limiter_histogram
+        @application_rate_limiter_histogram ||= Gitlab::Metrics.histogram(
+          :gitlab_application_rate_limiter_throttle_utilization_ratio,
+          "The utilization-ratio of a throttle.",
+          { peek: nil, throttle_key: nil, feature_category: nil },
+          LIMIT_USAGE_BUCKET
+        )
+      end
+
       # Logs request using provided logger
       #
       # @param request [Http::Request] - Web request to be logged
@@ -199,21 +234,56 @@ module Gitlab
           message: 'Application_Rate_Limiter_Request',
           env: type,
           remote_ip: request.ip,
-          request_method: request.request_method,
-          path: request.fullpath
+          method: request.request_method,
+          path: request_path(request)
         }
 
         if current_user
           request_information.merge!({
-                                       user_id: current_user.id,
-                                       username: current_user.username
-                                     })
+            user_id: current_user.id,
+            username: current_user.username
+          })
         end
 
         logger.error(request_information)
       end
 
       private
+
+      def _throttled?(key, scope:, strategy:, threshold: nil, interval: nil, users_allowlist: nil, peek: false)
+        ::Gitlab::Instrumentation::RateLimitingGates.track(key)
+
+        return false if scoped_user_in_allowlist?(scope, users_allowlist)
+
+        threshold_value = threshold || threshold(key)
+
+        return false if threshold_value == 0
+
+        interval_value = interval || interval(key)
+
+        return false if interval_value == 0
+
+        # `period_key` is based on the current time and interval so when time passes to the next interval
+        # the key changes and the rate limit count starts again from 0.
+        # Based on https://github.com/rack/rack-attack/blob/886ba3a18d13c6484cd511a4dc9b76c0d14e5e96/lib/rack/attack/cache.rb#L63-L68
+        period_key, time_elapsed_in_period = Time.now.to_i.divmod(interval_value)
+        cache_key = cache_key(key, scope, period_key)
+
+        value = if peek
+                  strategy.read(cache_key)
+                else
+                  # We add a 1 second buffer to avoid timing issues when we're at the end of a period
+                  expiry = interval_value - time_elapsed_in_period + 1
+
+                  strategy.increment(cache_key, expiry)
+                end
+
+        return false if value.nil?
+
+        report_metrics(key, value, threshold_value, peek)
+
+        value > threshold_value
+      end
 
       def threshold(key)
         value = rate_limit_value_by_key(key, :threshold)
@@ -263,8 +333,34 @@ module Gitlab
         scoped_user = [scope].flatten.find { |s| s.is_a?(User) }
         return unless scoped_user
 
-        scoped_user.username.downcase.in?(users_allowlist)
+        username = scoped_user.username.downcase
+        users_allowlist.any? { |u| u.downcase == username }
       end
+
+      def request_path(request)
+        # req is an ActionDispatch::Request
+        if request.respond_to?(:filtered_path)
+          request.filtered_path
+        else
+          # req is a Grape::Request < Rack::Request
+          other_filtered_path(request)
+        end
+      end
+
+      def other_filtered_path(request)
+        filtered_params = initialize_filtered_params.filter(request.GET)
+
+        if filtered_params.any?
+          "#{request.path}?#{filtered_params.to_query}"
+        else
+          request.fullpath
+        end
+      end
+
+      def initialize_filtered_params
+        ActiveSupport::ParameterFilter.new(Rails.application.config.filter_parameters)
+      end
+      strong_memoize_attr :initialize_filtered_params
     end
   end
 end

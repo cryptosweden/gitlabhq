@@ -24,7 +24,7 @@ describe('Blob Header Viewer Switcher', () => {
   const findRichViewerButton = () => wrapper.findComponent('[data-viewer="rich"]');
   const findBlameButton = () => wrapper.findByText('Blame');
 
-  describe('intiialization', () => {
+  describe('initialization', () => {
     it('is initialized with simple viewer as active', () => {
       createComponent();
       expect(findSimpleViewerButton().props('selected')).toBe(true);
@@ -47,7 +47,7 @@ describe('Blob Header Viewer Switcher', () => {
     });
 
     it('renders exactly 2 buttons with predefined actions', () => {
-      expect(buttons.length).toBe(2);
+      expect(buttons).toHaveLength(2);
       [SIMPLE_BLOB_VIEWER_TITLE, RICH_BLOB_VIEWER_TITLE].forEach((title, i) => {
         expect(buttons.at(i).attributes('title')).toBe(title);
       });
@@ -86,9 +86,8 @@ describe('Blob Header Viewer Switcher', () => {
     });
   });
 
-  it('does not render simple and rich viewer buttons if `showViewerToggles` is `false`', async () => {
+  it('does not render simple and rich viewer buttons if `showViewerToggles` is `false`', () => {
     createComponent({ showViewerToggles: false });
-    await nextTick();
 
     expect(findSimpleViewerButton().exists()).toBe(false);
     expect(findRichViewerButton().exists()).toBe(false);
@@ -122,5 +121,13 @@ describe('Blob Header Viewer Switcher', () => {
       'open_blame_viewer_on_blob_page',
       expect.any(Object),
     );
+  });
+
+  describe('viewer toggles', () => {
+    it('renders text toggles', () => {
+      createComponent({ showViewerToggles: true });
+      expect(findSimpleViewerButton().text()).toBe('Code');
+      expect(findRichViewerButton().text()).toBe('Preview');
+    });
   });
 });

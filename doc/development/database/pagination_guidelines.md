@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Pagination guidelines
 ---
-
-# Pagination guidelines
 
 This document gives an overview of the current capabilities and provides best practices for paginating over data in GitLab, and in particular for PostgreSQL.
 
@@ -35,7 +34,7 @@ Rendering long lists can significantly affect both the frontend and backend perf
 
 With pagination, the data is split into equal pieces (pages). On the first visit, the user receives only a limited number of items (page size). The user can see more items by paginating forward which results in a new HTTP request and a new database query.
 
-![Project issues page with pagination](../img/project_issues_pagination_v13_11.jpg)
+![Project issues page with pagination](img/project_issues_pagination_v13_11.jpg)
 
 ## General guidelines for paginating
 
@@ -66,11 +65,14 @@ Offset-based pagination is the easiest way to paginate over records, however, it
 - Avoid using page numbers, use next and previous page buttons.
   - Keyset pagination doesn't support page numbers.
 - For APIs, advise against building URLs for the next page by "hand".
-  - Promote the usage of the [`Link` header](../../api/rest/index.md#pagination-link-header) where the URLs for the next and previous page are provided by the backend.
+  - Promote the usage of the [`Link` header](../../api/rest/_index.md#pagination-link-header) where the URLs for the next and previous page are provided by the backend.
   - This way changing the URL structure is possible without breaking backward compatibility.
 
-NOTE:
+{{< alert type="note" >}}
+
 Infinite scroll can use keyset pagination without affecting the user experience since there are no exposed page numbers.
+
+{{< /alert >}}
 
 ## Options for pagination
 
@@ -95,7 +97,7 @@ Notice that the query also orders the rows by the primary key (`id`). When pagin
 
 Example pagination bar:
 
-![Page selector rendered by Kaminari](../img/offset_pagination_ui_v13_11.jpg)
+![Page selector rendered by Kaminari](img/offset_pagination_ui_v13_11.jpg)
 
 The Kaminari gem renders a nice pagination bar on the UI with page numbers and optionally quick shortcuts the next, previous, first, and last page buttons. To render these buttons, Kaminari needs to know the number of rows, and for that, a count query is executed.
 
@@ -147,10 +149,13 @@ CREATE INDEX index_on_issues_project_id ON issues (project_id, id);
 
 By making the `id` column part of the index, the previous query reads maximum 20 rows. The query performs well regardless of the number of issues within a project. So with this change, we've also improved the initial page load (when the user loads the issue page).
 
-NOTE:
+{{< alert type="note" >}}
+
 Here we're leveraging the ordered property of the b-tree database index. Values in the index are sorted so reading 20 rows does not require further sorting.
 
-#### Limitations
+{{< /alert >}}
+
+#### Known issues
 
 ##### `COUNT(*)` on a large dataset
 
@@ -170,9 +175,9 @@ When we paginate over a large dataset, we might notice that the response time ge
 
 From the user point of view, this might not be always noticeable. As the user paginates forward, the previous rows might be still in the buffer cache of the database. If the user shares the link with someone else and it's opened after a few minutes or hours, the response time might be significantly higher or it would even time out.
 
-When requesting a large page number, the database needs to read `PAGE * PAGE_SIZE` rows. This makes offset pagination **unsuitable for large database tables**.
+When requesting a large page number, the database needs to read `PAGE * PAGE_SIZE` rows. This makes offset pagination **unsuitable for large database tables** however, with an [optimization technique](offset_pagination_optimization.md) the overall performance of the database queries can be slightly improved.
 
-Example: listing users on the Admin Area
+Example: listing users on the Admin area
 
 Listing users with a very simple SQL query:
 
@@ -220,22 +225,22 @@ We can argue that a typical user does not visit these pages. However, API users 
 
 Keyset pagination addresses the performance concerns of "skipping" previous rows when requesting a large page, however, it's not a drop-in replacement for offset-based pagination. When moving an API endpoint from offset-based pagination to keyset-based pagination, both must be supported. Removing one type of pagination entirely is a [breaking changes](../../update/terminology.md#breaking-change).
 
-Keyset pagination used in both the [GraphQL API](../graphql_guide/pagination.md#keyset-pagination) and the [REST API](../../api/rest/index.md#keyset-based-pagination).
+Keyset pagination used in both the [GraphQL API](../graphql_guide/pagination.md#keyset-pagination) and the [REST API](../../api/rest/_index.md#keyset-based-pagination).
 
 Consider the following `issues` table:
 
-|`id`|`project_id`|
-|-|-|
-|1|1|
-|2|1|
-|3|2|
-|4|1|
-|5|1|
-|6|2|
-|7|2|
-|8|1|
-|9|1|
-|10|2|
+| `id` | `project_id` |
+|------|--------------|
+| 1    | 1            |
+| 2    | 1            |
+| 3    | 2            |
+| 4    | 1            |
+| 5    | 1            |
+| 6    | 2            |
+| 7    | 2            |
+| 8    | 1            |
+| 9    | 1            |
+| 10   | 2            |
 
 Let's paginate over the whole table ordered by the primary key (`id`). The query for the first page is the same as the offset pagination query, for simplicity, we use 5 as the page size:
 
@@ -262,7 +267,7 @@ Looking at the query execution plan, we can see that this query read only 5 rows
 (5 rows)
 ```
 
-#### Limitations
+#### Known issues
 
 ##### No page numbers
 
@@ -280,8 +285,11 @@ In GraphQL, the parameters are serialized to JSON and then encoded:
 eyJpZCI6Ijk0NzMzNTk0IiwidXBkYXRlZF9hdCI6IjIwMjEtMDQtMDkgMDg6NTA6MDUuODA1ODg0MDAwIFVUQyJ9
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 Pagination parameters are visible to the user, so be careful about which columns we order by.
+
+{{< /alert >}}
 
 Keyset pagination can only provide the next, previous, first, and last pages.
 

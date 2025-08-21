@@ -1,9 +1,9 @@
-import axios from 'axios';
 import Autosize from 'autosize';
 import MockAdapter from 'axios-mock-adapter';
 import { nextTick } from 'vue';
 import { GlAlert } from '@gitlab/ui';
-import { mountExtended } from 'helpers/vue_test_utils_helper';
+import axios from '~/lib/utils/axios_utils';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import {
   EDITING_MODE_MARKDOWN_FIELD,
   EDITING_MODE_CONTENT_EDITOR,
@@ -14,13 +14,11 @@ import {
 import markdownEditorEventHub from '~/vue_shared/components/markdown/eventhub';
 import MarkdownEditor from '~/vue_shared/components/markdown/markdown_editor.vue';
 import ContentEditor from '~/content_editor/components/content_editor.vue';
-import BubbleMenu from '~/content_editor/components/bubble_menus/bubble_menu.vue';
-import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
 import MarkdownField from '~/vue_shared/components/markdown/field.vue';
-import { assertProps } from 'helpers/assert_props';
 import { stubComponent } from 'helpers/stub_component';
 import { useLocalStorageSpy } from 'helpers/local_storage_helper';
 import waitForPromises from 'helpers/wait_for_promises';
+import { useFakeRequestAnimationFrame } from 'helpers/fake_request_animation_frame';
 
 jest.mock('~/emoji');
 jest.mock('autosize');
@@ -57,24 +55,16 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
     },
   };
   const buildWrapper = ({ propsData = {}, attachTo, stubs = {} } = {}) => {
-    wrapper = mountExtended(MarkdownEditor, {
+    wrapper = shallowMountExtended(MarkdownEditor, {
       attachTo,
       propsData: {
         ...defaultProps,
         ...propsData,
       },
       stubs: {
-        BubbleMenu: stubComponent(BubbleMenu),
+        MarkdownField,
+        ContentEditor,
         ...stubs,
-      },
-      mocks: {
-        $apollo: {
-          queries: {
-            currentUser: {
-              loading: false,
-            },
-          },
-        },
       },
     });
   };
@@ -83,7 +73,6 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
 
   const findMarkdownField = () => wrapper.findComponent(MarkdownField);
   const findTextarea = () => wrapper.find('textarea');
-  const findLocalStorageSync = () => wrapper.findComponent(LocalStorageSync);
   const findContentEditor = () => {
     const result = wrapper.findComponent(ContentEditor);
     // In Vue.js 3 there are nuances stubbing component with custom stub on mount
@@ -92,6 +81,7 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
   };
 
   const enableContentEditor = () => {
+    window.gon = { text_editor: 'rich_text_editor' };
     return new Promise((resolve) => {
       markdownEditorEventHub.$once(CONTENT_EDITOR_READY_EVENT, resolve);
       findMarkdownField().vm.$emit('enableContentEditor');
@@ -99,6 +89,7 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
   };
 
   const enableMarkdownEditor = () => {
+    window.gon = { text_editor: 'plain_text_editor' };
     return new Promise((resolve) => {
       markdownEditorEventHub.$once(MARKDOWN_EDITOR_READY_EVENT, resolve);
       findContentEditor().vm.$emit('enableMarkdownEditor');
@@ -157,7 +148,7 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
   it('enables content editor switcher when contentEditorEnabled prop is true', () => {
     buildWrapper({ propsData: { enableContentEditor: true } });
 
-    expect(findMarkdownField().text()).toContain('Switch to rich text editing');
+    expect(findMarkdownField().props('showContentEditorSwitcher')).toBe(true);
   });
 
   it('hides content editor switcher when contentEditorEnabled prop is false', () => {
@@ -204,6 +195,31 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
     });
   });
 
+  describe('when additional restricted tool bar items are given', () => {
+    beforeEach(() => {
+      buildWrapper({ propsData: { restrictedToolBarItems: ['full-screen'] } });
+    });
+
+    it('passes them to restrictedToolBarItems', () => {
+      expect(findMarkdownField().props().restrictedToolBarItems).toContain('full-screen');
+    });
+
+    describe('when attachments are disabled', () => {
+      beforeEach(() => {
+        buildWrapper({
+          propsData: { disableAttachments: true, restrictedToolBarItems: ['full-screen'] },
+        });
+      });
+
+      it('passes `attach-file` and `full-screen` restrictedToolBarItems', () => {
+        expect(findMarkdownField().props().restrictedToolBarItems).toEqual([
+          'full-screen',
+          'attach-file',
+        ]);
+      });
+    });
+  });
+
   describe('disabled', () => {
     it('disables markdown field when disabled prop is true', () => {
       buildWrapper({ propsData: { disabled: true } });
@@ -235,13 +251,6 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
   });
 
   describe('autosize', () => {
-    it('autosizes the textarea when the value changes', async () => {
-      buildWrapper();
-      await findTextarea().setValue('Lots of newlines\n\n\n\n\n\n\nMore content\n\n\nand newlines');
-      await nextTick();
-      expect(Autosize.update).toHaveBeenCalled();
-    });
-
     it('autosizes the textarea when the value changes from outside the component', async () => {
       buildWrapper();
       wrapper.setProps({ value: 'Lots of newlines\n\n\n\n\n\n\nMore content\n\n\nand newlines' });
@@ -296,6 +305,15 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
       expect(localStorage.setItem).not.toHaveBeenCalled();
     });
 
+    it('can restore note directly from autosave', () => {
+      localStorage.setItem('autosave/issue/1234', 'foo edited');
+      buildWrapper({
+        propsData: { autosaveKey: 'issue/1234', value: 'foo', restoreFromAutosave: true },
+      });
+
+      expect(findTextarea().element.value).toBe('foo edited');
+    });
+
     describe('clear local storage event handler', () => {
       it('does not clear the local storage if the autosave key is not defined', async () => {
         buildWrapper();
@@ -338,17 +356,25 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
         name: formFieldName,
         placeholder: formFieldPlaceholder,
         'aria-label': formFieldAriaLabel,
+        'data-noteable-type': '',
         'data-supports-quick-actions': 'true',
       }),
     );
+    expect(findTextarea().attributes('data-can-suggest')).toBeUndefined();
 
     expect(findTextarea().element.value).toBe(value);
   });
 
-  it('fails to render if textarea id and name is not passed', () => {
-    expect(() => assertProps(MarkdownEditor, { ...defaultProps, formFieldProps: {} })).toThrow(
-      'Invalid prop: custom validator check failed for prop "formFieldProps"',
-    );
+  it('renders data on textarea for noteable type', () => {
+    buildWrapper({ propsData: { noteableType: 'MergeRequest' } });
+
+    expect(findTextarea().attributes('data-noteable-type')).toBe('MergeRequest');
+  });
+
+  it('renders data on textarea for can suggest', () => {
+    buildWrapper({ propsData: { codeSuggestionsConfig: { canSuggest: true } } });
+
+    expect(findTextarea().attributes('data-can-suggest')).toBe('true');
   });
 
   it(`emits ${EDITING_MODE_CONTENT_EDITOR} event when enableContentEditor emitted from markdown editor`, async () => {
@@ -373,9 +399,11 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
       buildWrapper();
       const newValue = 'new value';
 
-      await findTextarea().setValue(newValue);
+      const textArea = findTextarea();
+      textArea.element.value = newValue;
+      await findTextarea().trigger('input');
 
-      expect(wrapper.emitted('input')).toEqual([[value], [newValue]]);
+      expect(wrapper.emitted('input')).toEqual([[value, true], [newValue]]);
     });
 
     it('autosaves the markdown value to local storage', async () => {
@@ -439,10 +467,6 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
       it('hides the markdown field', () => {
         expect(findMarkdownField().exists()).toBe(false);
       });
-
-      it('updates localStorage value', () => {
-        expect(findLocalStorageSync().props().value).toBe(EDITING_MODE_CONTENT_EDITOR);
-      });
     });
   });
 
@@ -478,7 +502,7 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
 
       await findContentEditor().vm.$emit('change', { markdown: newValue });
 
-      expect(wrapper.emitted('input')).toEqual([[value], [newValue]]);
+      expect(wrapper.emitted('input')).toEqual([[value, true], [newValue]]);
     });
 
     it('autosaves the content editor value to local storage', async () => {
@@ -562,10 +586,6 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
       it('shows the markdown field', () => {
         expect(findMarkdownField().exists()).toBe(true);
       });
-
-      it('updates localStorage value', () => {
-        expect(findLocalStorageSync().props().value).toBe(EDITING_MODE_MARKDOWN_FIELD);
-      });
     });
   });
 
@@ -621,6 +641,53 @@ describe('vue_shared/component/markdown/markdown_editor', () => {
       expect(wrapper.findComponent(GlAlert).text()).toContain(
         'Applying a template will replace the existing content. Any changes you have made will be lost.',
       );
+    });
+  });
+
+  describe('append public API', () => {
+    useFakeRequestAnimationFrame();
+
+    it('updates editor value', async () => {
+      buildWrapper({
+        propsData: { value: '' },
+      });
+      const focusSpy = jest.spyOn(findTextarea().element, 'focus');
+      wrapper.vm.append('foo');
+      await nextTick();
+      expect(findTextarea().element.value).toBe('foo\n\n');
+      expect(focusSpy).toHaveBeenCalled();
+    });
+
+    it('updates rich text editor value', async () => {
+      buildWrapper({
+        enableContentEditor: true,
+        propsData: { value: '' },
+      });
+      await enableContentEditor();
+      const focusSpy = jest.spyOn(findContentEditor().vm, 'focus');
+      wrapper.vm.append('foo');
+      await nextTick();
+      expect(findContentEditor().props('markdown')).toBe('foo\n\n');
+      expect(focusSpy).toHaveBeenCalled();
+    });
+
+    it('appends to existing value', async () => {
+      buildWrapper({
+        propsData: { value: 'existing text' },
+      });
+      wrapper.vm.append('foo');
+      await nextTick();
+      expect(findTextarea().element.value).toBe('existing text\n\nfoo\n\n');
+    });
+
+    it('apples focus when no value is given', async () => {
+      buildWrapper({
+        propsData: { value: '' },
+      });
+      const focusSpy = jest.spyOn(findTextarea().element, 'focus');
+      wrapper.vm.append();
+      await nextTick();
+      expect(focusSpy).toHaveBeenCalled();
     });
   });
 });

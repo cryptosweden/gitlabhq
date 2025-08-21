@@ -1,5 +1,5 @@
 import { nextTick } from 'vue';
-import { GlCollapsibleListbox, GlIcon } from '@gitlab/ui';
+import { GlCollapsibleListbox } from '@gitlab/ui';
 import DateRangesDropdown from '~/analytics/shared/components/date_ranges_dropdown.vue';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
@@ -13,13 +13,13 @@ describe('DateRangesDropdown', () => {
   const mockLastWeek = {
     text: 'Last week',
     value: lastWeekValue,
-    startDate: new Date('2023-09-08T00:00:00.000Z'),
+    startDate: new Date('2023-09-07T00:00:00.000Z'),
     endDate: new Date('2023-09-14T00:00:00.000Z'),
   };
   const mockLast30Days = {
     text: 'Last month',
     value: last30DaysValue,
-    startDate: new Date('2023-08-16T00:00:00.000Z'),
+    startDate: new Date('2023-08-15T00:00:00.000Z'),
     endDate: new Date('2023-09-14T00:00:00.000Z'),
   };
   const mockCustomDateRangeItem = {
@@ -43,12 +43,20 @@ describe('DateRangesDropdown', () => {
   };
 
   const findListBox = () => wrapper.findComponent(GlCollapsibleListbox);
-  const findDaysSelectedCount = () => wrapper.findByTestId('predefined-date-range-days-count');
-  const findHelpIcon = () => wrapper.findComponent(GlIcon);
+  const findDateRangeString = () => wrapper.findByTestId('predefined-date-range-string');
+  const findHelpIcon = () => wrapper.findComponent('[name="information-o"]');
+  const findDropdownButton = () => wrapper.findByTestId('selected-date-range');
+  const findDropdownIcon = () => wrapper.findByTestId('dropdown-icon');
 
   describe('default state', () => {
     beforeEach(() => {
       createComponent();
+    });
+
+    it('should render custom toggle button with icon and text', () => {
+      expect(findDropdownButton().exists()).toBe(true);
+      expect(findDropdownIcon().exists()).toBe(true);
+      expect(findDropdownButton().text()).toBe('Date range');
     });
 
     it('should pass items to listbox `items` prop in correct order', () => {
@@ -80,8 +88,8 @@ describe('DateRangesDropdown', () => {
         expect(wrapper.emitted('selected')).toEqual([[dateRangeProps]]);
       });
 
-      it('should display days selected indicator', () => {
-        expect(findDaysSelectedCount().exists()).toBe(true);
+      it('should display date range string', () => {
+        expect(findDateRangeString().exists()).toBe(true);
       });
 
       it('should not emit `customDateRangeSelected` event', () => {
@@ -100,8 +108,8 @@ describe('DateRangesDropdown', () => {
         expect(wrapper.emitted('customDateRangeSelected')).toHaveLength(1);
       });
 
-      it('should hide days selected indicator', () => {
-        expect(findDaysSelectedCount().exists()).toBe(false);
+      it('should hide date range string', () => {
+        expect(findDateRangeString().exists()).toBe(false);
       });
 
       it('should not emit `selected` event', () => {
@@ -120,25 +128,20 @@ describe('DateRangesDropdown', () => {
     });
   });
 
-  describe('days selected indicator', () => {
+  describe('date range string', () => {
     it.each`
-      selected           | includeEndDateInDaysSelected | expectedDaysCount
-      ${lastWeekValue}   | ${true}                      | ${7}
-      ${last30DaysValue} | ${true}                      | ${30}
-      ${lastWeekValue}   | ${false}                     | ${6}
-      ${last30DaysValue} | ${false}                     | ${29}
-    `(
-      'should display correct days selected when includeEndDateInDaysSelected=$includeEndDateInDaysSelected',
-      ({ selected, includeEndDateInDaysSelected, expectedDaysCount }) => {
-        createComponent({ props: { selected, includeEndDateInDaysSelected } });
+      selected           | expectedDates
+      ${lastWeekValue}   | ${'Sep 7 – 14, 2023'}
+      ${last30DaysValue} | ${'Aug 15 – Sep 14, 2023'}
+    `('should display correct dates selected', ({ selected, expectedDates }) => {
+      createComponent({ props: { selected } });
 
-        expect(wrapper.findByText(`${expectedDaysCount} days selected`).exists()).toBe(true);
-      },
-    );
+      expect(wrapper.findByText(expectedDates).exists()).toBe(true);
+    });
 
-    it('should not rendered the indicator if disableSelectedDayCount is set', () => {
-      createComponent({ props: { disableSelectedDayCount: true, selected: lastWeekValue } });
-      expect(findDaysSelectedCount().exists()).toBe(false);
+    it('should not render if disableDateRangeString is set', () => {
+      createComponent({ props: { disableDateRangeString: true, selected: lastWeekValue } });
+      expect(findDateRangeString().exists()).toBe(false);
     });
   });
 
@@ -155,6 +158,18 @@ describe('DateRangesDropdown', () => {
       expect(helpIcon.attributes('title')).toBe(mockTooltipText);
 
       expect(tooltip).toBeDefined();
+    });
+
+    describe('custom date range option is selected', () => {
+      beforeEach(async () => {
+        findListBox().vm.$emit('select', customDateRangeValue);
+
+        await nextTick();
+      });
+
+      it('should hide info icon', () => {
+        expect(findHelpIcon().exists()).toBe(false);
+      });
     });
   });
 

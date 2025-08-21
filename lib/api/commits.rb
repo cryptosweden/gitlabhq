@@ -3,8 +3,14 @@ require 'mime/types'
 
 module API
   class Commits < ::API::Base
+    include ::API::Concerns::AiWorkflowsAccess
+    include APIGuard
     include PaginationParams
     include Helpers::Unidiff
+
+    helpers ::API::Helpers::NotesHelpers
+
+    allow_ai_workflows_access
 
     feature_category :source_code_management
 
@@ -28,8 +34,14 @@ module API
         end
       end
 
-      def track_commit_events
-        return unless find_user_from_warden
+      def web_ide_request?
+        return false unless access_token.respond_to?(:application)
+
+        access_token.application.id == WebIde::DefaultOauthApplication.oauth_application_id
+      end
+
+      def track_web_ide_commit_events
+        return unless web_ide_request?
 
         Gitlab::InternalEvents.track_event('create_commit_from_web_ide', user: current_user, project: user_project)
         Gitlab::InternalEvents.track_event('g_edit_by_web_ide', user: current_user, project: user_project)
@@ -60,6 +72,7 @@ module API
         tags %w[commits]
         is_array true
         failure [
+          { code: 400, message: 'Bad request' },
           { code: 401, message: 'Unauthorized' },
           { code: 404, message: 'Not found' }
         ]
@@ -130,7 +143,10 @@ module API
         commit_count = offset + commits.size + 1
         paginated_commits = Kaminari.paginate_array(commits, total_count: commit_count)
 
-        present paginate(paginated_commits, exclude_total_headers: true), with: serializer
+        present paginate(paginated_commits, exclude_total_headers: true, without_count: true), with: serializer
+
+      rescue ArgumentError
+        render_api_error!('ref_name is invalid', 400)
       end
 
       desc 'Commit multiple file changes as one commit' do
@@ -241,7 +257,7 @@ module API
         if result[:status] == :success
           commit_detail = user_project.repository.commit(result[:result])
 
-          track_commit_events
+          track_web_ide_commit_events
 
           present commit_detail, with: Entities::CommitDetail, include_stats: params[:stats], current_user: current_user
         else
@@ -307,7 +323,7 @@ module API
         commit = user_project.commit(params[:sha])
 
         not_found! 'Commit' unless commit
-        notes = commit.notes.with_api_entity_associations.fresh
+        notes = commit.notes.with_api_entity_associations.order_created_at_id_asc
 
         present paginate(notes), with: Entities::CommitNote
       end
@@ -343,7 +359,7 @@ module API
         ]
       end
       params do
-        requires :sha, type: String, desc: 'A commit sha, or the name of a branch or tag to be cherry picked'
+        requires :sha, type: String, desc: 'A commit sha, or the name of a branch or tag to be cherry-picked'
         requires :branch,
           type: String,
           desc: 'The name of the branch',
@@ -462,12 +478,32 @@ module API
         commit = user_project.commit(params[:sha])
         not_found!('Commit') unless commit
 
-        refs = []
-        refs.concat(user_project.repository.branch_names_contains(commit.id).map { |name| { type: 'branch', name: name } }) unless params[:type] == 'tag'
-        refs.concat(user_project.repository.tag_names_contains(commit.id).map { |name| { type: 'tag', name: name } }) unless params[:type] == 'branch'
+        page = params[:page] > 0 ? params[:page] : 1
+        per_page = params[:per_page] > 0 ? params[:per_page] : Kaminari.config.default_per_page
+
+        # Gitaly RPC doesn't support pagination, but we still can limit the number of requested records
+        # Example: per_page = 50, page = 3
+        # Limit will be set to 151 to capture enough records for Kaminari pagination to extract the right slice.
+        # 1 is added to the limit so that Kaminari knows there are more records and correctly sets the x-next-page
+        # and Link headers.
+        limit = ([per_page, Kaminari.config.max_per_page].min * page) + 1
+
+        args = {
+          type: declared_params[:type],
+          limit: limit
+        }.compact
+
+        refs = ::Gitlab::Repositories::ContainingCommitFinder.new(
+          user_project.repository,
+          commit.id,
+          args
+        ).execute
+
         refs = Kaminari.paginate_array(refs)
 
-        present paginate(refs), with: Entities::BasicRef
+        # Due to the limit applied above to capture just enough records, disable x-total, x-total-page, and "last" link
+        # in the response header. Without this, the response headers would contain incorrect and misleading values.
+        present paginate(refs, without_count: true), with: Entities::BasicRef
       end
 
       desc 'Post comment to commit' do
@@ -526,10 +562,8 @@ module API
 
         note = ::Notes::CreateService.new(user_project, current_user, opts).execute
 
-        if note.save
+        process_note_creation_result(note) do
           present note, with: Entities::CommitNote
-        else
-          render_api_error!("Failed to save note #{note.errors.messages}", 400)
         end
       end
 
@@ -543,6 +577,7 @@ module API
       end
       params do
         requires :sha, type: String, desc: 'A commit sha, or the name of a branch or tag on which to find Merge Requests'
+        optional :state, type: String, desc: 'Filter merge-requests by state', documentation: { example: 'merged' }
         use :pagination
       end
       get ':id/repository/commits/:sha/merge_requests', requirements: API::COMMIT_ENDPOINT_REQUIREMENTS, urgency: :low do
@@ -554,7 +589,8 @@ module API
         commit_merge_requests = MergeRequestsFinder.new(
           current_user,
           project_id: user_project.id,
-          commit_sha: commit.sha
+          commit_sha: commit.sha,
+          state: params[:state]
         ).execute.with_api_entity_associations
 
         present paginate(commit_merge_requests), with: Entities::MergeRequestBasic

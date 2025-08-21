@@ -12,10 +12,7 @@ data_source: database
 data_category: operational
 instrumentation_class: InstallationCreationDateMetric
 performance_indicator_type: []
-distribution:
-- ce
-- ee
-tier:
+tiers:
 - free
 - premium
 - ultimate

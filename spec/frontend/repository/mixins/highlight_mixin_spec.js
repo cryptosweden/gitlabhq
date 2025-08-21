@@ -1,7 +1,7 @@
 import { shallowMount } from '@vue/test-utils';
-import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import { nextTick } from 'vue';
+import axios from '~/lib/utils/axios_utils';
 import { splitIntoChunks } from '~/vue_shared/components/source_viewer/workers/highlight_utils';
 import highlightMixin from '~/repository/mixins/highlight_mixin';
 import waitForPromises from 'helpers/wait_for_promises';
@@ -29,9 +29,16 @@ describe('HighlightMixin', () => {
   const contentArray = Array.from({ length: 140 }, () => 'newline'); // simulate 140 lines of code
   const rawTextBlob = contentArray.join('\n');
   const languageMock = 'json';
+  const nameMock = 'test.json';
 
   const createComponent = (
-    { fileType = TEXT_FILE_TYPE, language = languageMock, externalStorageUrl, rawPath } = {},
+    {
+      fileType = TEXT_FILE_TYPE,
+      language = languageMock,
+      name = nameMock,
+      externalStorageUrl,
+      rawPath,
+    } = {},
     isUsingLfs = false,
   ) => {
     const simpleViewer = { fileType };
@@ -49,7 +56,7 @@ describe('HighlightMixin', () => {
         </div>`,
       created() {
         this.initHighlightWorker(
-          { rawTextBlob, simpleViewer, language, fileType, externalStorageUrl, rawPath },
+          { rawTextBlob, simpleViewer, language, name, fileType, externalStorageUrl, rawPath },
           isUsingLfs,
         );
       },
@@ -69,7 +76,7 @@ describe('HighlightMixin', () => {
     });
 
     it('calls postMessage on the worker', () => {
-      expect(workerMock.postMessage.mock.calls.length).toBe(2);
+      expect(workerMock.postMessage.mock.calls).toHaveLength(2);
 
       // first call instructs worker to highlight the first 70 lines
       expect(workerMock.postMessage.mock.calls[0][0]).toMatchObject({
@@ -159,6 +166,62 @@ describe('HighlightMixin', () => {
       expect(mockAxios.history.get).toHaveLength(1);
       expect(mockAxios.history.get[0].url).toBe(rawPath);
       expect(workerMock.postMessage).toHaveBeenCalledWith(mockParams);
+    });
+  });
+
+  describe('Gleam language handling', () => {
+    beforeEach(() => workerMock.postMessage.mockClear());
+
+    it('sets language to gleam for .gleam files regardless of passed language', () => {
+      createComponent({ language: 'plaintext', name: 'test.gleam' });
+
+      expect(workerMock.postMessage.mock.calls[0][0]).toMatchObject({
+        language: 'gleam',
+      });
+    });
+  });
+
+  describe('Glimmer language handling', () => {
+    beforeEach(() => workerMock.postMessage.mockClear());
+
+    it('sets language to glimmer for .glimmer files regardless of passed language', () => {
+      createComponent({ language: 'plaintext', name: 'test.glimmer' });
+
+      expect(workerMock.postMessage.mock.calls[0][0]).toMatchObject({
+        language: 'glimmer',
+      });
+    });
+  });
+
+  describe('Glimmer javascript language handling', () => {
+    beforeEach(() => workerMock.postMessage.mockClear());
+
+    it('sets language to glimmer-javascript for .gjs files regardless of passed language', () => {
+      createComponent({ language: 'plaintext', name: 'test.gjs' });
+
+      expect(workerMock.postMessage.mock.calls[0][0]).toMatchObject({
+        language: 'glimmer-javascript',
+      });
+    });
+
+    it('sets language to glimmer-javascript for .gts files regardless of passed language', () => {
+      createComponent({ language: 'plaintext', name: 'test.gts' });
+
+      expect(workerMock.postMessage.mock.calls[0][0]).toMatchObject({
+        language: 'glimmer-javascript',
+      });
+    });
+  });
+
+  describe('Veryl language handling', () => {
+    beforeEach(() => workerMock.postMessage.mockClear());
+
+    it('sets language to veryl for .veryl files regardless of passed language', () => {
+      createComponent({ language: 'plaintext', name: 'test.veryl' });
+
+      expect(workerMock.postMessage.mock.calls[0][0]).toMatchObject({
+        language: 'veryl',
+      });
     });
   });
 });

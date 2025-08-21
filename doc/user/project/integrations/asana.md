@@ -1,18 +1,26 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Plan
+group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Asana
 ---
 
-# Asana
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+{{< history >}}
+
+- Support for V1 Asana URL format [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/523692) in GitLab 18.3.
+
+{{< /history >}}
 
 The Asana integration adds commit messages as comments to Asana tasks.
 Once enabled, commit messages are checked for Asana task URLs (for example,
-`https://app.asana.com/0/123456/987654`) or task IDs starting with `#`
+`https://app.asana.com/1/12345/project/67890/task/987654`) or task IDs starting with `#`
 (for example, `#987654`). Every task ID found gets the commit comment added to it.
 
 You can also close a task with a message containing: `fix #123456`.
@@ -27,12 +35,12 @@ You can use either of these words:
 - `closed`
 - `closing`
 
-See also the [Asana integration API documentation](../../../api/integrations.md#asana).
+See also the [Asana integration API documentation](../../../api/project_integrations.md#asana).
 
 ## Setup
 
-In Asana, create a Personal Access Token.
-[Learn about Personal Access Tokens in Asana](https://developers.asana.com/docs/personal-access-token).
+In Asana, create a personal access token.
+[Learn about personal access tokens in Asana](https://developers.asana.com/docs/personal-access-token).
 
 Complete these steps in GitLab:
 
@@ -45,5 +53,3 @@ Complete these steps in GitLab:
    field, separated with commas.
 1. Optional. Select **Test settings**.
 1. Select **Save changes**.
-
-<!-- ## Troubleshooting -->

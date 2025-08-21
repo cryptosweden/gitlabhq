@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Creating a Snippet', feature_category: :source_code_management do
+RSpec.describe 'Creating a Snippet', :with_current_organization, feature_category: :source_code_management do
   include GraphqlHelpers
 
   let_it_be(:user) { create(:user) }
@@ -110,6 +110,14 @@ RSpec.describe 'Creating a Snippet', feature_category: :source_code_management d
       it_behaves_like 'creates snippet' do
         let(:project) { nil }
       end
+
+      context 'when Current organization is present' do
+        it 'adds an organization_id' do
+          expect do
+            subject
+          end.to change { Snippet.where(organization_id: current_organization.id).count }.by(1)
+        end
+      end
     end
 
     context 'with ProjectSnippet' do
@@ -120,6 +128,14 @@ RSpec.describe 'Creating a Snippet', feature_category: :source_code_management d
       end
 
       it_behaves_like 'creates snippet'
+
+      context 'when Current organization is present' do
+        it 'does not add an organization_id' do
+          expect do
+            subject
+          end.not_to change { Snippet.where(organization_id: current_organization.id).count }
+        end
+      end
 
       context 'when the project path is invalid' do
         let(:project_path) { 'foobar' }
@@ -150,14 +166,18 @@ RSpec.describe 'Creating a Snippet', feature_category: :source_code_management d
     context 'when there non ActiveRecord errors' do
       let(:file_1) { { filePath: 'invalid://file/path', content: 'foobar' } }
 
-      it_behaves_like 'a mutation that returns errors in the response', errors: ['Repository Error creating the snippet - Invalid file name']
+      it_behaves_like(
+        'a mutation that returns errors in the response',
+        errors: ['Repository Error creating the snippet - Invalid file name']
+      )
+
       it_behaves_like 'does not create snippet'
     end
 
     context 'when there are uploaded files' do
       shared_examples 'expected files argument' do |file_value, expected_value|
         let(:uploaded_files) { file_value }
-        let(:snippet) { build(:snippet) }
+        let(:snippet) { build(:personal_snippet) }
         let(:creation_response) do
           ::ServiceResponse.error(message: 'urk', payload: { snippet: snippet })
         end

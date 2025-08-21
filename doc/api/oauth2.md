@@ -1,27 +1,31 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
-description: Third-party authorization to GitLab.
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: Third-party authorization to GitLab.
+title: OAuth 2.0 identity provider API
 ---
 
-# OAuth 2.0 identity provider API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-GitLab provides an API to allow third-party services to access GitLab resources on a user's behalf
+{{< /details >}}
+
+Use this API to allow third-party services to access GitLab resources for a user
 with the [OAuth 2.0](https://oauth.net/2/) protocol.
-
-To configure GitLab for this, see
-[Configure GitLab as an OAuth 2.0 authentication identity provider](../integration/oauth_provider.md).
+For more information, see [Configure GitLab as an OAuth 2.0 authentication identity provider](../integration/oauth_provider.md).
 
 This functionality is based on the [doorkeeper Ruby gem](https://github.com/doorkeeper-gem/doorkeeper).
 
 ## Cross-origin resource sharing
 
-> - CORS preflight request support [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/364680) in GitLab 15.1.
+{{< history >}}
+
+- CORS preflight request support [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/364680) in GitLab 15.1.
+
+{{< /history >}}
 
 Many `/oauth` endpoints support cross-origin resource sharing (CORS). From GitLab 15.1, the following endpoints also
 support [CORS preflight requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS):
@@ -41,15 +45,14 @@ For example, the `X-Requested-With` header can't be used for preflight requests.
 
 GitLab supports the following authorization flows:
 
-- **Authorization code with [Proof Key for Code Exchange (PKCE)](https://www.rfc-editor.org/rfc/rfc7636):**
+- **Authorization code with [Proof Key for Code Exchange (PKCE)](https://www.rfc-editor.org/rfc/rfc7636)**:
   Most secure. Without PKCE, you'd have to include client secrets on mobile clients,
   and is recommended for both client and server apps.
-- **Authorization code:** Secure and common flow. Recommended option for secure
+- **Authorization code**: Secure and common flow. Recommended option for secure
   server-side apps.
-- **Resource owner password credentials:** To be used **only** for securely
+- **Resource owner password credentials**: To be used **only** for securely
   hosted, first-party services. GitLab recommends against use of this flow.
-
-Device Authorization Grant is not supported. [Issue 332682](https://gitlab.com/gitlab-org/gitlab/-/issues/332682) proposes to add support.
+- **Device Authorization Grant** (GitLab 17.1 and later) Secure flow oriented toward devices without browser access. Requires a secondary device to complete the authorization flow.
 
 The draft specification for [OAuth 2.1](https://oauth.net/2.1/) specifically omits both the
 Implicit grant and Resource Owner Password Credentials flows.
@@ -89,6 +92,13 @@ authorization with each flow.
 
 ### Authorization code with Proof Key for Code Exchange (PKCE)
 
+{{< history >}}
+
+- Group SAML SSO support for OAuth applications [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/461212) in GitLab 18.2 [with a flag](../administration/feature_flags/_index.md) named `ff_oauth_redirect_to_sso_login`. Disabled by default.
+- Group SAML SSO support for OAuth applications [enabled on GitLab.com, GitLab Self-Managed and GitLab Dedicated](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/200682) in GitLab 18.3.
+
+{{< /history >}}
+
 The [PKCE RFC](https://www.rfc-editor.org/rfc/rfc7636#section-1.1) includes a
 detailed flow description, from authorization request through access token.
 The following steps describe our implementation of the flow.
@@ -105,19 +115,19 @@ Before starting the flow, generate the `STATE`, the `CODE_VERIFIER` and the `COD
   state between the request and callback. It should also be used as a CSRF token.
 - The `CODE_VERIFIER` is a random string, between 43 and 128 characters in length,
   which use the characters `A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, and `~`.
-- The `CODE_CHALLENGE` is an URL-safe base64-encoded string of the SHA256 hash of the
-  `CODE_VERIFIER`.
+- The `CODE_CHALLENGE` is a URL-safe base64-encoded string of the SHA256 hash of the
+  `CODE_VERIFIER`:
   - The SHA256 hash must be in binary format before encoding.
   - In Ruby, you can set that up with `Base64.urlsafe_encode64(Digest::SHA256.digest(CODE_VERIFIER), padding: false)`.
   - For reference, a `CODE_VERIFIER` string of `ks02i3jdikdo2k0dkfodf3m39rjfjsdk0wk349rj3jrhf` when hashed
-    and encoded using the Ruby snippet above produces a `CODE_CHALLENGE` string
+    and encoded using the previous Ruby snippet produces a `CODE_CHALLENGE` string
     of `2i0WFA-0AerkjQm4X4oDEhqA17QIAKNjXpagHBXmO_U`.
 
 1. Request authorization code. To do that, you should redirect the user to the
    `/oauth/authorize` page with the following query parameters:
 
    ```plaintext
-   https://gitlab.example.com/oauth/authorize?client_id=APP_ID&redirect_uri=REDIRECT_URI&response_type=code&state=STATE&scope=REQUESTED_SCOPES&code_challenge=CODE_CHALLENGE&code_challenge_method=S256
+   https://gitlab.example.com/oauth/authorize?client_id=APP_ID&redirect_uri=REDIRECT_URI&response_type=code&state=STATE&scope=REQUESTED_SCOPES&code_challenge=CODE_CHALLENGE&code_challenge_method=S256&root_namespace_id=ROOT_NAMESPACE_ID
    ```
 
    This page asks the user to approve the request from the app to access their
@@ -125,6 +135,8 @@ Before starting the flow, generate the `STATE`, the `CODE_VERIFIER` and the `COD
    redirected back to the specified `REDIRECT_URI`. The [scope parameter](../integration/oauth_provider.md#view-all-authorized-applications)
    is a space-separated list of scopes associated with the user.
    For example,`scope=read_user+profile` requests the `read_user` and `profile` scopes.
+   The `root_namespace_id` is the root namespace ID associated with the project. This optional parameter
+   should be used when [SAML SSO](../user/group/saml_sso/_index.md) is configured for the associated group.
    The redirect includes the authorization `code`, for example:
 
    ```plaintext
@@ -174,17 +186,30 @@ Before starting the flow, generate the `STATE`, the `CODE_VERIFIER` and the `COD
    }
    ```
 
-NOTE:
+{{< alert type="note" >}}
+
 The `redirect_uri` must match the `redirect_uri` used in the original
 authorization request.
+
+{{< /alert >}}
 
 You can now make requests to the API with the access token.
 
 ### Authorization code flow
 
-NOTE:
+{{< history >}}
+
+- Group SAML SSO support for OAuth applications [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/461212) in GitLab 18.2 [with a flag](../administration/feature_flags/_index.md) named `ff_oauth_redirect_to_sso_login`. Disabled by default.
+- Group SAML SSO support for OAuth applications [enabled on GitLab.com, GitLab Self-Managed and GitLab Dedicated](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/200682) in GitLab 18.3.
+
+{{< /history >}}
+
+{{< alert type="note" >}}
+
 Check the [RFC spec](https://www.rfc-editor.org/rfc/rfc6749#section-4.1) for a
 detailed flow description.
+
+{{< /alert >}}
 
 The authorization code flow is essentially the same as
 [authorization code flow with PKCE](#authorization-code-with-proof-key-for-code-exchange-pkce),
@@ -197,7 +222,7 @@ be used as a CSRF token.
    `/oauth/authorize` page with the following query parameters:
 
    ```plaintext
-   https://gitlab.example.com/oauth/authorize?client_id=APP_ID&redirect_uri=REDIRECT_URI&response_type=code&state=STATE&scope=REQUESTED_SCOPES
+   https://gitlab.example.com/oauth/authorize?client_id=APP_ID&redirect_uri=REDIRECT_URI&response_type=code&state=STATE&scope=REQUESTED_SCOPES&root_namespace_id=ROOT_NAMESPACE_ID
    ```
 
    This page asks the user to approve the request from the app to access their
@@ -205,6 +230,8 @@ be used as a CSRF token.
    redirected back to the specified `REDIRECT_URI`. The [scope parameter](../integration/oauth_provider.md#view-all-authorized-applications)
    is a space-separated list of scopes associated with the user.
    For example,`scope=read_user+profile` requests the `read_user` and `profile` scopes.
+   The `root_namespace_id` is the root namespace ID associated with the project. This optional parameter
+   should be used when [SAML SSO](../user/group/saml_sso/_index.md) is configured for the associated group.
    The redirect includes the authorization `code`, for example:
 
    ```plaintext
@@ -254,27 +281,167 @@ be used as a CSRF token.
    }
    ```
 
-NOTE:
+{{< alert type="note" >}}
+
 The `redirect_uri` must match the `redirect_uri` used in the original
 authorization request.
 
+{{< /alert >}}
+
 You can now make requests to the API with the access token returned.
+
+### Device authorization grant flow
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/332682) in GitLab 17.2 [with a flag](../administration/feature_flags/_index.md) named `oauth2_device_grant_flow`.
+- [Enabled](https://gitlab.com/gitlab-org/gitlab/-/issues/468479) by default in 17.3.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/505557) in GitLab 17.9. Feature flag `oauth2_device_grant_flow` removed.
+
+{{< /history >}}
+
+{{< alert type="note" >}}
+
+Check the [RFC spec](https://datatracker.ietf.org/doc/html/rfc8628#section-3.1) for a detailed
+description of the device authorization grant flow, from device authorization request to token response from the browser login.
+
+{{< /alert >}}
+
+The device authorization grant flow makes it possible to securely authenticate your GitLab identity from input constrained devices where browser interactions are not an option.
+
+This makes the device authorization grant flow ideal for users attempting to use GitLab services from headless servers or other devices with no, or limited, UI.
+
+1. To request device authorization, a request is sent from the input-limited
+   device client to `https://gitlab.example.com/oauth/authorize_device`. For example:
+
+   ```ruby
+     parameters = 'client_id=UID&scope=read'
+     RestClient.post 'https://gitlab.example.com/oauth/authorize_device', parameters
+   ```
+
+   After a successful request, a response containing a `verification_uri` is returned to the user. For example:
+
+   ```json
+   {
+       "device_code": "GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS",
+       "user_code": "0A44L90H",
+       "verification_uri": "https://gitlab.example.com/oauth/device",
+       "verification_uri_complete": "https://gitlab.example.com/oauth/device?user_code=0A44L90H",
+       "expires_in": 300,
+       "interval": 5
+   }
+   ```
+
+1. The device client displays the `user_code` and `verification_uri` from the response to the
+   requesting user. That user then, on a secondary device with browser access:
+   1. Goes to the provided URI.
+   1. Enters the user code.
+   1. Completes an authentication as prompted.
+
+1. Immediately after displaying the `verification_uri` and `user_code`, the device client
+   begins polling the token endpoint with the associated `device_code` returned in the initial response:
+
+   ```ruby
+   parameters = 'grant_type=urn:ietf:params:oauth:grant-type:device_code
+   &device_code=GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS
+   &client_id=1406020730'
+   RestClient.post 'https://gitlab.example.com/oauth/token', parameters
+   ```
+
+1. The device client receives a response from the token endpoint. If the authorization was successful,
+   a success response is returned, otherwise, an error response is returned.
+   Potential error responses are categorized by either of the following:
+   - Those defined by the OAuth Authorization Framework access token error responses.
+   - Those specific to the device authorization grant flow described here.
+   Those error responses specific to the device flow are described in the following content.
+   For more information on each potential response, see the relevant [RFC spec for device authorization grant](https://datatracker.ietf.org/doc/html/rfc8628#section-3.5) and the
+   [RFC spec for authorization tokens](https://datatracker.ietf.org/doc/html/rfc6749#section-5.2).
+
+   Example response:
+
+   ```json
+   {
+     "error": "authorization_pending",
+     "error_description": "..."
+   }
+   ```
+
+   On receipt of this response, the device client continues polling.
+
+   If the polling interval is too short, a slow down error response is returned. For example:
+
+    ```json
+    {
+      "error": "slow_down",
+      "error_description": "..."
+    }
+    ```
+
+   On receipt of this response, the device client reduces its polling rate and continues polling at the new rate.
+
+   If the device code expires before authentication is complete, an expired token error
+   response is returned. For example:
+
+   ```json
+   {
+     "error": "expired_token",
+     "error_description": "..."
+   }
+   ```
+
+   At that point, the device-client should stop and initiate a new device authorization request.
+
+   If the authorization request was denied, an access denied error response is returned. For example:
+
+   ```json
+   {
+     "error": "access_denied",
+     "error_description": "..."
+   }
+   ```
+
+   The authentication request has been rejected. The user should verify their credentials or contact their system administrator
+
+1. After the user successfully authenticates, a success response is returned:
+
+   ```json
+   {
+       "access_token": "TOKEN",
+       "token_type": "Bearer",
+       "expires_in": 7200,
+       "scope": "read",
+       "created_at": 1593096829
+   }
+   ```
+
+At this point, the device authentication flow is complete. The returned `access_token` can be provided to GitLab to authenticate the user identity when accessing GitLab resources, such as when cloning over HTTPS or accessing the API.
+
+A sample application that implements the client side device flow can be found at: <https://gitlab.com/johnwparent/git-auth-over-https>.
 
 ### Resource owner password credentials flow
 
-NOTE:
+{{< alert type="note" >}}
+
 Check the [RFC spec](https://www.rfc-editor.org/rfc/rfc6749#section-4.3) for a
 detailed flow description.
 
-NOTE:
-The Resource Owner Password Credentials is disabled for users with
-[two-factor authentication](../user/profile/account/two_factor_authentication.md) turned on.
+{{< /alert >}}
+
+{{< alert type="note" >}}
+
+Resource owner password credentials are disabled for users with
+[two-factor authentication](../user/profile/account/two_factor_authentication.md) turned on
+and [enterprise users](../user/enterprise_user/_index.md)
+with [password authentication disabled for their group](../user/enterprise_user/_index.md#restrict-authentication-methods).
 These users can access the API using [personal access tokens](../user/profile/personal_access_tokens.md)
 instead.
+{{< /alert >}}
 
-NOTE:
+{{< alert type="note" >}}
+
 Ensure the [**Allow password authentication for Git over HTTP(S)**](../administration/settings/sign_in_restrictions.md#password-authentication-enabled)
 checkbox is selected for the GitLab instance to support the password credentials flow.
+{{< /alert >}}
 
 In this flow, a token is requested in exchange for the resource owner credentials
 (username and password).
@@ -286,11 +453,14 @@ The credentials should only be used when:
   privileged application.
 - Other authorization grant types are not available (such as an authorization code).
 
-WARNING:
+{{< alert type="warning" >}}
+
 Never store the user's credentials and only use this grant type when your client
 is deployed to a trusted environment, in 99% of cases
 [personal access tokens](../user/profile/personal_access_tokens.md) are a better
 choice.
+
+{{< /alert >}}
 
 Even though this grant type requires direct client access to the resource owner
 credentials, the resource owner credentials are used for a single request and
@@ -364,10 +534,10 @@ curl --header "Authorization: Bearer OAUTH-TOKEN" "https://gitlab.example.com/ap
 
 A token with [scope](../integration/oauth_provider.md#view-all-authorized-applications)
 `read_repository` or `write_repository` can access Git over HTTPS. Use the token as the password.
-The username should be your GitLab username or `oauth2`:
+You can set the username to any string value. You should use `oauth2`:
 
 ```plaintext
-https://<your_gitlab_username>:<your_access_token>@gitlab.example.com/project_path/project_name.git
+https://oauth2:<your_access_token>@gitlab.example.com/project_path/project_name.git
 ```
 
 Alternatively, you can use a [Git credential helper](../user/profile/account/two_factor_authentication.md#oauth-credential-helpers)
@@ -384,15 +554,15 @@ You must supply the access token, either:
 
 - As a parameter:
 
-   ```plaintext
-   GET https://gitlab.example.com/oauth/token/info?access_token=<OAUTH-TOKEN>
-   ```
+  ```plaintext
+  GET https://gitlab.example.com/oauth/token/info?access_token=<OAUTH-TOKEN>
+  ```
 
 - In the Authorization header:
 
-   ```shell
-   curl --header "Authorization: Bearer <OAUTH-TOKEN>" "https://gitlab.example.com/oauth/token/info"
-   ```
+  ```shell
+  curl --header "Authorization: Bearer <OAUTH-TOKEN>" "https://gitlab.example.com/oauth/token/info"
+  ```
 
 The following is an example response:
 
@@ -427,6 +597,8 @@ registries, as they:
 
 - Do not allow users to authenticate to:
   - The GitLab [container registry](../user/packages/container_registry/authenticate_with_container_registry.md).
-  - Packages listed in the GitLab [Package registry](../user/packages/package_registry/index.md).
+  - Packages listed in the GitLab [Package registry](../user/packages/package_registry/_index.md).
+  - [Virtual registries](../user/packages/virtual_registry/_index.md).
 - Allow users to get, list, and delete registries through
   the [container registry API](container_registry.md).
+- Allow users to get, list, and delete registry objects through the [Maven virtual registry API](maven_virtual_registries.md).

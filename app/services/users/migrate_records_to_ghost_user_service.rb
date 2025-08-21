@@ -37,6 +37,7 @@ module Users
 
       return if hard_delete
 
+      migrate_authored_todos
       migrate_issues
       migrate_merge_requests
       migrate_notes
@@ -45,6 +46,8 @@ module Users
       migrate_snippets
       migrate_reviews
       migrate_releases
+      migrate_timelogs
+      migrate_pipelines
     end
 
     def post_migrate_records
@@ -53,6 +56,7 @@ module Users
       # Rails attempts to load all related records into memory before
       # destroying: https://github.com/rails/rails/issues/22510
       # This ensures we delete records in batches.
+      user.delete_dependent_associations_in_batches(exclude: [:project_authorizations])
       user.destroy_dependent_associations_in_batches(exclude: [:snippets])
       user.nullify_dependent_associations_in_batches
 
@@ -68,6 +72,10 @@ module Users
       raise DestroyError, response.message if response.error?
     end
 
+    def migrate_authored_todos
+      batched_migrate(Todo, :author_id)
+    end
+
     def migrate_issues
       batched_migrate(Issue, :author_id)
       batched_migrate(Issue, :last_edited_by_id)
@@ -80,6 +88,9 @@ module Users
 
     def migrate_notes
       batched_migrate(Note, :author_id)
+
+      # Migrate label change event system notes as they are stored in a different table
+      batched_migrate(ResourceLabelEvent, :user_id)
     end
 
     def migrate_abuse_reports
@@ -106,6 +117,15 @@ module Users
     def migrate_user_achievements
       batched_migrate(Achievements::UserAchievement, :awarded_by_user_id)
       batched_migrate(Achievements::UserAchievement, :revoked_by_user_id)
+    end
+
+    def migrate_timelogs
+      batched_migrate(Timelog, :user_id)
+    end
+
+    def migrate_pipelines
+      batched_migrate(Ci::Pipeline, :user_id)
+      batched_migrate(Ci::Build, :user_id)
     end
 
     # rubocop:disable CodeReuse/ActiveRecord

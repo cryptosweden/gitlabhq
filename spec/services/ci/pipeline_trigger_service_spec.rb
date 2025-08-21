@@ -9,6 +9,7 @@ RSpec.describe Ci::PipelineTriggerService, feature_category: :continuous_integra
 
   before do
     stub_ci_pipeline_to_return_yaml_file
+    project.update!(ci_pipeline_variables_minimum_override_role: :developer)
   end
 
   describe '#execute' do
@@ -44,6 +45,33 @@ RSpec.describe Ci::PipelineTriggerService, feature_category: :continuous_integra
       end
     end
 
+    shared_examples 'accepting inputs' do
+      let(:inputs) do
+        {
+          deploy_strategy: 'blue-green',
+          job_stage: 'deploy',
+          test_script: ['echo "test"'],
+          test_rules: [
+            { if: '$CI_PIPELINE_SOURCE == "web"' }
+          ]
+        }
+      end
+
+      before do
+        stub_ci_pipeline_yaml_file(
+          File.read(Rails.root.join('spec/lib/gitlab/ci/config/yaml/fixtures/complex-included-ci.yml'))
+        )
+      end
+
+      it 'triggers a pipeline using inputs' do
+        expect { result }.to change { Ci::Pipeline.count }.by(1)
+
+        expect(result.payload[:pipeline].builds.map(&:name)).to contain_exactly(
+          'my-job-build 1/2', 'my-job-build 2/2', 'my-job-test', 'my-job-deploy'
+        )
+      end
+    end
+
     context 'with a trigger token' do
       let(:trigger) { create(:ci_trigger, project: project, owner: user) }
 
@@ -74,8 +102,7 @@ RSpec.describe Ci::PipelineTriggerService, feature_category: :continuous_integra
             expect(result[:pipeline].ref).to eq('master')
             expect(result[:pipeline].project).to eq(project)
             expect(result[:pipeline].user).to eq(trigger.owner)
-            expect(result[:pipeline].trigger_requests.to_a)
-              .to eq(result[:pipeline].builds.map(&:trigger_request).uniq)
+            expect(result[:pipeline].trigger).to eq(trigger)
             expect(result[:status]).to eq(:success)
           end
 
@@ -107,9 +134,7 @@ RSpec.describe Ci::PipelineTriggerService, feature_category: :continuous_integra
 
             it 'has variables' do
               expect { result }.to change { Ci::PipelineVariable.count }.by(2)
-                               .and change { Ci::TriggerRequest.count }.by(1)
               expect(result[:pipeline].variables.map { |v| { v.key => v.value } }.first).to eq(variables)
-              expect(result[:pipeline].trigger_requests.last.variables).to be_nil
             end
           end
 
@@ -146,6 +171,12 @@ RSpec.describe Ci::PipelineTriggerService, feature_category: :continuous_integra
           expect(result).to be_nil
         end
       end
+
+      context 'when using inputs' do
+        let(:params) { { token: trigger.token, ref: 'master', inputs: inputs } }
+
+        it_behaves_like 'accepting inputs'
+      end
     end
 
     context 'with a pipeline job token' do
@@ -172,21 +203,8 @@ RSpec.describe Ci::PipelineTriggerService, feature_category: :continuous_integra
         end
       end
 
-      context 'when job does not have a project' do
-        let(:params) { { token: job.token, ref: 'master', variables: nil } }
-        let(:job) { create(:ci_build, status: :running, pipeline: pipeline, user: user) }
-
-        it 'does nothing', :aggregate_failures do
-          job.update!(project: nil)
-
-          expect { result }.not_to change { Ci::Pipeline.count }
-          expect(result[:message]).to eq('Project has been deleted!')
-          expect(result[:http_status]).to eq(401)
-        end
-      end
-
-      context 'when params have an existsed job token' do
-        context 'when params have an existsed ref' do
+      context 'when params have a valid job token' do
+        context 'when params have an existing ref' do
           let(:params) { { token: job.token, ref: 'master', variables: nil } }
 
           it 'triggers a pipeline' do
@@ -261,6 +279,12 @@ RSpec.describe Ci::PipelineTriggerService, feature_category: :continuous_integra
           expect { result }.not_to change { Ci::Pipeline.count }
           expect(result).to be_nil
         end
+      end
+
+      context 'when using inputs' do
+        let(:params) { { token: job.token, ref: 'master', inputs: inputs } }
+
+        it_behaves_like 'accepting inputs'
       end
     end
   end

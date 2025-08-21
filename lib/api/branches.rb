@@ -48,8 +48,6 @@ module API
       end
       get ':id/repository/branches', urgency: :low do
         cache_action([user_project, :branches, current_user, declared_params], expires_in: 30.seconds) do
-          user_project.preload_protected_branches
-
           repository = user_project.repository
 
           branches_finder = BranchesFinder.new(repository, declared_params(include_missing: false))
@@ -57,6 +55,7 @@ module API
 
           merged_branch_names = repository.merged_branch_names(branches.map(&:name))
 
+          user_project.preload_protected_branches if branches.present?
           present_cached(
             branches,
             with: Entities::Branch,
@@ -66,6 +65,7 @@ module API
             expires_in: 60.minutes,
             cache_context: ->(branch) {
               [
+                user_project.cache_key,
                 current_user&.cache_key,
                 merged_branch_names.include?(branch.name),
                 user_project.default_branch
@@ -73,6 +73,8 @@ module API
             }
           )
         end
+      rescue RegexpError
+        render_api_error!('Regex is invalid', 400)
       end
 
       resource ':id/repository/branches/:branch', requirements: BRANCH_ENDPOINT_REQUIREMENTS do

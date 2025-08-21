@@ -70,7 +70,7 @@ module FilteredSearchHelpers
   end
 
   def expect_filtered_search_input_empty
-    expect(find('.filtered-search').value).to eq('')
+    expect(find('.filtered-search, [data-testid="filtered-search-term-input"]').value).to eq('')
   end
 
   # Iterates through each visual token inside
@@ -148,9 +148,9 @@ module FilteredSearchHelpers
 
   def reaction_token(reaction_name = nil, is_emoji = true)
     if is_emoji
-      { name: 'My-Reaction', emoji_name: reaction_name }
+      { name: 'My reaction', emoji_name: reaction_name }
     else
-      create_token('My-Reaction', reaction_name)
+      create_token('My reaction', reaction_name)
     end
   end
 
@@ -184,13 +184,17 @@ module FilteredSearchHelpers
 
   ##
   # For use with gl-filtered-search
-  def select_tokens(*args, submit: false, input_text: 'Search')
+  def select_tokens(*args, submit: false, search_token: false, input_text: 'Search')
     within '[data-testid="filtered-search-input"]' do
       find_field(input_text).click
 
       args.each do |token|
         # Move mouse away to prevent invoking tooltips on usernames, which blocks the search input
         find_button('Search').hover
+
+        if search_token
+          find_by_testid('filtered-search-token-segment-input').send_keys token.to_s
+        end
 
         click_on token.to_s, match: :first
 
@@ -256,7 +260,7 @@ module FilteredSearchHelpers
   end
 
   def expect_assignee_token(value)
-    expect(page).to have_css '.gl-filtered-search-token', text: /Assignee (=|is) #{Regexp.escape(value)}/
+    expect(page).to have_css '.gl-filtered-search-token, .js-visual-token', text: /Assignee (=|is) #{Regexp.escape(value)}/
   end
 
   def expect_unioned_assignee_token(value)
@@ -264,7 +268,7 @@ module FilteredSearchHelpers
   end
 
   def expect_author_token(value)
-    expect(page).to have_css '.gl-filtered-search-token', text: /Author (=|is) #{Regexp.escape(value)}/
+    expect(page).to have_css '.gl-filtered-search-token, .js-visual-token', text: /Author (=|is) #{Regexp.escape(value)}/
   end
 
   def expect_label_token(value)

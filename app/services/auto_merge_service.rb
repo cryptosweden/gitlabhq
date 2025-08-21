@@ -3,10 +3,10 @@
 class AutoMergeService < BaseService
   include Gitlab::Utils::StrongMemoize
 
-  STRATEGY_MERGE_WHEN_PIPELINE_SUCCEEDS = 'merge_when_pipeline_succeeds'
-  # `merge_when_checks_pass` enables auto-merge to be set before all merge checks are passing
   STRATEGY_MERGE_WHEN_CHECKS_PASS = 'merge_when_checks_pass'
-  STRATEGIES = [STRATEGY_MERGE_WHEN_CHECKS_PASS, STRATEGY_MERGE_WHEN_PIPELINE_SUCCEEDS].freeze
+  # Only used in EE
+  STRATEGY_ADD_TO_MERGE_TRAIN_WHEN_CHECKS_PASS = 'add_to_merge_train_when_checks_pass'
+  STRATEGIES = [STRATEGY_MERGE_WHEN_CHECKS_PASS].freeze
 
   class << self
     def all_strategies_ordered_by_preference
@@ -16,50 +16,60 @@ class AutoMergeService < BaseService
     def get_service_class(strategy)
       return unless all_strategies_ordered_by_preference.include?(strategy)
 
-      "::AutoMerge::#{strategy.camelize}Service".constantize
+      strategy_to_class_map[strategy]
+    end
+
+    def strategy_to_class_map
+      {
+        STRATEGY_MERGE_WHEN_CHECKS_PASS => AutoMerge::MergeWhenChecksPassService
+      }
     end
   end
 
   def execute(merge_request, strategy = nil)
     strategy ||= preferred_strategy(merge_request)
-    service = get_service_instance(merge_request, strategy)
+    instance = auto_merge_service_instance(merge_request, strategy)
 
-    return :failed unless service&.available_for?(merge_request)
+    return :failed unless instance&.available_for?(merge_request)
 
-    service.execute(merge_request)
+    instance.execute(merge_request)
   end
 
   def update(merge_request)
     return :failed unless merge_request.auto_merge_enabled?
 
-    strategy = merge_request.auto_merge_strategy
-    get_service_instance(merge_request, strategy).update(merge_request)
+    perform_method(merge_request) do |instance|
+      instance.update(merge_request)
+    end
   end
 
   def process(merge_request)
     return unless merge_request.auto_merge_enabled?
 
-    strategy = merge_request.auto_merge_strategy
-    get_service_instance(merge_request, strategy).process(merge_request)
+    perform_method(merge_request) do |instance|
+      instance.process(merge_request)
+    end
   end
 
   def cancel(merge_request)
     return error("Can't cancel the automatic merge", 406) unless merge_request.auto_merge_enabled?
 
-    strategy = merge_request.auto_merge_strategy
-    get_service_instance(merge_request, strategy).cancel(merge_request)
+    perform_method(merge_request) do |instance|
+      instance.cancel(merge_request)
+    end
   end
 
   def abort(merge_request, reason)
     return error("Can't abort the automatic merge", 406) unless merge_request.auto_merge_enabled?
 
-    strategy = merge_request.auto_merge_strategy
-    get_service_instance(merge_request, strategy).abort(merge_request, reason)
+    perform_method(merge_request) do |instance|
+      instance.abort(merge_request, reason)
+    end
   end
 
   def available_strategies(merge_request)
     self.class.all_strategies_ordered_by_preference.select do |strategy|
-      get_service_instance(merge_request, strategy).available_for?(merge_request)
+      auto_merge_service_instance(merge_request, strategy).available_for?(merge_request)
     end
   end
 
@@ -69,9 +79,20 @@ class AutoMergeService < BaseService
 
   private
 
-  def get_service_instance(merge_request, strategy)
-    strong_memoize("service_instance_#{merge_request.id}_#{strategy}") do
+  def auto_merge_service_instance(merge_request, strategy)
+    strong_memoize_with(:auto_merge_service_instance, merge_request, strategy) do
       self.class.get_service_class(strategy)&.new(project, current_user, params)
+    end
+  end
+
+  def perform_method(merge_request)
+    strategy = merge_request.auto_merge_strategy
+    instance = auto_merge_service_instance(merge_request, strategy)
+
+    if instance.present?
+      yield(instance)
+    else
+      AutoMerge::BaseService.new(project, current_user, params).cancel(merge_request)
     end
   end
 end

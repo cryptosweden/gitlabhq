@@ -82,7 +82,14 @@ if (global.document) {
   }).mount(document.createElement('div'));
 
   Vue.configureCompat(compatConfig);
-  installVTUCompat(VTU, fullCompatConfig, compatH);
+  installVTUCompat(
+    VTU,
+    {
+      ...fullCompatConfig,
+      WRAPPER_SET_VALUE_DOES_NOT_TRIGGER_CHANGE: false,
+    },
+    compatH,
+  );
 
   jest.mock('vue', () => {
     const actualVue = jest.requireActual('vue');
@@ -98,7 +105,7 @@ if (global.document) {
       RouterLinkStub: {
         ...actualVTU.RouterLinkStub,
         render() {
-          const { default: defaultSlot } = this.$slots ?? {};
+          const { default: defaultSlot } = this.$scopedSlots ?? {};
           const defaultSlotFn =
             defaultSlot && typeof defaultSlot !== 'function' ? () => defaultSlot : defaultSlot;
           return actualVTU.RouterLinkStub.render.call({
@@ -109,19 +116,6 @@ if (global.document) {
       },
     };
   });
-
-  jest.mock('portal-vue', () => ({
-    __esModule: true,
-    default: {
-      install: jest.fn(),
-    },
-    Portal: {},
-    PortalTarget: {},
-    MountingPortal: {
-      template: '<h1>MOUNTING-PORTAL</h1>',
-    },
-    Wormhole: {},
-  }));
 
   VTU.config.global.renderStubDefaultSlot = true;
 
@@ -196,7 +190,7 @@ if (global.document) {
         const props = Object.fromEntries(
           Object.entries(this.$props)
             .filter(([prop]) => isPropertyValidOnDomNode(prop))
-            .map(([key, value]) => [key, typeof value === 'function' ? '[Function]' : value]),
+            .map(([key, value]) => [key, typeof value === 'function' ? ['[Function]'] : value]),
         );
 
         return Vue.h(`${stubTag || 'anonymous'}-stub`, props, slotContents);

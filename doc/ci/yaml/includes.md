@@ -2,39 +2,46 @@
 stage: Verify
 group: Pipeline Authoring
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Use CI/CD configuration from other files
+description: Use the `include` keyword to extend your CI/CD configuration with content from other YAML files.
 ---
 
-# Use CI/CD configuration from other files
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-You can use [`include`](index.md#include) to include external YAML files in your CI/CD jobs.
+{{< /details >}}
+
+You can use [`include`](_index.md#include) to include external YAML files in your CI/CD jobs.
 
 ## Include a single configuration file
 
 To include a single configuration file, use `include` by itself with a single file
 with either of these syntax options:
 
-- ```yaml
+- On the same line:
+
+  ```yaml
   include: 'my-config.yml'
   ```
 
-- ```yaml
+- As a single item in an array:
+
+  ```yaml
   include:
     - 'my-config.yml'
   ```
 
-If the file is a local file, the behavior is the same as [`include:local`](index.md#includelocal).
-If the file is a remote file, it is the same as [`include:remote`](index.md#includeremote).
+If the file is a local file, the behavior is the same as [`include:local`](_index.md#includelocal).
+If the file is a remote file, it is the same as [`include:remote`](_index.md#includeremote).
 
 ## Include an array of configuration files
 
 You can include an array of configuration files:
 
-- If you do not specify an `include` type, each array item defaults to [`include:local`](index.md#includelocal)
-  or [`include:remote`](index.md#includeremote), as needed:
+- If you do not specify an `include` type, each array item defaults to [`include:local`](_index.md#includelocal)
+  or [`include:remote`](_index.md#includeremote), as needed:
 
   ```yaml
   include:
@@ -72,11 +79,11 @@ You can include an array of configuration files:
 
 ## Use `default` configuration from an included configuration file
 
-You can define a [`default`](index.md#default) section in a
+You can define a [`default`](_index.md#default) section in a
 configuration file. When you use a `default` section with the `include` keyword, the defaults apply to
 all jobs in the pipeline.
 
-For example, you can use a `default` section with [`before_script`](index.md#before_script).
+For example, you can use a `default` section with [`before_script`](_index.md#before_script).
 
 Content of a custom configuration file named `/templates/.before-script-template.yml`:
 
@@ -306,78 +313,106 @@ default:
     - echo "Job complete."
 ```
 
-### Use nested includes with duplicate `includes` entries
+### Use nested includes with duplicate `include` entries
 
-Nested includes can include the same configuration file. The duplicate configuration
-file is included multiple times, but the effect is the same as if it was only
-included once.
+You can include the same configuration file multiple times in the main configuration file and
+in nested includes.
 
-For example, with the following nested includes, where `defaults.gitlab-ci.yml`
-is included multiple times:
+If any file changes the included configuration using [overrides](#override-included-configuration-values),
+then the order of the `include` entries might affect the final configuration. The last time
+the configuration is included overrides any previous times the file was included.
+For example:
 
-- Contents of the `.gitlab-ci.yml` file:
-
-  ```yaml
-  include:
-    - template: defaults.gitlab-ci.yml
-    - local: unit-tests.gitlab-ci.yml
-    - local: smoke-tests.gitlab-ci.yml
-  ```
-
-- Contents of the `defaults.gitlab-ci.yml` file:
+- Contents of a `defaults.gitlab-ci.yml` file:
 
   ```yaml
   default:
-    before_script: default-before-script.sh
-    retry: 2
+    before_script: echo "Default before script"
   ```
 
-- Contents of the `unit-tests.gitlab-ci.yml` file:
+- Contents of a `unit-tests.gitlab-ci.yml` file:
 
   ```yaml
   include:
     - template: defaults.gitlab-ci.yml
+
+  default:  # Override the included default
+    before_script: echo "Unit test default override"
 
   unit-test-job:
     script: unit-test.sh
-    retry: 0
   ```
 
-- Contents of the `smoke-tests.gitlab-ci.yml` file:
+- Contents of a `smoke-tests.gitlab-ci.yml` file:
 
   ```yaml
   include:
     - template: defaults.gitlab-ci.yml
+
+  default:  # Override the included default
+    before_script: echo "Smoke test default override"
 
   smoke-test-job:
     script: smoke-test.sh
   ```
 
-The final configuration would be:
+With these three files, the order they are included changes the final configuration.
+With:
 
-```yaml
-unit-test-job:
-  before_script: default-before-script.sh
-  script: unit-test.sh
-  retry: 0
+- `unit-tests` included first, the contents of the `.gitlab-ci.yml` file is:
 
-smoke-test-job:
-  before_script: default-before-script.sh
-  script: smoke-test.sh
-  retry: 2
-```
+  ```yaml
+  include:
+    - local: unit-tests.gitlab-ci.yml
+    - local: smoke-tests.gitlab-ci.yml
+  ```
+
+  The final configuration would be:
+
+  ```yaml
+  unit-test-job:
+   before_script: echo "Smoke test default override"
+   script: unit-test.sh
+
+  smoke-test-job:
+   before_script: echo "Smoke test default override"
+   script: smoke-test.sh
+  ```
+
+- `unit-tests` included last, the contents of the `.gitlab-ci.yml` file is:
+
+  ```yaml
+  include:
+    - local: smoke-tests.gitlab-ci.yml
+    - local: unit-tests.gitlab-ci.yml
+  ```
+
+- The final configuration would be:
+
+  ```yaml
+  unit-test-job:
+   before_script: echo "Unit test default override"
+   script: unit-test.sh
+
+  smoke-test-job:
+   before_script: echo "Unit test default override"
+   script: smoke-test.sh
+  ```
+
+If no file overrides the included configuration, the order of the `include` entries
+does not affect the final configuration
 
 ## Use variables with `include`
 
 In `include` sections in your `.gitlab-ci.yml` file, you can use:
 
-- [Project variables](../variables/index.md#for-a-project).
-- [Group variables](../variables/index.md#for-a-group).
-- [Instance variables](../variables/index.md#for-an-instance).
+- [Project variables](../variables/_index.md#for-a-project).
+- [Group variables](../variables/_index.md#for-a-group).
+- [Instance variables](../variables/_index.md#for-an-instance).
 - Project [predefined variables](../variables/predefined_variables.md) (`CI_PROJECT_*`).
-- [Trigger variables](../triggers/index.md#pass-cicd-variables-in-the-api-call).
+- [Trigger variables](../triggers/_index.md#pass-cicd-variables-in-the-api-call).
 - [Scheduled pipeline variables](../pipelines/schedules.md#add-a-pipeline-schedule).
-- [Manual pipeline run variables](../pipelines/index.md#run-a-pipeline-manually).
+- [Manual pipeline run variables](../pipelines/_index.md#run-a-pipeline-manually).
 - The `CI_PIPELINE_SOURCE` and `CI_PIPELINE_TRIGGERED` [predefined variables](../variables/predefined_variables.md).
 - The `$CI_COMMIT_REF_NAME` [predefined variable](../variables/predefined_variables.md).
 
@@ -389,7 +424,7 @@ include:
   file: '.compliance-gitlab-ci.yml'
 ```
 
-You cannot use variables defined in jobs, or in a global [`variables`](../yaml/index.md#variables)
+You cannot use variables defined in jobs, or in a global [`variables`](_index.md#variables)
 section which defines the default variables for all jobs. Includes are evaluated before jobs,
 so these variables cannot be used with `include`.
 
@@ -402,23 +437,31 @@ this issue.
 
 ## Use `rules` with `include`
 
-> - Support for `needs` job dependency [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/345377) in GitLab 15.11.
+{{< history >}}
 
-You can use [`rules`](index.md#rules) with `include` to conditionally include other configuration files.
+- Support for `needs` job dependency [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/345377) in GitLab 15.11.
+
+{{< /history >}}
+
+You can use [`rules`](_index.md#rules) with `include` to conditionally include other configuration files.
 
 You can only use `rules` with [certain variables](#use-variables-with-include), and
 these keywords:
 
-- [`rules:if`](index.md#rulesif).
-- [`rules:exists`](index.md#rulesexists).
-- [`rules:changes`](index.md#ruleschanges).
+- [`rules:if`](_index.md#rulesif).
+- [`rules:exists`](_index.md#rulesexists).
+- [`rules:changes`](_index.md#ruleschanges).
 
 ### `include` with `rules:if`
 
-> - Support for `when: never` and `when:always` [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/348146) in GitLab 16.1 [with a flag](../../administration/feature_flags.md) named `ci_support_include_rules_when_never`. Disabled by default.
-> - Support for `when: never` and `when:always` [generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/414517) in GitLab 16.2. Feature flag `ci_support_include_rules_when_never` removed.
+{{< history >}}
 
-Use [`rules:if`](index.md#rulesif) to conditionally include other configuration files
+- Support for `when: never` and `when:always` [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/348146) in GitLab 16.1 [with a flag](../../administration/feature_flags/_index.md) named `ci_support_include_rules_when_never`. Disabled by default.
+- Support for `when: never` and `when:always` [generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/414517) in GitLab 16.2. Feature flag `ci_support_include_rules_when_never` removed.
+
+{{< /history >}}
+
+Use [`rules:if`](_index.md#rulesif) to conditionally include other configuration files
 based on the status of CI/CD variables. For example:
 
 ```yaml
@@ -445,10 +488,14 @@ test:
 
 ### `include` with `rules:exists`
 
-> - Support for `when: never` and `when:always` [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/348146) in GitLab 16.1 [with a flag](../../administration/feature_flags.md) named `ci_support_include_rules_when_never`. Disabled by default.
-> - Support for `when: never` and `when:always` [generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/414517) in GitLab 16.2. Feature flag `ci_support_include_rules_when_never` removed.
+{{< history >}}
 
-Use [`rules:exists`](index.md#rulesexists) to conditionally include other configuration files
+- Support for `when: never` and `when:always` [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/348146) in GitLab 16.1 [with a flag](../../administration/feature_flags/_index.md) named `ci_support_include_rules_when_never`. Disabled by default.
+- Support for `when: never` and `when:always` [generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/414517) in GitLab 16.2. Feature flag `ci_support_include_rules_when_never` removed.
+
+{{< /history >}}
+
+Use [`rules:exists`](_index.md#rulesexists) to conditionally include other configuration files
 based on the existence of files. For example:
 
 ```yaml
@@ -475,8 +522,8 @@ test:
 
 In this example, GitLab checks for the existence of `file.md` in the current project.
 
-There is a known issue if you configure `include` with `rules:exists` in an include file
-from a different project. GitLab checks for the existence of the file in the _other_ project.
+Review your configuration carefully if you use `include` with `rules:exists` in an include file
+from a different project. GitLab checks for the existence of the file in the other project.
 For example:
 
 ```yaml
@@ -502,8 +549,8 @@ include:
 In this example, GitLab searches for the existence of `file.md` in `my-group/other-project`
 on commit ref `other_branch`, not the project/ref in which the pipeline runs.
 
-To change the search context you can use [`rules:exists:paths`](index.md#rulesexistspaths)
-with [`rules:exists:project`](index.md#rulesexistsproject).
+To change the search context you can use [`rules:exists:paths`](_index.md#rulesexistspaths)
+with [`rules:exists:project`](_index.md#rulesexistsproject).
 For example:
 
 ```yaml
@@ -521,9 +568,13 @@ include:
 
 ### `include` with `rules:changes`
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/342209) in GitLab 16.4.
+{{< history >}}
 
-Use [`rules:changes`](index.md#ruleschanges) to conditionally include other configuration files
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/342209) in GitLab 16.4.
+
+{{< /history >}}
+
+Use [`rules:changes`](_index.md#ruleschanges) to conditionally include other configuration files
 based on changed files. For example:
 
 ```yaml
@@ -555,7 +606,7 @@ In this example:
 
 - `builds1.yml` is included when `Dockerfile` has changed.
 - `builds2.yml` is included when `Dockerfile` has changed relative to `refs/heads/branch1`.
-- `builds3.yml` is included when `Dockerfile` has changed and the pipeline source is a merge request event.
+- `builds3.yml` is included when `Dockerfile` has changed and the pipeline source is a merge request event. The jobs in `builds3.yml` must also be configured to run for [merge request pipelines](../pipelines/merge_request_pipelines.md#add-jobs-to-merge-request-pipelines).
 
 ## Use `include:local` with wildcard file paths
 
@@ -594,16 +645,16 @@ it's likely that either:
   `include2.yml` which includes `include1.yml`, creating a recursive loop.
 
 To help reduce the risk of this happening, edit the pipeline configuration file
-with the [pipeline editor](../pipeline_editor/index.md), which validates if the
+with the [pipeline editor](../pipeline_editor/_index.md), which validates if the
 limit is reached. You can remove one included file at a time to try to narrow down
 which configuration file is the source of the loop or excessive included files.
 
-In [GitLab 16.0 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/207270) self-managed users can
-change the [maximum includes](../../administration/settings/continuous_integration.md#maximum-includes) value.
+In [GitLab 16.0 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/207270) users on GitLab Self-Managed can
+change the [maximum includes](../../administration/settings/continuous_integration.md#set-maximum-includes) value.
 
 ### `SSL_connect SYSCALL returned=5 errno=0 state=SSLv3/TLS write client hello` and other network failures
 
-When using [`include:remote`](index.md#includeremote), GitLab tries to fetch the remote file
+When using [`include:remote`](_index.md#includeremote), GitLab tries to fetch the remote file
 through HTTP(S). This process can fail because of a variety of connectivity issues.
 
 The `SSL_connect SYSCALL returned=5 errno=0 state=SSLv3/TLS write client hello` error
@@ -611,10 +662,10 @@ happens when GitLab can't establish an HTTPS connection to the remote host. This
 can be caused if the remote host has rate limits to prevent overloading the server
 with requests.
 
-For example, the [GitLab Pages](../../user/project/pages/index.md) server for GitLab.com
+For example, the [GitLab Pages](../../user/project/pages/_index.md) server for GitLab.com
 is rate limited. Repeated attempts to fetch CI/CD configuration files hosted on GitLab Pages
 can cause the rate limit to be reached and cause the error. You should avoid hosting
 CI/CD configuration files on a GitLab Pages site.
 
-When possible, use [`include:project`](index.md#includeproject) to fetch configuration
+When possible, use [`include:project`](_index.md#includeproject) to fetch configuration
 files from other projects within the GitLab instance without making external HTTP(S) requests.

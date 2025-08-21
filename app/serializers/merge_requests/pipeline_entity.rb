@@ -4,6 +4,7 @@ class MergeRequests::PipelineEntity < Grape::Entity
   include RequestAwareEntity
 
   expose :id
+  expose :iid
   expose :active?, as: :active
   expose :name
 
@@ -11,9 +12,14 @@ class MergeRequests::PipelineEntity < Grape::Entity
     project_pipeline_path(pipeline.project, pipeline)
   end
 
+  expose :project_path do |pipeline|
+    project_path(pipeline.project)
+  end
+
   expose :flags do
     expose :merged_result_pipeline?, as: :merge_request_pipeline # deprecated, use merged_result_pipeline going forward
     expose :merged_result_pipeline?, as: :merged_result_pipeline
+    expose :merge_train_pipeline?, as: :merge_train_pipeline
   end
 
   expose :commit, using: CommitEntity
@@ -24,8 +30,13 @@ class MergeRequests::PipelineEntity < Grape::Entity
     end
 
     expose :artifacts do |pipeline, options|
-      rel = pipeline.downloadable_artifacts
       project = pipeline.project
+
+      rel = if Feature.enabled?(:show_child_reports_in_mr_page, project)
+              pipeline.downloadable_artifacts_in_self_and_project_descendants
+            else
+              pipeline.downloadable_artifacts
+            end
 
       allowed_to_read_artifacts = rel.select { |artifact| can?(request.current_user, :read_job_artifacts, artifact) }
 

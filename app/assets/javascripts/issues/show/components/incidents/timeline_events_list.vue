@@ -18,11 +18,6 @@ export default {
     EditTimelineEvent,
   },
   props: {
-    timelineEventLoading: {
-      type: Boolean,
-      required: false,
-      default: true,
-    },
     timelineEvents: {
       type: Array,
       required: true,
@@ -138,7 +133,7 @@ export default {
       class="timeline-group"
     >
       <h2
-        class="gl-font-size-h2 gl-my-0 gl-py-5 gl-border-gray-50 gl-border-1 gl-border-b-solid"
+        class="gl-my-0 gl-border-1 gl-border-subtle gl-py-5 gl-text-size-h2 gl-border-b-solid"
         data-testid="event-date"
       >
         {{ eventDate }}
@@ -148,7 +143,7 @@ export default {
         <li
           v-for="(event, eventIndex) in events"
           :key="eventIndex"
-          class="timeline-entry-vertical-line timeline-entry note system-note note-wrapper gl-my-0! gl-pr-0!"
+          class="timeline-entry-vertical-line timeline-entry note system-note note-wrapper !gl-my-0 !gl-pr-0"
         >
           <edit-timeline-event
             v-if="eventToEdit === event.id"

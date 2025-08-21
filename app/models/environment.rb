@@ -3,6 +3,7 @@
 class Environment < ApplicationRecord
   include Gitlab::Utils::StrongMemoize
   include ReactiveCaching
+  include CacheMarkdownField
   include FastDestroyAll::Helpers
   include Presentable
   include NullifyIfBlank
@@ -15,19 +16,21 @@ class Environment < ApplicationRecord
   self.reactive_cache_hard_limit = 10.megabytes
   self.reactive_cache_work_type = :external_dependency
 
+  cache_markdown_field :description
+
   belongs_to :project, optional: false
   belongs_to :merge_request, optional: true
   belongs_to :cluster_agent, class_name: 'Clusters::Agent', optional: true, inverse_of: :environments
 
   use_fast_destroy :all_deployments
-  nullify_if_blank :external_url, :kubernetes_namespace, :flux_resource_path
+  nullify_if_blank :external_url, :kubernetes_namespace, :flux_resource_path, :description
 
   has_many :all_deployments, class_name: 'Deployment'
   has_many :deployments, -> { visible }
   has_many :successful_deployments, -> { success }, class_name: 'Deployment'
   has_many :active_deployments, -> { active }, class_name: 'Deployment'
-  has_many :prometheus_alerts, inverse_of: :environment
   has_many :alert_management_alerts, class_name: 'AlertManagement::Alert', inverse_of: :environment
+  has_many :managed_resources, class_name: 'Clusters::Agents::ManagedResource', inverse_of: :environment
 
   # NOTE: If you preload multiple last deployments of environments, use Preloaders::Environments::DeploymentPreloader.
   has_one :last_deployment, -> { success.ordered }, class_name: 'Deployment', inverse_of: :environment
@@ -45,7 +48,7 @@ class Environment < ApplicationRecord
       class_name: 'Deployment', inverse_of: :environment
   end
 
-  has_one :latest_opened_most_severe_alert, -> { order_severity_with_open_prometheus_alert }, class_name: 'AlertManagement::Alert', inverse_of: :environment
+  has_one :latest_opened_most_severe_alert, -> { open_order_by_severity }, class_name: 'AlertManagement::Alert', inverse_of: :environment
 
   before_validation :generate_slug, if: ->(env) { env.slug.blank? }
   before_validation :ensure_environment_tier
@@ -71,17 +74,31 @@ class Environment < ApplicationRecord
     length: { maximum: 255 },
     allow_nil: true
 
+  validates :description,
+    length: { maximum: 10000 },
+    allow_nil: true,
+    if: :description_changed?
+
+  validates :description_html,
+    length: { maximum: 50000 },
+    allow_nil: true,
+    if: :description_html_changed?
+
   validates :kubernetes_namespace,
     allow_nil: true,
     length: 1..63,
     format: {
       with: Gitlab::Regex.kubernetes_namespace_regex,
       message: Gitlab::Regex.kubernetes_namespace_regex_message
-    }
+    },
+    absence: { unless: :cluster_agent, message: 'cannot be set without a cluster agent' },
+    if: -> { cluster_agent_changed? || kubernetes_namespace_changed? }
 
   validates :flux_resource_path,
     length: { maximum: 255 },
-    allow_nil: true
+    allow_nil: true,
+    absence: { unless: :kubernetes_namespace, message: 'cannot be set without a kubernetes namespace' },
+    if: -> { kubernetes_namespace_changed? || flux_resource_path_changed? }
 
   validates :tier, presence: true
 
@@ -177,7 +194,7 @@ class Environment < ApplicationRecord
     where(auto_delete_at: nil)
   end
 
-  enum tier: {
+  enum :tier, {
     production: 0,
     staging: 1,
     testing: 2,
@@ -185,9 +202,14 @@ class Environment < ApplicationRecord
     other: 4
   }
 
+  enum :auto_stop_setting, {
+    always: 0,
+    with_action: 1
+  }, prefix: true
+
   state_machine :state, initial: :available do
     event :start do
-      transition stopped: :available
+      transition %i[stopped stopping] => :available
     end
 
     event :stop do
@@ -297,6 +319,7 @@ class Environment < ApplicationRecord
 
   def predefined_variables
     Gitlab::Ci::Variables::Collection.new
+      .append(key: 'CI_ENVIRONMENT_ID', value: id.to_s)
       .append(key: 'CI_ENVIRONMENT_NAME', value: name)
       .append(key: 'CI_ENVIRONMENT_SLUG', value: slug)
   end
@@ -353,27 +376,23 @@ class Environment < ApplicationRecord
     stop_actions.present?
   end
 
-  def stop_with_actions!(current_user)
+  # TODO: move this method and dependencies into Environments::StopService
+  def stop_with_actions!
     return unless available?
 
-    stop!
-
-    actions = []
-
-    stop_actions.each do |stop_action|
-      Gitlab::OptimisticLocking.retry_lock(
-        stop_action,
-        name: 'environment_stop_with_actions'
-      ) do |job|
-        actions << job.play(current_user)
-      rescue StateMachines::InvalidTransition
-        # Ci::PlayBuildService rescues an error of StateMachines::InvalidTransition and fall back to retry. However,
-        # Ci::PlayBridgeService doesn't rescue it, so we're ignoring the error if it's not playable.
-        # We should fix this inconsistency in https://gitlab.com/gitlab-org/gitlab/-/issues/420855.
-      end
+    if stop_actions.any? || auto_stop_setting_always?
+      stop!
     end
 
-    actions
+    # The current_user stopping the environment may not be the same actor that we use
+    # to run the stop action jobs. We need to ensure that if any of the actors require
+    # composite identity we link it before hand.
+    # This design assumes that all `stop_actions` have the same user.
+    link_identity = ::Gitlab::Auth::Identity.currently_linked.blank?
+
+    stop_actions.filter_map do |stop_action|
+      run_stop_action!(stop_action, link_identity: link_identity)
+    end
   end
 
   def stop_actions
@@ -419,30 +438,12 @@ class Environment < ApplicationRecord
     end
   end
 
-  def has_metrics?
-    available? && (prometheus_adapter&.configured? || has_sample_metrics?)
-  end
-
-  def has_sample_metrics?
-    !!ENV['USE_SAMPLE_METRICS']
-  end
-
   def has_opened_alert?
     latest_opened_most_severe_alert.present?
   end
 
   def has_running_deployments?
     all_deployments.running.exists?
-  end
-
-  def metrics
-    prometheus_adapter.query(:environment, self) if has_metrics_and_can_query?
-  end
-
-  def additional_metrics(*args)
-    return unless has_metrics_and_can_query?
-
-    prometheus_adapter.query(:additional_metrics_environment, self, *args.map(&:to_f))
   end
 
   def prometheus_adapter
@@ -554,7 +555,29 @@ class Environment < ApplicationRecord
     end
   end
 
+  def ensure_environment_tier
+    self.tier ||= guess_tier
+  end
+
+  def set_default_auto_stop_setting
+    self.auto_stop_setting = if Feature.enabled?(:new_default_for_auto_stop, project)
+                               production? || staging? ? :with_action : :always
+                             else
+                               :always
+                             end
+  end
+
   private
+
+  def run_stop_action!(job, link_identity:)
+    ::Gitlab::Auth::Identity.link_from_job(job) if link_identity
+
+    job.play(job.user)
+  rescue StateMachines::InvalidTransition
+    # Ci::PlayBuildService rescues an error of StateMachines::InvalidTransition and fall back to retry.
+    # However, Ci::PlayBridgeService doesn't rescue it, so we're ignoring the error if it's not playable.
+    # We should fix this inconsistency in https://gitlab.com/gitlab-org/gitlab/-/issues/420855.
+  end
 
   # We deliberately avoid using AddressableUrlValidator to allow users to update their environments even if they have
   # misconfigured `environment:url` keyword. The external URL is presented as a clickable link on UI and not consumed
@@ -582,16 +605,8 @@ class Environment < ApplicationRecord
     end
   end
 
-  def has_metrics_and_can_query?
-    has_metrics? && prometheus_adapter.can_query?
-  end
-
   def generate_slug
     self.slug = Gitlab::Slug::Environment.new(name).generate
-  end
-
-  def ensure_environment_tier
-    self.tier ||= guess_tier
   end
 
   def merge_request_not_changed

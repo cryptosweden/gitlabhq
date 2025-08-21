@@ -37,11 +37,23 @@ RSpec.describe Projects::IssuesController, :request_store, feature_category: :te
       end
 
       context 'when GitLab issues enabled' do
-        it 'renders the "index" template' do
+        it 'redirects to work items index page' do
           get :index, params: { namespace_id: project.namespace, project_id: project }
 
-          expect(response).to have_gitlab_http_status(:ok)
-          expect(response).to render_template(:index)
+          expect(response).to redirect_to(project_work_items_path(project, 'type[]' => 'issue'))
+        end
+
+        context 'when work_item_planning_view: false' do
+          before do
+            stub_feature_flags(work_item_planning_view: false)
+          end
+
+          it 'renders the "index" template' do
+            get :index, params: { namespace_id: project.namespace, project_id: project }
+
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(response).to render_template(:index)
+          end
         end
       end
 
@@ -77,14 +89,26 @@ RSpec.describe Projects::IssuesController, :request_store, feature_category: :te
         project.add_developer(user)
       end
 
-      it_behaves_like 'set sort order from user preference' do
-        let(:sorting_param) { 'updated_asc' }
-      end
-
-      it "returns index" do
+      it 'redirects to work items index page' do
         get :index, params: { namespace_id: project.namespace, project_id: project }
 
-        expect(response).to have_gitlab_http_status(:ok)
+        expect(response).to redirect_to(project_work_items_path(project, 'type[]' => 'issue'))
+      end
+
+      context 'when work_item_planning_view: false' do
+        before do
+          stub_feature_flags(work_item_planning_view: false)
+        end
+
+        it "returns index" do
+          get :index, params: { namespace_id: project.namespace, project_id: project }
+
+          expect(response).to have_gitlab_http_status(:ok)
+        end
+
+        it_behaves_like 'set sort order from user preference' do
+          let(:sorting_param) { 'updated_asc' }
+        end
       end
 
       it "returns 301 if request path doesn't match project path" do
@@ -470,46 +494,50 @@ RSpec.describe Projects::IssuesController, :request_store, feature_category: :te
   end
 
   describe 'POST #move' do
-    before do
-      sign_in(user)
-      project.add_developer(user)
+    shared_examples 'move issue request' do
+      before do
+        sign_in(user)
+        project.add_developer(user)
+      end
+
+      context 'when moving issue to another private project' do
+        let_it_be(:another_project) { create(:project, :private) }
+
+        context 'when user has access to move issue' do
+          before do
+            another_project.add_reporter(user)
+          end
+
+          it 'moves issue to another project' do
+            move_issue
+
+            expect(response).to have_gitlab_http_status :ok
+            expect(another_project.issues).not_to be_empty
+          end
+        end
+
+        context 'when user does not have access to move issue' do
+          it 'responds with 404' do
+            move_issue
+
+            expect(response).to have_gitlab_http_status :not_found
+          end
+        end
+
+        def move_issue
+          post :move,
+            params: {
+              namespace_id: project.namespace.to_param,
+              project_id: project,
+              id: issue.iid,
+              move_to_project_id: another_project.id
+            },
+            format: :json
+        end
+      end
     end
 
-    context 'when moving issue to another private project' do
-      let_it_be(:another_project) { create(:project, :private) }
-
-      context 'when user has access to move issue' do
-        before do
-          another_project.add_reporter(user)
-        end
-
-        it 'moves issue to another project' do
-          move_issue
-
-          expect(response).to have_gitlab_http_status :ok
-          expect(another_project.issues).not_to be_empty
-        end
-      end
-
-      context 'when user does not have access to move issue' do
-        it 'responds with 404' do
-          move_issue
-
-          expect(response).to have_gitlab_http_status :not_found
-        end
-      end
-
-      def move_issue
-        post :move,
-          params: {
-            namespace_id: project.namespace.to_param,
-            project_id: project,
-            id: issue.iid,
-            move_to_project_id: another_project.id
-          },
-          format: :json
-      end
-    end
+    it_behaves_like 'move issue request'
   end
 
   describe 'PUT #reorder' do
@@ -1383,7 +1411,7 @@ RSpec.describe Projects::IssuesController, :request_store, feature_category: :te
             message: 'Application_Rate_Limiter_Request',
             env: :issues_create_request_limit,
             remote_ip: '0.0.0.0',
-            request_method: 'POST',
+            method: 'POST',
             path: "/#{project.full_path}/-/issues",
             user_id: user.id,
             username: user.username
@@ -1511,7 +1539,7 @@ RSpec.describe Projects::IssuesController, :request_store, feature_category: :te
       })
     end
 
-    let(:emoji_name) { 'thumbsup' }
+    let(:emoji_name) { AwardEmoji::THUMBS_UP }
 
     it "toggles the award emoji" do
       expect do
@@ -1703,7 +1731,10 @@ RSpec.describe Projects::IssuesController, :request_store, feature_category: :te
 
       it 'allows CSV export' do
         expect(IssuableExportCsvWorker).to receive(:perform_async)
-          .with(:issue, viewer.id, project.id, hash_including('issue_types' => Issue::TYPES_FOR_LIST))
+          .with(:issue, viewer.id, project.id, hash_including(
+            'issue_types' => Issue::TYPES_FOR_LIST,
+            'include_subepics' => true
+          ))
 
         request_csv
 
@@ -1862,6 +1893,16 @@ RSpec.describe Projects::IssuesController, :request_store, feature_category: :te
             get :discussions, params: { namespace_id: project.namespace, project_id: project, id: issue.iid }
           end.not_to exceed_query_limit(control)
         end
+
+        context 'when reference is invalid' do
+          let(:cross_reference) { "mentioned in some/invalid/project#123" }
+
+          it 'does not include the system note' do
+            get :discussions, params: { namespace_id: project.namespace, project_id: project, id: issue.iid }
+
+            expect(json_response.count).to eq(1)
+          end
+        end
       end
 
       context 'private project' do
@@ -1884,8 +1925,9 @@ RSpec.describe Projects::IssuesController, :request_store, feature_category: :te
 
         context 'user is a guest' do
           let(:json_response_note_ids) do
-            json_response.collect { |discussion| discussion["notes"] }.flatten
-              .collect { |note| note["id"].to_i }
+            json_response
+              .flat_map { |discussion| discussion["notes"] }
+              .map { |note| note["id"].to_i }
           end
 
           before do

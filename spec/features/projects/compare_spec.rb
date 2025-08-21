@@ -2,25 +2,32 @@
 
 require "spec_helper"
 
-RSpec.describe "Compare", :js, feature_category: :groups_and_projects do
-  let(:user)    { create(:user) }
-  let(:project) { create(:project, :repository) }
+RSpec.describe "Compare", :js, feature_category: :source_code_management do
+  let_it_be(:user)    { create(:user) }
+  let_it_be(:project) { create(:project, :repository) }
+
+  before_all do
+    project.add_maintainer(user)
+  end
 
   before do
-    project.add_maintainer(user)
     sign_in user
   end
 
-  shared_examples "compare view of branches" do
+  describe "compare view of branches" do
     shared_examples 'compares branches' do
       it 'compares branches' do
         visit project_compare_index_path(project, from: 'master', to: 'master')
 
         select_using_dropdown 'from', 'feature'
-        expect(find('.js-compare-from-dropdown .gl-dropdown-button-text')).to have_content('feature')
+        within('.js-compare-from-dropdown') do
+          expect(find_by_testid('base-dropdown-toggle')).to have_content("feature")
+        end
 
         select_using_dropdown 'to', 'binary-encoding'
-        expect(find('.js-compare-to-dropdown .gl-dropdown-button-text')).to have_content('binary-encoding')
+        within('.js-compare-to-dropdown') do
+          expect(find_by_testid('base-dropdown-toggle')).to have_content("binary-encoding")
+        end
 
         click_button 'Compare'
 
@@ -32,8 +39,12 @@ RSpec.describe "Compare", :js, feature_category: :groups_and_projects do
     it "pre-populates fields" do
       visit project_compare_index_path(project, from: "master", to: "master")
 
-      expect(find(".js-compare-from-dropdown .gl-dropdown-button-text")).to have_content("master")
-      expect(find(".js-compare-to-dropdown .gl-dropdown-button-text")).to have_content("master")
+      within('.js-compare-from-dropdown') do
+        expect(find_by_testid('base-dropdown-toggle')).to have_content("master")
+      end
+      within('.js-compare-to-dropdown') do
+        expect(find_by_testid('base-dropdown-toggle')).to have_content("master")
+      end
     end
 
     it_behaves_like 'compares branches'
@@ -44,25 +55,6 @@ RSpec.describe "Compare", :js, feature_category: :groups_and_projects do
       end
 
       it_behaves_like 'compares branches'
-    end
-
-    it 'renders additions info when click unfold diff' do
-      visit project_compare_index_path(project)
-
-      select_using_dropdown('from', RepoHelpers.sample_commit.parent_id, commit: true)
-      select_using_dropdown('to', RepoHelpers.sample_commit.id, commit: true)
-
-      click_button 'Compare'
-      expect(page).to have_content 'Commits on Source (1)'
-      expect(page).to have_content "Showing 2 changed files"
-
-      diff = first('.js-unfold')
-      diff.click
-      wait_for_requests
-
-      page.within diff.query_scope do
-        expect(first('.new_line').text).not_to have_content "..."
-      end
     end
 
     context 'when project have an open merge request' do
@@ -85,8 +77,7 @@ RSpec.describe "Compare", :js, feature_category: :groups_and_projects do
 
         click_button 'Compare'
 
-        expect(page).to have_content 'Commits on Source (1)'
-        expect(page).to have_content 'Showing 1 changed file with 5 additions and 0 deletions'
+        expect(page).to have_content 'Commits on Source 1'
         expect(page).to have_link 'View open merge request', href: project_merge_request_path(project, merge_request)
         expect(page).not_to have_link 'Create merge request'
       end
@@ -99,64 +90,110 @@ RSpec.describe "Compare", :js, feature_category: :groups_and_projects do
 
       find(".js-compare-from-dropdown .compare-dropdown-toggle").click
 
-      expect(find(".js-compare-from-dropdown .gl-dropdown-contents")).to have_selector('li.gl-dropdown-item', count: 1)
+      expect(find(".js-compare-from-dropdown .gl-new-dropdown-contents")).to have_selector('li.gl-new-dropdown-item', count: 1)
     end
 
-    context 'when commit has overflow', :js do
-      it 'displays warning' do
-        visit project_compare_index_path(project, from: "feature", to: "master")
-
-        allow(Commit).to receive(:max_diff_options).and_return(max_files: 3)
-        allow_next_instance_of(DiffHelper) do |instance|
-          allow(instance).to receive(:render_overflow_warning?).and_return(true)
-        end
-
-        click_button('Compare')
-
-        within_testid('too-many-changes-alert') do
-          expect(page).to have_text("Some changes are not shown. For a faster browsing experience, only 3 of 3+ files are shown. Download one of the files below to see all changes.")
-        end
-      end
-    end
-
-    context "pagination" do
+    context 'with legacy diffs' do
       before do
-        stub_const("Projects::CompareController::COMMIT_DIFFS_PER_PAGE", 1)
+        stub_feature_flags(rapid_diffs_on_compare_show: false)
       end
 
-      it "shows an adjusted count for changed files on this page" do
-        visit project_compare_index_path(project, from: "feature", to: "master")
+      it 'renders additions info when click unfold diff' do
+        visit project_compare_index_path(project)
 
-        click_button('Compare')
+        select_using_dropdown('from', RepoHelpers.sample_commit.parent_id, commit: true)
+        select_using_dropdown('to', RepoHelpers.sample_commit.id, commit: true)
 
-        expect(page).to have_content("Showing 1 changed file")
+        click_button 'Compare'
+        expect(page).to have_content 'Commits on Source 1'
+        expect(page).to have_content "Showing 2 changed files"
+
+        diff = first('.js-unfold')
+        diff.click
+        wait_for_requests
+
+        page.within diff.query_scope do
+          expect(first('.new_line').text).not_to have_content "..."
+        end
       end
 
-      it "shows commits list only on the first page" do
-        visit project_compare_index_path(project, from: "feature", to: "master")
-        click_button('Compare')
+      context 'when commit has overflow', :js do
+        it 'displays warning' do
+          visit project_compare_index_path(project, from: "feature", to: "master")
 
-        expect(page).to have_content 'Commits on Source (29)'
+          allow(Commit).to receive(:max_diff_options).and_return(max_files: 3)
+          allow_next_instance_of(DiffHelper) do |instance|
+            allow(instance).to receive(:render_overflow_warning?).and_return(true)
+          end
 
-        # go to the second page
-        within(".files .gl-pagination") do
-          click_on("2")
+          click_button('Compare')
+
+          within_testid('too-many-changes-alert') do
+            expect(page).to have_text("Some changes are not shown. For a faster browsing experience, only 3 of 3+ files are shown.")
+            expect(page).not_to have_link("Plain diff")
+            expect(page).not_to have_link("Patches")
+          end
+        end
+      end
+
+      context "pagination" do
+        before do
+          stub_const("Projects::CompareController::COMMIT_DIFFS_PER_PAGE", 1)
         end
 
-        expect(page).not_to have_content 'Commits on Source (29)'
+        it "shows an adjusted count for changed files on this page" do
+          visit project_compare_index_path(project, from: "feature", to: "master")
+
+          click_button('Compare')
+
+          expect(page).to have_content("Showing 1 changed file")
+        end
+
+        it "shows commits list only on the first page" do
+          visit project_compare_index_path(project, from: "feature", to: "master")
+          click_button('Compare')
+
+          expect(page).to have_content 'Commits on Source 29'
+
+          # go to the second page
+          within(".files .gl-pagination") do
+            click_on("2")
+          end
+
+          expect(page).not_to have_content 'Commits on Source 29'
+        end
       end
+    end
+
+    context 'when displayed with rapid_diffs' do
+      let(:from) { RepoHelpers.sample_commit.parent_id }
+      let(:to) { RepoHelpers.sample_commit.id }
+      let(:compare) { CompareService.new(project, to).execute(project, from) }
+      let(:diffs) { compare.diffs }
+
+      before do
+        visit project_compare_path(project, from: from, to: to)
+
+        wait_for_requests
+      end
+
+      it_behaves_like 'Rapid Diffs application'
     end
   end
 
-  shared_examples "compare view of tags" do
+  describe "compare view of tags" do
     it "compares tags" do
       visit project_compare_index_path(project, from: "master", to: "master")
 
       select_using_dropdown "from", "v1.0.0"
-      expect(find(".js-compare-from-dropdown .gl-dropdown-button-text")).to have_content("v1.0.0")
+      within('.js-compare-from-dropdown') do
+        expect(find_by_testid('base-dropdown-toggle')).to have_content("v1.0.0")
+      end
 
       select_using_dropdown "to", "v1.1.0"
-      expect(find(".js-compare-to-dropdown .gl-dropdown-button-text")).to have_content("v1.1.0")
+      within('.js-compare-to-dropdown') do
+        expect(find_by_testid('base-dropdown-toggle')).to have_content("v1.1.0")
+      end
 
       click_button "Compare"
       expect(page).to have_content "Commits on Source"
@@ -169,20 +206,22 @@ RSpec.describe "Compare", :js, feature_category: :groups_and_projects do
     dropdown = find(".js-compare-#{dropdown_type}-dropdown")
     dropdown.find(".compare-dropdown-toggle").click
     # find input before using to wait for the inputs visibility
-    dropdown.find('.dropdown-menu')
+    dropdown.find('.gl-new-dropdown-panel')
     dropdown.fill_in("Filter by Git revision", with: selection)
 
     wait_for_requests
+    sleep 0.3 # Allow Vue component to render search results
 
     if commit
-      dropdown.find('.gl-search-box-by-type-input').send_keys(:return)
+      # wait for searching for commits to finish
+      has_testid?('listbox-no-results-text')
+
+      find_by_testid('listbox-search-input').send_keys(:return)
     else
       # find before all to wait for the items visibility
-      dropdown.find(".js-compare-#{dropdown_type}-dropdown .dropdown-item", text: selection, match: :first)
-      dropdown.all(".js-compare-#{dropdown_type}-dropdown .dropdown-item", text: selection).first.click
+      within(".js-compare-#{dropdown_type}-dropdown") do
+        all_by_testid("listbox-item-#{selection}").first.click
+      end
     end
   end
-
-  it_behaves_like "compare view of branches"
-  it_behaves_like "compare view of tags"
 end

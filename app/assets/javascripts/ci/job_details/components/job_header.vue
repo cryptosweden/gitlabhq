@@ -1,50 +1,128 @@
 <script>
-import { GlTooltipDirective, GlButton, GlAvatarLink, GlAvatarLabeled, GlTooltip } from '@gitlab/ui';
+import {
+  GlTooltipDirective,
+  GlButton,
+  GlAvatarLink,
+  GlAvatarLabeled,
+  GlTooltip,
+  GlLoadingIcon,
+} from '@gitlab/ui';
+import { createAlert } from '~/alert';
 import SafeHtml from '~/vue_shared/directives/safe_html';
-import { isGid, getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { TYPENAME_CI_BUILD } from '~/graphql_shared/constants';
+import { isGid, getIdFromGraphQLId, convertToGraphQLId } from '~/graphql_shared/utils';
 import { glEmojiTag } from '~/emoji';
-import { __, sprintf } from '~/locale';
+import { __, s__, sprintf } from '~/locale';
+import PageHeading from '~/vue_shared/components/page_heading.vue';
 import CiIcon from '~/vue_shared/components/ci_icon/ci_icon.vue';
 import TimeagoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
+import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import getJobQuery from '../graphql/queries/get_job.query.graphql';
+import jobCiStatusUpdatedSubscription from '../graphql/subscriptions/job_ci_status_updated.subscription.graphql';
 
 export default {
   components: {
     CiIcon,
-    TimeagoTooltip,
-    GlButton,
-    GlAvatarLink,
     GlAvatarLabeled,
+    GlAvatarLink,
+    GlButton,
+    GlLoadingIcon,
     GlTooltip,
+    PageHeading,
+    TimeagoTooltip,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
     SafeHtml,
   },
-  EMOJI_REF: 'EMOJI_REF',
+  mixins: [glFeatureFlagMixin()],
+  inject: {
+    projectPath: {
+      default: '',
+    },
+  },
   props: {
-    status: {
-      type: Object,
-      required: true,
-    },
-    name: {
-      type: String,
-      required: true,
-    },
-    time: {
-      type: String,
+    jobId: {
+      type: Number,
       required: true,
     },
     user: {
       type: Object,
       required: true,
     },
-    shouldRenderTriggeredLabel: {
-      type: Boolean,
-      required: true,
+  },
+  apollo: {
+    job: {
+      query: getJobQuery,
+      variables() {
+        return {
+          fullPath: this.projectPath,
+          id: convertToGraphQLId(TYPENAME_CI_BUILD, this.jobId),
+        };
+      },
+      update({ project }) {
+        return project.job;
+      },
+      error(error) {
+        createAlert({
+          message: s__('Job|An error occurred while fetching the job header data.'),
+          captureError: true,
+          error,
+        });
+      },
+      subscribeToMore: {
+        document: jobCiStatusUpdatedSubscription,
+        variables() {
+          return {
+            jobId: convertToGraphQLId(TYPENAME_CI_BUILD, this.jobId),
+          };
+        },
+        skip() {
+          // ensure we have job data before updateQuery is called
+          return !this.jobId || !this.job;
+        },
+        updateQuery(
+          previousData,
+          {
+            subscriptionData: {
+              data: { ciJobStatusUpdated },
+            },
+          },
+        ) {
+          if (ciJobStatusUpdated) {
+            return {
+              project: {
+                ...previousData.project,
+                job: {
+                  ...previousData.project.job,
+                  detailedStatus: ciJobStatusUpdated.detailedStatus,
+                },
+              },
+            };
+          }
+          return previousData;
+        },
+      },
     },
   },
-
+  data() {
+    return {
+      job: null,
+    };
+  },
   computed: {
+    loading() {
+      return this.$apollo.queries.job.loading;
+    },
+    detailedStatus() {
+      return this.job?.detailedStatus || {};
+    },
+    shouldRenderTriggeredLabel() {
+      return Boolean(this.job.startedAt);
+    },
+    time() {
+      return this.job.startedAt || this.job.createdAt;
+    },
     userAvatarAltText() {
       return sprintf(__(`%{username}'s avatar`), { username: this.user.name });
     },
@@ -77,79 +155,72 @@ export default {
       return isGid(this.user?.id) ? getIdFromGraphQLId(this.user?.id) : this.user?.id;
     },
   },
-
   methods: {
     onClickSidebarButton() {
       this.$emit('clickedSidebarButton');
     },
   },
   safeHtmlConfig: { ADD_TAGS: ['gl-emoji'] },
+  EMOJI_REF: 'EMOJI_REF',
 };
 </script>
 
 <template>
-  <header
-    class="page-content-header md:gl-flex gl-flex-wrap gl-min-h-7 gl-pb-2! gl-w-full"
-    data-testid="job-header-content"
-  >
-    <div
-      v-if="name"
-      class="gl-display-flex gl-justify-content-space-between gl-align-items-center gl-w-full"
-    >
-      <h1 class="gl-font-size-h-display gl-my-0 gl-display-inline-block" data-testid="job-name">
-        {{ name }}
-      </h1>
-
-      <div class="gl-display-flex gl-align-self-start -gl-mt-2">
-        <div class="gl-flex-grow-1 gl-flex-shrink-0 gl-text-right">
-          <gl-button
-            :aria-label="__('Toggle sidebar')"
-            category="secondary"
-            class="lg:gl-hidden gl-ml-2"
-            icon="chevron-double-lg-left"
-            @click="onClickSidebarButton"
-          />
-        </div>
-      </div>
-    </div>
-    <section class="header-main-content gl-display-flex gl-align-items-center gl-mr-3">
-      <ci-icon class="gl-mr-3" :status="status" show-status-text />
-
-      <template v-if="shouldRenderTriggeredLabel">{{ __('Started') }}</template>
-      <template v-else>{{ __('Created') }}</template>
-
-      <timeago-tooltip :time="time" class="gl-mx-2" />
-
-      {{ __('by') }}
-
-      <template v-if="user">
-        <gl-avatar-link
-          :data-user-id="userId"
-          :data-username="user.username"
-          :data-name="user.name"
-          :href="webUrl"
-          target="_blank"
-          class="js-user-link gl-align-middle gl-mx-2 gl-align-items-center"
-        >
-          <gl-avatar-labeled
-            :size="24"
-            :src="avatarUrl"
-            :label="user.name"
-            class="gl-hidden sm:gl-inline-flex gl-mx-1"
-          />
-          <strong class="author gl-inline sm:gl-hidden">@{{ user.username }}</strong>
-          <gl-tooltip v-if="message" :target="() => $refs[$options.EMOJI_REF]">
-            {{ message }}
-          </gl-tooltip>
-          <span
-            v-if="statusTooltipHTML"
-            :ref="$options.EMOJI_REF"
-            v-safe-html:[$options.safeHtmlConfig]="statusTooltipHTML"
-            class="gl-ml-2"
-            :data-testid="message"
-          ></span>
-        </gl-avatar-link>
+  <gl-loading-icon v-if="loading" class="my-5" size="lg" />
+  <div v-else>
+    <page-heading v-if="job" data-testid="job-header-content">
+      <template #heading>
+        <span data-testid="job-name">{{ job.name }}</span>
       </template>
-    </section>
-  </header>
+
+      <template #actions>
+        <gl-button
+          :aria-label="__('Toggle sidebar')"
+          category="secondary"
+          class="gl-ml-2 lg:gl-hidden"
+          icon="chevron-double-lg-left"
+          @click="onClickSidebarButton"
+        />
+      </template>
+
+      <template #description>
+        <ci-icon class="gl-mr-1" :status="detailedStatus" show-status-text />
+        <template v-if="shouldRenderTriggeredLabel">{{ __('Started') }}</template>
+        <template v-else>{{ __('Created') }}</template>
+
+        <timeago-tooltip :time="time" />
+
+        {{ __('by') }}
+
+        <template v-if="user">
+          <gl-avatar-link
+            :data-user-id="userId"
+            :data-username="user.username"
+            :data-name="user.name"
+            :href="webUrl"
+            target="_blank"
+            class="js-user-link gl-mx-2 gl-items-center gl-align-middle"
+          >
+            <gl-avatar-labeled
+              :size="24"
+              :src="avatarUrl"
+              :label="user.name"
+              class="gl-hidden sm:gl-inline-flex"
+            />
+            <strong class="author gl-inline sm:gl-hidden">@{{ user.username }}</strong>
+            <gl-tooltip v-if="message" :target="() => $refs[$options.EMOJI_REF]">
+              {{ message }}
+            </gl-tooltip>
+            <span
+              v-if="statusTooltipHTML"
+              :ref="$options.EMOJI_REF"
+              v-safe-html:[$options.safeHtmlConfig]="statusTooltipHTML"
+              class="gl-ml-2"
+              :data-testid="message"
+            ></span>
+          </gl-avatar-link>
+        </template>
+      </template>
+    </page-heading>
+  </div>
 </template>

@@ -2,6 +2,8 @@
 
 module Types
   class BaseObject < GraphQL::Schema::Object
+    include Gitlab::Graphql::VersionFilter::FutureFieldFallback
+
     prepend Gitlab::Graphql::Present
     prepend Gitlab::Graphql::ExposePermissions
     prepend Gitlab::Graphql::MarkdownField
@@ -36,7 +38,10 @@ module Types
     end
 
     def self.authorized?(object, context)
-      authorization.ok?(object, context[:current_user], scope_validator: context[:scope_validator])
+      authorization.ok?(object, context[:current_user],
+        scope_validator: context[:scope_validator],
+        skip_abilities: context[:skip_type_authorization]
+      )
     end
 
     def current_user

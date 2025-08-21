@@ -41,8 +41,10 @@ module Banzai
         end
 
         def parent_records(parent, ids)
+          return MergeRequest.none unless parent.is_a?(Project)
+
           parent.merge_requests
-            .where(iid: ids.to_a)
+            .iid_in(ids.to_a)
             .includes(target_project: :namespace)
         end
 

@@ -71,7 +71,7 @@ export default {
     },
     modalId() {
       return sprintf(REVOKE_TOKEN_MODAL_ID, {
-        tokenName: this.token.name,
+        tokenId: this.token.id,
       });
     },
     primaryModalProps() {
@@ -156,7 +156,7 @@ export default {
 
 <template>
   <div>
-    <div ref="revokeToken" class="gl-display-inline-block">
+    <div ref="revokeToken" class="gl-inline-block">
       <gl-button
         v-gl-modal-directive="modalId"
         icon="remove"

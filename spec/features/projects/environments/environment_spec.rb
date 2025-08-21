@@ -150,7 +150,7 @@ RSpec.describe 'Environment', feature_category: :environment_management do
         end
 
         let_it_be(:pipeline) { create(:ci_pipeline, project: project) }
-        let_it_be(:build) { create(:ci_build, pipeline: pipeline, environment: environment.name) }
+        let_it_be(:build) { create(:ci_build, :success, pipeline: pipeline, environment: environment.name) }
 
         let_it_be(:deployment) do
           create(:deployment, :success, environment: environment, deployable: build)
@@ -184,7 +184,7 @@ RSpec.describe 'Environment', feature_category: :environment_management do
             it 'does allow to play manual action' do
               expect(action).to be_manual
 
-              click_button('Deploy to...')
+              click_button('Deploy to…')
 
               expect { click_button(action.name) }
                 .not_to change { Ci::Pipeline.count }
@@ -294,7 +294,7 @@ RSpec.describe 'Environment', feature_category: :environment_management do
     let(:project) { create(:project, :repository) }
 
     let!(:environment) do
-      create(:environment, :with_review_app, project: project, ref: 'feature')
+      create(:environment, :with_review_app, project: project, ref: 'feature', user: user)
     end
 
     it 'user visits environment page', :js do

@@ -47,10 +47,10 @@ export default {
   },
 
   methods: {
+    // eslint-disable-next-line vue/no-unused-properties -- used via template ref in import_table.vue to focus input
     focusNewName() {
       this.$refs.newName.$el.focus();
     },
-
     onImportTargetSelect(namespace) {
       this.$emit('update-target-namespace', namespace);
     },
@@ -60,7 +60,7 @@ export default {
 
 <template>
   <div>
-    <div class="gl-display-flex gl-align-items-stretch">
+    <div class="gl-flex gl-items-stretch">
       <import-target-dropdown
         :selected="selectedImportTarget"
         :toggle-text="s__('BulkImport|Select parent group')"
@@ -69,21 +69,21 @@ export default {
       />
 
       <div
-        class="gl-h-7 gl-px-3 gl-display-flex gl-align-items-center gl-border-solid gl-border-0 gl-border-t-1 gl-border-b-1 gl-bg-gray-10"
+        class="gl-flex gl-h-7 gl-items-center gl-border-0 gl-border-b-1 gl-border-t-1 gl-border-solid gl-bg-subtle gl-px-3"
         :class="{
-          'gl-text-gray-400 gl-border-gray-100': !isPathSelectionAvailable,
-          'gl-border-gray-200': isPathSelectionAvailable,
+          'gl-border-subtle gl-text-disabled': !isPathSelectionAvailable,
+          'gl-border-strong': isPathSelectionAvailable,
         }"
       >
         /
       </div>
-      <div class="gl-flex-grow-1">
+      <div class="gl-grow">
         <gl-form-input
           ref="newName"
-          class="gl-rounded-top-left-none gl-rounded-bottom-left-none"
+          class="gl-rounded-bl-none gl-rounded-tl-none"
           :class="{
-            '!gl-shadow-inner-1-gray-200': isPathSelectionAvailable,
-            '!gl-shadow-inner-1-gray-100': !isPathSelectionAvailable,
+            '!gl-shadow-inner-1-border-strong': isPathSelectionAvailable,
+            '!gl-shadow-inner-1-border-subtle': !isPathSelectionAvailable,
           }"
           debounce="500"
           data-testid="target-namespace-input"
@@ -97,7 +97,7 @@ export default {
     </div>
     <div
       v-if="isPathSelectionAvailable && (group.flags.isInvalid || validationMessage)"
-      class="gl-text-red-500 gl-m-0 gl-mt-2"
+      class="gl-m-0 gl-mt-2 gl-text-danger"
       role="alert"
     >
       {{ validationMessage }}

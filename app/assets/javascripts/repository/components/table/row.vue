@@ -5,6 +5,7 @@ import {
   GlLink,
   GlSkeletonLoader,
   GlTooltipDirective,
+  GlTruncate,
   GlLoadingIcon,
   GlIcon,
   GlHoverLoadDirective,
@@ -19,6 +20,7 @@ import FileIcon from '~/vue_shared/components/file_icon.vue';
 import TimeagoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 import blobInfoQuery from 'shared_queries/repository/blob_info.query.graphql';
 import getRefMixin from '../../mixins/get_ref';
+import { getRefType } from '../../utils/ref_type';
 
 export default {
   components: {
@@ -27,6 +29,7 @@ export default {
     GlSkeletonLoader,
     GlLoadingIcon,
     GlIcon,
+    GlTruncate,
     TimeagoTooltip,
     FileIcon,
     GlIntersectionObserver,
@@ -165,7 +168,7 @@ export default {
       this.apolloQuery(paginatedTreeQuery, {
         projectPath: this.projectPath,
         ref: this.ref,
-        refType: this.refType?.toUpperCase() || null,
+        refType: getRefType(this.refType),
         path: this.path,
         nextPageCursor: '',
         pageSize: TREE_PAGE_SIZE,
@@ -174,9 +177,9 @@ export default {
     loadBlob() {
       this.apolloQuery(blobInfoQuery, {
         projectPath: this.projectPath,
-        filePath: this.path,
+        filePath: [this.path],
         ref: this.ref,
-        refType: this.refType?.toUpperCase() || null,
+        refType: getRefType(this.refType),
         shouldFetchRawText: true,
       });
     },
@@ -206,19 +209,18 @@ export default {
 
 <template>
   <tr class="tree-item">
-    <td class="tree-item-file-name cursor-default position-relative">
+    <th class="tree-item-file-name gl-relative gl-cursor-default gl-font-normal" scope="row">
       <component
         :is="linkComponent"
         ref="link"
         v-gl-hover-load="handlePreload"
-        v-gl-tooltip="{ placement: 'left', boundary: 'viewport' }"
         :title="fullPath"
         :to="routerLinkTo"
         :href="url"
         :class="{
           'is-submodule': isSubmodule,
         }"
-        class="tree-item-link str-truncated"
+        class="tree-item-link gl-inline-flex gl-min-w-0 gl-max-w-full"
         data-testid="file-name-link"
       >
         <file-icon
@@ -227,40 +229,51 @@ export default {
           :folder="isFolder"
           :submodule="isSubmodule"
           :loading="path === loadingPath"
-          css-classes="position-relative file-icon"
-          class="mr-1 position-relative text-secondary"
-        /><span class="position-relative">{{ fullPath }}</span>
+          css-classes="gl-relative file-icon"
+          class="gl-relative gl-mr-2 gl-text-secondary"
+        /><gl-truncate
+          :text="fullPath"
+          position="end"
+          class="gl-min-w-0 gl-grow hover:gl-underline"
+          with-tooltip
+        />
       </component>
       <!-- eslint-disable @gitlab/vue-require-i18n-strings -->
-      <gl-badge v-if="lfsOid" variant="muted" class="ml-1" data-testid="label-lfs">LFS</gl-badge>
+      <gl-badge v-if="lfsOid" variant="muted" data-testid="label-lfs">LFS</gl-badge>
       <!-- eslint-enable @gitlab/vue-require-i18n-strings -->
       <template v-if="isSubmodule">
         @ <gl-link :href="submoduleTreeUrl" class="commit-sha">{{ shortSha }}</gl-link>
       </template>
+      <!-- The z-index of the lock must be the same (or higher) as tree-item-link::before in files.scss -->
       <gl-icon
         v-if="hasLockLabel"
         v-gl-tooltip
+        class="gl-relative gl-z-1"
         :title="commitData.lockLabel"
+        :aria-label="commitData.lockLabel"
         name="lock"
         :size="12"
-        class="ml-1"
       />
-    </td>
-    <td class="gl-hidden sm:gl-table-cell tree-commit cursor-default">
+    </th>
+    <td class="tree-commit cursor-default gl-hidden sm:gl-table-cell">
       <gl-link
         v-if="commitData"
         v-safe-html:[$options.safeHtmlConfig]="commitData.titleHtml"
         :href="commitData.commitPath"
         :title="commitData.message"
-        class="str-truncated-100 tree-commit-link gl-text-gray-600"
+        class="str-truncated-100 tree-commit-link gl-text-subtle"
       />
       <gl-intersection-observer @appear="rowAppeared" @disappear="rowDisappeared">
         <gl-skeleton-loader v-if="showSkeletonLoader" :lines="1" />
       </gl-intersection-observer>
     </td>
-    <td class="tree-time-ago text-right cursor-default gl-text-gray-600">
+    <td class="tree-time-ago cursor-default gl-text-right gl-text-subtle">
       <gl-intersection-observer @appear="rowAppeared" @disappear="rowDisappeared">
-        <timeago-tooltip v-if="commitData" :time="commitData.committedDate" />
+        <timeago-tooltip
+          v-if="commitData"
+          :time="commitData.committedDate"
+          :show-date-when-over-a-year="false"
+        />
       </gl-intersection-observer>
       <gl-skeleton-loader v-if="showSkeletonLoader" :lines="1" />
     </td>

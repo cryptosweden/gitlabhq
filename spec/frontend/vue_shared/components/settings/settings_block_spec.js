@@ -1,7 +1,8 @@
-import { GlCollapse } from '@gitlab/ui';
+import { GlCollapse, GlAnimatedChevronLgRightDownIcon } from '@gitlab/ui';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 import SettingsBlock from '~/vue_shared/components/settings/settings_block.vue';
 import setWindowLocation from 'helpers/set_window_location_helper';
+import { parseBoolean } from '~/lib/utils/common_utils';
 
 describe('Settings Block', () => {
   let wrapper;
@@ -9,8 +10,8 @@ describe('Settings Block', () => {
   const mountComponent = (propsData) => {
     wrapper = mountExtended(SettingsBlock, {
       propsData,
+      title: 'Advanced',
       slots: {
-        title: '<div data-testid="title-slot">Advanced</div>',
         description: '<div data-testid="description-slot"></div>',
         default: '<div data-testid="default-slot"></div>',
       },
@@ -18,11 +19,10 @@ describe('Settings Block', () => {
   };
 
   const findDefaultSlot = () => wrapper.findByTestId('default-slot');
-  const findTitleSlot = () => wrapper.findByTestId('title-slot');
+  const findTitle = () => wrapper.findByTestId('settings-block-title');
+  const findToggleButton = () => wrapper.findByTestId('settings-block-toggle');
   const findDescriptionSlot = () => wrapper.findByTestId('description-slot');
-  const findExpandButton = () => wrapper.findByRole('button', { name: 'Expand Advanced' });
-  const findCollapseButton = () => wrapper.findByRole('button', { name: 'Collapse Advanced' });
-  const findTitle = () => wrapper.findByRole('button', { name: 'Advanced' });
+  const findChevronIcon = () => wrapper.findComponent(GlAnimatedChevronLgRightDownIcon);
 
   it('has a default slot', () => {
     mountComponent();
@@ -33,7 +33,7 @@ describe('Settings Block', () => {
   it('has a title slot', () => {
     mountComponent();
 
-    expect(findTitleSlot().exists()).toBe(true);
+    expect(findTitle().exists()).toBe(true);
   });
 
   it('has a description slot', () => {
@@ -42,7 +42,7 @@ describe('Settings Block', () => {
     expect(findDescriptionSlot().exists()).toBe(true);
   });
 
-  describe('when `defaultExpanded` prop is `false` and URL hash does not match `id`', () => {
+  describe('when `expanded` prop is `false` and URL hash does not match `id`', () => {
     it('renders collapse as closed', () => {
       mountComponent();
 
@@ -50,9 +50,9 @@ describe('Settings Block', () => {
     });
   });
 
-  describe('when `defaultExpanded` prop is `true`', () => {
+  describe('when `expanded` prop is `true`', () => {
     it('renders collapse as expanded', () => {
-      mountComponent({ defaultExpanded: true });
+      mountComponent({ expanded: true });
 
       expect(wrapper.findComponent(GlCollapse).props('visible')).toBe(true);
     });
@@ -74,16 +74,27 @@ describe('Settings Block', () => {
     });
 
     it('renders button with `Expand` text', () => {
-      expect(findExpandButton().exists()).toBe(true);
+      expect(findToggleButton().attributes('aria-label')).toContain('Expand');
+    });
+
+    it('animates chevron', () => {
+      // Vue compat doesn't know about component props if it extends other component
+      expect(
+        findChevronIcon().props('isOn') ?? parseBoolean(findChevronIcon().attributes('is-on')),
+      ).toBe(false);
     });
 
     describe('when `Expand` button is clicked', () => {
       beforeEach(async () => {
-        await findExpandButton().trigger('click');
+        await findToggleButton().trigger('click');
       });
 
       it('expands the collapse', () => {
         expect(wrapper.findComponent(GlCollapse).props('visible')).toBe(true);
+      });
+
+      it('emits `toggle-expand` event', () => {
+        expect(wrapper.emitted('toggle-expand')).toEqual([[true]]);
       });
     });
 
@@ -96,20 +107,37 @@ describe('Settings Block', () => {
         expect(wrapper.findComponent(GlCollapse).props('visible')).toBe(true);
       });
     });
+
+    describe('when `expanded` prop is changed', () => {
+      beforeEach(async () => {
+        await wrapper.setProps({ expanded: true });
+      });
+
+      it('expands the collapse', () => {
+        expect(wrapper.findComponent(GlCollapse).props('visible')).toBe(true);
+      });
+    });
   });
 
   describe('when collapse is expanded', () => {
     beforeEach(() => {
-      mountComponent({ defaultExpanded: true });
+      mountComponent({ expanded: true });
     });
 
     it('renders button with `Collapse` text', () => {
-      expect(findCollapseButton().exists()).toBe(true);
+      expect(findToggleButton().attributes('aria-label')).toContain('Collapse');
+    });
+
+    it('animates chevron', () => {
+      // Vue compat doesn't know about component props if it extends other component
+      expect(
+        findChevronIcon().props('isOn') ?? parseBoolean(findChevronIcon().attributes('is-on')),
+      ).toBe(true);
     });
 
     describe('when `Collapse` button is clicked', () => {
       beforeEach(async () => {
-        await findCollapseButton().trigger('click');
+        await findToggleButton().trigger('click');
       });
 
       it('closes the collapse', () => {

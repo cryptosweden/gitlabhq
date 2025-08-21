@@ -2,6 +2,7 @@ import { helpPagePath } from '~/helpers/help_page_helper';
 import { s__, __ } from '~/locale';
 
 export const PACKAGE_SETTINGS_HEADER = s__('PackageRegistry|Duplicate packages');
+export const PACKAGE_CRUD_HEADER = s__('PackageRegistry|Packages');
 export const PACKAGE_SETTINGS_DESCRIPTION = s__(
   'PackageRegistry|Allow packages with the same name and version to be uploaded to the registry. The newest version of a package is always used when installing.',
 );
@@ -47,7 +48,7 @@ export const PACKAGE_FORWARDING_FORM_BUTTON = __('Save changes');
 
 export const DEPENDENCY_PROXY_HEADER = s__('DependencyProxy|Dependency Proxy');
 export const DEPENDENCY_PROXY_DESCRIPTION = s__(
-  'DependencyProxy|Enable the Dependency Proxy to cache container images from Docker Hub and automatically clear the cache.',
+  'DependencyProxy|Cache container images from Docker Hub to speed up builds and reduce external bandwidth usage.',
 );
 
 export const PACKAGE_FORWARDING_FIELDS = [
@@ -83,7 +84,7 @@ export const MAVEN_FORWARDING_FIELDS = {
 
 // Parameters
 
-export const DEPENDENCY_PROXY_DOCS_PATH = helpPagePath('user/packages/dependency_proxy/index');
+export const DEPENDENCY_PROXY_DOCS_PATH = helpPagePath('user/packages/dependency_proxy/_index');
 export const REQUEST_FORWARDING_HELP_PAGE_PATH = helpPagePath(
   'user/packages/package_registry/supported_functionality',
   { anchor: 'deleting-packages' },

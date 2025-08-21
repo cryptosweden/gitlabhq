@@ -13,11 +13,12 @@ import {
 } from '@gitlab/ui';
 import { STATUS_CLOSED } from '~/issues/constants';
 import { visitUrl, mergeUrlParams, joinPaths } from '~/lib/utils/url_utility';
-import { isValidDateString } from '~/lib/utils/datetime_range';
+import { isValidDateString } from '~/lib/utils/datetime_utility';
 import { s__, n__ } from '~/locale';
 import { INCIDENT_SEVERITY } from '~/sidebar/constants';
 import SeverityToken from '~/sidebar/components/severity/severity.vue';
 import Tracking from '~/tracking';
+import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import {
   tdClass,
   bodyTrClass,
@@ -90,7 +91,8 @@ export default {
       key: 'incidentSla',
       label: s__('IncidentManagement|Time to SLA'),
       variant: 'secondary',
-      thClass: `gl-text-right gl-w-2/20`,
+      thAlignRight: true,
+      thClass: `gl-w-2/20`,
       tdClass: `${tdClass} gl-text-right`,
       thAttr: TH_INCIDENT_SLA_TEST_ID,
       actualSortKey: 'SLA_DUE_AT',
@@ -135,6 +137,7 @@ export default {
   directives: {
     GlTooltip: GlTooltipDirective,
   },
+  mixins: [glFeatureFlagMixin()],
   inject: [
     'projectPath',
     'newIssuePath',
@@ -229,13 +232,16 @@ export default {
       };
     },
     newIncidentPath() {
-      return mergeUrlParams(
-        {
-          issuable_template: this.incidentTemplateName,
-          'issue[issue_type]': this.incidentType,
-        },
-        this.newIssuePath,
-      );
+      const urlParams = {
+        issuable_template: this.incidentTemplateName,
+      };
+      if (this.glFeatures.workItemViewForIssues) {
+        // Work Items router needs type in all-caps
+        urlParams.type = this.incidentType.toUpperCase();
+      } else {
+        urlParams['issue[issue_type]'] = this.incidentType;
+      }
+      return mergeUrlParams(urlParams, this.newIssuePath);
     },
     availableFields() {
       const isHidden = {
@@ -343,9 +349,6 @@ export default {
       :show-items="showList"
       :show-error-msg="showErrorMsg"
       :i18n="$options.i18n"
-      :items="
-        incidents.list || [] /* eslint-disable-line @gitlab/vue-no-new-non-primitive-in-template */
-      "
       :page-info="incidents.pageInfo"
       :items-count="incidentsCount"
       :status-tabs="$options.statusTabs"
@@ -360,7 +363,7 @@ export default {
       <template #header-actions>
         <gl-button
           v-if="isHeaderButtonVisible"
-          class="gl-my-3 gl-mr-5 create-incident-button"
+          class="create-incident-button gl-my-3 gl-mr-5"
           data-testid="create-incident-button"
           :loading="redirecting"
           :disabled="redirecting"
@@ -406,7 +409,7 @@ export default {
           <template #cell(title)="{ item }">
             <div
               :class="{
-                'gl-display-flex gl-align-items-center gl-max-w-full': isClosed(item),
+                'gl-flex gl-max-w-full gl-items-center': isClosed(item),
               }"
             >
               <gl-link
@@ -414,16 +417,17 @@ export default {
                 :href="showIncidentLink(item)"
                 class="gl-min-w-0"
               >
-                <tooltip-on-truncate :title="item.title" class="gl-text-truncate gl-block">
+                <tooltip-on-truncate :title="item.title" class="gl-block gl-truncate">
                   {{ item.title }}
                 </tooltip-on-truncate>
               </gl-link>
               <gl-icon
                 v-if="isClosed(item)"
                 name="issue-close"
-                class="gl-ml-2 gl-fill-blue-500 gl-flex-shrink-0"
+                class="gl-ml-2 gl-shrink-0"
                 :size="16"
                 data-testid="incident-closed"
+                variant="info"
               />
             </div>
           </template>
@@ -432,17 +436,14 @@ export default {
             <tooltip-on-truncate
               :title="getEscalationStatus(item.escalationStatus)"
               data-testid="incident-escalation-status"
-              class="gl-block gl-text-truncate"
+              class="gl-block gl-truncate"
             >
               {{ getEscalationStatus(item.escalationStatus) }}
             </tooltip-on-truncate>
           </template>
 
           <template #cell(createdAt)="{ item }">
-            <time-ago-tooltip
-              :time="item.createdAt"
-              class="gl-block gl-max-w-full gl-text-truncate"
-            />
+            <time-ago-tooltip :time="item.createdAt" class="gl-block gl-max-w-full gl-truncate" />
           </template>
 
           <template v-if="slaFeatureAvailable" #cell(incidentSla)="{ item }">
@@ -451,7 +452,7 @@ export default {
               :issue-iid="item.iid"
               :project-path="projectPath"
               :sla-due-at="item.slaDueAt"
-              class="gl-block gl-max-w-full gl-text-truncate"
+              class="gl-block gl-max-w-full gl-truncate"
             />
           </template>
 
@@ -475,7 +476,12 @@ export default {
                       :href="avatar.webUrl"
                       :title="avatar.name"
                     >
-                      <gl-avatar :src="avatar.avatarUrl" :label="avatar.name" :size="24" />
+                      <gl-avatar
+                        :alt="avatar.name"
+                        :src="avatar.avatarUrl"
+                        :label="avatar.name"
+                        :size="24"
+                      />
                     </gl-avatar-link>
                   </template>
                 </gl-avatars-inline>

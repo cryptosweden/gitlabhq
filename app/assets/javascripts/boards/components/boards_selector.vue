@@ -7,7 +7,7 @@ import BoardForm from 'ee_else_ce/boards/components/board_form.vue';
 
 import { formType } from '~/boards/constants';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
-import { isMetaKey } from '~/lib/utils/common_utils';
+import { isModifierKey } from '~/lib/utils/common_utils';
 import { visitUrl } from '~/lib/utils/url_utility';
 import { DEFAULT_DEBOUNCE_AND_THROTTLE_MS } from '~/lib/utils/constants';
 import { s__, __ } from '~/locale';
@@ -73,8 +73,6 @@ export default {
       recentBoards: [],
       loadingBoards: false,
       loadingRecentBoards: false,
-      contentClientHeight: 0,
-      maxPosition: 0,
       filterTerm: '',
     };
   },
@@ -126,8 +124,8 @@ export default {
     showCreate() {
       return this.multipleIssueBoardsAvailable;
     },
-    showDelete() {
-      return this.boards.length > 1;
+    isLastBoard() {
+      return this.boards.length === 1;
     },
     showDropdown() {
       return this.showCreate || this.hasMissingBoards;
@@ -241,7 +239,7 @@ export default {
       this.filterTerm = value;
     },
     async switchBoardKeyEvent(boardId, e) {
-      if (isMetaKey(e)) {
+      if (isModifierKey(e)) {
         e.stopPropagation();
         visitUrl(`${this.boardBaseUrl}/${boardId}`, true);
       }
@@ -282,15 +280,15 @@ export default {
         </template>
 
         <template #footer>
-          <div v-if="hasMissingBoards" class="gl-border-t gl-font-sm gl-px-4 gl-pt-4 gl-pb-3">
+          <div v-if="hasMissingBoards" class="gl-border-t gl-px-4 gl-pb-3 gl-pt-4 gl-text-sm">
             {{ s__('Boards|Some of your boards are hidden, add a license to see them again.') }}
           </div>
-          <div v-if="canAdminBoard" class="gl-border-t gl-py-2 gl-px-2">
+          <div v-if="canAdminBoard" class="gl-border-t gl-px-2 gl-py-2">
             <gl-button
               v-if="showCreate"
               v-gl-modal-directive="'board-config-modal'"
               block
-              class="gl-justify-content-start!"
+              class="!gl-justify-start"
               category="tertiary"
               data-testid="create-new-board-button"
               data-track-action="click_button"
@@ -311,7 +309,8 @@ export default {
         :weights="weights"
         :current-board="board"
         :current-page="boardModalForm"
-        :show-delete="showDelete"
+        :is-last-board="isLastBoard"
+        :parent-type="parentType"
         @addBoard="addBoard"
         @updateBoard="$emit('updateBoard', $event)"
         @showBoardModal="$emit('showBoardModal', $event)"

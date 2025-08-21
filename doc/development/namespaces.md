@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Namespaces
 ---
-
-# Namespaces
 
 Namespaces are containers for projects and associated resources. A `Namespace` is instantiated through its subclasses of `Group`, `ProjectNamespace`, and `UserNamespace`.
 
@@ -213,6 +212,23 @@ namespace_object.recursive_ancestors
 namespace_object.recursive_self_and_ancestor_ids
 namespace_object.recursive_ancestor_ids
 namespace_object.recursive_self_and_hierarchy
+```
+
+### Search using trie data structure
+
+`Namespaces::Traversal::TrieNode` implements a trie data structure to efficiently search within
+`namespaces.traversal_ids` hierarchy for a set of Namespaces.
+
+```ruby
+traversal_ids = [[9970, 123], [9970, 456]] # Derived from (for example): Namespace.where(...).map(&:traversal_ids)
+
+trie = Namespaces::Traversal::TrieNode.build(traversal_ids)
+
+trie.prefix_search([9970]) # returns [[9970, 123], [9970, 456]]
+
+trie.covered?([9970]) # returns false
+trie.covered?([9970, 123]) # returns true
+trie.covered?([9970, 123, 789]) # returns true
 ```
 
 ## Namespace query implementation

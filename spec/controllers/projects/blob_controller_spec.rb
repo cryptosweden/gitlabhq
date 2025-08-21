@@ -9,6 +9,8 @@ RSpec.describe Projects::BlobController, feature_category: :source_code_manageme
   let(:mutable_project) { create(:project, :public, :repository) }
 
   describe "GET show" do
+    let_it_be(:head_sha) { project.repository.commit.id }
+
     let(:params) { { namespace_id: project.namespace, project_id: project, id: id, ref_type: ref_type } }
     let(:ref_type) { nil }
     let(:request) do
@@ -38,23 +40,58 @@ RSpec.describe Projects::BlobController, feature_category: :source_code_manageme
         it_behaves_like '#set_is_ambiguous_ref when ref is not ambiguous'
       end
 
-      context "valid branch, valid file" do
-        let(:id) { 'master/README.md' }
+      context 'when the branch is valid' do
+        let(:id) { "#{ref}/#{path}" }
+        let(:ref) { 'master' }
 
-        it { is_expected.to respond_with(:success) }
-      end
+        context 'and the file is valid' do
+          let(:path) { 'README.md' }
 
-      context "valid branch, invalid file" do
-        let(:id) { 'master/invalid-path.rb' }
+          it { is_expected.to respond_with(:success) }
 
-        it 'redirects' do
-          expect(subject)
-              .to redirect_to("/#{project.full_path}/-/tree/master")
+          context 'and the ref_type is valid' do
+            let(:ref_type) { 'heads' }
+
+            it { is_expected.to respond_with(:success) }
+          end
+
+          context 'and the ref_type is wrong' do
+            let(:ref_type) { 'tags' }
+
+            it { is_expected.to respond_with(:not_found) }
+          end
+
+          context 'and ref is a sha' do
+            let(:ref) { head_sha }
+
+            it { is_expected.to respond_with(:success) }
+
+            context 'and there ref_type is present' do
+              let(:ref_type) { 'heads' }
+
+              it { is_expected.to respond_with(:not_found) }
+            end
+          end
+        end
+
+        context 'and the file is invalid' do
+          let(:path) { 'invalid-path.rb' }
+
+          it 'redirects' do
+            expect(subject)
+                .to redirect_to("/#{project.full_path}/-/tree/master")
+          end
         end
       end
 
-      context "invalid branch, valid file" do
+      context 'when the branch is invalid' do
         let(:id) { 'invalid-branch/README.md' }
+
+        it { is_expected.to respond_with(:not_found) }
+      end
+
+      context 'wrong sha ref, valid file' do
+        let(:id) { '0000000000000000000000000000000000000000/README.md' }
 
         it { is_expected.to respond_with(:not_found) }
       end
@@ -77,12 +114,6 @@ RSpec.describe Projects::BlobController, feature_category: :source_code_manageme
 
       context "binary file" do
         let(:id) { 'binary-encoding/encoding/binary-1.bin' }
-
-        it { is_expected.to respond_with(:success) }
-      end
-
-      context "Markdown file" do
-        let(:id) { 'master/README.md' }
 
         it { is_expected.to respond_with(:success) }
       end
@@ -131,6 +162,41 @@ RSpec.describe Projects::BlobController, feature_category: :source_code_manageme
         it 'redirects' do
           expect(subject)
             .to redirect_to("/#{project.full_path}/-/tree/markdown/doc")
+        end
+      end
+    end
+
+    context 'when rendering a GitLab CI file' do
+      let_it_be(:files_to_create) do
+        {
+          '.gitlab-ci.yml' => <<~YAML
+            rspec:
+              script: exit 0
+          YAML
+        }
+      end
+
+      let_it_be(:project) { create(:project, :public, :custom_repo, files: files_to_create) }
+
+      let(:id) { "#{project.default_branch}/.gitlab-ci.yml" }
+
+      it 'displays the validation section' do
+        request
+
+        is_expected.to respond_with(:success)
+
+        expect(response.body).to include('Validating GitLab CI configuration')
+      end
+
+      context 'when the blob ref is a commit SHA' do
+        let(:id) { "#{project.repository.commit.id}/.gitlab-ci.yml" }
+
+        it 'does not display the validation section' do
+          request
+
+          is_expected.to respond_with(:success)
+
+          expect(response.body).not_to include('Validating GitLab CI configuration')
         end
       end
     end
@@ -296,6 +362,31 @@ RSpec.describe Projects::BlobController, feature_category: :source_code_manageme
       expect(response).to redirect_to(blob_after_edit_path)
     end
 
+    context "when user doesn't have permission to push" do
+      before do
+        create(:protected_branch, :no_one_can_push, project: mutable_project, name: '*')
+      end
+
+      context 'when branch_name is not provided' do
+        let(:params) do
+          {
+            project_id: mutable_project,
+            namespace_id: mutable_project.namespace,
+            id: 'master/CHANGELOG',
+            content: 'Added changes',
+            commit_message: 'Update CHANGELOG'
+          }
+        end
+
+        it 'handles missing branch_name gracefully and returns permission error' do
+          put :update, params: params, format: :json
+
+          expect(response).to have_gitlab_http_status(:unprocessable_entity)
+          expect(json_response['error']).to eq('You are not allowed to push into this branch')
+        end
+      end
+    end
+
     context 'when file is renamed' do
       let(:default_params) do
         {
@@ -393,6 +484,22 @@ RSpec.describe Projects::BlobController, feature_category: :source_code_manageme
       it_behaves_like 'internal event tracking' do
         let(:namespace) { project.namespace.reload }
         let(:event) { target_event }
+      end
+    end
+
+    context 'when the commit fails' do
+      before do
+        allow_next_instance_of(Files::UpdateService) do |instance|
+          allow(instance).to receive(:execute).and_return({ status: :error, message: 'Invalid commit message' })
+        end
+      end
+
+      it 'responds with 422 Unprocessable Entity and sets flash alert' do
+        put :update, params: default_params, format: :json
+
+        expect(response).to have_gitlab_http_status(:unprocessable_entity)
+        expect(json_response['error']).to eq('Invalid commit message')
+        expect(json_response['filePath']).to eq(project_blob_path(project, 'master/CHANGELOG'))
       end
     end
   end
@@ -556,6 +663,20 @@ RSpec.describe Projects::BlobController, feature_category: :source_code_manageme
       request
 
       expect(response).to redirect_to(project_blob_path(project, 'master/docs/EXAMPLE_FILE'))
+    end
+
+    context 'when commit message is missing' do
+      let(:default_params) { super().merge(commit_message: '') }
+
+      render_views
+
+      it 'renders an error message' do
+        request
+
+        expect(response).to be_successful
+        expect(response).to render_template(:new)
+        expect(response.body).to include('You must provide a commit message')
+      end
     end
 
     context 'when file_name is missing' do

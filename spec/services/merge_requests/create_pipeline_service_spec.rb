@@ -8,37 +8,69 @@ RSpec.describe MergeRequests::CreatePipelineService, :clean_gitlab_redis_cache, 
   let_it_be(:project, refind: true) { create(:project, :repository) }
   let_it_be(:user) { create(:user, developer_of: project) }
 
+  let(:merge_request) do
+    create(:merge_request,
+      source_branch: 'feature',
+      source_project: source_project,
+      target_branch: 'master',
+      target_project: project)
+  end
+
+  let(:source_project) { project }
+
+  let(:config) do
+    { rspec: { script: 'echo', only: ['merge_requests'] } }
+  end
+
   let(:service) { described_class.new(project: project, current_user: actor, params: params) }
   let(:actor) { user }
   let(:params) { {} }
 
+  before do
+    stub_ci_pipeline_yaml_file(YAML.dump(config))
+  end
+
   describe '#execute' do
+    let(:params) { { pipeline_creation_request: { 'key' => '123', 'id' => '456' } } }
+
     subject(:response) { service.execute(merge_request) }
 
-    before do
-      stub_ci_pipeline_yaml_file(YAML.dump(config))
-    end
-
-    let(:config) do
-      { rspec: { script: 'echo', only: ['merge_requests'] } }
-    end
-
-    let(:merge_request) do
-      create(:merge_request,
-        source_branch: 'feature',
-        source_project: source_project,
-        target_branch: 'master',
-        target_project: project)
-    end
-
-    let(:source_project) { project }
-
     it 'creates a detached merge request pipeline' do
+      expect(Ci::CreatePipelineService).to receive(:new).with(
+        anything, anything, a_hash_including(pipeline_creation_request: { 'key' => '123', 'id' => '456' })
+      ).and_call_original
+
       expect { response }.to change { Ci::Pipeline.count }.by(1)
 
       expect(response).to be_success
       expect(response.payload).to be_persisted
       expect(response.payload).to be_detached_merge_request_pipeline
+    end
+
+    context 'when ref is ambiguous' do
+      let(:merge_request) do
+        create(:merge_request,
+          source_branch: 'ambiguous',
+          source_project: source_project,
+          target_branch: 'master',
+          target_project: project)
+      end
+
+      before do
+        repository = source_project.repository
+        repository.add_branch(user, 'ambiguous', 'feature')
+        repository.add_tag(user, 'ambiguous', 'master')
+      end
+
+      it 'creates a detached merge request pipeline for the branch, not the tag', :aggregate_failures do
+        expect { response }.to change { Ci::Pipeline.count }.by(1)
+
+        expect(response).to be_success
+        expect(response.payload).to be_persisted
+        expect(response.payload).to be_detached_merge_request_pipeline
+        expect(response.payload.sha).to eq merge_request.source_branch_sha
+        expect(response.payload.sha).not_to eq(source_project.commit('refs/tags/ambiguous').sha)
+      end
     end
 
     it 'defaults to merge_request_event' do
@@ -58,8 +90,18 @@ RSpec.describe MergeRequests::CreatePipelineService, :clean_gitlab_redis_cache, 
       end
     end
 
+    context 'when ci_allow_fork_pipelines_to_run_in_parent_project is disabled' do
+      before do
+        project.update!(ci_allow_fork_pipelines_to_run_in_parent_project: false)
+      end
+
+      it 'uses a merge request ref' do
+        expect(response.payload.ref).to eq(merge_request.ref_path)
+      end
+    end
+
     context 'with fork merge request' do
-      let_it_be(:forked_project) { fork_project(project, nil, repository: true, target_project: create(:project, :private, :repository)) }
+      let_it_be(:forked_project) { fork_project(project, nil, repository: true) }
 
       let(:source_project) { forked_project }
 
@@ -70,27 +112,33 @@ RSpec.describe MergeRequests::CreatePipelineService, :clean_gitlab_redis_cache, 
           expect(response.payload.project).to eq(project)
         end
 
-        context 'when the feature is disabled in CI/CD settings' do
+        it 'uses a merge request ref' do
+          expect(response.payload.ref).to eq(merge_request.ref_path)
+        end
+
+        context 'when setting ci_allow_fork_pipelines_to_run_in_parent_project is disabled' do
           before do
             project.update!(ci_allow_fork_pipelines_to_run_in_parent_project: false)
           end
 
           it 'creates a pipeline in the source project' do
             expect(response.payload.project).to eq(source_project)
+            expect(response.payload.ref).to eq(merge_request.source_branch)
           end
         end
 
         context 'when source branch is protected' do
           context 'when actor does not have permission to update the protected branch in target project' do
-            let!(:protected_branch) { create(:protected_branch, name: '*', project: project) }
+            let!(:protected_branch) { create(:protected_branch, name: merge_request.source_branch, project: merge_request.target_project) }
 
-            it 'creates a pipeline in the source project' do
-              expect(response.payload.project).to eq(source_project)
+            it 'creates a detached pipeline in the target project' do
+              expect(response).to be_success
+              expect(response.payload.project).to eq(merge_request.target_project)
             end
           end
 
           context 'when actor has permission to update the protected branch in target project' do
-            let!(:protected_branch) { create(:protected_branch, :developers_can_merge, name: '*', project: project) }
+            let!(:protected_branch) { create(:protected_branch, :developers_can_merge, name: merge_request.source_branch, project: project) }
 
             it 'creates a pipeline in the target project' do
               expect(response.payload.project).to eq(project)
@@ -207,16 +255,23 @@ RSpec.describe MergeRequests::CreatePipelineService, :clean_gitlab_redis_cache, 
     end
 
     context 'when merge request has no commits' do
+      let(:request) { ::Ci::PipelineCreation::Requests.start_for_merge_request(merge_request) }
+      let(:params) { { pipeline_creation_request: request } }
+
       before do
         allow(merge_request).to receive(:has_no_commits?).and_return(true)
       end
 
-      it 'does not create a pipeline', :aggregate_failures do
+      it 'does not create a pipeline and marks the pipeline creation as failed', :aggregate_failures do
         expect { response }.not_to change { Ci::Pipeline.count }
 
         expect(response).to be_error
         expect(response.message).to eq('Cannot create a pipeline for this merge request.')
         expect(response.payload).to be_nil
+
+        failed_creation = ::Ci::PipelineCreation::Requests.hget(request)
+        expect(failed_creation['status']).to eq(::Ci::PipelineCreation::Requests::FAILED)
+        expect(failed_creation['error']).to eq('Cannot create a pipeline for this merge request.')
       end
     end
 
@@ -239,6 +294,21 @@ RSpec.describe MergeRequests::CreatePipelineService, :clean_gitlab_redis_cache, 
         expect(environment).to be_present
         expect(environment.merge_request).to eq(merge_request)
       end
+    end
+  end
+
+  describe '#execute_async' do
+    it 'queues a merge request pipeline creation' do
+      expect(MergeRequests::CreatePipelineWorker).to receive(:perform_async).with(
+        project.id, user.id, merge_request.id, { 'pipeline_creation_request' => anything }
+      )
+      expect(GraphqlTriggers).to receive(:merge_request_merge_status_updated).with(merge_request)
+
+      service.execute_async(merge_request)
+
+      expect(
+        Ci::PipelineCreation::Requests.pipeline_creating_for_merge_request?(merge_request)
+      ).to be_truthy
     end
   end
 end

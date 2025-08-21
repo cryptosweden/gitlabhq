@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: End-to-end Testing Infrastructure for Cloud Integrations
 ---
-
-# End-to-end Testing Infrastructure for Cloud Integrations
 
 This content is about infrastructure we integrate with GitLab QA test scenarios, at the end-to-end level.
 

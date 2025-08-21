@@ -151,8 +151,39 @@ module API
           ::Ml::ModelVersions::GetModelVersionService.new(project, name, version).execute || resource_not_found!
         end
 
+        def find_model_artifact(project, version, file_path)
+          package = ::Ml::ModelVersion.by_project_id_and_id(project, version).package
+          ::Packages::PackageFileFinder.new(package, file_path).execute || resource_not_found!
+        end
+
+        def find_run_artifact(project, version, file_path)
+          package = ::Ml::Candidate.with_project_id_and_iid(project, version).package
+          ::Packages::PackageFileFinder.new(package, file_path).execute || resource_not_found!
+        end
+
+        def list_model_artifacts(project, version)
+          model_version = ::Ml::ModelVersion.by_project_id_and_id(project, version)
+          resource_not_found! unless model_version && model_version.package
+
+          model_version.package.installable_package_files
+        end
+
+        def list_run_artifacts(project, version)
+          run = ::Ml::Candidate.with_project_id_and_iid(project, version)
+
+          resource_not_found! unless run&.package
+
+          run.package.installable_package_files
+        end
+
         def model
           @model ||= find_model(user_project, params[:name])
+        end
+
+        def candidate_version?(model_version)
+          return false unless model_version
+
+          model_version&.start_with?('candidate:')
         end
       end
     end

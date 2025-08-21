@@ -9,8 +9,8 @@ module Gitlab
         uploader:,
         reports_path:,
         logger:,
-        sleep_time_seconds: ENV['GITLAB_DIAGNOSTIC_REPORTS_UPLOADER_SLEEP_S']&.to_i || DEFAULT_SLEEP_TIME_SECONDS)
-
+        sleep_time_seconds: ENV['GITLAB_DIAGNOSTIC_REPORTS_UPLOADER_SLEEP_S']&.to_i || DEFAULT_SLEEP_TIME_SECONDS
+      )
         @uploader = uploader
         @reports_path = reports_path
         @sleep_time_seconds = sleep_time_seconds
@@ -41,7 +41,7 @@ module Gitlab
       end
 
       def cleanup!(path)
-        File.unlink(path) if File.exist?(path)
+        FileUtils.rm_f(path)
       rescue Errno::ENOENT
         # Path does not exist: Ignore. We already check `File.exist?`. Rescue to be extra safe.
       end

@@ -3,14 +3,13 @@
 module Ci
   module Partitions
     class CreateService
-      HEADROOM_PARTITIONS = 3
+      HEADROOM_PARTITIONS = 2
 
       def initialize(partition)
         @partition = partition
       end
 
       def execute
-        return unless Feature.enabled?(:ci_partitioning_automation, :instance)
         return unless partition
 
         Ci::Partition.create_next! if should_create_next?
@@ -25,7 +24,7 @@ module Ci
       end
 
       def above_threshold?
-        partition.above_threshold?(Ci::Partition::MAX_PARTITION_SIZE)
+        partition.above_threshold?
       end
 
       def headroom_available?

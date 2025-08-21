@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
 require 'gon'
-require 'fogbugz'
 
 class ApplicationController < BaseActionController
+  use Gitlab::Middleware::ActionControllerStaticContext
+
   include Gitlab::GonHelper
   include Gitlab::NoCacheHeaders
   include GitlabRoutingHelper
@@ -26,8 +27,13 @@ class ApplicationController < BaseActionController
   include CheckRateLimit
   include RequestPayloadLogger
   include StrongPaginationParams
+  include Gitlab::HttpRouter::RuleContext
+  include Gitlab::HttpRouter::RuleMetrics
+
+  around_action :set_current_ip_address
 
   before_action :authenticate_user!, except: [:route_not_found]
+  before_action :set_current_organization
   before_action :enforce_terms!, if: :should_enforce_terms?
   before_action :check_password_expiration, if: :html_request?
   before_action :ldap_security_check
@@ -38,12 +44,13 @@ class ApplicationController < BaseActionController
   before_action :active_user_check, unless: :devise_controller?
   before_action :set_usage_stats_consent_flag
   before_action :check_impersonation_availability
+  before_action :increment_http_router_metrics
 
   # Make sure the `auth_user` is memoized so it can be logged, we do this after
   # all other before filters that could have set the user.
   before_action :auth_user
 
-  prepend_around_action :set_current_context
+  around_action :set_current_context
 
   around_action :sessionless_bypass_admin_mode!, if: :sessionless_user?
   around_action :set_locale
@@ -61,10 +68,6 @@ class ApplicationController < BaseActionController
     :bitbucket_server_import_enabled?, :fogbugz_import_enabled?,
     :git_import_enabled?, :gitlab_project_import_enabled?,
     :manifest_import_enabled?, :masked_page_url
-
-  def self.endpoint_id_for_action(action_name)
-    "#{name}##{action_name}"
-  end
 
   rescue_from Encoding::CompatibilityError do |exception|
     log_exception(exception)
@@ -84,13 +87,17 @@ class ApplicationController < BaseActionController
     render_403
   end
 
+  rescue_from Browser::Error do |e|
+    render plain: e.message, status: :forbidden
+  end
+
   rescue_from Gitlab::Auth::IpBlocked do |e|
     Gitlab::AuthLogger.error(
       message: 'Rack_Attack',
       env: :blocklist,
       remote_ip: request.ip,
       request_method: request.request_method,
-      path: request.fullpath
+      path: request.filtered_path
     )
 
     render plain: e.message, status: :forbidden
@@ -108,7 +115,12 @@ class ApplicationController < BaseActionController
 
   rescue_from Gitlab::Git::ResourceExhaustedError do |e|
     response.headers.merge!(e.headers)
-    render plain: e.message, status: :service_unavailable
+    render_503(e.message)
+  end
+
+  rescue_from Regexp::TimeoutError do |e|
+    log_exception(e)
+    head :service_unavailable
   end
 
   def redirect_back_or_default(default: root_path, options: {})
@@ -127,6 +139,14 @@ class ApplicationController < BaseActionController
 
       redirect_to new_user_session_path, alert: I18n.t('devise.failure.unauthenticated')
     end
+  end
+
+  def handle_unverified_request
+    Gitlab::Auth::Activity
+      .new(controller: self)
+      .user_csrf_token_mismatch!
+
+    super
   end
 
   def render(*args)
@@ -157,35 +177,13 @@ class ApplicationController < BaseActionController
   # (e.g. tokens) to authenticate the user, whereas Devise sets current_user.
   #
   def auth_user
-    strong_memoize(:auth_user) do
-      if user_signed_in?
-        current_user
-      else
-        try(:authenticated_user)
-      end
+    if user_signed_in?
+      current_user
+    else
+      try(:authenticated_user)
     end
   end
-
-  # Devise defines current_user to be:
-  #
-  # def current_user
-  #   @current_user ||= warden.authenticate(scope: mapping)
-  # end
-  #
-  # That means whenever current_user is called and `@current_user` is
-  # nil, Warden will attempt to authenticate a user. To avoid
-  # reauthenticating anonymous users, we may need to invalidate
-  # the user.
-  def reset_auth_user!
-    return if strong_memoized?(:auth_user) && auth_user
-
-    # Controllers usually call auth_user first, but for some controllers
-    # authenticate_sessionless_user! is called after that. If we relied
-    # on the memoized auth_user, the value would always be nil for
-    # sessionless users.
-    clear_memoization(:auth_user)
-    auth_user
-  end
+  strong_memoize_attr :auth_user
 
   def log_exception(exception)
     # At this point, the controller already exits set_current_context around
@@ -202,7 +200,9 @@ class ApplicationController < BaseActionController
   end
 
   def after_sign_in_path_for(resource)
-    stored_location_for(:redirect) || stored_location_for(resource) || root_path
+    redirect_location = stored_location_for(:redirect)
+    redirect_location ||= stored_location_for(resource) if resource.present?
+    redirect_location || root_path
   end
 
   def after_sign_out_path_for(resource)
@@ -253,9 +253,19 @@ class ApplicationController < BaseActionController
     end
   end
 
+  def render_503(message = nil)
+    respond_to do |format|
+      format.html { render template: "errors/service_unavailable", formats: :html, layout: "errors", status: :service_unavailable, locals: { message: message } }
+      format.any { head :service_unavailable }
+    end
+  end
+
   def render_409(message = nil)
     respond_to do |format|
-      format.html { render template: "errors/request_conflict", formats: :html, layout: "errors", status: :conflict, locals: { message: message } }
+      format.html do
+        render template: "errors/request_conflict", formats: :html, layout: "errors", status: :conflict,
+          locals: { message: message }
+      end
       format.any { head :conflict }
     end
   end
@@ -304,7 +314,8 @@ class ApplicationController < BaseActionController
     return unless current_user && current_user.deactivated?
 
     sign_out current_user
-    flash[:alert] = _("Your account has been deactivated by your administrator. Please log back in to reactivate your account.")
+    flash[:alert] =
+      _("Your account has been deactivated by your administrator. Please log back in to reactivate your account.")
     redirect_to new_user_session_path
   end
 
@@ -345,7 +356,10 @@ class ApplicationController < BaseActionController
   end
 
   def configure_permitted_parameters
-    devise_parameter_sanitizer.permit(:sign_in, keys: [:username, :email, :password, :login, :remember_me, :otp_attempt])
+    devise_parameter_sanitizer.permit(
+      :sign_in,
+      keys: [:username, :email, :password, :login, :remember_me, :otp_attempt]
+    )
   end
 
   def hexdigest(string)
@@ -425,25 +439,27 @@ class ApplicationController < BaseActionController
     Gitlab::CurrentSettings.import_sources.include?('manifest')
   end
 
-  # U2F (universal 2nd factor) devices need a unique identifier for the application
-  # to perform authentication.
-  # https://developers.yubico.com/U2F/App_ID.html
-  def u2f_app_id
-    request.base_url
-  end
-
   def set_current_context(&block)
+    # even though feature_category is pre-populated by
+    # Gitlab::Middleware::ActionControllerStaticContext
+    # using the static annotation on controllers, the
+    # controllers can override feature_category conditionally
+    Gitlab::ApplicationContext.push(feature_category: feature_category) if feature_category.present?
+
     Gitlab::ApplicationContext.push(
       user: -> { context_user },
       project: -> { @project if @project&.persisted? },
       namespace: -> { @group if @group&.persisted? },
-      caller_id: self.class.endpoint_id_for_action(action_name),
       remote_ip: request.ip,
-      feature_category: feature_category
+      **http_router_rule_context
     )
     yield
   ensure
     @current_context = Gitlab::ApplicationContext.current
+  end
+
+  def set_current_ip_address(&block)
+    ::Gitlab::IpAddressState.with(request.ip, &block) # rubocop: disable CodeReuse/ActiveRecord -- not an ActiveRecord model
   end
 
   def set_locale(&block)
@@ -523,6 +539,13 @@ class ApplicationController < BaseActionController
   # `auth_user` again would also trigger the Warden callbacks again
   def context_user
     auth_user if strong_memoized?(:auth_user)
+  end
+
+  # Used by `set_current_organization` in BaseActionController
+  def organization_params
+    params.permit(
+      :controller, :namespace_id, :group_id, :id, :organization_path
+    )
   end
 end
 

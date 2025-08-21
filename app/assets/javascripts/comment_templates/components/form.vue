@@ -153,11 +153,13 @@ export default {
     </gl-alert>
     <gl-form-group
       :label="__('Name')"
+      label-for="comment-template-name-input"
       :state="isNameValid"
       :invalid-feedback="__('Please enter a name for the comment template.')"
       data-testid="comment-template-name-form-group"
     >
       <gl-form-input
+        id="comment-template-name-input"
         v-model="updateCommentTemplate.name"
         :placeholder="__('Enter a name for your comment template')"
         data-testid="comment-template-name-input"
@@ -169,7 +171,7 @@ export default {
       :state="isContentValid"
       :invalid-feedback="__('Please enter the comment template content.')"
       data-testid="comment-template-content-form-group"
-      class="gl-lg-max-w-80p"
+      class="lg:gl-max-w-8/10"
     >
       <markdown-editor
         v-model="updateCommentTemplate.content"
@@ -185,15 +187,17 @@ export default {
         @keydown.ctrl.enter="onSubmit"
       />
     </gl-form-group>
-    <gl-button
-      variant="confirm"
-      class="gl-mr-3 js-no-auto-disable"
-      type="submit"
-      :loading="saving"
-      data-testid="comment-template-form-submit-btn"
-    >
-      {{ __('Save') }}
-    </gl-button>
-    <gl-button @click="onCancel">{{ __('Cancel') }}</gl-button>
+    <div class="gl-flex gl-gap-3">
+      <gl-button
+        variant="confirm"
+        class="js-no-auto-disable"
+        type="submit"
+        :loading="saving"
+        data-testid="comment-template-form-submit-btn"
+      >
+        {{ __('Save') }}
+      </gl-button>
+      <gl-button @click="onCancel">{{ __('Cancel') }}</gl-button>
+    </div>
   </gl-form>
 </template>

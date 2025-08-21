@@ -36,10 +36,10 @@ describe('Job Sidebar Details Container', () => {
     });
 
     it('should render an empty container', () => {
-      expect(wrapper.html()).toBe('');
+      expect(wrapper.find('*').exists()).toBe(false);
     });
 
-    it.each(['duration', 'erased_at', 'finished_at', 'queued_at', 'runner', 'coverage'])(
+    it.each(['duration', 'erased_at', 'finished_at', 'queued_at', 'runner', 'source', 'coverage'])(
       'should not render %s details when missing',
       async (detail) => {
         await store.dispatch('receiveJobSuccess', { [detail]: undefined });
@@ -73,6 +73,51 @@ describe('Job Sidebar Details Container', () => {
       const tagsComponent = findJobTags();
 
       expect(tagsComponent.text()).toBe('Tags: tag');
+    });
+  });
+
+  describe('when source is available', () => {
+    beforeEach(createWrapper);
+
+    it.each([
+      ['api', 'Source: API'],
+      ['chat', 'Source: Chat'],
+      ['container_registry_push', 'Source: Container Registry Push'],
+      ['duo_workflow', 'Source: Duo Agent Platform'],
+      ['external', 'Source: External'],
+      ['external_pull_request_event', 'Source: External Pull Request'],
+      ['merge_request_event', 'Source: Merge Request'],
+      ['ondemand_dast_scan', 'Source: On-Demand DAST Scan'],
+      ['ondemand_dast_validation', 'Source: On-Demand DAST Validation'],
+      ['parent_pipeline', 'Source: Parent Pipeline'],
+      ['pipeline', 'Source: Pipeline'],
+      ['pipeline_execution_policy', 'Source: Pipeline Execution Policy'],
+      ['pipeline_execution_policy_schedule', 'Source: Scheduled Pipeline Execution Policy'],
+      ['push', 'Source: Push'],
+      ['scan_execution_policy', 'Source: Scan Execution Policy'],
+      ['schedule', 'Source: Schedule'],
+      ['security_orchestration_policy', 'Source: Scheduled Scan Execution Policy'],
+      ['trigger', 'Source: Trigger'],
+      ['web', 'Source: Web'],
+      ['webide', 'Source: Web IDE'],
+      ['unknown', 'Source: Unknown'],
+    ])(`uses source to render %s`, async (source, value) => {
+      await store.dispatch('receiveJobSuccess', { source });
+      const detailsRow = findAllDetailsRow();
+
+      expect(detailsRow).toHaveLength(1);
+      expect(detailsRow.at(0).text()).toBe(value);
+    });
+
+    describe('when source value is not in predefined list', () => {
+      it('should render the given source value as received', async () => {
+        const source = 'unexpected_source';
+        await store.dispatch('receiveJobSuccess', { source });
+        const detailsRow = findAllDetailsRow();
+
+        expect(detailsRow).toHaveLength(1);
+        expect(detailsRow.at(0).text()).toBe(`Source: ${source}`);
+      });
     });
   });
 
@@ -117,6 +162,9 @@ describe('Job Sidebar Details Container', () => {
       expect(findTestSummary().exists()).toBe(true);
       expect(findTestSummary().text()).toContain('Test summary');
       expect(findTestSummary().text()).toContain('1');
+      expect(findTestSummary().props('path')).toBe(
+        '/root/test-unit-test-reports/-/pipelines/512/test_report?job_name=test',
+      );
     });
 
     it('does not display the test summary section', async () => {
@@ -150,7 +198,7 @@ describe('Job Sidebar Details Container', () => {
       await store.dispatch('receiveJobSuccess', { metadata });
       const detailsRow = findAllDetailsRow();
 
-      expect(wrapper.html()).toBe('');
+      expect(wrapper.find('*').exists()).toBe(false);
       expect(detailsRow.exists()).toBe(false);
     });
 

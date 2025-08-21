@@ -1,14 +1,16 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Plan
+group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Jira issue management
 ---
 
-# Jira issue management
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 You can [manage Jira issues directly in GitLab](configure.md).
 You can then refer to Jira issues by ID in GitLab commits and merge requests.
@@ -53,9 +55,12 @@ You can [disable comments](#disable-comments-on-jira-issues) on issues.
 
 ### Require associated Jira issue for merge requests to be merged
 
-DETAILS:
-**Tier:** Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+{{< details >}}
+
+- Tier: Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 With this integration, you can prevent merge requests from being merged if they do not refer to a Jira issue.
 To enable this feature:
@@ -67,11 +72,15 @@ To enable this feature:
 
 After you enable this feature, a merge request that doesn't reference an associated
 Jira issue can't be merged. The merge request displays the message
-**To merge, a Jira issue key must be mentioned in the title or description.**
+**To merge, a Jira issue key must be mentioned in the title or description**.
 
 ## Customize Jira issue matching in GitLab
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/112826) in GitLab 15.10.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/112826) in GitLab 15.10.
+
+{{< /history >}}
 
 You can configure custom rules for how GitLab matches Jira issue keys by defining:
 
@@ -83,6 +92,12 @@ When you do not configure custom rules, the
 
 ### Define a regex pattern
 
+{{< history >}}
+
+- Integration name [updated](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/166555) to **Jira issues** in GitLab 17.6.
+
+{{< /history >}}
+
 You can use a regular expression (regex) to match Jira issue keys.
 The regex pattern must follow the [RE2 syntax](https://github.com/google/re2/wiki/Syntax).
 
@@ -90,7 +105,7 @@ To define a regex pattern for Jira issue keys:
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Settings > Integrations**.
-1. Select **Jira**.
+1. Select **Jira issues**.
 1. Go to the **Jira issue matching** section.
 1. In the **Jira issue regex** text box, enter a regex pattern.
 1. Select **Save changes**.
@@ -100,6 +115,12 @@ For more information, see the
 
 ### Define a prefix
 
+{{< history >}}
+
+- Integration name [updated](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/166555) to **Jira issues** in GitLab 17.6.
+
+{{< /history >}}
+
 You can use a prefix to match Jira issue keys.
 For example, if your Jira issue key is `ALPHA-1` and you define a `JIRA#` prefix,
 GitLab matches `JIRA#ALPHA-1` rather than `ALPHA-1`.
@@ -108,7 +129,7 @@ To define a prefix for Jira issue keys:
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Settings > Integrations**.
-1. Select **Jira**.
+1. Select **Jira issues**.
 1. Go to the **Jira issue matching** section.
 1. In the **Jira issue prefix** text box, enter a prefix.
 1. Select **Save changes**.

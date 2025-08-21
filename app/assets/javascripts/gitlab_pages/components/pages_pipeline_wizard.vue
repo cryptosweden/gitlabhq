@@ -9,7 +9,7 @@ import { visitUrl } from '~/lib/utils/url_utility';
 import pagesMarkOnboardingComplete from '../queries/mark_onboarding_complete.graphql';
 
 export const i18n = {
-  loadingMessage: s__('GitLabPages|Updating your Pages configuration...'),
+  loadingMessage: s__('GitLabPages|Updating your Pages configuration…'),
 };
 
 export default {
@@ -67,7 +67,7 @@ export default {
   <div>
     <div
       v-if="loading"
-      class="gl-p-3 gl-rounded-base gl-text-center"
+      class="gl-rounded-base gl-p-3 gl-text-center"
       data-testid="onboarding-mutation-loading"
     >
       <gl-loading-icon />

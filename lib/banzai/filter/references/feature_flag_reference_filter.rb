@@ -12,7 +12,9 @@ module Banzai
         end
 
         def parent_records(parent, ids)
-          parent.operations_feature_flags.where(iid: ids.to_a)
+          return Operations::FeatureFlag.none unless parent.is_a?(Project)
+
+          parent.operations_feature_flags.iid_in(ids.to_a)
         end
 
         def url_for_object(feature_flag, project)

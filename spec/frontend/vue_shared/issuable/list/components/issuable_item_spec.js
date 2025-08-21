@@ -3,12 +3,17 @@ import { nextTick } from 'vue';
 import { useFakeDate } from 'helpers/fake_date';
 import { TEST_HOST } from 'helpers/test_constants';
 import { shallowMountExtended as shallowMount } from 'helpers/vue_test_utils_helper';
+import waitForPromises from 'helpers/wait_for_promises';
+import { getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { visitUrl } from '~/lib/utils/url_utility';
 import IssuableItem from '~/vue_shared/issuable/list/components/issuable_item.vue';
 import WorkItemTypeIcon from '~/work_items/components/work_item_type_icon.vue';
+import WorkItemRelationshipIcons from '~/work_items/components/shared/work_item_relationship_icons.vue';
 import IssuableAssignees from '~/issuable/components/issue_assignees.vue';
 
 import { localeDateFormat } from '~/lib/utils/datetime/locale_dateformat';
-import { mockIssuable, mockRegularLabel } from '../mock_data';
+import { mockBlockedByLinkedItem as mockLinkedItems } from 'jest/work_items/mock_data';
+import { mockIssuable, mockDraftIssuable, mockRegularLabel } from '../mock_data';
 
 const createComponent = ({
   hasScopedLabelsFeature = false,
@@ -19,6 +24,9 @@ const createComponent = ({
   showWorkItemTypeIcon = false,
   isActive = false,
   preventRedirect = false,
+  fullPath = 'gitlab-org/issuable-project-path',
+  hiddenMetadataKeys = [],
+  provide = {},
 } = {}) =>
   shallowMount(IssuableItem, {
     propsData: {
@@ -30,14 +38,31 @@ const createComponent = ({
       showWorkItemTypeIcon,
       isActive,
       preventRedirect,
+      fullPath,
+      hiddenMetadataKeys,
     },
     slots,
     stubs: {
       GlSprintf,
+      WorkItemRelationshipIcons,
     },
+    mocks: {
+      $apollo: {
+        queries: { childItemLinkedItems: { loading: false } },
+      },
+    },
+    provide,
   });
 
 const MOCK_GITLAB_URL = TEST_HOST;
+
+jest.mock('~/lib/utils/url_utility', () => {
+  const actual = jest.requireActual('~/lib/utils/url_utility');
+  return {
+    ...actual,
+    visitUrl: jest.fn(),
+  };
+});
 
 describe('IssuableItem', () => {
   // The mock data is dependent that this is after our default date
@@ -49,9 +74,13 @@ describe('IssuableItem', () => {
 
   const findTimestampWrapper = () => wrapper.findByTestId('issuable-timestamp');
   const findWorkItemTypeIcon = () => wrapper.findComponent(WorkItemTypeIcon);
-  const findIssuableTitleLink = () => wrapper.findComponentByTestId('issuable-title-link');
   const findIssuableItemWrapper = () => wrapper.findByTestId('issuable-item-wrapper');
+  const findIssuablePrefetchTrigger = () => wrapper.findByTestId('issuable-prefetch-trigger');
   const findStatusEl = () => wrapper.findByTestId('issuable-status');
+  const findRelationshipIcons = () => wrapper.findComponent(WorkItemRelationshipIcons);
+  const findIssuableTitleLink = () => wrapper.findByTestId('issuable-title-link');
+  const findIssuableCardLinkOverlay = () => wrapper.findByTestId('issuable-card-link-overlay');
+  const findDraftStatusBadge = () => wrapper.findByTestId('issuable-draft-status-badge');
 
   describe('computed', () => {
     describe('author', () => {
@@ -159,7 +188,7 @@ describe('IssuableItem', () => {
       it('returns `issuable.assignees` reference when it is available', () => {
         wrapper = createComponent();
 
-        expect(wrapper.vm.assignees).toBe(mockIssuable.assignees);
+        expect(wrapper.vm.assignees).toStrictEqual(mockIssuable.assignees);
       });
     });
 
@@ -349,10 +378,10 @@ describe('IssuableItem', () => {
 
       expect(confidentialEl.exists()).toBe(true);
       expect(confidentialEl.props('name')).toBe('eye-slash');
-      expect(confidentialEl.attributes()).toMatchObject({
-        title: 'Confidential',
-        arialabel: 'Confidential',
-      });
+
+      const confidentialContainer = wrapper.findByTestId('confidential-icon-container');
+
+      expect(confidentialContainer.attributes('title')).toBe('Confidential');
     });
 
     it('renders spam icon when issuable is hidden', () => {
@@ -361,10 +390,13 @@ describe('IssuableItem', () => {
       const hiddenIcon = wrapper.findComponent(GlIcon);
 
       expect(hiddenIcon.props('name')).toBe('spam');
-      expect(hiddenIcon.attributes()).toMatchObject({
-        title: 'This issue is hidden because its author has been banned.',
-        arialabel: 'Hidden',
-      });
+
+      const hiddenContainer = wrapper.findByTestId('hidden-icon-container');
+
+      expect(hiddenContainer.attributes('title')).toBe(
+        'This issue is hidden because its author has been banned.',
+      );
+      expect(hiddenContainer.attributes('aria-label')).toBe('Hidden');
     });
 
     it('renders task status', () => {
@@ -395,6 +427,12 @@ describe('IssuableItem', () => {
 
       expect(referenceEl.exists()).toBe(true);
       expect(referenceEl.text()).toBe(`#${mockIssuable.iid}`);
+    });
+
+    it('does not enable item prefetching by default', () => {
+      wrapper = createComponent();
+
+      expect(findIssuablePrefetchTrigger().exists()).toBe(false);
     });
 
     it('renders issuable reference via slot', () => {
@@ -530,6 +568,47 @@ describe('IssuableItem', () => {
         expect(statusEl.text()).toBe(`${closedMockIssuable.state}`);
       });
 
+      it('renders the mergedAt date as a tooltip of the status badge if the issuable has that value', () => {
+        const mergedMockIssuable = {
+          ...mockIssuable,
+          state: 'merged',
+          mergedAt: '2000-01-01T00:00:00Z',
+        };
+        wrapper = createComponent({
+          issuableSymbol: '!',
+          issuable: mergedMockIssuable,
+          slots: {
+            status: mergedMockIssuable.state,
+          },
+        });
+        const statusEl = findStatusEl();
+        const statusBadge = statusEl.findComponent(GlBadge);
+        const statusBadgeWrapper = statusEl.find('button');
+
+        expect(statusBadge.exists()).toBe(true);
+        expect(statusBadgeWrapper.attributes('title')).toBe('January 1, 2000 at 12:00:00 AM GMT');
+      });
+
+      it('does not render a tooltip if the issuable doesn\t have a mergedAt value', () => {
+        const mergedMockIssuable = {
+          ...mockIssuable,
+          state: 'merged',
+        };
+        wrapper = createComponent({
+          issuableSymbol: '!',
+          issuable: mergedMockIssuable,
+          slots: {
+            status: mergedMockIssuable.state,
+          },
+        });
+        const statusEl = findStatusEl();
+        const statusBadge = statusEl.findComponent(GlBadge);
+        const statusBadgeWrapper = statusEl.find('button');
+
+        expect(statusBadge.exists()).toBe(true);
+        expect(statusBadgeWrapper.attributes('title')).toBe('');
+      });
+
       it('renders issuable status without badge if open', () => {
         wrapper = createComponent({
           issuableSymbol: '#',
@@ -568,6 +647,14 @@ describe('IssuableItem', () => {
         iconSize: 16,
         maxVisible: 4,
       });
+    });
+
+    it('renders relationship icons if linked item widget is available', async () => {
+      const issuableWithLinkedItems = { ...mockIssuable, widgets: [mockLinkedItems] };
+      wrapper = createComponent({ issuable: issuableWithLinkedItems });
+      await waitForPromises();
+
+      expect(findRelationshipIcons().exists()).toBe(true);
     });
 
     it('renders issuable updatedAt info', () => {
@@ -620,19 +707,137 @@ describe('IssuableItem', () => {
         });
       });
     });
+
+    it('renders link with unique id for issuable', () => {
+      wrapper = createComponent({ issuable: { ...mockIssuable, namespace: { fullPath: '' } } });
+
+      expect(findIssuableTitleLink().attributes().id).toBe(
+        `listItem-${'gitlab-org/issuable-project-path'}/${getIdFromGraphQLId(mockIssuable.id)}`,
+      );
+    });
+
+    it('renders link with unique id for work item', () => {
+      wrapper = createComponent({
+        issuable: { ...mockIssuable, namespace: { fullPath: 'gitlab-org/test-project-path' } },
+      });
+
+      expect(findIssuableTitleLink().attributes().id).toBe(
+        `listItem-${'gitlab-org/test-project-path'}/${getIdFromGraphQLId(mockIssuable.id)}`,
+      );
+    });
+
+    describe('when passed hiddenMetadataKeys', () => {
+      describe('labels visibility with hiddenMetadataKeys', () => {
+        it('shows labels when not in hiddenMetadataKeys', () => {
+          wrapper = createComponent({
+            hiddenMetadataKeys: [],
+          });
+
+          const labelsEl = wrapper.findAllComponents(GlLabel);
+          expect(labelsEl).toHaveLength(mockLabels.length);
+        });
+
+        it('hides labels when "labels" is in hiddenMetadataKeys', () => {
+          wrapper = createComponent({
+            hiddenMetadataKeys: ['labels'],
+          });
+
+          const labelsEl = wrapper.findAllComponents(GlLabel);
+          expect(labelsEl).toHaveLength(0);
+        });
+      });
+
+      describe('assignees visibility with hiddenMetadataKeys', () => {
+        it('shows assignees when not in hiddenMetadataKeys', () => {
+          wrapper = createComponent({
+            hiddenMetadataKeys: [],
+          });
+
+          const assigneesEl = wrapper.findComponent(IssuableAssignees);
+          expect(assigneesEl.exists()).toBe(true);
+        });
+
+        it('hides assignees when "assignee" is in hiddenMetadataKeys', () => {
+          wrapper = createComponent({
+            hiddenMetadataKeys: ['assignee'],
+          });
+
+          const assigneesEl = wrapper.findComponent(IssuableAssignees);
+          expect(assigneesEl.exists()).toBe(false);
+        });
+      });
+
+      describe('blocking relationships visibility with hiddenMetadataKeys', () => {
+        it('shows relationship icons when not in hiddenMetadataKeys and conditions are met', async () => {
+          const issuableWithLinkedItems = {
+            ...mockIssuable,
+            widgets: [mockLinkedItems],
+            isOpen: true,
+            hasBlockingRelationships: true,
+          };
+          wrapper = createComponent({
+            issuable: issuableWithLinkedItems,
+            hiddenMetadataKeys: [],
+          });
+          await waitForPromises();
+
+          expect(findRelationshipIcons().exists()).toBe(true);
+        });
+
+        it('hides relationship icons when "blocked" is in hiddenMetadataKeys', async () => {
+          const issuableWithLinkedItems = {
+            ...mockIssuable,
+            widgets: [mockLinkedItems],
+            isOpen: true,
+            hasBlockingRelationships: true,
+          };
+          wrapper = createComponent({
+            issuable: issuableWithLinkedItems,
+            hiddenMetadataKeys: ['blocked'],
+          });
+          await waitForPromises();
+
+          expect(findRelationshipIcons().exists()).toBe(false);
+        });
+      });
+    });
   });
 
   describe('when preventing redirect on clicking the link', () => {
-    it('emits an event on item click', () => {
-      const { iid, webUrl } = mockIssuable;
+    beforeEach(() => {
+      window.open = jest.fn();
+    });
+    it('emits an event on row click', async () => {
+      const { id, iid, webUrl, type: workItemType, namespace } = mockIssuable;
+      const { fullPath } = namespace;
 
       wrapper = createComponent({
         preventRedirect: true,
+        showCheckbox: false,
       });
 
-      findIssuableTitleLink().vm.$emit('click', new MouseEvent('click'));
+      await findIssuableItemWrapper().trigger('click');
 
-      expect(wrapper.emitted('select-issuable')).toEqual([[{ iid, webUrl }]]);
+      expect(wrapper.emitted('select-issuable')).toEqual([
+        [{ id, iid, webUrl, workItemType, fullPath }],
+      ]);
+    });
+
+    it('includes fullPath in emitted event for work items', async () => {
+      const { id, iid, webUrl, type: workItemType } = mockIssuable;
+      const fullPath = 'gitlab-org/gitlab';
+
+      wrapper = createComponent({
+        preventRedirect: true,
+        showCheckbox: false,
+        issuable: { ...mockIssuable, namespace: { fullPath } },
+      });
+
+      await findIssuableItemWrapper().trigger('click');
+
+      expect(wrapper.emitted('select-issuable')).toEqual([
+        [{ id, iid, webUrl, fullPath, workItemType }],
+      ]);
     });
 
     it('does not apply highlighted class when item is not active', () => {
@@ -640,7 +845,7 @@ describe('IssuableItem', () => {
         preventRedirect: true,
       });
 
-      expect(findIssuableItemWrapper().classes('gl-bg-blue-50')).toBe(false);
+      expect(findIssuableItemWrapper().classes('!gl-bg-feedback-info')).toBe(false);
     });
 
     it('applies highlghted class when item is active', () => {
@@ -649,7 +854,122 @@ describe('IssuableItem', () => {
         preventRedirect: true,
       });
 
-      expect(findIssuableItemWrapper().classes('gl-bg-blue-50')).toBe(true);
+      expect(findIssuableItemWrapper().classes('!gl-bg-feedback-info')).toBe(true);
+    });
+
+    it('enables item prefetching', () => {
+      wrapper = createComponent({
+        preventRedirect: true,
+      });
+
+      expect(findIssuablePrefetchTrigger().exists()).toBe(true);
+    });
+
+    it('keeps card without link overlay when redirection is allowed and checkbox is hidden', () => {
+      wrapper = createComponent({
+        preventRedirect: false,
+        showCheckbox: false,
+      });
+
+      expect(findIssuableCardLinkOverlay().exists()).toBe(false);
+    });
+
+    it('wraps card with anchor element pointing to issuable URL when redirect is prevented and checkbox is hidden', () => {
+      wrapper = createComponent({
+        preventRedirect: true,
+        showCheckbox: false,
+      });
+
+      expect(findIssuableCardLinkOverlay().exists()).toBe(true);
+      expect(findIssuableCardLinkOverlay().element.tagName).toBe('A');
+      expect(findIssuableCardLinkOverlay().attributes('href')).toBe(mockIssuable.webUrl);
+    });
+  });
+
+  describe('when item is of unsupported work item type', () => {
+    const fullPath = 'gitlab-org/gitlab';
+
+    const testCases = [
+      {
+        type: 'Work item incident',
+        item: {
+          ...mockIssuable,
+          workItemType: { name: 'Incident' },
+        },
+      },
+      {
+        type: 'Work item Service Desk issue',
+        item: {
+          ...mockIssuable,
+          workItemType: { name: 'Issue' },
+          author: { username: 'support-bot' },
+        },
+      },
+      {
+        type: 'Work item test case',
+        item: {
+          ...mockIssuable,
+          workItemType: { name: 'Test Case' },
+        },
+      },
+      {
+        type: 'Legacy incident',
+        item: {
+          ...mockIssuable,
+          type: 'INCIDENT',
+        },
+      },
+      {
+        type: 'Legacy Service Desk issue',
+        item: {
+          ...mockIssuable,
+          type: 'ISSUE',
+          author: { username: 'support-bot' },
+        },
+      },
+      {
+        type: 'Legacy test case',
+        item: {
+          ...mockIssuable,
+          type: 'TEST_CASE',
+        },
+      },
+    ];
+
+    testCases.forEach(({ type, item }) => {
+      describe(`when item is ${type}`, () => {
+        it('uses redirect on row click', async () => {
+          wrapper = createComponent({
+            preventRedirect: true,
+            showCheckbox: false,
+            issuable: { ...item, namespace: { fullPath } },
+          });
+
+          await findIssuableItemWrapper().trigger('click');
+
+          expect(wrapper.emitted('select-issuable')).not.toBeDefined();
+          expect(visitUrl).toHaveBeenCalledWith(item.webUrl);
+        });
+      });
+    });
+  });
+
+  it('renders draft status for draft merge requests', () => {
+    // Note: this is gated by the `showMergeRequestStatusDraft` feature flag currently
+    wrapper = createComponent({
+      issuable: mockDraftIssuable,
+      provide: {
+        glFeatures: {
+          showMergeRequestStatusDraft: true,
+        },
+      },
+    });
+
+    expect(findDraftStatusBadge().exists()).toBe(true);
+    expect(findDraftStatusBadge().props()).toMatchObject({
+      state: 'opened',
+      isDraft: true,
+      issuableType: 'merge_request',
     });
   });
 });

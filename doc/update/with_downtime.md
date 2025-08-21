@@ -1,50 +1,37 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Operate
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Upgrade a multi-node instance with downtime
 ---
 
-# Multi-node upgrades with downtime
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-While you can upgrade a multi-node GitLab deployment [with zero downtime](zero_downtime.md),
-there are a number of constraints. In particular, you can upgrade to only one minor release
-at a time, for example, from 14.6 to 14.7, then to 14.8, etc.
+{{< /details >}}
 
-If you want to upgrade to more than one minor release at a time (for example, from 14.6 to 14.9),
-you must take your GitLab instance offline, which implies downtime.
-Before starting this process, verify the
-[version specific upgrading instructions](index.md#version-specific-upgrading-instructions)
-relevant to your [upgrade path](index.md#upgrade-paths).
-
-For a single node installation, you must only [upgrade the GitLab package](package/index.md).
-
-The process for upgrading a number of components of a multi-node GitLab
-installation is the same as for zero-downtime upgrades.
-The differences relate to the servers running Rails (Puma/Sidekiq) and
-the order of events.
-
-At a high level, the process is:
+The process to upgrade a multi-node instance with downtime is:
 
 1. Shut down the GitLab application.
 1. Upgrade your Consul servers.
 1. Upgrade the other back-end components:
    - Gitaly, Rails PostgreSQL, Redis, PgBouncer: these can be upgraded in any order.
    - If you use PostgreSQL or Redis from your cloud platform and upgrades are required,
-     substitute the instructions for Omnibus GitLab with your cloud provider's instructions.
+     substitute the instructions for the Linux package with your cloud provider's instructions.
 1. Upgrade the GitLab application (Sidekiq, Puma) and start the application up.
+
+Before you begin an upgrade with downtime, [consider your downtime options](downtime_options.md).
 
 ## Stop writes to the database
 
 Before upgrade, you need to stop writes to the database. The process is different
-depending on your [reference architecture](../administration/reference_architectures/index.md).
+depending on your [reference architecture](../administration/reference_architectures/_index.md).
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package
+{{< tab title="Linux package" >}}
 
 Shut down Puma and Sidekiq on all servers running these processes:
 
@@ -53,9 +40,11 @@ sudo gitlab-ctl stop sidekiq
 sudo gitlab-ctl stop puma
 ```
 
-:::TabTitle Cloud Native Hybrid
+{{< /tab >}}
 
-For [Cloud Native Hybrid](../administration/reference_architectures/index.md#cloud-native-hybrid) environments:
+{{< tab title="Cloud Native Hybrid" >}}
+
+For [Cloud Native Hybrid](../administration/reference_architectures/_index.md#cloud-native-hybrid) environments:
 
 1. Note the current number of replicas for database clients for subsequent restart:
 
@@ -69,7 +58,9 @@ kubectl get deploy -n <namespace> -l release=<helm release name> -l 'app in (pro
 kubectl scale deploy -n <namespace> -l release=<helm release name> -l 'app in (prometheus,webservice,sidekiq)' --replicas=0
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ## Upgrade the Consul nodes
 
@@ -78,7 +69,7 @@ kubectl scale deploy -n <namespace> -l release=<helm release name> -l 'app in (p
 In summary:
 
 1. Check the Consul nodes are all healthy.
-1. [Upgrade the GitLab package](package/index.md#upgrade-to-a-specific-version-using-the-official-repositories) on all your Consul servers.
+1. [Upgrade the GitLab package](package/_index.md#upgrade-to-a-specific-version) on all your Consul servers.
 1. Restart all GitLab services **one node at a time**:
 
    ```shell
@@ -92,10 +83,10 @@ following principles when upgrading those servers:
 - Do not restart services more than one server at a time.
 - Check the Consul cluster is healthy before upgrading or restarting services.
 
-## Upgrade the Gitaly nodes (Praefect / Gitaly Cluster)
+## Upgrade the Gitaly nodes (Gitaly Cluster (Praefect))
 
-If you're running Gitaly cluster, follow the [zero-downtime process](zero_downtime.md)
-for Gitaly cluster.
+If you're running Gitaly Cluster (Praefect), follow the [zero-downtime process](zero_downtime.md)
+for Gitaly Cluster (Praefect).
 
 If you are using Amazon Machine Images (AMIs) on AWS, you can either upgrade the Gitaly nodes
 through the AMI process, or upgrade the package itself:
@@ -105,11 +96,11 @@ through the AMI process, or upgrade the package itself:
   you can upgrade through the AMI process. With ENI, you can keep the private DNS names
   through AMI instance changes, something that is crucial for Gitaly to work.
 - If you're **not** using ENI, you must upgrade Gitaly using the GitLab package.
-  This is because Gitaly Cluster tracks replicas of Git repositories by the server hostname,
+  This is because Gitaly Cluster (Praefect) tracks replicas of Git repositories by the server hostname,
   and a redeployment using AMIs issues the nodes with new hostnames. Even though
-  the storage is the same, Gitaly Cluster does not work when the hostnames change.
+  the storage is the same, Gitaly Cluster (Praefect) does not work when the hostnames change.
 
-The Praefect nodes, however, can be upgraded via an AMI redeployment process:
+The Praefect nodes, however, can be upgraded by using an AMI redeployment process:
 
   1. The AMI redeployment process must include `gitlab-ctl reconfigure`.
      Set `praefect['auto_migrate'] = false` on the AMI so all nodes get this. This
@@ -121,18 +112,18 @@ The Praefect nodes, however, can be upgraded via an AMI redeployment process:
      migrations.
   1. Redeploy your other Praefect nodes.
 
-## Upgrade the Gitaly nodes not part of Gitaly cluster
+## Upgrade the Gitaly nodes not part of Gitaly Cluster (Praefect)
 
-For Gitaly servers which are not part of Gitaly cluster, [upgrade the GitLab package](package/index.md#upgrade-to-a-specific-version-using-the-official-repositories).
+For Gitaly servers which are not part of Gitaly Cluster (Praefect), [upgrade the GitLab package](package/_index.md#upgrade-to-a-specific-version).
 
 If you have multiple Gitaly shards or have multiple load-balanced Gitaly nodes
 using NFS, it doesn't matter in which order you upgrade the Gitaly servers.
 
 ## Upgrade the PostgreSQL nodes
 
-For unclustered PostgreSQL servers:
+For non-clustered PostgreSQL servers:
 
-1. [Upgrade the GitLab package](package/index.md#upgrade-to-a-specific-version-using-the-official-repositories).
+1. [Upgrade the GitLab package](package/_index.md#upgrade-to-a-specific-version).
 
 1. The upgrade process does not restart PostgreSQL when the binaries are upgraded.
    Restart to load the new version:
@@ -162,7 +153,7 @@ Follow the following process:
    sudo gitlab-ctl patroni members
    ```
 
-1. [Upgrade the GitLab package](package/index.md#upgrade-to-a-specific-version-using-the-official-repositories) on one of the replica nodes.
+1. [Upgrade the GitLab package](package/_index.md#upgrade-to-a-specific-version) on one of the replica nodes.
 
 1. Restart to load the new version:
 
@@ -187,26 +178,29 @@ Follow the following process:
 If you run PgBouncer on your Rails (application) nodes, then
 PgBouncer are upgraded as part of the application server upgrade.
 
-[Upgrade the GitLab package](package/index.md#upgrade-to-a-specific-version-using-the-official-repositories) on the PgBouncer nodes.
+[Upgrade the GitLab package](package/_index.md#upgrade-to-a-specific-version) on the PgBouncer nodes.
 
 ## Upgrade the Redis node
 
-Upgrade a standalone Redis server by [upgrading the GitLab package](package/index.md#upgrade-to-a-specific-version-using-the-official-repositories).
+Upgrade a standalone Redis server by [upgrading the GitLab package](package/_index.md#upgrade-to-a-specific-version).
 
 ## Upgrade Redis HA (using Sentinel)
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+{{< details >}}
+
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 Follow [the zero-downtime instructions](zero_downtime.md)
 for upgrading your Redis HA cluster.
 
 ## Upgrade the Rails components
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package
+{{< tab title="Linux package" >}}
 
 All the Puma and Sidekiq processes were previously shut down. On each node:
 
@@ -245,7 +239,7 @@ running all database migrations. On the deploy node:
    1. Update `gitlab.rb` on the deploy node. Change `gitlab_rails['db_host']`
       and `gitlab_rails['db_port']` to either:
 
-      - The host and port for your database server (unclustered PostgreSQL).
+      - The host and port for your database server (non-clustered PostgreSQL).
       - The host and port for your cluster leader if you're running Patroni.
 
    1. Apply the changes:
@@ -254,7 +248,7 @@ running all database migrations. On the deploy node:
       sudo gitlab-ctl reconfigure
       ```
 
-1. [Upgrade the GitLab package](package/index.md#upgrade-to-a-specific-version-using-the-official-repositories).
+1. [Upgrade the GitLab package](package/_index.md#upgrade-to-a-specific-version).
 
 1. If you modified `gitlab.rb` on the deploy node to bypass PgBouncer:
    1. Update `gitlab.rb` on the deploy node. Change `gitlab_rails['db_host']`
@@ -277,7 +271,7 @@ set to anything in `gitlab.rb` on these nodes.
 
 They can be upgraded in parallel:
 
-1. [Upgrade the GitLab package](package/index.md#upgrade-to-a-specific-version-using-the-official-repositories).
+1. [Upgrade the GitLab package](package/_index.md#upgrade-to-a-specific-version).
 
 1. Ensure all services are restarted:
 
@@ -285,7 +279,9 @@ They can be upgraded in parallel:
    sudo gitlab-ctl restart
    ```
 
-:::TabTitle Cloud Native Hybrid
+{{< /tab >}}
+
+{{< tab title="Cloud Native Hybrid" >}}
 
 Now that all stateful components are upgraded, you need to follow
 [GitLab chart upgrade steps](https://docs.gitlab.com/charts/installation/upgrade.html)
@@ -299,8 +295,10 @@ kubectl scale deploy -lapp=webservice,release=<helm release name> -n <namespace>
 kubectl scale deploy -lapp=prometheus,release=<helm release name> -n <namespace> --replicas=<value>
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ## Upgrade the Monitor node
 
-[Upgrade the GitLab package](package/index.md#upgrade-to-a-specific-version-using-the-official-repositories).
+[Upgrade the GitLab package](package/_index.md#upgrade-to-a-specific-version).

@@ -9,12 +9,22 @@ query projectWorkItems(
 ) {
   workspace: project(fullPath: $fullPath) {
     id
-    workItems(search: $searchTerm, types: $types, in: $in) @include(if: $searchByText) {
+    workItems(search: $searchTerm, types: $types, state: opened, in: $in)
+      @include(if: $searchByText) {
       nodes {
         id
         iid
         title
         confidential
+        namespace {
+          id
+          fullPath
+        }
+        workItemType {
+          id
+          name
+          iconName
+        }
       }
     }
     workItemsByIid: workItems(iid: $iid, types: $types) @include(if: $searchByIid) {
@@ -23,6 +33,15 @@ query projectWorkItems(
         iid
         title
         confidential
+        namespace {
+          id
+          fullPath
+        }
+        workItemType {
+          id
+          name
+          iconName
+        }
       }
     }
   }

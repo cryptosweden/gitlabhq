@@ -7,7 +7,7 @@ export const MOCK_QUERY = {
   confidential: null,
   group_id: 1,
   language: ['C', 'JavaScript'],
-  labels: ['60', '37'],
+  label_name: ['Aftersync', 'Brist'],
   search: '*',
 };
 
@@ -132,18 +132,38 @@ export const MOCK_NAVIGATION = {
     count_link: '/search/count?scope=blobs&search=et',
   },
   issues: {
-    label: 'Issues',
+    label: 'Work items',
     scope: 'issues',
     link: '/search?scope=issues&search=et',
     active: true,
     count: '2,430',
-  },
-  epics: {
-    label: 'Epics',
-    scope: 'epics',
-    link: '/search?scope=epics&search=et',
-    active: true,
-    count: '0',
+    sub_items: {
+      issue: {
+        label: 'Issues',
+        scope: 'issues',
+        link: '/search?scope=issues&search=et',
+      },
+      task: {
+        label: 'Task',
+        scope: 'issues',
+        link: '/search?scope=issues&search=et',
+      },
+      objective: {
+        label: 'Objective',
+        scope: 'issues',
+        link: '/search?scope=issues&search=et',
+      },
+      key_result: {
+        label: 'Key results',
+        scope: 'issues',
+        link: '/search?scope=issues&search=et',
+      },
+      epic: {
+        label: 'Epics',
+        scope: 'epics',
+        link: '/search?scope=epics&search=et',
+      },
+    },
   },
   merge_requests: {
     label: 'Merge requests',
@@ -200,7 +220,7 @@ export const MOCK_DATA_FOR_NAVIGATION_ACTION_MUTATION = {
     label: 'Projects',
     scope: 'projects',
     link: '/search?scope=projects&search=et',
-    count_link: null,
+    count_link: '/search/count?scope=projects&search=et',
   },
 };
 
@@ -459,9 +479,6 @@ export const TEST_RAW_BUCKETS = [
 ];
 
 export const TEST_FILTER_DATA = {
-  header: 'Language',
-  scopes: { BLOBS: 'blobs' },
-  filterParam: 'language',
   filters: {
     GO: { label: 'Go', value: 'Go', count: 350 },
     C: { label: 'C', value: 'C', count: 298 },
@@ -487,90 +504,124 @@ export const MOCK_NAVIGATION_ITEMS = [
   {
     title: 'Projects',
     icon: 'project',
+    id: 'menu-projects-0',
     link: '/search?scope=projects&search=et',
     is_active: false,
     pill_count: '10K+',
-    items: [],
+    scope: 'projects',
   },
   {
     title: 'Code',
     icon: 'code',
+    id: 'menu-blobs-1',
     link: '/search?scope=blobs&search=et&group_id=123&regex=true',
     is_active: false,
     pill_count: '0',
-    items: [],
+    scope: 'blobs',
   },
   {
     title: 'Code2',
     icon: 'code',
-    link: '/search?scope=blobs&search=et',
+    id: 'menu-blobs-2',
+    link: '/search?scope=blobs&search=et&regex=true',
     is_active: false,
     pill_count: '0',
-    items: [],
+    scope: 'blobs',
   },
   {
-    title: 'Issues',
+    title: 'Work items',
     icon: 'issues',
+    id: 'menu-issues-3',
     link: '/search?scope=issues&search=et',
     is_active: true,
     pill_count: '2.4K',
-    items: [],
-  },
-  {
-    title: 'Epics',
-    icon: 'epic',
-    link: '/search?scope=epics&search=et',
-    is_active: true,
-    pill_count: '0',
-    items: [],
+    scope: 'issues',
+    items: [
+      {
+        id: 'menu-issue-0',
+        is_active: false,
+        link: '/search?scope=issues&search=et',
+        title: 'Issues',
+      },
+      {
+        id: 'menu-epic-1',
+        is_active: false,
+        link: '/search?scope=epics&search=et',
+        title: 'Epics',
+      },
+      {
+        id: 'menu-task-2',
+        is_active: false,
+        link: '/search?scope=issues&search=et',
+        title: 'Tasks',
+      },
+      {
+        id: 'menu-objective-3',
+        is_active: false,
+        link: '/search?scope=issues&search=et',
+        title: 'Objectives',
+      },
+      {
+        id: 'menu-key_result-4',
+        is_active: false,
+        link: '/search?scope=issues&search=et',
+        title: 'Key results',
+      },
+    ],
   },
   {
     title: 'Merge requests',
     icon: 'merge-request',
+    id: 'menu-merge_requests-4',
     link: '/search?scope=merge_requests&search=et',
     is_active: false,
     pill_count: '0',
-    items: [],
+    scope: 'merge_requests',
   },
   {
     title: 'Wiki',
     icon: 'book',
+    id: 'menu-wiki_blobs-5',
     link: '/search?scope=wiki_blobs&search=et',
     is_active: false,
     pill_count: '0',
-    items: [],
+    scope: 'wiki_blobs',
   },
   {
     title: 'Commits',
     icon: 'commit',
+    id: 'menu-commits-6',
     link: '/search?scope=commits&search=et',
     is_active: false,
     pill_count: '0',
-    items: [],
+    scope: 'commits',
   },
   {
     title: 'Comments',
     icon: 'comments',
+    id: 'menu-notes-7',
     link: '/search?scope=notes&search=et',
     is_active: false,
     pill_count: '0',
-    items: [],
+    scope: 'notes',
   },
   {
     title: 'Milestones',
     icon: 'milestone',
+    id: 'menu-milestones-8',
     link: '/search?scope=milestones&search=et',
     is_active: false,
     pill_count: '0',
-    items: [],
+    scope: 'milestones',
   },
   {
     title: 'Users',
     icon: 'users',
+    id: 'menu-users-9',
     link: '/search?scope=users&search=et',
     is_active: false,
     pill_count: '0',
-    items: [],
+    scope: 'users',
   },
 ];
 
@@ -899,3 +950,866 @@ export const MOCK_FILTERED_LABELS = [
 ];
 
 export const CURRENT_SCOPE = 'blobs';
+
+export const defaultProvide = {
+  paths: {
+    adminUser: '///',
+  },
+};
+
+export const mockGetBlobSearchQueryEmpty = {
+  data: {
+    blobSearch: {
+      fileCount: 0,
+      files: [],
+      matchCount: 0,
+      perPage: 0,
+      searchLevel: 'PROJECT',
+      searchType: 'ZOEKT',
+    },
+  },
+};
+
+export const mockGetBlobSearchQuery = {
+  data: {
+    blobSearch: {
+      fileCount: 3,
+      files: [
+        {
+          blameUrl: 'http://127.0.0.1:3000/flightjs/Flight/-/blame/master/test/test-main.js',
+          chunks: [
+            {
+              lines: [
+                {
+                  lineNumber: 1,
+                  highlights: [4, 9],
+                  text: 'var tests = Object.keys(window.__karma__.files).filter(function (file) {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 2,
+                  highlights: [4, 9],
+                  text: '  return (/_spec\\.js$/.test(file));',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 3,
+                  highlights: [4, 9],
+                  text: '  return (/_spec\\.js$/.test(file));',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 11,
+                  highlights: [4, 9],
+                  text: '  return (/_spec\\.js$/.test(file));',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 12,
+                  highlights: [4, 9],
+                  text: '    // start test run, once Require.js is done',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 13,
+                  highlights: [4, 9],
+                  text: '    callback: window.__karma__.start',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+          ],
+          fileUrl: 'http://127.0.0.1:3000/flightjs/Flight/-/blob/master/test/test-main.js',
+          matchCount: 3,
+          matchCountTotal: 3,
+          language: 'Javascript',
+          path: 'test/test-main.js',
+          projectPath: 'flightjs/Flight',
+          __typename: 'SearchBlobFileType',
+        },
+        {
+          blameUrl: 'http://127.0.0.1:3000/flightjs/Flight/-/blame/master/test/spec/fn_spec.js',
+          chunks: [
+            {
+              lines: [
+                {
+                  lineNumber: 5,
+                  highlights: [4, 9],
+                  text: '  var Component = (function () {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 6,
+                  highlights: [4, 9],
+                  text: '    return defineComponent(function fnTest() {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 7,
+                  highlights: null,
+                  text: '    });',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 16,
+                  highlights: [4, 9],
+                  text: '    it(\'should call the "before" function before the base function and return the base function\', function () {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 17,
+                  highlights: [4, 9],
+                  text: '      var test1 = "";',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 18,
+                  highlights: [4, 9],
+                  text: '  return (/_spec\\.js$/.test(file));',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 19,
+                  highlights: [4, 9],
+                  text: '      function base(arg) {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 20,
+                  highlights: [4, 9],
+                  text: "        test1 += 'Base: ' + arg;",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 21,
+                  highlights: null,
+                  text: "        return 'base';",
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 24,
+                  highlights: [4, 9],
+                  text: '      var advised = advice.before(base, function (arg) {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 25,
+                  highlights: [4, 9],
+                  text: '        test1 += "Before: " + arg + \', \';',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 26,
+                  highlights: null,
+                  text: "        return 'before';",
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 29,
+                  highlights: null,
+                  text: "      expect(advised('Dan')).toBe('base');",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 30,
+                  highlights: [4, 9],
+                  text: "      expect(test1).toBe('Before: Dan, Base: Dan');",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 31,
+                  highlights: null,
+                  text: '    });',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 33,
+                  highlights: [4, 9],
+                  text: '    it(\'should call the "after" function after the base function, but return the base function\', function () {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 34,
+                  highlights: [4, 9],
+                  text: '      var test1 = "";',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 35,
+                  highlights: [4, 9],
+                  text: '  return (/_spec\\.js$/.test(file));',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 36,
+                  highlights: null,
+                  text: '      function base(arg) {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 37,
+                  highlights: [4, 9],
+                  text: "        test1 += 'Base: ' + arg;",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 38,
+                  highlights: null,
+                  text: "        return 'base';",
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 41,
+                  highlights: [4, 9],
+                  text: '      var advised = advice.after(base, function (arg) {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 42,
+                  highlights: [4, 9],
+                  text: '        test1 += ", After: " + arg;',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 43,
+                  highlights: null,
+                  text: "        return 'after';",
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 46,
+                  highlights: [4, 9],
+                  text: "      expect(advised('Dan')).toBe('base');",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 47,
+                  highlights: [4, 9],
+                  text: "      expect(test1).toBe('Base: Dan, After: Dan');",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 48,
+                  highlights: null,
+                  text: '    });',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 50,
+                  highlights: [4, 9],
+                  text: '    it(\'should wrap the the first "around" argument with the second argument\', function () {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 51,
+                  highlights: null,
+                  text: '      var test1 = "";',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 52,
+                  highlights: [4, 9],
+                  text: '  return (/_spec\\.js$/.test(file));',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 53,
+                  highlights: [4, 9],
+                  text: '      function base(arg) {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 54,
+                  highlights: [4, 9],
+                  text: "        test1 += 'Base: ' + arg;",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 55,
+                  highlights: null,
+                  text: "        return 'base';",
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 58,
+                  highlights: [4, 9],
+                  text: '      var advised = advice.around(base, function (orig, arg) {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 59,
+                  highlights: [4, 9],
+                  text: "        test1 += '|';",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 60,
+                  highlights: null,
+                  text: '        orig(arg);',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 61,
+                  highlights: [4, 9],
+                  text: "        test1 += '|';",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 62,
+                  highlights: null,
+                  text: "        return 'around';",
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 2,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 65,
+                  highlights: [4, 9],
+                  text: "      expect(advised('Dan')).toBe('around');",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 66,
+                  highlights: [4, 9],
+                  text: "      expect(test1).toBe('|Base: Dan|');",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 67,
+                  highlights: null,
+                  text: '    });',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 71,
+                  highlights: [4, 9],
+                  text: '        var subject = {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 72,
+                  highlights: [4, 9],
+                  text: "          testa: '',",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 73,
+                  highlights: [4, 9],
+                  text: "          testb: '',",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 74,
+                  highlights: [4, 9],
+                  text: "          testc: '',",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 75,
+                  highlights: null,
+                  text: '          a: function () {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 76,
+                  highlights: [4, 9],
+                  text: "            this.testa += 'A!';",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 77,
+                  highlights: null,
+                  text: '          },',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 4,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 78,
+                  highlights: [4, 9],
+                  text: '          b: function () {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 79,
+                  highlights: [4, 9],
+                  text: "            this.testb += 'B!';",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 80,
+                  highlights: null,
+                  text: '          },',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 81,
+                  highlights: null,
+                  text: '          c: function () {',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 82,
+                  highlights: [4, 9],
+                  text: "            this.testc += 'C!';",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 83,
+                  highlights: null,
+                  text: '          }',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 88,
+                  highlights: null,
+                  text: "        subject.before('a', function () {",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 89,
+                  highlights: [4, 9],
+                  text: "          this.testa += 'BEFORE!';",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 90,
+                  highlights: null,
+                  text: '        });',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 92,
+                  highlights: null,
+                  text: "        subject.after('b', function () {",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 93,
+                  highlights: [4, 9],
+                  text: "          this.testb += 'AFTER!';",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 94,
+                  highlights: null,
+                  text: '        });',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 96,
+                  highlights: [4, 9],
+                  text: "        subject.around('c', function (orig) {",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 97,
+                  highlights: [4, 9],
+                  text: "          this.testc += '|';",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 98,
+                  highlights: null,
+                  text: '          orig.call(subject);',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 99,
+                  highlights: [4, 9],
+                  text: "          this.testc += '|';",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 100,
+                  highlights: [4, 9],
+                  text: '        });',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 2,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 102,
+                  highlights: [4, 9],
+                  text: '        subject.a();',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 103,
+                  highlights: [4, 9],
+                  text: "        expect(subject.testa).toBe('BEFORE!A!');",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 104,
+                  highlights: [4, 9],
+                  text: '  return (/_spec\\.js$/.test(file));',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 105,
+                  highlights: [4, 9],
+                  text: '        subject.b();',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 106,
+                  highlights: [4, 9],
+                  text: "        expect(subject.testb).toBe('B!AFTER!');",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 107,
+                  highlights: [4, 9],
+                  text: '  return (/_spec\\.js$/.test(file));',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+            {
+              lines: [
+                {
+                  lineNumber: 108,
+                  highlights: [4, 9],
+                  text: '        subject.c();',
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 109,
+                  highlights: [4, 9],
+                  text: "        expect(subject.testc).toBe('|C!|');",
+                  __typename: 'SearchBlobLine',
+                },
+                {
+                  lineNumber: 110,
+                  highlights: [4, 9],
+                  text: '      });',
+                  __typename: 'SearchBlobLine',
+                },
+              ],
+              matchCountInChunk: 1,
+              __typename: 'SearchBlobChunk',
+            },
+          ],
+          fileUrl: 'http://127.0.0.1:3000/flightjs/Flight/-/blob/master/test/spec/fn_spec.js',
+          matchCount: 27,
+          matchCountTotal: 27,
+          language: 'Javascript',
+          path: 'test/spec/fn_spec.js',
+          projectPath: 'flightjs/Flight',
+          __typename: 'SearchBlobFileType',
+        },
+        {
+          blameUrl: 'http://127.0.0.1:3000/flightjs/Flight/-/blame/master/test/spec/utils_spec.js',
+          chunks: [],
+          fileUrl: 'http://127.0.0.1:3000/flightjs/Flight/-/blob/master/test/spec/utils_spec.js',
+          matchCount: 1,
+          matchCountTotal: 1,
+          language: 'Javascript',
+          path: 'test/spec/test_utils_spec.js',
+          projectPath: 'flightjs/Flight',
+          __typename: 'SearchBlobFileType',
+        },
+      ],
+      matchCount: 369,
+      perPage: 20,
+      searchLevel: 'PROJECT',
+      searchType: 'ZOEKT',
+    },
+  },
+};
+
+export const mockDataForBlobBody = {
+  blameUrl: 'blame/test.js',
+  chunks: [
+    {
+      lines: [
+        {
+          lineNumber: 1,
+          highlights: [4, 9],
+          text: '',
+          __typename: 'SearchBlobLine',
+        },
+        {
+          lineNumber: 2,
+          highlights: [4, 9],
+          text: 'test1',
+          __typename: 'SearchBlobLine',
+        },
+        {
+          lineNumber: 3,
+          highlights: [4, 9],
+          text: '  return (/_spec\\.js$/.test(file));',
+          __typename: 'SearchBlobLine',
+        },
+      ],
+      matchCountInChunk: 1,
+      __typename: 'SearchBlobChunk',
+    },
+    {
+      lines: [
+        {
+          lineNumber: 11,
+          highlights: [4, 9],
+          text: '',
+          __typename: 'SearchBlobLine',
+        },
+        {
+          lineNumber: 12,
+          highlights: [4, 9],
+          text: 'test2',
+          __typename: 'SearchBlobLine',
+        },
+        {
+          lineNumber: 13,
+          highlights: [4, 9],
+          text: '',
+          __typename: 'SearchBlobLine',
+        },
+      ],
+      matchCountInChunk: 1,
+      __typename: 'SearchBlobChunk',
+    },
+    {
+      lines: [
+        {
+          lineNumber: 11,
+          highlights: [4, 9],
+          text: '',
+          __typename: 'SearchBlobLine',
+        },
+        {
+          lineNumber: 12,
+          highlights: [4, 9],
+          text: 'test3',
+          __typename: 'SearchBlobLine',
+        },
+        {
+          lineNumber: 13,
+          highlights: [4, 9],
+          text: '',
+          __typename: 'SearchBlobLine',
+        },
+      ],
+      matchCountInChunk: 1,
+      __typename: 'SearchBlobChunk',
+    },
+    {
+      lines: [
+        {
+          lineNumber: 11,
+          highlights: [4, 9],
+          text: '',
+          __typename: 'SearchBlobLine',
+        },
+        {
+          lineNumber: 12,
+          highlights: [4, 9],
+          text: 'test4',
+          __typename: 'SearchBlobLine',
+        },
+        {
+          lineNumber: 13,
+          highlights: [4, 9],
+          text: '',
+          __typename: 'SearchBlobLine',
+        },
+      ],
+      matchCountInChunk: 1,
+      __typename: 'SearchBlobChunk',
+    },
+  ],
+  fileUrl: 'https://gitlab.com/file/test.js',
+  matchCount: 2,
+  matchCountTotal: 2,
+  path: 'file/test.js',
+  projectPath: 'Testjs/Test',
+  language: 'Javascript',
+  __typename: 'SearchBlobFileType',
+};
+
+export const mockDataForBlobChunk = {
+  chunk: {
+    lines: [
+      {
+        lineNumber: '1',
+        highlights: [[6, 10]],
+        text: 'const test = 1;',
+        __typename: 'SearchBlobLine',
+      },
+      {
+        lineNumber: '2',
+        highlights: [[9, 13]],
+        text: 'function test() {',
+        __typename: 'SearchBlobLine',
+      },
+      {
+        lineNumber: '3',
+        highlights: [[13, 17]],
+        text: 'console.log("test")',
+        __typename: 'SearchBlobLine',
+      },
+      {
+        lineNumber: '4',
+        highlights: [[]],
+        text: '}',
+        __typename: 'SearchBlobLine',
+      },
+    ],
+    matchCountInChunk: 1,
+    __typename: 'SearchBlobChunk',
+  },
+  blameLink: 'https://gitlab.com/blame/test.js',
+  fileUrl: 'https://gitlab.com/file/test.js',
+  position: 1,
+  language: 'Javascript',
+};
+
+export const mockSourceBranches = [
+  {
+    text: 'Master Item',
+    value: 'master-item',
+  },
+  {
+    text: 'Feature Item',
+    value: 'feature-item',
+  },
+  {
+    text: 'Develop Item',
+    value: 'develop-item',
+  },
+];
+
+export const mockgetBlobSearchCountQuery = {
+  data: {
+    blobSearch: {
+      fileCount: 10,
+      matchCount: 123,
+      __typename: 'BlobSearch',
+    },
+  },
+};

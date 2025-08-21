@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Integrations
-  class GitlabSlackApplication < BaseSlackNotification
+  class GitlabSlackApplication < Integration
     attribute :alert_events, default: false
     attribute :commit_events, default: false
     attribute :confidential_issues_events, default: false
@@ -20,6 +20,7 @@ module Integrations
     has_one :slack_integration, foreign_key: :integration_id, inverse_of: :integration
     delegate :bot_access_token, :bot_user_id, to: :slack_integration, allow_nil: true
 
+    include Integrations::Base::SlackNotification
     include SlackMattermostFields
 
     def self.title
@@ -34,8 +35,8 @@ module Integrations
       'gitlab_slack_application'
     end
 
-    override :show_active_box?
-    def show_active_box?
+    override :manual_activation?
+    def manual_activation?
       false
     end
 
@@ -76,6 +77,18 @@ module Integrations
       return [] unless editable?
 
       super
+    end
+
+    override :dup
+    def dup
+      new_integration = super
+
+      new_slack_integration = slack_integration.dup
+      new_slack_integration.alias = new_integration.parent.full_path
+      new_slack_integration.authorized_scope_names = slack_integration.authorized_scope_names
+      new_integration.slack_integration = new_slack_integration
+
+      new_integration
     end
 
     override :requires_webhook?

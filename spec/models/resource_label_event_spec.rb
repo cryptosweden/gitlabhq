@@ -21,6 +21,8 @@ RSpec.describe ResourceLabelEvent, feature_category: :team_planning, type: :mode
 
   describe 'associations' do
     it { is_expected.to belong_to(:label) }
+
+    it { is_expected.to belong_to(:namespace) }
   end
 
   describe 'validations' do
@@ -69,88 +71,70 @@ RSpec.describe ResourceLabelEvent, feature_category: :team_planning, type: :mode
         subject.destroy!
       end
     end
+
+    describe '#ensure_namespace_id' do
+      context 'when label_event belongs to a project issue' do
+        let(:label_event) { described_class.new(issue: issue) }
+
+        it 'sets the namespace id from the issue namespace id' do
+          expect(label_event.namespace_id).to be_nil
+
+          label_event.valid?
+
+          expect(label_event.namespace_id).to eq(issue.namespace.id)
+        end
+      end
+
+      context 'when label_event belongs to a group issue' do
+        let(:issue) { create(:issue, :group_level, namespace: group) }
+        let(:label_event) { described_class.new(issue: issue) }
+
+        it 'sets the namespace id from the issue namespace id' do
+          expect(label_event.namespace_id).to be_nil
+
+          label_event.valid?
+
+          expect(label_event.namespace_id).to eq(issue.namespace.id)
+        end
+      end
+
+      context 'when label_event belongs to a merge request' do
+        let(:label_event) { described_class.new(merge_request: merge_request) }
+
+        it 'sets the namespace id from the merge request project namespace id' do
+          expect(label_event.namespace_id).to be_nil
+
+          label_event.valid?
+
+          expect(label_event.namespace_id).to eq(merge_request.project.project_namespace_id)
+        end
+      end
+
+      context 'when label_event has no issuable' do
+        let(:label_event) { described_class.new }
+
+        it 'returns nil and does not fail' do
+          expect(label_event.namespace_id).to be_nil
+
+          label_event.valid?
+
+          expect(label_event.namespace_id).to be_nil
+        end
+      end
+    end
   end
 
-  describe '#outdated_markdown?' do
+  describe '#outdated_reference?' do
     it 'returns true if label is missing and reference is not empty' do
       subject.attributes = { reference: 'ref', label_id: nil }
 
-      expect(subject.outdated_markdown?).to be true
+      expect(subject.outdated_reference?).to be true
     end
 
     it 'returns true if reference is not set yet' do
       subject.attributes = { reference: nil }
 
-      expect(subject.outdated_markdown?).to be true
-    end
-
-    it 'returns true if markdown is outdated' do
-      subject.attributes = { cached_markdown_version: ((Gitlab::MarkdownCache::CACHE_COMMONMARK_VERSION - 1) << 16) | 0 }
-
-      expect(subject.outdated_markdown?).to be true
-    end
-
-    it 'returns false if label and reference are set' do
-      subject.attributes = { reference: 'whatever', cached_markdown_version: Gitlab::MarkdownCache::CACHE_COMMONMARK_VERSION << 16 }
-
-      expect(subject.outdated_markdown?).to be false
-    end
-  end
-
-  describe '#reference_html' do
-    subject { Nokogiri::HTML.fragment(label_event.reference_html).css('a').first.attr('href') }
-
-    before do
-      label_event.refresh_invalid_reference
-    end
-
-    context 'when resource event belongs to a group level issue' do
-      let(:group_label) { create(:group_label, group: group) }
-      let(:label_event) do
-        group_issue = create(:issue, :group_level, namespace: group)
-
-        create(:resource_label_event, issue: group_issue, label: group_label)
-      end
-
-      it { is_expected.to eq(Gitlab::Routing.url_helpers.group_work_items_path(group, label_name: group_label.title)) }
-    end
-
-    context 'when resource event belongs to a project level issue' do
-      let(:label_event) { resource_label_event }
-
-      it { is_expected.to eq(Gitlab::Routing.url_helpers.project_issues_path(project, label_name: label.title)) }
-    end
-
-    context 'when resource event belongs to a merge request' do
-      let(:label_event) { create(:resource_label_event, merge_request: merge_request, label: label) }
-
-      it do
-        is_expected.to eq(Gitlab::Routing.url_helpers.project_merge_requests_path(project, label_name: label.title))
-      end
-    end
-  end
-
-  describe '#group' do
-    subject { build_stubbed(:resource_label_event, **issuable_attributes).group }
-
-    context 'when issuable is a merge request' do
-      let(:issuable_attributes) { { merge_request: merge_request } }
-
-      it { is_expected.to be_nil }
-    end
-
-    context 'when issuable is an issue' do
-      context 'when issue exists at the project level' do
-        let(:issuable_attributes) { { issue: issue } }
-
-        it { is_expected.to be_nil }
-      end
-
-      context 'when issue exists at the group level' do
-        let(:issuable_attributes) { { issue: build_stubbed(:issue, :group_level, namespace: group) } }
-
-        it { is_expected.to eq(group) }
-      end
+      expect(subject.outdated_reference?).to be true
     end
   end
 

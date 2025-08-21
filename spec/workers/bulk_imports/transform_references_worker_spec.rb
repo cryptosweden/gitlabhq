@@ -65,7 +65,7 @@ RSpec.describe BulkImports::TransformReferencesWorker, feature_category: :import
     expected_url
   end
 
-  subject { described_class.new.perform([object.id], object.class.to_s, tracker.id) }
+  subject(:perform) { described_class.new.perform([object.id], object.class.to_s, tracker.id) }
 
   before do
     allow(Gitlab::Cache::Import::Caching)
@@ -97,12 +97,16 @@ RSpec.describe BulkImports::TransformReferencesWorker, feature_category: :import
     expect(merge_request_note_2.reload.note).not_to eq(old_note)
   end
 
+  it "sets the object's `importing` attribute to `true`" do
+    expect_next_found_instance_of(Note) do |object|
+      expect(object).to receive(:importing=).with(true)
+    end
+
+    described_class.new.perform([issue_note.id], 'Note', tracker.id)
+  end
+
   shared_examples 'transforms and saves references' do
     it 'transforms references and saves the object' do
-      expect_any_instance_of(object.class) do |object|
-        expect(object).to receive(:save!)
-      end
-
       expect { subject }.not_to change { object.updated_at }
 
       expect(body).to eq(expected_body)
@@ -253,5 +257,57 @@ RSpec.describe BulkImports::TransformReferencesWorker, feature_category: :import
     let(:expected_body) { '@manuelgrabowski, @boatymcboatface' }
 
     include_examples 'transforms and saves references'
+  end
+
+  context 'when importer_user_mapping is enabled' do
+    let(:object) { merge_request }
+    let(:body) { object.reload.description }
+    let(:expected_body) do
+      "#{expected_url}/-/merge_requests/#{merge_request.iid} @source_username? @bob, @alice!"
+    end
+
+    it 'updates url references but does not map usernames in legacy manner' do
+      ephemeral_data_instance = instance_double(
+        Import::BulkImports::EphemeralData,
+        importer_user_mapping_enabled?: true
+      )
+      allow(Import::BulkImports::EphemeralData)
+        .to receive(:new).with(bulk_import.id)
+        .and_return(ephemeral_data_instance)
+
+      expect_any_instance_of(object.class) do |object|
+        expect(object).to receive(:save!)
+      end
+
+      expect { perform }.not_to change { object.updated_at }
+
+      expect(body).to eq(expected_body)
+    end
+  end
+
+  context 'when a non-URI string that URI.extract considers a URI is returned' do
+    let_it_be(:note_with_bad_uri) do
+      create(
+        :note,
+        noteable: issue,
+        project: project,
+        note: 'Invalid: http://[127.0.0.1] Valid: https://my.gitlab.com/source/full/path/-/issues/1'
+      )
+    end
+
+    let(:expected_body) { "Invalid: http://[127.0.0.1] Valid: http://localhost:80/#{object.namespace.full_path}/-/issues/1" }
+
+    let(:object) { note_with_bad_uri }
+    let(:body) { object.reload.note }
+
+    it 'does not log an error and updates the other URI correctly' do
+      # On URI 1.0.3 'http://[127.0.0.1]' will match for URI.extract, but is invalid for URI.parse.
+      # We are stubbing the result so the spec remains valid if this example case is fixed
+      allow(URI).to receive(:extract).and_return(['http://[127.0.0.1]', 'https://my.gitlab.com/source/full/path/-/issues/1'])
+
+      expect(Gitlab::ErrorTracking).not_to receive(:track_exception)
+      perform
+      expect(body).to eq(expected_body)
+    end
   end
 end

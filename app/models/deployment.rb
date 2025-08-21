@@ -15,6 +15,9 @@ class Deployment < ApplicationRecord
 
   ARCHIVABLE_OFFSET = 50_000
 
+  ignore_column :id_convert_to_bigint, :project_id_convert_to_bigint, :environment_id_convert_to_bigint,
+    :user_id_convert_to_bigint, remove_with: '18.3', remove_after: '2025-09-01'
+
   belongs_to :project, optional: false
   belongs_to :environment, optional: false
   belongs_to :user
@@ -57,7 +60,8 @@ class Deployment < ApplicationRecord
     preload({ deployable: { runner: [], tags: [], user: [], job_artifacts_archive: [] } })
   end
   scope :with_environment_page_associations, -> do
-    preload(project: [], environment: [], deployable: [:user, :metadata, :project, { pipeline: [:manual_actions] }])
+    preload(project: [], environment: [],
+      deployable: [:user, :metadata, :job_definition, :project, { pipeline: [:manual_actions] }])
   end
 
   scope :finished_after, ->(date) { where('finished_at >= ?', date) }
@@ -151,7 +155,7 @@ class Deployment < ApplicationRecord
     end
   end
 
-  enum status: {
+  enum :status, {
     created: 0,
     running: 1,
     success: 2,

@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Ruby upgrade guidelines
 ---
-
-# Ruby upgrade guidelines
 
 We strive to run GitLab using the latest Ruby MRI releases to benefit from performance and
 security updates and new Ruby APIs. When upgrading Ruby across GitLab, we should do
@@ -58,9 +57,9 @@ Before any upgrade, consider all audiences and targets, ordered by how immediate
 1. **GitLab SaaS**. GitLab.com is deployed from customized Helm charts that use Docker images from [Cloud Native GitLab (CNG)](https://gitlab.com/gitlab-org/build/CNG).
    Just like CI/CD, `.ruby-version` is meaningless in this environment. Instead, those Docker images must be patched to upgrade Ruby.
    GitLab SaaS is affected with the next deployment.
-1. **Self-managed GitLab.** Customers installing GitLab via [Omnibus](https://gitlab.com/gitlab-org/omnibus-gitlab) use none of the above.
+1. **GitLab Self-Managed.** Customers installing GitLab via [Omnibus](https://gitlab.com/gitlab-org/omnibus-gitlab) use none of the above.
    Instead, their Ruby version is defined by the [Ruby software bundle](https://gitlab.com/gitlab-org/omnibus-gitlab/blob/master/config/software/ruby.rb) in Omnibus.
-   Self-managed customers are affected as soon as they upgrade to the release containing this change.
+   GitLab Self-Managed customers are affected as soon as they upgrade to the release containing this change.
 
 ## Ruby upgrade approach
 
@@ -114,7 +113,7 @@ There are two places that require changes:
    depends on the scope.
    - For [patch level updates](https://gitlab.com/gitlab-org/gitlab-build-images/-/merge_requests/418), it should suffice to increment the patch level of `RUBY_VERSION`.
      All projects building against the same minor release automatically download the new patch release.
-   - For [major and minor updates](https://gitlab.com/gitlab-org/gitlab-build-images/-/merge_requests/320), create a new set of Docker images that can be used side-by-side with existing images during the upgrade process. **Important:** Make sure to copy over all Ruby patch files
+   - For [major and minor updates](https://gitlab.com/gitlab-org/gitlab-build-images/-/merge_requests/320), create a new set of Docker images that can be used side-by-side with existing images during the upgrade process. **Important**: Make sure to copy over all Ruby patch files
      in the `/patches` directory to a new folder matching the Ruby version you upgrade to, or they aren't applied.
 1. **[GitLab Development Kit (GDK)](https://gitlab.com/gitlab-org/gitlab-development-kit).**
    Update GDK to add the new Ruby as an additional option for
@@ -139,20 +138,20 @@ This is typically necessary, since gems or Ruby applications that we maintain ou
 update these repositories for the GitLab Rails application to work with a new Ruby,
 it is good practice to keep Ruby versions in lock-step across all our repositories. For minor and major
 upgrades, add new CI/CD jobs to these repositories using the new Ruby.
-A [build matrix definition](../ci/yaml/index.md#parallelmatrix) can do this efficiently.
+A [build matrix definition](../ci/yaml/_index.md#parallelmatrix) can do this efficiently.
 
 #### Decide which repositories to update
 
 When upgrading Ruby, consider updating the repositories in the [`ruby/gems` group](https://gitlab.com/gitlab-org/ruby/gems/) as well.
 For reference, here is a list of merge requests that have updated Ruby for some of these projects in the past:
 
-- [GitLab LabKit](https://gitlab.com/gitlab-org/labkit-ruby) ([example](https://gitlab.com/gitlab-org/labkit-ruby/-/merge_requests/79))
+- [GitLab LabKit](https://gitlab.com/gitlab-org/ruby/gems/labkit-ruby) ([example](https://gitlab.com/gitlab-org/ruby/gems/labkit-ruby/-/merge_requests/79))
 - [GitLab Exporter](https://gitlab.com/gitlab-org/ruby/gems/gitlab-exporter) ([example](https://gitlab.com/gitlab-org/ruby/gems/gitlab-exporter/-/merge_requests/150))
 - [GitLab Experiment](https://gitlab.com/gitlab-org/ruby/gems/gitlab-experiment) ([example](https://gitlab.com/gitlab-org/ruby/gems/gitlab-experiment/-/merge_requests/128))
-- [Gollum Lib](https://gitlab.com/gitlab-org/gollum-lib) ([example](https://gitlab.com/gitlab-org/gollum-lib/-/merge_requests/21))
-- [GitLab Sidekiq fetcher](https://gitlab.com/gitlab-org/sidekiq-reliable-fetch) ([example](https://gitlab.com/gitlab-org/sidekiq-reliable-fetch/-/merge_requests/33))
-- [Prometheus Ruby Mmap Client](https://gitlab.com/gitlab-org/prometheus-client-mmap) ([example](https://gitlab.com/gitlab-org/prometheus-client-mmap/-/merge_requests/59))
-- [GitLab-mail_room](https://gitlab.com/gitlab-org/gitlab-mail_room) ([example](https://gitlab.com/gitlab-org/gitlab-mail_room/-/merge_requests/16))
+- [Gollum Lib](https://gitlab.com/gitlab-org/ruby/gems/gollum-lib) ([example](https://gitlab.com/gitlab-org/ruby/gems/gollum-lib/-/merge_requests/21))
+- [GitLab Sidekiq fetcher](https://gitlab.com/gitlab-org/ruby/gems/sidekiq-reliable-fetch) ([example](https://gitlab.com/gitlab-org/ruby/gems/sidekiq-reliable-fetch/-/merge_requests/33))
+- [Prometheus Ruby Mmap Client](https://gitlab.com/gitlab-org/ruby/gems/prometheus-client-mmap) ([example](https://gitlab.com/gitlab-org/ruby/gems/prometheus-client-mmap/-/merge_requests/59))
+- [GitLab-mail_room](https://gitlab.com/gitlab-org/ruby/gems/gitlab-mail_room) ([example](https://gitlab.com/gitlab-org/ruby/gems/gitlab-mail_room/-/merge_requests/16))
 
 To assess which of these repositories are critical to be updated alongside the main GitLab application consider:
 
@@ -164,10 +163,13 @@ account of which repositories could be affected.
 For smaller version upgrades, it can be acceptable to delay updating libraries that are non-essential or where
 we are certain that the main application test suite would catch regressions under a new Ruby version.
 
-NOTE:
+{{< alert type="note" >}}
+
 Consult with the respective code owners whether it is acceptable to merge these changes ahead
 of updating the GitLab application. It might be best to get the necessary approvals
 but wait to merge the change until everything is ready.
+
+{{< /alert >}}
 
 ### Prepare the GitLab application MR
 
@@ -176,10 +178,13 @@ application with any necessary changes, similar to the gems and related systems.
 On top of that, update the documentation to reflect the version change in the installation
 and update instructions ([example](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/68363)).
 
-NOTE:
+{{< alert type="note" >}}
+
 Be especially careful with timing this merge request, since as soon as it is merged, all GitLab contributors
 will be affected by it and the changes will be deployed. You must ensure that this MR remains
 open until everything else is ready, but it can be useful to get approval early to reduce lead time.
+
+{{< /alert >}}
 
 ### Give developers time to upgrade (grace period)
 
@@ -190,7 +195,7 @@ via `gdk update`.
 
 This pause is a good time to assess the risk of this upgrade for GitLab SaaS.
 For Ruby upgrades that are high risk, such as major version upgrades, it is recommended to
-coordinate the changes with the infrastructure team through a [change management request](https://handbook.gitlab.com/handbook/engineering/infrastructure/change-management/).
+coordinate the changes with the infrastructure team through a [change management request](https://handbook.gitlab.com/handbook/engineering/infrastructure-platforms/change-management/).
 Create this issue early to give everyone enough time to schedule and prepare changes.
 
 ### Make it the default Ruby
@@ -210,7 +215,7 @@ prudent to skip this step until you have verified that it runs smoothly in produ
 rollout. In this case, go to the next step first, and then, after the verification period has passed, promote
 the new Ruby to be the new default.
 
-### Update CNG, Omnibus, Self-compiled and merge the GitLab MR
+### Update CNG, Omnibus, and Self-compiled and merge the GitLab MR
 
 The last step is to use the new Ruby in production. This
 requires updating Omnibus and production Docker images to use the new version.
@@ -219,7 +224,7 @@ To use the new Ruby in production, update the following projects:
 
 - [Cloud-native GitLab Docker Images (CNG)](https://gitlab.com/gitlab-org/build/CNG) ([example](https://gitlab.com/gitlab-org/build/CNG/-/merge_requests/739))
 - [Omnibus GitLab](https://gitlab.com/gitlab-org/omnibus-gitlab) ([example](https://gitlab.com/gitlab-org/omnibus-gitlab/-/merge_requests/5545))
-- [Self-compiled installations](../install/installation.md): update the [Ruby system version check](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/system_check/app/ruby_version_check.rb)
+- [Self-compiled installations](../install/self_compiled/_index.md): update the [Ruby system version check](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/system_check/app/ruby_version_check.rb)
 
 Charts like the [GitLab Helm Chart](https://gitlab.com/gitlab-org/charts/gitlab) should also be updated if
 they use Ruby in some capacity, for example

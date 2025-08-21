@@ -1,16 +1,23 @@
 ---
-stage: Systems
+stage: Data Access
 group: Gitaly
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Git server hooks
+description: Configure Git server hooks.
 ---
 
-# Git server hooks
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-> - [Renamed](https://gitlab.com/gitlab-org/gitlab/-/issues/372991) from server hooks to Git server hooks in GitLab 15.6.
+{{< /details >}}
+
+{{< history >}}
+
+- [Renamed](https://gitlab.com/gitlab-org/gitlab/-/issues/372991) from server hooks to Git server hooks in GitLab 15.6.
+
+{{< /history >}}
 
 Git server hooks (not to be confused with [system hooks](system_hooks.md) or [file hooks](file_hooks.md)) run custom logic
 on the GitLab server. You can use them to run Git-related tasks such as:
@@ -30,18 +37,22 @@ GitLab administrators configure server hooks using the `gitaly` command, which a
 If you don't have access to the `gitaly` command, alternatives to server hooks include:
 
 - [Webhooks](../user/project/integrations/webhooks.md).
-- [GitLab CI/CD](../ci/index.md).
+- [GitLab CI/CD](../ci/_index.md).
 - [Push rules](../user/project/repository/push_rules.md), for a user-configurable Git hook interface.
 
-[Geo](geo/index.md) doesn't replicate server hooks to secondary nodes.
+[Geo](geo/_index.md) doesn't replicate server hooks to secondary nodes.
 
 ## Set server hooks for a repository
 
-::Tabs
+{{< history >}}
 
-:::TabTitle GitLab 15.11 and later
+- [Introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/4629) in GitLab 15.11, `hooks set` command replaces direct file system access. Existing Git hooks don't need migrating for the `hooks set` command.
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/4629) in GitLab 15.11, `hooks set` command replaces direct file system access. Existing Git hooks don't need migrating for the `hooks set` command.
+{{< /history >}}
+
+{{< tabs >}}
+
+{{< tab title="GitLab 15.11 and later" >}}
 
 Prerequisites:
 
@@ -67,20 +78,22 @@ To set server hooks for a repository:
       in a `custom_hooks` directory that is at the root of the tarball.
    1. Create the custom hooks archive with the tar command. For example, `tar -cf custom_hooks.tar custom_hooks`.
 1. Run the `hooks set` subcommand with required options to set the Git hooks for the repository. For example,
-   `cat custom_hooks.tar | sudo /opt/gitlab/embedded/bin/gitaly hooks set --storage <storage> --repository <relative path> --config <config path>`.
+   `cat custom_hooks.tar | sudo -u git -- /opt/gitlab/embedded/bin/gitaly hooks set --storage <storage> --repository <relative path> --config <config path>`.
 
    - A path to a valid Gitaly configuration for the node is required to connect to the node and provided to the `--config` flag.
-   - Custom hooks tarball must be passed via `stdin`. For example, `cat custom_hooks.tar | sudo /opt/gitlab/embedded/bin/gitaly hooks set --storage <storage> --repository <relative path> --config <config path>`.
-1. If you are using Gitaly Cluster, you must run `hooks set` subcommand on all Gitaly nodes. For more information, see
-   [Server hooks on a Gitaly Cluster](#server-hooks-on-a-gitaly-cluster).
+   - Custom hooks tarball must be passed via `stdin`. For example, `cat custom_hooks.tar | sudo -u git -- /opt/gitlab/embedded/bin/gitaly hooks set --storage <storage> --repository <relative path> --config <config path>`.
+1. If you are using Gitaly Cluster (Praefect), you must run `hooks set` subcommand on all Gitaly nodes. For more information, see
+   [Server hooks on a Gitaly Cluster (Praefect)](#server-hooks-on-a-gitaly-cluster-praefect).
 
 If you implemented the server hook code correctly, it should execute when the Git hook is next triggered.
 
-:::TabTitle GitLab 15.10 and earlier
+{{< /tab >}}
+
+{{< tab title="GitLab 15.10 and earlier" >}}
 
 To create server hooks for a repository:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Go to **Overview > Projects** and select the project you want to add a server hook to.
 1. On the page that appears, locate the value of **Relative path**. This path is where server
    hooks must be located.
@@ -96,40 +109,38 @@ To create server hooks for a repository:
      `pre-receive` server hook, the filename should be `pre-receive` with no extension.
    - To create many server hooks, create a directory for the hooks that matches the hook type. For example, for a
      `pre-receive` server hook, the directory name should be `pre-receive.d`. Put the files for the hook in that directory.
-1. **Make the server hook files executable** and ensure that they are owned by the Git user.
+1. Make the server hook files executable and ensure that they are owned by the Git user.
 1. Write the code to make the server hook function as expected. Git server hooks can be in any programming language. Ensure
    the [shebang](https://en.wikipedia.org/wiki/Shebang_(Unix)) at the top reflects the language type. For
    example, if the script is in Ruby the shebang is probably `#!/usr/bin/env ruby`.
 1. Ensure the hook file does not match the backup file
    pattern (`*~`).
-1. If you are using Gitaly Cluster, you must repeat this process on all Gitaly nodes. For more information, see
-   [Server hooks on a Gitaly Cluster](#server-hooks-on-a-gitaly-cluster).
+1. If you are using Gitaly Cluster (Praefect), you must repeat this process on all Gitaly nodes. For more information, see
+   [Server hooks on a Gitaly Cluster (Praefect)](#server-hooks-on-a-gitaly-cluster-praefect).
 
 If the server hook code is properly implemented, it should execute when the Git hook is next triggered.
 
-::EndTabs
+{{< /tab >}}
 
-### Server hooks on a Gitaly Cluster
+{{< /tabs >}}
 
-If you use [Gitaly Cluster](gitaly/index.md), an individual repository may be replicated to multiple Gitaly storages in Praefect.
-Consequentially, the hook scripts must be copied to every Gitaly node that has a replica of the repository.
+### Server hooks on a Gitaly Cluster (Praefect)
+
+If you use [Gitaly Cluster (Praefect)](gitaly/praefect/_index.md), an individual repository may be replicated to multiple Gitaly storages in Praefect.
+Consequently, the hook scripts must be copied to every Gitaly node that has a replica of the repository.
 To accomplish this, follow the same steps for setting custom repository hooks for the applicable version and repeat for each storage.
 
-The location to copy the scripts to depends on where repositories are stored:
-
-- In GitLab 15.2 and earlier, Gitaly Cluster uses the [hashed storage path](repository_storage_paths.md#hashed-storage)
-  reported by the GitLab application.
-- In GitLab 15.3 and later, new repositories are created using
-  [Praefect-generated replica paths](gitaly/index.md#praefect-generated-replica-paths),
-  which are not the hashed storage path. The replica path can be identified by
-  [querying the Praefect repository metadata](../administration/gitaly/troubleshooting_gitaly_cluster.md#view-repository-metadata)
-  using `-relative-path` to specify the expected GitLab hashed storage path.
+The location to copy the scripts to depends on where repositories are stored. New repositories are created using
+[Praefect-generated replica paths](gitaly/praefect/_index.md#praefect-generated-replica-paths),
+which are not the hashed storage path. The replica path can be identified by
+[querying the Praefect repository metadata](gitaly/praefect/troubleshooting.md#view-repository-metadata)
+using `-relative-path` to specify the expected GitLab hashed storage path.
 
 ## Create global server hooks for all repositories
 
 To create a Git hook that applies to all repositories, set a global server hook. Global server hooks also apply to:
 
-- [Project and group wiki](../user/project/wiki/index.md) repositories. Their storage directory names are in the format
+- [Project and group wiki](../user/project/wiki/_index.md) repositories. Their storage directory names are in the format
   `<id>.wiki.git`.
 - [Design management](../user/project/issues/design_management.md) repositories under a project. Their storage directory
   names are in the format `<id>.design.git`.
@@ -167,11 +178,15 @@ subdirectories.
 
 ## Remove server hooks for a repository
 
-::Tabs
+{{< history >}}
 
-:::TabTitle GitLab 15.11 and later
+- [Introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/4629) in GitLab 15.11, `hooks set` command replaces direct file system access.
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/4629) in GitLab 15.11, `hooks set` command replaces direct file system access.
+{{< /history >}}
+
+{{< tabs >}}
+
+{{< tab title="GitLab 15.11 and later" >}}
 
 Prerequisites:
 
@@ -180,17 +195,21 @@ Prerequisites:
 To remove server hooks, pass an empty tarball to `hook set` to indicate that the repository should contain no hooks. For example:
 
 ```shell
-cat empty_hooks.tar | sudo /opt/gitlab/embedded/bin/gitaly hooks set --storage <storage> --repository <relative path> --config <config path>
+cat empty_hooks.tar | sudo -u git -- /opt/gitlab/embedded/bin/gitaly hooks set --storage <storage> --repository <relative path> --config <config path>
 ```
 
-:::TabTitle GitLab 15.10 and earlier
+{{< /tab >}}
+
+{{< tab title="GitLab 15.10 and earlier" >}}
 
 To remove server hooks:
 
 1. Go to the location of the repository on disk.
 1. Delete the server hooks in the `custom_hooks` directory.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ## Chained server hooks
 
@@ -226,8 +245,8 @@ The following Git environment variables are supported for `pre-receive` and `pos
 |:-----------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `GIT_ALTERNATE_OBJECT_DIRECTORIES` | Alternate object directories in the quarantine environment. See [Git `receive-pack` documentation](https://git-scm.com/docs/git-receive-pack#_quarantine_environment). |
 | `GIT_OBJECT_DIRECTORY`             | GitLab project path in the quarantine environment. See [Git `receive-pack` documentation](https://git-scm.com/docs/git-receive-pack#_quarantine_environment).          |
-| `GIT_PUSH_OPTION_COUNT`            | Number of [push options](../user/project/push_options.md). See [Git `pre-receive` documentation](https://git-scm.com/docs/githooks#pre-receive).                                                          |
-| `GIT_PUSH_OPTION_<i>`              | Value of [push options](../user/project/push_options.md) where `i` is from `0` to `GIT_PUSH_OPTION_COUNT - 1`. See [Git `pre-receive` documentation](https://git-scm.com/docs/githooks#pre-receive).      |
+| `GIT_PUSH_OPTION_COUNT`            | Number of [push options](../topics/git/commit.md#push-options). See [Git `pre-receive` documentation](https://git-scm.com/docs/githooks#pre-receive).                                                          |
+| `GIT_PUSH_OPTION_<i>`              | Value of [push options](../topics/git/commit.md#push-options) where `i` is from `0` to `GIT_PUSH_OPTION_COUNT - 1`. See [Git `pre-receive` documentation](https://git-scm.com/docs/githooks#pre-receive).      |
 
 ## Custom error messages
 

@@ -3,11 +3,17 @@
 module API
   module Ci
     class Pipelines < ::API::Base
+      include ::API::Concerns::McpAccess
       include PaginationParams
+      include APIGuard
 
       helpers ::API::Helpers::ProjectStatsRefreshConflictsHelpers
+      helpers ::API::Ci::Helpers::PipelinesHelpers
 
       before { authenticate_non_get! }
+
+      allow_mcp_access_read
+      allow_access_with_scope :ai_workflows, if: ->(request) { request.get? || request.head? }
 
       params do
         requires :id, type: String, desc: 'The project ID or URL-encoded path', documentation: { example: 11 }
@@ -21,24 +27,6 @@ module API
             { code: 403, message: 'Forbidden' }
           ]
           is_array true
-        end
-
-        helpers do
-          params :optional_scope do
-            optional :scope, types: [String, Array[String]], desc: 'The scope of builds to show',
-              values: ::CommitStatus::AVAILABLE_STATUSES,
-              coerce_with: ->(scope) {
-                             case scope
-                             when String
-                               [scope]
-                             when ::Array
-                               scope
-                             else
-                               ['unknown']
-                             end
-                           },
-              documentation: { example: %w[pending running] }
-          end
         end
 
         params do
@@ -61,6 +49,10 @@ module API
             documentation: { example: '2015-12-24T15:51:21.880Z' }
           optional :updated_after, type: DateTime, desc: 'Return pipelines updated after the specified datetime. Format: ISO 8601 YYYY-MM-DDTHH:MM:SSZ',
             documentation: { example: '2015-12-24T15:51:21.880Z' }
+          optional :created_before, type: DateTime, desc: 'Return pipelines created before the specified datetime. Format: ISO 8601 YYYY-MM-DDTHH:MM:SSZ',
+            documentation: { example: '2015-12-24T15:51:21.880Z' }
+          optional :created_after, type: DateTime, desc: 'Return pipelines created after the specified datetime. Format: ISO 8601 YYYY-MM-DDTHH:MM:SSZ',
+            documentation: { example: '2015-12-24T15:51:21.880Z' }
           optional :order_by, type: String, values: ::Ci::PipelinesFinder::ALLOWED_INDEXED_COLUMNS, default: 'id',
             desc: 'Order pipelines',
             documentation: { example: 'status' }
@@ -72,6 +64,10 @@ module API
           optional :name,     types: String, desc: 'Filter pipelines by name',
             documentation: { example: 'Build pipeline' }
         end
+
+        route_setting :authentication, job_token_allowed: true
+        route_setting :authorization, job_token_policies: :read_pipelines,
+          allow_public_access_for_enabled_project_features: [:repository, :builds]
         get ':id/pipelines', urgency: :low, feature_category: :continuous_integration do
           authorize! :read_pipeline, user_project
           authorize! :read_build, user_project
@@ -93,13 +89,7 @@ module API
           ]
         end
         params do
-          requires :ref, type: String, desc: 'Reference',
-            documentation: { example: 'develop' }
-          optional :variables, type: Array, desc: 'Array of variables available in the pipeline' do
-            optional :key, type: String, desc: 'The key of the variable', documentation: { example: 'UPLOAD_TO_S3' }
-            optional :value, type: String, desc: 'The value of the variable', documentation: { example: 'true' }
-            optional :variable_type, type: String, values: ::Ci::PipelineVariable.variable_types.keys, default: 'env_var', desc: 'The type of variable, must be one of env_var or file. Defaults to env_var'
-          end
+          use :create_pipeline_params
         end
         post ':id/pipeline', urgency: :low, feature_category: :pipeline_composition do
           Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/20711')
@@ -108,10 +98,10 @@ module API
 
           pipeline_params = declared_params(include_missing: false)
             .merge(variables_attributes: params[:variables])
-            .except(:variables)
+            .except(:variables, :inputs)
 
           response = ::Ci::CreatePipelineService.new(user_project, current_user, pipeline_params)
-            .execute(:api, ignore_skip_ci: true, save_on_errors: false)
+            .execute(:api, ignore_skip_ci: true, save_on_errors: false, inputs: params[:inputs])
           new_pipeline = response.payload
 
           if response.success?
@@ -152,6 +142,10 @@ module API
         params do
           requires :pipeline_id, type: Integer, desc: 'The pipeline ID', documentation: { example: 18 }
         end
+
+        route_setting :authentication, job_token_allowed: true
+        route_setting :authorization, job_token_policies: :read_pipelines,
+          allow_public_access_for_enabled_project_features: [:repository, :builds]
         get ':id/pipelines/:pipeline_id', urgency: :low, feature_category: :continuous_integration do
           authorize! :read_pipeline, pipeline
 
@@ -174,6 +168,9 @@ module API
           use :pagination
         end
 
+        route_setting :authentication, job_token_allowed: true
+        route_setting :authorization, job_token_policies: :read_jobs,
+          allow_public_access_for_enabled_project_features: [:repository, :builds]
         get ':id/pipelines/:pipeline_id/jobs', urgency: :low, feature_category: :continuous_integration do
           authorize!(:read_pipeline, user_project)
 
@@ -183,7 +180,7 @@ module API
             .new(current_user: current_user, pipeline: pipeline, params: params)
             .execute
 
-          builds = builds.with_preloads.preload(:metadata, :runner_manager) # rubocop:disable CodeReuse/ActiveRecord -- preload job.archived?
+          builds = builds.with_preloads.preload(:metadata, :job_definition, :runner_manager, :ci_stage) # rubocop:disable CodeReuse/ActiveRecord -- preload job.archived?
 
           present paginate(builds), with: Entities::Ci::Job
         end
@@ -203,6 +200,9 @@ module API
           use :pagination
         end
 
+        route_setting :authentication, job_token_allowed: true
+        route_setting :authorization, job_token_policies: :read_pipelines,
+          allow_public_access_for_enabled_project_features: [:repository, :builds]
         get ':id/pipelines/:pipeline_id/bridges', urgency: :low, feature_category: :pipeline_composition do
           authorize!(:read_build, user_project)
 
@@ -211,7 +211,9 @@ module API
           bridges = ::Ci::JobsFinder
             .new(current_user: current_user, pipeline: pipeline, params: params, type: ::Ci::Bridge)
             .execute
-          bridges = bridges.with_preloads
+          # rubocop:disable CodeReuse/ActiveRecord -- Preload is only related to this endpoint
+          bridges = bridges.with_preloads.preload(:ci_stage)
+          # rubocop:enable CodeReuse/ActiveRecord
 
           present paginate(bridges), with: Entities::Ci::Bridge
         end
@@ -229,7 +231,7 @@ module API
         params do
           requires :pipeline_id, type: Integer, desc: 'The pipeline ID', documentation: { example: 18 }
         end
-        get ':id/pipelines/:pipeline_id/variables', feature_category: :secrets_management, urgency: :low do
+        get ':id/pipelines/:pipeline_id/variables', feature_category: :ci_variables, urgency: :low do
           authorize! :read_pipeline_variable, pipeline
 
           present pipeline.variables, with: Entities::Ci::Variable
@@ -305,10 +307,13 @@ module API
           requires :name, type: String, desc: 'The name of the pipeline', documentation: { example: 'Deployment to production' }
         end
         route_setting :authentication, job_token_allowed: true
+        route_setting :authorization, job_token_policies: :admin_pipelines
         put ':id/pipelines/:pipeline_id/metadata', urgency: :low, feature_category: :continuous_integration do
           authorize! :update_pipeline, pipeline
 
-          response = ::Ci::Pipelines::UpdateMetadataService.new(pipeline, params.slice(:name)).execute
+          response = ::Ci::Pipelines::UpdateMetadataService
+            .new(pipeline, current_user: current_user, params: params.slice(:name))
+            .execute
 
           if response.success?
             present response.payload, with: Entities::Ci::PipelineWithMetadata
@@ -357,6 +362,7 @@ module API
           authorize! :cancel_pipeline, pipeline
 
           # TODO: inconsistent behavior: when pipeline is not cancelable we should return an error
+          # Set to be fixed on V5 to avoid breaking changes: https://gitlab.com/gitlab-org/gitlab/-/issues/519143
           ::Ci::CancelPipelineService.new(pipeline: pipeline, current_user: current_user).execute
 
           status 200
@@ -380,3 +386,5 @@ module API
     end
   end
 end
+
+API::Ci::Pipelines.prepend_mod

@@ -4,9 +4,13 @@
 class PagesDeployment < ApplicationRecord
   include GlobalID::Identification
   include EachBatch
+  include FromUnion
   include Sortable
   include FileStoreMounter
+  include ObjectStorable
   include Gitlab::Utils::StrongMemoize
+
+  STORE_COLUMN = :file_store
 
   attribute :file_store, :integer, default: -> { ::Pages::DeploymentUploader.default_store }
 
@@ -16,8 +20,6 @@ class PagesDeployment < ApplicationRecord
   belongs_to :ci_build, class_name: 'Ci::Build', optional: true
 
   scope :older_than, ->(id) { where('id < ?', id) }
-  scope :with_files_stored_locally, -> { where(file_store: ::ObjectStorage::Store::LOCAL) }
-  scope :with_files_stored_remotely, -> { where(file_store: ::ObjectStorage::Store::REMOTE) }
   scope :project_id_in, ->(ids) { where(project_id: ids) }
   scope :ci_build_id_in, ->(ids) { where(ci_build_id: ids) }
   scope :with_path_prefix, ->(prefix) { where("COALESCE(path_prefix, '') = ?", prefix.to_s) }
@@ -27,6 +29,7 @@ class PagesDeployment < ApplicationRecord
   scope :upload_ready, -> { where(upload_ready: true) }
 
   scope :active, -> { upload_ready.where(deleted_at: nil) }
+  scope :expired, -> { where('expires_at < ?', Time.now.utc).order(:expires_at, :id) }
   scope :deactivated, -> { where('deleted_at < ?', Time.now.utc) }
   scope :versioned, -> { where.not(path_prefix: [nil, '']) }
   scope :unversioned, -> { where(path_prefix: [nil, '']) }
@@ -72,12 +75,10 @@ class PagesDeployment < ApplicationRecord
     update(deleted_at: Time.now.utc)
   end
 
-  def self.count_versioned_deployments_for(project, limit)
-    project_id_in(project.root_ancestor.all_projects)
-      .active
-      .versioned
-      .limit(limit)
-      .count
+  def self.count_versioned_deployments_for(projects, limit, group_by_project: false)
+    query = project_id_in(projects).active.versioned
+    query = query.group(:project_id) if group_by_project
+    query.limit(limit).count
   end
 
   def active?
@@ -85,11 +86,9 @@ class PagesDeployment < ApplicationRecord
   end
 
   def url
-    base_url = ::Gitlab::Pages::UrlBuilder
-      .new(project)
-      .pages_url(with_unique_domain: true)
-
-    File.join(base_url.to_s, path_prefix.to_s)
+    ::Gitlab::Pages::UrlBuilder
+      .new(project, { path_prefix: path_prefix.to_s })
+      .pages_url
   end
 
   def deactivate
@@ -98,6 +97,7 @@ class PagesDeployment < ApplicationRecord
 
   def restore
     update_attribute(:deleted_at, nil)
+    deactivate_deployments_with_same_path_prefix
   end
 
   private
@@ -122,6 +122,11 @@ class PagesDeployment < ApplicationRecord
     return unless file && file.exists?
 
     update_column(:upload_ready, true)
+  end
+
+  # Stop existing active deployment with same path when a deleted one is restored
+  def deactivate_deployments_with_same_path_prefix
+    project.pages_deployments.active.id_not_in(id).with_path_prefix(path_prefix).each(&:deactivate)
   end
 end
 

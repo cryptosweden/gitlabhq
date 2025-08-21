@@ -11,8 +11,14 @@ module Mutations
 
       field :note,
         Types::Notes::NoteType,
-        null: true,
+        null: true, scopes: [:api, :ai_workflows],
         description: 'Note after mutation.'
+
+      field :quick_actions_status,
+        Types::Notes::QuickActionsStatusType,
+        null: true,
+        description: 'Status of quick actions after mutation.',
+        skip_type_authorization: [:read_note]
     end
   end
 end

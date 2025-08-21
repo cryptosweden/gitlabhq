@@ -16,12 +16,12 @@ class Groups::AutocompleteSourcesController < Groups::ApplicationController
   def issues
     render json: issuable_serializer.represent(
       autocomplete_service.issues(confidential_only: params[:confidential_only], issue_types: params[:issue_types]),
-      parent_group: @group
+      parent: @group
     )
   end
 
   def merge_requests
-    render json: issuable_serializer.represent(autocomplete_service.merge_requests, parent_group: @group)
+    render json: issuable_serializer.represent(autocomplete_service.merge_requests, parent: @group)
   end
 
   def labels
@@ -43,10 +43,9 @@ class Groups::AutocompleteSourcesController < Groups::ApplicationController
   end
 
   def issuable_serializer
-    GroupIssuableAutocompleteSerializer.new
+    ::Autocomplete::IssuableSerializer.new
   end
 
-  # rubocop: disable CodeReuse/ActiveRecord
   def target
     # TODO https://gitlab.com/gitlab-org/gitlab/-/issues/388541
     # type_id is a misnomer. QuickActions::TargetService actually requires an iid.
@@ -54,7 +53,6 @@ class Groups::AutocompleteSourcesController < Groups::ApplicationController
       .new(container: @group, current_user: current_user)
       .execute(params[:type], params[:type_id])
   end
-  # rubocop: enable CodeReuse/ActiveRecord
 end
 
 Groups::AutocompleteSourcesController.prepend_mod

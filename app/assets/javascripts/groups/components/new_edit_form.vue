@@ -1,6 +1,6 @@
 <script>
 import { GlForm, GlFormFields, GlButton, GlLink, GlAlert, GlSprintf } from '@gitlab/ui';
-import { formValidators } from '@gitlab/ui/dist/utils';
+import { formValidators } from '@gitlab/ui/src/utils';
 import { __, s__, sprintf } from '~/locale';
 import { slugify } from '~/lib/utils/text_utility';
 import VisibilityLevelRadioButtons from '~/visibility_level/components/visibility_level_radio_buttons.vue';
@@ -96,7 +96,7 @@ export default {
           ],
           inputAttrs: {
             width: { md: 'lg' },
-            placeholder: __('My awesome group'),
+            placeholder: __('My group'),
           },
           groupAttrs: {
             description: s__(
@@ -124,9 +124,7 @@ export default {
             ),
           ],
           groupAttrs: {
-            description: this.isPathLoading
-              ? s__('Groups|Checking group URL availability...')
-              : null,
+            description: this.isPathLoading ? s__('Groups|Checking group URL availability…') : null,
           },
         },
         ...(this.isEditing
@@ -249,7 +247,7 @@ export default {
         >.
       </template>
     </gl-form-fields>
-    <div class="gl-display-flex gl-gap-3">
+    <div class="gl-flex gl-gap-3">
       <gl-button
         type="submit"
         variant="confirm"

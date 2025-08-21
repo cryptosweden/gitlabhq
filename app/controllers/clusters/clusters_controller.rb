@@ -3,7 +3,7 @@
 class Clusters::ClustersController < ::Clusters::BaseController
   include RoutableActions
 
-  before_action :cluster, only: [:cluster_status, :show, :update, :destroy, :clear_cache]
+  before_action :cluster, only: [:cluster_status, :show, :update, :destroy, :clear_cache, :migrate]
   before_action :user_cluster, only: [:connect]
   before_action :authorize_read_cluster!, only: [:show, :index]
   before_action :authorize_create_cluster!, only: [:connect]
@@ -31,7 +31,7 @@ class Clusters::ClustersController < ::Clusters::BaseController
     end
   end
 
-  # Overridding ActionController::Metal#status is NOT a good idea
+  # Overriding ActionController::Metal#status is NOT a good idea
   def cluster_status
     respond_to do |format|
       format.json do
@@ -41,12 +41,6 @@ class Clusters::ClustersController < ::Clusters::BaseController
           .new(current_user: @current_user)
           .represent_status(@cluster)
       end
-    end
-  end
-
-  def show
-    if params[:tab] == 'integrations'
-      @prometheus_integration = Clusters::IntegrationPresenter.new(@cluster.find_or_build_integration_prometheus)
     end
   end
 
@@ -101,7 +95,48 @@ class Clusters::ClustersController < ::Clusters::BaseController
     redirect_to cluster.show_path, notice: _('Cluster cache cleared.')
   end
 
+  def migrate
+    response = Clusters::Migration::CreateService.new(
+      cluster.cluster,
+      current_user: current_user,
+      configuration_project_id: migrate_params[:configuration_project_id],
+      agent_name: migrate_params[:agent_name]
+    ).execute
+
+    if response.success?
+      flash[:notice] = s_('ClusterIntegration|Migrating cluster - initiated')
+    else
+      flash[:alert] = format(s_('ClusterIntegration|Migrating cluster - failed: "%{error}"'), error: response.message)
+    end
+
+    redirect_to cluster.show_path(params: { tab: 'migrate' })
+  end
+
+  def update_migration
+    migration_params = params.require(:cluster_migration).permit(:issue_url)
+
+    response = Clusters::Migration::UpdateService.new(
+      cluster.cluster,
+      clusterable: clusterable,
+      current_user: current_user,
+      issue_url: migration_params[:issue_url]
+    ).execute
+
+    if response.success?
+      flash[:notice] = s_('ClusterIntegration|Migration issue updated successfully')
+    else
+      flash[:alert] =
+        format(s_('ClusterIntegration|Migration issue update - failed: "%{error}"'), error: response.message)
+    end
+
+    redirect_to cluster.show_path(params: { tab: 'migrate' })
+  end
+
   private
+
+  def migrate_params
+    params.require(:cluster_migration).permit(:configuration_project_id, :agent_name)
+  end
 
   def ensure_feature_enabled!
     render_404 unless clusterable.certificate_based_clusters_enabled?
@@ -123,7 +158,7 @@ class Clusters::ClustersController < ::Clusters::BaseController
     # supported, but the number of clusters are fairly low currently.
     #
     # See https://gitlab.com/gitlab-org/gitlab-foss/issues/55260 also.
-    Kaminari.paginate_array(clusters).page(params[:page]).per(20)
+    Kaminari.paginate_array(clusters).page(safe_params[:page]).per(20)
   end
 
   def destroy_params
@@ -182,30 +217,6 @@ class Clusters::ClustersController < ::Clusters::BaseController
       )
   end
 
-  def proxyable
-    cluster.cluster
-  end
-
-  # During first iteration of dashboard variables implementation
-  # cluster health case was omitted. Existing service for now is tied to
-  # environment, which is not always present for cluster health dashboard.
-  # It is planned to break coupling to environment https://gitlab.com/gitlab-org/gitlab/-/issues/213833.
-  # It is also planned to move cluster health to metrics dashboard section https://gitlab.com/gitlab-org/gitlab/-/issues/220214
-  # but for now I've used dummy class to stub variable substitution service, as there are no variables
-  # in cluster health dashboard
-  def proxy_variable_substitution_service
-    @empty_service ||= Class.new(BaseService) do
-      def initialize(proxyable, params)
-        @proxyable = proxyable
-        @params = params
-      end
-
-      def execute
-        success(params: @params)
-      end
-    end
-  end
-
   def user_cluster
     cluster = Clusters::BuildService.new(clusterable.__subject__).execute
     cluster.build_platform_kubernetes
@@ -219,6 +230,10 @@ class Clusters::ClustersController < ::Clusters::BaseController
   def expires_at_in_session
     @expires_at_in_session ||=
       session[GoogleApi::CloudPlatform::Client.session_key_for_expires_at]
+  end
+
+  def safe_params
+    params.permit(:tab, :page)
   end
 end
 

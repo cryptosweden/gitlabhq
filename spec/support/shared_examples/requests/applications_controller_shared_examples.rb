@@ -10,6 +10,32 @@ RSpec.shared_examples 'applications controller - GET #show' do
   end
 end
 
+RSpec.shared_examples 'applications controller - GET #new' do
+  it "sets `@scopes` to list of all scopes that should be shown" do
+    create_application
+
+    expect(assigns[:scopes]).to match_array(%w[
+      admin_mode
+      ai_features
+      api
+      create_runner
+      email
+      k8s_proxy
+      manage_runner
+      openid
+      profile
+      read_api
+      read_observability
+      read_repository
+      read_service_ping
+      read_user
+      sudo
+      write_observability
+      write_repository
+    ])
+  end
+end
+
 RSpec.shared_examples 'applications controller - POST #create' do
   it "sets `@created` instance variable to `true`" do
     create_application
@@ -20,5 +46,5 @@ end
 
 def create_application
   create_params = attributes_for(:application, trusted: true, confidential: false, scopes: ['api'])
-  post create_path, params: { doorkeeper_application: create_params }
+  post create_path, params: { authn_oauth_application: create_params }
 end

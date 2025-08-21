@@ -1,14 +1,18 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+gitlab_dedicated: yes
+title: System hooks
+description: "Use system hooks to trigger HTTP POST requests from GitLab events. Includes JSON payload examples."
 ---
 
-# System hooks
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 System hooks (not to be confused with [server hooks](server_hooks.md) or [file hooks](file_hooks.md)) perform HTTP POST
 requests and are triggered on the following events:
@@ -24,6 +28,10 @@ requests and are triggered on the following events:
 - `project_transfer`
 - `project_update`
 - `repository_update`
+- `user_access_request_revoked_for_group`
+- `user_access_request_revoked_for_project`
+- `user_access_request_to_group`
+- `user_access_request_to_project`
 - `user_add_to_group`
 - `user_add_to_team`
 - `user_create`
@@ -34,6 +42,16 @@ requests and are triggered on the following events:
 - `user_rename`
 - `user_update_for_group`
 - `user_update_for_team`
+
+{{< alert type="note" >}}
+
+Some events follow a newer schema-based format. Instead of `event_name`, these events use `object_kind`, `action`,
+and `object_attributes`:
+
+- `gitlab_subscription_member_approval` (`action`: `enqueue`)
+- `gitlab_subscription_member_approvals` (`action`: `approve`, `deny`)
+
+{{< /alert >}}
 
 The triggers for most of these are self-explanatory, but `project_update` and `project_rename` require clarification:
 
@@ -49,17 +67,24 @@ As an example, use system hooks for logging or changing information in an LDAP s
 You can also enable triggers for other events, such as push events, and disable the `repository_update` event
 when you create a system hook.
 
-NOTE:
+{{< alert type="note" >}}
+
 For push and tag events, the same structure and deprecations are followed as [project and group webhooks](../user/project/integrations/webhooks.md). However, commits are never displayed.
+
+{{< /alert >}}
 
 ## Create a system hook
 
-> - **Name** and **Description** [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/141977) in GitLab 16.9.
+{{< history >}}
+
+- **Name** and **Description** [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/141977) in GitLab 16.9.
+
+{{< /history >}}
 
 To create a system hook:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **System Hooks**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **System hooks**.
 1. Select **Add new webhook**.
 1. In **URL**, enter the URL of the webhook endpoint.
    The URL must be percent-encoded if it contains one or more special characters.
@@ -73,8 +98,16 @@ To create a system hook:
 1. In the **Trigger** section, select the checkbox for each GitLab
    [event](../user/project/integrations/webhook_events.md) you want to trigger the webhook.
 1. Optional. Clear the **Enable SSL verification** checkbox
-   to disable [SSL verification](../user/project/integrations/index.md#ssl-verification).
+   to disable [SSL verification](../user/project/integrations/_index.md#ssl-verification).
 1. Select **Add system hook**.
+
+## System hook limits
+
+System hooks are subject to the same push event limits as project webhooks. By default, system hooks are not triggered when a single push includes more than 3 branches or tags.
+
+This limit is controlled by the `push_event_hooks_limit` setting
+(default: `3`). For GitLab Self-Managed instances, administrators can modify this limit using the
+[Application Settings API](../api/settings.md#available-settings).
 
 ## Hooks request example
 
@@ -84,49 +117,51 @@ To create a system hook:
 X-Gitlab-Event: System Hook
 ```
 
-**Project created:**
+**Project created**:
 
 ```json
 {
-          "created_at": "2012-07-21T07:30:54Z",
-          "updated_at": "2012-07-21T07:38:22Z",
-          "event_name": "project_create",
-                "name": "StoreCloud",
-         "owner_email": "johnsmith@example.com",
-          "owner_name": "John Smith",
-              "owners": [{
-                         "name": "John",
-                         "email": "user1@example.com"
-                        }],
-                "path": "storecloud",
- "path_with_namespace": "jsmith/storecloud",
-          "project_id": 74,
-  "project_visibility": "private"
+            "created_at": "2012-07-21T07:30:54Z",
+            "updated_at": "2012-07-21T07:38:22Z",
+            "event_name": "project_create",
+                  "name": "StoreCloud",
+           "owner_email": "johnsmith@example.com",
+            "owner_name": "John Smith",
+                "owners": [{
+                           "name": "John",
+                           "email": "user1@example.com"
+                          }],
+                  "path": "storecloud",
+   "path_with_namespace": "jsmith/storecloud",
+            "project_id": 74,
+ "project_namespace_id" : 23,
+    "project_visibility": "private"
 }
 ```
 
-**Project destroyed:**
+**Project destroyed**:
 
 ```json
 {
-          "created_at": "2012-07-21T07:30:58Z",
-          "updated_at": "2012-07-21T07:38:22Z",
-          "event_name": "project_destroy",
-                "name": "Underscore",
-         "owner_email": "johnsmith@example.com",
-          "owner_name": "John Smith",
-              "owners": [{
-                         "name": "John",
-                         "email": "user1@example.com"
-                        }],
-                "path": "underscore",
- "path_with_namespace": "jsmith/underscore",
-          "project_id": 73,
-  "project_visibility": "internal"
+            "created_at": "2012-07-21T07:30:58Z",
+            "updated_at": "2012-07-21T07:38:22Z",
+            "event_name": "project_destroy",
+                  "name": "Underscore",
+           "owner_email": "johnsmith@example.com",
+            "owner_name": "John Smith",
+                "owners": [{
+                           "name": "John",
+                           "email": "user1@example.com"
+                          }],
+                  "path": "underscore",
+   "path_with_namespace": "jsmith/underscore",
+            "project_id": 73,
+ "project_namespace_id" : 23,
+    "project_visibility": "internal"
 }
 ```
 
-**Project renamed:**
+**Project renamed**:
 
 ```json
 {
@@ -143,6 +178,7 @@ X-Gitlab-Event: System Hook
                               "name": "John",
                               "email": "user1@example.com"
                              }],
+    "project_namespace_id" : 23,
        "project_visibility": "internal",
   "old_path_with_namespace": "jsmith/overscore"
 }
@@ -151,7 +187,7 @@ X-Gitlab-Event: System Hook
 `project_rename` is not triggered if the namespace changes.
 Refer to `group_rename` and `user_rename` for that case.
 
-**Project transferred:**
+**Project transferred**:
 
 ```json
 {
@@ -168,33 +204,111 @@ Refer to `group_rename` and `user_rename` for that case.
                               "name": "John",
                               "email": "user1@example.com"
                              }],
+    "project_namespace_id" : 23,
        "project_visibility": "internal",
   "old_path_with_namespace": "jsmith/overscore"
 }
 ```
 
-**Project updated:**
+**Project updated**:
 
 ```json
 {
-          "created_at": "2012-07-21T07:30:54Z",
-          "updated_at": "2012-07-21T07:38:22Z",
-          "event_name": "project_update",
-                "name": "StoreCloud",
-         "owner_email": "johnsmith@example.com",
-          "owner_name": "John Smith",
-              "owners": [{
-                         "name": "John",
-                         "email": "user1@example.com"
-                        }],
-                "path": "storecloud",
- "path_with_namespace": "jsmith/storecloud",
-          "project_id": 74,
-  "project_visibility": "private"
+            "created_at": "2012-07-21T07:30:54Z",
+            "updated_at": "2012-07-21T07:38:22Z",
+            "event_name": "project_update",
+                  "name": "StoreCloud",
+           "owner_email": "johnsmith@example.com",
+            "owner_name": "John Smith",
+                "owners": [{
+                           "name": "John",
+                           "email": "user1@example.com"
+                          }],
+                  "path": "storecloud",
+   "path_with_namespace": "jsmith/storecloud",
+            "project_id": 74,
+ "project_namespace_id" : 23,
+    "project_visibility": "private"
 }
 ```
 
-**New Team Member:**
+**Access request for group removed**:
+
+```json
+{
+    "created_at": "2012-07-21T07:30:56Z",
+    "updated_at": "2012-07-21T07:38:22Z",
+    "event_name": "user_access_request_revoked_for_group",
+  "group_access": "Maintainer",
+      "group_id": 78,
+    "group_name": "StoreCloud",
+    "group_path": "storecloud",
+    "user_email": "johnsmith@example.com",
+     "user_name": "John Smith",
+ "user_username": "johnsmith",
+       "user_id": 41
+}
+```
+
+**Access request for project removed**:
+
+```json
+{
+                  "created_at": "2012-07-21T07:30:56Z",
+                  "updated_at": "2012-07-21T07:38:22Z",
+                  "event_name": "user_access_request_revoked_for_project",
+                "access_level": "Maintainer",
+                  "project_id": 74,
+                "project_name": "StoreCloud",
+                "project_path": "storecloud",
+ "project_path_with_namespace": "jsmith/storecloud",
+                  "user_email": "johnsmith@example.com",
+                   "user_name": "John Smith",
+               "user_username": "johnsmith",
+                     "user_id": 41,
+          "project_visibility": "private"
+}
+```
+
+**Access request for group created**:
+
+```json
+{
+    "created_at": "2012-07-21T07:30:56Z",
+    "updated_at": "2012-07-21T07:38:22Z",
+    "event_name": "user_access_request_to_group",
+  "group_access": "Maintainer",
+      "group_id": 78,
+    "group_name": "StoreCloud",
+    "group_path": "storecloud",
+    "user_email": "johnsmith@example.com",
+     "user_name": "John Smith",
+ "user_username": "johnsmith",
+       "user_id": 41
+}
+```
+
+**Access request for project created**:
+
+```json
+{
+                  "created_at": "2012-07-21T07:30:56Z",
+                  "updated_at": "2012-07-21T07:38:22Z",
+                  "event_name": "user_access_request_to_project",
+                "access_level": "Maintainer",
+                  "project_id": 74,
+                "project_name": "StoreCloud",
+                "project_path": "storecloud",
+ "project_path_with_namespace": "jsmith/storecloud",
+                  "user_email": "johnsmith@example.com",
+                   "user_name": "John Smith",
+               "user_username": "johnsmith",
+                     "user_id": 41,
+          "project_visibility": "private"
+}
+```
+
+**New Team Member**:
 
 ```json
 {
@@ -214,7 +328,7 @@ Refer to `group_rename` and `user_rename` for that case.
 }
 ```
 
-**Team Member Removed:**
+**Team Member Removed**:
 
 ```json
 {
@@ -234,7 +348,7 @@ Refer to `group_rename` and `user_rename` for that case.
 }
 ```
 
-**Team Member Updated:**
+**Team Member Updated**:
 
 ```json
 {
@@ -254,7 +368,7 @@ Refer to `group_rename` and `user_rename` for that case.
 }
 ```
 
-**User created:**
+**User created**:
 
 ```json
 {
@@ -268,7 +382,7 @@ Refer to `group_rename` and `user_rename` for that case.
 }
 ```
 
-**User removed:**
+**User removed**:
 
 ```json
 {
@@ -282,7 +396,7 @@ Refer to `group_rename` and `user_rename` for that case.
 }
 ```
 
-**User failed login:**
+**User failed login**:
 
 ```json
 {
@@ -297,9 +411,9 @@ Refer to `group_rename` and `user_rename` for that case.
 }
 ```
 
-If the user is blocked via LDAP, `state` is `ldap_blocked`.
+If the user is blocked through LDAP, `state` is `ldap_blocked`.
 
-**User renamed:**
+**User renamed**:
 
 ```json
 {
@@ -340,7 +454,7 @@ If the user is blocked via LDAP, `state` is `ldap_blocked`.
 }
 ```
 
-**Group created:**
+**Group created**:
 
 ```json
 {
@@ -353,7 +467,7 @@ If the user is blocked via LDAP, `state` is `ldap_blocked`.
 }
 ```
 
-**Group removed:**
+**Group removed**:
 
 ```json
 {
@@ -366,7 +480,7 @@ If the user is blocked via LDAP, `state` is `ldap_blocked`.
 }
 ```
 
-**Group renamed:**
+**Group renamed**:
 
 ```json
 {
@@ -382,7 +496,7 @@ If the user is blocked via LDAP, `state` is `ldap_blocked`.
 }
 ```
 
-**New Group Member:**
+**New Group Member**:
 
 ```json
 {
@@ -400,7 +514,7 @@ If the user is blocked via LDAP, `state` is `ldap_blocked`.
 }
 ```
 
-**Group Member Removed:**
+**Group Member Removed**:
 
 ```json
 {
@@ -418,7 +532,7 @@ If the user is blocked via LDAP, `state` is `ldap_blocked`.
 }
 ```
 
-**Group Member Updated:**
+**Group Member Updated**:
 
 ```json
 {
@@ -447,7 +561,7 @@ It generates one event per modified branch.
 X-Gitlab-Event: System Hook
 ```
 
-**Request body:**
+**Request body**:
 
 ```json
 {
@@ -513,7 +627,7 @@ It generates one event per modified tag.
 X-Gitlab-Event: System Hook
 ```
 
-**Request body:**
+**Request body**:
 
 ```json
 {
@@ -729,7 +843,7 @@ Triggered only once when you push to the repository (including tags).
 X-Gitlab-Event: System Hook
 ```
 
-**Request body:**
+**Request body**:
 
 ```json
 {
@@ -766,19 +880,67 @@ X-Gitlab-Event: System Hook
 }
 ```
 
+## Events for member approval in subscription
+
+These events are triggered if [administrator approval for role promotions](settings/sign_up_restrictions.md#turn-on-administrator-approval-for-role-promotions) is turned on.
+
+**Request header**:
+
+```plaintext
+X-Gitlab-Event: System Hook
+```
+
+**Member queued for promotion management**:
+
+```json
+{
+  "object_kind": "gitlab_subscription_member_approval",
+  "action": "enqueue",
+  "object_attributes": {
+    "new_access_level": 30,
+    "old_access_level": 10,
+    "existing_member_id": 123
+  },
+  "user_id": 42,
+  "requested_by_user_id": 99,
+  "promotion_namespace_id": 789,
+  "created_at": "2025-04-10T14:00:00Z",
+  "updated_at": "2025-04-10T14:05:00Z"
+}
+```
+
+**User approved on a billable role by instance admin**:
+
+```json
+{
+  "object_kind": "gitlab_subscription_member_approvals",
+  "action": "approve",
+  "object_attributes": {
+    "promotion_request_ids_that_failed_to_apply": [],
+    "status": "success"
+  },
+  "reviewed_by_user_id": 101,
+  "user_id": 42,
+  "updated_at": "2025-04-10T14:10:00Z"
+}
+```
+
+**User denied on a billable role by instance admin**:
+
+```json
+{
+"object_kind": "gitlab_subscription_member_approvals",
+"action": "deny",
+"object_attributes": {
+"status": "success"
+},
+"reviewed_by_user_id": 101,
+"user_id": 42,
+"updated_at": "2025-04-10T14:12:00Z"
+}
+```
+
 ## Local requests in system hooks
 
 [Requests to local network by system hooks](../security/webhooks.md) can be allowed
 or blocked by an administrator.
-
-<!-- ## Troubleshooting
-
-Include any troubleshooting steps that you can foresee. If you know beforehand what issues
-one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
-This is important to minimize requests for support, and to avoid doc comments with
-questions that you know someone might ask.
-
-Each scenario can be a third-level heading, for example `### Getting error message X`.
-If you have none to add when creating a doc, leave this section in place
-but commented out to help encourage others to add to it in the future. -->

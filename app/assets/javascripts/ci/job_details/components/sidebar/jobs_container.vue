@@ -25,7 +25,9 @@ export default {
 </script>
 <template>
   <div class="block builds-container">
-    <b class="gl-display-flex gl-mb-2 gl-font-semibold">{{ __('Related jobs') }}</b>
+    <h2 class="gl-m-0 gl-mb-2 gl-text-base gl-leading-reset">
+      {{ __('Related jobs') }}
+    </h2>
     <job-container-item
       v-for="job in jobs"
       :key="job.id"

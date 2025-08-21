@@ -11,7 +11,7 @@ module Gitlab
 
           def perform!
             if skipped?
-              if @command.save_incompleted
+              if @command.save_incompleted && !@pipeline.readonly?
                 # Project iid must be called outside a transaction, so we ensure it is set here
                 # otherwise it may be set within the state transition transaction of the skip call
                 # which it will lock the InternalId row for the whole transaction
@@ -29,7 +29,7 @@ module Gitlab
           private
 
           def skipped?
-            !@command.ignore_skip_ci && (commit_message_skips_ci? || push_option_skips_ci?)
+            !@command.ignore_skip_ci && (commit_message_skips_ci? || !!@command.push_options&.skips_ci?)
           end
 
           def commit_message_skips_ci?
@@ -38,11 +38,6 @@ module Gitlab
             strong_memoize(:commit_message_skips_ci) do
               !!(@pipeline.git_commit_message =~ SKIP_PATTERN)
             end
-          end
-
-          def push_option_skips_ci?
-            @command.push_options.present? &&
-              @command.push_options.deep_symbolize_keys.dig(:ci, :skip).present?
           end
         end
       end

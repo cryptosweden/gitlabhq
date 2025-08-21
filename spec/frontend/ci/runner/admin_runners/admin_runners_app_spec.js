@@ -10,7 +10,6 @@ import {
 } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import { createAlert } from '~/alert';
-import { s__ } from '~/locale';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import { updateHistory } from '~/lib/utils/url_utility';
 
@@ -39,7 +38,6 @@ import {
   I18N_GROUP_TYPE,
   I18N_PROJECT_TYPE,
   INSTANCE_TYPE,
-  JOBS_ROUTE_PATH,
   PARAM_KEY_PAUSED,
   PARAM_KEY_STATUS,
   PARAM_KEY_TAG,
@@ -93,6 +91,11 @@ describe('AdminRunnersApp', () => {
   let wrapper;
   const showToast = jest.fn();
 
+  const defaultProps = {
+    newRunnerPath,
+    canAdminRunners: true,
+  };
+
   const findRunnerStats = () => wrapper.findComponent(RunnerStats);
   const findRunnerActionsCell = () => wrapper.findComponent(RunnerActionsCell);
   const findRegistrationDropdown = () => wrapper.findComponent(RegistrationDropdown);
@@ -100,12 +103,14 @@ describe('AdminRunnersApp', () => {
   const findRunnerList = () => wrapper.findComponent(RunnerList);
   const findRunnerListEmptyState = () => wrapper.findComponent(RunnerListEmptyState);
   const findRunnerPagination = () => extendedWrapper(wrapper.findComponent(RunnerPagination));
-  const findRunnerPaginationNext = () => findRunnerPagination().findByText(s__('Pagination|Next'));
+  const findRunnerPaginationNext = () => findRunnerPagination().findByText('Next');
   const findRunnerFilteredSearchBar = () => wrapper.findComponent(RunnerFilteredSearchBar);
+  const findNewInstanceRunnerButton = () => wrapper.findByText('Create instance runner');
 
   const createComponent = ({
     props = {},
     mountFn = shallowMountExtended,
+    stubs,
     provide,
     ...options
   } = {}) => {
@@ -121,7 +126,7 @@ describe('AdminRunnersApp', () => {
     wrapper = mountFn(AdminRunnersApp, {
       apolloProvider: createMockApollo(handlers, {}, cacheConfig),
       propsData: {
-        newRunnerPath,
+        ...defaultProps,
         ...props,
       },
       provide: {
@@ -132,6 +137,10 @@ describe('AdminRunnersApp', () => {
         $toast: {
           show: showToast,
         },
+      },
+      stubs: {
+        RunnerFilteredSearchBar: true,
+        ...stubs,
       },
       ...options,
     });
@@ -154,18 +163,44 @@ describe('AdminRunnersApp', () => {
     showToast.mockReset();
   });
 
-  it('shows the runner registration token instructions', () => {
-    createComponent({
-      props: {
+  describe('runner registration dropdown', () => {
+    it('shows the runner registration token instructions', () => {
+      createComponent({
+        props: {
+          allowRegistrationToken: true,
+          registrationToken: mockRegistrationToken,
+        },
+      });
+
+      expect(findRegistrationDropdown().props()).toEqual({
         allowRegistrationToken: true,
         registrationToken: mockRegistrationToken,
-      },
+        type: INSTANCE_TYPE,
+      });
     });
 
-    expect(findRegistrationDropdown().props()).toEqual({
-      allowRegistrationToken: true,
-      registrationToken: mockRegistrationToken,
-      type: INSTANCE_TYPE,
+    describe('when canAdminRunners prop is false', () => {
+      it('is not shown', () => {
+        createComponent({ props: { canAdminRunners: false } });
+
+        expect(findRegistrationDropdown().exists()).toBe(false);
+      });
+    });
+  });
+
+  describe('new instance runner button', () => {
+    it('is shown', () => {
+      createComponent();
+
+      expect(findNewInstanceRunnerButton().exists()).toBe(true);
+    });
+
+    describe('when canAdminRunners prop is false', () => {
+      it('is not shown', () => {
+        createComponent({ props: { canAdminRunners: false } });
+
+        expect(findNewInstanceRunnerButton().exists()).toBe(false);
+      });
     });
   });
 
@@ -179,10 +214,11 @@ describe('AdminRunnersApp', () => {
     });
 
     it('shows the runner tabs', () => {
-      const tabs = findRunnerTypeTabs().text();
-      expect(tabs).toMatchInterpolatedText(
-        `All ${mockRunnersCount} ${I18N_INSTANCE_TYPE} ${mockRunnersCount} ${I18N_GROUP_TYPE} ${mockRunnersCount} ${I18N_PROJECT_TYPE} ${mockRunnersCount}`,
-      );
+      const tabs = findRunnerTypeTabs().text().replace(/\s+/g, ' ');
+      expect(tabs).toContain(`All ${mockRunnersCount}`);
+      expect(tabs).toContain(`${I18N_INSTANCE_TYPE} ${mockRunnersCount}`);
+      expect(tabs).toContain(`${I18N_GROUP_TYPE} ${mockRunnersCount}`);
+      expect(tabs).toContain(`${I18N_PROJECT_TYPE} ${mockRunnersCount}`);
     });
 
     it('shows the total', () => {
@@ -208,10 +244,6 @@ describe('AdminRunnersApp', () => {
 
     it('fetches only tab counts', () => {
       expect(mockRunnersCountHandler).toHaveBeenCalledTimes(TAB_COUNT_QUERIES);
-    });
-
-    it('does not shows counters', () => {
-      expect(findRunnerStats().text()).toBe('');
     });
   });
 
@@ -245,6 +277,7 @@ describe('AdminRunnersApp', () => {
     expect(runnerActions.props()).toEqual({
       runner,
       editUrl: runner.editAdminUrl,
+      size: 'medium',
     });
   });
 
@@ -357,7 +390,6 @@ describe('AdminRunnersApp', () => {
         .findComponent(RunnerJobStatusBadge);
 
       expect(badge.props('jobStatus')).toBe(mockRunners[0].jobExecutionStatus);
-      expect(badge.attributes('href')).toBe(`${adminUrl}#${JOBS_ROUTE_PATH}`);
     });
 
     it('When runner is paused or unpaused, some data is refetched', () => {
@@ -462,14 +494,36 @@ describe('AdminRunnersApp', () => {
     expect(findRunnerPagination().attributes('disabled')).toBeDefined();
   });
 
-  describe('Bulk delete', () => {
-    describe('Before runners are deleted', () => {
+  describe('Bulk pause', () => {
+    describe('When runners are deleted', () => {
       beforeEach(async () => {
         await createComponent({ mountFn: mountExtended });
       });
+      it('toast is shown', () => {
+        expect(showToast).toHaveBeenCalledTimes(0);
 
-      it('runner list is checkable', () => {
+        findRunnerList().vm.$emit('toggledPaused', { message: 'runners paused' });
+
+        expect(showToast).toHaveBeenCalledTimes(1);
+        expect(showToast).toHaveBeenCalledWith('runners paused');
+      });
+    });
+  });
+
+  describe('Bulk delete', () => {
+    describe('Before runners are deleted', () => {
+      it('runner list is checkable', async () => {
+        await createComponent({ mountFn: mountExtended });
+
         expect(findRunnerList().props('checkable')).toBe(true);
+      });
+
+      describe('when canAdminRunners prop is false', () => {
+        it('runner list is not checkable', async () => {
+          await createComponent({ props: { canAdminRunners: false }, mountFn: mountExtended });
+
+          expect(findRunnerList().props('checkable')).toBe(false);
+        });
       });
     });
 

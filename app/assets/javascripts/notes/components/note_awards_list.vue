@@ -1,9 +1,9 @@
 <script>
-// eslint-disable-next-line no-restricted-imports
-import { mapActions, mapGetters } from 'vuex';
+import { mapActions, mapState } from 'pinia';
 import { createAlert } from '~/alert';
 import { __ } from '~/locale';
 import AwardsList from '~/vue_shared/components/awards_list.vue';
+import { useNotes } from '~/notes/store/legacy_notes';
 
 export default {
   components: {
@@ -18,10 +18,6 @@ export default {
       type: String,
       required: true,
     },
-    noteAuthorId: {
-      type: Number,
-      required: true,
-    },
     noteId: {
       type: String,
       required: true,
@@ -30,15 +26,17 @@ export default {
       type: Boolean,
       required: true,
     },
-  },
-  computed: {
-    ...mapGetters(['getUserData']),
-    isAuthoredByMe() {
-      return this.noteAuthorId === this.getUserData.id;
+    defaultAwards: {
+      type: Array,
+      required: false,
+      default: () => [],
     },
   },
+  computed: {
+    ...mapState(useNotes, ['getUserData']),
+  },
   methods: {
-    ...mapActions(['toggleAwardRequest']),
+    ...mapActions(useNotes, ['toggleAwardRequest']),
     handleAward(awardName) {
       const data = {
         endpoint: this.toggleAwardPath,
@@ -62,6 +60,7 @@ export default {
       :awards="awards"
       :can-award-emoji="canAwardEmoji"
       :current-user-id="getUserData.id"
+      :default-awards="defaultAwards"
       @award="handleAward($event)"
     />
   </div>

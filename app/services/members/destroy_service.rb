@@ -30,6 +30,7 @@ module Members
       end
 
       enqueue_jobs_that_needs_to_be_run_only_once_per_hierarchy(member, unassign_issuables)
+      publish_events_once(member)
 
       member
     end
@@ -42,15 +43,21 @@ module Members
 
     private
 
+    def publish_events_once(member)
+      return if recursive_call?
+
+      publish_destroyed_event(member)
+    end
+
     # These actions need to be executed only once per hierarchy because the underlying services
     # apply these actions to the entire hierarchy anyway, so there is no need to execute them recursively.
     def enqueue_jobs_that_needs_to_be_run_only_once_per_hierarchy(member, unassign_issuables)
       return if recursive_call?
 
-      enqueue_cleanup_jobs_once_per_heirarchy(member, unassign_issuables)
+      enqueue_cleanup_jobs_once_per_hierarchy(member, unassign_issuables)
     end
 
-    def enqueue_cleanup_jobs_once_per_heirarchy(member, unassign_issuables)
+    def enqueue_cleanup_jobs_once_per_hierarchy(member, unassign_issuables)
       enqueue_delete_todos(member)
       enqueue_unassign_issuables(member) if unassign_issuables
     end
@@ -66,7 +73,8 @@ module Members
       last_group_owner = true
 
       in_lock("delete_members:#{member.source.class}:#{member.source.id}", sleep_sec: 0.1.seconds) do
-        break if member.source.last_owner?(member.user)
+        # Explicitly bypass caching to ensure we're checking against the latest list of owners.
+        break if ApplicationRecord.uncached { member.source.last_owner?(member.user) }
 
         last_group_owner = false
         destroy_member(member)
@@ -91,7 +99,7 @@ module Members
 
     def delete_member_associations(member, skip_subresources, skip_saml_identity)
       if member.request? && member.user != current_user
-        notification_service.decline_access_request(member)
+        Members::AccessDeniedMailer.with(member: member).email.deliver_later # rubocop:disable CodeReuse/ActiveRecord -- false positive
       end
 
       delete_subresources(member) unless skip_subresources
@@ -214,6 +222,21 @@ module Members
           member.source_id,
           source_type,
           current_user_id
+        )
+      end
+    end
+
+    def publish_destroyed_event(member)
+      member.run_after_commit_or_now do
+        Gitlab::EventStore.publish(
+          Members::DestroyedEvent.new(
+            data: {
+              root_namespace_id: member.source.root_ancestor.id,
+              source_id: member.source_id,
+              source_type: member.source_type,
+              user_id: member.user_id
+            }
+          )
         )
       end
     end

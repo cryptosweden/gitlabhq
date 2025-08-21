@@ -2,25 +2,31 @@
 stage: Create
 group: Code Review
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "How to revert commits or merge requests in a GitLab project."
+description: How to revert commits or merge requests in a GitLab project.
+title: Revert changes
 ---
 
-# Revert changes
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-You can revert individual commits or an entire merge request in GitLab.
+{{< /details >}}
 
-When you revert a commit in Git, you create a new commit that reverses all actions
-taken in the original commit. The new commit:
+Mistakes happen in code. Version control makes it possible to fix those mistakes by reverting them.
+
+When you revert a commit, you create a new commit (a revert commit) that reverses the
+bad change, rather than erasing the existence of the problem from your project's history. Revert commits
+provide a clear audit trail, rather than a gap where the previous commit was. The revert commit
+follows your project's access controls and processes, and:
 
 - Removes the lines added in the original commit.
 - Restores the lines removed in the original commit.
 - Restores the lines modified in the original commit to their previous state.
 
-Your **revert commit** is still subject to your project's access controls and processes.
+Reverts are not limited to just commits. If the bad change spans more than one commit, consider
+reverting all changes from the merge request, rather than reverting commit by commit. This approach
+provides a cleaner audit trail.
 
 ## Revert a merge request
 
@@ -28,9 +34,9 @@ After a merge request merges, you can revert all changes in the merge request.
 
 Prerequisites:
 
-- You must have a role in the project that allows you to edit merge requests, and add
+- You must have a role for the project that allows you to edit merge requests, and add
   code to the repository.
-- Your project must use the [merge method](methods/index.md#fast-forward-merge) **Merge Commit**,
+- Your project must use the [merge method](methods/_index.md#fast-forward-merge) **Merge Commit**,
   set in your project's **Settings > Merge requests**.
 
   [In GitLab 16.9 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/22236), you can revert
@@ -67,7 +73,7 @@ You can revert any commit in a repository into either:
 
 Prerequisites:
 
-- Your role in the project must allow you to edit merge requests, and add
+- Your role for the project must allow you to edit merge requests, and add
   code to the repository.
 - The commit must not have already been reverted, as the **Revert** option is not
   shown in this case.
@@ -98,16 +104,89 @@ To do this:
 ### Revert a merge commit to a different parent commit
 
 When you revert a merge commit, the branch you merged to (often `main`) is always the
-first parent. To revert a merge commit to a different parent,
-you must revert the commit from the command line:
+first parent. To revert a merge commit to a different parent, you must revert the commit from
+the command line, see [Revert and undo changes with Git](../../../topics/git/undo.md#revert-a-merge-commit-to-a-different-parent).
 
-1. Identify the SHA of the parent commit you want to revert to.
-1. Identify the parent number of the commit you want to revert to. (Defaults to `1`, for the first parent.)
-1. Run this command, replacing `2` with the parent number, and `7a39eb0` with the commit SHA:
+## Redact text from repository
 
-   ```shell
-   git revert -m 2 7a39eb0
-   ```
+{{< history >}}
+
+- Introduced in GitLab 17.1 [with a flag](../../../administration/feature_flags/_index.md) named `rewrite_history_ui`. Disabled by default. GitLab team members can view more information in this confidential issue: `https://gitlab.com/gitlab-org/gitlab/-/issues/450701`
+- Enabled on GitLab.com in confidential issue `https://gitlab.com/gitlab-org/gitlab/-/issues/462999` in GitLab 17.2.
+- Enabled on GitLab Self-Managed and GitLab Dedicated in confidential issue `https://gitlab.com/gitlab-org/gitlab/-/issues/462999` in GitLab 17.3.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/472018) in GitLab 17.9. Feature flag `rewrite_history_ui` removed.
+
+{{< /history >}}
+
+Permanently delete sensitive or confidential information that was accidentally committed, ensuring
+it's no longer accessible in your repository's history.
+Replaces a list of strings with `***REMOVED***`.
+
+{{< alert type="warning" >}}
+
+This action is irreversible.
+After rewriting history and running housekeeping, the changes are permanent.
+Be aware of the following impacts when redacting text from your repository:
+
+{{< /alert >}}
+
+- Open merge requests might fail to merge and require manual rebasing.
+- This is a destructive operation. Existing local clones are incompatible with the updated repository and must be re-cloned.
+- Pipelines referencing old commit SHAs might break and require reconfiguration.
+- Historical tags and branches based on the old commit history might not function correctly.
+- Commit signatures are dropped during the rewrite process.
+- Commit hashes are updated because their content is updated by the redact operation.
+
+While the redact feature in GitLab removes exposed secrets, it also:
+
+- Corrupts the Git history state.
+- Requires all developers to re-clone the repository after redaction.
+- Breaks features that depend on commit hashes, including:
+  - Open merge requests.
+  - Links to previous commits, which results in 404 errors.
+
+For better repository integrity, you should instead:
+
+- Revoke or rotate exposed secrets.
+- Implement [the secret detection capabilities of GitLab](../../application_security/secret_detection/_index.md).
+
+This approach:
+
+- Proactively prevents future secret leaks.
+- Maintains Git history while ensuring security compliance.
+
+For more information, see [secret push protection](../../application_security/secret_detection/secret_push_protection/_index.md).
+
+Alternatively, to completely delete specific files from a repository, see
+[Remove blobs](../repository/repository_size.md#remove-blobs).
+
+Prerequisites:
+
+- You must have the Owner role for the project.
+
+To redact text from your repository:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Repository**.
+1. Expand **Repository maintenance**.
+1. Select **Redact text**.
+1. On the drawer, enter the text to redact.
+   You can use regex and glob patterns.
+1. Select **Redact matching strings**.
+1. On the confirmation dialog, enter your project path.
+1. Select **Yes, redact matching strings**.
+1. On the left sidebar, select **Settings > General**.
+1. Expand **Advanced**.
+1. Select **Run housekeeping**. Wait at least 30 minutes for the operation to complete.
+1. In the same **Settings > General > Advanced** section, select **Prune unreachable objects**.
+   This operation takes approximately 5-10 minutes to complete.
+
+{{< alert type="note" >}}
+
+If the project containing the sensitive information has been forked, the housekeeping task may not be able to complete this redaction process [to maintain the integrity of the special object pool repository which contains the forked data](../../../administration/housekeeping.md#object-pool-repositories).
+For help, contact GitLab Support.
+
+{{< /alert >}}
 
 ## Related topics
 

@@ -59,17 +59,24 @@ export default {
       return this.currentRequest.details[this.metric];
     },
     metricDetailsSummary() {
-      const summary = {};
+      const summary = [];
 
-      if (!this.metricDetails.summaryOptions?.hideTotal) {
-        summary[__('Total')] = this.metricDetails.calls;
+      if (this.metricDetails.calls && !this.metricDetails.summaryOptions?.hideTotal) {
+        summary.push([__('Total'), this.metricDetails.calls]);
       }
 
-      if (!this.metricDetails.summaryOptions?.hideDuration) {
-        summary[s__('PerformanceBar|Total duration')] = this.metricDetails.duration;
+      if (this.metricDetails.duration && !this.metricDetails.summaryOptions?.hideDuration) {
+        summary.push([s__('PerformanceBar|Total duration'), this.metricDetails.duration]);
       }
 
-      return { ...summary, ...(this.metricDetails.summary || {}) };
+      for (const entry of Object.entries(this.metricDetails.summary ?? {})) {
+        // Filter out entries which have no value
+        if (entry[1]) {
+          summary.push(entry);
+        }
+      }
+
+      return summary;
     },
     metricDetailsLabel() {
       if (this.metricDetails.duration && this.metricDetails.calls) {
@@ -140,27 +147,36 @@ export default {
   <div
     v-if="currentRequest.details && metricDetails"
     :id="`peek-view-${metric}`"
-    class="gl-display-flex gl-align-items-baseline view"
+    class="view gl-flex gl-items-baseline"
     data-testid="detailed-metric-content"
   >
     <gl-button
       v-gl-tooltip.viewport
       v-gl-modal="modalId"
-      class="gl-mr-2"
+      class="gl-mr-2 !gl-text-neutral-0"
       :title="header"
       variant="link"
     >
-      <span class="gl-font-sm gl-font-semibold" data-testid="performance-bar-details-label">
+      <span class="gl-text-sm gl-font-semibold" data-testid="performance-bar-details-label">
         {{ metricDetailsLabel }}
       </span>
     </gl-button>
-    <gl-modal :modal-id="modalId" :title="header" size="lg" footer-class="!gl-hidden" scrollable>
-      <div class="gl-display-flex gl-align-items-center gl-justify-content-space-between">
-        <div class="gl-display-flex gl-align-items-center" data-testid="performance-bar-summary">
-          <div v-for="(value, name) in metricDetailsSummary" :key="name" class="gl-pr-8">
-            <div v-if="value" data-testid="performance-bar-summary-item">
+    <gl-modal
+      :modal-id="modalId"
+      :title="header"
+      size="lg"
+      scrollable
+      :static="true"
+      hide-backdrop
+      hide-footer
+      no-focus-on-show
+    >
+      <div class="gl-flex gl-items-center gl-justify-between">
+        <div class="gl-flex gl-items-center gl-gap-8" data-testid="performance-bar-summary">
+          <div v-for="[name, value] in metricDetailsSummary" :key="name">
+            <div data-testid="performance-bar-summary-item">
               <div>{{ name }}</div>
-              <div class="gl-font-size-h1 gl-font-semibold">{{ value }}</div>
+              <div class="gl-text-size-h1 gl-font-semibold">{{ value }}</div>
             </div>
           </div>
         </div>
@@ -187,13 +203,13 @@ export default {
                 <div
                   v-for="(key, keyIndex) in keys"
                   :key="key"
-                  class="text-break-word"
+                  class="gl-break-all"
                   :class="{ 'mb-3 gl-font-semibold': keyIndex == 0 }"
                 >
                   {{ item[key] }}
                   <gl-button
                     v-if="keyIndex == 0 && item.backtrace"
-                    class="gl-ml-3 button-ellipsis-horizontal"
+                    class="button-ellipsis-horizontal gl-ml-3"
                     data-testid="backtrace-expand-btn"
                     category="primary"
                     variant="default"

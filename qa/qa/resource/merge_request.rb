@@ -154,6 +154,25 @@ module QA
         parse_body(api_get_from(api_reviewers_path))
       end
 
+      def api_merge_request_notes_path
+        "#{api_get_path}/notes"
+      end
+
+      # Get the merge request notes
+      #
+      # @return [Array<Hash>]
+      def notes
+        QA::Runtime::Logger.info("Getting comments from MR: #{api_merge_request_notes_path}")
+
+        response = get(Runtime::API::Request.new(api_client, api_merge_request_notes_path).url)
+
+        unless response.code == HTTP_STATUS_OK
+          raise ResourceQueryError, "Could not get comments form MR: (#{response.code}): `#{response}`."
+        end
+
+        parse_body(response)
+      end
+
       def merge_via_api!
         QA::Runtime::Logger.info("Merging via PUT #{api_merge_path}")
 
@@ -261,6 +280,8 @@ module QA
       # @return [void]
       def wait_until_mergable
         return if Support::Waiter.wait_until(sleep_interval: 1, raise_on_failure: false, log: false) do
+          Runtime::Logger.debug("Merge Request detailed_merge_status: #{detailed_merge_status}")
+
           reload!.detailed_merge_status == 'mergeable'
         end
 
@@ -274,9 +295,12 @@ module QA
       # @return [void]
       def wait_for_preparation
         return if Support::Waiter.wait_until(sleep_interval: 1, raise_on_failure: false, log: false) do
-          reload!.prepared_at
+          Runtime::Logger.debug("Merge Request detailed_merge_status: #{detailed_merge_status}")
+
+          reload!.prepared_at && %w[preparing checking approvals_syncing].exclude?(detailed_merge_status)
         end
 
+        Runtime::Logger.debug("Merge Request was not prepared, last response was: #{inspect}")
         raise Support::Repeater::WaitExceededError, "Timed out waiting for MR with id '#{iid}' to be prepared."
       end
     end

@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Modules with instance variables could be considered harmful
 ---
-
-# Modules with instance variables could be considered harmful
 
 ## Background
 
@@ -88,7 +87,7 @@ module Gitlab
   module Emoji
     def emoji_unicode_version(name)
       @emoji_unicode_versions_by_name ||=
-        JSON.parse(File.read(Rails.root.join('fixtures', 'emojis', 'emoji-unicode-version-map.json')))
+        JSON.parse(File.read(Rails.root.join('fixtures', 'emojis', 'digests.json')))
       @emoji_unicode_versions_by_name[name]
     end
   end
@@ -113,7 +112,7 @@ module Gitlab
 
     def emoji_unicode_versions_by_name
       @emoji_unicode_versions_by_name ||=
-        JSON.parse(File.read(Rails.root.join('fixtures', 'emojis', 'emoji-unicode-version-map.json')))
+        JSON.parse(File.read(Rails.root.join('fixtures', 'emojis', 'digests.json')))
     end
   end
 end
@@ -165,13 +164,13 @@ point of view), making it extremely hard to track data dependency.
 
 We're trying to use something like this instead:
 
-```haml
+```ruby
 = render 'projects/commits/commit', commit: commit, ref: ref, project: project
 ```
 
 And in the partial:
 
-```haml
+```ruby
 - ref = local_assigns.fetch(:ref)
 - commit = local_assigns.fetch(:commit)
 - project = local_assigns.fetch(:project)

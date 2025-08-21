@@ -2,16 +2,20 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Documentation for the REST API for Git commits in GitLab."
+description: Documentation for the REST API for Git commits in GitLab.
+title: Commits API
 ---
 
-# Commits API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-This API operates on [repository commits](https://git-scm.com/book/en/v2/Git-Basics-Recording-Changes-to-the-Repository). Read more about [GitLab-specific information](../user/project/repository/index.md#commit-changes-to-a-repository) for commits.
+{{< /details >}}
+
+Use the commits API to manage
+[Git commits](https://git-scm.com/book/en/v2/Git-Basics-Recording-Changes-to-the-Repository)
+in GitLab repositories.
 
 ## Responses
 
@@ -23,9 +27,16 @@ information:
 - The `committed_date` and `authored_date` fields are generated from different sources,
   and may not be identical.
 
-## List repository commits
+### Pagination response headers
 
-> - Commits by author [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/114417) in GitLab 15.10.
+For performance reasons, GitLab does not return the following headers in Commits API responses:
+
+- `x-total`
+- `x-total-pages`
+
+For more information, see [issue 389582](https://gitlab.com/gitlab-org/gitlab/-/issues/389582).
+
+## List repository commits
 
 Get a list of repository commits in a project.
 
@@ -35,13 +46,13 @@ GET /projects/:id/repository/commits
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `ref_name` | string | no | The name of a repository branch, tag or revision range, or if not given the default branch |
 | `since` | string | no | Only commits after or on this date are returned in ISO 8601 format `YYYY-MM-DDTHH:MM:SSZ` |
 | `until` | string | no | Only commits before or on this date are returned in ISO 8601 format `YYYY-MM-DDTHH:MM:SSZ` |
 | `path` | string | no | The file path |
 | `author` | string | no | Search commits by commit author.|
-| `all` | boolean | no | Retrieve every commit from the repository |
+| `all` | boolean | no | Retrieve every commit from the repository. When set to `true`, the `ref_name` parameter is ignored |
 | `with_stats` | boolean | no | Stats about each commit are added to the response |
 | `first_parent` | boolean | no | Follow only the first parent commit upon seeing a merge commit |
 | `order` | string | no | List commits in order. Possible values: `default`, [`topo`](https://git-scm.com/docs/git-log#Documentation/git-log.txt---topo-order). Defaults to `default`, the commits are shown in reverse chronological order. |
@@ -89,8 +100,15 @@ Example response:
       "ae1d9fb46aa2b07ee9836d49862ec4e2c46fbbba"
     ],
     "web_url": "https://gitlab.example.com/janedoe/gitlab-foss/-/commit/ed899a2f4b50b4370feeea94676502b42383c746",
-    "trailers": { "Cc": "Jane Doe <janedoe@gitlab.com>" },
-    "extended_trailers": { "Cc": ["John Doe <johndoe@gitlab.com>", "Jane Doe <janedoe@gitlab.com>"] }
+    "trailers": {
+      "Cc": "Jane Doe <janedoe@gitlab.com>"
+    },
+    "extended_trailers": {
+      "Cc": [
+        "John Doe <johndoe@gitlab.com>",
+        "Jane Doe <janedoe@gitlab.com>"
+      ]
+    }
   }
 ]
 ```
@@ -105,12 +123,12 @@ POST /projects/:id/repository/commits
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) |
+| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `branch` | string | yes | Name of the branch to commit into. To create a new branch, also provide either `start_branch` or `start_sha`, and optionally `start_project`. |
 | `commit_message` | string | yes | Commit message |
 | `start_branch` | string | no | Name of the branch to start the new branch from |
 | `start_sha` | string | no | SHA of the commit to start the new branch from |
-| `start_project` | integer/string | no | The project ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) to start the new branch from. Defaults to the value of `id`. |
+| `start_project` | integer/string | no | The project ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) to start the new branch from. Defaults to the value of `id`. |
 | `actions[]` | array | yes | An array of action hashes to commit as a batch. See the next table for what attributes it can take. |
 | `author_email` | string | no | Specify the commit author's email address |
 | `author_name` | string | no | Specify the commit author's name |
@@ -197,7 +215,7 @@ Example response:
 }
 ```
 
-GitLab supports [form encoding](rest/index.md#encoding-api-parameters-of-array-and-hash-types). The following is an example using Commit API with form encoding:
+GitLab supports [form encoding](rest/_index.md#array-and-hash-types). The following is an example using Commit API with form encoding:
 
 ```shell
 curl --request POST \
@@ -235,7 +253,7 @@ Parameters:
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `sha` | string | yes | The commit hash or name of a repository branch or tag |
 | `stats` | boolean | no | Include commit stats. Default is true |
 
@@ -262,7 +280,7 @@ Example response:
   "parent_ids": [
     "ae1d9fb46aa2b07ee9836d49862ec4e2c46fbbba"
   ],
-  "last_pipeline" : {
+  "last_pipeline": {
     "id": 8,
     "ref": "main",
     "sha": "2dc6aa325a317eda67812f05600bdf0fcdc70ab0",
@@ -291,7 +309,7 @@ Parameters:
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `sha` | string | yes | The commit hash  |
 | `type` | string | no | The scope of commits. Possible values `branch`, `tag`, `all`. Default is `all`.  |
 
@@ -304,17 +322,32 @@ Example response:
 
 ```json
 [
-  {"type": "branch", "name": "'test'"},
-  {"type": "branch", "name": "add-balsamiq-file"},
-  {"type": "branch", "name": "wip"},
-  {"type": "tag", "name": "v1.1.0"}
- ]
-
+  {
+    "type": "branch",
+    "name": "'test'"
+  },
+  {
+    "type": "branch",
+    "name": "add-balsamiq-file"
+  },
+  {
+    "type": "branch",
+    "name": "wip"
+  },
+  {
+    "type": "tag",
+    "name": "v1.1.0"
+  }
+]
 ```
 
 ## Get the sequence of a commit
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/438151) in GitLab 16.9.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/438151) in GitLab 16.9.
+
+{{< /history >}}
 
 Get the sequence number of a commit in a project by following the parent links from the given commit.
 
@@ -328,7 +361,7 @@ Parameters:
 
 | Attribute      | Type           | Required | Description |
 | -------------- | -------------- | -------- | ----------- |
-| `id`           | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`           | integer/string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `sha`          | string         | yes      | The commit hash. |
 | `first_parent` | boolean        | no       | Follow only the first parent commit upon seeing a merge commit. |
 
@@ -359,7 +392,7 @@ Parameters:
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `sha` | string | yes | The commit hash  |
 | `branch` | string | yes | The name of the branch  |
 | `dry_run` | boolean | no | Does not commit any changes. Default is false. |
@@ -434,7 +467,7 @@ Parameters:
 
 | Attribute | Type           | Required | Description                                                                     |
 | --------- | ----           | -------- | -----------                                                                     |
-| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) |
+| `id`      | integer/string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `sha`     | string         | yes      | Commit SHA to revert                                                            |
 | `branch`  | string         | yes      | Target branch name                                                              |
 | `dry_run` | boolean        | no       | Does not commit any changes. Default is false. |
@@ -450,18 +483,20 @@ Example response:
 
 ```json
 {
-  "id":"8b090c1b79a14f2bd9e8a738f717824ff53aebad",
+  "id": "8b090c1b79a14f2bd9e8a738f717824ff53aebad",
   "short_id": "8b090c1b",
-  "title":"Revert \"Feature added\"",
-  "created_at":"2018-11-08T15:55:26.000Z",
-  "parent_ids":["a738f717824ff53aebad8b090c1b79a14f2bd9e8"],
-  "message":"Revert \"Feature added\"\n\nThis reverts commit a738f717824ff53aebad8b090c1b79a14f2bd9e8",
-  "author_name":"Administrator",
-  "author_email":"admin@example.com",
-  "authored_date":"2018-11-08T15:55:26.000Z",
-  "committer_name":"Administrator",
-  "committer_email":"admin@example.com",
-  "committed_date":"2018-11-08T15:55:26.000Z",
+  "title": "Revert \"Feature added\"",
+  "created_at": "2018-11-08T15:55:26.000Z",
+  "parent_ids": [
+    "a738f717824ff53aebad8b090c1b79a14f2bd9e8"
+  ],
+  "message": "Revert \"Feature added\"\n\nThis reverts commit a738f717824ff53aebad8b090c1b79a14f2bd9e8",
+  "author_name": "Administrator",
+  "author_email": "admin@example.com",
+  "authored_date": "2018-11-08T15:55:26.000Z",
+  "committer_name": "Administrator",
+  "committer_email": "admin@example.com",
+  "committed_date": "2018-11-08T15:55:26.000Z",
   "web_url": "https://gitlab.example.com/janedoe/gitlab-foss/-/commit/8b090c1b79a14f2bd9e8a738f717824ff53aebad"
 }
 ```
@@ -504,7 +539,7 @@ Parameters:
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `sha` | string | yes | The commit hash or name of a repository branch or tag |
 | `unidiff` | boolean | no | Present diffs in the [unified diff](https://www.gnu.org/software/diffutils/manual/html_node/Detailed-Unified.html) format. Default is false. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/130610) in GitLab 16.5. |
 
@@ -542,7 +577,7 @@ Parameters:
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `sha` | string | yes | The commit hash or name of a repository branch or tag |
 
 ```shell
@@ -576,13 +611,13 @@ To post a comment in a particular line of a particular file, you must specify
 the full commit SHA, the `path`, the `line`, and `line_type` should be `new`.
 
 The comment is added at the end of the last commit if at least one of the
-cases below is valid:
+following cases is valid:
 
 - the `sha` is instead a branch or a tag and the `line` or `path` are invalid
 - the `line` number is invalid (does not exist)
 - the `path` is invalid (does not exist)
 
-In any of the above cases, the response of `line`, `line_type` and `path` is
+In any of the previous cases, the response of `line`, `line_type` and `path` is
 set to `null`.
 
 For other approaches to commenting on a merge request, see
@@ -596,7 +631,7 @@ POST /projects/:id/repository/commits/:sha/comments
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `sha`       | string  | yes | The commit SHA or name of a repository branch or tag |
 | `note`      | string  | yes | The text of the comment |
 | `path`      | string  | no  | The file path relative to the repository |
@@ -617,19 +652,19 @@ Example response:
 
 ```json
 {
-   "author" : {
-      "web_url" : "https://gitlab.example.com/janedoe",
-      "avatar_url" : "https://gitlab.example.com/uploads/user/avatar/28/jane-doe-400-400.png",
-      "username" : "janedoe",
-      "state" : "active",
-      "name" : "Jane Doe",
-      "id" : 28
-   },
-   "created_at" : "2016-01-19T09:44:55.600Z",
-   "line_type" : "new",
-   "path" : "README.md",
-   "line" : 11,
-   "note" : "Nice picture!"
+  "author": {
+    "web_url": "https://gitlab.example.com/janedoe",
+    "avatar_url": "https://gitlab.example.com/uploads/user/avatar/28/jane-doe-400-400.png",
+    "username": "janedoe",
+    "state": "active",
+    "name": "Jane Doe",
+    "id": 28
+  },
+  "created_at": "2016-01-19T09:44:55.600Z",
+  "line_type": "new",
+  "path": "README.md",
+  "line": 11,
+  "note": "Nice picture!"
 }
 ```
 
@@ -645,7 +680,7 @@ Parameters:
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `sha`     | string | yes | The commit hash or name of a repository branch or tag |
 
 ```shell
@@ -666,13 +701,13 @@ Example response:
         "type": null,
         "body": "Nice piece of code!",
         "attachment": null,
-        "author" : {
-          "id" : 28,
-          "name" : "Jane Doe",
-          "username" : "janedoe",
-          "web_url" : "https://gitlab.example.com/janedoe",
-          "state" : "active",
-          "avatar_url" : "https://gitlab.example.com/uploads/user/avatar/28/jane-doe-400-400.png"
+        "author": {
+          "id": 28,
+          "name": "Jane Doe",
+          "username": "janedoe",
+          "web_url": "https://gitlab.example.com/janedoe",
+          "state": "active",
+          "avatar_url": "https://gitlab.example.com/uploads/user/avatar/28/jane-doe-400-400.png"
         },
         "created_at": "2020-04-30T18:48:11.432Z",
         "updated_at": "2020-04-30T18:48:11.432Z",
@@ -687,14 +722,19 @@ Example response:
     ]
   }
 ]
-
 ```
 
 ## Commit status
 
-This is the commit status API for use with GitLab.
+The commit status API for use with GitLab.
 
 ### List the statuses of a commit
+
+{{< history >}}
+
+- `pipeline_id`, `order_by`, and `sort` fields [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/176142) in GitLab 17.9.
+
+{{< /history >}}
 
 List the statuses of a commit in a project.
 The pagination parameters `page` and `per_page` can be used to restrict the list of references.
@@ -703,14 +743,17 @@ The pagination parameters `page` and `per_page` can be used to restrict the list
 GET /projects/:id/repository/commits/:sha/statuses
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `sha`     | string  | yes | The commit SHA |
-| `ref`     | string  | no  | The name of a repository branch or tag or, if not given, the default branch |
-| `stage`   | string  | no  | Filter by [build stage](../ci/yaml/index.md#stages), for example, `test` |
-| `name`    | string  | no  | Filter by [job name](../ci/yaml/index.md#job-keywords), for example, `bundler:audit` |
-| `all`     | boolean | no  | Return all statuses, not only the latest ones |
+| Attribute     | Type           | Required | Description                                                                          |
+|---------------|----------------| -------- |--------------------------------------------------------------------------------------|
+| `id`          | integer/string | Yes | ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths).          |
+| `sha`         | string         | Yes | Hash of the commit.                                                                      |
+| `ref`         | string         | No  | Name of the branch or tag. Default is the default branch.          |
+| `stage`       | string         | No  | Filter statuses by [build stage](../ci/yaml/_index.md#stages). For example, `test`.             |
+| `name`        | string         | No  | Filter statuses by [job name](../ci/yaml/_index.md#job-keywords). For example, `bundler:audit`. |
+| `pipeline_id` | integer        | No  | Filter statuses by pipeline ID. For example, `1234`.                                            |
+| `order_by`    | string         | No  | Values for sorting statuses. Valid values are `id` and `pipeline_id`. Default is `id`.                    |
+| `sort`        | string         | No  | Sort statuses in ascending or descending order. Valid values are `asc` and `desc`. Default is `asc`.                  |
+| `all`         | boolean        | No  | Include all statuses instead of latest only. Default is `false`.                                       |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" \
@@ -721,52 +764,50 @@ Example response:
 
 ```json
 [
-   ...
-
-   {
-      "status" : "pending",
-      "created_at" : "2016-01-19T08:40:25.934Z",
-      "started_at" : null,
-      "name" : "bundler:audit",
-      "allow_failure" : true,
-      "author" : {
-         "username" : "janedoe",
-         "state" : "active",
-         "web_url" : "https://gitlab.example.com/janedoe",
-         "avatar_url" : "https://gitlab.example.com/uploads/user/avatar/28/jane-doe-400-400.png",
-         "id" : 28,
-         "name" : "Jane Doe"
-      },
-      "description" : null,
-      "sha" : "18f3e63d05582537db6d183d9d557be09e1f90c8",
-      "target_url" : "https://gitlab.example.com/janedoe/gitlab-foss/builds/91",
-      "finished_at" : null,
-      "id" : 91,
-      "ref" : "main"
-   },
-   {
-      "started_at" : null,
-      "name" : "test",
-      "allow_failure" : false,
-      "status" : "pending",
-      "created_at" : "2016-01-19T08:40:25.832Z",
-      "target_url" : "https://gitlab.example.com/janedoe/gitlab-foss/builds/90",
-      "id" : 90,
-      "finished_at" : null,
-      "ref" : "main",
-      "sha" : "18f3e63d05582537db6d183d9d557be09e1f90c8",
-      "author" : {
-         "id" : 28,
-         "name" : "Jane Doe",
-         "username" : "janedoe",
-         "web_url" : "https://gitlab.example.com/janedoe",
-         "state" : "active",
-         "avatar_url" : "https://gitlab.example.com/uploads/user/avatar/28/jane-doe-400-400.png"
-      },
-      "description" : null
-   },
-
-   ...
+  ...
+  {
+    "status": "pending",
+    "created_at": "2016-01-19T08:40:25.934Z",
+    "started_at": null,
+    "name": "bundler:audit",
+    "allow_failure": true,
+    "author": {
+      "username": "janedoe",
+      "state": "active",
+      "web_url": "https://gitlab.example.com/janedoe",
+      "avatar_url": "https://gitlab.example.com/uploads/user/avatar/28/jane-doe-400-400.png",
+      "id": 28,
+      "name": "Jane Doe"
+    },
+    "description": null,
+    "sha": "18f3e63d05582537db6d183d9d557be09e1f90c8",
+    "target_url": "https://gitlab.example.com/janedoe/gitlab-foss/builds/91",
+    "finished_at": null,
+    "id": 91,
+    "ref": "main"
+  },
+  {
+    "started_at": null,
+    "name": "test",
+    "allow_failure": false,
+    "status": "pending",
+    "created_at": "2016-01-19T08:40:25.832Z",
+    "target_url": "https://gitlab.example.com/janedoe/gitlab-foss/builds/90",
+    "id": 90,
+    "finished_at": null,
+    "ref": "main",
+    "sha": "18f3e63d05582537db6d183d9d557be09e1f90c8",
+    "author": {
+      "id": 28,
+      "name": "Jane Doe",
+      "username": "janedoe",
+      "web_url": "https://gitlab.example.com/janedoe",
+      "state": "active",
+      "avatar_url": "https://gitlab.example.com/uploads/user/avatar/28/jane-doe-400-400.png"
+    },
+    "description": null
+  }
+  ...
 ]
 ```
 
@@ -775,21 +816,26 @@ Example response:
 Add or update the pipeline status of a commit. If the commit is associated with a merge request,
 the API call must target the commit in the merge request's source branch.
 
+If a pipeline already exists and it exceeds the [maximum number of jobs in a single pipeline limit](../administration/instance_limits.md#maximum-number-of-jobs-in-a-pipeline):
+
+- If `pipeline_id` is specified, a `422` error is returned: `The number of jobs has exceeded the limit`.
+- Otherwise, a new pipeline is created.
+
 ```plaintext
 POST /projects/:id/statuses/:sha
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `sha`     | string  | yes   | The commit SHA |
-| `state`   | string  | yes   | The state of the status. Can be one of the following: `pending`, `running`, `success`, `failed`, `canceled` |
-| `ref`     | string  | no    | The `ref` (branch or tag) to which the status refers |
-| `name` or `context` | string  | no | The label to differentiate this status from the status of other systems. Default value is `default` |
-| `target_url` |  string  | no  | The target URL to associate with this status |
-| `description` | string  | no  | The short description of the status |
-| `coverage` | float  | no    | The total code coverage |
-| `pipeline_id` |  integer  | no  | The ID of the pipeline to set status. Use in case of several pipeline on same SHA. |
+| Attribute | Type | Required | Description                                                                                                           |
+| --------- | ---- | -------- |-----------------------------------------------------------------------------------------------------------------------|
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths)                                           |
+| `sha`     | string  | yes   | The commit SHA                                                                                                        |
+| `state`   | string  | yes   | The state of the status. Can be one of the following: `pending`, `running`, `success`, `failed`, `canceled`, `skipped` |
+| `ref`     | string  | no    | The `ref` (branch or tag) to which the status refers. Must be 255 characters or fewer.                                                                  |
+| `name` or `context` | string  | no | The label to differentiate this status from the status of other systems. Default value is `default`                   |
+| `target_url` |  string  | no  | The target URL to associate with this status. Must be 255 characters or fewer.                                                                          |
+| `description` | string  | no  | The short description of the status. Must be 255 characters or fewer.                                                                                   |
+| `coverage` | float  | no    | The total code coverage                                                                                               |
+| `pipeline_id` |  integer  | no  | The ID of the pipeline to set status. Use in case of several pipeline on same SHA.                                    |
 
 ```shell
 curl --request POST \
@@ -801,30 +847,36 @@ Example response:
 
 ```json
 {
-   "author" : {
-      "web_url" : "https://gitlab.example.com/janedoe",
-      "name" : "Jane Doe",
-      "avatar_url" : "https://gitlab.example.com/uploads/user/avatar/28/jane-doe-400-400.png",
-      "username" : "janedoe",
-      "state" : "active",
-      "id" : 28
-   },
-   "name" : "default",
-   "sha" : "18f3e63d05582537db6d183d9d557be09e1f90c8",
-   "status" : "success",
-   "coverage": 100.0,
-   "description" : null,
-   "id" : 93,
-   "target_url" : null,
-   "ref" : null,
-   "started_at" : null,
-   "created_at" : "2016-01-19T09:05:50.355Z",
-   "allow_failure" : false,
-   "finished_at" : "2016-01-19T09:05:50.365Z"
+  "author": {
+    "web_url": "https://gitlab.example.com/janedoe",
+    "name": "Jane Doe",
+    "avatar_url": "https://gitlab.example.com/uploads/user/avatar/28/jane-doe-400-400.png",
+    "username": "janedoe",
+    "state": "active",
+    "id": 28
+  },
+  "name": "default",
+  "sha": "18f3e63d05582537db6d183d9d557be09e1f90c8",
+  "status": "success",
+  "coverage": 100.0,
+  "description": null,
+  "id": 93,
+  "target_url": null,
+  "ref": null,
+  "started_at": null,
+  "created_at": "2016-01-19T09:05:50.355Z",
+  "allow_failure": false,
+  "finished_at": "2016-01-19T09:05:50.365Z"
 }
 ```
 
 ## List merge requests associated with a commit
+
+{{< history >}}
+
+- `state` attribute [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/191169) in GitLab 18.2.
+
+{{< /history >}}
 
 Returns information about the merge request that originally introduced a specific commit.
 
@@ -832,71 +884,72 @@ Returns information about the merge request that originally introduced a specifi
 GET /projects/:id/repository/commits/:sha/merge_requests
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `sha`     | string  | yes   | The commit SHA |
+| Attribute | Type           | Required | Description |
+|-----------|----------------|----------|-------------|
+| `id`      | integer/string | Yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
+| `sha`     | string         | Yes      | The commit SHA |
+| `state`   | string         | No       | Returns merge requests with the specified state: `opened`, `closed`, `locked`, or `merged`. Omit this parameter to get all merge requests regardless of state. |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" \
-  --url "https://gitlab.example.com/api/v4/projects/5/repository/commits/af5b13261899fb2c0db30abdd0af8b07cb44fdc5/merge_requests"
+  --url "https://gitlab.example.com/api/v4/projects/5/repository/commits/af5b13261899fb2c0db30abdd0af8b07cb44fdc5/merge_requests?state=opened"
 ```
 
 Example response:
 
 ```json
 [
-   {
-      "id":45,
-      "iid":1,
-      "project_id":35,
-      "title":"Add new file",
-      "description":"",
-      "state":"opened",
-      "created_at":"2018-03-26T17:26:30.916Z",
-      "updated_at":"2018-03-26T17:26:30.916Z",
-      "target_branch":"main",
-      "source_branch":"test-branch",
-      "upvotes":0,
-      "downvotes":0,
-      "author" : {
-        "web_url" : "https://gitlab.example.com/janedoe",
-        "name" : "Jane Doe",
-        "avatar_url" : "https://gitlab.example.com/uploads/user/avatar/28/jane-doe-400-400.png",
-        "username" : "janedoe",
-        "state" : "active",
-        "id" : 28
-      },
-      "assignee":null,
-      "source_project_id":35,
-      "target_project_id":35,
-      "labels":[ ],
-      "draft":false,
-      "work_in_progress":false,
-      "milestone":null,
-      "merge_when_pipeline_succeeds":false,
-      "merge_status":"can_be_merged",
-      "sha":"af5b13261899fb2c0db30abdd0af8b07cb44fdc5",
-      "merge_commit_sha":null,
-      "squash_commit_sha":null,
-      "user_notes_count":0,
-      "discussion_locked":null,
-      "should_remove_source_branch":null,
-      "force_remove_source_branch":false,
-      "web_url":"https://gitlab.example.com/root/test-project/merge_requests/1",
-      "time_stats":{
-         "time_estimate":0,
-         "total_time_spent":0,
-         "human_time_estimate":null,
-         "human_total_time_spent":null
-      }
-   }
+  {
+    "id": 45,
+    "iid": 1,
+    "project_id": 35,
+    "title": "Add new file",
+    "description": "",
+    "state": "opened",
+    "created_at": "2018-03-26T17:26:30.916Z",
+    "updated_at": "2018-03-26T17:26:30.916Z",
+    "target_branch": "main",
+    "source_branch": "test-branch",
+    "upvotes": 0,
+    "downvotes": 0,
+    "author": {
+      "web_url": "https://gitlab.example.com/janedoe",
+      "name": "Jane Doe",
+      "avatar_url": "https://gitlab.example.com/uploads/user/avatar/28/jane-doe-400-400.png",
+      "username": "janedoe",
+      "state": "active",
+      "id": 28
+    },
+    "assignee": null,
+    "source_project_id": 35,
+    "target_project_id": 35,
+    "labels": [],
+    "draft": false,
+    "work_in_progress": false,
+    "milestone": null,
+    "merge_when_pipeline_succeeds": false,
+    "merge_status": "can_be_merged",
+    "sha": "af5b13261899fb2c0db30abdd0af8b07cb44fdc5",
+    "merge_commit_sha": null,
+    "squash_commit_sha": null,
+    "user_notes_count": 0,
+    "discussion_locked": null,
+    "should_remove_source_branch": null,
+    "force_remove_source_branch": false,
+    "web_url": "https://gitlab.example.com/root/test-project/merge_requests/1",
+    "time_stats": {
+      "time_estimate": 0,
+      "total_time_spent": 0,
+      "human_time_estimate": null,
+      "human_total_time_spent": null
+    }
+  }
 ]
 ```
 
 ## Get signature of a commit
 
-Get the [signature from a commit](../user/project/repository/signed_commits/index.md),
+Get the [signature from a commit](../user/project/repository/signed_commits/_index.md),
 if it is signed. For unsigned commits, it results in a 404 response.
 
 ```plaintext
@@ -907,7 +960,7 @@ Parameters:
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `sha` | string | yes | The commit hash or name of a repository branch or tag |
 
 ```shell

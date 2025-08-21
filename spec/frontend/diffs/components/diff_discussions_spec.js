@@ -1,23 +1,29 @@
+import Vue from 'vue';
 import { GlIcon } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
+import { createTestingPinia } from '@pinia/testing';
+import { PiniaVuePlugin } from 'pinia';
 import DiffDiscussions from '~/diffs/components/diff_discussions.vue';
-import { createStore } from '~/mr_notes/stores';
 import DiscussionNotes from '~/notes/components/discussion_notes.vue';
 import NoteableDiscussion from '~/notes/components/noteable_discussion.vue';
 import TimelineEntryItem from '~/vue_shared/components/notes/timeline_entry_item.vue';
+import { globalAccessorPlugin } from '~/pinia/plugins';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useNotes } from '~/notes/store/legacy_notes';
 import discussionsMockData from '../mock_data/diff_discussions';
 
 jest.mock('~/behaviors/markdown/render_gfm');
 
+Vue.use(PiniaVuePlugin);
+
 describe('DiffDiscussions', () => {
-  let store;
+  let pinia;
   let wrapper;
   const getDiscussionsMockData = () => [{ ...discussionsMockData }];
 
   const createComponent = (props, discussions = getDiscussionsMockData()) => {
-    store = createStore();
     wrapper = mount(DiffDiscussions, {
-      store,
+      pinia,
       propsData: {
         discussions,
         ...props,
@@ -27,6 +33,12 @@ describe('DiffDiscussions', () => {
 
   const findNoteableDiscussion = () => wrapper.findComponent(NoteableDiscussion);
 
+  beforeEach(() => {
+    pinia = createTestingPinia({ plugins: [globalAccessorPlugin] });
+    useLegacyDiffs();
+    useNotes();
+  });
+
   describe('template', () => {
     it('should have notes list', () => {
       createComponent();
@@ -34,8 +46,8 @@ describe('DiffDiscussions', () => {
       expect(findNoteableDiscussion().exists()).toBe(true);
       expect(wrapper.findComponent(DiscussionNotes).exists()).toBe(true);
       expect(
-        wrapper.findComponent(DiscussionNotes).findAllComponents(TimelineEntryItem).length,
-      ).toBe(discussionsMockData.notes.length);
+        wrapper.findComponent(DiscussionNotes).findAllComponents(TimelineEntryItem),
+      ).toHaveLength(discussionsMockData.notes.length);
     });
   });
 
@@ -57,11 +69,10 @@ describe('DiffDiscussions', () => {
       const discussions = getDiscussionsMockData();
       discussions[0].expandedOnDiff = true;
       createComponent({ shouldCollapseDiscussions: true }, discussions);
-      jest.spyOn(store, 'dispatch').mockImplementation();
 
       findDiffNotesToggle().trigger('click');
 
-      expect(store.dispatch).toHaveBeenCalledWith('diffs/toggleFileDiscussion', discussions[0]);
+      expect(useLegacyDiffs().toggleFileDiscussion).toHaveBeenCalledWith(discussions[0]);
     });
 
     it('renders expand button when discussion is collapsed', () => {

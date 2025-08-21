@@ -10,22 +10,12 @@ export default {
   props: {
     // Search
     namespace: {
-      type: String,
+      type: [Number, String],
       required: true,
     },
     searchInputPlaceholder: {
       type: String,
       required: true,
-    },
-    recentSearchesStorageKey: {
-      type: String,
-      required: false,
-      default: '',
-    },
-    initialFilterValue: {
-      type: Array,
-      required: false,
-      default: () => [],
     },
     // Sort
     initialSortBy: {
@@ -67,7 +57,7 @@ export default {
     :search-input-placeholder="searchInputPlaceholder"
     :sort-options="sortOptions"
     :initial-sort-by="initialSortBy"
-    class="gl-flex-grow-1"
+    class="gl-grow"
     @onFilter="onFilter"
     @onSort="onSort"
   />

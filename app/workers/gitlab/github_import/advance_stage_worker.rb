@@ -43,8 +43,26 @@ module Gitlab
 
       private
 
+      def proceed_to_next_stage(import_state_jid, next_stage, project_id)
+        project = Project.find_by_id(project_id)
+        import_settings = Gitlab::GithubImport::Settings.new(project)
+
+        if import_settings.user_mapping_enabled? && !import_settings.map_to_personal_namespace_owner?
+          load_references(project)
+        end
+
+        super
+      end
+
       def next_stage_worker(next_stage)
         STAGES.fetch(next_stage.to_sym)
+      end
+
+      def load_references(project)
+        ::Import::LoadPlaceholderReferencesWorker.perform_async(
+          ::Import::SOURCE_GITHUB,
+          project.import_state.id
+        )
       end
     end
   end

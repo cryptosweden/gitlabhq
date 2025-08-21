@@ -172,16 +172,19 @@ RSpec.describe API::GoProxy, feature_category: :package_registry do
       it_behaves_like 'a module version list resource', 'v2.0.0', path: '/v2'
     end
 
-    context 'with a URL encoded relative path component' do
-      it_behaves_like 'a missing module version list resource', path: '/%2E%2E%2Fxyz'
-    end
-
     context 'with the feature disabled' do
       before do
         stub_feature_flags(go_proxy: false)
       end
 
       it_behaves_like 'a missing module version list resource'
+    end
+
+    it_behaves_like 'enforcing job token policies', :read_packages,
+      allow_public_access_for_enabled_project_features: :package_registry do
+      let(:module_name) { base }
+      let(:resource) { 'list' }
+      let(:request) { get_resource(job_token: target_job.token) }
     end
   end
 
@@ -237,6 +240,13 @@ RSpec.describe API::GoProxy, feature_category: :package_registry do
         let(:version) { "v1.0.4-0.#{commit.committed_date.strftime('%Y%m%d%H%M%S')}-#{modules[:sha][0][0..10]}" }
       end
     end
+
+    it_behaves_like 'enforcing job token policies', :read_packages,
+      allow_public_access_for_enabled_project_features: :package_registry do
+      let(:module_name) { base }
+      let(:resource) { 'v1.0.1.info' }
+      let(:request) { get_resource(job_token: target_job.token) }
+    end
   end
 
   describe 'GET /projects/:id/packages/go/*module_name/@v/:module_version.mod' do
@@ -259,6 +269,13 @@ RSpec.describe API::GoProxy, feature_category: :package_registry do
     context 'with an invalid version' do
       it_behaves_like 'a missing module file resource', 'v1.0.1', path: '/mod'
     end
+
+    it_behaves_like 'enforcing job token policies', :read_packages,
+      allow_public_access_for_enabled_project_features: :package_registry do
+      let(:module_name) { base }
+      let(:resource) { 'v1.0.1.mod' }
+      let(:request) { get_resource(job_token: target_job.token) }
+    end
   end
 
   describe 'GET /projects/:id/packages/go/*module_name/@v/:module_version.zip' do
@@ -280,6 +297,13 @@ RSpec.describe API::GoProxy, feature_category: :package_registry do
 
     context 'with the root module v2.0.0' do
       it_behaves_like 'a module archive resource', 'v2.0.0', ['go.mod', 'a.go', 'x.go'], path: '/v2'
+    end
+
+    it_behaves_like 'enforcing job token policies', :read_packages,
+      allow_public_access_for_enabled_project_features: :package_registry do
+      let(:module_name) { base }
+      let(:resource) { 'v1.0.1.zip' }
+      let(:request) { get_resource(job_token: target_job.token) }
     end
   end
 

@@ -27,6 +27,11 @@ export default {
       default: () => ({}),
       required: false,
     },
+    language: {
+      type: String,
+      required: false,
+      default: 'python',
+    },
   },
   computed: {
     code() {
@@ -48,10 +53,10 @@ export default {
   <div :class="type">
     <prompt :type="promptType" :count="count" />
     <code-block-highlighted
-      language="python"
+      :language="language"
       :code="code"
       :max-height="maxHeight"
-      class="gl-border gl-p-4!"
+      class="gl-border !gl-p-4"
     />
   </div>
 </template>

@@ -21,8 +21,7 @@ describe('ProjectSelect component', () => {
     findGlCollapsibleListBox()
       .find("[data-testid='base-dropdown-toggle'")
       .findComponent(GlLoadingIcon);
-  const findGlListboxSearchInput = () =>
-    wrapper.find("[data-testid='listbox-search-input'] > .gl-listbox-search-input");
+  const findGlListboxSearchInput = () => wrapper.find("[data-testid='listbox-search-input']");
   const findGlListboxItem = () => wrapper.findAllComponents(GlListboxItem);
   const findFirstGlDropdownItem = () => findGlListboxItem().at(0);
   const findInMenuLoadingIcon = () => wrapper.find("[data-testid='listbox-search-loader']");
@@ -71,9 +70,10 @@ describe('ProjectSelect component', () => {
     });
 
     it('passes down non archived projects to dropdown', async () => {
+      await waitForPromises();
       findGlCollapsibleListBox().vm.$emit('shown');
       await nextTick();
-      expect(findGlCollapsibleListBox().props('items').length).toEqual(mockProjects.length - 1);
+      expect(findGlCollapsibleListBox().props('items')).toHaveLength(mockProjects.length - 1);
     });
   });
 

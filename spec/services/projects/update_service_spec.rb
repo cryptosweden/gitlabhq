@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require 'spec_helper'
 
 RSpec.describe Projects::UpdateService, feature_category: :groups_and_projects do
@@ -10,108 +11,65 @@ RSpec.describe Projects::UpdateService, feature_category: :groups_and_projects d
     create(:project, creator: user, namespace: user.namespace)
   end
 
-  shared_examples 'publishing Projects::ProjectAttributesChangedEvent' do |params:, attributes:|
-    it "publishes Projects::ProjectAttributesChangedEvent" do
-      expect { update_project(project, user, params) }
-        .to publish_event(Projects::ProjectAttributesChangedEvent)
-        .with(
-          project_id: project.id,
-          namespace_id: project.namespace_id,
-          root_namespace_id: project.root_namespace.id,
-          attributes: attributes
-        )
-    end
-  end
-
   describe '#execute' do
     let(:admin) { create(:admin) }
 
+    let_it_be(:guest) { create(:user) }
     let_it_be(:maintainer) { create(:user) }
     let_it_be(:developer) { create(:user) }
     let_it_be(:owner) { create(:user) }
 
-    context 'when changing restrict_user_defined_variables' do
-      using RSpec::Parameterized::TableSyntax
-
-      where(:current_user_role, :project_minimum_role, :from_value, :to_value, :status) do
-        :owner      | :developer  | true  | false | :success
-        :owner      | :maintainer | true  | false | :success
-        :owner      | :developer  | false | true  | :success
-        :owner      | :maintainer | false | true  | :success
-        :maintainer | :developer  | true  | false | :success
-        :maintainer | :maintainer | true  | false | :success
-        :maintainer | :owner      | true  | false | :api_error
-        :maintainer | :owner      | false | true  | :api_error
-        :maintainer | :owner      | true  | true  | :success
-        :developer  | :owner      | true  | false | :api_error
-        :developer  | :developer  | true  | false | :api_error
-        :developer  | :maintainer | true  | false | :api_error
-      end
-
-      with_them do
-        let(:current_user) { public_send(current_user_role) }
-
-        before do
-          project.add_maintainer(maintainer)
-          project.add_developer(developer)
-          project.add_owner(owner)
-
-          ci_cd_settings = project.ci_cd_settings
-          ci_cd_settings.pipeline_variables_minimum_override_role = project_minimum_role
-          ci_cd_settings.restrict_user_defined_variables = from_value
-          ci_cd_settings.save!
-        end
-
-        it 'allows/disallows to change restrict_user_defined_variables' do
-          result = update_project(project, current_user, restrict_user_defined_variables: to_value)
-          expect(result[:status]).to eq(status)
-        end
-      end
+    before do
+      stub_container_registry_config(enabled: false)
     end
 
-    context 'when changing ci_pipeline_variables_minimum_override_role' do
-      using RSpec::Parameterized::TableSyntax
-
-      where(:current_user_role, :restrict_user_defined_variables, :from_value, :to_value, :status) do
-        :owner      | true  | :owner      | :developer  | :success
-        :owner      | true  | :owner      | :maintainer | :success
-        :owner      | true  | :developer  | :maintainer | :success
-        :owner      | true  | :maintainer | :owner      | :success
-        :maintainer | true  | :owner      | :developer  | :api_error
-        :maintainer | true  | :owner      | :maintainer | :api_error
-        :maintainer | true  | :developer  | :maintainer | :success
-        :maintainer | true  | :maintainer | :owner      | :api_error
-        :owner      | false | :owner      | :maintainer | :success
-        :maintainer | false | :owner      | :developer  | :api_error
-        :maintainer | false | :maintainer | :owner      | :api_error
+    context 'when changing CI/CD variable settings' do
+      before do
+        project.add_maintainer(maintainer)
+        project.add_developer(developer)
+        project.add_owner(owner)
       end
 
-      with_them do
-        let(:current_user) { public_send(current_user_role) }
+      context 'with sufficient permissions' do
+        it 'allows owner to modify both settings' do
+          result = update_project(project, owner,
+            restrict_user_defined_variables: true,
+            ci_pipeline_variables_minimum_override_role: 'maintainer')
 
-        before do
-          project.add_maintainer(maintainer)
-          project.add_developer(developer)
-          project.add_owner(owner)
-
-          ci_cd_settings = project.ci_cd_settings
-          ci_cd_settings.pipeline_variables_minimum_override_role = from_value
-          ci_cd_settings.restrict_user_defined_variables = restrict_user_defined_variables
-          ci_cd_settings.save!
+          expect(result[:status]).to eq(:success)
         end
 
-        it 'allows/disallows to change ci_pipeline_variables_minimum_override_role' do
-          result = update_project(project, current_user, ci_pipeline_variables_minimum_override_role: to_value.to_s)
-          expect(result[:status]).to eq(status)
+        it 'allows maintainer to modify within permitted scope' do
+          result = update_project(project, maintainer, restrict_user_defined_variables: false)
+
+          expect(result[:status]).to eq(:success)
+        end
+      end
+
+      context 'with insufficient permissions' do
+        it 'prevents maintainer from elevating to owner role' do
+          project.ci_cd_settings.update!(pipeline_variables_minimum_override_role: :owner)
+
+          result = update_project(project, maintainer, restrict_user_defined_variables: false)
+
+          expect(result[:status]).to eq(:api_error)
+          expect(result[:message]).to include(
+            'Changing the restrict_user_defined_variables or ci_pipeline_variables_minimum_override_role is not allowed'
+          )
+        end
+
+        it 'prevents developer from modifying settings' do
+          result = update_project(project, developer, restrict_user_defined_variables: true)
+
+          expect(result[:status]).to eq(:api_error)
+          expect(result[:message]).to include(
+            'Changing the restrict_user_defined_variables or ci_pipeline_variables_minimum_override_role is not allowed'
+          )
         end
       end
     end
 
     context 'when changing visibility level' do
-      it_behaves_like 'publishing Projects::ProjectAttributesChangedEvent',
-        params: { visibility_level: Gitlab::VisibilityLevel::INTERNAL },
-        attributes: %w[updated_at visibility_level]
-
       context 'when visibility_level changes to INTERNAL' do
         it 'updates the project to internal' do
           expect(TodosDestroyer::ProjectPrivateWorker).not_to receive(:perform_in)
@@ -212,7 +170,7 @@ RSpec.describe Projects::UpdateService, feature_category: :groups_and_projects d
         it 'does not update project visibility level even if admin', :enable_admin_mode do
           result = update_project(project, admin, visibility_level: Gitlab::VisibilityLevel::PUBLIC)
 
-          expect(result).to eq({ status: :error, message: 'Visibility level public is not allowed in a internal group.' })
+          expect(result).to eq({ status: :error, message: 'Visibility level public is not allowed in a internal namespace.' })
           expect(project.reload).to be_internal
         end
       end
@@ -462,22 +420,6 @@ RSpec.describe Projects::UpdateService, feature_category: :groups_and_projects d
       end
     end
 
-    context 'when archiving a project' do
-      it_behaves_like 'publishing Projects::ProjectAttributesChangedEvent',
-        params: { archived: true },
-        attributes: %w[updated_at archived]
-
-      it 'publishes a ProjectTransferedEvent' do
-        expect { update_project(project, user, archived: true) }
-          .to publish_event(Projects::ProjectArchivedEvent)
-          .with(
-            project_id: project.id,
-            namespace_id: project.namespace_id,
-            root_namespace_id: project.root_namespace.id
-          )
-      end
-    end
-
     context 'when changing operations feature visibility' do
       let(:feature_params) { { operations_access_level: ProjectFeature::DISABLED } }
 
@@ -565,7 +507,7 @@ RSpec.describe Projects::UpdateService, feature_category: :groups_and_projects d
         end
 
         def stub_rename_base_repository_in_registry(dry_run:, result: nil)
-          options = { name: new_name }
+          options = { name: new_name, project: project }
           options[:dry_run] = true if dry_run
 
           allow(ContainerRegistry::GitlabApiClient)
@@ -575,7 +517,7 @@ RSpec.describe Projects::UpdateService, feature_category: :groups_and_projects d
         end
 
         def expect_rename_of_base_repository_in_registry(dry_run:, path: nil)
-          options = { name: new_name }
+          options = { name: new_name, project: project }
           options[:dry_run] = true if dry_run
 
           expect(ContainerRegistry::GitlabApiClient)
@@ -673,6 +615,28 @@ RSpec.describe Projects::UpdateService, feature_category: :groups_and_projects d
 
         expect { update_project(project, maintainer, emails_enabled: false) }
           .not_to change { project.emails_enabled }
+      end
+    end
+
+    context 'when updating #max_artifacts_size' do
+      context 'for users who have the ability to update max_artifacts_size', :enable_admin_mode do
+        let(:admin_user) { create(:admin) }
+
+        it 'updates max_artifacts_size' do
+          expect { update_project(project, admin_user, max_artifacts_size: 10) }
+            .to change { project.max_artifacts_size }
+                  .to(10)
+        end
+      end
+
+      context 'for users who do not have the ability to update max_artifacts_size' do
+        it 'does not update max_artifacts_size' do
+          maintainer = create(:user)
+          project.add_member(maintainer, :maintainer)
+
+          expect { update_project(project, maintainer, max_artifacts_size: 10) }
+            .not_to change { project.max_artifacts_size }
+        end
       end
     end
 
@@ -788,73 +752,14 @@ RSpec.describe Projects::UpdateService, feature_category: :groups_and_projects d
           .to receive(:access_allowed?).with(user, 'default_label') { true }
 
         update_project(project, user, { external_authorization_classification_label: '' })
+
+        expect(project.reload.external_authorization_classification_label).to eq('default_label')
       end
 
       it 'does not check the label when it does not change' do
         expect(::Gitlab::ExternalAuthorization).to receive(:access_allowed?).once
 
         update_project(project, user, { name: 'New name' })
-      end
-    end
-
-    context 'when updating nested attributes for prometheus integration' do
-      context 'prometheus integration exists' do
-        let(:prometheus_integration_attributes) do
-          attributes_for(
-            :prometheus_integration,
-            project: project,
-            properties: { api_url: "http://new.prometheus.com", manual_configuration: "0" }
-          )
-        end
-
-        let!(:prometheus_integration) do
-          create(
-            :prometheus_integration,
-            project: project,
-            properties: { api_url: "http://old.prometheus.com", manual_configuration: "0" }
-          )
-        end
-
-        it 'updates existing record' do
-          expect { update_project(project, user, prometheus_integration_attributes: prometheus_integration_attributes) }
-            .to change { prometheus_integration.reload.api_url }
-            .from("http://old.prometheus.com")
-            .to("http://new.prometheus.com")
-        end
-      end
-
-      context 'prometheus integration does not exist' do
-        context 'valid parameters' do
-          let(:prometheus_integration_attributes) do
-            attributes_for(
-              :prometheus_integration,
-              project: project,
-              properties: { api_url: "http://example.prometheus.com", manual_configuration: "0" }
-            )
-          end
-
-          it 'creates new record' do
-            expect { update_project(project, user, prometheus_integration_attributes: prometheus_integration_attributes) }
-              .to change { ::Integrations::Prometheus.where(project: project).count }
-              .from(0)
-              .to(1)
-          end
-        end
-
-        context 'invalid parameters' do
-          let(:prometheus_integration_attributes) do
-            attributes_for(
-              :prometheus_integration,
-              project: project,
-              properties: { api_url: 'invalid-url', manual_configuration: "1" }
-            )
-          end
-
-          it 'does not create new record' do
-            expect { update_project(project, user, prometheus_integration_attributes: prometheus_integration_attributes) }
-              .not_to change { ::Integrations::Prometheus.where(project: project).count }
-          end
-        end
       end
     end
 
@@ -967,6 +872,216 @@ RSpec.describe Projects::UpdateService, feature_category: :groups_and_projects d
 
           expect { update_project(project, user, project_setting_attributes: { pages_unique_domain_enabled: false }) }
             .not_to change { project.project_setting.pages_unique_domain_enabled }
+        end
+      end
+    end
+
+    describe 'when updating pages primary domain', feature_category: :pages do
+      let(:domain_present) { true }
+
+      before do
+        stub_pages_setting(enabled: true)
+        allow(project).to receive(:pages_domain_present?).and_return(domain_present)
+      end
+
+      context 'when selecting an existing domain' do
+        it 'updates the pages primary domain setting' do
+          expect { update_project(project, user, project_setting_attributes: { pages_primary_domain: "http://example.com" }) }
+            .to change { project.project_setting.pages_primary_domain }
+                  .from(nil).to("http://example.com")
+        end
+      end
+
+      context 'when clearing the primary domain' do
+        let(:project_settings) { create(:project_setting, pages_primary_domain: "http://example.com") }
+        let(:project) { build(:project, project_setting: project_settings) }
+
+        it 'removes the pages primary domain setting' do
+          expect(project.project_setting.pages_primary_domain).to eq("http://example.com")
+
+          expect { update_project(project, user, project_setting_attributes: { pages_primary_domain: "" }) }
+            .to change { project.project_setting.pages_primary_domain }
+                  .from("http://example.com").to(nil)
+        end
+      end
+
+      context 'when selecting a non-existing domain' do
+        let(:domain_present) { false }
+
+        it 'returns an error to the user' do
+          result = update_project(project, user, project_setting_attributes: { pages_primary_domain: "http://example.com" })
+
+          expect(result).to include(status: :error)
+          expect(result[:message]).to include(_("The `pages_primary_domain` attribute is missing from the domain list in the Pages project configuration. Assign `pages_primary_domain` to the Pages project or reset it."))
+
+          expect(project.project_setting.pages_primary_domain).to be_nil
+        end
+      end
+    end
+
+    describe 'when project has missing CI/CD settings record' do
+      before do
+        project.ci_cd_settings.destroy!
+        project.reload
+      end
+
+      it 'does not fail and creates a ci_cd_settings record for the project' do
+        result = update_project(project, user, topics: 'topics')
+        expect(result[:status]).to eq(:success)
+
+        expect(project.reload.ci_cd_settings).to be_present
+      end
+    end
+
+    describe 'when updating ci_inbound_job_token_scope_enabled' do
+      let(:category) { described_class }
+      let(:user) { admin }
+
+      subject(:service_action) { update_project(project, admin, ci_inbound_job_token_scope_enabled: ci_inbound_job_token_scope_enabled) }
+
+      context 'when it is changed from false to true' do
+        let(:ci_inbound_job_token_scope_enabled) { true }
+
+        before do
+          project.update!(ci_inbound_job_token_scope_enabled: false)
+          project.reload
+        end
+
+        it 'updates the setting' do
+          service_action
+          expect(project.reload.ci_inbound_job_token_scope_enabled).to eq(true)
+        end
+
+        it_behaves_like 'internal event tracking' do
+          let(:event) { 'enable_inbound_job_token_scope' }
+        end
+      end
+
+      context 'when it is changed from true to false' do
+        let(:ci_inbound_job_token_scope_enabled) { false }
+
+        before do
+          project.update!(ci_inbound_job_token_scope_enabled: true)
+          project.reload
+        end
+
+        it 'updates the setting' do
+          service_action
+          expect(project.reload.ci_inbound_job_token_scope_enabled).to eq(false)
+        end
+
+        it_behaves_like 'internal event tracking' do
+          let(:event) { 'disable_inbound_job_token_scope' }
+        end
+      end
+
+      context 'when current value is true and is unchanged' do
+        let(:ci_inbound_job_token_scope_enabled) { true }
+
+        before do
+          project.update!(ci_inbound_job_token_scope_enabled: true)
+          project.reload
+        end
+
+        it 'does not trigger event' do
+          expect { service_action }.not_to trigger_internal_events('enable_inbound_job_token_scope')
+        end
+      end
+
+      context 'when current value is false and is unchanged' do
+        let(:ci_inbound_job_token_scope_enabled) { false }
+
+        before do
+          project.update!(ci_inbound_job_token_scope_enabled: false)
+          project.reload
+        end
+
+        it 'does not trigger event' do
+          expect { service_action }.not_to trigger_internal_events('disable_inbound_job_token_scope')
+        end
+      end
+    end
+
+    describe 'with `remove_deletion_schedule` param' do
+      subject(:service_action) { update_project(project, admin, **params) }
+
+      context 'when true' do
+        let(:params) { { remove_deletion_schedule: true } }
+
+        context 'when project is marked for deletion' do
+          let_it_be_with_reload(:project) { create(:project, :aimed_for_deletion) }
+
+          it 'destroys deletion schedule' do
+            service_action
+
+            expect(project.project_namespace.reload.deletion_schedule).to be_nil
+          end
+
+          context 'when deletion schedule destroy failed' do
+            before do
+              allow(project.deletion_schedule)
+                .to receive(:destroy!).and_raise(ActiveRecord::RecordNotDestroyed, 'destroy failed')
+            end
+
+            it 'returns error result', :aggregate_failures do
+              result = service_action
+
+              expect(result[:status]).to eq(:error)
+              expect(result[:message]).to eq('Project could not be updated!')
+            end
+
+            it 'does not destroy deletion schedule' do
+              service_action
+
+              expect(project.project_namespace.reload.deletion_schedule).not_to be_nil
+            end
+
+            context 'when updating other columns' do
+              let(:params) { { remove_deletion_schedule: true, description: 'new' } }
+
+              it 'does not persist other changes' do
+                service_action
+
+                expect(project.reload.description).not_to eq('new')
+              end
+            end
+          end
+
+          context 'when `replicate_deletion_schedule_operations` flag is disabled' do
+            before do
+              stub_feature_flags(replicate_deletion_schedule_operations: false)
+            end
+
+            it 'does not destroy deletion schedule', :aggregate_failures do
+              result = service_action
+
+              expect(result[:status]).to eq(:success)
+              expect(project.project_namespace.reload.deletion_schedule).not_to be_nil
+            end
+          end
+        end
+
+        context 'when project is not marked for deletion' do
+          let_it_be(:project) { create(:project) }
+
+          it 'does not raise error' do
+            result = service_action
+
+            expect(result[:status]).to eq(:success)
+          end
+        end
+      end
+
+      context 'when false' do
+        let_it_be(:project) { create(:project, :aimed_for_deletion) }
+
+        let(:params) { { remove_deletion_schedule: false } }
+
+        it 'does not destroy deletion schedule', :aggregate_failures do
+          result = service_action
+
+          expect(result[:status]).to eq(:success)
+          expect(project.project_namespace.reload.deletion_schedule).not_to be_nil
         end
       end
     end

@@ -96,7 +96,7 @@ RSpec.describe AwardEmoji, feature_category: :team_planning do
       end
 
       context 'with snippet' do
-        let(:awardable) { create(:snippet, project: project) }
+        let(:awardable) { create(:project_snippet, project: project) }
 
         include_examples 'awardable'
       end
@@ -120,8 +120,12 @@ RSpec.describe AwardEmoji, feature_category: :team_planning do
   end
 
   describe 'scopes' do
-    let_it_be(:thumbsup) { create(:award_emoji, name: 'thumbsup') }
-    let_it_be(:thumbsdown) { create(:award_emoji, name: 'thumbsdown') }
+    let_it_be(:awardable1) { create(:issue) }
+    let_it_be(:awardable2) { create(:issue) }
+    let_it_be(:thumbsup) { create(:award_emoji, name: 'thumbsup', awardable: awardable1) }
+    let_it_be(:thumbsdown) { create(:award_emoji, name: 'thumbsdown', awardable: awardable2) }
+
+    let(:awardables) { [awardable1, awardable2] }
 
     describe '.upvotes' do
       it { expect(described_class.upvotes).to contain_exactly(thumbsup) }
@@ -132,13 +136,18 @@ RSpec.describe AwardEmoji, feature_category: :team_planning do
     end
 
     describe '.named' do
-      it { expect(described_class.named('thumbsup')).to contain_exactly(thumbsup) }
-      it { expect(described_class.named(%w[thumbsup thumbsdown])).to contain_exactly(thumbsup, thumbsdown) }
+      it { expect(described_class.named(AwardEmoji::THUMBS_UP)).to contain_exactly(thumbsup) }
+      it { expect(described_class.named([AwardEmoji::THUMBS_UP, AwardEmoji::THUMBS_DOWN])).to contain_exactly(thumbsup, thumbsdown) }
     end
 
     describe '.awarded_by' do
       it { expect(described_class.awarded_by(thumbsup.user)).to contain_exactly(thumbsup) }
       it { expect(described_class.awarded_by([thumbsup.user, thumbsdown.user])).to contain_exactly(thumbsup, thumbsdown) }
+    end
+
+    describe '.by_awardable' do
+      it { expect(described_class.by_awardable('Issue', awardables)).to match_array([thumbsup, thumbsdown]) }
+      it { expect(described_class.by_awardable('Issue', awardables.map(&:id))).to match_array([thumbsup, thumbsdown]) }
     end
   end
 
@@ -231,22 +240,22 @@ RSpec.describe AwardEmoji, feature_category: :team_planning do
     let(:user) { create(:user) }
 
     before do
-      create(:award_emoji, user: user, name: 'thumbsup')
-      create(:award_emoji, user: user, name: 'thumbsup')
-      create(:award_emoji, user: user, name: 'thumbsdown')
+      create(:award_emoji, user: user, name: AwardEmoji::THUMBS_UP)
+      create(:award_emoji, user: user, name: AwardEmoji::THUMBS_UP)
+      create(:award_emoji, user: user, name: AwardEmoji::THUMBS_DOWN)
       create(:award_emoji, user: user, name: '+1')
     end
 
     it 'returns the awarded emoji in descending order' do
       awards = described_class.award_counts_for_user(user)
 
-      expect(awards).to eq('thumbsup' => 2, 'thumbsdown' => 1, '+1' => 1)
+      expect(awards).to eq(AwardEmoji::THUMBS_UP => 2, AwardEmoji::THUMBS_DOWN => 1, '+1' => 1)
     end
 
     it 'limits the returned number of rows' do
       awards = described_class.award_counts_for_user(user, 1)
 
-      expect(awards).to eq('thumbsup' => 2)
+      expect(awards).to eq(AwardEmoji::THUMBS_UP => 2)
     end
   end
 

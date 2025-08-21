@@ -36,7 +36,7 @@ RSpec.describe Packages::Protection::CreateRuleService, '#execute', feature_cate
     end
 
     it do
-      expect { subject }.to change { Packages::Protection::Rule.count }.by(0)
+      expect { subject }.to not_change { Packages::Protection::Rule.count }
 
       expect(Packages::Protection::Rule.where(project: project).count).to eq package_protection_rule_count_expected
       expect(Packages::Protection::Rule.where(project: project,
@@ -60,6 +60,13 @@ RSpec.describe Packages::Protection::CreateRuleService, '#execute', feature_cate
 
       it_behaves_like 'an erroneous service response with side effect',
         message: "'unknown_package_type' is not a valid package_type"
+    end
+
+    context 'when minimum_access_level_for_delete and minimum_access_level_for_push are blank' do
+      let(:params) { super().merge(minimum_access_level_for_delete: nil, minimum_access_level_for_push: nil) }
+
+      it_behaves_like 'an erroneous service response with side effect',
+        message: ['A rule must have at least a minimum access role for push or delete.']
     end
   end
 
@@ -95,7 +102,7 @@ RSpec.describe Packages::Protection::CreateRuleService, '#execute', feature_cate
       it { is_expected.to be_error }
 
       it do
-        expect { service_execute }.to change { Packages::Protection::Rule.count }.by(0)
+        expect { service_execute }.to not_change { Packages::Protection::Rule.count }
 
         expect(Packages::Protection::Rule.where(project: project).count).to eq 1
         expect(

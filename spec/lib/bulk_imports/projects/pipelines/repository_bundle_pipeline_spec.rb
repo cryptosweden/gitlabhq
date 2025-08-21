@@ -25,7 +25,7 @@ RSpec.describe BulkImports::Projects::Pipelines::RepositoryBundlePipeline, featu
   end
 
   after do
-    FileUtils.remove_entry(tmpdir) if Dir.exist?(tmpdir)
+    FileUtils.rm_rf(tmpdir)
   end
 
   describe '#run' do
@@ -72,7 +72,7 @@ RSpec.describe BulkImports::Projects::Pipelines::RepositoryBundlePipeline, featu
       expect(BulkImports::FileDownloadService)
         .to receive(:new)
         .with(
-          configuration: context.configuration,
+          context: context,
           relative_url: "/#{entity.pluralized_name}/#{CGI.escape(entity.source_full_path)}" \
                         '/export_relations/download?relation=repository',
           tmpdir: tmpdir,
@@ -80,7 +80,7 @@ RSpec.describe BulkImports::Projects::Pipelines::RepositoryBundlePipeline, featu
         .and_return(download_service)
       expect(BulkImports::FileDecompressionService)
         .to receive(:new)
-        .with(tmpdir: tmpdir, filename: 'repository.tar.gz')
+        .with(tmpdir: tmpdir, filename: 'repository.tar.gz', context: context)
         .and_return(decompression_service)
       expect(BulkImports::ArchiveExtractionService)
         .to receive(:new)
@@ -176,22 +176,12 @@ RSpec.describe BulkImports::Projects::Pipelines::RepositoryBundlePipeline, featu
 
   describe '#after_run' do
     it 'removes tmpdir' do
-      allow(FileUtils).to receive(:remove_entry).and_call_original
-      expect(FileUtils).to receive(:remove_entry).with(tmpdir).and_call_original
+      allow(FileUtils).to receive(:rm_rf).and_call_original
+      expect(FileUtils).to receive(:rm_rf).with(tmpdir).and_call_original
 
       pipeline.after_run(nil)
 
       expect(Dir.exist?(tmpdir)).to eq(false)
-    end
-
-    context 'when tmpdir does not exist' do
-      it 'does not attempt to remove tmpdir' do
-        FileUtils.remove_entry(tmpdir)
-
-        expect(FileUtils).not_to receive(:remove_entry).with(tmpdir)
-
-        pipeline.after_run(nil)
-      end
     end
   end
 end

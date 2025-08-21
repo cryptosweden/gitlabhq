@@ -19,9 +19,13 @@ export default {
 </script>
 
 <template>
-  <div class="gl-flex gl-items-center gl-gap-2 gl-justify-center">
+  <div class="gl-flex gl-items-center gl-justify-center gl-gap-2">
     <span>
-      {{ sprintf(__('+ %{n} more deployments'), { n: totalDeploymentCount }) }}
+      {{
+        sprintf(n__('+ %{n} more deployment', '+ %{n} more deployments', totalDeploymentCount), {
+          n: totalDeploymentCount,
+        })
+      }}
     </span>
     <gl-button
       category="tertiary"

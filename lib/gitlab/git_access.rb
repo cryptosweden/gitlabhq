@@ -23,10 +23,13 @@ module Gitlab
       deploy_key_upload: 'This deploy key does not have write access to this project.',
       no_repo: 'A repository for this project does not exist yet.',
       project_not_found: "The project you were looking for could not be found or you don't have permission to view it.",
+      auth_by_job_token_forbidden: 'Insufficient permissions to pull from the repository of project %{target_project_path}.',
+      auth_by_job_token_project_not_in_allowlist: 'Authentication by CI/CD job token not allowed from %{source_project_path} to %{target_project_path}.',
       command_not_allowed: "The command you're trying to execute is not allowed.",
       upload_pack_disabled_over_http: 'Pulling over HTTP is not allowed.',
       receive_pack_disabled_over_http: 'Pushing over HTTP is not allowed.',
       read_only: 'The repository is temporarily read-only. Please try again later.',
+      archived: "You can't push code to an archived project.",
       cannot_push_to_read_only: "You can't push code to a read-only GitLab instance.",
       push_code: 'You are not allowed to push code to this project.'
     }.freeze
@@ -44,7 +47,7 @@ module Gitlab
 
     attr_reader :actor, :protocol, :authentication_abilities,
       :repository_path, :redirected_path, :auth_result_type,
-      :cmd, :changes, :push_options
+      :cmd, :changes, :push_options, :gitaly_context
     attr_accessor :container
 
     def self.error_message(key)
@@ -57,7 +60,7 @@ module Gitlab
       raise ArgumentError, "No error message defined for #{key}"
     end
 
-    def initialize(actor, container, protocol, authentication_abilities:, repository_path: nil, redirected_path: nil, auth_result_type: nil, push_options: nil)
+    def initialize(actor, container, protocol, authentication_abilities:, repository_path: nil, redirected_path: nil, auth_result_type: nil, push_options: nil, gitaly_context: nil) # rubocop:disable Metrics/ParameterLists -- it needs a refactoring to resolve
       @actor     = actor
       @container = container
       @protocol  = protocol
@@ -66,6 +69,7 @@ module Gitlab
       @redirected_path = redirected_path
       @auth_result_type = auth_result_type
       @push_options = Gitlab::PushOptions.new(push_options)
+      @gitaly_context = gitaly_context
     end
 
     def check(cmd, changes)
@@ -79,8 +83,7 @@ module Gitlab
       check_command_disabled!
       check_command_existence!
 
-      custom_action = check_custom_action
-      return custom_action if custom_action
+      check_custom_ssh_action!
 
       check_db_accessibility!
       check_container!
@@ -181,7 +184,7 @@ module Gitlab
       check_project_accessibility!
     end
 
-    def check_custom_action
+    def check_custom_ssh_action!
       # no-op: Overridden in EE
     end
 
@@ -242,7 +245,22 @@ module Gitlab
     end
 
     def check_project_accessibility!
-      raise NotFoundError, not_found_message unless can_read_project?
+      return if can_read_project?
+
+      if user&.from_ci_job_token?
+
+        policy = ProjectPolicy.new(user, project)
+
+        if policy.project_allowed_for_job_token?
+          raise ForbiddenError, format(error_message(:auth_by_job_token_forbidden), target_project_path: project.path)
+        else
+          source_project = user.ci_job_token_scope.current_project
+
+          raise ForbiddenError, format(error_message(:auth_by_job_token_project_not_in_allowlist), source_project_path: source_project.path, target_project_path: project.path)
+        end
+      else
+        raise NotFoundError, not_found_message
+      end
     end
 
     def not_found_message
@@ -324,6 +342,10 @@ module Gitlab
         raise ForbiddenError, error_message(:read_only)
       end
 
+      if project&.archived?
+        raise ForbiddenError, error_message(:archived)
+      end
+
       if deploy_key?
         unless deploy_key.can_push_to?(project)
           raise ForbiddenError, error_message(:deploy_key_upload)
@@ -364,7 +386,8 @@ module Gitlab
         project: project,
         protocol: protocol,
         logger: logger,
-        push_options: push_options
+        push_options: push_options,
+        gitaly_context: gitaly_context
       ).validate!
     rescue Checks::TimedLogger::TimeoutError
       raise TimeoutError, logger.full_message
@@ -537,8 +560,7 @@ module Gitlab
     end
 
     # overriden in EE
-    def check_additional_conditions!
-    end
+    def check_additional_conditions!; end
 
     def repository_access_level
       project&.repository_access_level

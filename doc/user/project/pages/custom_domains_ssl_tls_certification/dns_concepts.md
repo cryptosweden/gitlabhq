@@ -2,13 +2,15 @@
 stage: Plan
 group: Knowledge
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: GitLab Pages DNS records
 ---
 
-# GitLab Pages DNS records
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 A Domain Name System (DNS) web service routes visitors to websites
 by translating domain names (such as `www.example.com`) into the
@@ -30,7 +32,7 @@ to do it for you.
 To help you out, we've gathered some instructions on how to do that
 for the most popular hosting services:
 
-<!-- vale gitlab.Spelling = NO -->
+<!-- vale gitlab_base.Spelling = NO -->
 
 - [123-reg](https://www.123-reg.co.uk/support/domains/domain-name-server-dns-management-guide/)
 - [Amazon](https://docs.aws.amazon.com/AmazonS3/latest/userguide/website-hosting-custom-domain-walkthrough.html)
@@ -46,20 +48,30 @@ for the most popular hosting services:
 - [Microsoft](https://learn.microsoft.com/en-us/windows-server/networking/dns/manage-resource-records?tabs=powershell)
 - [Namecheap](https://www.namecheap.com/support/knowledgebase/subcategory/2237/host-records-setup/)
 
-<!-- vale gitlab.Spelling = YES -->
+<!-- vale gitlab_base.Spelling = YES -->
 
-If your hosting service is not listed above, you can just try to
+If your hosting service is not listed, you can just try to
 search the web for `how to add dns record on <my hosting service>`.
 
 ## `A` record
 
 A DNS `A` record maps a host to an IPv4 IP address.
 It points a root domain as `example.com` to the host's IP address as
-`192.192.192.192`.
+`192.0.2.1`.
 
 Example:
 
-- `example.com` => `A` => `192.192.192.192`
+- `example.com` => `A` => `192.0.2.1`
+
+## `AAAA` record
+
+A DNS `AAAA` record maps a host to an IPv6 IP address.
+It points a root domain as `example.com` to the host's IP address as
+`2001:db8::1`.
+
+Example:
+
+- `example.com` => `AAAA` => `2001:db8::1`
 
 ## `CNAME` record
 
@@ -99,7 +111,8 @@ This way, you can verify the ownership for that domain name.
 
 You can have one DNS record or more than one combined:
 
-- `example.com` => `A` => `192.192.192.192`
+- `example.com` => `A` => `192.0.2.1`
+- `example.com` => `AAAA` => `2001:db8::1`
 - `www` => `CNAME` => `example.com`
 - `MX` => `mail.example.com`
 - `example.com`=> `TXT` => `"google-site-verification=6P08Ow5E-8Q0m6vQ7FMAqAYIDprkVV8fUf_7hZ4Qvc8"`

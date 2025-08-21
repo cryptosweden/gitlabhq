@@ -1,7 +1,6 @@
 <script>
 import { GlButton } from '@gitlab/ui';
 import { TYPE_ISSUE } from '~/issues/constants';
-import { n__ } from '~/locale';
 import UncollapsedAssigneeList from './uncollapsed_assignee_list.vue';
 
 export default {
@@ -30,9 +29,6 @@ export default {
     },
   },
   computed: {
-    assigneesText() {
-      return n__('Assignee', '%d Assignees', this.users.length);
-    },
     emptyUsers() {
       return this.users.length === 0;
     },
@@ -41,10 +37,10 @@ export default {
 </script>
 
 <template>
-  <div class="gl-display-flex gl-flex-direction-column issuable-assignees">
+  <div class="issuable-assignees gl-flex gl-flex-col">
     <div
       v-if="emptyUsers"
-      class="gl-display-flex gl-align-items-center gl-text-gray-500 hide-collapsed"
+      class="hide-collapsed gl-flex gl-items-center gl-text-subtle"
       data-testid="none"
     >
       <span> {{ __('None') }}</span>
@@ -52,12 +48,11 @@ export default {
         <span class="gl-ml-2">-</span>
         <gl-button
           data-testid="assign-yourself"
-          category="tertiary"
+          class="gl-ml-2 !gl-text-inherit hover:!gl-text-link"
           variant="link"
-          class="gl-ml-2"
           @click="$emit('assign-self')"
         >
-          <span class="gl-text-gray-500 gl-hover-text-blue-800">{{ __('assign yourself') }}</span>
+          {{ __('assign yourself') }}
         </gl-button>
       </template>
     </div>
@@ -65,7 +60,7 @@ export default {
       v-else
       :users="users"
       :issuable-type="issuableType"
-      class="gl-text-gray-800 hide-collapsed gl-pt-2"
+      class="hide-collapsed gl-pt-2"
     />
   </div>
 </template>

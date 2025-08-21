@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
+require 'spec_helper'
 
 require 'declarative_policy'
 require 'request_store'
@@ -11,8 +11,8 @@ require 'gitlab/safe_request_store'
 require_relative '../../app/models/ability'
 require_relative '../support/ability_check'
 
-RSpec.describe Support::AbilityCheck, feature_category: :system_access do # rubocop:disable RSpec/FilePath
-  let(:user) { :user }
+RSpec.describe Support::AbilityCheck, feature_category: :system_access do # rubocop:disable RSpec/SpecFilePathFormat
+  let(:user) { User.new }
   let(:child) { Testing::Child.new }
   let(:parent) { Testing::Parent.new(child) }
 
@@ -42,7 +42,7 @@ RSpec.describe Support::AbilityCheck, feature_category: :system_access do # rubo
 
   def expect_deprecation_warning(policy_class, ability, &block)
     expect(&block)
-      .to output(/DEPRECATION WARNING: Ability :#{ability} in #{policy_class} not found./)
+      .to output(/Ability :#{ability} in #{policy_class} not found./)
       .to_stderr
   end
 

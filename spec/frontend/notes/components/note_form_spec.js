@@ -1,29 +1,35 @@
 import { GlLink, GlFormCheckbox } from '@gitlab/ui';
-import { nextTick } from 'vue';
-import batchComments from '~/batch_comments/stores/modules/batch_comments';
+import Vue, { nextTick } from 'vue';
+import { createTestingPinia } from '@pinia/testing';
+import { PiniaVuePlugin } from 'pinia';
 import NoteForm from '~/notes/components/note_form.vue';
-import createStore from '~/notes/stores';
 import MarkdownField from '~/vue_shared/components/markdown/field.vue';
 import CommentFieldLayout from '~/notes/components/comment_field_layout.vue';
 import { AT_WHO_ACTIVE_CLASS } from '~/gfm_auto_complete';
-import eventHub from '~/environments/event_hub';
 import notesEventHub from '~/notes/event_hub';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 import { mockTracking } from 'helpers/tracking_helper';
-import { noteableDataMock, notesDataMock, discussionMock, note } from '../mock_data';
+import MarkdownEditor from '~/vue_shared/components/markdown/markdown_editor.vue';
+import { globalAccessorPlugin } from '~/pinia/plugins';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useNotes } from '~/notes/store/legacy_notes';
+import { useBatchComments } from '~/batch_comments/store';
+import { noteableDataMock, notesDataMock, discussionMock } from '../mock_data';
 
 jest.mock('~/lib/utils/autosave');
 
+Vue.use(PiniaVuePlugin);
+
 describe('issue_note_form component', () => {
-  let store;
+  let pinia;
   let wrapper;
   let textarea;
   let props;
   let trackingSpy;
 
-  const createComponentWrapper = (propsData = {}, provide = {}) => {
+  const createComponentWrapper = (propsData = {}, provide = {}, stubs = {}) => {
     wrapper = mountExtended(NoteForm, {
-      store,
+      pinia,
       propsData: {
         ...props,
         ...propsData,
@@ -40,6 +46,7 @@ describe('issue_note_form component', () => {
           },
         },
       },
+      stubs,
     });
 
     textarea = wrapper.find('textarea');
@@ -51,9 +58,11 @@ describe('issue_note_form component', () => {
   const findMarkdownField = () => wrapper.findComponent(MarkdownField);
 
   beforeEach(() => {
-    store = createStore();
-    store.dispatch('setNoteableData', noteableDataMock);
-    store.dispatch('setNotesData', notesDataMock);
+    pinia = createTestingPinia({ plugins: [globalAccessorPlugin] });
+    useLegacyDiffs();
+    useNotes().noteableData = noteableDataMock;
+    useNotes().notesData = notesDataMock;
+    useBatchComments().$patch({ isMergeRequest: true });
 
     props = {
       isEditing: false,
@@ -116,6 +125,10 @@ describe('issue_note_form component', () => {
       createComponentWrapper();
     });
 
+    it('should render text area with noteable type', () => {
+      expect(textarea.attributes('data-noteable-type')).toBe(noteableDataMock.noteableType);
+    });
+
     it('should render text area with placeholder', () => {
       expect(textarea.attributes('placeholder')).toBe('Write a comment or drag your files here…');
     });
@@ -125,15 +138,15 @@ describe('issue_note_form component', () => {
     });
 
     it.each`
-      internal | placeholder
-      ${false} | ${'Write a comment or drag your files here…'}
-      ${true}  | ${'Write an internal note or drag your files here…'}
+      confidential | placeholder
+      ${false}     | ${'Write a comment or drag your files here…'}
+      ${true}      | ${'Write an internal note or drag your files here…'}
     `(
       'should set correct textarea placeholder text when discussion confidentiality is $internal',
-      async ({ internal, placeholder }) => {
-        props.note = {
-          ...note,
-          internal,
+      async ({ confidential, placeholder }) => {
+        props.discussion = {
+          ...discussionMock,
+          confidential,
         };
         createComponentWrapper();
 
@@ -154,7 +167,7 @@ describe('issue_note_form component', () => {
 
       describe('up', () => {
         it('should ender edit mode', () => {
-          const eventHubSpy = jest.spyOn(eventHub, '$emit');
+          const eventHubSpy = jest.spyOn(notesEventHub, '$emit');
 
           textarea.trigger('keydown.up');
 
@@ -233,15 +246,10 @@ describe('issue_note_form component', () => {
 
       describe('when discussion is confidential', () => {
         beforeEach(() => {
-          createComponentWrapper({
-            discussion: {
-              ...discussionMock,
-              confidential: true,
-            },
-          });
+          createComponentWrapper({ discussion: { confidential: true } });
         });
 
-        it('passes correct confidentiality to CommentFieldLayout', () => {
+        it('passes correct internal note information to CommentFieldLayout', () => {
           expect(wrapper.findComponent(CommentFieldLayout).props('isInternalNote')).toBe(true);
         });
       });
@@ -286,8 +294,6 @@ describe('issue_note_form component', () => {
 
   describe('with batch comments', () => {
     beforeEach(() => {
-      store.registerModule('batchComments', batchComments());
-
       createComponentWrapper({
         isDraft: true,
         noteId: '',
@@ -337,7 +343,7 @@ describe('issue_note_form component', () => {
       });
 
       it('sends the event to indicate that a draft has been added to the review', () => {
-        store.state.batchComments.drafts = [{ note: 'A' }];
+        useBatchComments().drafts = [{ note: 'A' }];
         createComponentWrapper({
           isDraft: true,
           noteId: '',
@@ -365,5 +371,12 @@ describe('issue_note_form component', () => {
         });
       });
     });
+  });
+
+  it('calls append on a markdown editor', () => {
+    createComponentWrapper(undefined, undefined, { MarkdownEditor });
+    const spy = jest.spyOn(wrapper.findComponent(MarkdownEditor).vm, 'append');
+    wrapper.vm.append('foo');
+    expect(spy).toHaveBeenCalledWith('foo');
   });
 });

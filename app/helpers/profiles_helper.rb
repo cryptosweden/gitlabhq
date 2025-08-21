@@ -7,7 +7,10 @@ module ProfilesHelper
 
     [
       [s_('Use primary email (%{email})') % { email: user.email }, ''],
-      [s_("Profiles|Use a private email - %{email}").html_safe % { email: private_email }, Gitlab::PrivateCommitEmail::TOKEN],
+      [
+        safe_format(s_("Profiles|Use a private email - %{email}"), email: private_email),
+        Gitlab::PrivateCommitEmail::TOKEN
+      ],
       *verified_emails
     ]
   end
@@ -27,21 +30,6 @@ module ProfilesHelper
     params[:controller] == 'users'
   end
 
-  def middle_dot_divider_classes(stacking, breakpoint)
-    ['gl-mb-3'].tap do |classes|
-      if stacking
-        classes.concat(%w[middle-dot-divider-sm gl-block sm:gl-inline-block])
-      else
-        classes << 'gl-display-inline-block'
-        classes << if breakpoint.nil?
-                     'middle-dot-divider'
-                   else
-                     "middle-dot-divider-#{breakpoint}"
-                   end
-      end
-    end
-  end
-
   def ssh_key_usage_types
     {
       s_('SSHKey|Authentication & Signing') => 'auth_and_signing',
@@ -52,7 +40,7 @@ module ProfilesHelper
 
   # Overridden in EE::ProfilesHelper#ssh_key_expiration_tooltip
   def ssh_key_expiration_tooltip(key)
-    return key.errors.full_messages.join(', ') if key.errors.full_messages.any?
+    key.errors.full_messages.join(', ') if key.errors.full_messages.any?
   end
 
   # Overridden in EE::ProfilesHelper#ssh_key_expires_field_description
@@ -78,12 +66,39 @@ module ProfilesHelper
       has_avatar: user.avatar?.to_s,
       gravatar_enabled: gravatar_enabled?.to_s,
       gravatar_link: { hostname: Gitlab.config.gravatar.host, url: "https://#{Gitlab.config.gravatar.host}" }.to_json,
-      brand_profile_image_guidelines: current_appearance&.profile_image_guidelines? ? brand_profile_image_guidelines : '',
+
+      brand_profile_image_guidelines: if current_appearance&.profile_image_guidelines?
+                                        brand_profile_image_guidelines
+                                      else
+                                        ''
+                                      end,
+
       cropper_css_path: ActionController::Base.helpers.stylesheet_path('lazy_bundles/cropper.css'),
       user_path: user_path(current_user),
       timezones: timezone_data_with_unique_identifiers.to_json,
       user_timezone: user.timezone,
+      id: user.id,
+      name: user.name,
+      pronouns: user.pronouns,
+      location: user.location,
+      pronunciation: user.pronunciation,
+      website_url: user.website_url,
+      job_title: user.job_title,
+      organization: user.user_detail_organization,
+      bio: user.bio,
+      include_private_contributions: user.include_private_contributions?.to_s,
+      achievements_enabled: user.achievements_enabled.to_s,
+      private_profile: user.private_profile?.to_s,
       **user_status_properties(user)
+    }
+  end
+
+  def delete_account_modal_data
+    {
+      action_url: user_registration_path,
+      confirm_with_password: current_user.confirm_deletion_with_password?.to_s,
+      username: current_user.username,
+      delay_user_account_self_deletion: Gitlab::CurrentSettings.delay_user_account_self_deletion.to_s
     }
   end
 end

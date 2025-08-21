@@ -1,5 +1,5 @@
 <script>
-import { GlButton, GlTooltipDirective } from '@gitlab/ui';
+import { GlButton, GlTooltipDirective, GlAnimatedChevronLgDownUpIcon } from '@gitlab/ui';
 import { __ } from '~/locale';
 import { STATUS_CLOSED, STATUS_MERGED } from '~/issues/constants';
 import StatusIcon from './mr_widget_status_icon.vue';
@@ -8,6 +8,7 @@ import Actions from './action_buttons.vue';
 export default {
   components: {
     GlButton,
+    GlAnimatedChevronLgDownUpIcon,
     StatusIcon,
     Actions,
   },
@@ -29,11 +30,6 @@ export default {
       type: Boolean,
       required: false,
       default: false,
-    },
-    mr: {
-      type: Object,
-      required: false,
-      default: null,
     },
     isLoading: {
       type: Boolean,
@@ -63,8 +59,8 @@ export default {
   },
   computed: {
     wrapperClasses() {
-      if (this.status === STATUS_MERGED) return 'gl-bg-blue-50';
-      if (this.status === STATUS_CLOSED) return 'gl-bg-red-50';
+      if (this.status === STATUS_MERGED) return 'gl-bg-feedback-info widget-merge-status';
+      if (this.status === STATUS_CLOSED) return 'gl-bg-feedback-danger widget-merge-status';
       return null;
     },
     hasActionsSlot() {
@@ -76,15 +72,15 @@ export default {
 
 <template>
   <div
-    class="mr-widget-body media gl-display-flex gl-align-items-center gl-pl-5 gl-pr-4 gl-py-4"
+    class="mr-widget-body media gl-flex gl-items-center gl-py-4 gl-pl-5 gl-pr-4"
     :class="wrapperClasses"
     v-on="$listeners"
   >
-    <div v-if="isLoading" class="gl-w-full mr-state-loader">
+    <div v-if="isLoading" class="mr-state-loader gl-w-full">
       <slot name="loading">
-        <div class="gl-display-flex">
+        <div class="gl-flex">
           <status-icon status="loading" />
-          <div class="media-body gl-display-flex gl-align-items-center">
+          <div class="media-body gl-flex gl-items-center">
             <slot></slot>
           </div>
         </div>
@@ -94,44 +90,45 @@ export default {
       <slot name="icon">
         <status-icon :status="status" />
       </slot>
-      <div class="gl-display-flex gl-w-full">
+      <div class="gl-flex gl-w-full">
         <div
           :class="{
-            'gl-display-flex gl-align-items-center': actions.length,
-            'md:gl-flex gl-align-items-center gl-flex-wrap gl-gap-3': !actions.length,
+            'gl-flex gl-items-center': actions.length,
+            'gl-flex-wrap gl-items-center gl-gap-3 md:gl-flex': !actions.length,
           }"
           class="media-body gl-leading-normal"
         >
           <slot></slot>
-          <div
-            :class="{
-              'state-container-action-buttons gl-flex-wrap gl-lg-justify-content-end':
-                !actions.length,
-              'gl-md-pt-0 gl-pt-3': hasActionsSlot,
-            }"
-            class="gl-display-flex gl-font-size-0 gl-gap-3"
-          >
-            <slot name="actions">
-              <actions v-if="actions.length" :tertiary-buttons="actions" />
-            </slot>
-          </div>
+        </div>
+        <div
+          :class="{
+            'state-container-action-buttons gl-flex-wrap lg:gl-justify-end': !actions.length,
+            'gl-pt-3 md:gl-pt-0': hasActionsSlot,
+          }"
+          class="gl-font-size-0 gl-flex gl-gap-3"
+        >
+          <slot name="actions">
+            <actions v-if="actions.length" :tertiary-buttons="actions" />
+          </slot>
         </div>
         <div
           v-if="isCollapsible"
           :class="{ 'md:gl-hidden': !collapseOnDesktop }"
-          class="gl-border-l-1 gl-border-l-solid gl-border-gray-100 gl-ml-3 gl-pl-3 gl-h-6"
+          class="gl-border-l gl-ml-3 gl-h-6 gl-border-l-section gl-pl-3"
         >
           <gl-button
             v-gl-tooltip
             :title="collapsed ? expandDetailsTooltip : collapseDetailsTooltip"
             :aria-label="collapsed ? expandDetailsTooltip : collapseDetailsTooltip"
-            :icon="collapsed ? 'chevron-lg-down' : 'chevron-lg-up'"
+            :aria-expanded="collapsed ? 'false' : 'true'"
             category="tertiary"
             size="small"
-            class="gl-align-top"
+            class="btn-icon"
             data-testid="widget-toggle"
             @click="() => $emit('toggle')"
-          />
+          >
+            <gl-animated-chevron-lg-down-up-icon :is-on="!collapsed" />
+          </gl-button>
         </div>
       </div>
     </template>

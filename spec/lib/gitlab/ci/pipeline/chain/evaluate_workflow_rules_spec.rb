@@ -3,12 +3,18 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::Ci::Pipeline::Chain::EvaluateWorkflowRules do
+  include Ci::PipelineMessageHelpers
+
   let(:project)  { create(:project) }
   let(:user)     { create(:user) }
   let(:pipeline) { build(:ci_pipeline, project: project) }
 
   let(:command) do
-    Gitlab::Ci::Pipeline::Chain::Command.new(project: project, current_user: user)
+    Gitlab::Ci::Pipeline::Chain::Command.new(
+      project: project,
+      current_user: user,
+      origin_ref: project.default_branch_or_main
+    )
   end
 
   let(:step) { described_class.new(pipeline, command) }
@@ -33,7 +39,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::EvaluateWorkflowRules do
       end
 
       it 'attaches an error to the pipeline' do
-        expect(pipeline.errors[:base]).to include('Pipeline filtered out by workflow rules.')
+        expect(pipeline.errors[:base]).to include(sanitize_message(Ci::Pipeline.workflow_rules_failure_message))
       end
 
       it 'saves workflow_rules_result' do

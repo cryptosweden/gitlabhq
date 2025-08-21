@@ -4,8 +4,13 @@ require 'spec_helper'
 
 RSpec.describe Groups::CreateService, '#execute', feature_category: :groups_and_projects do
   let_it_be(:user, reload: true) { create(:user) }
+  let_it_be(:organization) { create(:organization, users: [user]) }
   let(:current_user) { user }
-  let(:group_params) { { path: 'group_path', visibility_level: Gitlab::VisibilityLevel::PUBLIC }.merge(extra_params) }
+  let(:group_params) do
+    { path: 'group_path', visibility_level: Gitlab::VisibilityLevel::PUBLIC,
+      organization_id: organization.id }.merge(extra_params)
+  end
+
   let(:extra_params) { {} }
   let(:created_group) { response[:group] }
 
@@ -220,11 +225,11 @@ RSpec.describe Groups::CreateService, '#execute', feature_category: :groups_and_
       end
     end
 
-    context 'when organization is not set by params', :with_current_organization do
+    context 'when organization is not set by params' do
       context 'and the parent of the group has an organization' do
         let_it_be(:parent_group) { create(:group, organization: other_organization) }
 
-        let(:extra_params) { { parent_id: parent_group.id } }
+        let(:group_params) { { path: 'with-parent', parent_id: parent_group.id } }
 
         it 'creates group with the parent group organization' do
           expect(created_group.organization).to eq(other_organization)
@@ -232,26 +237,15 @@ RSpec.describe Groups::CreateService, '#execute', feature_category: :groups_and_
       end
     end
 
-    context 'when organization_id is set to nil' do
-      let_it_be(:default_organization) { create(:organization, :default) }
-      let(:extra_params) { { organization_id: nil } }
+    context 'when organization_id is not specified' do
+      let(:group_params) { { path: 'group_path' } }
 
-      it 'creates group in default organization' do
-        expect(created_group.organization).to eq(default_organization)
-      end
-    end
-
-    context 'when organization is not set at all' do
-      it 'creates group without an organization' do
-        expect(created_group.organization).to eq(nil)
-        # let db default happen even if the organization record itself doesn't exist
-        expect(created_group.organization_id).not_to be_nil
-      end
+      it_behaves_like 'does not create a group'
     end
   end
 
   context 'for a subgroup' do
-    let_it_be(:group) { create(:group) }
+    let_it_be(:group) { create(:group, organization: organization) }
     let(:extra_params) { { parent_id: group.id } }
 
     context 'as group owner' do
@@ -337,7 +331,7 @@ RSpec.describe Groups::CreateService, '#execute', feature_category: :groups_and_
 
     context 'when there is a group-level exclusion' do
       let(:extra_params) { { parent_id: group.id } }
-      let_it_be(:group) { create(:group) { |g| g.add_owner(user) } }
+      let_it_be(:group) { create(:group, organization: organization) { |g| g.add_owner(user) } }
       let_it_be(:group_integration) do
         create(:beyond_identity_integration, group: group, instance: false, active: false)
       end
@@ -352,25 +346,25 @@ RSpec.describe Groups::CreateService, '#execute', feature_category: :groups_and_
 
   context 'with an active instance-level integration' do
     let_it_be(:instance_integration) do
-      create(:prometheus_integration, :instance, api_url: 'https://prometheus.instance.com/')
+      create(:confluence_integration, :instance, confluence_url: 'https://instance.atlassian.net/wiki')
     end
 
     it 'creates a service from the instance-level integration' do
       expect(created_group.integrations.count).to eq(1)
-      expect(created_group.integrations.first.api_url).to eq(instance_integration.api_url)
+      expect(created_group.integrations.first.confluence_url).to eq(instance_integration.confluence_url)
       expect(created_group.integrations.first.inherit_from_id).to eq(instance_integration.id)
     end
 
     context 'with an active group-level integration' do
       let(:extra_params) { { parent_id: group.id } }
-      let_it_be(:group) { create(:group) { |g| g.add_owner(user) } }
+      let_it_be(:group) { create(:group, organization: organization) { |g| g.add_owner(user) } }
       let_it_be(:group_integration) do
-        create(:prometheus_integration, :group, group: group, api_url: 'https://prometheus.group.com/')
+        create(:confluence_integration, :group, group: group, confluence_url: 'https://group.atlassian.net/wiki')
       end
 
       it 'creates a service from the group-level integration' do
         expect(created_group.integrations.count).to eq(1)
-        expect(created_group.integrations.first.api_url).to eq(group_integration.api_url)
+        expect(created_group.integrations.first.confluence_url).to eq(group_integration.confluence_url)
         expect(created_group.integrations.first.inherit_from_id).to eq(group_integration.id)
       end
 
@@ -378,12 +372,12 @@ RSpec.describe Groups::CreateService, '#execute', feature_category: :groups_and_
         let(:extra_params) { { parent_id: subgroup.id } }
         let_it_be(:subgroup) { create(:group, parent: group) { |g| g.add_owner(user) } }
         let_it_be(:subgroup_integration) do
-          create(:prometheus_integration, :group, group: subgroup, api_url: 'https://prometheus.subgroup.com/')
+          create(:confluence_integration, :group, group: subgroup, confluence_url: 'https://subgroup.atlassian.net/wiki')
         end
 
         it 'creates a service from the subgroup-level integration' do
           expect(created_group.integrations.count).to eq(1)
-          expect(created_group.integrations.first.api_url).to eq(subgroup_integration.api_url)
+          expect(created_group.integrations.first.confluence_url).to eq(subgroup_integration.confluence_url)
           expect(created_group.integrations.first.inherit_from_id).to eq(subgroup_integration.id)
         end
       end
@@ -427,6 +421,27 @@ RSpec.describe Groups::CreateService, '#execute', feature_category: :groups_and_
       it 'follows default config' do
         expect(created_group.shared_runners_enabled).to eq(true)
         expect(created_group.allow_descendants_override_disabled_shared_runners).to eq(false)
+      end
+    end
+  end
+
+  describe 'enabling JWT by default for CI/CD job tokens for new groups' do
+    context 'when creating a root group' do
+      it 'enables JWT for CI/CD job tokens' do
+        expect(created_group.namespace_settings.jwt_ci_cd_job_token_enabled).to be(true)
+      end
+    end
+
+    context 'when creating a subgroup' do
+      let(:parent_group) { create(:group) }
+      let(:extra_params) { { parent_id: parent_group.id } }
+
+      before do
+        parent_group.add_owner(user)
+      end
+
+      it 'does not enable JWT for CI/CD job tokens' do
+        expect(created_group.namespace_settings.jwt_ci_cd_job_token_enabled).to be(false)
       end
     end
   end

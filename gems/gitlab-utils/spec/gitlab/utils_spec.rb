@@ -47,15 +47,22 @@ RSpec.describe Gitlab::Utils, feature_category: :shared do
   end
 
   describe '.slugify' do
-    {
-      'TEST' => 'test',
-      'project_with_underscores' => 'project-with-underscores',
-      'namespace/project' => 'namespace-project',
-      'a' * 70 => 'a' * 63,
-      'test_trailing_' => 'test-trailing'
-    }.each do |original, expected|
-      it "slugifies #{original} to #{expected}" do
-        expect(slugify(original)).to eq(expected)
+    where(:original, :allow_dots, :expected) do
+      'TEST'                     | false | 'test'
+      'project_with_underscores' | false | 'project-with-underscores'
+      'namespace/project'        | false | 'namespace-project'
+      ('a' * 70)                 | false | ('a' * 63)
+      'test_trailing_'           | false | 'test-trailing'
+      '17.9'                     | false | '17-9'
+      '..17.9..'                 | true  | '17.9'
+      '-.-.17.9-.-.'             | true  | '17.9'
+      '17..9'                    | true  | '17..9'
+      '17.9'                     | nil   | '17-9'
+    end
+
+    with_them do
+      it "slugifies path according to settings" do
+        expect(slugify(original, allow_dots: allow_dots)).to eq(expected)
       end
     end
   end
@@ -638,37 +645,166 @@ RSpec.describe Gitlab::Utils, feature_category: :shared do
   end
 
   describe '.deep_sort_hash' do
-    it 'recursively sorts a hash' do
+    it 'is an alias for .deep_sort_hashes' do
+      expect(JSON.generate(described_class.deep_sort_hash({ b: 2, a: 1 })))
+        .to eq(JSON.generate({ a: 1, b: 2 }))
+    end
+  end
+
+  describe '.deep_sort_hashes' do
+    it 'recursively sorts a hash with symbol keys' do
       hash = {
         z: "record-z",
         e: { y: "nested-record-y", a: "nested-record-a", b: "nested-record-b" },
         c: {
-          m: {
-            p: "doubly-nested-record-p",
-            o: "doubly-nested-record-o"
-          },
-          k: {
-            v: "doubly-nested-record-v",
-            u: "doubly-nested-record-u"
-          }
+          m: { p: "doubly-nested-record-p", o: "doubly-nested-record-o" },
+          k: { v: "doubly-nested-record-v", u: "doubly-nested-record-u" }
         }
       }
-      expect(JSON.generate(described_class.deep_sort_hash(hash))).to eq(JSON.generate({
+      expect(JSON.generate(described_class.deep_sort_hashes(hash))).to eq(JSON.generate({
         c: {
-          k: {
-            u: "doubly-nested-record-u",
-            v: "doubly-nested-record-v"
-          },
-          m: {
-            o: "doubly-nested-record-o",
-            p: "doubly-nested-record-p"
-          }
+          k: { u: "doubly-nested-record-u", v: "doubly-nested-record-v" },
+          m: { o: "doubly-nested-record-o", p: "doubly-nested-record-p" }
 
         },
-        e: { a: "nested-record-a", b: "nested-record-b",
-             y: "nested-record-y" },
+        e: { a: "nested-record-a", b: "nested-record-b", y: "nested-record-y" },
         z: "record-z"
       }))
+    end
+
+    it 'recursively sorts a hash with mixed string and symbol keys' do
+      hash = {
+        z: "record-z",
+        'e' => { y: "nested-record-y", 'a' => "nested-record-a", 'b' => "nested-record-b" },
+        c: {
+          'm' => { p: "doubly-nested-record-p", 'o' => "doubly-nested-record-o" },
+          k: { 'v' => "doubly-nested-record-v", u: "doubly-nested-record-u" }
+        }
+      }
+      expect(JSON.generate(described_class.deep_sort_hashes(hash))).to eq(JSON.generate({
+        c: {
+          k: { u: "doubly-nested-record-u", 'v' => "doubly-nested-record-v" },
+          'm' => { 'o' => "doubly-nested-record-o", p: "doubly-nested-record-p" }
+        },
+        'e' => { 'a' => "nested-record-a", 'b' => "nested-record-b", y: "nested-record-y" },
+        z: "record-z"
+      }))
+    end
+
+    it 'recursively sorts a hash with nested hashes/arrays and mixed string/symbol keys' do
+      item = {
+        z: "record-z",
+        'e' => [
+          {
+            y: "nested-record-y",
+            'b' => "nested-record-b",
+            c: [{ 'z' => "this should remain the first element in the c: array" }, "a"]
+          },
+          "This non-Array/non-Hash object should remain the second element in the 'e' array",
+          { 'a' => "this should remain the third element in the 'e' array" }
+        ],
+        c: {
+          'm' => { p: "doubly-nested-record-p", 'o' => "doubly-nested-record-o" },
+          k: { 'v' => "doubly-nested-record-v", u: "doubly-nested-record-u" }
+        }
+      }
+      expect(JSON.generate(described_class.deep_sort_hashes(item))).to eq(JSON.generate({
+        c: {
+          k: { u: "doubly-nested-record-u", 'v' => "doubly-nested-record-v" },
+          'm' => { 'o' => "doubly-nested-record-o", p: "doubly-nested-record-p" }
+        },
+        'e' => [
+          {
+            'b' => "nested-record-b",
+            c: [{ 'z' => "this should remain the first element in the c: array" }, "a"],
+            y: "nested-record-y"
+          },
+          "This non-Array/non-Hash object should remain the second element in the 'e' array",
+          { 'a' => "this should remain the third element in the 'e' array" }
+        ],
+        z: "record-z"
+      }))
+    end
+
+    it 'recursively sorts an array with deeply nested hashes/arrays and mixed string/symbol keys' do
+      item = [
+        {
+          z: "record-z",
+          'e' => [
+            {
+              y: "nested-record-y",
+              'b' => "nested-record-b",
+              c: [{ 'z' => "this should remain the first element in the c: array" }, "a"]
+            },
+            "This non-Array/non-Hash object should remain the second element in the 'e' array",
+            { 'a' => "this should remain the third element in the 'e' array" }
+          ],
+          c: {
+            'm' => { p: "doubly-nested-record-p", 'o' => "doubly-nested-record-o" },
+            k: { 'v' => "doubly-nested-record-v", u: "doubly-nested-record-u" }
+          }
+        },
+        { "bb" => "bb", aa: "aa" },
+        { v: [[{ r: 2, q: 1 }, { t: 4, s: 3 }]] }
+      ]
+      actual = JSON.generate({ a: described_class.deep_sort_hashes(item) })
+      expected = JSON.generate({ a: [
+        {
+          c: {
+            k: { u: "doubly-nested-record-u", 'v' => "doubly-nested-record-v" },
+            'm' => { 'o' => "doubly-nested-record-o", p: "doubly-nested-record-p" }
+          },
+          'e' => [
+            {
+              'b' => "nested-record-b",
+              c: [{ 'z' => "this should remain the first element in the c: array" }, "a"],
+              y: "nested-record-y"
+            },
+            "This non-Array/non-Hash object should remain the second element in the 'e' array",
+            { 'a' => "this should remain the third element in the 'e' array" }
+          ],
+          z: "record-z"
+        },
+        { aa: "aa", "bb" => "bb" },
+        { v: [[{ q: 1, r: 2 }, { s: 3, t: 4 }]] }
+      ] })
+      expect(actual).to eq(expected)
+    end
+  end
+
+  describe '.param_key' do
+    where(:name, :result) do
+      'User'                                | 'user'
+      'SecureFile'                          | 'secure_file'
+      'Ci::SecureFile'                      | 'ci_secure_file'
+      'Gitlab::Ci::Reports::Security::Flag' | 'gitlab_ci_reports_security_flag'
+      'A::B::SomeClass'                     | 'a_b_some_class'
+      'HTTPSConnection'                     | 'https_connection'
+      'API::V4::ProjectsController'         | 'api_v4_projects_controller'
+      'OAuth2Provider'                      | 'o_auth2_provider'
+      'Special_Module::TestClass'           | 'special_module_test_class'
+    end
+
+    with_them do
+      context 'with defined classes' do
+        before do
+          stub_const(name, Class.new)
+        end
+
+        let(:klass) { name.constantize }
+
+        it 'converts class name to snake_case' do
+          expect(described_class.param_key(klass)).to eq(result)
+        end
+      end
+    end
+
+    context 'with anonymous classes' do
+      let(:klass) { Class.new }
+
+      it 'raises an error for anonymous classes' do
+        expect { described_class.param_key(klass) }.to raise_error(NoMethodError, /undefined method.*for nil/)
+      end
     end
   end
 end

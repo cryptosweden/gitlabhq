@@ -3,7 +3,7 @@
 require 'rubocop_spec_helper'
 require_relative '../../../../rubocop/cop/rspec/expect_gitlab_tracking'
 
-RSpec.describe RuboCop::Cop::RSpec::ExpectGitlabTracking do
+RSpec.describe RuboCop::Cop::RSpec::ExpectGitlabTracking, feature_category: :shared do
   let(:source_file) { 'spec/foo_spec.rb' }
 
   good_samples = [
@@ -37,10 +37,10 @@ RSpec.describe RuboCop::Cop::RSpec::ExpectGitlabTracking do
   bad_samples.each do |bad|
     context "bad: #{bad}" do
       it 'registers an offense' do
-        expect_offense(<<~CODE, node: bad)
+        expect_offense(<<~RUBY, node: bad)
           %{node}
           ^{node} Do not expect directly on `Gitlab::Tracking#event`[...]
-        CODE
+        RUBY
       end
     end
   end

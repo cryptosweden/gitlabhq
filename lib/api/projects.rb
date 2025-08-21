@@ -4,10 +4,16 @@ module API
   class Projects < ::API::Base
     include PaginationParams
     include Helpers::CustomAttributes
+    include APIGuard
 
     helpers Helpers::ProjectsHelpers
 
-    before { authenticate_non_get! }
+    before do
+      authenticate_non_get!
+      set_current_organization(user: current_user)
+    end
+
+    allow_access_with_scope :ai_workflows, if: ->(request) { request.get? || request.head? }
 
     feature_category :groups_and_projects, %w[
       /projects/:id/custom_attributes
@@ -79,12 +85,40 @@ module API
         end
       end
 
+      def immediately_delete_project_error(project)
+        if !project.marked_for_deletion_at?
+          'Project must be marked for deletion first.'
+        elsif project.full_path != params[:full_path]
+          '`full_path` is incorrect. You must enter the complete path for the project.'
+        end
+      end
+
       def delete_project(user_project)
-        destroy_conditionally!(user_project) do
-          ::Projects::DestroyService.new(user_project, current_user, {}).async_execute
+        permanently_remove = ::Gitlab::Utils.to_boolean(params[:permanently_remove])
+
+        if permanently_remove
+          error = immediately_delete_project_error(user_project)
+
+          return render_api_error!(error, 400) if error
         end
 
-        accepted!
+        if permanently_remove
+          destroy_conditionally!(user_project) do
+            ::Projects::DestroyService.new(user_project, current_user, {}).async_execute
+          end
+
+          return accepted!
+        end
+
+        result = destroy_conditionally!(user_project) do
+          ::Projects::MarkForDeletionService.new(user_project, current_user, {}).execute
+        end
+
+        if result[:status] == :success
+          accepted!
+        else
+          render_api_error!(result[:message], 400)
+        end
       end
 
       def validate_projects_api_rate_limit_for_unauthenticated_users!
@@ -92,7 +126,7 @@ module API
       end
 
       def validate_projects_api_rate_limit!
-        if current_user && Feature.enabled?(:rate_limit_groups_and_projects_api, current_user)
+        if current_user
           check_rate_limit_by_user_or_ip!(:projects_api)
         else
           validate_projects_api_rate_limit_for_unauthenticated_users!
@@ -116,7 +150,7 @@ module API
 
       params :sort_params do
         optional :order_by, type: String,
-          values: %w[id name path created_at updated_at last_activity_at similarity] + Helpers::ProjectsHelpers::STATISTICS_SORT_PARAMS,
+          values: %w[id name path created_at updated_at last_activity_at similarity star_count] + Helpers::ProjectsHelpers::STATISTICS_SORT_PARAMS,
           default: 'created_at', desc: "Return projects ordered by field. #{Helpers::ProjectsHelpers::STATISTICS_SORT_PARAMS.join(', ')} are only available to admins. Similarity is available when searching and is limited to projects the user has access to."
         optional :sort, type: String, values: %w[asc desc], default: 'desc',
           desc: 'Return projects sorted in ascending and descending order'
@@ -146,6 +180,8 @@ module API
         optional :updated_before, type: DateTime, desc: 'Return projects updated before the specified datetime. Format: ISO 8601 YYYY-MM-DDTHH:MM:SSZ'
         optional :updated_after, type: DateTime, desc: 'Return projects updated after the specified datetime. Format: ISO 8601 YYYY-MM-DDTHH:MM:SSZ'
         optional :include_pending_delete, type: Boolean, desc: 'Include projects in pending delete state. Can only be set by admins'
+        optional :marked_for_deletion_on, type: Date, desc: 'Date when the project was marked for deletion'
+        optional :active, type: Boolean, desc: 'Limit by projects that are not archived and not marked for deletion'
 
         use :optional_filter_params_ee
       end
@@ -159,7 +195,7 @@ module API
       end
 
       def load_projects
-        project_params = project_finder_params
+        project_params = project_finder_params.merge(current_organization: Current.organization)
         support_order_by_similarity!(project_params)
         verify_project_filters!(project_params)
         ProjectsFinder.new(current_user: current_user, params: project_params).execute
@@ -233,9 +269,7 @@ module API
         use :with_custom_attributes
       end
       get ":user_id/projects", feature_category: :groups_and_projects, urgency: :low do
-        if Feature.enabled?(:rate_limit_groups_and_projects_api, current_user)
-          check_rate_limit_by_user_or_ip!(:user_projects_api)
-        end
+        check_rate_limit_by_user_or_ip!(:user_projects_api)
 
         user = find_user(params[:user_id])
         not_found!('User') unless user
@@ -260,14 +294,12 @@ module API
           desc: 'Return only the ID, URL, name, and path of each project'
       end
       get ":user_id/contributed_projects", feature_category: :groups_and_projects, urgency: :low do
-        if Feature.enabled?(:rate_limit_groups_and_projects_api, current_user)
-          check_rate_limit_by_user_or_ip!(:user_contributed_projects_api)
-        end
+        check_rate_limit_by_user_or_ip!(:user_contributed_projects_api)
 
         user = find_user(params[:user_id])
         not_found!('User') unless user
 
-        contributed_projects = ContributedProjectsFinder.new(user).execute(current_user).joined(user)
+        contributed_projects = ContributedProjectsFinder.new(user: user, current_user: current_user).execute.joined(user)
         present_projects contributed_projects
       end
 
@@ -283,9 +315,7 @@ module API
         use :statistics_params
       end
       get ":user_id/starred_projects", feature_category: :groups_and_projects, urgency: :low do
-        if Feature.enabled?(:rate_limit_groups_and_projects_api, current_user)
-          check_rate_limit_by_user_or_ip!(:user_starred_projects_api)
-        end
+        check_rate_limit_by_user_or_ip!(:user_starred_projects_api)
 
         user = find_user(params[:user_id])
         not_found!('User') unless user
@@ -297,6 +327,20 @@ module API
 
     resource :projects do
       include CustomAttributesEndpoints
+
+      desc 'Restore a project' do
+        success ::API::Entities::Project
+      end
+      post ':id/restore', feature_category: :system_access do
+        authorize!(:remove_project, user_project)
+
+        result = ::Projects::RestoreService.new(user_project, current_user).execute
+        if result[:status] == :success
+          present user_project, with: ::API::Entities::Project, current_user: current_user
+        else
+          render_api_error!(result[:message], 400)
+        end
+      end
 
       desc 'Get a list of visible projects for authenticated user' do
         success code: 200, model: Entities::BasicProjectDetails
@@ -315,7 +359,6 @@ module API
       get feature_category: :groups_and_projects, urgency: :low do
         validate_projects_api_rate_limit!
         validate_updated_at_order_and_filter!
-
         present_projects load_projects
       end
 
@@ -439,9 +482,7 @@ module API
       end
       # TODO: Set higher urgency https://gitlab.com/gitlab-org/gitlab/-/issues/357622
       get ":id", feature_category: :groups_and_projects, urgency: :low do
-        if Feature.enabled?(:rate_limit_groups_and_projects_api, current_user)
-          check_rate_limit_by_user_or_ip!(:project_api)
-        end
+        check_rate_limit_by_user_or_ip!(:project_api)
 
         options = {
           with: current_user ? Entities::ProjectWithAccess : Entities::ProjectDetails,
@@ -560,6 +601,7 @@ module API
         attrs = declared_params(include_missing: false)
         authorize! :rename_project, user_project if attrs[:name].present?
         authorize! :change_visibility_level, user_project if user_project.visibility_attribute_present?(attrs)
+        authorize! :destroy_pipeline, user_project if attrs.key?(:ci_delete_pipelines_in_seconds)
 
         attrs = translate_params_for_compatibility(attrs)
         attrs = add_import_params(attrs)
@@ -591,9 +633,13 @@ module API
       post ':id/archive', feature_category: :groups_and_projects do
         authorize!(:archive_project, user_project)
 
-        ::Projects::UpdateService.new(user_project, current_user, archived: true).execute
+        result = ::Projects::ArchiveService.new(project: user_project, current_user: current_user).execute
 
-        present_project user_project, with: Entities::Project, current_user: current_user
+        if result.success?
+          present_project user_project, with: Entities::Project, current_user: current_user
+        else
+          render_api_error!(result.message, 400)
+        end
       end
 
       desc 'Unarchive a project' do
@@ -606,9 +652,13 @@ module API
       post ':id/unarchive', feature_category: :groups_and_projects, urgency: :default do
         authorize!(:archive_project, user_project)
 
-        ::Projects::UpdateService.new(user_project, current_user, archived: false).execute
+        result = ::Projects::UnarchiveService.new(project: user_project, current_user: current_user).execute
 
-        present_project user_project, with: Entities::Project, current_user: current_user
+        if result.success?
+          present_project user_project, with: Entities::Project, current_user: current_user
+        else
+          render_api_error!(result.message, 400)
+        end
       end
 
       desc 'Star a project' do
@@ -764,8 +814,9 @@ module API
         requires :group_id, type: Integer, desc: 'The ID of a group', documentation: { example: 1 }
         requires :group_access, type: Integer, values: Gitlab::Access.all_values, as: :link_group_access, desc: 'The group access level'
         optional :expires_at, type: Date, desc: 'Share expiration date'
+        use :share_project_params_ee
       end
-      post ":id/share", feature_category: :groups_and_projects do
+      post ":id/share", feature_category: :groups_and_projects, urgency: :low do
         authorize! :admin_project, user_project
         shared_with_group = Group.find_by_id(params[:group_id])
 
@@ -894,6 +945,27 @@ module API
         present_groups groups
       end
 
+      desc 'Get a list of invited groups in this project' do
+        success Entities::Group
+        is_array true
+        tags %w[projects]
+      end
+      params do
+        optional :relation, type: Array[String], coerce_with: ::API::Validations::Types::CommaSeparatedToArray.coerce, values: %w[direct inherited], desc: 'Filter by group relation'
+        optional :search, type: String, desc: 'Search for a specific group'
+        optional :min_access_level, type: Integer, values: Gitlab::Access.all_values, desc: 'Limit by minimum access level of authenticated user'
+
+        use :pagination
+        use :with_custom_attributes
+      end
+      get ':id/invited_groups', feature_category: :groups_and_projects do
+        check_rate_limit_by_user_or_ip!(:project_invited_groups_api)
+
+        project = find_project!(params[:id])
+        groups = ::Namespaces::Projects::InvitedGroupsFinder.new(project, current_user, declared_params).execute
+        present_groups groups
+      end
+
       desc 'Start the housekeeping task for a project' do
         detail 'This feature was introduced in GitLab 9.0.'
         success code: 201
@@ -957,6 +1029,7 @@ module API
       end
       put ":id/transfer", feature_category: :groups_and_projects do
         authorize! :change_namespace, user_project
+        Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/546376')
 
         namespace = find_namespace!(params[:namespace])
         result = ::Projects::TransferService.new(user_project, current_user).execute(namespace)
@@ -984,6 +1057,8 @@ module API
         authorize! :change_namespace, user_project
         args = declared_params(include_missing: false)
         args[:permission_scope] = :transfer_projects
+        args[:exact_matches_first] = true
+        args[:organization] = Current.organization
 
         groups = ::Groups::UserGroupsFinder.new(current_user, current_user, args).execute
         groups = groups.excluding_groups(user_project.group).with_route

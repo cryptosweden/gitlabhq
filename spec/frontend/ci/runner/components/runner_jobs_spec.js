@@ -1,10 +1,12 @@
-import { GlSkeletonLoader } from '@gitlab/ui';
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import { createAlert } from '~/alert';
+import { TYPENAME_CI_RUNNER } from '~/graphql_shared/constants';
+import { convertToGraphQLId } from '~/graphql_shared/utils';
+import CrudComponent from '~/vue_shared/components/crud_component.vue';
 import RunnerJobs from '~/ci/runner/components/runner_jobs.vue';
 import RunnerJobsTable from '~/ci/runner/components/runner_jobs_table.vue';
 import RunnerPagination from '~/ci/runner/components/runner_pagination.vue';
@@ -14,12 +16,13 @@ import { RUNNER_DETAILS_JOBS_PAGE_SIZE } from '~/ci/runner/constants';
 
 import runnerJobsQuery from '~/ci/runner/graphql/show/runner_jobs.query.graphql';
 
-import { runnerData, runnerJobsData } from '../mock_data';
+import { runnerJobsData } from '../mock_data';
 
 jest.mock('~/alert');
 jest.mock('~/ci/runner/sentry_utils');
 
-const mockRunner = runnerData.data.runner;
+const mockRunnerId = '1';
+const mockRunnerGraphQLId = convertToGraphQLId(TYPENAME_CI_RUNNER, mockRunnerId);
 const mockRunnerWithJobs = runnerJobsData.data.runner;
 const mockJobs = mockRunnerWithJobs.jobs.nodes;
 
@@ -29,7 +32,7 @@ describe('RunnerJobs', () => {
   let wrapper;
   let mockRunnerJobsQuery;
 
-  const findGlSkeletonLoading = () => wrapper.findComponent(GlSkeletonLoader);
+  const findCrudComponent = () => wrapper.findComponent(CrudComponent);
   const findRunnerJobsTable = () => wrapper.findComponent(RunnerJobsTable);
   const findRunnerPagination = () => wrapper.findComponent(RunnerPagination);
   const findEmptyState = () => wrapper.findComponent(RunnerJobsEmptyState);
@@ -37,7 +40,10 @@ describe('RunnerJobs', () => {
     wrapper = mountFn(RunnerJobs, {
       apolloProvider: createMockApollo([[runnerJobsQuery, mockRunnerJobsQuery]]),
       propsData: {
-        runner: mockRunner,
+        runnerId: mockRunnerId,
+      },
+      stubs: {
+        CrudComponent,
       },
     });
   };
@@ -57,7 +63,7 @@ describe('RunnerJobs', () => {
 
     expect(mockRunnerJobsQuery).toHaveBeenCalledTimes(1);
     expect(mockRunnerJobsQuery).toHaveBeenCalledWith({
-      id: mockRunner.id,
+      id: mockRunnerGraphQLId,
       first: RUNNER_DETAILS_JOBS_PAGE_SIZE,
     });
   });
@@ -68,6 +74,10 @@ describe('RunnerJobs', () => {
 
       createComponent();
       await waitForPromises();
+    });
+
+    it('shows count', () => {
+      expect(findCrudComponent().props('count')).toBe(1);
     });
 
     it('Shows jobs', () => {
@@ -86,7 +96,7 @@ describe('RunnerJobs', () => {
       it('A new page is requested', () => {
         expect(mockRunnerJobsQuery).toHaveBeenCalledTimes(2);
         expect(mockRunnerJobsQuery).toHaveBeenLastCalledWith({
-          id: mockRunner.id,
+          id: mockRunnerGraphQLId,
           first: RUNNER_DETAILS_JOBS_PAGE_SIZE,
           after: 'AFTER_CURSOR',
         });
@@ -98,7 +108,7 @@ describe('RunnerJobs', () => {
     it('shows loading indicator and no other content', () => {
       createComponent();
 
-      expect(findGlSkeletonLoading().exists()).toBe(true);
+      expect(findCrudComponent().props('isLoading')).toBe(true);
       expect(findRunnerJobsTable().exists()).toBe(false);
       expect(findRunnerPagination().attributes('disabled')).toBeDefined();
     });
@@ -109,8 +119,9 @@ describe('RunnerJobs', () => {
       mockRunnerJobsQuery.mockResolvedValueOnce({
         data: {
           runner: {
-            id: mockRunner.id,
+            id: mockRunnerId,
             projectCount: 0,
+            jobCount: 0,
             jobs: {
               nodes: [],
               pageInfo: {
@@ -128,6 +139,10 @@ describe('RunnerJobs', () => {
       await waitForPromises();
     });
 
+    it('shows no count', () => {
+      expect(findCrudComponent().props('count')).toBe('');
+    });
+
     it('should render empty state', () => {
       expect(findEmptyState().exists()).toBe(true);
     });
@@ -139,6 +154,10 @@ describe('RunnerJobs', () => {
 
       createComponent();
       await waitForPromises();
+    });
+
+    it('shows no count', () => {
+      expect(findCrudComponent().props('count')).toBe('');
     });
 
     it('shows an error', () => {

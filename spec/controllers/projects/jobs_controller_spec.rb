@@ -16,6 +16,7 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
   let_it_be(:guest) { create(:user) }
 
   before_all do
+    project.update!(ci_pipeline_variables_minimum_override_role: :developer)
     project.add_owner(owner)
     project.add_maintainer(maintainer)
     project.add_developer(developer)
@@ -23,7 +24,7 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
     project.add_guest(guest)
     create_default(:owner)
     create_default(:user)
-    create_default(:ci_trigger_request)
+    create_default(:ci_trigger, project_id: project.id)
     create_default(:ci_stage)
   end
 
@@ -33,7 +34,7 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
   let_it_be(:default_pipeline) { create_default(:ci_pipeline) }
 
   before do
-    stub_feature_flags(ci_enable_live_trace: true)
+    stub_application_setting(ci_job_live_trace_enabled: true)
     stub_not_protect_default_branch
   end
 
@@ -108,7 +109,7 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
 
       def create_job(name, status)
         user = create(:user)
-        pipeline = create(:ci_pipeline, project: project, user: user)
+        pipeline = create(:ci_pipeline, :triggered, project: project, user: user)
         create(
           :ci_build, :tags, :triggered, :artifacts,
           pipeline: pipeline, name: name, status: status, user: user
@@ -154,14 +155,27 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
       end
 
       context 'when the job is a bridge' do
-        let!(:downstream_pipeline) { create(:ci_pipeline, child_of: pipeline) }
-        let(:job) { downstream_pipeline.source_job }
+        context 'with a downstream pipeline' do
+          let!(:downstream_pipeline) { create(:ci_pipeline, child_of: pipeline) }
+          let(:job) { downstream_pipeline.source_job }
 
-        it 'redirects to the downstream pipeline page' do
-          get_show(id: job.id)
+          it 'redirects to the downstream pipeline page' do
+            get_show(id: job.id)
 
-          expect(response).to have_gitlab_http_status(:found)
-          expect(response).to redirect_to(namespace_project_pipeline_path(id: downstream_pipeline.id))
+            expect(response).to have_gitlab_http_status(:found)
+            expect(response).to redirect_to(namespace_project_pipeline_path(id: downstream_pipeline.id))
+          end
+        end
+
+        context 'without a downstream pipeline' do
+          let(:job) { create(:ci_bridge, pipeline: pipeline) }
+
+          it 'redirects to the job pipeline path' do
+            get_show(id: job.id)
+
+            expect(response).to have_gitlab_http_status(:found)
+            expect(response).to redirect_to(project_pipeline_path(project, pipeline.id))
+          end
         end
       end
     end
@@ -182,7 +196,7 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
 
         json_response.dig('pipeline', 'details', 'stages').tap do |stages|
           expect(stages.flat_map(&:keys))
-            .to eq %w[name title status path dropdown_path]
+            .to eq %w[name id title status path dropdown_path]
         end
       end
 
@@ -196,6 +210,16 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
           expect(json_response['merge_request']['path']).to match(%r{merge_requests/\d+\z})
           expect(json_response['new_issue_path']).to include('/issues/new')
         end
+      end
+
+      it "avoids N+1 database queries", :use_sql_query_cache do
+        get_show_json
+
+        control = ActiveRecord::QueryRecorder.new(skip_cached: false) { get_show_json }
+
+        create_list(:ci_build, 5, :failed, pipeline: pipeline)
+
+        expect { get_show_json }.to issue_same_number_of_queries_as(control)
       end
 
       context 'when job is running' do
@@ -367,7 +391,7 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
             sign_in(user)
           end
 
-          it 'user can edit runner' do
+          it 'returns job' do
             get_show_json
 
             expect(response).to have_gitlab_http_status(:ok)
@@ -386,12 +410,12 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
             sign_in(user)
           end
 
-          it 'user can not edit runner' do
+          it 'returns job' do
             get_show_json
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(response).to match_response_schema('job/job_details')
-            expect(json_response['runner']).not_to have_key('edit_path')
+            expect(json_response['runner']).to have_key('edit_path')
           end
         end
 
@@ -404,18 +428,18 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
             sign_in(user)
           end
 
-          it 'user can not edit runner' do
+          it 'returns job' do
             get_show_json
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(response).to match_response_schema('job/job_details')
-            expect(json_response['runner']).not_to have_key('edit_path')
+            expect(json_response['runner']).to have_key('edit_path')
           end
         end
       end
 
       context 'when no runners are available' do
-        let(:runner) { create(:ci_runner, :instance, active: false) }
+        let(:runner) { create(:ci_runner, :instance, :paused) }
         let(:job) { create(:ci_build, :pending, pipeline: pipeline, runner: runner) }
 
         it 'exposes needed information' do
@@ -525,9 +549,9 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
     end
 
     context 'when requesting triggered job JSON' do
-      let(:trigger) { create(:ci_trigger, project: project) }
-      let(:trigger_request) { create(:ci_trigger_request, pipeline: pipeline, trigger: trigger) }
-      let(:job) { create(:ci_build, pipeline: pipeline, trigger_request: trigger_request) }
+      let_it_be(:trigger) { create(:ci_trigger, project: project) }
+      let_it_be(:pipeline) { create(:ci_pipeline, project: project, trigger: trigger) }
+      let_it_be(:job) { create(:ci_build, pipeline: pipeline) }
       let(:user) { developer }
 
       before do
@@ -1006,11 +1030,11 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
 
     def post_play
       post :play, params: {
-                    namespace_id: project.namespace,
-                    project_id: project,
-                    id: job.id,
-                    job_variables_attributes: variable_attributes
-                  }
+        namespace_id: project.namespace,
+        project_id: project,
+        id: job.id,
+        job_variables_attributes: variable_attributes
+      }
     end
   end
 
@@ -1020,6 +1044,62 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
 
       before do
         sign_in(user)
+      end
+
+      context 'a running job which supports canceling' do
+        let(:job) { create(:ci_build, :running, pipeline: pipeline) }
+
+        include_context 'when canceling support'
+
+        it 'transits to canceling' do
+          post_cancel
+          expect(job.reload).to be_canceling
+        end
+      end
+
+      context 'a canceling job canceled' do
+        let(:job) { create(:ci_build, :canceling, pipeline: pipeline) }
+
+        context 'without force parameter' do
+          before do
+            post_cancel
+          end
+
+          it 'returns unprocessable_entity' do
+            expect(response).to have_gitlab_http_status(:unprocessable_entity)
+          end
+        end
+
+        context 'with force parameter' do
+          before do
+            post_cancel force: "true"
+          end
+
+          it 'returns unprocessable_entity' do
+            expect(response).to have_gitlab_http_status(:unprocessable_entity)
+          end
+        end
+      end
+
+      context 'when user is authorized to force cancellation' do
+        let(:user) { maintainer }
+
+        context 'a canceling job force canceled' do
+          let(:job) { create(:ci_build, :canceling, pipeline: pipeline) }
+
+          before do
+            post_cancel force: "true"
+          end
+
+          it 'redirects to the builds page' do
+            expect(response).to have_gitlab_http_status(:found)
+            expect(response).to redirect_to(builds_namespace_project_pipeline_path(id: pipeline.id))
+          end
+
+          it 'can be forced to cancel' do
+            expect(job.reload).to be_canceled
+          end
+        end
       end
 
       context 'when continue url is present' do
@@ -1092,6 +1172,27 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
       end
 
       it 'responds with not_found' do
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+
+      it 'does not transit to canceled' do
+        expect(job.reload).not_to be_canceled
+      end
+    end
+
+    context 'when user is forbidden from cancelling the build' do
+      let(:job) { create(:ci_build, :cancelable, pipeline: pipeline) }
+
+      before do
+        sign_in(user)
+        # Stub BuildCancelService invocation to return false when ability for cancel_build operation is evaluated
+        allow_next_instance_of(Ci::BuildCancelService) do |service|
+          allow(service).to receive(:allowed?).and_return(false)
+        end
+        post_cancel
+      end
+
+      it 'responds with not_found for access_denied case' do
         expect(response).to have_gitlab_http_status(:not_found)
       end
 
@@ -1253,20 +1354,20 @@ RSpec.describe Projects::JobsController, :clean_gitlab_redis_shared_state, featu
 
     def post_erase
       post :erase, params: {
-                     namespace_id: project.namespace,
-                     project_id: project,
-                     id: job.id
-                   }
+        namespace_id: project.namespace,
+        project_id: project,
+        id: job.id
+      }
     end
   end
 
   describe 'GET raw' do
     subject do
       post :raw, params: {
-                   namespace_id: project.namespace,
-                   project_id: project,
-                   id: job.id
-                 }
+        namespace_id: project.namespace,
+        project_id: project,
+        id: job.id
+      }
     end
 
     context 'when job has a trace artifact' do

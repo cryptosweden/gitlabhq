@@ -318,6 +318,31 @@ describe('Actions Notes Store', () => {
 
       expect(store.state.lastFetchedAt).toBe('123456');
     });
+
+    describe('when includes duo code review note', () => {
+      it('removes duo code review sytem note', () => {
+        const systemNote = { author: { user_type: 'duo_code_review_bot' }, system: true };
+
+        store.state.discussions = [{ notes: [systemNote] }];
+        axiosMock.onGet(notesDataMock.notesPath).reply(HTTP_STATUS_OK, {
+          notes: [{ author: { user_type: 'duo_code_review_bot' }, system: false }],
+          last_fetched_at: '123456',
+        });
+
+        return testAction(
+          actions.fetchUpdatedNotes,
+          undefined,
+          store.state,
+          expect.arrayContaining([
+            {
+              type: 'DELETE_NOTE',
+              payload: systemNote,
+            },
+          ]),
+          expect.anything(),
+        );
+      });
+    });
   });
 
   describe('setNotesFetchedState', () => {
@@ -703,6 +728,7 @@ describe('Actions Notes Store', () => {
         },
         [{ type: mutationTypes.UPDATE_DISCUSSION, payload: discussion }],
         [
+          { type: 'updateOrCreateNotes', payload: [] },
           { type: 'updateMergeRequestWidget' },
           { type: 'startTaskList' },
           { type: 'updateResolvableDiscussionsCounts' },
@@ -821,7 +847,10 @@ describe('Actions Notes Store', () => {
       });
 
       it('dispatches clearDrafts is command names contains submit_review', async () => {
-        const response = { command_names: ['submit_review'], valid: true };
+        const response = {
+          quick_actions_status: { command_names: ['submit_review'] },
+          valid: true,
+        };
         dispatch = jest.fn().mockResolvedValue(response);
         await actions.saveNote(
           {

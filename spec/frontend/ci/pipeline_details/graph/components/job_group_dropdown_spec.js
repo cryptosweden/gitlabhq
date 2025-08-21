@@ -1,9 +1,9 @@
 import { shallowMount, mount } from '@vue/test-utils';
-import { GlDisclosureDropdown, GlDisclosureDropdownItem } from '@gitlab/ui';
+import { GlDisclosureDropdown } from '@gitlab/ui';
 
+import JobDropdownItem from '~/ci/common/private/job_dropdown_item.vue';
 import JobGroupDropdown from '~/ci/pipeline_details/graph/components/job_group_dropdown.vue';
 import JobItem from '~/ci/pipeline_details/graph/components/job_item.vue';
-import { SINGLE_JOB } from '~/ci/pipeline_details/graph/constants';
 
 describe('job group dropdown component', () => {
   const group = {
@@ -70,7 +70,8 @@ describe('job group dropdown component', () => {
   const findJobItem = () => wrapper.findComponent(JobItem);
   const findTriggerButton = () => wrapper.find('button');
   const findDisclosureDropdown = () => wrapper.findComponent(GlDisclosureDropdown);
-  const findDisclosureDropdownItems = () => wrapper.findAllComponents(GlDisclosureDropdownItem);
+  const findJobDropdownItems = () => wrapper.findAllComponents(JobDropdownItem);
+  const findFailedJobs = () => wrapper.find('[data-testid="failed-jobs"]');
 
   const createComponent = ({ props, mountFn = shallowMount } = {}) => {
     wrapper = mountFn(JobGroupDropdown, {
@@ -80,14 +81,6 @@ describe('job group dropdown component', () => {
       },
     });
   };
-
-  it('renders dropdown with jobs', () => {
-    createComponent({ mountFn: mount });
-
-    expect(wrapper.findAll('[data-testid="disclosure-content"] > li').length).toBe(
-      group.jobs.length,
-    );
-  });
 
   it('renders dropdown', () => {
     createComponent();
@@ -125,31 +118,12 @@ describe('job group dropdown component', () => {
   it('renders parallel jobs in group', () => {
     createComponent({ mountFn: mount });
 
-    const [item1, item2] = findDisclosureDropdownItems().wrappers;
+    const [item1, item2] = findJobDropdownItems().wrappers;
 
-    expect(findDisclosureDropdownItems()).toHaveLength(2);
+    expect(findJobDropdownItems()).toHaveLength(2);
 
-    expect(item1.props('item')).toEqual({
-      text: group.jobs[0].name,
-      href: group.jobs[0].status.detailsPath,
-    });
-    expect(item1.findComponent(JobItem).props()).toMatchObject({
-      isLink: false,
-      job: group.jobs[0],
-      type: SINGLE_JOB,
-      cssClassJobName: 'gl-p-3',
-    });
-
-    expect(item2.props('item')).toEqual({
-      text: group.jobs[1].name,
-      href: group.jobs[1].status.detailsPath,
-    });
-    expect(item2.findComponent(JobItem).props()).toMatchObject({
-      isLink: false,
-      job: group.jobs[1],
-      type: SINGLE_JOB,
-      cssClassJobName: 'gl-p-3',
-    });
+    expect(item1.props('job')).toEqual(group.jobs[0]);
+    expect(item2.props('job')).toEqual(group.jobs[1]);
   });
 
   describe('tooltip', () => {
@@ -201,6 +175,78 @@ describe('job group dropdown component', () => {
       expect(findDisclosureDropdown().attributes('title')).toBe(
         groupWithJustTextTooltip.status.text,
       );
+    });
+  });
+
+  describe('job status', () => {
+    it.each`
+      statusGroup  | shouldHaveFailedClass
+      ${'success'} | ${false}
+      ${'failed'}  | ${true}
+    `(
+      'when status is $statusGroup, failed class presence should be $shouldHaveFailedClass',
+      ({ statusGroup, shouldHaveFailedClass }) => {
+        const testGroup = {
+          ...group,
+          status: {
+            ...group.status,
+            group: statusGroup,
+          },
+        };
+
+        createComponent({
+          props: { group: testGroup },
+          mountFn: mount,
+        });
+
+        expect(
+          findDisclosureDropdown()
+            .find('button')
+            .attributes('class')
+            .includes('ci-job-item-failed'),
+        ).toBe(shouldHaveFailedClass);
+      },
+    );
+  });
+
+  describe('failed jobs', () => {
+    it('shows failed jobs grouped if there are any', () => {
+      const failedJob = {
+        id: 5000,
+        name: 'rspec:linux 1/3',
+        status: {
+          icon: 'status_failed',
+          text: 'failed',
+          label: 'failed',
+          tooltip: 'failed',
+          group: 'failed',
+        },
+      };
+
+      createComponent({
+        props: {
+          group: {
+            ...group,
+            status: {
+              status: 'failed',
+              tooltip: 'Failed - (stuck or timeout failure) (allowed to fail)',
+              text: 'Failed text',
+            },
+            jobs: [...group.jobs, failedJob],
+          },
+        },
+        mountFn: mount,
+      });
+
+      expect(findFailedJobs().exists()).toBe(true);
+      expect(findFailedJobs().text()).toContain('Failed jobs');
+      expect(findFailedJobs().text()).toContain('rspec:linux 1/3');
+    });
+
+    it('does not show failed jobs if there aren`t any', () => {
+      createComponent();
+
+      expect(findFailedJobs().exists()).toBe(false);
     });
   });
 });

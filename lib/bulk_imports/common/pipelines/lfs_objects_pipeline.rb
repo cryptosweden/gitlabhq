@@ -43,14 +43,14 @@ module BulkImports
         # rubocop: enable CodeReuse/ActiveRecord
 
         def after_run(_)
-          FileUtils.remove_entry(tmpdir) if Dir.exist?(tmpdir)
+          FileUtils.rm_rf(tmpdir)
         end
 
         private
 
         def download_service
           BulkImports::FileDownloadService.new(
-            configuration: context.configuration,
+            context: context,
             relative_url: context.entity.relation_download_url_path(relation, context.extra[:batch_number]),
             tmpdir: tmpdir,
             filename: targz_filename
@@ -58,7 +58,7 @@ module BulkImports
         end
 
         def decompression_service
-          BulkImports::FileDecompressionService.new(tmpdir: tmpdir, filename: targz_filename)
+          BulkImports::FileDecompressionService.new(tmpdir: tmpdir, filename: targz_filename, context: context)
         end
 
         def extraction_service

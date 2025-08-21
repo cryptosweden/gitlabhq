@@ -7,16 +7,19 @@ import GroupsApp from '~/groups/components/app.vue';
 import GroupFolderComponent from '~/groups/components/group_folder.vue';
 import SubgroupsAndProjectsEmptyState from '~/groups/components/empty_states/subgroups_and_projects_empty_state.vue';
 import SharedProjectsEmptyState from '~/groups/components/empty_states/shared_projects_empty_state.vue';
+import SharedGroupsEmptyState from '~/groups/components/empty_states/shared_groups_empty_state.vue';
 import InactiveProjectsEmptyState from '~/groups/components/empty_states/inactive_projects_empty_state.vue';
 import GroupsStore from '~/groups/store/groups_store';
 import GroupsService from '~/groups/service/groups_service';
 import InactiveProjectsService from '~/groups/service/inactive_projects_service';
+import SharedGroupsService from '~/groups/service/shared_groups_service';
 import { createRouter } from '~/groups/init_overview_tabs';
 import eventHub from '~/groups/event_hub';
 import {
   ACTIVE_TAB_SUBGROUPS_AND_PROJECTS,
   ACTIVE_TAB_SHARED,
   ACTIVE_TAB_INACTIVE,
+  ACTIVE_TAB_SHARED_GROUPS,
   SORTING_ITEM_NAME,
   SORTING_ITEM_UPDATED,
   SORTING_ITEM_STARS,
@@ -42,11 +45,8 @@ describe('OverviewTabs', () => {
     },
     newSubgroupPath: '/groups/new',
     newProjectPath: 'projects/new',
-    newSubgroupIllustration: '',
-    newProjectIllustration: '',
     emptyProjectsIllustration: '',
     emptySubgroupIllustration: '',
-    emptySearchIllustration: '',
     canCreateSubgroups: false,
     canCreateProjects: false,
     initialSort: 'name_asc',
@@ -150,10 +150,35 @@ describe('OverviewTabs', () => {
     expect(wrapper.findComponent(SharedProjectsEmptyState).exists()).toBe(true);
   });
 
-  it('renders `Inactive projects` tab and renders `GroupsApp` component with correct empty state after clicking tab', async () => {
+  it('renders `Shared groups` tab and renders `GroupsApp` component with correct empty state after clicking tab', async () => {
     await createComponent();
 
     const tabPanel = findTabPanels().at(2);
+
+    expect(tabPanel.vm.$attrs).toMatchObject({
+      title: OverviewTabs.i18n[ACTIVE_TAB_SHARED_GROUPS],
+      lazy: true,
+    });
+
+    await findTab(OverviewTabs.i18n[ACTIVE_TAB_SHARED_GROUPS]).trigger('click');
+
+    expect(tabPanel.findComponent(GroupsApp).props()).toMatchObject({
+      action: ACTIVE_TAB_SHARED_GROUPS,
+      store: new GroupsStore(),
+      service: new SharedGroupsService(defaultProvide.groupId, defaultProvide.initialSort),
+    });
+
+    expect(tabPanel.vm.$attrs.lazy).toBe(false);
+
+    await waitForPromises();
+
+    expect(wrapper.findComponent(SharedGroupsEmptyState).exists()).toBe(true);
+  });
+
+  it('renders `Inactive projects` tab and renders `GroupsApp` component with correct empty state after clicking tab', async () => {
+    await createComponent();
+
+    const tabPanel = findTabPanels().at(3);
 
     expect(tabPanel.vm.$attrs).toMatchObject({
       title: OverviewTabs.i18n[ACTIVE_TAB_INACTIVE],
@@ -183,6 +208,7 @@ describe('OverviewTabs', () => {
     expect(findTabPanels().at(0).vm.$attrs.lazy).toBe(true);
     expect(findTabPanels().at(1).vm.$attrs.lazy).toBe(false);
     expect(findTabPanels().at(2).vm.$attrs.lazy).toBe(true);
+    expect(findTabPanels().at(3).vm.$attrs.lazy).toBe(true);
   });
 
   describe.each([
@@ -304,25 +330,6 @@ describe('OverviewTabs', () => {
         });
 
         sharedAssertions({ searchTerm, sort: defaultProvide.initialSort });
-      });
-
-      describe('when search is less than 3 characters', () => {
-        const searchTerm = 'Fo';
-
-        beforeEach(async () => {
-          await setup();
-          emitFilter(searchTerm);
-        });
-
-        it('does not emit `fetchFilteredAndSortedGroups` event from `eventHub`', () => {
-          expect(eventHub.$emit).not.toHaveBeenCalledWith(
-            `${ACTIVE_TAB_SUBGROUPS_AND_PROJECTS}fetchFilteredAndSortedGroups`,
-            {
-              filterGroupsBy: searchTerm,
-              sortBy: defaultProvide.initialSort,
-            },
-          );
-        });
       });
 
       describe('when search is the same', () => {

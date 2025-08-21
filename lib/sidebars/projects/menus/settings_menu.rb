@@ -88,7 +88,7 @@ module Sidebars
           end
 
           ::Sidebars::MenuItem.new(
-            title: _('Access Tokens'),
+            title: _('Access tokens'),
             link: project_settings_access_tokens_path(context.project),
             active_routes: { path: 'access_tokens#index' },
             item_id: :access_tokens
@@ -99,7 +99,7 @@ module Sidebars
           ::Sidebars::MenuItem.new(
             title: _('Repository'),
             link: project_settings_repository_path(context.project),
-            active_routes: { path: 'repository#show' },
+            active_routes: { path: ['repository#show'], controller: ['deploy_keys'] },
             item_id: :repository
           )
         end
@@ -145,7 +145,7 @@ module Sidebars
 
         def usage_quotas_menu_item
           ::Sidebars::MenuItem.new(
-            title: s_('UsageQuota|Usage Quotas'),
+            title: s_('UsageQuota|Usage quotas'),
             link: project_usage_quotas_path(context.project),
             active_routes: { path: 'usage_quotas#index' },
             item_id: :usage_quotas

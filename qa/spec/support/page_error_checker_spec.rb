@@ -42,42 +42,42 @@ RSpec.describe QA::Support::PageErrorChecker do
       end
 
       it 'reports error message on chrome browser' do
-        allow(QA::Support::PageErrorChecker).to receive(:parse_five_c_page_request_id).and_return('foo123')
+        allow(described_class).to receive(:parse_five_c_page_request_id).and_return('foo123')
         allow(QA::Support::Loglinking).to receive(:failure_metadata).with('foo123').and_return('Logging: foo123')
-        allow(QA::Support::PageErrorChecker).to receive(:return_chrome_errors).and_return('chrome errors')
+        allow(described_class).to receive(:return_chrome_errors).and_return('chrome errors')
         allow(page).to receive(:current_path).and_return(test_path)
         allow(QA::Runtime::Env).to receive(:browser).and_return(:chrome)
 
-        expect { QA::Support::PageErrorChecker.report!(page, 500) }.to raise_error(
-          QA::Support::PageErrorChecker::PageError,
+        expect { described_class.report!(page, 500) }.to raise_error(
+          described_class::PageError,
           expected_chrome_error
         )
       end
 
       it 'reports basic message on non-chrome browser' do
-        allow(QA::Support::PageErrorChecker).to receive(:parse_five_c_page_request_id).and_return('foo123')
+        allow(described_class).to receive(:parse_five_c_page_request_id).and_return('foo123')
         allow(QA::Support::Loglinking).to receive(:failure_metadata).with('foo123').and_return('Logging: foo123')
-        allow(QA::Support::PageErrorChecker).to receive(:status_code_report).and_return('foo status')
+        allow(described_class).to receive(:status_code_report).and_return('foo status')
         allow(page).to receive(:current_path).and_return(test_path)
         allow(QA::Runtime::Env).to receive(:browser).and_return(:firefox)
 
-        expect { QA::Support::PageErrorChecker.report!(page, 500) }.to raise_error(
-          QA::Support::PageErrorChecker::PageError,
+        expect { described_class.report!(page, 500) }.to raise_error(
+          described_class::PageError,
           expected_basic_error
         )
       end
 
       it 'does not report failure metadata on non 500 error' do
-        allow(QA::Support::PageErrorChecker).to receive(:parse_five_c_page_request_id).and_return('foo123')
+        allow(described_class).to receive(:parse_five_c_page_request_id).and_return('foo123')
 
         expect(QA::Support::Loglinking).not_to receive(:failure_metadata)
 
-        allow(QA::Support::PageErrorChecker).to receive(:status_code_report).and_return('foo status')
+        allow(described_class).to receive(:status_code_report).and_return('foo status')
         allow(page).to receive(:current_path).and_return(test_path)
         allow(QA::Runtime::Env).to receive(:browser).and_return(:firefox)
 
-        expect { QA::Support::PageErrorChecker.report!(page, 404) }.to raise_error(
-          QA::Support::PageErrorChecker::PageError,
+        expect { described_class.report!(page, 404) }.to raise_error(
+          described_class::PageError,
           expected_basic_404
         )
       end
@@ -97,29 +97,29 @@ RSpec.describe QA::Support::PageErrorChecker do
       end
 
       let(:error_500_str) do
-        "<html><body><div><p><code>"\
-        "req678"\
-        "</code></p></div></body></html>"
+        "<html><body><div><p><code>" \
+          "req678" \
+          "</code></p></div></body></html>"
       end
 
       let(:error_500_no_code_str) do
-        "<html><body>"\
-        "The code you are looking for is not here"\
-        "</body></html>"
+        "<html><body>" \
+          "The code you are looking for is not here" \
+          "</body></html>"
       end
 
       it 'returns code is present' do
         allow(page).to receive(:html).and_return(error_500_str)
         allow(Nokogiri::HTML).to receive(:parse).with(error_500_str).and_return(NokogiriParse.parse(error_500_str))
 
-        expect(QA::Support::PageErrorChecker.parse_five_c_page_request_id(page).to_str).to eq('req678')
+        expect(described_class.parse_five_c_page_request_id(page).to_str).to eq('req678')
       end
 
       it 'returns nil if not present' do
         allow(page).to receive(:html).and_return(error_500_no_code_str)
         allow(Nokogiri::HTML).to receive(:parse).with(error_500_no_code_str).and_return(NokogiriParse.parse(error_500_no_code_str))
 
-        expect(QA::Support::PageErrorChecker.parse_five_c_page_request_id(page)).to be_nil
+        expect(described_class.parse_five_c_page_request_id(page)).to be_nil
       end
     end
   end
@@ -154,39 +154,39 @@ RSpec.describe QA::Support::PageErrorChecker do
       end
 
       let(:expected_single_error) do
-        "There was 1 SEVERE level error:\n\n"\
-        "bar foo"
+        "There was 1 SEVERE level error:\n\n" \
+          "bar foo"
       end
 
       let(:expected_multiple_error) do
-        "There were 3 SEVERE level errors:\n\n"\
-        "bar foo\n"\
-        "foo\n"\
-        "bar"
+        "There were 3 SEVERE level errors:\n\n" \
+          "bar foo\n" \
+          "foo\n" \
+          "bar"
       end
 
       it 'returns status code report on no severe errors found' do
-        allow(QA::Support::PageErrorChecker).to receive(:logs).with(page).and_return(NoErrorMockedLogs)
-        allow(QA::Support::PageErrorChecker).to receive(:status_code_report).with('123').and_return('Test Status Code return 123')
+        allow(described_class).to receive(:logs).with(page).and_return(NoErrorMockedLogs)
+        allow(described_class).to receive(:status_code_report).with('123').and_return('Test Status Code return 123')
 
-        expect(QA::Support::PageErrorChecker.return_chrome_errors(page, '123')).to eq('Test Status Code return 123')
+        expect(described_class.return_chrome_errors(page, '123')).to eq('Test Status Code return 123')
       end
 
       it 'returns report on 1 severe error found' do
-        allow(QA::Support::PageErrorChecker).to receive(:error_report_for).with([SingleLog]).and_return('bar foo')
-        allow(QA::Support::PageErrorChecker).to receive(:logs).with(page).and_return(OneErrorMockedLogs)
+        allow(described_class).to receive(:error_report_for).with([SingleLog]).and_return('bar foo')
+        allow(described_class).to receive(:logs).with(page).and_return(OneErrorMockedLogs)
         allow(page).to receive(:current_path).and_return(test_path)
 
-        expect(QA::Support::PageErrorChecker.return_chrome_errors(page, '123')).to eq(expected_single_error)
+        expect(described_class.return_chrome_errors(page, '123')).to eq(expected_single_error)
       end
 
       it 'returns report on multiple severe errors found' do
-        allow(QA::Support::PageErrorChecker).to receive(:error_report_for)
-                                                    .with([SingleLog, SingleLog, SingleLog]).and_return("bar foo\nfoo\nbar")
-        allow(QA::Support::PageErrorChecker).to receive(:logs).with(page).and_return(ThreeErrorsMockedLogs)
+        allow(described_class).to receive(:error_report_for)
+                                                  .with([SingleLog, SingleLog, SingleLog]).and_return("bar foo\nfoo\nbar")
+        allow(described_class).to receive(:logs).with(page).and_return(ThreeErrorsMockedLogs)
         allow(page).to receive(:current_path).and_return(test_path)
 
-        expect(QA::Support::PageErrorChecker.return_chrome_errors(page, '123')).to eq(expected_multiple_error)
+        expect(described_class.return_chrome_errors(page, '123')).to eq(expected_multiple_error)
       end
     end
   end
@@ -203,12 +203,15 @@ RSpec.describe QA::Support::PageErrorChecker do
     end
 
     let(:error_404_str) do
-      "<div class=\"error\">"\
-        "<img src=\"404.png\" alt=\"404\" />"\
-      "</div>"
+      "<div class=\"error-container\">" \
+        "<img src=\".\/-\/error-illustrations\/error-404-lg.svg\" alt=\"404 error\" \/>" \
+        "<h1>404: Page not found</h1>" \
+        "<p>Make sure the address is correct and the page has not moved.</p>" \
+        "<p>Please contact your GitLab administrator if you think this is a mistake.</p>" \
+        "</div>"
     end
 
-    let(:error_500_str) { "<head><title>Something went wrong (500)</title></head><body><h1>   500   </h1></body>" }
+    let(:error_500_str) { '<head><title>Something went wrong (500)</title></head><body><img src="/-/error-illustrations/error-500-lg.svg" alt="500 error"><h1>500: We\'re sorry, something went wrong on our end</h1></body>' }
     let(:project_name_500_str) { "<head><title>Project</title></head><h1 class=\"home-panel-title gl-mt-3 gl-mb-2\" itemprop=\"name\">qa-test-2022-05-25-12-12-16-d4500c2e79c37289</h1>" }
     let(:backtrace_str) { "<head><title>Error::Backtrace</title></head><body><section class=\"backtrace\">foo</section></body>" }
     let(:no_error_str) { "<head><title>Nothing wrong here</title></head><body>no 404 or 500 or backtrace</body>" }
@@ -217,40 +220,40 @@ RSpec.describe QA::Support::PageErrorChecker do
       allow(page).to receive(:html).and_return(error_404_str)
       allow(Nokogiri::HTML).to receive(:parse).with(error_404_str).and_return(NokogiriParse.parse(error_404_str))
 
-      expect(QA::Support::PageErrorChecker).to receive(:report!).with(page, 404)
-      QA::Support::PageErrorChecker.check_page_for_error_code(page)
+      expect(described_class).to receive(:report!).with(page, 404)
+      described_class.check_page_for_error_code(page)
     end
 
     it 'calls report with 500 if 500 found' do
       allow(page).to receive(:html).and_return(error_500_str)
       allow(Nokogiri::HTML).to receive(:parse).with(error_500_str).and_return(NokogiriParse.parse(error_500_str))
 
-      expect(QA::Support::PageErrorChecker).to receive(:report!).with(page, 500)
-      QA::Support::PageErrorChecker.check_page_for_error_code(page)
+      expect(described_class).to receive(:report!).with(page, 500)
+      described_class.check_page_for_error_code(page)
     end
 
     it 'calls report with 500 if GDK backtrace found' do
       allow(page).to receive(:html).and_return(backtrace_str)
       allow(Nokogiri::HTML).to receive(:parse).with(backtrace_str).and_return(NokogiriParse.parse(backtrace_str))
 
-      expect(QA::Support::PageErrorChecker).to receive(:report!).with(page, 500)
-      QA::Support::PageErrorChecker.check_page_for_error_code(page)
+      expect(described_class).to receive(:report!).with(page, 500)
+      described_class.check_page_for_error_code(page)
     end
 
     it 'does not call report if 500 found in project name' do
       allow(page).to receive(:html).and_return(project_name_500_str)
       allow(Nokogiri::HTML).to receive(:parse).with(project_name_500_str).and_return(NokogiriParse.parse(project_name_500_str))
 
-      expect(QA::Support::PageErrorChecker).not_to receive(:report!)
-      QA::Support::PageErrorChecker.check_page_for_error_code(page)
+      expect(described_class).not_to receive(:report!)
+      described_class.check_page_for_error_code(page)
     end
 
     it 'does not call report if no 404, 500 or backtrace found' do
       allow(page).to receive(:html).and_return(no_error_str)
       allow(Nokogiri::HTML).to receive(:parse).with(no_error_str).and_return(NokogiriParse.parse(no_error_str))
 
-      expect(QA::Support::PageErrorChecker).not_to receive(:report!)
-      QA::Support::PageErrorChecker.check_page_for_error_code(page)
+      expect(described_class).not_to receive(:report!)
+      described_class.check_page_for_error_code(page)
     end
   end
 
@@ -271,8 +274,8 @@ RSpec.describe QA::Support::PageErrorChecker do
     end
 
     it 'returns error report array of log messages' do
-      expect(QA::Support::PageErrorChecker.error_report_for([LogOne, LogTwo]))
-          .to eq(%W[foo\n bar])
+      expect(described_class.error_report_for([LogOne, LogTwo]))
+        .to eq(%W[foo\n bar])
     end
   end
 
@@ -300,12 +303,12 @@ RSpec.describe QA::Support::PageErrorChecker do
       expect(page).to receive(:execute_script)
 
       expect(QA::Runtime::Logger).to receive(:debug).with("Fetching API error cache for #{page_url}")
-      expect(QA::Runtime::Logger).to receive(:error).with(<<~ERROR)
+      expect(QA::Runtime::Logger).to receive(:warn).with(<<~ERROR)
         Interceptor Api Errors
         [500] GET https://foo.bar -- Correlation Id: 12345
       ERROR
 
-      QA::Support::PageErrorChecker.log_request_errors(page)
+      described_class.log_request_errors(page)
     end
 
     it 'removes duplicates' do
@@ -320,12 +323,12 @@ RSpec.describe QA::Support::PageErrorChecker do
       expect(page).to receive(:execute_script)
 
       expect(QA::Runtime::Logger).to receive(:debug).with("Fetching API error cache for #{page_url}")
-      expect(QA::Runtime::Logger).to receive(:error).with(<<~ERROR).exactly(1).time
+      expect(QA::Runtime::Logger).to receive(:warn).with(<<~ERROR).exactly(1).time
         Interceptor Api Errors
         [500] GET https://foo.bar -- Correlation Id: 12345
       ERROR
 
-      QA::Support::PageErrorChecker.log_request_errors(page)
+      described_class.log_request_errors(page)
     end
 
     it 'chops the url query string' do
@@ -340,12 +343,12 @@ RSpec.describe QA::Support::PageErrorChecker do
       expect(page).to receive(:execute_script)
 
       expect(QA::Runtime::Logger).to receive(:debug).with("Fetching API error cache for #{page_url}")
-      expect(QA::Runtime::Logger).to receive(:error).with(<<~ERROR)
+      expect(QA::Runtime::Logger).to receive(:warn).with(<<~ERROR)
         Interceptor Api Errors
         [500] GET https://foo.bar -- Correlation Id: 12345
       ERROR
 
-      QA::Support::PageErrorChecker.log_request_errors(page)
+      described_class.log_request_errors(page)
     end
 
     it 'logs graphql errors if any exist' do
@@ -361,13 +364,13 @@ RSpec.describe QA::Support::PageErrorChecker do
       expect(page).to receive(:execute_script)
 
       expect(QA::Runtime::Logger).to receive(:debug).with("Fetching API error cache for #{page_url}")
-      expect(QA::Runtime::Logger).to receive(:error).with(<<~ERROR.chomp)
+      expect(QA::Runtime::Logger).to receive(:warn).with(<<~ERROR.chomp)
         Interceptor Api Errors
         [200] POST https://foo.bar -- Correlation Id: 12345
         error-messages: Something bad happened
       ERROR
 
-      QA::Support::PageErrorChecker.log_request_errors(page)
+      described_class.log_request_errors(page)
     end
 
     it 'returns if cache is nil' do
@@ -377,7 +380,7 @@ RSpec.describe QA::Support::PageErrorChecker do
       expect(QA::Runtime::Logger).to receive(:debug).with("Fetching API error cache for #{page_url}")
       expect(QA::Runtime::Logger).not_to receive(:error)
 
-      QA::Support::PageErrorChecker.log_request_errors(page)
+      described_class.log_request_errors(page)
     end
   end
 
@@ -406,13 +409,13 @@ RSpec.describe QA::Support::PageErrorChecker do
     it 'gets driver browser logs' do
       allow(page).to receive(:driver).and_return(Driver)
 
-      expect(QA::Support::PageErrorChecker.logs(page)).to eq('logs at browser level')
+      expect(described_class.logs(page)).to eq('logs at browser level')
     end
   end
 
   describe '.status_code_report' do
     it 'returns a string message containing the status code' do
-      expect(QA::Support::PageErrorChecker.status_code_report(1234)).to eq('Status code 1234 found')
+      expect(described_class.status_code_report(1234)).to eq('Status code 1234 found')
     end
   end
 end

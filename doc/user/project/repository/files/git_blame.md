@@ -2,14 +2,16 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Documentation on Git file blame."
+description: Documentation on Git file blame.
+title: Git file blame
 ---
 
-# Git file blame
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 [Git blame](https://git-scm.com/docs/git-blame) provides more information
 about every line in a file, including the last modified time, author, and
@@ -17,8 +19,11 @@ commit hash.
 
 ## View blame for a file
 
-> - Viewing blame directly in the file view [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/430950) in GitLab 16.7 [with flags](../../../../administration/feature_flags.md) named `graphql_git_blame` and `highlight_js_worker`. Enabled by default.
-> - Feature flags [`highlight_js_worker`](https://gitlab.com/gitlab-org/gitlab/-/issues/432706) and [`graphql_git_blame`](https://gitlab.com/gitlab-org/gitlab/-/issues/439847) removed in GitLab 16.9.
+{{< history >}}
+
+- Viewing blame directly in the file view [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/430950) in GitLab 16.7 [with flag](../../../../administration/feature_flags/_index.md) named `inline_blame`. Disabled by default.
+
+{{< /history >}}
 
 Prerequisites:
 
@@ -52,37 +57,38 @@ To see earlier revisions of a specific line:
 1. Select **Code > Repository**.
 1. Select the file you want to review.
 1. In the upper-right corner, select **Blame**, and go to the line you want to see.
-1. Select **View blame prior to this change** (**{doc-versions}**)
+1. Select **View blame prior to this change** ({{< icon name="doc-versions" >}})
    until you've found the changes you're interested in viewing.
 
-## Associated `git` command
+### Ignore specific revisions
 
-If you're running `git` from the command line, the equivalent command is
-`git blame <filename>`. For example, if you want to find `blame` information
-about a `README.md` file in the local directory:
+{{< history >}}
 
-1. Run this command `git blame README.md`.
-1. If the line you want to see is not in the first page of results, press <kbd>Space</kbd>
-   until you find the line you want.
-1. To exit out of the results, press <kbd>Q</kbd>.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/514684) in GitLab 17.10 [with a flag](../../../../administration/feature_flags/_index.md) named `blame_ignore_revs`. Disabled by default.
+- [Enabled on GitLab.com, GitLab Self-Managed, and GitLab Dedicated](https://gitlab.com/gitlab-org/gitlab/-/issues/514325) in GitLab 17.10.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/525095) in GitLab 17.11. Feature flag `blame_ignore_revs` removed.
+{{< /history >}}
 
-The `git blame` output in the CLI looks like this:
+To configure Git blame to ignore specific revisions:
 
-```shell
-58233c4f1054c (Dan Rhodes           2022-05-13 07:02:20 +0000  1) ## Contributor License Agreement
-b87768f435185 (Jamie Hurewitz       2017-10-31 18:09:23 +0000  2)
-8e4c7f26317ff (Brett Walker         2023-10-20 17:53:25 +0000  3) Contributions to this repository are subject to the
-58233c4f1054c (Dan Rhodes           2022-05-13 07:02:20 +0000  4)
-```
+1. In the root of your repository, create a `.git-blame-ignore-revs` file.
+1. Add the commit hashes you want to ignore, one per line.
+   For example:
 
-The output includes:
+   ```plaintext
+   a24cb33c0e1390b0719e9d9a4a4fc0e4a3a069cc
+   676c1c7e8b9e2c9c93e4d5266c6f3a50ad602a4c
+   ```
 
-- The SHA of the commit.
-- The name of the committer.
-- The date and time in UTC format.
-- The line number.
-- The contents of the line.
+1. Open a file in the blame view.
+1. Select the **Blame preferences** dropdown list.
+1. Select **Ignore specific revisions**.
+
+The blame view refreshes and skips the revisions specified in the `.git-blame-ignore-revs` file,
+showing the previous meaningful changes instead.
 
 ## Related topics
 
-- [Git file blame REST API](../../../../api/repository_files.md#get-file-blame-from-repository).
+- [Git file blame REST API](../../../../api/repository_files.md#get-file-blame-from-repository)
+- [Common Git commands](../../../../topics/git/commands.md)
+- [File management with Git](../../../../topics/git/file_management.md)

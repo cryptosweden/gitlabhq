@@ -1,8 +1,12 @@
 # frozen_string_literal: true
+
 # rubocop:disable RSpec/VerifiedDoubles
 
 require 'fast_spec_helper'
 require 'rspec-parameterized'
+
+require 'gitlab/error'
+require 'gitlab/objectified_hash'
 
 require_relative '../../scripts/trigger-build'
 
@@ -16,6 +20,7 @@ RSpec.describe Trigger, feature_category: :tooling do
       'CI_COMMIT_SHA' => 'ci_commit_sha',
       'CI_MERGE_REQUEST_PROJECT_ID' => 'ci_merge_request_project_id',
       'CI_MERGE_REQUEST_IID' => 'ci_merge_request_iid',
+      'CI_MERGE_REQUEST_TARGET_BRANCH_NAME' => 'master',
       'PROJECT_TOKEN_FOR_CI_SCRIPTS_API_USAGE' => 'bot-token',
       'CI_JOB_TOKEN' => 'job-token',
       'GITLAB_USER_NAME' => 'gitlab_user_name',
@@ -225,6 +230,11 @@ RSpec.describe Trigger, feature_category: :tooling do
   end
 
   describe Trigger::CNG do
+    before do
+      stub_env('CNG_SKIP_REDUNDANT_JOBS', 'false')
+      stub_env('GLCI_ASSETS_IMAGE_TAG', 'assets_tag')
+    end
+
     describe '#variables' do
       it 'does not include redundant variables' do
         expect(subject.variables).not_to include('TRIGGER_SOURCE', 'TRIGGERED_USER')
@@ -346,6 +356,25 @@ RSpec.describe Trigger, feature_category: :tooling do
         end
       end
 
+      describe "GLCI_ASSETS_IMAGE_TAG" do
+        context 'when GLCI_ASSETS_IMAGE_TAG is set' do
+          it 'sets GITLAB_ASSETS_TAG to GLCI_ASSETS_IMAGE_TAG value' do
+            expect(subject.variables['GITLAB_ASSETS_TAG']).to eq('assets_tag')
+          end
+        end
+
+        context 'when GLCI_ASSETS_IMAGE_TAG is not set' do
+          before do
+            stub_env('GLCI_ASSETS_IMAGE_TAG', '')
+          end
+
+          it 'sets COMPILE_ASSETS to true' do
+            expect(subject.variables['COMPILE_ASSETS']).to eq('true')
+            expect(subject.variables['GITLAB_ASSETS_TAG']).to be_nil
+          end
+        end
+      end
+
       describe "GITLAB_TAG" do
         context 'when CI_COMMIT_TAG is set' do
           before do
@@ -458,11 +487,212 @@ RSpec.describe Trigger, feature_category: :tooling do
           end
         end
       end
+
+      describe "#extra_variables" do
+        before do
+          stub_env('CI_PROJECT_PATH_SLUG', 'project-path')
+          stub_env('ARCH_LIST', 'amd64,arm64')
+        end
+
+        it 'includes extra variables' do
+          expect(subject.variables).to include({
+            "FULL_RUBY_VERSION" => RUBY_VERSION,
+            "SKIP_JOB_REGEX" => "/final-images-listing/",
+            "DEBIAN_IMAGE" => "debian:bookworm-slim",
+            "ALPINE_IMAGE" => "alpine:3.20",
+            "CONTAINER_VERSION_SUFFIX" => "project-path",
+            "CACHE_BUSTER" => "false",
+            "ARCH_LIST" => 'amd64,arm64'
+          })
+        end
+      end
+
+      describe 'with skipping redundant jobs' do
+        let(:downstream_project_path) { 'gitlab-org/build/cng' }
+        let(:ref) { 'main' }
+        let(:image_digest) { 'sha256:digest' }
+        let(:debian_image) { 'debian:bookworm-slim' }
+        let(:alpine_image) { 'alpine:3.20' }
+
+        let(:tree_node) do
+          {
+            'mode' => '040000',
+            'type' => 'tree',
+            'id' => 'df239f023af22fc672d31dc50fdd5f593d4481b1',
+            'path' => '.gitlab'
+          }
+        end
+
+        let(:base_tag) { "32a931c622f7ef7728bf8255cca9e8a46d472e85" }
+        let(:rails_tag) { "583f93fe69560d7b158073a17a58e723aea598a3" }
+
+        let(:registry_repositories_response) do
+          double(auto_paginate: [
+            double(name: 'registry/gitlab-base', id: 1), double(name: 'registry/gitlab-rails-ee', id: 2)
+          ])
+        end
+
+        before do
+          stub_env('CNG_SKIP_REDUNDANT_JOBS', 'true')
+          stub_env('CNG_BRANCH', ref)
+          stub_env('CNG_PROJECT_PATH', downstream_project_path)
+          stub_env('CI_PROJECT_PATH_SLUG', 'project-path')
+          stub_env('GITLAB_DEPENDENCY_PROXY', '')
+
+          allow(Trigger).to receive(:ee?).and_return(true)
+
+          # mock repo tree and file fetching
+          allow(downstream_gitlab_client).to receive(:repo_tree).with(
+            downstream_project_path,
+            ref: ref,
+            per_page: 100
+          ).and_return(double(auto_paginate: [tree_node]))
+          allow(downstream_gitlab_client).to receive(:file_contents).with(
+            downstream_project_path,
+            "build-scripts/container_versions.sh",
+            ref
+          ).and_return("script")
+          allow(downstream_gitlab_client).to receive(:file_contents).with(
+            downstream_project_path,
+            "ci_files/variables.yml",
+            ref
+          ).and_return("---\nvariables:\n  DEBIAN_IMAGE: '#{debian_image}'\n  ALPINE_IMAGE: '#{alpine_image}'")
+
+          # mock fetching image digest
+          allow(HTTParty).to receive(:get).with(
+            %r{https://auth\.docker\.io/token\?service=registry\.docker\.io&scope=repository:library/(debian|alpine):pull}
+          ).and_return(double(body: '{"token": "token"}', success?: true))
+          allow(HTTParty).to receive(:head).with(
+            %r{https://registry\.hub\.docker\.com/v2/library/(debian|alpine)/manifests/(bookworm-slim|3\.20)},
+            {
+              headers: {
+                'Authorization' => 'Bearer token',
+                'Accept' => 'application/vnd.docker.distribution.manifest.v2+json'
+              }
+            }
+          ).and_return(double(headers: { 'docker-content-digest' => image_digest }, success?: true))
+
+          # mock version calculation script execution
+          allow(Open3).to receive(:capture2e).with(
+            hash_including({
+              "REPOSITORY_TREE" => "#{tree_node['mode']} #{tree_node['type']} #{tree_node['id']}  #{tree_node['path']}",
+              "DEBIAN_DIGEST" => image_digest,
+              "ALPINE_DIGEST" => image_digest
+            }),
+            /bash -c 'source (\S+) && get_all_versions'/
+          ).and_return(["gitlab-base=#{base_tag}\ngitlab-rails-ee=#{rails_tag}\n", double(success?: true)])
+
+          # mock existing tag check
+          allow(downstream_gitlab_client).to receive(:registry_repositories).with(
+            downstream_project_path, per_page: 100
+          ).and_return(registry_repositories_response)
+          allow(downstream_gitlab_client).to receive(:registry_repository_tag).with(
+            downstream_project_path, 2, rails_tag
+          ).and_return({})
+        end
+
+        context "when all of the jobs would be skipped" do
+          before do
+            allow(downstream_gitlab_client).to receive(:registry_repository_tag).with(
+              downstream_project_path, 1, base_tag
+            ).and_return({})
+          end
+
+          it 'does not skip gitlab-rails job' do
+            expect(subject.variables).to include({
+              "SKIP_IMAGE_TAGGING" => "true",
+              "SKIP_JOB_REGEX" => "/final-images-listing|alpine-stable|debian-stable|gitlab-base/",
+              "DEBIAN_IMAGE" => "#{debian_image}@#{image_digest}",
+              "DEBIAN_DIGEST" => image_digest,
+              "DEBIAN_BUILD_ARGS" => "--build-arg DEBIAN_IMAGE=#{debian_image}@#{image_digest}",
+              "ALPINE_IMAGE" => "#{alpine_image}@#{image_digest}",
+              "ALPINE_DIGEST" => image_digest,
+              "ALPINE_BUILD_ARGS" => "--build-arg ALPINE_IMAGE=#{alpine_image}@#{image_digest}"
+            })
+          end
+        end
+
+        context 'when tag does not exist in repository' do
+          let(:response) do
+            Gitlab::ObjectifiedHash.new(
+              code: 404,
+              parsed_response: "Failure",
+              request: { base_uri: "gitlab.com", path: "/repository_tag" }
+            )
+          end
+
+          before do
+            allow(downstream_gitlab_client).to receive(:registry_repository_tag).with(
+              downstream_project_path, 1, base_tag
+            ).and_raise(Gitlab::Error::NotFound.new(response))
+          end
+
+          it 'does not skip jobs with non existing tags' do
+            expect(subject.variables).to include({
+              "SKIP_JOB_REGEX" => "/final-images-listing|alpine-stable|debian-stable|gitlab-rails-ee/"
+            })
+          end
+        end
+      end
+
+      describe 'with specific commit sha' do
+        let(:downstream_project_path) { 'gitlab-org/build/cng' }
+        let(:sha) { '3f1b1cdc5209' }
+        let(:trigger_ref) { "trigger-refs/#{sha}" }
+
+        let(:response) do
+          Gitlab::ObjectifiedHash.new(
+            code: 404,
+            parsed_response: "Failure",
+            request: { base_uri: "gitlab.com", path: "/branch" }
+          )
+        end
+
+        before do
+          stub_env('CNG_PROJECT_PATH', downstream_project_path)
+          stub_env('CNG_COMMIT_SHA', sha)
+
+          allow(downstream_gitlab_client).to receive(:branch).with(downstream_project_path, trigger_ref).and_raise(
+            Gitlab::Error::ResponseError.new(response)
+          )
+          allow(downstream_gitlab_client).to receive(:create_branch).with(downstream_project_path, trigger_ref, sha)
+        end
+
+        it "uses trigger ref branch with specific commit sha" do
+          expect(subject.variables).to include({
+            "TRIGGER_BRANCH" => trigger_ref
+          })
+        end
+
+        context 'when trigger ref branch creation fails' do
+          before do
+            allow(downstream_gitlab_client).to receive(:create_branch).and_raise("failed to create branch")
+          end
+
+          it "falls back to default ref" do
+            expect(subject.variables).to include({
+              "TRIGGER_BRANCH" => "master"
+            })
+          end
+        end
+
+        context 'when trigger ref branch creation fails in sha update mr' do
+          before do
+            stub_env('CI_MERGE_REQUEST_TARGET_BRANCH_NAME', 'renovate-e2e/cng-mirror-digest')
+
+            allow(downstream_gitlab_client).to receive(:create_branch).and_raise("failed to create branch")
+          end
+
+          it "raises error" do
+            expect { subject.variables }.to raise_error("failed to create branch")
+          end
+        end
+      end
     end
   end
 
   describe Trigger::Docs do
-    let(:downstream_project_path) { 'gitlab-org/gitlab-docs' }
+    let(:downstream_project_path) { 'gitlab-org/technical-writing/docs-gitlab-com' }
 
     describe '#variables' do
       describe "BRANCH_CE" do
@@ -544,7 +774,7 @@ RSpec.describe Trigger, feature_category: :tooling do
 
         context 'when CI_MERGE_REQUEST_IID is set' do
           it 'sets REVIEW_SLUG' do
-            expect(subject.variables['REVIEW_SLUG']).to eq("-ce-#{env['CI_MERGE_REQUEST_IID']}")
+            expect(subject.variables['REVIEW_SLUG']).to eq("ce-#{env['CI_MERGE_REQUEST_IID']}")
           end
         end
 
@@ -554,7 +784,7 @@ RSpec.describe Trigger, feature_category: :tooling do
           end
 
           it 'sets REVIEW_SLUG' do
-            expect(subject.variables['REVIEW_SLUG']).to eq("-ce-#{env['CI_COMMIT_REF_SLUG']}")
+            expect(subject.variables['REVIEW_SLUG']).to eq("ce-#{env['CI_COMMIT_REF_SLUG']}")
           end
         end
       end
@@ -562,14 +792,14 @@ RSpec.describe Trigger, feature_category: :tooling do
 
     describe '.access_token' do
       context 'when DOCS_PROJECT_API_TOKEN is set' do
-        let(:docs_project_api_token) { 'docs_project_api_token' }
+        let(:docs_hugo_project_api_token) { 'docs_hugo_project_api_token' }
 
         before do
-          stub_env('DOCS_PROJECT_API_TOKEN', docs_project_api_token)
+          stub_env('DOCS_PROJECT_API_TOKEN', docs_hugo_project_api_token)
         end
 
         it 'returns the docs-specific access token' do
-          expect(described_class.access_token).to eq(docs_project_api_token)
+          expect(subject.access_token).to eq(docs_hugo_project_api_token)
         end
       end
 
@@ -579,13 +809,13 @@ RSpec.describe Trigger, feature_category: :tooling do
         end
 
         it 'returns the default access token' do
-          expect(described_class.access_token).to eq(Trigger::Base.access_token)
+          expect(subject.access_token).to eq(Trigger::Base.new.access_token)
         end
       end
     end
 
     describe '#invoke!' do
-      let(:trigger_token) { 'docs_trigger_token' }
+      let(:trigger_token) { 'docs_hugo_trigger_token' }
       let(:ref) { 'main' }
 
       let(:env) do
@@ -661,6 +891,19 @@ RSpec.describe Trigger, feature_category: :tooling do
 
           subject.cleanup!
         end
+      end
+    end
+
+    describe '#app_url' do
+      let(:review_slug) { 'ce-123' }
+
+      before do
+        allow(subject).to receive(:review_slug).and_return(review_slug)
+      end
+
+      it 'returns the correct app URL' do
+        expected_url = "https://docs.gitlab.com/upstream-review-mr-#{review_slug}/"
+        expect(subject.send(:app_url)).to eq(expected_url)
       end
     end
   end

@@ -4,12 +4,10 @@ classes:
 - DeploymentMergeRequest
 feature_categories:
 - continuous_delivery
-description: https://docs.gitlab.com/ee/ci/environments/index.html#track-newly-included-merge-requests-per-deployment
+description: https://docs.gitlab.com/ee/ci/environments/deployments.html#track-newly-included-merge-requests-per-deployment
 introduced_by_url: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/18755
 milestone: '12.5'
 gitlab_schema: gitlab_main_cell
-allow_cross_foreign_keys:
-- gitlab_main_clusterwide
 desired_sharding_key:
   project_id:
     references: projects
@@ -19,3 +17,5 @@ desired_sharding_key:
         table: deployments
         sharding_key: project_id
         belongs_to: deployment
+table_size: medium
+desired_sharding_key_migration_job_name: BackfillDeploymentMergeRequestsProjectId

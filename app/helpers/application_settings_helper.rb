@@ -8,6 +8,7 @@ module ApplicationSettingsHelper
     :password_authentication_enabled_for_web?,
     :akismet_enabled?,
     :spam_check_endpoint_enabled?,
+    :require_personal_access_token_expiry?,
     to: :'Gitlab::CurrentSettings.current_application_settings'
 
   def user_oauth_applications?
@@ -71,19 +72,58 @@ module ApplicationSettingsHelper
     end
   end
 
+  def global_search_settings_checkboxes(form)
+    [
+      form.gitlab_ui_checkbox_component(
+        :anonymous_searches_allowed,
+        _("Allow unauthenticated users to use search"),
+        checkbox_options: {
+          checked: @application_setting.anonymous_searches_allowed, multiple: false
+        }
+      ),
+      form.gitlab_ui_checkbox_component(
+        :global_search_block_anonymous_searches_enabled,
+        _("Restrict global search to authenticated users only"),
+        checkbox_options: {
+          checked: @application_setting.global_search_block_anonymous_searches_enabled, multiple: false
+        }
+      ),
+      form.gitlab_ui_checkbox_component(
+        :global_search_issues_enabled,
+        _("Show issues in global search results"),
+        checkbox_options: { checked: @application_setting.global_search_issues_enabled, multiple: false }
+      ),
+      form.gitlab_ui_checkbox_component(
+        :global_search_merge_requests_enabled,
+        _("Show merge requests in global search results"),
+        checkbox_options: { checked: @application_setting.global_search_merge_requests_enabled, multiple: false }
+      ),
+      form.gitlab_ui_checkbox_component(
+        :global_search_snippet_titles_enabled,
+        _("Show snippets in global search results"),
+        checkbox_options: { checked: @application_setting.global_search_snippet_titles_enabled, multiple: false }
+      ),
+      form.gitlab_ui_checkbox_component(
+        :global_search_users_enabled,
+        _("Show users in global search results"),
+        checkbox_options: { checked: @application_setting.global_search_users_enabled, multiple: false }
+      )
+    ]
+  end
+
   def restricted_level_checkboxes(form)
     restricted_visibility_levels_help_text = {
       Gitlab::VisibilityLevel::PUBLIC => s_(
         'AdminSettings|If selected, only administrators are able to create public groups, projects, ' \
-        'and snippets. Also, profiles are only visible to authenticated users.'
+          'and snippets. Also, profiles are only visible to authenticated users.'
       ),
       Gitlab::VisibilityLevel::INTERNAL => s_(
         'AdminSettings|If selected, only administrators are able to create internal groups, projects, and ' \
-        'snippets.'
+          'snippets.'
       ),
       Gitlab::VisibilityLevel::PRIVATE => s_(
         'AdminSettings|If selected, only administrators are able to create private groups, projects, and ' \
-        'snippets.'
+          'snippets.'
       )
     }
 
@@ -108,14 +148,18 @@ module ApplicationSettingsHelper
   end
 
   def import_sources_checkboxes(form)
-    Gitlab::ImportSources.options.map do |name, source|
-      checked = @application_setting.import_sources.include?(source)
+    import_sources_without_templates = Gitlab::ImportSources.import_table.reject do |importer|
+      Gitlab::ImportSources.template?(importer.name)
+    end
+
+    import_sources_without_templates.map do |source|
+      checked = @application_setting.import_sources.include?(source.name)
 
       form.gitlab_ui_checkbox_component(
         :import_sources,
-        name,
+        source.title,
         checkbox_options: { checked: checked, multiple: true, autocomplete: 'off' },
-        checked_value: source,
+        checked_value: source.name,
         unchecked_value: nil
       )
     end
@@ -160,8 +204,8 @@ module ApplicationSettingsHelper
   end
 
   def external_authorization_description
-    s_("ExternalAuthorization|Access to projects is validated on an external service "\
-        "using their classification label.")
+    s_("ExternalAuthorization|Access to projects is validated on an external service " \
+      "using their classification label.")
   end
 
   def external_authorization_allow_token_help_text
@@ -169,39 +213,39 @@ module ApplicationSettingsHelper
   end
 
   def external_authorization_timeout_help_text
-    s_("ExternalAuthorization|Period GitLab waits for a response from the external "\
-        "service. If there is no response, access is denied. Default: 0.5 seconds.")
+    s_("ExternalAuthorization|Period GitLab waits for a response from the external " \
+      "service. If there is no response, access is denied. Default: 0.5 seconds.")
   end
 
   def external_authorization_url_help_text
-    s_("ExternalAuthorization|URL to which the projects make authorization requests. If the URL is blank, cross-project "\
-      "features are available and can still specify classification "\
+    s_("ExternalAuthorization|URL to which the projects make authorization requests. If the URL is blank, cross-project " \
+      "features are available and can still specify classification " \
       "labels for projects.")
   end
 
   def external_authorization_client_certificate_help_text
-    s_("ExternalAuthorization|Certificate used to authenticate with the external authorization service. "\
-        "If blank, the server certificate is validated when accessing over HTTPS.")
+    s_("ExternalAuthorization|Certificate used to authenticate with the external authorization service. " \
+      "If blank, the server certificate is validated when accessing over HTTPS.")
   end
 
   def external_authorization_client_key_help_text
-    s_("ExternalAuthorization|Private key of client authentication certificate. "\
-        "Encrypted when stored.")
+    s_("ExternalAuthorization|Private key of client authentication certificate. " \
+      "Encrypted when stored.")
   end
 
   def external_authorization_client_pass_help_text
-    s_("ExternalAuthorization|Passphrase required to decrypt the private key. "\
-        "Encrypted when stored.")
+    s_("ExternalAuthorization|Passphrase required to decrypt the private key. " \
+      "Encrypted when stored.")
   end
 
   def external_authorization_client_url_help_text
-    s_("ExternalAuthorization|Classification label to use when requesting authorization if no specific  "\
+    s_("ExternalAuthorization|Classification label to use when requesting authorization if no specific " \
       "label is defined on the project.")
   end
 
   def sidekiq_job_limiter_mode_help_text
-    _("How the job limiter handles jobs exceeding the thresholds specified below. "\
-      "The 'track' mode only logs the jobs. The 'compress' mode compresses the jobs and "\
+    _("How the job limiter handles jobs exceeding the thresholds specified below. " \
+      "The 'track' mode only logs the jobs. The 'compress' mode compresses the jobs and " \
       "raises an exception if the compressed size exceeds the limit.")
   end
 
@@ -232,6 +276,12 @@ module ApplicationSettingsHelper
       :authorized_keys_enabled,
       :auto_devops_enabled,
       :auto_devops_domain,
+      :autocomplete_users_limit,
+      :autocomplete_users_unauthenticated_limit,
+      :allow_bypass_placeholder_confirmation,
+      :ci_delete_pipelines_in_seconds_limit_human_readable,
+      :ci_job_live_trace_enabled,
+      :ci_partitions_size_limit,
       :concurrent_github_import_jobs_limit,
       :concurrent_bitbucket_import_jobs_limit,
       :concurrent_bitbucket_server_import_jobs_limit,
@@ -251,10 +301,14 @@ module ApplicationSettingsHelper
       :default_projects_limit,
       :default_snippet_visibility,
       :default_syntax_highlighting_theme,
+      :default_dark_syntax_highlighting_theme,
       :delete_inactive_projects,
+      :deletion_adjourned_period,
       :deny_all_requests_except_allowed,
       :disable_admin_oauth_scopes,
       :disable_feed_token,
+      :disable_password_authentication_for_users_with_sso_identities,
+      :root_moved_permanently_redirection,
       :disabled_oauth_sign_in_sources,
       :domain_denylist,
       :domain_denylist_enabled,
@@ -276,6 +330,9 @@ module ApplicationSettingsHelper
       :email_author_in_body,
       :email_confirmation_setting,
       :enabled_git_access_protocol,
+      :enforce_ci_inbound_job_token_scope_enabled,
+      :enforce_email_subaddress_restrictions,
+      :require_email_verification_on_account_locked,
       :enforce_terms,
       :error_tracking_enabled,
       :error_tracking_api_url,
@@ -308,6 +365,7 @@ module ApplicationSettingsHelper
       :housekeeping_optimize_repository_period,
       :html_emails_enabled,
       :import_sources,
+      :inactive_resource_access_tokens_delete_after_days,
       :inactive_projects_delete_after_months,
       :inactive_projects_min_size_mb,
       :inactive_projects_send_warning_email_after_months,
@@ -316,11 +374,17 @@ module ApplicationSettingsHelper
       :jira_connect_application_key,
       :jira_connect_public_key_storage_enabled,
       :jira_connect_proxy_url,
+      :jira_connect_additional_audience_url,
       :math_rendering_limits_enabled,
+      :max_artifacts_content_include_size,
       :max_artifacts_size,
       :max_attachment_size,
       :max_decompressed_archive_size,
       :max_export_size,
+      :max_github_response_size_limit,
+      :max_github_response_json_value_count,
+      :max_http_decompressed_size,
+      :max_http_response_size_limit,
       :max_import_size,
       :max_import_remote_file_size,
       :max_login_attempts,
@@ -333,12 +397,15 @@ module ApplicationSettingsHelper
       :minimum_password_length,
       :mirror_available,
       :notify_on_unknown_sign_in,
+      :organization_cluster_agent_authorization_enabled,
       :pages_domain_verification_enabled,
+      :pages_unique_domain_default_enabled,
       :password_authentication_enabled_for_web,
       :password_authentication_enabled_for_git,
       :performance_bar_allowed_group_path,
       :performance_bar_enabled,
       :personal_access_token_prefix,
+      :instance_token_prefix,
       :kroki_enabled,
       :kroki_url,
       :kroki_formats,
@@ -346,6 +413,7 @@ module ApplicationSettingsHelper
       :plantuml_url,
       :diagramsnet_enabled,
       :diagramsnet_url,
+      :pages_extra_deployments_default_expiry_seconds,
       :polling_interval_multiplier,
       :project_export_enabled,
       :prometheus_metrics_enabled,
@@ -363,8 +431,10 @@ module ApplicationSettingsHelper
       :restricted_visibility_levels,
       :rsa_key_restriction,
       :session_expire_delay,
+      :session_expire_from_init,
       :shared_runners_enabled,
       :shared_runners_text,
+      :sign_in_restrictions,
       :signup_enabled,
       :silent_mode_enabled,
       :slack_app_enabled,
@@ -383,6 +453,9 @@ module ApplicationSettingsHelper
       :throttle_authenticated_api_enabled,
       :throttle_authenticated_api_period_in_seconds,
       :throttle_authenticated_api_requests_per_period,
+      :throttle_authenticated_git_http_enabled,
+      :throttle_authenticated_git_http_period_in_seconds,
+      :throttle_authenticated_git_http_requests_per_period,
       :throttle_authenticated_git_lfs_enabled,
       :throttle_authenticated_git_lfs_period_in_seconds,
       :throttle_authenticated_git_lfs_requests_per_period,
@@ -419,6 +492,7 @@ module ApplicationSettingsHelper
       :throttle_protected_paths_enabled,
       :throttle_protected_paths_period_in_seconds,
       :throttle_protected_paths_requests_per_period,
+      :top_level_group_creation_enabled,
       :protected_paths_raw,
       :protected_paths_for_get_request_raw,
       :time_tracking_limit_to_hours,
@@ -429,6 +503,7 @@ module ApplicationSettingsHelper
       :unique_ips_limit_time_window,
       :usage_ping_enabled,
       :usage_ping_features_enabled,
+      :use_clickhouse_for_analytics,
       :user_default_external,
       :user_show_add_ssh_key_message,
       :user_default_internal_regex,
@@ -447,6 +522,7 @@ module ApplicationSettingsHelper
       :snowplow_database_collector_hostname,
       :snowplow_enabled,
       :snowplow_app_id,
+      :gitlab_product_usage_data_enabled,
       :push_event_hooks_limit,
       :push_event_activities_limit,
       :custom_http_clone_url_root,
@@ -475,6 +551,8 @@ module ApplicationSettingsHelper
       :keep_latest_artifact,
       :whats_new_variant,
       :user_deactivation_emails_enabled,
+      :resource_access_token_notify_inherited,
+      :lock_resource_access_token_notify_inherited,
       :sentry_enabled,
       :sentry_dsn,
       :sentry_clientside_dsn,
@@ -496,23 +574,38 @@ module ApplicationSettingsHelper
       :pipeline_limit_per_project_user_sha,
       :invitation_flow_enforcement,
       :can_create_group,
+      :can_create_organization,
       :bulk_import_concurrent_pipeline_batch_limit,
+      :concurrent_relation_batch_export_limit,
+      :relation_export_batch_size,
       :bulk_import_enabled,
       :bulk_import_max_download_file_size,
       :silent_admin_exports_enabled,
+      :allow_contribution_mapping_to_admins,
       :allow_runner_registration_token,
       :user_defaults_to_private_profile,
       :deactivation_email_additional_text,
       :projects_api_rate_limit_unauthenticated,
       :group_api_limit,
+      :group_archive_unarchive_api_limit,
+      :group_invited_groups_api_limit,
       :group_shared_groups_api_limit,
       :group_projects_api_limit,
       :groups_api_limit,
       :project_api_limit,
+      :project_invited_groups_api_limit,
       :projects_api_limit,
+      :create_organization_api_limit,
       :user_contributed_projects_api_limit,
       :user_projects_api_limit,
       :user_starred_projects_api_limit,
+      :users_api_limit_followers,
+      :users_api_limit_following,
+      :users_api_limit_status,
+      :users_api_limit_ssh_keys,
+      :users_api_limit_ssh_key,
+      :users_api_limit_gpg_keys,
+      :users_api_limit_gpg_key,
       :gitlab_dedicated_instance,
       :gitlab_environment_toolkit_instance,
       :ci_max_includes,
@@ -524,12 +617,34 @@ module ApplicationSettingsHelper
       :security_txt_content,
       :allow_project_creation_for_guest_and_below,
       :downstream_pipeline_trigger_limit_per_project_user_sha,
-      :asciidoc_max_includes
+      :asciidoc_max_includes,
+      :ai_action_api_rate_limit,
+      :code_suggestions_api_rate_limit,
+      :require_personal_access_token_expiry,
+      :observability_backend_ssl_verification_enabled,
+      :show_migrate_from_jenkins_banner,
+      :ropc_without_client_credentials,
+      :global_search_snippet_titles_enabled,
+      :global_search_users_enabled,
+      :global_search_issues_enabled,
+      :global_search_merge_requests_enabled,
+      :global_search_block_anonymous_searches_enabled,
+      :enable_language_server_restrictions,
+      :minimum_language_server_version,
+      :vscode_extension_marketplace,
+      :vscode_extension_marketplace_enabled,
+      :reindexing_minimum_index_size,
+      :reindexing_minimum_relative_bloat_size,
+      :anonymous_searches_allowed,
+      :git_push_pipeline_limit,
+      :delay_user_account_self_deletion,
+      :resource_usage_limits
     ].tap do |settings|
       unless Gitlab.com?
         settings << :deactivate_dormant_users
         settings << :deactivate_dormant_users_period
         settings << :nuget_skip_metadata_url_validation
+        settings << :helm_max_packages_count
       end
     end
   end
@@ -596,7 +711,7 @@ module ApplicationSettingsHelper
 
   def signup_form_data
     {
-      host: new_user_session_url(host: Gitlab.config.gitlab.host),
+      host: new_user_registration_url(host: Gitlab.config.gitlab.host),
       settings_path: general_admin_application_settings_path(anchor: 'js-signup-settings'),
       signup_enabled: @application_setting[:signup_enabled].to_s,
       require_admin_approval_after_user_signup: @application_setting[:require_admin_approval_after_user_signup].to_s,
@@ -605,7 +720,7 @@ module ApplicationSettingsHelper
       minimum_password_length_min: ApplicationSetting::DEFAULT_MINIMUM_PASSWORD_LENGTH,
       minimum_password_length_max: Devise.password_length.max,
       minimum_password_length_help_link:
-        'https://about.gitlab.com/handbook/security/#gitlab-password-policy-guidelines',
+        promo_url(path: '/handbook/security/', anchor: 'gitlab-password-policy-guidelines'),
       domain_allowlist_raw: @application_setting.domain_allowlist_raw,
       new_user_signups_cap: @application_setting[:new_user_signups_cap].to_s,
       domain_denylist_enabled: @application_setting[:domain_denylist_enabled].to_s,
@@ -618,6 +733,37 @@ module ApplicationSettingsHelper
       after_sign_up_text: @application_setting[:after_sign_up_text].to_s,
       pending_user_count: pending_user_count
     }
+  end
+
+  def vscode_extension_marketplace_settings_view
+    presets = ::WebIde::ExtensionMarketplacePreset.all.map do |preset|
+      preset.to_h.deep_transform_keys { |key| key.to_s.camelize(:lower) }
+    end
+
+    {
+      title: _('VS Code Extension Marketplace'),
+      description: vscode_extension_marketplace_settings_description,
+      view_model: {
+        presets: presets,
+        initialSettings: @application_setting.vscode_extension_marketplace || {}
+      }
+    }
+  end
+
+  def vscode_extension_marketplace_settings_description
+    # NOTE: description is overridden in EE
+    _('Enable VS Code Extension Marketplace and configure the extensions registry for Web IDE.')
+  end
+
+  def deletion_protection_data
+    {
+      deletion_adjourned_period: @application_setting[:deletion_adjourned_period]
+    }
+  end
+
+  # Overridden in EE
+  def custom_admin_roles_available?
+    false
   end
 end
 

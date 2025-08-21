@@ -32,8 +32,8 @@ module Gitlab
         fallback_diff_refs: nil,
         stats: nil,
         unique_identifier: nil,
-        max_blob_size: nil)
-
+        max_blob_size: nil
+      )
         @diff = diff
         @stats = stats
         @repository = repository
@@ -71,9 +71,7 @@ module Gitlab
       end
 
       def line_code(line)
-        return if line.meta?
-
-        Gitlab::Git.diff_line_code(file_path, line.new_pos, line.old_pos)
+        line.legacy_id(file_path)
       end
 
       def line_for_line_code(code)
@@ -179,29 +177,8 @@ module Gitlab
           Gitlab::Diff::Parser.new.parse(raw_diff.each_line, diff_file: self).to_a
       end
 
-      def diff_lines_by_hunk
-        [].tap do |a|
-          lines = { added: [], removed: [] }
-
-          diff_lines.each do |line|
-            lines[:added] << line if line.added? && !line.meta?
-            lines[:removed] << line if line.removed? && !line.meta?
-
-            next unless line.type == 'match'
-
-            # If diff hunk is first line on diff file, skip it and continue iterating
-            # without resetting lines.
-            next if lines[:added].empty? && lines[:removed].empty?
-
-            a << lines
-
-            # Reset lines since we'll be creating a new hunk when a new diff
-            # hunk is seen.
-            lines = { added: [], removed: [] }
-          end
-
-          a << lines
-        end
+      def viewer_hunks
+        ViewerHunk.init_from_diff_lines(diff_lines_with_match_tail)
       end
 
       # Changes diff_lines according to the given position. That is,
@@ -259,6 +236,7 @@ module Gitlab
       def file_hash
         Digest::SHA1.hexdigest(file_path)
       end
+      strong_memoize_attr :file_hash
 
       def added_lines
         strong_memoize(:added_lines) do
@@ -305,7 +283,8 @@ module Gitlab
       end
 
       def content_changed?
-        return blobs_changed? if diff_refs
+        return blobs_changed? if diff_refs && new_blob
+
         return false if new_file? || deleted_file? || renamed_file?
 
         text? && diff_lines.any?
@@ -315,17 +294,13 @@ module Gitlab
         old_blob && new_blob && old_blob.binary? != new_blob.binary?
       end
 
-      # rubocop: disable CodeReuse/ActiveRecord
       def size
         valid_blobs.sum(&:size)
       end
-      # rubocop: enable CodeReuse/ActiveRecord
 
-      # rubocop: disable CodeReuse/ActiveRecord
       def raw_size
         valid_blobs.sum(&:raw_size)
       end
-      # rubocop: enable CodeReuse/ActiveRecord
 
       def empty?
         valid_blobs.map(&:empty?).all?
@@ -368,22 +343,28 @@ module Gitlab
       # This adds the bottom match line to the array if needed. It contains
       # the data to load more context lines.
       def diff_lines_for_serializer
-        strong_memoize(:diff_lines_for_serializer) do
-          lines = highlighted_diff_lines
+        lines = diff_lines_with_match_tail
+        return if lines.empty?
 
-          next if lines.empty?
-          next if blob.nil?
-
-          last_line = lines.last
-
-          if last_line.new_pos < total_blob_lines(blob) && !deleted_file?
-            match_line = Gitlab::Diff::Line.new("", 'match', nil, last_line.old_pos, last_line.new_pos)
-            lines.push(match_line)
-          end
-
-          lines
-        end
+        lines
       end
+
+      def diff_lines_with_match_tail
+        lines = highlighted_diff_lines
+
+        return [] if lines.empty?
+        return [] if blob.nil?
+
+        last_line = lines.last
+
+        if last_line.new_pos < total_blob_lines(blob) && !deleted_file?
+          match_line = Gitlab::Diff::Line.new("", 'match', nil, last_line.old_pos, last_line.new_pos)
+          lines.push(match_line)
+        end
+
+        lines
+      end
+      strong_memoize_attr(:diff_lines_with_match_tail)
 
       def fully_expanded?
         return true if binary?
@@ -411,7 +392,29 @@ module Gitlab
       end
 
       def ai_reviewable?
-        diffable? && !deleted_file?
+        diffable? && text?
+      end
+
+      def modified_file?
+        new_file? || deleted_file? || content_changed?
+      end
+
+      def no_preview?
+        collapsed? || !modified_file?
+      end
+
+      def diffable_text?
+        !too_large? && diffable? && text? && !whitespace_only?
+      end
+
+      def whitespace_only?
+        !collapsed? && diff_lines_for_serializer.nil? && (added_lines != 0 || removed_lines != 0)
+      end
+
+      def image_diff?
+        return false if different_type? || external_storage_error?
+
+        DiffViewer::Image.can_render?(self, verify_binary: !stored_externally?)
       end
 
       private
@@ -441,10 +444,6 @@ module Gitlab
           line_count -= 1 if line_count > 0 && blob.lines.last.blank?
           line_count
         end
-      end
-
-      def modified_file?
-        new_file? || deleted_file? || content_changed?
       end
 
       # We can't use Object#try because Blob doesn't inherit from Object, but

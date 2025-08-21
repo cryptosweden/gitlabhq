@@ -7,11 +7,10 @@ identifiers:
   - namespace
   - user
 product_group: runner
+product_categories:
+  - runner
 milestone: '16.10'
 introduced_by_url: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/146063
-distributions:
-  - ce
-  - ee
 tiers:
   - free
   - premium

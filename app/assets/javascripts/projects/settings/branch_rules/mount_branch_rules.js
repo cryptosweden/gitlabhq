@@ -4,7 +4,7 @@ import createDefaultClient from '~/lib/graphql';
 import { parseBoolean } from '~/lib/utils/common_utils';
 import View from 'ee_else_ce/projects/settings/branch_rules/components/view/index.vue';
 
-export default function mountBranchRules(el, store) {
+export default function mountBranchRules(el, store, allowEditSquashSetting = false) {
   if (!el) {
     return null;
   }
@@ -17,6 +17,7 @@ export default function mountBranchRules(el, store) {
 
   const {
     projectPath,
+    projectId,
     protectedBranchesPath,
     branchRulesPath,
     approvalRulesPath,
@@ -25,6 +26,8 @@ export default function mountBranchRules(el, store) {
     showStatusChecks,
     showApprovers,
     showCodeOwners,
+    showEnterpriseAccessLevels,
+    canAdminProtectedBranches,
   } = el.dataset;
 
   return new Vue({
@@ -33,6 +36,7 @@ export default function mountBranchRules(el, store) {
     apolloProvider,
     provide: {
       projectPath,
+      projectId: parseInt(projectId, 10),
       branchRulesPath,
       protectedBranchesPath,
       approvalRulesPath,
@@ -41,6 +45,9 @@ export default function mountBranchRules(el, store) {
       showStatusChecks: parseBoolean(showStatusChecks),
       showApprovers: parseBoolean(showApprovers),
       showCodeOwners: parseBoolean(showCodeOwners),
+      showEnterpriseAccessLevels: parseBoolean(showEnterpriseAccessLevels),
+      canAdminProtectedBranches: parseBoolean(canAdminProtectedBranches),
+      allowEditSquashSetting,
     },
     render(h) {
       return h(View);

@@ -3,7 +3,7 @@ import { GlDisclosureDropdown, GlButton, GlFormInput, GlModal, GlSprintf } from 
 import { mount } from '@vue/test-utils';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import { stubComponent } from 'helpers/stub_component';
-import DeleteMergedBranches, { i18n } from '~/branches/components/delete_merged_branches.vue';
+import DeleteMergedBranches from '~/branches/components/delete_merged_branches.vue';
 import { formPath, propsDataMock } from '../mock_data';
 
 jest.mock('~/lib/utils/csrf', () => ({ token: 'mock-csrf-token' }));
@@ -36,8 +36,7 @@ const createComponent = (mountFn = shallowMountExtended, stubs = {}) => {
   });
 };
 
-const findDeleteButton = () =>
-  wrapper.findComponent('[data-testid="delete-merged-branches-button"]');
+const findDropdown = () => wrapper.findComponent(GlDisclosureDropdown);
 const findModal = () => wrapper.findComponent(GlModal);
 const findConfirmationButton = () =>
   wrapper.findByTestId('delete-merged-branches-confirmation-button');
@@ -51,14 +50,27 @@ describe('Delete merged branches component', () => {
   });
 
   describe('Delete merged branches button', () => {
-    it('has correct text', () => {
+    it('has correct text', async () => {
       createComponent(mount, stubsData);
-      expect(findDeleteButton().text()).toBe(i18n.deleteButtonText);
+      await nextTick();
+
+      expect(findDropdown().props('items')).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            text: 'Delete merged branches',
+            extraAttrs: {
+              'data-testid': 'delete-merged-branches-button',
+            },
+          }),
+        ]),
+      );
     });
 
     it('opens modal when clicked', () => {
       createComponent(mount, stubsData);
-      findDeleteButton().trigger('click');
+      const deleteItem = findDropdown().props('items')[0];
+
+      deleteItem.action();
 
       expect(modalShowSpy).toHaveBeenCalled();
     });
@@ -71,14 +83,22 @@ describe('Delete merged branches component', () => {
 
     it('renders correct modal title and text', () => {
       const modalText = findModal().text();
-      expect(findModal().props('title')).toBe(i18n.modalTitle);
-      expect(modalText).toContain(i18n.notVisibleBranchesWarning);
-      expect(modalText).toContain(i18n.protectedBranchWarning);
+      expect(findModal().props('title')).toBe('Delete all merged branches?');
+      expect(modalText).toContain(
+        'This may include merged branches that are not visible on the current screen.',
+      );
+      expect(modalText).toContain(
+        "A branch won't be deleted if it is protected or associated with an open merge request.",
+      );
+      expect(modalText).toContain(
+        'This bulk action is permanent and cannot be undone or recovered',
+      );
+      expect(modalText).toContain('Please type the following to confirm: delete.');
     });
 
     it('renders confirm and cancel buttons with correct text', () => {
-      expect(findConfirmationButton().text()).toContain(i18n.deleteButtonText);
-      expect(findCancelButton().text()).toContain(i18n.cancelButtonText);
+      expect(findConfirmationButton().text()).toBe('Delete merged branches');
+      expect(findCancelButton().text()).toBe('Cancel');
     });
 
     it('renders form with correct attributes and hidden inputs', () => {
@@ -92,10 +112,6 @@ describe('Delete merged branches component', () => {
       expect(form.find('input[name="authenticity_token"]').attributes('value')).toBe(
         'mock-csrf-token',
       );
-    });
-
-    it('matches snapshot', () => {
-      expect(wrapper.element).toMatchSnapshot();
     });
 
     it('has a disabled confirm button by default', () => {
@@ -115,7 +131,8 @@ describe('Delete merged branches component', () => {
     });
 
     it('calls hide on the modal when cancel button is clicked', () => {
-      findCancelButton().trigger('click');
+      findCancelButton().vm.$emit('click');
+
       expect(modalHideSpy).toHaveBeenCalled();
     });
 
@@ -123,9 +140,9 @@ describe('Delete merged branches component', () => {
       const inputValue = 'hello';
       findFormInput().vm.$emit('input', inputValue);
       await nextTick();
-      expect(findFormInput().attributes('value')).toBe(inputValue);
+      expect(findFormInput().props('value')).toBe(inputValue);
       await findModal().vm.$emit('hidden');
-      expect(findFormInput().attributes('value')).toBe('');
+      expect(findFormInput().props('value')).toBe('');
     });
   });
 });

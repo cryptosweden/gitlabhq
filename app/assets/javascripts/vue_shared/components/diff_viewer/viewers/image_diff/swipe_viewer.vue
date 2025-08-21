@@ -16,6 +16,11 @@ export default {
       type: String,
       required: true,
     },
+    encodePath: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
   },
   data() {
     return {
@@ -34,9 +39,6 @@ export default {
     },
     swipeMaxPixelHeight() {
       return pixeliseValue(this.swipeMaxHeight);
-    },
-    swipeWrapPixelWidth() {
-      return pixeliseValue(this.swipeWrapWidth);
     },
     swipeBarPixelPos() {
       return pixeliseValue(this.swipeBarPos);
@@ -124,6 +126,7 @@ export default {
         :render-info="false"
         :path="oldPath"
         class="frame deleted"
+        :encode-path="encodePath"
         @imgLoaded="swipeOldImgLoaded"
       />
       <div
@@ -141,6 +144,7 @@ export default {
             width: swipeMaxPixelWidth,
           }"
           class="frame added"
+          :encode-path="encodePath"
           @imgLoaded="swipeNewImgLoaded"
         >
           <template #image-overlay="{ renderedWidth, renderedHeight }">

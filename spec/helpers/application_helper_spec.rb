@@ -281,27 +281,25 @@ RSpec.describe ApplicationHelper do
     end
   end
 
-  unless Gitlab.jh?
-    describe '#promo_host' do
-      subject { helper.promo_host }
+  describe '#github_url?' do
+    using RSpec::Parameterized::TableSyntax
 
-      it 'returns the url' do
-        is_expected.to eq('about.gitlab.com')
-      end
-    end
-  end
+    let(:user) { build_stubbed(:user) }
 
-  describe '#promo_url' do
-    subject { helper.promo_url }
+    subject { helper.github_url(user) }
 
-    it 'returns the url' do
-      is_expected.to eq("https://#{helper.promo_host}")
+    before do
+      user.github = github_name
     end
 
-    it 'changes if promo_host changes' do
-      allow(described_class).to receive(:promo_host).and_return('foobar.baz')
+    where(:github_name, :github_url) do
+      nil      | ''
+      ''       | ''
+      'dosire' | 'https://github.com/dosire'
+    end
 
-      is_expected.to eq('https://foobar.baz')
+    with_them do
+      it { is_expected.to eq(github_url) }
     end
   end
 
@@ -326,7 +324,7 @@ RSpec.describe ApplicationHelper do
 
     context 'when alternate support url is not specified' do
       it 'builds the support url from the promo_url' do
-        expect(helper.support_url).to eq(helper.promo_url + '/get-help/')
+        expect(helper.support_url).to eq(promo_url(path: '/get-help/'))
       end
     end
   end
@@ -433,28 +431,61 @@ RSpec.describe ApplicationHelper do
   end
 
   describe '#autocomplete_data_sources' do
-    context 'group' do
-      let(:group) { create(:group) }
-      let(:noteable_type) { Issue }
+    let_it_be(:project) { create(:project) }
+    let_it_be(:group) { create(:group) }
+    let_it_be(:noteable_type) { Issue }
+    let_it_be(:group_sources) { [:members, :issues, :mergeRequests, :labels, :milestones, :commands] }
+    let_it_be(:project_sources) { [:members, :issues, :mergeRequests, :labels, :milestones, :commands, :snippets, :contacts, :wikis] }
+    let_it_be(:extensible_filter_sources) { [:issuesAlternative, :workItems] }
 
-      it 'returns paths for autocomplete_sources_controller' do
-        sources = helper.autocomplete_data_sources(group, noteable_type)
-        expect(sources.keys).to include(:members, :issues, :mergeRequests, :labels, :milestones, :commands)
-        sources.keys.each do |key|
-          expect(sources[key]).not_to be_nil
+    def expect_autocomplete_data_sources_to_be(object, noteable_type, source_keys)
+      sources = helper.autocomplete_data_sources(object, noteable_type)
+      expect(sources.keys).to match_array(source_keys)
+      sources.keys.each do |key|
+        expect(sources[key]).not_to be_nil
+      end
+    end
+
+    def expect_autocomplete_data_sources_to_contain(object, noteable_type, source_keys)
+      sources = helper.autocomplete_data_sources(object, noteable_type)
+      expect(sources.keys).to include(*source_keys)
+      sources.keys.each do |key|
+        expect(sources[key]).not_to be_nil
+      end
+    end
+
+    context 'when feature flag extensible_reference_filters is enabled' do
+      before do
+        stub_feature_flags(extensible_reference_filters: true)
+      end
+
+      context 'group' do
+        it 'returns paths for autocomplete_sources_controller' do
+          expect_autocomplete_data_sources_to_contain(group, noteable_type, group_sources + extensible_filter_sources)
+        end
+      end
+
+      context 'project' do
+        it 'returns paths for autocomplete_sources_controller' do
+          expect_autocomplete_data_sources_to_be(project, noteable_type, project_sources + extensible_filter_sources)
         end
       end
     end
 
-    context 'project' do
-      let(:project) { create(:project) }
-      let(:noteable_type) { Issue }
+    context 'when feature flag extensible_reference_filters is disabled' do
+      before do
+        stub_feature_flags(extensible_reference_filters: false)
+      end
 
-      it 'returns paths for autocomplete_sources_controller' do
-        sources = helper.autocomplete_data_sources(project, noteable_type)
-        expect(sources.keys).to match_array([:members, :issues, :mergeRequests, :labels, :milestones, :commands, :snippets, :contacts, :wikis])
-        sources.keys.each do |key|
-          expect(sources[key]).not_to be_nil
+      context 'group' do
+        it 'returns paths for autocomplete_sources_controller' do
+          expect_autocomplete_data_sources_to_contain(group, noteable_type, group_sources)
+        end
+      end
+
+      context 'project' do
+        it 'returns paths for autocomplete_sources_controller' do
+          expect_autocomplete_data_sources_to_be(project, noteable_type, project_sources)
         end
       end
     end
@@ -471,7 +502,7 @@ RSpec.describe ApplicationHelper do
 
     context 'when @snippet is set' do
       it 'returns the passed path' do
-        snippet = create(:snippet)
+        snippet = create(:project_snippet)
         assign(:snippet, snippet)
 
         expect(helper.external_storage_url_or_path('/foo/bar', project)).to eq('/foo/bar')
@@ -513,7 +544,6 @@ RSpec.describe ApplicationHelper do
           {
             page: 'application',
             page_type_id: nil,
-            find_file: nil,
             group: nil,
             group_full_path: nil
           }
@@ -530,7 +560,6 @@ RSpec.describe ApplicationHelper do
             {
               page: 'application',
               page_type_id: nil,
-              find_file: nil,
               group: group.path,
               group_full_path: group.full_path
             }
@@ -549,12 +578,10 @@ RSpec.describe ApplicationHelper do
       end
 
       it 'includes all possible body data elements and associates the project elements with project' do
-        expect(helper).to receive(:can?).with(nil, :read_code, project)
         expect(helper.body_data).to eq(
           {
             page: 'application',
             page_type_id: nil,
-            find_file: nil,
             group: nil,
             group_full_path: nil,
             project_id: project.id,
@@ -569,12 +596,10 @@ RSpec.describe ApplicationHelper do
         let_it_be(:project) { create(:project, :repository, group: create(:group)) }
 
         it 'includes all possible body data elements and associates the project elements with project' do
-          expect(helper).to receive(:can?).with(nil, :read_code, project)
           expect(helper.body_data).to eq(
             {
               page: 'application',
               page_type_id: nil,
-              find_file: nil,
               group: project.group.name,
               group_full_path: project.group.full_path,
               project_id: project.id,
@@ -597,12 +622,10 @@ RSpec.describe ApplicationHelper do
             stub_controller_method(:action_name, 'show')
             stub_controller_method(:params, { id: issue.id })
 
-            expect(helper).to receive(:can?).with(nil, :read_code, project).and_return(false)
             expect(helper.body_data).to eq(
               {
                 page: 'projects:issues:show',
                 page_type_id: issue.id,
-                find_file: nil,
                 group: nil,
                 group_full_path: nil,
                 project_id: issue.project.id,
@@ -611,37 +634,6 @@ RSpec.describe ApplicationHelper do
                 namespace_id: issue.project.namespace.id
               }
             )
-          end
-        end
-      end
-
-      describe 'find_file attribute' do
-        subject { helper.body_data[:find_file] }
-
-        before do
-          allow(helper).to receive(:current_user).and_return(user)
-        end
-
-        context 'when the project has no repository' do
-          before do
-            allow(project).to receive(:empty_repo?).and_return(true)
-          end
-
-          it { is_expected.to be_nil }
-        end
-
-        context 'when user cannot read_code for the project' do
-          before do
-            allow(helper).to receive(:can?).with(user, :read_code, project).and_return(false)
-          end
-
-          it { is_expected.to be_nil }
-        end
-
-        context 'when current_user has read_code permission' do
-          it 'returns find_file with the default branch' do
-            expect(helper).to receive(:can?).with(user, :read_code, project).and_return(true)
-            expect(subject).to end_with(project.default_branch)
           end
         end
       end
@@ -654,7 +646,7 @@ RSpec.describe ApplicationHelper do
 
   describe '#profile_social_links' do
     context 'when discord is set' do
-      let_it_be(:user) { build(:user) }
+      let(:user) { build(:user) }
       let(:discord) { discord_url(user) }
 
       it 'returns an empty string if discord is not set' do
@@ -668,18 +660,70 @@ RSpec.describe ApplicationHelper do
       end
     end
 
+    context 'when bluesky is set' do
+      let(:user) { build(:user) }
+      let(:bluesky) { bluesky_url(user) }
+
+      it 'returns an empty string if bluesky did id is not set' do
+        expect(bluesky).to eq('')
+      end
+
+      it 'returns bluesky url when bluesky did id is set' do
+        user.bluesky = 'did:plc:ewvi7nxzyoun6zhxrhs64oiz'
+
+        expect(bluesky).to eq(external_redirect_path(url: 'https://bsky.app/profile/did:plc:ewvi7nxzyoun6zhxrhs64oiz'))
+      end
+    end
+
     context 'when mastodon is set' do
-      let_it_be(:user) { build(:user) }
+      let(:user) { build(:user) }
       let(:mastodon) { mastodon_url(user) }
 
       it 'returns an empty string if mastodon username is not set' do
         expect(mastodon).to eq('')
       end
 
-      it 'returns mastodon url when mastodon username is set' do
-        user.mastodon = '@robin@example.com'
+      context 'when verify_mastodon_user FF is enabled' do
+        before do
+          stub_feature_flags(verify_mastodon_user: true)
+        end
 
-        expect(mastodon).to eq(external_redirect_path(url: 'https://example.com/@robin'))
+        it 'returns mastodon url with relme when user handle is set' do
+          user.mastodon = '@robin@example.com'
+
+          expect(mastodon).to eq(external_redirect_path(url: 'https://example.com/@robin', rel: 'me'))
+        end
+      end
+
+      context 'when verify_mastodon_user FF is disabled' do
+        before do
+          stub_feature_flags(verify_mastodon_user: false)
+        end
+
+        it 'returns mastodon url when user handle is set' do
+          user.mastodon = '@robin@example.com'
+          expect(mastodon).to eq(external_redirect_path(url: 'https://example.com/@robin'))
+        end
+      end
+    end
+
+    describe '#orcid_url' do
+      let(:user) { build(:user) }
+
+      subject(:orcid) { orcid_url(user) }
+
+      context 'without ORCID ID' do
+        it 'returns an empty string' do
+          expect(orcid).to eq('')
+        end
+      end
+
+      context 'with ORCID ID' do
+        it 'returns orcid url' do
+          user.orcid = '1234-1234-1234-1234'
+
+          expect(orcid).to eq(external_redirect_path(url: 'https://orcid.org/1234-1234-1234-1234'))
+        end
       end
     end
   end
@@ -742,6 +786,14 @@ RSpec.describe ApplicationHelper do
           end
 
           it { is_expected.not_to include('with-header') }
+
+          context 'when `global_topbar` feature is enabled' do
+            before do
+              stub_feature_flags(global_topbar: true)
+            end
+
+            it { is_expected.to include('with-header') }
+          end
         end
 
         context 'when no current_user' do
@@ -763,21 +815,20 @@ RSpec.describe ApplicationHelper do
     end
 
     describe 'with-top-bar' do
-      context 'when @hide_top_bar_padding is false' do
-        before do
-          helper.instance_variable_set(:@hide_top_bar_padding, false)
-        end
+      it { is_expected.to include('with-top-bar') }
+    end
+  end
 
-        it { is_expected.to include('with-top-bar') }
-      end
+  describe '#disable_fixed_body_scroll' do
+    it 'disables body scroll' do
+      helper.disable_fixed_body_scroll
+      expect(helper.body_scroll_classes).to eq('')
+    end
+  end
 
-      context 'when @hide_top_bar_padding is true' do
-        before do
-          helper.instance_variable_set(:@hide_top_bar_padding, true)
-        end
-
-        it { is_expected.not_to include('with-top-bar') }
-      end
+  describe '#body_scroll_classes' do
+    it 'fixes body scroll by default' do
+      expect(helper.body_scroll_classes).to eq('body-fixed-scrollbar')
     end
   end
 
@@ -869,12 +920,6 @@ RSpec.describe ApplicationHelper do
     end
   end
 
-  describe 'stylesheet_link_tag_defer' do
-    it 'uses media="all" in stylesheet' do
-      expect(helper.stylesheet_link_tag_defer('test')).to eq('<link rel="stylesheet" href="/stylesheets/test.css" media="all" />')
-    end
-  end
-
   describe 'sign_in_with_redirect?' do
     context 'when on the sign-in page that redirects afterwards' do
       before do
@@ -942,7 +987,7 @@ RSpec.describe ApplicationHelper do
 
     shared_examples 'returns icon with tooltip' do
       before do
-        allow(helper).to receive(:sprite_icon).with('spam', css_class: 'gl-vertical-align-text-bottom').and_return(mock_svg)
+        allow(helper).to receive(:sprite_icon).with('spam', css_class: 'gl-align-text-bottom', variant: nil).and_return(mock_svg)
       end
 
       it 'returns icon with tooltip' do
@@ -965,20 +1010,22 @@ RSpec.describe ApplicationHelper do
       it_behaves_like 'returns icon with tooltip'
     end
 
-    context 'when resource is a project' do
-      let_it_be(:resource) { build(:project) }
-      let(:expected_title) { 'This project is hidden because its creator has been banned' }
-
-      it_behaves_like 'returns icon with tooltip'
-    end
-
     context 'when css_class is provided' do
       let_it_be(:resource) { build(:issue) }
 
       it 'passes the value to sprite_icon' do
-        expect(helper).to receive(:sprite_icon).with('spam', css_class: 'gl-vertical-align-text-bottom extra-class').and_return(mock_svg)
+        expect(helper).to receive(:sprite_icon).with('spam', css_class: 'gl-align-text-bottom extra-class', variant: nil).and_return(mock_svg)
 
         helper.hidden_resource_icon(resource, css_class: 'extra-class')
+      end
+    end
+
+    context 'when variant is provided' do
+      let_it_be(:resource) { build(:issue) }
+
+      it 'passes the value to sprite_icon' do
+        expect(helper).to receive(:sprite_icon).with('spam', css_class: 'gl-align-text-bottom', variant: 'subtle').and_return(mock_svg)
+        helper.hidden_resource_icon(resource, variant: 'subtle')
       end
     end
   end

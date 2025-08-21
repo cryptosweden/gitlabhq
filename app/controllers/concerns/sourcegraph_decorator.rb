@@ -11,7 +11,8 @@ module SourcegraphDecorator
       next unless Gitlab::CurrentSettings.sourcegraph_enabled
 
       default_connect_src = p.directives['connect-src'] || p.directives['default-src']
-      connect_src_values = Array.wrap(default_connect_src) | [Gitlab::Utils.append_path(Gitlab::CurrentSettings.sourcegraph_url, '.api/')]
+      connect_src_values = Array.wrap(default_connect_src) | [Gitlab::Utils.append_path(
+        Gitlab::CurrentSettings.sourcegraph_url, '.api/')]
       p.connect_src(*connect_src_values)
     end
   end
@@ -31,7 +32,7 @@ module SourcegraphDecorator
   end
 
   def sourcegraph_enabled_for_project?
-    return false unless project && Gitlab::Sourcegraph.feature_enabled?(project)
+    return false unless project
     return project.public? if Gitlab::CurrentSettings.sourcegraph_public_only
 
     true

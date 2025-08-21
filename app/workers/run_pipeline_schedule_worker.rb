@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
-class RunPipelineScheduleWorker # rubocop:disable Scalability/IdempotentWorker
+class RunPipelineScheduleWorker
   include ApplicationWorker
 
-  data_consistency :always
+  data_consistency :sticky
 
   sidekiq_options retry: 3
   include PipelineQueue
@@ -17,17 +17,49 @@ class RunPipelineScheduleWorker # rubocop:disable Scalability/IdempotentWorker
     schedule = Ci::PipelineSchedule.find_by_id(schedule_id)
     user = User.find_by_id(user_id)
 
-    return unless schedule && schedule.project && user
+    return unless schedule_valid?(schedule, schedule_id, user, options)
 
-    options.symbolize_keys!
+    update_next_run_at_for(schedule) if options['scheduling']
 
-    if options[:scheduling]
-      return if schedule.next_run_at.future?
+    response = run_pipeline_schedule(schedule, user)
+    log_error(schedule.id, response.message) if response&.error?
 
-      update_next_run_at_for(schedule)
+    response
+  end
+
+  def schedule_valid?(schedule, schedule_id, user, options)
+    unless schedule
+      log_error(schedule_id, "Schedule not found")
+      return false
     end
 
-    run_pipeline_schedule(schedule, user)
+    unless schedule.project
+      log_error(schedule_id, "Project not found for schedule")
+      return false
+    end
+
+    if schedule.project.self_or_ancestors_archived?
+      log_error(schedule_id, "Project or ancestors are archived")
+      return false
+    end
+
+    if Feature.enabled?(:notify_pipeline_schedule_owner_unavailable,
+      schedule.project) && !schedule_owner_still_available?(schedule)
+      log_error(schedule_id, "Pipeline schedule owner is no longer available to schedule the pipeline")
+      return false
+    end
+
+    unless user
+      log_error(schedule_id, "User not found")
+      return false
+    end
+
+    if options['scheduling'] && schedule.next_run_at.future?
+      log_error(schedule_id, "Schedule next run time is in future")
+      return false
+    end
+
+    true
   end
 
   def run_pipeline_schedule(schedule, user)
@@ -35,8 +67,8 @@ class RunPipelineScheduleWorker # rubocop:disable Scalability/IdempotentWorker
       .new(schedule.project, user, ref: schedule.ref)
       .execute(
         :schedule,
-        save_on_errors: true,
-        ignore_skip_ci: true, schedule: schedule
+        save_on_errors: true, ignore_skip_ci: true,
+        schedule: schedule, inputs: schedule.inputs_hash
       )
   rescue StandardError => e
     error(schedule, e)
@@ -50,15 +82,26 @@ class RunPipelineScheduleWorker # rubocop:disable Scalability/IdempotentWorker
     schedule.schedule_next_run!
   end
 
+  def schedule_owner_still_available?(schedule)
+    return true if schedule.owner&.can?(:create_pipeline, schedule.project)
+
+    notify_project_owner(schedule)
+    false
+  end
+
+  def notify_project_owner(schedule)
+    NotificationService.new.pipeline_schedule_owner_unavailable(schedule)
+  end
+
   def error(schedule, error)
     failed_creation_counter.increment
-    log_error(schedule, error)
+    log_error(schedule.id, error.message)
     track_error(schedule, error)
   end
 
-  def log_error(schedule, error)
+  def log_error(schedule_id, message)
     Gitlab::AppLogger.error "Failed to create a scheduled pipeline. " \
-                       "schedule_id: #{schedule.id} message: #{error.message}"
+                              "schedule_id: #{schedule_id} message: #{message}"
   end
 
   def track_error(schedule, error)

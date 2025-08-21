@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'set' # rubocop:disable Lint/RedundantRequireStatement -- Ruby 3.1 and earlier needs this. Drop this line after Ruby 3.2+ is only supported.
-
 module Gitlab
   # Module that can be used to detect if a path points to a special file such as
   # a README or a CONTRIBUTING file.
@@ -18,13 +16,12 @@ module Gitlab
       avatar: /\Alogo\.(png|jpg|gif)\z/,
       issue_template: %r{\A\.gitlab/issue_templates/[^/]+\.md\z},
       merge_request_template: %r{\A\.gitlab/merge_request_templates/[^/]+\.md\z},
-      metrics_dashboard: %r{\A\.gitlab/dashboards/[^/]+\.yml\z},
       xcode_config: %r{\A[^/]*\.(xcodeproj|xcworkspace)(/.+)?\z},
 
       # Configuration files
       gitignore: '.gitignore',
       gitlab_ci: ::Ci::Pipeline::DEFAULT_CONFIG_PATH,
-      jenkinsfile: 'jenkinsfile',
+      jenkinsfile: %r{\A([^/]*\.)?Jenkinsfile(\.[^/]*)?\z}i,
       route_map: '.gitlab/route-map.yml',
 
       # Dependency files

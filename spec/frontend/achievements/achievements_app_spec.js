@@ -1,4 +1,4 @@
-import { GlAvatar, GlCard, GlEmptyState, GlKeysetPagination, GlLoadingIcon } from '@gitlab/ui';
+import { GlAvatar, GlEmptyState, GlKeysetPagination, GlLoadingIcon } from '@gitlab/ui';
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import getGroupAchievementsResponse from 'test_fixtures/graphql/get_group_achievements_response.json';
@@ -10,6 +10,8 @@ import waitForPromises from 'helpers/wait_for_promises';
 import AchievementsApp from '~/achievements/components/achievements_app.vue';
 import UserAvatarList from '~/vue_shared/components/user_avatar/user_avatar_list.vue';
 import getGroupAchievementsQuery from '~/achievements/components/graphql/get_group_achievements.query.graphql';
+import CrudComponent from '~/vue_shared/components/crud_component.vue';
+import AwardButton from '~/achievements/components/award_button.vue';
 
 Vue.use(VueApollo);
 
@@ -18,6 +20,7 @@ describe('Achievements app', () => {
   let fakeApollo;
   let queryHandler;
 
+  const findAwardButton = () => wrapper.findComponent(AwardButton);
   const findEmptyState = () => wrapper.findComponent(GlEmptyState);
   const findLoadingIcon = () => wrapper.findComponent(GlLoadingIcon);
   const findNewAchievementButton = () => wrapper.findByTestId('new-achievement-button');
@@ -25,6 +28,8 @@ describe('Achievements app', () => {
 
   const mountComponent = ({
     canAdminAchievement = true,
+    canAwardAchievement = true,
+    crudStub = false,
     mountFunction = shallowMountExtended,
     queryResponse = getGroupAchievementsResponse,
   } = {}) => {
@@ -33,11 +38,16 @@ describe('Achievements app', () => {
     wrapper = mountFunction(AchievementsApp, {
       provide: {
         canAdminAchievement,
+        canAwardAchievement,
         groupFullPath: 'flightjs',
         gitlabLogoPath: '/assets/gitlab_logo.png',
       },
       apolloProvider: fakeApollo,
-      stubs: ['router-link', 'router-view'],
+      stubs: {
+        CrudComponent: crudStub,
+        'router-link': true,
+        'router-view': true,
+      },
     });
     return waitForPromises();
   };
@@ -52,15 +62,15 @@ describe('Achievements app', () => {
     it('should render the right number of achievements', async () => {
       await mountComponent();
 
-      const achievements = wrapper.findAllComponents(GlCard);
+      const achievements = wrapper.findAllComponents(CrudComponent);
 
-      expect(achievements.length).toBe(3);
+      expect(achievements).toHaveLength(3);
     });
 
     it('should render the correct achievement name and avatar (when present)', async () => {
       await mountComponent({ mountFunction: mountExtended });
 
-      const achievements = wrapper.findAllComponents(GlCard);
+      const achievements = wrapper.findAllComponents(CrudComponent);
 
       expect(achievements.at(0).text()).toContain('Legend');
       expect(achievements.at(0).findComponent(GlAvatar).props('src')).toMatch(/\/dk.png$/);
@@ -69,7 +79,7 @@ describe('Achievements app', () => {
     it('should render the correct achievement name and avatar (when not present)', async () => {
       await mountComponent({ mountFunction: mountExtended });
 
-      const achievements = wrapper.findAllComponents(GlCard);
+      const achievements = wrapper.findAllComponents(CrudComponent);
 
       expect(achievements.at(1).text()).toContain('Star');
       expect(achievements.at(1).findComponent(GlAvatar).props('src')).toBe(
@@ -81,7 +91,7 @@ describe('Achievements app', () => {
       it('should render not yet awarded message', async () => {
         await mountComponent({ mountFunction: mountExtended });
 
-        const achievements = wrapper.findAllComponents(GlCard);
+        const achievements = wrapper.findAllComponents(CrudComponent);
 
         expect(achievements.at(1).text()).toContain('Not yet awarded');
       });
@@ -91,7 +101,7 @@ describe('Achievements app', () => {
       it('should mount user avatar list with expected props', async () => {
         await mountComponent({ mountFunction: mountExtended });
 
-        const achievements = wrapper.findAllComponents(GlCard);
+        const achievements = wrapper.findAllComponents(CrudComponent);
         const avatarList = achievements.at(0).findComponent(UserAvatarList);
 
         expect(avatarList.exists()).toBe(true);
@@ -120,6 +130,27 @@ describe('Achievements app', () => {
           await mountComponent({ canAdminAchievement: false });
 
           expect(findNewAchievementButton().exists()).toBe(false);
+        });
+      });
+    });
+
+    describe('award button', () => {
+      describe('when user can award_achievement', () => {
+        it('should render', async () => {
+          await mountComponent({ crudStub: { template: '<div><slot name="actions" /></div>' } });
+
+          expect(findAwardButton().exists()).toBe(true);
+        });
+      });
+
+      describe('when user can not award_achievement', () => {
+        it('should not render', async () => {
+          await mountComponent({
+            canAwardAchievement: false,
+            crudStub: { template: '<div><slot name="actions" /></div>' },
+          });
+
+          expect(findAwardButton().exists()).toBe(false);
         });
       });
     });

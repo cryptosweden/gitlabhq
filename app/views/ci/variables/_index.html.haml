@@ -1,6 +1,19 @@
 - save_endpoint = local_assigns.fetch(:save_endpoint, nil)
 - is_group = !@group.nil?
 - is_project = !@project.nil?
+- is_root_group = @group && @group.root?
+
+- if is_root_group
+  #js-pipeline-variables-default-role{ data: { full_path: @group.full_path } }
+
+- if is_project
+  #js-ci-variables-minimum-override-role-app{ data: { full_path: @project.full_path } }
+
+  = render 'ci/variables/protect_merge_request_pipelines'
+  = render 'ci/variables/display_pipeline_variables'
+
+  %h5
+    = _('Project variables')
 
 = render 'ci/variables/attributes'
 
@@ -14,9 +27,8 @@
   maskable_raw_regex: ci_variable_maskable_raw_regex,
   maskable_regex: ci_variable_maskable_regex,
   protected_by_default: ci_variable_protected_by_default?.to_s,
-  contains_variable_reference_link: help_page_path('ci/variables/index', anchor: 'prevent-cicd-variable-expansion'),
-  masked_environment_variables_link: help_page_path('ci/variables/index', anchor: 'mask-a-cicd-variable'),
-  environment_scope_link: help_page_path('ci/environments/index', anchor: 'limit-the-environment-scope-of-a-cicd-variable') } }
+  contains_variable_reference_link: help_page_path('ci/variables/_index.md', anchor: 'prevent-cicd-variable-expansion'),
+  masked_environment_variables_link: help_page_path('ci/variables/_index.md', anchor: 'mask-a-cicd-variable') } }
 
 - if !@group && @project.group
   = render 'ci/group_variables/header'

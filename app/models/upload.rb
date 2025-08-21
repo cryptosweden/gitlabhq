@@ -3,22 +3,28 @@
 class Upload < ApplicationRecord
   include Checksummable
   include EachBatch
+  include ObjectStorable
+
+  STORE_COLUMN = :store
 
   # Upper limit for foreground checksum processing
   CHECKSUM_THRESHOLD = 100.megabytes
 
   belongs_to :model, polymorphic: true # rubocop:disable Cop/PolymorphicAssociations
+  belongs_to :uploaded_by_user, class_name: 'User', optional: true
 
   validates :size, presence: true
   validates :path, presence: true
   validates :model, presence: true
   validates :uploader, presence: true
 
-  scope :with_files_stored_locally, -> { where(store: ObjectStorage::Store::LOCAL) }
-  scope :with_files_stored_remotely, -> { where(store: ObjectStorage::Store::REMOTE) }
   scope :for_model_type_and_id, ->(type, id) { where(model_type: type, model_id: id) }
+  scope :for_uploader, ->(uploader_class) { where(uploader: uploader_class.to_s) }
+  scope :order_by_created_at_desc, -> { reorder(created_at: :desc) }
+  scope :preload_uploaded_by_user, -> { preload(:uploaded_by_user) }
 
   before_save :calculate_checksum!, if: :foreground_checksummable?
+  before_save :ensure_sharding_key
   # as the FileUploader is not mounted, the default CarrierWave ActiveRecord
   # hooks are not executed and the file will not be deleted
   after_destroy :delete_file!, if: -> { uploader_class <= FileUploader }
@@ -58,6 +64,16 @@ class Upload < ApplicationRecord
         store_class.new.delete_keys_async(keys)
       end
     end
+
+    def destroy_for_associations!(records, uploader = AttachmentUploader)
+      return if records.blank?
+
+      for_model_type_and_id(records.klass, records.pluck_primary_key)
+        .for_uploader(uploader)
+        .then { |uploads| [uploads, uploads.begin_fast_destroy] }
+        .tap { |uploads, _| uploads.delete_all }
+        .tap { |_, files| finalize_fast_destroy(files) }
+    end
   end
 
   def absolute_path
@@ -95,7 +111,7 @@ class Upload < ApplicationRecord
   # @return [GitlabUploader] one of the subclasses, defined at the model's uploader attribute
   def retrieve_uploader(mounted_as = nil)
     build_uploader(mounted_as).tap do |uploader|
-      uploader.retrieve_from_store!(identifier)
+      uploader.retrieve_from_store!(filename)
     end
   end
 
@@ -121,8 +137,9 @@ class Upload < ApplicationRecord
 
   def uploader_context
     {
-      identifier: identifier,
-      secret: secret
+      identifier: filename,
+      secret: secret,
+      uploaded_by_user_id: uploaded_by_user_id
     }.compact
   end
 
@@ -138,6 +155,10 @@ class Upload < ApplicationRecord
   # @return [Boolean] whether generating a checksum is needed
   def needs_checksum?
     checksum.nil? && local? && exist?
+  end
+
+  def filename
+    File.basename(path)
   end
 
   private
@@ -162,10 +183,6 @@ class Upload < ApplicationRecord
     Object.const_get(uploader, false)
   end
 
-  def identifier
-    File.basename(path)
-  end
-
   def mount_point
     super&.to_sym
   end
@@ -175,7 +192,18 @@ class Upload < ApplicationRecord
   end
 
   def update_project_statistics
-    ProjectCacheWorker.perform_async(model_id, [], ['uploads_size'])
+    ProjectCacheWorker.perform_async(model_id, [], %w[uploads_size])
+  end
+
+  def ensure_sharding_key
+    sharding_key = model&.uploads_sharding_key
+    return unless sharding_key.present?
+
+    # This is workaround for some migrations that rely on application code to use
+    # bot users, and creating these fail in tests if the column is not present yet.
+    return unless sharding_key.each_key.all? { |k| respond_to?(k) }
+
+    assign_attributes(sharding_key)
   end
 end
 

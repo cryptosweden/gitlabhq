@@ -98,8 +98,8 @@ module Gitlab
       def build(
         project:, user:, ref:, oldrev: nil, newrev: nil,
         commits: [], commits_count: nil, message: nil, push_options: {},
-        with_changed_files: true)
-
+        with_changed_files: true
+      )
         commits = Array(commits)
 
         # Total commits count
@@ -173,7 +173,7 @@ module Gitlab
           oldrev: commits.last&.id,
           newrev: commits.first&.id,
           ref: ref,
-          commits: commits)
+          commits: commits.reverse)
       end
 
       def sample_data(is_tag = false)

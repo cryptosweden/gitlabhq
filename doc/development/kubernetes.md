@@ -1,13 +1,12 @@
 ---
 stage: Deploy
 group: Environments
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Kubernetes integration development guidelines
 ---
 
-# Kubernetes integration development guidelines
-
 This document provides various guidelines when developing for the GitLab
-[Kubernetes integration](../user/infrastructure/clusters/index.md).
+[Kubernetes integration](../user/infrastructure/clusters/_index.md).
 
 ## Development
 
@@ -54,7 +53,7 @@ webserver, and can lead to a denial-of-service (DoS) attack in GitLab as
 the Kubernetes cluster response times are outside of our control.
 
 The easiest way to ensure your calls happen a background process is to
-delegate any such work to happen in a [Sidekiq worker](sidekiq/index.md).
+delegate any such work to happen in a [Sidekiq worker](sidekiq/_index.md).
 
 You may want to make calls to Kubernetes and return the response, but a background
 worker isn't a good fit. Consider using
@@ -107,7 +106,7 @@ The process for creating a cluster is as follows:
    by `:provision_role_arn` and stores a set of temporary credentials on the
    provider record. By default these credentials are valid for one hour.
 1. A CloudFormation stack is created, based on the
-   [`AWS CloudFormation EKS template`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/vendor/aws/cloudformation/eks_cluster.yaml).
+   [`AWS CloudFormation EKS template`](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/17036/diffs#diff-content-b79f1d78113a9b1ab02b37ca4a756c3a9b8c2ae8).
    This triggers creation of all resources required for an EKS cluster.
 1. GitLab polls the status of the stack until all resources are ready,
    which takes somewhere between 10 and 15 minutes in most cases.
@@ -155,7 +154,7 @@ Mitigation strategies include:
 ## Debugging Kubernetes integrations
 
 Logs related to the Kubernetes integration can be found in
-[`kubernetes.log`](../administration/logs/index.md#kuberneteslog-deprecated). On a local
+[`kubernetes.log`](../administration/logs/_index.md#kuberneteslog-deprecated). On a local
 GDK install, these logs are present in `log/kubernetes.log`.
 
 You can also follow the installation logs to debug issues related to

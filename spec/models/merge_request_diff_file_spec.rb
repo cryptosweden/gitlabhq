@@ -13,9 +13,45 @@ RSpec.describe MergeRequestDiffFile, feature_category: :code_review_workflow do
     let(:invalid_items_for_bulk_insertion) { [] } # class does not have any validations defined
   end
 
-  let(:unpacked) { 'unpacked' }
-  let(:packed) { [unpacked].pack('m0') }
   let(:file) { create(:merge_request).merge_request_diff.merge_request_diff_files.first }
+  let(:packed) { [unpacked].pack('m0') }
+  let(:unpacked) { 'unpacked' }
+
+  describe '#update_project_id callback' do
+    let_it_be(:merge_request) { create(:merge_request) }
+
+    it 'sets project_id when missing' do
+      mrdf = merge_request.merge_request_diff.merge_request_diff_files.first
+
+      expect(mrdf.project_id).to be_nil
+
+      # Normally, we would run a simple #save, then check that the validation
+      #   callbacks have fired, however here I want to invoke them manually to
+      #   isolate the behavior of #update_project_id
+      #
+      mrdf._run_validation_callbacks
+
+      expect(mrdf.project_id).to eq(merge_request.project_id)
+    end
+  end
+
+  describe '#new_path' do
+    context 'file[:new_path] exists' do
+      it 'returns [:new_path]' do
+        expect(file.new_path).to eq(file[:new_path])
+      end
+    end
+
+    context 'file[:new_path] is nil' do
+      before do
+        file.new_path = nil
+      end
+
+      it 'returns old_path' do
+        expect(file.new_path).to eq(file.old_path)
+      end
+    end
+  end
 
   describe '#diff' do
     let(:file) { build(:merge_request_diff_file) }

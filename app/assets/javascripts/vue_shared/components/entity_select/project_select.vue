@@ -10,6 +10,7 @@ import {
   FETCH_PROJECT_ERROR,
 } from './constants';
 import EntitySelector from './entity_select.vue';
+import { initialSelectionPropValidator } from './utils';
 
 export default {
   components: {
@@ -28,6 +29,11 @@ export default {
     label: {
       type: String,
       required: true,
+    },
+    description: {
+      type: String,
+      required: false,
+      default: '',
     },
     hasHtmlLabel: {
       type: Boolean,
@@ -73,9 +79,15 @@ export default {
       default: 'similarity',
     },
     initialSelection: {
-      type: String,
+      type: [String, Number, Object],
       required: false,
       default: null,
+      validator: initialSelectionPropValidator,
+    },
+    emptyText: {
+      type: String,
+      required: false,
+      default: PROJECT_TOGGLE_TEXT,
     },
   },
   data() {
@@ -153,7 +165,6 @@ export default {
     },
   },
   i18n: {
-    searchForProject: PROJECT_TOGGLE_TEXT,
     selectProject: PROJECT_HEADER_TEXT,
   },
 };
@@ -162,11 +173,12 @@ export default {
 <template>
   <entity-selector
     :label="label"
+    :description="description"
     :input-name="inputName"
     :input-id="inputId"
     :initial-selection="initialSelection"
     :header-text="$options.i18n.selectProject"
-    :default-toggle-text="$options.i18n.searchForProject"
+    :default-toggle-text="emptyText"
     :fetch-items="fetchProjects"
     :fetch-initial-selection="fetchInitialProject"
     :block="block"

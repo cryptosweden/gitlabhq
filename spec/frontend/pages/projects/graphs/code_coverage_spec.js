@@ -1,13 +1,14 @@
 import { GlAlert, GlCollapsibleListbox, GlListboxItem } from '@gitlab/ui';
-import { GlAreaChart } from '@gitlab/ui/dist/charts';
-import { shallowMount } from '@vue/test-utils';
+import { GlAreaChart } from '@gitlab/ui/src/charts';
+import { nextTick } from 'vue';
 import MockAdapter from 'axios-mock-adapter';
 
-import { nextTick } from 'vue';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import axios from '~/lib/utils/axios_utils';
 import { HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import CodeCoverage from '~/pages/projects/graphs/components/code_coverage.vue';
+import SettingsSection from '~/vue_shared/components/settings/settings_section.vue';
 import { codeCoverageMockData, sortedDataByDates } from './mock_data';
 
 describe('Code Coverage', () => {
@@ -26,10 +27,10 @@ describe('Code Coverage', () => {
   const findListBoxItems = () => wrapper.findAllComponents(GlListboxItem);
   const findFirstListBoxItem = () => findListBoxItems().at(0);
   const findSecondListBoxItem = () => findListBoxItems().at(1);
-  const findDownloadButton = () => wrapper.find('[data-testid="download-button"]');
+  const findDownloadButton = () => wrapper.findByTestId('download-button');
 
   const createComponent = () => {
-    wrapper = shallowMount(CodeCoverage, {
+    wrapper = shallowMountExtended(CodeCoverage, {
       propsData: {
         graphEndpoint,
         graphStartDate,
@@ -37,7 +38,7 @@ describe('Code Coverage', () => {
         graphRef,
         graphCsvPath,
       },
-      stubs: { GlCollapsibleListbox },
+      stubs: { GlCollapsibleListbox, SettingsSection },
     });
   };
 
@@ -168,8 +169,8 @@ describe('Code Coverage', () => {
 
       await nextTick();
 
-      expect(wrapper.vm.selectedDailyCoverage).not.toBe(originalSelectedData);
-      expect(wrapper.vm.selectedDailyCoverage).toBe(expectedData);
+      expect(wrapper.vm.selectedDailyCoverage).not.toStrictEqual(originalSelectedData);
+      expect(wrapper.vm.selectedDailyCoverage).toStrictEqual(expectedData);
     });
   });
 });

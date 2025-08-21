@@ -58,6 +58,15 @@ module Types
         Types::Import::SourceUserStatusEnum,
         null: false,
         description: 'Status of the mapping.'
+
+      field :reassignment_error,
+        GraphQL::Types::String,
+        description: 'Error message if reassignment failed.'
+
+      field :created_at,
+        Types::TimeType,
+        null: false,
+        description: 'Timestamp of when the source user was created.'
     end
   end
 end

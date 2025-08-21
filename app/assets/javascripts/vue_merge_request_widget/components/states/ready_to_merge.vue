@@ -11,6 +11,7 @@ import {
   GlSkeletonLoader,
 } from '@gitlab/ui';
 import { isEmpty, isNil } from 'lodash';
+import axios from '~/lib/utils/axios_utils';
 import readyToMergeMixin from 'ee_else_ce/vue_merge_request_widget/mixins/ready_to_merge';
 import readyToMergeQuery from 'ee_else_ce/vue_merge_request_widget/queries/states/ready_to_merge.query.graphql';
 import { createAlert } from '~/alert';
@@ -19,7 +20,8 @@ import { TYPENAME_MERGE_REQUEST } from '~/graphql_shared/constants';
 import { STATUS_CLOSED, STATUS_MERGED } from '~/issues/constants';
 import { secondsToMilliseconds } from '~/lib/utils/datetime_utility';
 import simplePoll from '~/lib/utils/simple_poll';
-import { __, s__, n__ } from '~/locale';
+import { joinPaths } from '~/lib/utils/url_utility';
+import { __, s__, n__, sprintf } from '~/locale';
 import SmartInterval from '~/smart_interval';
 import { helpPagePath } from '~/helpers/help_page_helper';
 import { convertToGraphQLId } from '~/graphql_shared/utils';
@@ -44,6 +46,7 @@ import CommitEdit from './commit_edit.vue';
 import CommitMessageDropdown from './commit_message_dropdown.vue';
 import SquashBeforeMerge from './squash_before_merge.vue';
 import MergeFailedPipelineConfirmationDialog from './merge_failed_pipeline_confirmation_dialog.vue';
+import RebaseConfirmationDialog from './rebase_confirmation_dialog.vue';
 
 const PIPELINE_PENDING_STATE = 'pending';
 const PIPELINE_SUCCESS_STATE = 'success';
@@ -77,7 +80,7 @@ export default {
             false;
           this.commitMessage = data.project.mergeRequest.defaultMergeCommitMessage;
           this.squashBeforeMerge = data.project.mergeRequest.squashOnMerge;
-          this.isSquashReadOnly = data.project.squashReadOnly;
+          this.isSquashReadOnly = data.project.mergeRequest.squashReadOnly;
           this.squashCommitMessage = data.project.mergeRequest.defaultSquashCommitMessage;
         }
 
@@ -85,6 +88,7 @@ export default {
           ...data.project.mergeRequest,
           mergeRequestsFfOnlyEnabled: data.project.mergeRequestsFfOnlyEnabled,
           onlyAllowMergeIfPipelineSucceeds: data.project.onlyAllowMergeIfPipelineSucceeds,
+          mergeTrainsCount: data.project?.mergeTrains?.nodes[0]?.cars?.count,
         };
         this.loading = false;
 
@@ -151,6 +155,7 @@ export default {
     GlFormCheckbox,
     GlSkeletonLoader,
     MergeFailedPipelineConfirmationDialog,
+    RebaseConfirmationDialog,
     MergeImmediatelyConfirmationDialog: () =>
       import(
         'ee_component/vue_merge_request_widget/components/merge_immediately_confirmation_dialog.vue'
@@ -197,6 +202,8 @@ export default {
       skipMergeTrain: false,
       mergeTrainsSkipAllowed: this.mr.mergeTrainsSkipAllowed,
       editCommitMessage: false,
+      isRebaseInProgress: false,
+      isRebaseModalVisible: false,
     };
   },
   computed: {
@@ -213,7 +220,7 @@ export default {
       return ['FAILED', 'CANCELED'].indexOf(this.pipeline?.status) !== -1;
     },
     showMergeFailedPipelineConfirmationDialog() {
-      return this.status === PIPELINE_FAILED_STATE || this.isPipelineFailed;
+      return (this.status === PIPELINE_FAILED_STATE && this.isPipelineFailed) || this.mr.retargeted;
     },
     isMergeAllowed() {
       return this.state.mergeable || false;
@@ -276,7 +283,7 @@ export default {
       }
 
       if (this.status === PIPELINE_FAILED_STATE || this.isPipelineFailed) {
-        return __('Merge...');
+        return __('Merge…');
       }
 
       return __('Merge');
@@ -289,6 +296,9 @@ export default {
     },
     isNotClosed() {
       return this.mr.state !== STATUS_CLOSED;
+    },
+    isMerged() {
+      return this.mr.state === STATUS_MERGED;
     },
     isNeitherClosedNorMerged() {
       return this.mr.state !== STATUS_CLOSED && this.mr.state !== STATUS_MERGED;
@@ -324,15 +334,12 @@ export default {
         this.mr.state === 'readyToMerge'
       );
     },
-    sourceBranchDeletedText() {
-      const isPreMerge = this.mr.state !== STATUS_MERGED;
-
-      if (isPreMerge) {
-        return this.mr.shouldRemoveSourceBranch
-          ? __('Source branch will be deleted.')
-          : __('Source branch will not be deleted.');
-      }
-
+    sourceBranchPreMergeText() {
+      return this.removeSourceBranch
+        ? __('Source branch will be deleted.')
+        : __('Source branch will not be deleted.');
+    },
+    sourceBranchMergedText() {
       return this.mr.sourceBranchRemoved
         ? __('Deleted the source branch.')
         : __('Did not delete the source branch.');
@@ -353,6 +360,9 @@ export default {
     },
     displaySkipMergeTrainOptions() {
       return this.shouldDisplayMergeImmediatelyDropdownOptions && this.isSkipMergeTrainAvailable;
+    },
+    canRebase() {
+      return this.sourceHasDivergedFromTarget && this.mr.canPushToSourceBranch;
     },
   },
   watch: {
@@ -415,7 +425,6 @@ export default {
 
       const options = {
         sha: latestSha || this.mr.sha,
-        commit_message: this.commitMessage,
         auto_merge_strategy: useAutoMerge ? this.preferredAutoMergeStrategy : undefined,
         should_remove_source_branch: this.removeSourceBranch === true,
         squash: this.squashBeforeMerge,
@@ -425,8 +434,12 @@ export default {
       // If users can't alter the squash message (e.g. for 1-commit merge requests),
       // we shouldn't send the commit message because that would make the backend
       // do unnecessary work.
-      if (this.shouldShowSquashBeforeMerge) {
+      if (this.shouldShowSquashBeforeMerge && this.squashCommitMessageIsTouched) {
         options.squash_commit_message = this.squashCommitMessage;
+      }
+
+      if (this.commitMessageIsTouched) {
+        options.commit_message = this.commitMessage;
       }
 
       this.isMakingRequest = true;
@@ -527,9 +540,49 @@ export default {
       this.squashCommitMessage = val;
       this.squashCommitMessageIsTouched = true;
     },
-    appendCommitMessage(val) {
-      this.commitMessage = `${this.commitMessage}\n\n${val}`;
-      this.commitMessageIsTouched = true;
+    appendCommitMessage(messageType, val) {
+      this[`${messageType}Message`] = `${this[`${messageType}Message`]}\n\n${val}`;
+      this[`${messageType}MessageIsTouched`] = true;
+    },
+    updateRemoveSourceBranchSettings(checked) {
+      this.removeSourceBranch = checked;
+      this.mr.setRemoveSourceBranch(checked);
+    },
+    handleRebaseClick() {
+      this.isRebaseModalVisible = true;
+    },
+    async rebaseConfirmed() {
+      if (this.isRebaseDisabled) return;
+
+      try {
+        this.isRebaseInProgress = true;
+
+        const rebasePath = joinPaths(
+          gon.relative_url_root || '/',
+          this.mr.targetProjectFullPath,
+          '-',
+          'merge_requests',
+          `${this.mr.iid}`,
+          'rebase',
+        );
+        await axios.post(rebasePath);
+
+        createAlert({
+          message: sprintf(this.$options.i18n.scheduledRebase, {
+            branch: this.mr.sourceBranch,
+          }),
+          variant: 'success',
+        });
+
+        this.updateGraphqlState();
+      } catch (error) {
+        createAlert({
+          message: error.response?.data?.message || __('Failed to rebase. Please try again.'),
+          variant: 'danger',
+        });
+      } finally {
+        this.isRebaseInProgress = false;
+      }
     },
   },
   i18n: {
@@ -544,6 +597,7 @@ export default {
     ),
     sourceDivergedFromTargetText: s__('mrWidget|The source branch is %{link} the target branch.'),
     divergedCommits: (count) => n__('%d commit behind', '%d commits behind', count),
+    scheduledRebase: s__('mrWidget|Scheduled a rebase of branch %{branch}.'),
   },
   MT_SKIP_TRAIN,
   MT_RESTART_TRAIN,
@@ -552,12 +606,12 @@ export default {
 
 <template>
   <div
-    :class="{ 'gl-bg-gray-10': isNeitherClosedNorMerged }"
+    :class="{ 'gl-bg-subtle': isNeitherClosedNorMerged }"
     data-testid="ready_to_merge_state"
-    class="gl-border-t-1 gl-border-t-solid gl-border-gray-100 gl-pl-7"
+    class="gl-border-t gl-border-t-section gl-bg-subtle gl-pl-7"
   >
     <div v-if="loading" class="mr-widget-body">
-      <div class="gl-w-full mr-ready-to-merge-loader">
+      <div class="mr-ready-to-merge-loader gl-w-full">
         <gl-skeleton-loader :width="418" :height="86">
           <rect x="0" y="0" width="144" height="20" rx="4" />
           <rect x="0" y="26" width="100" height="16" rx="4" />
@@ -569,22 +623,21 @@ export default {
       </div>
     </div>
     <template v-else>
-      <div
-        class="mr-widget-body mr-widget-body-ready-merge media gl-display-flex gl-align-items-center"
-      >
+      <div class="mr-widget-body mr-widget-body-ready-merge media gl-flex gl-items-center">
         <div class="media-body">
-          <div class="mr-widget-body-controls gl-display-flex gl-align-items-center gl-flex-wrap">
+          <div class="mr-widget-body-controls gl-flex gl-flex-wrap gl-items-center">
             <template v-if="shouldShowMergeControls">
               <div
-                class="gl-display-flex gl-flex-direction-column gl-md-flex-direction-row gl-md-align-items-center gl-flex-wrap gl-w-full"
+                class="gl-flex gl-w-full gl-flex-col gl-flex-wrap md:gl-flex-row md:gl-items-center"
               >
                 <gl-form-checkbox
                   v-if="canRemoveSourceBranch"
                   id="remove-source-branch-input"
-                  v-model="removeSourceBranch"
                   :disabled="isRemoveSourceBranchButtonDisabled"
-                  class="js-remove-source-branch-checkbox gl-display-flex gl-align-items-center gl-mr-5"
+                  :checked="removeSourceBranch"
+                  class="js-remove-source-branch-checkbox gl-mr-5 gl-flex gl-items-center"
                   data-testid="delete-source-branch-checkbox"
+                  @change="updateRemoveSourceBranchSettings"
                 >
                   {{ __('Delete source branch') }}
                 </gl-form-checkbox>
@@ -610,14 +663,20 @@ export default {
                 <ul class="border-top commits-list flex-list gl-list-none gl-p-0 gl-pt-4">
                   <commit-edit
                     v-if="shouldShowSquashEdit"
-                    v-model="squashCommitMessage"
                     :label="__('Squash commit message')"
+                    :value="squashCommitMessage"
                     input-id="squash-message-edit"
-                    class="gl-m-0! gl-p-0!"
+                    class="!gl-m-0 !gl-p-0"
                     @input="setSquashCommitMessage"
                   >
                     <template #header>
-                      <commit-message-dropdown :commits="commits" @input="setSquashCommitMessage" />
+                      <commit-message-dropdown
+                        :ai-commit-message-enabled="mr.aiCommitMessageEnabled"
+                        :mr-id="mr.id"
+                        :commits="commits"
+                        @append="(val) => appendCommitMessage('squashCommit', val)"
+                        @input="setSquashCommitMessage"
+                      />
                     </template>
                   </commit-edit>
                   <commit-edit
@@ -625,7 +684,7 @@ export default {
                     v-model="commitMessage"
                     :label="__('Merge commit message')"
                     input-id="merge-message-edit"
-                    class="gl-m-0! gl-p-0!"
+                    class="!gl-m-0 !gl-p-0"
                     data-testid="merge-commit-message"
                     @input="setCommitMessage"
                   >
@@ -633,12 +692,12 @@ export default {
                       <ai-commit-message
                         v-if="mr.aiCommitMessageEnabled"
                         :id="mr.id"
-                        @update="appendCommitMessage"
+                        @update="(val) => appendCommitMessage('commit', val)"
                       />
                     </template>
                   </commit-edit>
-                  <li class="gl-m-0! gl-p-0!">
-                    <p class="form-text text-muted">
+                  <li class="!gl-m-0 !gl-p-0">
+                    <p class="form-text gl-text-subtle">
                       <gl-sprintf :message="commitTemplateHintText">
                         <template #link="{ content }">
                           <gl-link
@@ -653,36 +712,53 @@ export default {
                   </li>
                 </ul>
               </div>
-              <div class="gl-w-full gl-text-gray-500 gl-mb-3 mr-widget-merge-details">
+              <ul class="mr-widget-merge-details gl-mb-3 gl-w-full gl-pl-6 gl-text-subtle">
                 <template v-if="sourceHasDivergedFromTarget">
-                  <gl-sprintf :message="$options.i18n.sourceDivergedFromTargetText">
-                    <template #link>
-                      <gl-link :href="mr.targetBranchPath">{{
-                        $options.i18n.divergedCommits(mr.divergedCommitsCount)
-                      }}</gl-link>
-                    </template>
-                  </gl-sprintf>
-                  &middot;
+                  <li>
+                    <div class="gl-gap-2 md:gl-flex">
+                      <gl-sprintf :message="$options.i18n.sourceDivergedFromTargetText">
+                        <template #link>
+                          <gl-link :href="mr.targetBranchPath">{{
+                            $options.i18n.divergedCommits(mr.divergedCommitsCount)
+                          }}</gl-link>
+                        </template>
+                      </gl-sprintf>
+                      <gl-button
+                        v-if="canRebase"
+                        size="small"
+                        variant="link"
+                        data-testid="rebase-button"
+                        :loading="isRebaseInProgress"
+                        :aria-label="__('Rebase source branch')"
+                        @click="handleRebaseClick"
+                      >
+                        {{ __('Rebase source branch') }}
+                      </gl-button>
+                    </div>
+                  </li>
                 </template>
-                <added-commit-message
-                  :is-squash-enabled="squashBeforeMerge"
-                  :is-fast-forward-enabled="!shouldShowMergeEdit"
-                  :commits-count="commitsCount"
-                  :target-branch="state.targetBranch"
-                />
-                <template v-if="mr.relatedLinks">
-                  &middot;
-                  <related-links
-                    :state="mr.state"
-                    :related-links="mr.relatedLinks"
-                    :show-assign-to-me="false"
-                    :diverged-commits-count="mr.divergedCommitsCount"
-                    :target-branch-path="mr.targetBranchPath"
-                    class="mr-ready-merge-related-links gl-display-inline"
+                <li>
+                  <added-commit-message
+                    :is-squash-enabled="squashBeforeMerge"
+                    :is-fast-forward-enabled="!shouldShowMergeEdit"
+                    :commits-count="commitsCount"
+                    :target-branch="state.targetBranch"
                   />
+                </li>
+                <template v-if="mr.relatedLinks">
+                  <li>
+                    <related-links
+                      :state="mr.state"
+                      :related-links="mr.relatedLinks"
+                      :show-assign-to-me="false"
+                      :diverged-commits-count="mr.divergedCommitsCount"
+                      :target-branch-path="mr.targetBranchPath"
+                      class="mr-ready-merge-related-links gl-inline"
+                    />
+                  </li>
                 </template>
-              </div>
-              <gl-button-group class="gl-align-self-start">
+              </ul>
+              <gl-button-group class="gl-self-start">
                 <gl-button
                   size="medium"
                   category="primary"
@@ -699,13 +775,10 @@ export default {
                   v-gl-tooltip.hover.focus="__('Select merge moment')"
                   :disabled="isMergeButtonDisabled"
                   variant="confirm"
-                  class="gl-mr-0"
                   data-testid="merge-immediately-dropdown"
-                  icon="chevron-down"
                   toggle-class="btn-icon js-merge-moment"
                   :toggle-text="__('Select a merge moment')"
                   text-sr-only
-                  no-caret
                 >
                   <gl-disclosure-dropdown-item
                     v-if="
@@ -723,7 +796,7 @@ export default {
                   >
                     <template #list-item>
                       <strong>{{ __(`Merge now and restart train`) }}</strong>
-                      <p class="gl-text-gray-400 gl-font-sm gl-mb-0">
+                      <p class="gl-mb-0 gl-text-sm gl-text-subtle">
                         {{ __('Restart merge train pipelines with the merged changes.') }}
                       </p>
                     </template>
@@ -735,7 +808,7 @@ export default {
                   >
                     <template #list-item>
                       <strong>{{ __(`Merge now and don't restart train`) }}</strong>
-                      <p class="gl-text-gray-400 gl-font-sm gl-mb-0">
+                      <p class="gl-mb-0 gl-text-sm gl-text-subtle">
                         {{ __('Merge train pipelines continue without the merged changes.') }}
                       </p>
                     </template>
@@ -743,14 +816,11 @@ export default {
                 </gl-disclosure-dropdown>
               </gl-button-group>
               <template v-if="showAutoMergeHelperText">
-                <div
-                  class="gl-ml-4 gl-text-gray-500 gl-font-sm"
-                  data-testid="auto-merge-helper-text"
-                >
+                <div class="gl-ml-4 gl-text-sm gl-text-subtle" data-testid="auto-merge-helper-text">
                   {{ autoMergeHelperText }}
                 </div>
                 <help-popover
-                  class="gl-ml-2"
+                  class="gl-ml-2 gl-inline-flex"
                   :options="autoMergeHelpPopoverOptions"
                   data-testid="auto-merge-helper-text-icon"
                 >
@@ -759,7 +829,7 @@ export default {
                       <gl-link
                         :href="autoMergePopoverSettings.helpLink"
                         target="_blank"
-                        class="gl-font-sm"
+                        class="gl-text-sm"
                       >
                         {{ content }}
                       </gl-link>
@@ -770,21 +840,34 @@ export default {
             </template>
             <div
               v-else
-              class="gl-w-full -gl-order-1 mr-widget-merge-details"
+              class="mr-widget-merge-details -gl-order-1 gl-w-full"
               data-testid="merged-status-content"
             >
-              <p v-if="showMergeDetailsHeader" class="gl-mb-2 gl-text-gray-900">
+              <p v-if="showMergeDetailsHeader" class="gl-mb-2 gl-text-default">
                 {{ __('Merge details') }}
               </p>
-              <ul class="gl-pl-4 gl-mb-0 gl-ml-3 gl-text-gray-600">
-                <li v-if="sourceHasDivergedFromTarget" class="gl-leading-normal">
-                  <gl-sprintf :message="$options.i18n.sourceDivergedFromTargetText">
-                    <template #link>
-                      <gl-link :href="mr.targetBranchPath">{{
-                        $options.i18n.divergedCommits(mr.divergedCommitsCount)
-                      }}</gl-link>
-                    </template>
-                  </gl-sprintf>
+              <ul class="gl-mb-0 gl-ml-3 gl-pl-4 gl-text-subtle">
+                <li v-if="sourceHasDivergedFromTarget">
+                  <div class="gl-gap-2 md:gl-flex">
+                    <gl-sprintf :message="$options.i18n.sourceDivergedFromTargetText">
+                      <template #link>
+                        <gl-link :href="mr.targetBranchPath">{{
+                          $options.i18n.divergedCommits(mr.divergedCommitsCount)
+                        }}</gl-link>
+                      </template>
+                    </gl-sprintf>
+                    <gl-button
+                      v-if="canRebase"
+                      size="small"
+                      variant="link"
+                      data-testid="rebase-button"
+                      :loading="isRebaseInProgress"
+                      :aria-label="__('Rebase source branch')"
+                      @click="handleRebaseClick"
+                    >
+                      {{ __('Rebase source branch') }}
+                    </gl-button>
+                  </div>
                 </li>
                 <li class="gl-leading-normal">
                   <added-commit-message
@@ -802,14 +885,14 @@ export default {
                   class="gl-leading-normal"
                   data-testid="source-branch-deleted-text"
                 >
-                  {{ sourceBranchDeletedText }}
+                  {{ isMerged ? sourceBranchMergedText : sourceBranchPreMergeText }}
                 </li>
                 <li v-if="mr.relatedLinks" class="gl-leading-normal">
                   <related-links
                     :state="mr.state"
                     :related-links="mr.relatedLinks"
                     :show-assign-to-me="false"
-                    class="mr-ready-merge-related-links gl-display-inline"
+                    class="mr-ready-merge-related-links gl-inline"
                   />
                 </li>
                 <li v-if="state.autoMergeEnabled" class="gl-leading-normal">
@@ -844,6 +927,11 @@ export default {
         :iid="mr.iid"
         @mergeWithFailedPipeline="onMergeWithFailedPipelineConfirmation"
         @cancel="isPipelineFailedModalVisibleNormalMerge = false"
+      />
+      <rebase-confirmation-dialog
+        :visible="isRebaseModalVisible"
+        @rebase-confirmed="rebaseConfirmed"
+        @cancel="isRebaseModalVisible = false"
       />
     </template>
   </div>

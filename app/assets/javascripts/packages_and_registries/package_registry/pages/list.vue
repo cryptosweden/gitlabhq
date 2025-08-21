@@ -18,6 +18,7 @@ import {
 import getPackagesQuery from '~/packages_and_registries/package_registry/graphql/queries/get_packages.query.graphql';
 import getGroupPackageSettings from '~/packages_and_registries/package_registry/graphql/queries/get_group_package_settings.query.graphql';
 import DeletePackages from '~/packages_and_registries/package_registry/components/functional/delete_packages.vue';
+import PackageErrorsCount from '~/packages_and_registries/package_registry/components/list/package_errors_count.vue';
 import PackageTitle from '~/packages_and_registries/package_registry/components/list/package_title.vue';
 import PackageSearch from '~/packages_and_registries/package_registry/components/list/package_search.vue';
 import PackageList from '~/packages_and_registries/package_registry/components/list/packages_list.vue';
@@ -26,7 +27,13 @@ import {
   getPageParams,
   getNextPageParams,
   getPreviousPageParams,
-} from '~/packages_and_registries/package_registry/utils';
+} from '~/packages_and_registries/shared/utils';
+import PageSizeSelector from '~/vue_shared/components/page_size_selector.vue';
+import { getStorageValue, saveStorageValue } from '~/lib/utils/local_storage';
+import { mergeUrlParams, updateHistory } from '~/lib/utils/url_utility';
+import { smoothScrollTop } from '~/behaviors/smooth_scroll';
+
+const PAGE_SIZE_KEY = 'packages_page_size';
 
 export default {
   components: {
@@ -34,11 +41,13 @@ export default {
     GlEmptyState,
     GlLink,
     GlSprintf,
+    PackageErrorsCount,
     PackageList,
     PackageTitle,
     PackageSearch,
     PersistedPagination,
     DeletePackages,
+    PageSizeSelector,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -51,6 +60,7 @@ export default {
       filters: {},
       isDeleteInProgress: false,
       pageParams: {},
+      pageSize: GRAPHQL_PAGE_SIZE,
       groupSettings: {},
     };
   },
@@ -99,7 +109,7 @@ export default {
         fullPath: this.fullPath,
         sort: this.isGroupPage ? undefined : this.sort,
         groupSort: this.isGroupPage ? this.sort : undefined,
-        first: GRAPHQL_PAGE_SIZE,
+        first: this.pageSize,
         ...this.packageParams,
         ...this.pageParams,
       };
@@ -145,8 +155,9 @@ export default {
     isLoading() {
       return this.$apollo.queries.packagesResource.loading || this.isDeleteInProgress;
     },
-    isFilteredByErrorStatus() {
-      return this.filters?.packageStatus?.toUpperCase() === PACKAGE_ERROR_STATUS;
+    showPackageErrorsCount() {
+      const packageStatus = this.filters?.packageStatus?.toUpperCase();
+      return this.packagesCount > 0 && packageStatus !== PACKAGE_ERROR_STATUS;
     },
     refetchQueriesData() {
       return [
@@ -156,6 +167,14 @@ export default {
         },
       ];
     },
+  },
+  created() {
+    const localStoragePageSize = getStorageValue(PAGE_SIZE_KEY);
+    if (localStoragePageSize.exists) {
+      this.pageSize = localStoragePageSize.value;
+    } else {
+      this.savePageSizeToLocalStorage(this.pageSize);
+    }
   },
   mounted() {
     this.checkDeleteAlert();
@@ -170,16 +189,35 @@ export default {
         historyReplaceState(cleanUrl);
       }
     },
+    handlePageSizeChange(value) {
+      this.pageSize = value;
+      this.savePageSizeToLocalStorage(value);
+      this.pageParams = {
+        after: undefined,
+        before: undefined,
+      };
+
+      const url = mergeUrlParams(this.pageParams, window.location.search, { spreadArrays: true });
+      updateHistory({
+        url,
+      });
+      smoothScrollTop();
+    },
     handleSearchUpdate({ sort, filters, pageInfo }) {
-      this.pageParams = getPageParams(pageInfo);
+      this.pageParams = getPageParams(pageInfo, this.pageSize);
       this.sort = sort;
       this.filters = { ...filters };
     },
     fetchNextPage() {
-      this.pageParams = getNextPageParams(this.pageInfo.endCursor);
+      this.pageParams = getNextPageParams(this.pageInfo.endCursor, this.pageSize);
+      smoothScrollTop();
     },
     fetchPreviousPage() {
-      this.pageParams = getPreviousPageParams(this.pageInfo.startCursor);
+      this.pageParams = getPreviousPageParams(this.pageInfo.startCursor, this.pageSize);
+      smoothScrollTop();
+    },
+    savePageSizeToLocalStorage(value) {
+      saveStorageValue(PAGE_SIZE_KEY, value);
     },
   },
   i18n: {
@@ -200,7 +238,11 @@ export default {
 
 <template>
   <div>
-    <package-title :help-url="$options.links.PACKAGE_HELP_URL" :count="packagesCount">
+    <package-title
+      :help-url="$options.links.PACKAGE_HELP_URL"
+      :count="packagesCount"
+      :is-loading="isLoading"
+    >
       <template v-if="settingsPath" #settings-link>
         <gl-button
           v-gl-tooltip="$options.i18n.settingsText"
@@ -210,7 +252,6 @@ export default {
         />
       </template>
     </package-title>
-    <package-search @update="handleSearchUpdate" />
 
     <delete-packages
       :refetch-queries="refetchQueriesData"
@@ -219,40 +260,49 @@ export default {
       @end="isDeleteInProgress = false"
     >
       <template #default="{ deletePackages }">
-        <package-list
-          :hide-error-alert="isFilteredByErrorStatus"
-          :group-settings="groupSettings"
-          :list="packages.nodes"
-          :is-loading="isLoading"
-          @delete="deletePackages"
-        >
-          <template #empty-state>
-            <gl-empty-state
-              :title="emptyStateTitle"
-              :svg-path="emptyListIllustration"
-              :svg-height="150"
-            >
-              <template #description>
-                <gl-sprintf v-if="hasFilters" :message="$options.i18n.widenFilters" />
-                <gl-sprintf v-else :message="$options.i18n.noResultsText">
-                  <template #noPackagesLink="{ content }">
-                    <gl-link :href="$options.links.EMPTY_LIST_HELP_URL" target="_blank">{{
-                      content
-                    }}</gl-link>
-                  </template>
-                </gl-sprintf>
-              </template>
-            </gl-empty-state>
-          </template>
-        </package-list>
+        <div>
+          <package-errors-count v-if="showPackageErrorsCount" @confirm-delete="deletePackages" />
+          <package-search @update="handleSearchUpdate" />
+          <package-list
+            :group-settings="groupSettings"
+            :list="packages.nodes"
+            :is-loading="isLoading"
+            @delete="deletePackages"
+          >
+            <template #empty-state>
+              <gl-empty-state
+                :title="emptyStateTitle"
+                :svg-path="emptyListIllustration"
+                :svg-height="150"
+              >
+                <template #description>
+                  <gl-sprintf v-if="hasFilters" :message="$options.i18n.widenFilters" />
+                  <gl-sprintf v-else :message="$options.i18n.noResultsText">
+                    <template #noPackagesLink="{ content }">
+                      <gl-link :href="$options.links.EMPTY_LIST_HELP_URL" target="_blank">{{
+                        content
+                      }}</gl-link>
+                    </template>
+                  </gl-sprintf>
+                </template>
+              </gl-empty-state>
+            </template>
+          </package-list>
+        </div>
       </template>
     </delete-packages>
-    <div v-if="!isDeleteInProgress" class="gl-display-flex gl-justify-content-center">
+    <div v-if="!isDeleteInProgress" class="gl-flex gl-justify-center">
       <persisted-pagination
         class="gl-mt-3"
         :pagination="pageInfo"
         @prev="fetchPreviousPage"
         @next="fetchNextPage"
+      />
+      <page-size-selector
+        v-if="packagesCount"
+        :value="pageSize"
+        class="gl-relative gl-right-5 md:gl-absolute"
+        @input="handlePageSizeChange"
       />
     </div>
   </div>

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Verify', product_group: :pipeline_authoring do
+  RSpec.describe 'Verify', feature_category: :pipeline_composition do
     describe 'CI catalog', :skip_live_env do
       let(:project_count) { 3 }
 
@@ -113,7 +113,7 @@ module QA
       end
 
       def create_release(project)
-        project.create_release(tag)
+        project.create_release(tag, project.default_branch, legacy_catalog_publish: true)
       end
 
       def top_projects_from_ui(page_object)

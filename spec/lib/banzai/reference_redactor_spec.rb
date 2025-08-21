@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::ReferenceRedactor, feature_category: :team_planning do
+RSpec.describe Banzai::ReferenceRedactor, feature_category: :markdown do
   let(:user) { create(:user) }
   let(:project) { build(:project) }
   let(:redactor) { described_class.new(Banzai::RenderContext.new(project, user)) }
@@ -105,14 +105,14 @@ RSpec.describe Banzai::ReferenceRedactor, feature_category: :team_planning do
     end
 
     context 'when reference is a gollum wiki page link that is not visible to user' do
-      it 'redacts the wiki page title and href' do
+      it 'replaces redacted reference with original content' do
         doc = Nokogiri::HTML.fragment('<a class="gfm" href="https://gitlab.com/path/to/project/-/wikis/foo" data-reference-type="wiki_page" data-gollum="true">foo</a>')
 
         expect(redactor).to receive(:nodes_visible_to_user).and_return([])
 
         redactor.redact([doc])
 
-        expect(doc.to_html).to eq('[redacted]')
+        expect(doc.to_html).to eq('foo')
       end
     end
   end
@@ -155,16 +155,15 @@ RSpec.describe Banzai::ReferenceRedactor, feature_category: :team_planning do
       expect(result['title']).to eq(issue.title)
     end
 
-    it 'removes info from a cross project reference' do
+    it 'redacts cross project reference' do
       issue = create(:issue, project: other_project)
       link = create_link(issue)
       doc = Nokogiri::HTML.fragment(link)
 
       redactor.redact([doc])
-      result = doc.css('a').last
 
-      expect(result['class']).not_to include('has-tooltip')
-      expect(result['title']).to be_empty
+      expect(doc.css('a')).to be_empty
+      expect(doc.to_html).to eq(issue.to_reference)
     end
   end
 

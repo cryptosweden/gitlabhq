@@ -1,4 +1,4 @@
-import { GlIcon } from '@gitlab/ui';
+import { GlAvatar, GlIcon } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import { trimText } from 'helpers/text_helper';
 import UsersMockHelper from 'helpers/user_mock_data_helper';
@@ -31,7 +31,7 @@ describe('Assignee component', () => {
       const collapsedChildren = findCollapsedChildren();
       const userIcon = collapsedChildren.at(0).findComponent(GlIcon);
 
-      expect(collapsedChildren.length).toBe(1);
+      expect(collapsedChildren).toHaveLength(1);
       expect(collapsedChildren.at(0).attributes('aria-label')).toBe('None');
       expect(userIcon.exists()).toBe(true);
       expect(userIcon.props('name')).toBe('user');
@@ -78,9 +78,8 @@ describe('Assignee component', () => {
       const collapsedChildren = findCollapsedChildren();
       const assignee = collapsedChildren.at(0);
 
-      expect(collapsedChildren.length).toBe(1);
-      expect(assignee.find('.avatar').attributes('src')).toBe(UsersMock.user.avatar);
-      expect(assignee.find('.avatar').attributes('alt')).toBe(`${UsersMock.user.name}'s avatar`);
+      expect(collapsedChildren).toHaveLength(1);
+      expect(assignee.findComponent(GlAvatar).props('src')).toBe(UsersMock.user.avatar);
 
       expect(trimText(assignee.find('.author').text())).toBe(UsersMock.user.name);
     });
@@ -96,19 +95,17 @@ describe('Assignee component', () => {
 
       const collapsedChildren = findCollapsedChildren();
 
-      expect(collapsedChildren.length).toBe(2);
+      expect(collapsedChildren).toHaveLength(2);
 
       const first = collapsedChildren.at(0);
 
-      expect(first.find('.avatar').attributes('src')).toBe(users[0].avatar_url);
-      expect(first.find('.avatar').attributes('alt')).toBe(`${users[0].name}'s avatar`);
+      expect(first.findComponent(GlAvatar).props('src')).toBe(users[0].avatar_url);
 
       expect(trimText(first.find('.author').text())).toBe(users[0].name);
 
       const second = collapsedChildren.at(1);
 
-      expect(second.find('.avatar').attributes('src')).toBe(users[1].avatar_url);
-      expect(second.find('.avatar').attributes('alt')).toBe(`${users[1].name}'s avatar`);
+      expect(second.findComponent(GlAvatar).props('src')).toBe(users[1].avatar_url);
 
       expect(trimText(second.find('.author').text())).toBe(users[1].name);
     });
@@ -122,12 +119,11 @@ describe('Assignee component', () => {
 
       const collapsedChildren = findCollapsedChildren();
 
-      expect(collapsedChildren.length).toBe(2);
+      expect(collapsedChildren).toHaveLength(2);
 
       const first = collapsedChildren.at(0);
 
-      expect(first.find('.avatar').attributes('src')).toBe(users[0].avatar_url);
-      expect(first.find('.avatar').attributes('alt')).toBe(`${users[0].name}'s avatar`);
+      expect(first.findComponent(GlAvatar).props('src')).toBe(users[0].avatar_url);
 
       expect(trimText(first.find('.author').text())).toBe(users[0].name);
 

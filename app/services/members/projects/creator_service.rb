@@ -23,10 +23,8 @@ module Members
       end
 
       def can_update_existing_member?
-        # rubocop:disable Layout/EmptyLineAfterGuardClause
         raise ::Gitlab::Access::AccessDeniedError if assigning_project_member_with_owner_access_level? &&
           cannot_assign_owner_responsibilities_to_member_in_project?
-        # rubocop:enable Layout/EmptyLineAfterGuardClause
 
         current_user.can?(:update_project_member, member)
       end
@@ -48,3 +46,5 @@ module Members
     end
   end
 end
+
+Members::Projects::CreatorService.prepend_mod_with('Members::Projects::CreatorService')

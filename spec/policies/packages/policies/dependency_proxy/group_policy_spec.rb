@@ -55,18 +55,14 @@ RSpec.describe Packages::Policies::DependencyProxy::GroupPolicy, feature_categor
       end
 
       context 'with a deploy token user' do
-        before do
-          create(:group_deploy_token, group: group, deploy_token: auth_token)
-        end
-
         context 'with insufficient scopes' do
-          let_it_be(:auth_token) { create(:deploy_token, :group, user: current_user) }
+          let_it_be(:auth_token) { create(:deploy_token, :group, user: current_user, groups: [group]) }
 
           it_behaves_like 'disallows dependency proxy read access'
         end
 
         context 'with sufficient scopes' do
-          let_it_be(:auth_token) { create(:deploy_token, :group, :dependency_proxy_scopes) }
+          let_it_be(:auth_token) { create(:deploy_token, :group, :dependency_proxy_scopes, groups: [group]) }
 
           it_behaves_like 'allows dependency proxy read access'
         end
@@ -92,7 +88,9 @@ RSpec.describe Packages::Policies::DependencyProxy::GroupPolicy, feature_categor
       end
 
       context 'with all other user types' do
-        User::USER_TYPES.except(:human, :project_bot).each_value do |user_type|
+        excluded_types = %i[human project_bot security_policy_bot admin_bot placeholder]
+
+        User::USER_TYPES.except(*excluded_types).each_value do |user_type|
           context "with user_type #{user_type}" do
             let_it_be(:auth_token) { create(:personal_access_token, user: non_group_member) }
 

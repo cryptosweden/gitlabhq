@@ -9,7 +9,11 @@ import mockAllJobs from 'test_fixtures/graphql/jobs/get_all_jobs.query.graphql.j
 import mockJobsAsGuest from 'test_fixtures/graphql/jobs/get_jobs.query.graphql.as_guest.json';
 import mockCancelableJobsCount from 'test_fixtures/graphql/jobs/get_cancelable_jobs_count.query.graphql.json';
 import { TEST_HOST } from 'spec/test_constants';
-import { TOKEN_TYPE_STATUS } from '~/vue_shared/components/filtered_search_bar/constants';
+import {
+  TOKEN_TYPE_STATUS,
+  TOKEN_TYPE_JOBS_SOURCE,
+  TOKEN_TYPE_JOB_KIND,
+} from '~/vue_shared/components/filtered_search_bar/constants';
 
 const threeWeeksAgo = new Date();
 threeWeeksAgo.setDate(threeWeeksAgo.getDate() - 21);
@@ -946,6 +950,7 @@ export default {
     locked: false,
   },
   name: 'test',
+  test_suite_name: 'test',
   stage: 'build',
   build_path: '/root/ci-mock/-/jobs/4757',
   retry_path: '/root/ci-mock/-/jobs/4757/retry',
@@ -1267,6 +1272,7 @@ export const mockPipelineWithoutMR = {
   path: 'pipeline/28029444',
   ref: {
     name: 'test-branch',
+    path: 'test-branch',
   },
 };
 
@@ -1390,6 +1396,21 @@ export const CIJobConnectionExistingCache = {
 export const mockFailedSearchToken = {
   type: TOKEN_TYPE_STATUS,
   value: { data: 'FAILED', operator: '=' },
+};
+
+export const mockPushSourceToken = {
+  type: TOKEN_TYPE_JOBS_SOURCE,
+  value: { data: 'PUSH', operator: '=' },
+};
+
+export const mockBridgeKindToken = {
+  type: TOKEN_TYPE_JOB_KIND,
+  value: { data: 'BRIDGE', operator: '=' },
+};
+
+export const mockBuildKindToken = {
+  type: TOKEN_TYPE_JOB_KIND,
+  value: { data: 'BUILD', operator: '=' },
 };
 
 export const retryMutationResponse = {

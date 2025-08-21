@@ -96,8 +96,6 @@ class BlobPresenter < Gitlab::View::Presenter::Delegated
   end
 
   def base64_encoded_blob
-    return unless Feature.enabled?(:unicode_escaped_blob)
-
     Base64.encode64(blob.raw)
   end
 
@@ -142,6 +140,10 @@ class BlobPresenter < Gitlab::View::Presenter::Delegated
     super(blob, project, commit_id)
   end
 
+  def can_modify_blob_with_web_ide?
+    super(blob, project)
+  end
+
   def can_current_user_push_to_branch?
     return false unless current_user && project.repository.branch_exists?(commit_id)
 
@@ -149,7 +151,7 @@ class BlobPresenter < Gitlab::View::Presenter::Delegated
   end
 
   def archived?
-    project.archived
+    project.self_or_ancestors_archived?
   end
 
   def ide_edit_path

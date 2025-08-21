@@ -17,12 +17,14 @@ class EventCollection
   # projects - An ActiveRecord::Relation object that returns the projects for
   #            which to retrieve events.
   # filter - An EventFilter instance to use for filtering events.
-  def initialize(projects, limit: 20, offset: 0, filter: nil, groups: nil)
+  # preserve_projects_order - If true, retains the :order clause for projects.
+  def initialize(projects, limit: 20, offset: 0, filter: nil, groups: nil, preserve_projects_order: false)
     @projects = projects
     @limit = limit
     @offset = offset
     @filter = filter || EventFilter.new(EventFilter::ALL)
     @groups = groups
+    @preserve_projects_order = preserve_projects_order
   end
 
   # Returns an Array containing the events.
@@ -62,8 +64,10 @@ class EventCollection
   end
 
   def in_operator_optimized_relation(parent_column, parents, parent_model)
+    parent_id_column = parent_model.arel_table[:id]
+
     array_data = {
-      scope_ids: parents.pluck(:id),
+      scope_ids: parents.pluck(parent_id_column),
       scope_model: parent_model,
       mapping_column: parent_column
     }
@@ -90,7 +94,7 @@ class EventCollection
   end
 
   def projects
-    @projects.except(:order)
+    @preserve_projects_order ? @projects : @projects.except(:order)
   end
 
   def groups

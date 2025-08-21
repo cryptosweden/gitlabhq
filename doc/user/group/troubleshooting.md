@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Tenant Scale
+stage: Tenant Scale
+group: Organizations
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting groups
 ---
-
-# Troubleshooting groups
 
 ## Validation errors on namespaces and groups
 
@@ -30,8 +29,11 @@ Group.find_by_sql("SELECT * FROM namespaces WHERE name LIKE '%oup'")
 
 If transferring a group doesn't work through the UI or API, you may want to attempt the transfer in a [Rails console session](../../administration/operations/rails_console.md#starting-a-rails-console-session):
 
-WARNING:
+{{< alert type="warning" >}}
+
 Commands that change data can cause damage if not run correctly or under the right conditions. Always run commands in a test environment first and have a backup instance ready to restore.
+
+{{< /alert >}}
 
 ```ruby
 user = User.find_by_username('<username>')
@@ -48,7 +50,7 @@ If you need to find all the groups that are pending deletion, you can use the fo
 
 ```ruby
 Group.all.each do |g|
- if g.marked_for_deletion?
+ if g.self_deletion_scheduled?
     puts "Group ID: #{g.id}"
     puts "Group name: #{g.name}"
     puts "Group path: #{g.full_path}"
@@ -61,8 +63,11 @@ end
 At times, a group deletion may get stuck. If needed, in a [Rails console session](../../administration/operations/rails_console.md#starting-a-rails-console-session),
 you can attempt to delete a group using the following command:
 
-WARNING:
+{{< alert type="warning" >}}
+
 Commands that change data can cause damage if not run correctly or under the right conditions. Always run commands in a test environment first and have a backup instance ready to restore.
+
+{{< /alert >}}
 
 ```ruby
 GroupDestroyWorker.new.perform(group_id, user_id)
@@ -89,16 +94,16 @@ Administrators can find a user's maximum permissions for a group or project.
 
 ## Unable to remove billable members with badge `Project Invite/Group Invite`
 
-```plaintext
-Members who were invited via a group invitation cannot be removed. You can either remove the entire group, or ask an Owner of the invited group to remove the member.
-```
+The following error typically occurs when the user belongs to an external group that has been shared with your [projects](../project/members/sharing_projects_groups.md) or [groups](../project/members/sharing_projects_groups.md#invite-a-group-to-a-group):
 
-This error typically occurs when the user you're trying to remove is part of an external group that has been [shared with one or more of your projects](../project/members/share_project_with_groups.md) or [groups](manage.md#share-a-group-with-another-group). To remove the user as a billable member, follow one of the options:
+<!-- vale gitlab_base.LatinTerms = NO -->
+`Members who were invited via a group invitation cannot be removed. You can either remove the entire group, or ask an Owner of the invited group to remove the member.`
+<!-- vale gitlab_base.LatinTerms = YES -->
+
+To remove the user as a billable member, follow one of these options:
 
 - Remove the invited group membership from your project or group members page.
 - Recommended. Remove the user directly from the invited group, if you have access to the group.
-
-The feature request to **Update `billable_members` endpoint to include invited group** is currently being worked on. For more information, see [issue 386583](https://gitlab.com/gitlab-org/gitlab/-/issues/386583)
 
 ## Missing or insufficient permission, delete button disabled
 
@@ -107,3 +112,9 @@ This error typically occurs when a user attempts to remove the `container_regist
 1. Unarchive the project.
 1. Delete the `container_registry` images.
 1. Archive the project.
+
+## Group owner unable to approve pending users with `Awaiting user signup` badge
+
+Email invitations to non-GitLab users are listed under `Pending members` with the `Awaiting user signup` status.
+When the user registers for GitLab.com, the status updates to `Pending owner action` and the group Owner can
+complete the approval process.

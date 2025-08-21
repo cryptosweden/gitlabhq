@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Diff::File do
+RSpec.describe Gitlab::Diff::File, feature_category: :shared do
   include RepoHelpers
 
   let_it_be(:project) { create(:project, :repository) }
@@ -175,58 +175,6 @@ RSpec.describe Gitlab::Diff::File do
     it { expect(diff_lines.first).to be_kind_of(Gitlab::Diff::Line) }
   end
 
-  describe '#diff_lines_by_hunk' do
-    let(:diff_lines) do
-      [
-        instance_double(Gitlab::Diff::Line, type: 'match', added?: false, removed?: false, meta?: true),
-        instance_double(Gitlab::Diff::Line, type: nil, added?: false, removed?: false, meta?: false),
-        instance_double(Gitlab::Diff::Line, type: nil, added?: false, removed?: false, meta?: false),
-        instance_double(Gitlab::Diff::Line, type: nil, added?: false, removed?: false, meta?: false),
-        instance_double(Gitlab::Diff::Line, type: 'new', added?: true, removed?: false, text: 'First Hunk Added 1', meta?: false),
-        instance_double(Gitlab::Diff::Line, type: 'new', added?: true, removed?: false, text: 'First Hunk Added 2', meta?: false),
-        instance_double(Gitlab::Diff::Line, type: 'old', added?: false, removed?: true, text: 'First Hunk Removed 1', meta?: false),
-        instance_double(Gitlab::Diff::Line, type: 'old', added?: false, removed?: true, text: 'First Hunk Removed 2', meta?: false),
-        instance_double(Gitlab::Diff::Line, type: nil, added?: false, removed?: false, meta?: false),
-        instance_double(Gitlab::Diff::Line, type: nil, added?: false, removed?: false, meta?: false),
-        instance_double(Gitlab::Diff::Line, type: nil, added?: false, removed?: false, meta?: false),
-        instance_double(Gitlab::Diff::Line, type: 'match', added?: false, removed?: false, meta?: true),
-        instance_double(Gitlab::Diff::Line, type: nil, added?: false, removed?: false, meta?: false),
-        instance_double(Gitlab::Diff::Line, type: nil, added?: false, removed?: false, meta?: false),
-        instance_double(Gitlab::Diff::Line, type: nil, added?: false, removed?: false, meta?: false),
-        instance_double(Gitlab::Diff::Line, type: 'old', added?: false, removed?: true, text: 'Second Hunk Removed', meta?: false),
-        instance_double(Gitlab::Diff::Line, type: 'new-nonewline', added?: true, removed?: false, meta?: true)
-      ]
-    end
-
-    before do
-      allow(diff_file).to receive(:diff_lines).and_return(diff_lines)
-    end
-
-    subject(:diff_lines_by_hunk) { diff_file.diff_lines_by_hunk }
-
-    it 'returns lines grouped by hunk' do
-      expect(diff_lines_by_hunk.size).to eq(2)
-
-      expect(diff_lines_by_hunk.first[:added].size).to eq(2)
-      expect(diff_lines_by_hunk.first[:added].map(&:text)).to eq([
-        'First Hunk Added 1',
-        'First Hunk Added 2'
-      ])
-
-      expect(diff_lines_by_hunk.first[:removed].size).to eq(2)
-      expect(diff_lines_by_hunk.first[:removed].map(&:text)).to eq([
-        'First Hunk Removed 1',
-        'First Hunk Removed 2'
-      ])
-
-      expect(diff_lines_by_hunk.last[:added].size).to eq(0)
-      expect(diff_lines_by_hunk.last[:removed].size).to eq(1)
-      expect(diff_lines_by_hunk.last[:removed].map(&:text)).to eq([
-        'Second Hunk Removed'
-      ])
-    end
-  end
-
   describe '#highlighted_diff_lines' do
     it 'highlights the diff and memoises the result' do
       expect(Gitlab::Diff::Highlight).to receive(:new)
@@ -339,36 +287,16 @@ RSpec.describe Gitlab::Diff::File do
   end
 
   describe '#old_blob and #new_blob' do
-    context 'when increase_diff_file_performance is on' do
-      let(:diff_file) do
-        described_class.new(diff, diff_refs: commit.diff_refs, repository: project.repository, max_blob_size: max_blob_size)
-      end
+    let(:diff_file) do
+      described_class.new(diff, diff_refs: commit.diff_refs, repository: project.repository, max_blob_size: max_blob_size)
+    end
 
-      let(:max_blob_size) { 1000 }
+    let(:max_blob_size) { 1000 }
 
-      before do
-        stub_feature_flags(increase_diff_file_performance: true)
-      end
+    context 'when the blobs are truncated' do
+      let(:max_blob_size) { 10 }
 
-      context 'when the blobs are truncated' do
-        let(:max_blob_size) { 10 }
-
-        it 'returns the truncated blobs' do
-          items = [
-            [diff_file.new_content_sha, diff_file.new_path], [diff_file.old_content_sha, diff_file.old_path]
-          ]
-
-          expect(project.repository).to receive(:blobs_at).with(items, blob_size_limit: max_blob_size).and_call_original
-
-          old_data = diff_file.old_blob.data
-          data = diff_file.new_blob.data
-
-          expect(old_data.size).to eq(max_blob_size)
-          expect(data.size).to eq(max_blob_size)
-        end
-      end
-
-      it 'returns blob of base commit and the new commit' do
+      it 'returns the truncated blobs' do
         items = [
           [diff_file.new_content_sha, diff_file.new_path], [diff_file.old_content_sha, diff_file.old_path]
         ]
@@ -378,33 +306,23 @@ RSpec.describe Gitlab::Diff::File do
         old_data = diff_file.old_blob.data
         data = diff_file.new_blob.data
 
-        expect(old_data).to include('raise "System commands must be given as an array of strings"')
-        expect(data).to include('raise RuntimeError, "System commands must be given as an array of strings"')
+        expect(old_data.size).to eq(max_blob_size)
+        expect(data.size).to eq(max_blob_size)
       end
     end
 
-    context 'when increase_diff_file_performance is off' do
-      let(:diff_file) do
-        described_class.new(diff, diff_refs: commit.diff_refs, repository: project.repository)
-      end
+    it 'returns blob of base commit and the new commit' do
+      items = [
+        [diff_file.new_content_sha, diff_file.new_path], [diff_file.old_content_sha, diff_file.old_path]
+      ]
 
-      before do
-        stub_feature_flags(increase_diff_file_performance: false)
-      end
+      expect(project.repository).to receive(:blobs_at).with(items, blob_size_limit: max_blob_size).and_call_original
 
-      it 'returns blob of base commit and the new commit' do
-        items = [
-          [diff_file.new_content_sha, diff_file.new_path], [diff_file.old_content_sha, diff_file.old_path]
-        ]
+      old_data = diff_file.old_blob.data
+      data = diff_file.new_blob.data
 
-        expect(project.repository).to receive(:blobs_at).with(items, blob_size_limit: Gitlab::Git::Blob::MAX_DATA_DISPLAY_SIZE).and_call_original
-
-        old_data = diff_file.old_blob.data
-        data = diff_file.new_blob.data
-
-        expect(old_data).to include('raise "System commands must be given as an array of strings"')
-        expect(data).to include('raise RuntimeError, "System commands must be given as an array of strings"')
-      end
+      expect(old_data).to include('raise "System commands must be given as an array of strings"')
+      expect(data).to include('raise RuntimeError, "System commands must be given as an array of strings"')
     end
   end
 
@@ -963,8 +881,16 @@ RSpec.describe Gitlab::Diff::File do
     end
 
     describe '#content_changed?' do
-      it 'returns false' do
-        expect(diff_file).not_to be_content_changed
+      it 'returns true' do
+        expect(diff_file).to be_content_changed
+      end
+
+      context 'when head_sha is nil' do
+        let(:blank_diff_refs) { Gitlab::Diff::DiffRefs.new(base_sha: Gitlab::Git::SHA1_BLANK_SHA, head_sha: nil) }
+
+        it 'returns true' do
+          expect(diff_file).to be_content_changed
+        end
       end
     end
   end
@@ -999,7 +925,7 @@ RSpec.describe Gitlab::Diff::File do
 
       it 'returns raw diff up to given line index' do
         allow(diff_file).to receive(:raw_diff) { raw_diff }
-        diff_line = instance_double(Gitlab::Diff::Line, index: 4)
+        diff_line = instance_double(Gitlab::Diff::Line, index: 5)
 
         diff_hunk = <<~EOS
           @@ -6,12 +6,18 @@ module Popen
@@ -1213,20 +1139,16 @@ RSpec.describe Gitlab::Diff::File do
 
   describe '#ai_reviewable?' do
     let(:diffable?) { true }
-    let(:deleted_file?) { false }
+    let(:text?) { true }
 
     before do
       allow(diff_file).to receive(:diffable?).and_return(diffable?)
-      allow(diff_file).to receive(:deleted_file?).and_return(deleted_file?)
+      allow(diff_file).to receive(:text?).and_return(text?)
     end
 
     subject(:ai_reviewable?) { diff_file.ai_reviewable? }
 
     it { is_expected.to eq(true) }
-
-    it 'returns true' do
-      expect(diff_file.ai_reviewable?).to eq(true)
-    end
 
     context 'when not diffable' do
       let(:diffable?) { false }
@@ -1234,10 +1156,114 @@ RSpec.describe Gitlab::Diff::File do
       it { is_expected.to eq(false) }
     end
 
-    context 'when deleted file' do
-      let(:deleted_file?) { true }
+    context 'when not text' do
+      let(:text?) { false }
 
       it { is_expected.to eq(false) }
+    end
+  end
+
+  describe '#diffable_text?' do
+    subject(:diffable_text?) { diff_file.diffable_text? }
+
+    it 'returns true for text diffs' do
+      expect(diffable_text?).to eq(true)
+    end
+
+    it 'returns false for non text files' do
+      allow(diff_file).to receive(:text?).and_return(false)
+      expect(diffable_text?).to eq(false)
+    end
+
+    it 'returns false for non diffable files' do
+      allow(diff_file).to receive(:diffable?).and_return(false)
+      expect(diffable_text?).to eq(false)
+    end
+
+    it 'returns false for too large' do
+      allow(diff_file).to receive(:too_large?).and_return(true)
+      expect(diffable_text?).to eq(false)
+    end
+  end
+
+  describe '#whitespace_only?' do
+    subject(:whitespace_only?) { diff_file.whitespace_only? }
+
+    it 'returns true for non-collapsed empty diffs' do
+      allow(diff_file).to receive(:collapsed?).and_return(false)
+      allow(diff_file).to receive(:diff_lines_for_serializer).and_return(nil)
+      allow(diff_file).to receive(:added_lines).and_return(2)
+      allow(diff_file).to receive(:removed_lines).and_return(2)
+      expect(whitespace_only?).to eq(true)
+    end
+  end
+
+  describe '#image_diff?' do
+    subject(:image_diff?) { diff_file.image_diff? }
+
+    it 'returns true for image diffs' do
+      allow(diff_file).to receive_messages(different_type?: false, external_storage_error?: false)
+      allow(DiffViewer::Image).to receive(:can_render?).and_return(true)
+      expect(image_diff?).to eq(true)
+    end
+
+    it 'returns false for different types' do
+      allow(diff_file).to receive_messages(different_type?: true, external_storage_error?: false)
+      allow(DiffViewer::Image).to receive(:can_render?).and_return(true)
+      expect(image_diff?).to eq(false)
+    end
+
+    it 'returns false for storage error' do
+      allow(diff_file).to receive_messages(different_type?: false, external_storage_error?: true)
+      allow(DiffViewer::Image).to receive(:can_render?).and_return(true)
+      expect(image_diff?).to eq(false)
+    end
+  end
+
+  describe '#modified_file?' do
+    subject(:modified_file?) { diff_file.modified_file? }
+
+    before do
+      allow(diff_file).to receive_messages(new_file?: false, deleted_file?: false, content_changed?: false)
+    end
+
+    it 'returns true for new file' do
+      allow(diff_file).to receive(:new_file?).and_return(true)
+      expect(modified_file?).to eq(true)
+    end
+
+    it 'returns true for deleted file' do
+      allow(diff_file).to receive(:deleted_file?).and_return(true)
+      expect(modified_file?).to eq(true)
+    end
+
+    it 'returns true for changed file' do
+      allow(diff_file).to receive(:content_changed?).and_return(true)
+      expect(modified_file?).to eq(true)
+    end
+  end
+
+  describe '#diff_lines_with_match_tail' do
+    subject(:lines) { diff_file.diff_lines_with_match_tail }
+
+    it { expect(lines.last.type).to eq('match') }
+  end
+
+  describe '#viewer_hunks' do
+    it { expect(diff_file.viewer_hunks).to all(be_instance_of(Gitlab::Diff::ViewerHunk)) }
+  end
+
+  describe '#no_preview?' do
+    subject(:no_preview?) { diff_file.no_preview? }
+
+    it 'returns true for collapsed file' do
+      allow(diff_file).to receive(:collapsed?).and_return(true)
+      expect(no_preview?).to eq(true)
+    end
+
+    it 'returns true for unmodified file' do
+      allow(diff_file).to receive(:modified_file?).and_return(false)
+      expect(no_preview?).to eq(true)
     end
   end
 end

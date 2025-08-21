@@ -6,6 +6,7 @@ module API
       module V1
         class NamespacePackages < ::API::Base
           include ::API::Helpers::Authentication
+
           helpers ::API::Helpers::PackagesHelpers
           helpers ::API::Helpers::Packages::BasicAuthHelpers
 
@@ -52,6 +53,7 @@ module API
                 exact_name: true
               }.tap do |finder_params|
                 finder_params[:package_version] = params[:module_version] if params.has_key?(:module_version)
+                finder_params[:within_public_package_registry] = true
               end
             end
 

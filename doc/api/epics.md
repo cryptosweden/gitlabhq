@@ -2,18 +2,25 @@
 stage: Plan
 group: Product Planning
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Epics API (deprecated)
 ---
 
-# Epics API (deprecated)
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-WARNING:
+{{< /details >}}
+
+{{< alert type="warning" >}}
+
 The Epics REST API was [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/460668) in GitLab 17.0
-and is planned for removal in v5 of the API. Use the [Work Items API](../architecture/blueprints/work_items/index.md) instead.
+and is planned for removal in v5 of the API.
+From GitLab 17.4 to 18.0, if [the new look for epics](../user/group/epics/_index.md#epics-as-work-items) is enabled, and in GitLab 18.1 and later, use the
+Work Items API instead. For more information, see [migrate epic APIs to work items](graphql/epic_work_items_api_migration_guide.md).
 This change is a breaking change.
+
+{{< /alert >}}
 
 Every API call to epic must be authenticated.
 
@@ -41,16 +48,22 @@ fields `start_date_is_fixed` and `due_date_is_fixed`, and four date fields `star
 By default, `GET` requests return 20 results at a time because the API results
 are paginated.
 
-Read more on [pagination](rest/index.md#pagination).
+Read more on [pagination](rest/_index.md#pagination).
 
-WARNING:
+{{< alert type="warning" >}}
+
 In [GitLab 12.6](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/20354) and later,
 the `reference` attribute in responses is deprecated in favor of `references`.
 
-NOTE:
+{{< /alert >}}
+
+{{< alert type="note" >}}
+
 `references.relative` is relative to the group that the epic is being requested from. When an epic
 is fetched from its origin group, the `relative` format is the same as the `short` format.
 When an epic is requested across groups, the `relative` format is expected to be the same as the `full` format.
+
+{{< /alert >}}
 
 ## List epics for a group
 
@@ -65,7 +78,7 @@ GET /groups/:id/epics?state=opened
 
 | Attribute           | Type             | Required   | Description                                                                                                                 |
 | ------------------- | ---------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user               |
+| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths)               |
 | `author_id`         | integer          | no         | Return epics created by the given user `id`                                                                                 |
 | `author_username`   | string           | no         | Return epics created by the user with the given `username`. |
 | `labels`            | string           | no         | Return epics matching a comma-separated list of labels names. Label names from the epic group or a parent group can be used |
@@ -84,7 +97,9 @@ GET /groups/:id/epics?state=opened
 | `not` | Hash | no | Return epics that do not match the parameters supplied. Accepts: `author_id`, `author_username` and `labels`. |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/1/epics"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/1/epics"
 ```
 
 Example response:
@@ -205,11 +220,13 @@ GET /groups/:id/epics/:epic_iid
 
 | Attribute           | Type             | Required   | Description                                                                            |
 | ------------------- | ---------------- | ---------- | ---------------------------------------------------------------------------------------|
-| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user                |
+| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths)                |
 | `epic_iid`          | integer/string   | yes        | The internal ID of the epic.  |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/1/epics/5"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/1/epics/5"
 ```
 
 Example response:
@@ -273,10 +290,13 @@ Example response:
 
 Creates a new epic.
 
-NOTE:
+{{< alert type="note" >}}
+
 Starting with GitLab [11.3](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/6448), `start_date` and `end_date` should no longer be assigned
 directly, as they now represent composite values. You can configure it via the `*_is_fixed` and
 `*_fixed` fields instead.
+
+{{< /alert >}}
 
 ```plaintext
 POST /groups/:id/epics
@@ -284,7 +304,7 @@ POST /groups/:id/epics
 
 | Attribute           | Type             | Required   | Description                                                                            |
 | ------------------- | ---------------- | ---------- | ---------------------------------------------------------------------------------------|
-| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user                |
+| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths)                |
 | `title`             | string           | yes        | The title of the epic |
 | `labels`            | string           | no         | The comma-separated list of labels |
 | `description`       | string           | no         | The description of the epic. Limited to 1,048,576 characters.  |
@@ -298,7 +318,9 @@ POST /groups/:id/epics
 | `parent_id`         | integer/string   | no         | The ID of a parent epic |
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/1/epics?title=Epic&description=Epic%20description&parent_id=29"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/1/epics?title=Epic&description=Epic%20description&parent_id=29"
 ```
 
 Example response:
@@ -368,7 +390,7 @@ PUT /groups/:id/epics/:epic_iid
 
 | Attribute           | Type             | Required   | Description                                                                            |
 | ------------------- | ---------------- | ---------- | ---------------------------------------------------------------------------------------|
-| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user                |
+| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths)                |
 | `epic_iid`          | integer/string   | yes        | The internal ID of the epic  |
 | `add_labels`        | string           | no         | Comma-separated label names to add to an issue. |
 | `confidential`      | boolean          | no         | Whether the epic should be confidential |
@@ -386,7 +408,9 @@ PUT /groups/:id/epics/:epic_iid
 | `color`             | string           | no         | The color of the epic. Behind a feature flag named `epic_highlight_color` (disabled by default) |
 
 ```shell
-curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/1/epics/5?title=New%20Title&parent_id=29"
+curl --request PUT \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/1/epics/5?title=New%20Title&parent_id=29"
 ```
 
 Example response:
@@ -442,7 +466,11 @@ Example response:
 
 ## Delete epic
 
+{{< history >}}
+
 - [Changed](https://gitlab.com/gitlab-org/gitlab/-/issues/452189) in GitLab 16.11. In GitLab 16.10 and earlier, if you delete an epic, all its child epics and their descendants are deleted as well. If needed, you can remove child epics from the parent epic before you delete it.
+
+{{< /history >}}
 
 Deletes an epic
 
@@ -452,11 +480,13 @@ DELETE /groups/:id/epics/:epic_iid
 
 | Attribute           | Type             | Required   | Description                                                                            |
 | ------------------- | ---------------- | ---------- | ---------------------------------------------------------------------------------------|
-| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user                |
+| `id`                | integer/string   | yes        | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths)                |
 | `epic_iid`          | integer/string   | yes        | The internal ID of the epic.  |
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/1/epics/5"
+curl --request DELETE \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/1/epics/5"
 ```
 
 ## Create a to-do item
@@ -471,11 +501,13 @@ POST /groups/:id/epics/:epic_iid/todo
 
 | Attribute   | Type    | Required | Description                          |
 |-------------|---------|----------|--------------------------------------|
-| `id`        | integer/string | yes   | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user  |
+| `id`        | integer/string | yes   | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths)  |
 | `epic_iid` | integer | yes          | The internal ID of a group's epic |
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/1/epics/5/todo"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/1/epics/5/todo"
 ```
 
 Example response:

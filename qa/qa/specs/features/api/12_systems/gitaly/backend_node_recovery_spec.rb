@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Systems', product_group: :gitaly do
+  RSpec.describe 'Systems', feature_category: :gitaly do
     describe 'Gitaly backend node recovery', :orchestrated, :gitaly_cluster, :skip_live_env do
       let(:praefect_manager) { Service::PraefectManager.new }
       let(:project) do
@@ -21,7 +21,8 @@ module QA
         praefect_manager.start_all_nodes
       end
 
-      it 'recovers from dataloss', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347832' do
+      it 'recovers from dataloss',
+        testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347832' do
         # Create a new project with a commit and wait for it to replicate
         praefect_manager.wait_for_replication(project.id)
 

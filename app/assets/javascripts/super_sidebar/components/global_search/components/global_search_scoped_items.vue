@@ -1,24 +1,22 @@
 <script>
-import { GlIcon, GlDisclosureDropdownGroup } from '@gitlab/ui';
+import { GlIcon, GlDisclosureDropdownGroup, GlDisclosureDropdownItem } from '@gitlab/ui';
 // eslint-disable-next-line no-restricted-imports
-import { mapState, mapGetters } from 'vuex';
+import { mapGetters, mapState } from 'vuex';
 import { InternalEvents } from '~/tracking';
-import { s__, sprintf } from '~/locale';
-import { truncate } from '~/lib/utils/text_utility';
 import {
   EVENT_CLICK_ALL_GITLAB_SCOPED_SEARCH_TO_ADVANCED_SEARCH,
   EVENT_CLICK_GROUP_SCOPED_SEARCH_TO_ADVANCED_SEARCH,
   EVENT_CLICK_PROJECT_SCOPED_SEARCH_TO_ADVANCED_SEARCH,
 } from '~/super_sidebar/components/global_search/tracking_constants';
-import { injectRegexSearch } from '~/search/store/utils';
+import { injectRegexSearch, injectUsersScope } from '~/search/store/utils';
 import {
   OVERLAY_SEARCH,
   SCOPE_SEARCH_ALL,
   SCOPE_SEARCH_GROUP,
   SCOPE_SEARCH_PROJECT,
+  USER_HANDLE,
 } from '../command_palette/constants';
-import { SCOPE_TOKEN_MAX_LENGTH } from '../constants';
-import SearchResultHoverLayover from './global_search_hover_overlay.vue';
+import SearchResultFocusLayover from './global_search_focus_overlay.vue';
 
 const trackingMixin = InternalEvents.mixin();
 
@@ -27,38 +25,40 @@ export default {
   components: {
     GlIcon,
     GlDisclosureDropdownGroup,
-    SearchResultHoverLayover,
+    GlDisclosureDropdownItem,
+    SearchResultFocusLayover,
   },
   mixins: [trackingMixin],
   i18n: {
     OVERLAY_SEARCH,
   },
   computed: {
-    ...mapState(['search']),
+    ...mapState(['commandChar']),
     ...mapGetters(['scopedSearchGroup']),
     group() {
       return {
         name: this.scopedSearchGroup.name,
         items: this.scopedSearchGroup.items.map((item) => ({
           ...item,
-          href: item.text === SCOPE_SEARCH_PROJECT ? injectRegexSearch(item.href) : item.href,
+          href: this.injectSearchPropsToHref(item),
           scopeName: item.scope || item.description,
           extraAttrs: {
-            class: 'show-hover-layover',
+            class: 'show-focus-layover',
           },
         })),
       };
     },
   },
   methods: {
-    titleLabel(item) {
-      return sprintf(s__('GlobalSearch|in %{scope}'), {
-        search: this.search,
-        scope: item.scope || item.description,
-      });
-    },
-    getTruncatedScope(scope) {
-      return truncate(scope, SCOPE_TOKEN_MAX_LENGTH);
+    injectSearchPropsToHref(item) {
+      if (item.text === SCOPE_SEARCH_PROJECT) {
+        return injectRegexSearch(item.href);
+      }
+      if (this.commandChar === this.$options.USER_HANDLE) {
+        return injectUsersScope(item.href);
+      }
+
+      return item.href;
     },
     trackingTypes({ text }) {
       switch (text) {
@@ -83,24 +83,29 @@ export default {
   SCOPE_SEARCH_ALL,
   SCOPE_SEARCH_GROUP,
   SCOPE_SEARCH_PROJECT,
+  USER_HANDLE,
 };
 </script>
 
 <template>
   <div>
-    <ul class="gl-m-0 gl-p-0 gl-pb-2 gl-list-style-none" data-testid="scoped-items">
-      <gl-disclosure-dropdown-group :group="group" bordered @action="trackingTypes">
-        <template #list-item="{ item }">
-          <search-result-hover-layover :text-message="$options.i18n.OVERLAY_SEARCH">
-            <gl-icon
-              name="search-results"
-              class="gl-flex-shrink-0 gl-mr-2 gl-pt-2 -gl-mt-2 gl-text-gray-500"
-            />
-            <span class="gl-flex-grow-1">
-              {{ item.scopeName }}
-            </span>
-          </search-result-hover-layover>
-        </template>
+    <ul class="gl-m-0 gl-list-none gl-p-0 gl-pb-2" data-testid="scoped-items">
+      <gl-disclosure-dropdown-group :group="group" @action="trackingTypes">
+        <gl-disclosure-dropdown-item
+          v-for="item in group.items"
+          :key="item.text"
+          :item="item"
+          class="show-on-focus-or-hover--context show-focus-layover"
+        >
+          <template #list-item>
+            <search-result-focus-layover :text-message="$options.i18n.OVERLAY_SEARCH">
+              <gl-icon name="search-results" class="gl-mr-2 gl-shrink-0 gl-text-subtle" />
+              <span class="gl-grow">
+                {{ item.scopeName }}
+              </span>
+            </search-result-focus-layover>
+          </template>
+        </gl-disclosure-dropdown-item>
       </gl-disclosure-dropdown-group>
     </ul>
   </div>

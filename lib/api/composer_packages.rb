@@ -35,7 +35,8 @@ module API
     helpers do
       def packages
         strong_memoize(:packages) do
-          packages = ::Packages::Composer::PackagesFinder.new(current_user, find_authorized_group!).execute
+          group = find_authorized_group!
+          packages = ::Packages::Composer::PackageFinder.new(current_user, group).execute
 
           if params[:package_name].present?
             params[:package_name], params[:sha] = params[:package_name].split('$')
@@ -79,6 +80,7 @@ module API
         tags %w[composer_packages]
       end
       route_setting :authentication, job_token_allowed: :basic_auth, basic_auth_personal_access_token: true, deploy_token_allowed: true
+      route_setting :authorization, skip_job_token_policies: true
       get ':id/-/packages/composer/packages', urgency: :low do
         presenter.root
       end
@@ -96,6 +98,7 @@ module API
         requires :sha, type: String, desc: 'Shasum of current json', documentation: { example: '673594f85a55fe3c0eb45df7bd2fa9d95a1601ab' }
       end
       route_setting :authentication, job_token_allowed: :basic_auth, basic_auth_personal_access_token: true, deploy_token_allowed: true
+      route_setting :authorization, skip_job_token_policies: true
       get ':id/-/packages/composer/p/:sha', urgency: :low do
         presenter.provider
       end
@@ -113,6 +116,7 @@ module API
         requires :package_name, type: String, file_path: true, desc: 'The Composer package name', documentation: { example: 'my-composer-package' }
       end
       route_setting :authentication, job_token_allowed: :basic_auth, basic_auth_personal_access_token: true, deploy_token_allowed: true
+      route_setting :authorization, skip_job_token_policies: true
       get ':id/-/packages/composer/p2/*package_name', requirements: COMPOSER_ENDPOINT_REQUIREMENTS, file_path: true, urgency: :low do
         not_found! if packages.empty?
 
@@ -132,6 +136,7 @@ module API
         requires :package_name, type: String, file_path: true, desc: 'The Composer package name', documentation: { example: 'my-composer-package' }
       end
       route_setting :authentication, job_token_allowed: :basic_auth, basic_auth_personal_access_token: true, deploy_token_allowed: true
+      route_setting :authorization, skip_job_token_policies: true
       get ':id/-/packages/composer/*package_name', requirements: COMPOSER_ENDPOINT_REQUIREMENTS, file_path: true, urgency: :low do
         not_found! if packages.empty?
         not_found! if params[:sha].blank?
@@ -147,6 +152,7 @@ module API
     resource :projects, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
       namespace ':id/packages/composer' do
         route_setting :authentication, job_token_allowed: true, basic_auth_personal_access_token: true, deploy_token_allowed: true
+        route_setting :authorization, job_token_policies: :admin_packages
 
         desc 'Composer packages endpoint for registering packages' do
           detail 'This feature was introduced in GitLab 13.1'
@@ -199,14 +205,17 @@ module API
           requires :package_name, type: String, file_path: true, desc: 'The Composer package name', documentation: { example: 'my-composer-package' }
         end
         route_setting :authentication, job_token_allowed: :basic_auth, basic_auth_personal_access_token: true, deploy_token_allowed: true
+        route_setting :authorization, job_token_policies: :read_packages,
+          allow_public_access_for_enabled_project_features: :package_registry
         get 'archives/*package_name', urgency: :default do
           project = authorized_user_project(action: :read_package)
+          authorize_job_token_policies!(project)
 
-          package = ::Packages::Composer::Package
-            .for_projects(project)
-            .with_name(params[:package_name])
-            .with_composer_target(params[:sha])
-            .first
+          package = ::Packages::Composer::PackageFinder
+                      .new(current_user, project, { package_name: params[:package_name], target_sha: params[:sha] })
+                      .execute
+                      .first
+
           metadata = package&.composer_metadatum
 
           not_found! unless metadata

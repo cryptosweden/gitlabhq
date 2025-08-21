@@ -1,19 +1,24 @@
 ---
-stage: Systems
+stage: Tenant Scale
 group: Geo
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Geo Nodes API (deprecated)
 ---
 
-# Geo Nodes API (deprecated)
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-WARNING:
+{{< /details >}}
+
+{{< alert type="warning" >}}
+
 The Geo Nodes API was [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/369140) in GitLab 16.0
 and is planned for removal in v5 of the API. Use the [Geo Sites API](geo_sites.md) instead.
 This change is a breaking change.
+
+{{< /alert >}}
 
 To interact with Geo node endpoints, you must authenticate yourself as an
 administrator.
@@ -27,10 +32,11 @@ POST /geo_nodes
 ```
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://primary.example.com/api/v4/geo_nodes" \
-     --request POST \
-     -d "name=himynameissomething" \
-     -d "url=https://another-node.example.com/"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://primary.example.com/api/v4/geo_nodes" \
+  -d "name=himynameissomething" \
+  -d "url=https://another-node.example.com/"
 ```
 
 | Attribute                   | Type    | Required | Description                                                      |
@@ -88,7 +94,9 @@ GET /geo_nodes
 ```
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://primary.example.com/api/v4/geo_nodes"
+curl \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://primary.example.com/api/v4/geo_nodes"
 ```
 
 Example response:
@@ -155,7 +163,9 @@ GET /geo_nodes/:id
 ```
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://primary.example.com/api/v4/geo_nodes/1"
+curl \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://primary.example.com/api/v4/geo_nodes/1"
 ```
 
 Example response:
@@ -297,7 +307,9 @@ GET /geo_nodes/status
 ```
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://primary.example.com/api/v4/geo_nodes/status"
+curl \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://primary.example.com/api/v4/geo_nodes/status"
 ```
 
 Example response:
@@ -742,7 +754,9 @@ GET /geo_nodes/:id/status
 ```
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://primary.example.com/api/v4/geo_nodes/2/status"
+curl \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://primary.example.com/api/v4/geo_nodes/2/status"
 ```
 
 Example response:
@@ -955,48 +969,8 @@ Example response:
 }
 ```
 
-NOTE:
-The `health_status` parameter can only be in an "Healthy" or "Unhealthy" state, while the `health` parameter can be empty, "Healthy", or contain the actual error message.
+{{< alert type="note" >}}
 
-## Retrieve project sync or verification failures that occurred on the current node
+The `health_status` parameter can only be in a "Healthy" or "Unhealthy" state, while the `health` parameter can be empty, "Healthy", or contain the actual error message.
 
-This only works on a secondary node.
-
-```plaintext
-GET /geo_nodes/current/failures
-```
-
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `type`         | string  | no | Type of failed objects (`repository`/`wiki`) |
-| `failure_type` | string | no | Type of failures (`sync`/`checksum_mismatch`/`verification`) |
-
-This endpoint uses [Pagination](rest/index.md#pagination).
-
-```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://primary.example.com/api/v4/geo_nodes/current/failures"
-```
-
-Example response:
-
-```json
-[
-  {
-    "project_id": 3,
-    "last_repository_synced_at": "2017-10-31 14:25:55 UTC",
-    "last_repository_successful_sync_at": "2017-10-31 14:26:04 UTC",
-    "last_wiki_synced_at": "2017-10-31 14:26:04 UTC",
-    "last_wiki_successful_sync_at": "2017-10-31 14:26:11 UTC",
-    "repository_retry_count": null,
-    "wiki_retry_count": 1,
-    "last_repository_sync_failure": null,
-    "last_wiki_sync_failure": "Error syncing Wiki repository",
-    "last_repository_verification_failure": "",
-    "last_wiki_verification_failure": "",
-    "repository_verification_checksum_sha": "da39a3ee5e6b4b0d32e5bfef9a601890afd80709",
-    "wiki_verification_checksum_sha": "da39a3ee5e6b4b0d3255bfef9ef0189aafd80709",
-    "repository_checksum_mismatch": false,
-    "wiki_checksum_mismatch": false
-  }
-]
-```
+{{< /alert >}}

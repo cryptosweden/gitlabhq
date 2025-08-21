@@ -43,9 +43,32 @@ RSpec.describe BasePolicy do
         is_expected.to be_allowed(ability)
       end
 
+      context 'when user from job token' do
+        before do
+          allow(current_user).to receive(:from_ci_job_token?).and_return(true)
+          enable_admin_mode!(current_user)
+        end
+
+        it 'prevents when settings in admin mode' do
+          allow(Gitlab::CurrentSettings).to receive(:admin_mode).and_return(false)
+
+          is_expected.to be_disallowed(ability)
+        end
+
+        it 'prevents when user is admin' do
+          is_expected.to be_disallowed(ability)
+        end
+      end
+
       it 'prevented when not in admin mode' do
         is_expected.not_to be_allowed(ability)
       end
+    end
+
+    context 'with the admin bot user' do
+      let(:current_user) { ::Users::Internal.admin_bot }
+
+      it { is_expected.to be_allowed(ability) }
     end
 
     context 'with anonymous' do
@@ -61,6 +84,70 @@ RSpec.describe BasePolicy do
         expect { Gitlab::Auth::CurrentUserMode.bypass_session!(current_user.id) }
           .to change { policy.allowed?(ability) }.from(false).to(true)
       end
+    end
+
+    context 'with a limited admin user', :enable_admin_mode do
+      let(:current_user) { build_stubbed(:user) }
+
+      before do
+        allow(current_user).to receive(:can_access_admin_area?).and_return(true)
+      end
+
+      it { is_expected.not_to be_allowed(ability) }
+    end
+  end
+
+  describe 'read_dedicated_hosted_runner_usage' do
+    let(:current_user) { build_stubbed(:user) }
+
+    subject { described_class.new(current_user, nil) }
+
+    context 'for a regular user' do
+      it { is_expected.not_to be_allowed(:read_dedicated_hosted_runner_usage) }
+    end
+
+    context 'with an admin' do
+      let(:current_user) { build_stubbed(:admin) }
+
+      before do
+        enable_admin_mode!(current_user)
+      end
+
+      context 'on a non-dedicated instance' do
+        before do
+          allow(Gitlab::CurrentSettings).to receive(:gitlab_dedicated_instance?).and_return(false)
+        end
+
+        it { is_expected.not_to be_allowed(:read_dedicated_hosted_runner_usage) }
+      end
+
+      context 'on a dedicated instance' do
+        before do
+          allow(Gitlab::CurrentSettings).to receive(:gitlab_dedicated_instance?).and_return(true)
+        end
+
+        it { is_expected.to be_allowed(:read_dedicated_hosted_runner_usage) }
+      end
+    end
+
+    context 'with an admin not in admin mode' do
+      let(:current_user) { build_stubbed(:admin) }
+
+      before do
+        allow(Gitlab::CurrentSettings).to receive(:gitlab_dedicated_instance?).and_return(true)
+      end
+
+      it { is_expected.not_to be_allowed(:read_dedicated_hosted_runner_usage) }
+    end
+
+    context 'with anonymous' do
+      let(:current_user) { nil }
+
+      before do
+        allow(Gitlab::CurrentSettings).to receive(:gitlab_dedicated_instance?).and_return(true)
+      end
+
+      it { is_expected.not_to be_allowed(:read_dedicated_hosted_runner_usage) }
     end
   end
 
@@ -101,6 +188,18 @@ RSpec.describe BasePolicy do
 
   describe 'placeholder_user' do
     let(:current_user) { build_stubbed(:user, user_type: :placeholder) }
+
+    subject { described_class.new(current_user, nil) }
+
+    it { expect_disallowed(:access_git) }
+    it { expect_disallowed(:log_in) }
+    it { expect_disallowed(:access_api) }
+    it { expect_disallowed(:receive_notifications) }
+    it { expect_disallowed(:use_slash_commands) }
+  end
+
+  describe 'import_user' do
+    let(:current_user) { build_stubbed(:user, user_type: :import_user) }
 
     subject { described_class.new(current_user, nil) }
 

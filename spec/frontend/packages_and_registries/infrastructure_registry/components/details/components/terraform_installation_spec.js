@@ -46,28 +46,28 @@ describe('TerraformInstallation', () => {
   describe('installation commands', () => {
     it('renders the correct command', () => {
       expect(findCodeInstructions().at(0).props('instruction')).toMatchInlineSnapshot(`
-        "module \\"my_module_name\\" {
-          source = \\"bar.dev/foo/Test/system-22\\"
-          version = \\"0.1\\"
-        }"
-      `);
+"module "my_module_name" {
+  source = "bar.dev/foo/Test/system-22"
+  version = "0.1"
+}"
+`);
     });
   });
 
   describe('setup commands', () => {
     it('renders the correct command', () => {
       expect(findCodeInstructions().at(1).props('instruction')).toMatchInlineSnapshot(`
-        "credentials \\"bar.dev\\" {
-          token = \\"<TOKEN>\\"
-        }"
-      `);
+"credentials "bar.dev" {
+  token = "<TOKEN>"
+}"
+`);
     });
   });
 
   describe('link to help page', () => {
     it('is rendered', () => {
       expect(findLink().attributes('href')).toBe(
-        helpPagePath('user/packages/terraform_module_registry/index', {
+        helpPagePath('user/packages/terraform_module_registry/_index', {
           anchor: 'reference-a-terraform-module',
         }),
       );

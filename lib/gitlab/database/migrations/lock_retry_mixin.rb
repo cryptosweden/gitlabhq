@@ -13,14 +13,6 @@ module Gitlab
             migration.connection
           end
 
-          def enable_lock_retries?
-            # regular AR migrations don't have this,
-            # only ones inheriting from Gitlab::Database::Migration have
-            return false unless migration.respond_to?(:enable_lock_retries?)
-
-            migration.enable_lock_retries?
-          end
-
           def with_lock_retries_used!
             # regular AR migrations don't have this,
             # only ones inheriting from Gitlab::Database::Migration have
@@ -49,7 +41,7 @@ module Gitlab
                 connection: migration.migration_connection,
                 klass: migration.migration_class,
                 logger: Gitlab::BackgroundMigration::Logger
-              ).run(raise_on_exhaustion: false, &block)
+              ).run(raise_on_exhaustion: true, &block)
             else
               super
             end

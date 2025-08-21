@@ -6,7 +6,7 @@ import Tracking from '~/tracking';
 import addBlobLinksTracking from '~/blob/blob_links_tracking';
 import LineHighlighter from '~/blob/line_highlighter';
 import { EVENT_ACTION, EVENT_LABEL_VIEWER, CODEOWNERS_FILE_NAME } from './constants';
-import Chunk from './components/chunk_new.vue';
+import Chunk from './components/chunk.vue';
 import Blame from './components/blame_info.vue';
 import { calculateBlameOffset, shouldRender, toggleBlameClasses } from './utils';
 import blameDataQuery from './queries/blame_data.query.graphql';
@@ -74,6 +74,9 @@ export default {
     showBlame: {
       handler(isVisible) {
         toggleBlameClasses(this.blameData, isVisible);
+
+        if (!isVisible) this.blameData = [];
+
         this.requestBlameInfo(this.renderedChunks[0]);
       },
       immediate: true,
@@ -136,24 +139,22 @@ export default {
       this.lineHighlighter.highlightHash(this.$route.hash);
     },
   },
-  userColorScheme: window.gon.user_color_scheme,
 };
 </script>
 
 <template>
-  <div class="gl-display-flex">
+  <div class="gl-flex">
     <blame v-if="showBlame && blameInfo.length" :blame-info="blameInfo" />
 
     <div
-      class="file-content code js-syntax-highlight blob-content gl-display-flex gl-flex-direction-column gl-overflow-auto gl-w-full blob-viewer"
-      :class="$options.userColorScheme"
+      class="file-content code code-syntax-highlight-theme js-syntax-highlight blob-content blob-viewer gl-flex gl-w-full gl-flex-col gl-overflow-auto"
       data-type="simple"
       :data-path="blob.path"
       data-testid="blob-viewer-file-content"
     >
       <codeowners-validation
         v-if="isCodeownersFile"
-        class="gl-text-black-normal"
+        class="gl-text-default"
         :current-ref="currentRef"
         :project-path="projectPath"
         :file-path="blob.path"
@@ -161,13 +162,13 @@ export default {
       <chunk
         v-for="(chunk, index) in chunks"
         :key="index"
-        :chunk-index="index"
         :is-highlighted="Boolean(chunk.isHighlighted)"
         :raw-content="chunk.rawContent"
         :highlighted-content="chunk.highlightedContent"
         :total-lines="chunk.totalLines"
         :starting-from="chunk.startingFrom"
         :blame-path="blob.blamePath"
+        :blob-path="blob.path"
         @appear="() => handleAppear(index)"
       />
     </div>

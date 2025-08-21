@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create' do
-    describe 'Merge request suggestions', :blocking, product_group: :code_review do
+  RSpec.describe 'Create', feature_category: :code_review_workflow do
+    describe 'Merge request suggestions' do
       let(:commit_message) { 'Applying suggested change for testing purposes.' }
       let(:project) { create(:project, name: 'mr-suggestions-project') }
-      let(:merge_request) do
+      let!(:merge_request) do
         create(:merge_request,
           project: project,
           title: 'Needs some suggestions',
@@ -15,9 +15,7 @@ module QA
           ))
       end
 
-      let(:dev_user) do
-        Resource::User.fabricate_or_use(Runtime::Env.gitlab_qa_username_1, Runtime::Env.gitlab_qa_password_1)
-      end
+      let(:dev_user) { Runtime::User::Store.additional_test_user }
 
       before do
         project.add_member(dev_user)

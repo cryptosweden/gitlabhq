@@ -6,6 +6,7 @@ import mockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import { updateDraft, clearDraft } from '~/lib/utils/autosave';
 import EditedAt from '~/issues/show/components/edited.vue';
+import gfmEventHub from '~/vue_shared/components/markdown/eventhub';
 import WorkItemNote from '~/work_items/components/notes/work_item_note.vue';
 import WorkItemNoteAwardsList from '~/work_items/components/notes/work_item_note_awards_list.vue';
 import TimelineEntryItem from '~/vue_shared/components/notes/timeline_entry_item.vue';
@@ -15,18 +16,16 @@ import NoteActions from '~/work_items/components/notes/work_item_note_actions.vu
 import WorkItemCommentForm from '~/work_items/components/notes/work_item_comment_form.vue';
 import updateWorkItemNoteMutation from '~/work_items/graphql/notes/update_work_item_note.mutation.graphql';
 import updateWorkItemMutation from '~/work_items/graphql/update_work_item.mutation.graphql';
-import groupWorkItemByIidQuery from '~/work_items/graphql/group_work_item_by_iid.query.graphql';
 import workItemByIidQuery from '~/work_items/graphql/work_item_by_iid.query.graphql';
 import {
-  groupWorkItemByIidResponseFactory,
   mockAssignees,
   mockWorkItemCommentNote,
+  mockWorkItemCommentNoteByContributor,
+  mockWorkItemCommentByMaintainer,
   updateWorkItemMutationResponse,
   workItemByIidResponseFactory,
   workItemQueryResponse,
-  mockWorkItemCommentNoteByContributor,
-  mockWorkItemCommentByMaintainer,
-} from 'jest/work_items/mock_data';
+} from 'ee_else_ce_jest/work_items/mock_data';
 import { i18n, TRACKING_CATEGORY_SHOW } from '~/work_items/constants';
 import { mockTracking } from 'helpers/tracking_helper';
 
@@ -70,9 +69,6 @@ describe('Work Item Note', () => {
   });
 
   const workItemResponseHandler = jest.fn().mockResolvedValue(workItemByIidResponseFactory());
-  const groupWorkItemResponseHandler = jest
-    .fn()
-    .mockResolvedValue(groupWorkItemByIidResponseFactory());
   const workItemByAuthoredByDifferentUser = jest
     .fn()
     .mockResolvedValue(mockWorkItemByDifferentUser);
@@ -90,12 +86,11 @@ describe('Work Item Note', () => {
   const findNoteActions = () => wrapper.findComponent(NoteActions);
   const findCommentForm = () => wrapper.findComponent(WorkItemCommentForm);
   const findEditedAt = () => wrapper.findComponent(EditedAt);
-  const findNoteWrapper = () => wrapper.find('[data-testid="note-wrapper"]');
 
   const createComponent = ({
     note = mockWorkItemCommentNote,
     isFirstNote = false,
-    isGroup = false,
+    canReply = false,
     updateNoteMutationHandler = successHandler,
     workItemId = mockWorkItemId,
     updateWorkItemMutationHandler = updateWorkItemMutationSuccessHandler,
@@ -103,23 +98,27 @@ describe('Work Item Note', () => {
     workItemByIidResponseHandler = workItemResponseHandler,
   } = {}) => {
     wrapper = shallowMount(WorkItemNote, {
-      provide: {
-        isGroup,
-      },
       propsData: {
         fullPath: 'test-project-path',
         workItemId,
         workItemIid: '1',
         note,
+        canReply,
         isFirstNote,
         workItemType: 'Task',
         markdownPreviewPath: '/group/project/preview_markdown?target_type=WorkItem',
+        uploadsPath: '/test-project-path/uploads',
         autocompleteDataSources: {},
         assignees,
       },
+      stubs: {
+        TimelineEntryItem,
+      },
+      mocks: {
+        $route: {},
+      },
       apolloProvider: mockApollo([
         [workItemByIidQuery, workItemByIidResponseHandler],
-        [groupWorkItemByIidQuery, groupWorkItemResponseHandler],
         [updateWorkItemNoteMutation, updateNoteMutationHandler],
         [updateWorkItemMutation, updateWorkItemMutationHandler],
       ]),
@@ -129,6 +128,7 @@ describe('Work Item Note', () => {
   describe('when editing', () => {
     beforeEach(() => {
       createComponent();
+
       findNoteActions().vm.$emit('startEditing');
       return nextTick();
     });
@@ -137,8 +137,8 @@ describe('Work Item Note', () => {
       expect(findCommentForm().exists()).toBe(true);
     });
 
-    it('should not render note wrapper', () => {
-      expect(findNoteWrapper().exists()).toBe(false);
+    it('should not render note body', () => {
+      expect(findNoteBody().exists()).toBe(false);
     });
 
     it('updates saved draft with current note text', () => {
@@ -157,11 +157,11 @@ describe('Work Item Note', () => {
       await nextTick();
 
       expect(findCommentForm().exists()).toBe(false);
-      expect(findNoteWrapper().exists()).toBe(true);
+      expect(findNoteBody().exists()).toBe(true);
     });
 
     it('should show the awards list when in edit mode', async () => {
-      createComponent({ note: mockWorkItemCommentNote, workItemsAlpha: true });
+      createComponent({ note: mockWorkItemCommentNote });
       findNoteActions().vm.$emit('startEditing');
       await nextTick();
       expect(findAwardsList().exists()).toBe(true);
@@ -223,6 +223,28 @@ describe('Work Item Note', () => {
     });
   });
 
+  describe('when toggling a checkbox in a note', () => {
+    it('calls mutation to update the description', () => {
+      const commentText = `beginning
+
+- [x] one
+- [ ] two
+- [ ] three
+
+end`;
+      createComponent();
+
+      findNoteBody().vm.$emit('updateNote', { commentText });
+
+      expect(successHandler).toHaveBeenCalledWith({
+        input: {
+          id: mockWorkItemCommentNote.id,
+          body: commentText,
+        },
+      });
+    });
+  });
+
   describe('when not editing', () => {
     it('should not render a comment form', () => {
       createComponent();
@@ -231,7 +253,7 @@ describe('Work Item Note', () => {
 
     it('should render note wrapper', () => {
       createComponent();
-      expect(findNoteWrapper().exists()).toBe(true);
+      expect(findNoteBody().exists()).toBe(true);
     });
 
     it('renders no "edited at" information by default', () => {
@@ -257,7 +279,7 @@ describe('Work Item Note', () => {
 
     describe('main comment', () => {
       beforeEach(async () => {
-        createComponent({ isFirstNote: true });
+        createComponent({ isFirstNote: true, canReply: true });
         await waitForPromises();
       });
 
@@ -274,6 +296,10 @@ describe('Work Item Note', () => {
 
       it('should have the project name', () => {
         expect(findNoteActions().props('projectName')).toBe('Project name');
+      });
+
+      it('should pass the noteUrl to the note header and should be a work items url', () => {
+        expect(findNoteHeader().props('noteUrl')).toContain('work_items');
       });
     });
 
@@ -444,39 +470,30 @@ describe('Work Item Note', () => {
     });
 
     it('passes note props to awards list', () => {
-      createComponent({ note: mockWorkItemCommentNote, workItemsAlpha: true });
+      createComponent({ note: mockWorkItemCommentNote });
 
       expect(findAwardsList().props('note')).toBe(mockWorkItemCommentNote);
       expect(findAwardsList().props('workItemIid')).toBe('1');
     });
+
+    it('passes external author to note header', () => {
+      const externalAuthor = 'user@example.com';
+
+      createComponent({
+        note: {
+          ...mockWorkItemCommentNote,
+          externalAuthor,
+        },
+      });
+
+      expect(findNoteHeader().props('emailParticipant')).toBe(externalAuthor);
+    });
   });
 
-  describe('when project context', () => {
-    it('calls the project work item query', () => {
-      createComponent();
+  it('calls the work item query', () => {
+    createComponent();
 
-      expect(workItemResponseHandler).toHaveBeenCalled();
-    });
-
-    it('skips calling the group work item query', () => {
-      createComponent();
-
-      expect(groupWorkItemResponseHandler).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('when group context', () => {
-    it('skips calling the project work item query', () => {
-      createComponent({ isGroup: true });
-
-      expect(workItemResponseHandler).not.toHaveBeenCalled();
-    });
-
-    it('calls the group work item query', () => {
-      createComponent({ isGroup: true });
-
-      expect(groupWorkItemResponseHandler).toHaveBeenCalled();
-    });
+    expect(workItemResponseHandler).toHaveBeenCalled();
   });
 
   describe('when note has no author', () => {
@@ -495,6 +512,43 @@ describe('Work Item Note', () => {
 
     it('should not allow assigning to comment author', () => {
       expect(findNoteActions().props('showAssignUnassign')).toBe(false);
+    });
+  });
+
+  describe('markdown-editor event-hub edit-note event', () => {
+    const setupComponent = async ({ id = mockWorkItemCommentNote.id, adminNote = true } = {}) => {
+      createComponent({
+        note: {
+          ...mockWorkItemCommentNote,
+          id,
+          userPermissions: {
+            ...mockWorkItemCommentNote.userPermissions,
+            adminNote,
+          },
+        },
+      });
+
+      gfmEventHub.$emit('edit-note', { note: mockWorkItemCommentNote });
+
+      await nextTick();
+    };
+
+    it('enables editing on the note for a matching note when adminNote is true', async () => {
+      await setupComponent();
+
+      expect(wrapper.emitted('startEditing')).toHaveLength(1);
+      expect(findCommentForm().exists()).toBe(true);
+    });
+
+    it.each`
+      setupProps                         | description
+      ${{ adminNote: false }}            | ${'a matching note when adminNote is false'}
+      ${{ id: 'gid://gitlab/Note/100' }} | ${'non-matching note when adminNote is true'}
+    `('does not enable editing on the note for $description', async ({ setupProps }) => {
+      await setupComponent(setupProps);
+
+      expect(wrapper.emitted('startEditing')).toBeUndefined();
+      expect(findCommentForm().exists()).toBe(false);
     });
   });
 });

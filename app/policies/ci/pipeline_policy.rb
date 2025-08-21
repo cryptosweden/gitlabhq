@@ -2,7 +2,7 @@
 
 module Ci
   class PipelinePolicy < BasePolicy
-    delegate { @subject.project }
+    delegate(:project) { @subject.project }
 
     condition(:protected_ref) { ref_protected?(@user, @subject.project, @subject.tag?, @subject.ref) }
 
@@ -18,12 +18,12 @@ module Ci
       @subject.triggered_by?(@user)
     end
 
-    condition(:project_allows_read_dependency) do
-      can?(:read_dependency, @subject.project)
-    end
-
     condition(:project_allows_read_build) do
       can?(:read_build, @subject.project)
+    end
+
+    condition(:archived, scope: :subject) do
+      @subject.archived?(log: true)
     end
 
     # Allow reading builds for external pipelines regardless of whether CI/CD is disabled
@@ -42,13 +42,13 @@ module Ci
       prevent :cancel_pipeline
     end
 
+    rule { archived }.policy do
+      prevent :update_pipeline
+    end
+
     rule { can?(:public_access) & branch_allows_collaboration }.policy do
       enable :update_pipeline
       enable :cancel_pipeline
-    end
-
-    rule { can?(:owner_access) }.policy do
-      enable :destroy_pipeline
     end
 
     rule { can?(:admin_pipeline) }.policy do
@@ -59,8 +59,8 @@ module Ci
       enable :read_pipeline_variable
     end
 
-    rule { project_allows_read_dependency }.policy do
-      enable :read_dependency
+    rule { can?(:read_pipeline) }.policy do
+      enable :read_pipeline_metadata
     end
 
     def ref_protected?(user, project, tag, ref)
@@ -74,3 +74,5 @@ module Ci
     end
   end
 end
+
+Ci::PipelinePolicy.prepend_mod_with('Ci::PipelinePolicy')

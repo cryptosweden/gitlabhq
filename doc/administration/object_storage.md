@@ -1,14 +1,18 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Operate
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+gitlab_dedicated: no
+title: Object storage
+description: Configure an object storage service for data.
 ---
 
-# Object storage
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 GitLab supports using an object storage service for holding numerous types of data.
 It's recommended over NFS and
@@ -31,7 +35,7 @@ If you store data locally, see how to
 ## Supported object storage providers
 
 GitLab is tightly integrated with the Fog library, so you can see which
-[providers](https://fog.io/about/provider_documentation.html) can be used
+[providers](https://fog.github.io/about/provider_documentation.html) can be used
 with GitLab.
 
 Specifically, GitLab has been tested by vendors and customers on a number of object storage providers:
@@ -53,18 +57,21 @@ Most types of objects, such as CI artifacts, LFS files, and upload attachments
 can be saved in object storage by specifying a single credential for object
 storage with multiple buckets.
 
-NOTE:
+{{< alert type="note" >}}
+
 For GitLab Helm Charts, see how to [configure the consolidated form](https://docs.gitlab.com/charts/charts/globals.html#consolidated-object-storage).
+
+{{< /alert >}}
 
 Configuring the object storage using the consolidated form has a number of advantages:
 
-- It can simplify your GitLab configuration since the connection details are shared
+- It can simplify your GitLab configuration because the connection details are shared
   across object types.
 - It enables the use of [encrypted S3 buckets](#encrypted-s3-buckets).
 - It [uploads files to S3 with proper `Content-MD5` headers](https://gitlab.com/gitlab-org/gitlab-workhorse/-/issues/222).
 
 When the consolidated form is used,
-[direct upload](../development/uploads/index.md#direct-upload) is enabled
+direct upload is enabled
 automatically. Thus, only the following providers can be used:
 
 - [Amazon S3-compatible providers](#amazon-s3)
@@ -73,7 +80,7 @@ automatically. Thus, only the following providers can be used:
 
 The consolidated form configuration can't be used for backups or
 Mattermost. Backups can be configured with
-[server side encryption](../administration/backup_restore/backup_gitlab.md#s3-encrypted-buckets)
+[server side encryption](backup_restore/backup_gitlab.md#s3-encrypted-buckets)
 separately. See the
 [table for a complete list](#configure-each-object-type-to-define-its-own-storage-connection-storage-specific-form)
 of supported object storage types.
@@ -109,30 +116,31 @@ Each object type must at least define the bucket name where it will be stored.
 
 The following table lists the valid `objects` that can be used:
 
-|  Type              | Description                                                                |
-|--------------------|----------------------------------------------------------------------------|
-| `artifacts`        | [CI artifacts](job_artifacts.md)                                           |
-| `external_diffs`   | [Merge request diffs](merge_request_diffs.md)                              |
-| `uploads`          | [User uploads](uploads.md)                                                 |
-| `lfs`              | [Git Large File Storage objects](lfs/index.md)                             |
-| `packages`         | [Project packages (for example, PyPI, Maven, or NuGet)](packages/index.md) |
-| `dependency_proxy` | [Dependency Proxy](packages/dependency_proxy.md)                    |
-| `terraform_state`  | [Terraform state files](terraform_state.md)                                |
-| `pages`            | [Pages](pages/index.md)                                             |
+| Type               | Description |
+|--------------------|-------------|
+| `artifacts`        | [CI/CD job artifacts](cicd/job_artifacts.md) |
+| `external_diffs`   | [Merge request diffs](merge_request_diffs.md) |
+| `uploads`          | [User uploads](uploads.md) |
+| `lfs`              | [Git Large File Storage objects](lfs/_index.md) |
+| `packages`         | [Project packages (for example, PyPI, Maven, or NuGet)](packages/_index.md) |
+| `dependency_proxy` | [Dependency Proxy](packages/dependency_proxy.md) |
+| `terraform_state`  | [Terraform state files](terraform_state.md) |
+| `pages`            | [Pages](pages/_index.md) |
+| `ci_secure_files`  | [Secure files](cicd/secure_files.md) |
 
 Within each object type, three parameters can be defined:
 
 | Setting          | Required?              | Description                         |
 |------------------|------------------------|-------------------------------------|
-| `bucket`         | **{check-circle}** Yes\* | Bucket name for the object type. Not required if `enabled` is set to `false`. |
-| `enabled`        | **{dotted-circle}** No | Overrides the [common parameter](#configure-the-common-parameters).     |
-| `proxy_download` | **{dotted-circle}** No | Overrides the [common parameter](#configure-the-common-parameters).     |
+| `bucket`         | {{< icon name="check-circle" >}} Yes\* | Bucket name for the object type. Not required if `enabled` is set to `false`. |
+| `enabled`        | {{< icon name="dotted-circle" >}} No | Overrides the [common parameter](#configure-the-common-parameters).     |
+| `proxy_download` | {{< icon name="dotted-circle" >}} No | Overrides the [common parameter](#configure-the-common-parameters).     |
 
 For an example, see how to [use the consolidated form and Amazon S3](#full-example-using-the-consolidated-form-and-amazon-s3).
 
 #### Disable object storage for specific features
 
-As seen above, object storage can be disabled for specific types by
+As seen previously, object storage can be disabled for specific types by
 setting the `enabled` flag to `false`. For example, to disable object
 storage for CI artifacts:
 
@@ -156,29 +164,32 @@ except for the storage types not supported by the consolidated form. When workin
 The use of [encrypted S3 buckets](#encrypted-s3-buckets) with non-consolidated form is not supported.
 You may get [ETag mismatch errors](#etag-mismatch) if you use it.
 
-NOTE:
+{{< alert type="note" >}}
+
 For the storage-specific form,
 [direct upload may become the default](https://gitlab.com/gitlab-org/gitlab/-/issues/27331)
 because it does not require a shared folder.
+
+{{< /alert >}}
 
 For storage types not
 supported by the consolidated form, refer to the following guides:
 
 | Object storage type | Supported by consolidated form? |
 |---------------------|------------------------------------------|
-| [Secure Files](secure_files.md#using-object-storage) | **{dotted-circle}** No |
-| [Backups](../administration/backup_restore/backup_gitlab.md#upload-backups-to-a-remote-cloud-storage) | **{dotted-circle}** No |
-| [Container registry](packages/container_registry.md#use-object-storage) (optional feature) | **{dotted-circle}** No |
-| [Mattermost](https://docs.mattermost.com/configure/file-storage-configuration-settings.html)| **{dotted-circle}** No |
-| [Autoscale runner caching](https://docs.gitlab.com/runner/configuration/autoscale.html#distributed-runners-caching) (optional for improved performance) | **{dotted-circle}** No |
-| [Job artifacts](job_artifacts.md#using-object-storage) including archived job logs | **{check-circle}** Yes |
-| [LFS objects](lfs/index.md#storing-lfs-objects-in-remote-object-storage) | **{check-circle}** Yes |
-| [Uploads](uploads.md#using-object-storage) | **{check-circle}** Yes |
-| [Merge request diffs](merge_request_diffs.md#using-object-storage) | **{check-circle}** Yes |
-| [Packages](packages/index.md#use-object-storage) (optional feature) | **{check-circle}** Yes |
-| [Dependency Proxy](packages/dependency_proxy.md#using-object-storage) (optional feature) | **{check-circle}** Yes |
-| [Terraform state files](terraform_state.md#using-object-storage) | **{check-circle}** Yes |
-| [Pages content](pages/index.md#object-storage-settings) | **{check-circle}** Yes |
+| [Backups](backup_restore/backup_gitlab.md#upload-backups-to-a-remote-cloud-storage) | {{< icon name="dotted-circle" >}} No |
+| [Container registry](packages/container_registry.md#use-object-storage) (optional feature) | {{< icon name="dotted-circle" >}} No |
+| [Mattermost](https://docs.mattermost.com/configure/file-storage-configuration-settings.html)| {{< icon name="dotted-circle" >}} No |
+| [Autoscale runner caching](https://docs.gitlab.com/runner/configuration/autoscale.html#distributed-runners-caching) (optional for improved performance) | {{< icon name="dotted-circle" >}} No |
+| [Secure Files](cicd/secure_files.md#using-object-storage) | {{< icon name="check-circle" >}} Yes |
+| [Job artifacts](cicd/job_artifacts.md#using-object-storage) including archived job logs | {{< icon name="check-circle" >}} Yes |
+| [LFS objects](lfs/_index.md#storing-lfs-objects-in-remote-object-storage) | {{< icon name="check-circle" >}} Yes |
+| [Uploads](uploads.md#using-object-storage) | {{< icon name="check-circle" >}} Yes |
+| [Merge request diffs](merge_request_diffs.md#using-object-storage) | {{< icon name="check-circle" >}} Yes |
+| [Packages](packages/_index.md#migrate-packages-between-object-storage-and-local-storage) (optional feature) | {{< icon name="check-circle" >}} Yes |
+| [Dependency Proxy](packages/dependency_proxy.md#using-object-storage) (optional feature) | {{< icon name="check-circle" >}} Yes |
+| [Terraform state files](terraform_state.md#using-object-storage) | {{< icon name="check-circle" >}} Yes |
+| [Pages content](pages/_index.md#object-storage-settings) | {{< icon name="check-circle" >}} Yes |
 
 ## Configure the connection settings
 
@@ -195,13 +206,14 @@ The connection settings match those provided by [fog-aws](https://github.com/fog
 | `aws_access_key_id`                         | AWS credentials, or compatible.    | |
 | `aws_secret_access_key`                     | AWS credentials, or compatible.    | |
 | `aws_signature_version`                     | AWS signature version to use. `2` or `4` are valid options. Digital Ocean Spaces and other providers may need `2`. | `4` |
-| `enable_signature_v4_streaming`             | Set to `true` to enable HTTP chunked transfers with [AWS v4 signatures](https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html). Oracle Cloud S3 needs this to be `false`.       | `true` |
+| `enable_signature_v4_streaming`             | Set to `true` to enable HTTP chunked transfers with [AWS v4 signatures](https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html). Oracle Cloud S3 needs this to be `false`. GitLab 17.4 changed the default from `true` to `false`.  | `false` |
 | `region`                                    | AWS region.                        | |
 | `host`                                      | DEPRECATED: Use `endpoint` instead. S3 compatible host for when not using AWS. For example, `localhost` or `storage.example.com`. HTTPS and port 443 is assumed. | `s3.amazonaws.com` |
 | `endpoint`                                  | Can be used when configuring an S3 compatible service such as [MinIO](https://min.io), by entering a URL such as `http://127.0.0.1:9000`. This takes precedence over `host`. Always use `endpoint` for consolidated form. | (optional) |
-| `path_style`                                | Set to `true` to use `host/bucket_name/object` style paths instead of `bucket_name.host/object`. Set to `true` for using [MinIO](https://min.io). Leave as `false` for AWS S3. | `false`. |
+| `path_style`                                | Set to `true` to use `host/bucket_name/object` style paths instead of `bucket_name.host/object`. Set to `true` for using [MinIO](https://min.io). Leave as `false` for AWS S3. | `false` |
 | `use_iam_profile`                           | Set to `true` to use IAM profile instead of access keys. | `false` |
 | `aws_credentials_refresh_threshold_seconds` | Sets the [automatic refresh threshold](https://github.com/fog/fog-aws#controlling-credential-refresh-time-with-iam-authentication) in seconds when using temporary credentials in IAM. | `15` |
+| `disable_imds_v2`                           | Force the use of IMDS v1 by disabling access to the IMDS v2 endpoint that retrieves `X-aws-ec2-metadata-token`. | `false` |
 
 #### Use Amazon instance profiles
 
@@ -218,6 +230,8 @@ Prerequisites:
   [instance metadata endpoint](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html).
 - If GitLab is [configured to use an internet proxy](https://docs.gitlab.com/omnibus/settings/environment-variables.html), the endpoint IP
   address must be added to the `no_proxy` list.
+- For IMDS v2 access, ensure the [hop limit](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html) is sufficient. If GitLab
+  is running in a container, you may need to raise the limit from 1 to 2.
 
 To set up an instance profile:
 
@@ -229,7 +243,6 @@ To set up an instance profile:
        "Version": "2012-10-17",
        "Statement": [
            {
-               "Sid": "VisualEditor0",
                "Effect": "Allow",
                "Action": [
                    "s3:PutObject",
@@ -237,6 +250,13 @@ To set up an instance profile:
                    "s3:DeleteObject"
                ],
                "Resource": "arn:aws:s3:::test-bucket/*"
+           },
+           {
+               "Effect": "Allow",
+               "Action": [
+                   "s3:ListBucket"
+               ],
+               "Resource": "arn:aws:s3:::test-bucket"
            }
        ]
    }
@@ -250,9 +270,9 @@ To set up an instance profile:
 
 When configured either with an instance profile or with the consolidated
 form, GitLab Workhorse properly uploads files to S3
-buckets that have [SSE-S3 or SSE-KMS encryption enabled by default](https://docs.aws.amazon.com/kms/latest/developerguide/services-s3.html).
+buckets that have [SSE-S3 or SSE-KMS encryption enabled by default](https://docs.aws.amazon.com/kms/latest/developerguide/overview.html).
 AWS KMS keys and SSE-C encryption are
-[not supported since this requires sending the encryption keys in every request](https://gitlab.com/gitlab-org/gitlab/-/issues/226006).
+[not supported because this requires sending the encryption keys in every request](https://gitlab.com/gitlab-org/gitlab/-/issues/226006).
 
 #### Server-side encryption headers
 
@@ -265,7 +285,7 @@ in the `storage_options` configuration section:
 | Setting                             | Description                              |
 |-------------------------------------|------------------------------------------|
 | `server_side_encryption`            | Encryption mode (`AES256` or `aws:kms`). |
-| `server_side_encryption_kms_key_id` | Amazon Resource Name. Only needed when `aws:kms` is used in `server_side_encryption`. See the [Amazon documentation on using KMS encryption](https://docs.aws.amazon.com/AmazonS3/latest/dev/UsingKMSEncryption.html). |
+| `server_side_encryption_kms_key_id` | Amazon Resource Name. Only needed when `aws:kms` is used in `server_side_encryption`. See the [Amazon documentation on using KMS encryption](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html). |
 
 As with the case for default encryption, these options only work when
 the Workhorse S3 client is enabled. One of the following two conditions
@@ -311,45 +331,181 @@ It uses the first of these settings that has a value.
 The service account must have permission to access the bucket. For more information,
 see the [Cloud Storage authentication documentation](https://cloud.google.com/storage/docs/authentication).
 
-NOTE:
-To use bucket encryption with [customer-managed encryption keys](https://cloud.google.com/storage/docs/encryption/using-customer-managed-keys), use the [consolidated form](#configure-a-single-storage-connection-for-all-object-types-consolidated-form).
+#### Google Cloud Application Default Credentials
 
-#### GCS example
-
-For Linux Package installations, this is an example of the `connection` setting in the consolidated form:
-
-```ruby
-gitlab_rails['object_store']['connection'] = {
-  'provider' => 'Google',
-  'google_project' => '<GOOGLE PROJECT>',
-  'google_json_key_location' => '<FILENAME>'
-}
-```
-
-#### GCS example with ADC
-
-Google Cloud Application Default Credentials (ADC) are typically
-used with GitLab to use the default service account. This eliminates the
-need to supply credentials for the instance. For example, in the consolidated form:
-
-```ruby
-gitlab_rails['object_store']['connection'] = {
-  'provider' => 'Google',
-  'google_project' => '<GOOGLE PROJECT>',
-  'google_application_default' => true
-}
-```
+[Google Cloud Application Default Credentials (ADC)](https://cloud.google.com/docs/authentication/application-default-credentials) are typically
+used with GitLab to use the default service account or [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation).
+Set `google_application_default` to `true` and omit `google_json_key_location` and `google_json_key_string`.
 
 If you use ADC, be sure that:
 
 - The service account that you use has the
   [`iam.serviceAccounts.signBlob` permission](https://cloud.google.com/iam/docs/reference/credentials/rest/v1/projects.serviceAccounts/signBlob).
   Typically this is done by granting the `Service Account Token Creator` role to the service account.
-- Your virtual machines have the [correct access scopes to access Google Cloud APIs](https://cloud.google.com/compute/docs/access/create-enable-service-accounts-for-instances#changeserviceaccountandscopes). If the machines do not have the right scope, the error logs may show:
+- If you are using Google Compute virtual machines, ensure they have the [correct access scopes to access Google Cloud APIs](https://cloud.google.com/compute/docs/access/create-enable-service-accounts-for-instances#changeserviceaccountandscopes). If the machines do not have the right scope, the error logs may show:
 
-  ```markdown
+  ```shell
   Google::Apis::ClientError (insufficientPermissions: Request had insufficient authentication scopes.)
   ```
+
+{{< alert type="note" >}}
+
+To use bucket encryption with [customer-managed encryption keys](https://cloud.google.com/storage/docs/encryption/using-customer-managed-keys), use the [consolidated form](#configure-a-single-storage-connection-for-all-object-types-consolidated-form).
+
+{{< /alert >}}
+
+{{< tabs >}}
+
+{{< tab title="Linux package (Omnibus)" >}}
+
+1. Edit `/etc/gitlab/gitlab.rb` and add the following lines, substituting
+   the values you want:
+
+   ```ruby
+   gitlab_rails['object_store']['connection'] = {
+    'provider' => 'Google',
+    'google_project' => '<GOOGLE PROJECT>',
+    'google_json_key_location' => '<FILENAME>'
+   }
+   ```
+
+   To use ADC, use `google_application_default` instead:
+
+   ```ruby
+   gitlab_rails['object_store']['connection'] = {
+    'provider' => 'Google',
+    'google_project' => '<GOOGLE PROJECT>',
+    'google_application_default' => true
+   }
+   ```
+
+1. Save the file and reconfigure GitLab:
+
+   ```shell
+   sudo gitlab-ctl reconfigure
+   ```
+
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
+
+1. Put the following content in a file named `object_storage.yaml` to be used as a
+   [Kubernetes Secret](https://docs.gitlab.com/charts/charts/globals.html#connection):
+
+   ```yaml
+   provider: Google
+   google_project: <GOOGLE PROJECT>
+   google_json_key_location: '<FILENAME>'
+   ```
+
+   To use ADC, use `google_application_default` instead:
+
+   ```yaml
+   provider: Google
+   google_project: <GOOGLE PROJECT>
+   google_application_default: true
+   ```
+
+1. Create the Kubernetes Secret:
+
+   ```shell
+   kubectl create secret generic -n <namespace> gitlab-object-storage --from-file=connection=object_storage.yaml
+   ```
+
+1. Export the Helm values:
+
+   ```shell
+   helm get values gitlab > gitlab_values.yaml
+   ```
+
+1. Edit `gitlab_values.yaml`:
+
+   ```yaml
+   global:
+     appConfig:
+        artifacts:
+          bucket: gitlab-artifacts
+        ciSecureFiles:
+          bucket: gitlab-ci-secure-files
+          enabled: true
+        dependencyProxy:
+          bucket: gitlab-dependency-proxy
+          enabled: true
+        externalDiffs:
+          bucket: gitlab-mr-diffs
+          enabled: true
+        lfs:
+          bucket: gitlab-lfs
+        object_store:
+          connection:
+            secret: gitlab-object-storage
+          enabled: true
+          proxy_download: false
+        packages:
+          bucket: gitlab-packages
+        terraformState:
+          bucket: gitlab-terraform-state
+          enabled: true
+        uploads:
+          bucket: gitlab-uploads
+   ```
+
+1. Save the file and apply the new values:
+
+   ```shell
+   helm upgrade -f gitlab_values.yaml gitlab gitlab/gitlab
+   ```
+
+{{< /tab >}}
+
+{{< tab title="Docker" >}}
+
+1. Edit `docker-compose.yml`:
+
+   ```yaml
+   version: "3.6"
+   services:
+     gitlab:
+       environment:
+         GITLAB_OMNIBUS_CONFIG: |
+           # Consolidated object storage configuration
+           gitlab_rails['object_store']['enabled'] = true
+           gitlab_rails['object_store']['proxy_download'] = false
+           gitlab_rails['object_store']['connection'] = {
+             'provider' => 'Google',
+             'google_project' => '<GOOGLE PROJECT>',
+             'google_json_key_location' => '<FILENAME>'
+           }
+           gitlab_rails['object_store']['objects']['artifacts']['bucket'] = 'gitlab-artifacts'
+           gitlab_rails['object_store']['objects']['external_diffs']['bucket'] = 'gitlab-mr-diffs'
+           gitlab_rails['object_store']['objects']['lfs']['bucket'] = 'gitlab-lfs'
+           gitlab_rails['object_store']['objects']['uploads']['bucket'] = 'gitlab-uploads'
+           gitlab_rails['object_store']['objects']['packages']['bucket'] = 'gitlab-packages'
+           gitlab_rails['object_store']['objects']['dependency_proxy']['bucket'] = 'gitlab-dependency-proxy'
+           gitlab_rails['object_store']['objects']['terraform_state']['bucket'] = 'gitlab-terraform-state'
+           gitlab_rails['object_store']['objects']['ci_secure_files']['bucket'] = 'gitlab-ci-secure-files'
+           gitlab_rails['object_store']['objects']['pages']['bucket'] = 'gitlab-pages'
+   ```
+
+   To use ADC, use `google_application_default` instead:
+
+   ```ruby
+   gitlab_rails['object_store']['connection'] = {
+     'provider' => 'Google',
+     'google_project' => '<GOOGLE PROJECT>',
+     'google_application_default' => true
+   }
+   ```
+
+1. Save the file and restart GitLab:
+
+   ```shell
+   docker compose up -d
+   ```
+
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### Azure Blob storage
 
@@ -369,25 +525,211 @@ The following are the valid connection parameters for Azure. For more informatio
 |------------------------------|----------------|-----------|
 | `provider`                   | Provider name. | `AzureRM` |
 | `azure_storage_account_name` | Name of the Azure Blob Storage account used to access the storage. | `azuretest` |
-| `azure_storage_access_key`   | Storage account access key used to access the container. This is typically a secret, 512-bit encryption key encoded in base64. | `czV2OHkvQj9FKEgrTWJRZVRoV21ZcTN0Nnc5eiRDJkYpSkBOY1JmVWpYbjJy\nNHU3eCFBJUQqRy1LYVBkU2dWaw==\n` |
+| `azure_storage_access_key`   | Storage account access key used to access the container. This is typically a secret, 512-bit encryption key encoded in base64. This is optional for [Azure workload and managed identities](#azure-workload-and-managed-identities). | `czV2OHkvQj9FKEgrTWJRZVRoV21ZcTN0Nnc5eiRDJkYpSkBOY1JmVWpYbjJy\nNHU3eCFBJUQqRy1LYVBkU2dWaw==\n` |
 | `azure_storage_domain`       | Domain name used to contact the Azure Blob Storage API (optional). Defaults to `blob.core.windows.net`. Set this if you are using Azure China, Azure Germany, Azure US Government, or some other custom Azure domain. | `blob.core.windows.net` |
 
-- For Linux package installations, this is an example of the `connection` setting in the consolidated form:
+{{< tabs >}}
 
-  ```ruby
-  gitlab_rails['object_store']['connection'] = {
-    'provider' => 'AzureRM',
-    'azure_storage_account_name' => '<AZURE STORAGE ACCOUNT NAME>',
-    'azure_storage_access_key' => '<AZURE STORAGE ACCESS KEY>',
-    'azure_storage_domain' => '<AZURE STORAGE DOMAIN>'
-  }
-  ```
+{{< tab title="Linux package (Omnibus)" >}}
 
-- For self-compiled installations, Workhorse also needs to be configured with Azure
-  credentials. This isn't needed in Linux package installations because the Workhorse
-  settings are populated from the previous settings.
+1. Edit `/etc/gitlab/gitlab.rb` and add the following lines, substituting
+   the values you want:
 
-  1. Edit `/home/git/gitlab-workhorse/config.toml` and add or amend the following lines:
+   ```ruby
+   gitlab_rails['object_store']['connection'] = {
+     'provider' => 'AzureRM',
+     'azure_storage_account_name' => '<AZURE STORAGE ACCOUNT NAME>',
+     'azure_storage_access_key' => '<AZURE STORAGE ACCESS KEY>',
+     'azure_storage_domain' => '<AZURE STORAGE DOMAIN>'
+   }
+   gitlab_rails['object_store']['objects']['artifacts']['bucket'] = 'gitlab-artifacts'
+   gitlab_rails['object_store']['objects']['external_diffs']['bucket'] = 'gitlab-mr-diffs'
+   gitlab_rails['object_store']['objects']['lfs']['bucket'] = 'gitlab-lfs'
+   gitlab_rails['object_store']['objects']['uploads']['bucket'] = 'gitlab-uploads'
+   gitlab_rails['object_store']['objects']['packages']['bucket'] = 'gitlab-packages'
+   gitlab_rails['object_store']['objects']['dependency_proxy']['bucket'] = 'gitlab-dependency-proxy'
+   gitlab_rails['object_store']['objects']['terraform_state']['bucket'] = 'gitlab-terraform-state'
+   gitlab_rails['object_store']['objects']['ci_secure_files']['bucket'] = 'gitlab-ci-secure-files'
+   gitlab_rails['object_store']['objects']['pages']['bucket'] = 'gitlab-pages'
+   ```
+
+   If you are using [a workload identity](#azure-workload-and-managed-identities), omit `azure_storage_access_key`:
+
+   ```ruby
+   gitlab_rails['object_store']['connection'] = {
+     'provider' => 'AzureRM',
+     'azure_storage_account_name' => '<AZURE STORAGE ACCOUNT NAME>',
+     'azure_storage_domain' => '<AZURE STORAGE DOMAIN>'
+   }
+   ```
+
+1. Save the file and reconfigure GitLab:
+
+   ```shell
+   sudo gitlab-ctl reconfigure
+   ```
+
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
+
+1. Put the following content in a file named `object_storage.yaml` to be used as a
+   [Kubernetes Secret](https://docs.gitlab.com/charts/charts/globals.html#connection):
+
+   ```yaml
+   provider: AzureRM
+   azure_storage_account_name: <YOUR_AZURE_STORAGE_ACCOUNT_NAME>
+   azure_storage_access_key: <YOUR_AZURE_STORAGE_ACCOUNT_KEY>
+   azure_storage_domain: blob.core.windows.net
+   ```
+
+   If you are using [a workload or managed identity](#azure-workload-and-managed-identities), omit `azure_storage_access_key`:
+
+   ```yaml
+   provider: AzureRM
+   azure_storage_account_name: <YOUR_AZURE_STORAGE_ACCOUNT_NAME>
+   azure_storage_domain: blob.core.windows.net
+   ```
+
+1. Create the Kubernetes Secret:
+
+   ```shell
+   kubectl create secret generic -n <namespace> gitlab-object-storage --from-file=connection=object_storage.yaml
+   ```
+
+1. Export the Helm values:
+
+   ```shell
+   helm get values gitlab > gitlab_values.yaml
+   ```
+
+1. Edit `gitlab_values.yaml`:
+
+   ```yaml
+   global:
+     appConfig:
+        artifacts:
+          bucket: gitlab-artifacts
+        ciSecureFiles:
+          bucket: gitlab-ci-secure-files
+          enabled: true
+        dependencyProxy:
+          bucket: gitlab-dependency-proxy
+          enabled: true
+        externalDiffs:
+          bucket: gitlab-mr-diffs
+          enabled: true
+        lfs:
+          bucket: gitlab-lfs
+        object_store:
+          connection:
+            secret: gitlab-object-storage
+          enabled: true
+          proxy_download: false
+        packages:
+          bucket: gitlab-packages
+        terraformState:
+          bucket: gitlab-terraform-state
+          enabled: true
+        uploads:
+          bucket: gitlab-uploads
+   ```
+
+1. Save the file and apply the new values:
+
+   ```shell
+   helm upgrade -f gitlab_values.yaml gitlab gitlab/gitlab
+   ```
+
+{{< /tab >}}
+
+{{< tab title="Docker" >}}
+
+1. Edit `docker-compose.yml`:
+
+   ```yaml
+   version: "3.6"
+   services:
+     gitlab:
+       environment:
+         GITLAB_OMNIBUS_CONFIG: |
+           # Consolidated object storage configuration
+           gitlab_rails['object_store']['enabled'] = true
+           gitlab_rails['object_store']['proxy_download'] = false
+           gitlab_rails['object_store']['connection'] = {
+             'provider' => 'AzureRM',
+             'azure_storage_account_name' => '<AZURE STORAGE ACCOUNT NAME>',
+             'azure_storage_access_key' => '<AZURE STORAGE ACCESS KEY>',
+             'azure_storage_domain' => '<AZURE STORAGE DOMAIN>'
+           }
+           gitlab_rails['object_store']['objects']['artifacts']['bucket'] = 'gitlab-artifacts'
+           gitlab_rails['object_store']['objects']['external_diffs']['bucket'] = 'gitlab-mr-diffs'
+           gitlab_rails['object_store']['objects']['lfs']['bucket'] = 'gitlab-lfs'
+           gitlab_rails['object_store']['objects']['uploads']['bucket'] = 'gitlab-uploads'
+           gitlab_rails['object_store']['objects']['packages']['bucket'] = 'gitlab-packages'
+           gitlab_rails['object_store']['objects']['dependency_proxy']['bucket'] = 'gitlab-dependency-proxy'
+           gitlab_rails['object_store']['objects']['terraform_state']['bucket'] = 'gitlab-terraform-state'
+           gitlab_rails['object_store']['objects']['ci_secure_files']['bucket'] = 'gitlab-ci-secure-files'
+           gitlab_rails['object_store']['objects']['pages']['bucket'] = 'gitlab-pages'
+   ```
+
+    If you are using [a managed identity](#azure-workload-and-managed-identities), omit `azure_storage_access_key`.
+
+   ```ruby
+   gitlab_rails['object_store']['connection'] = {
+     'provider' => 'AzureRM',
+     'azure_storage_account_name' => '<AZURE STORAGE ACCOUNT NAME>',
+     'azure_storage_domain' => '<AZURE STORAGE DOMAIN>'
+   }
+   ```
+
+1. Save the file and restart GitLab:
+
+   ```shell
+   docker compose up -d
+   ```
+
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
+
+For self-compiled installations, Workhorse also needs to be configured with Azure
+credentials. This isn't needed in Linux package installations because the Workhorse
+settings are populated from the previous settings.
+
+1. Edit `/home/git/gitlab/config/gitlab.yml` and add or amend the following lines:
+
+   ```yaml
+   production: &base
+     object_store:
+       enabled: true
+       proxy_download: false
+       connection:
+         provider: AzureRM
+         azure_storage_account_name: '<AZURE STORAGE ACCOUNT NAME>'
+         azure_storage_access_key: '<AZURE STORAGE ACCESS KEY>'
+       objects:
+         artifacts:
+           bucket: gitlab-artifacts
+         external_diffs:
+           bucket: gitlab-mr-diffs
+         lfs:
+           bucket: gitlab-lfs
+         uploads:
+           bucket: gitlab-uploads
+         packages:
+           bucket: gitlab-packages
+         dependency_proxy:
+           bucket: gitlab-dependency-proxy
+         terraform_state:
+           bucket: gitlab-terraform-state
+         ci_secure_files:
+           bucket: gitlab-ci-secure-files
+         pages:
+           bucket: gitlab-pages
+   ```
+
+1. Edit `/home/git/gitlab-workhorse/config.toml` and add or amend the following lines:
 
      ```toml
      [object_storage]
@@ -398,16 +740,53 @@ The following are the valid connection parameters for Azure. For more informatio
        azure_storage_access_key = "<AZURE STORAGE ACCESS KEY>"
      ```
 
-  If you are using a custom Azure storage domain,
-  `azure_storage_domain` does **not** have to be set in the Workhorse
-  configuration. This information is exchanged in an API call between
-  GitLab Rails and Workhorse.
+   If you are using a custom Azure storage domain, `azure_storage_domain`
+   does **not** have to be set in the Workhorse configuration. This
+   information is exchanged in an API call between GitLab Rails and
+   Workhorse.
+
+1. Save the file and restart GitLab:
+
+   ```shell
+   # For systems running systemd
+   sudo systemctl restart gitlab.target
+
+   # For systems running SysV init
+   sudo service gitlab restart
+   ```
+
+{{< /tab >}}
+
+{{< /tabs >}}
+
+#### Azure workload and managed identities
+
+{{< history >}}
+
+- [Introduced in GitLab 17.9](https://gitlab.com/gitlab-org/gitlab/-/issues/242245)
+
+{{< /history >}}
+
+To use [Azure workload identities](https://azure.github.io/azure-workload-identity/docs/) or [managed identities](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/), omit
+`azure_storage_access_key` from the configuration. When
+`azure_storage_access_key` is blank, GitLab attempts to:
+
+1. Obtain temporary credentials with [a workload identity](https://learn.microsoft.com/en-us/entra/workload-id/workload-identities-overview). `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_FEDERATED_TOKEN_FILE` should be in the environment.
+1. If a workload identity is not available, request credentials from the [Azure Instance Metadata Service](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/how-to-use-vm-token).
+1. Get a [User Delegation Key](https://learn.microsoft.com/en-us/rest/api/storageservices/get-user-delegation-key).
+1. Generate a SAS token with that key to access a Storage Account blob.
+
+Ensure that the identity has the `Storage Blob Data Contributor` role
+assigned to it.
 
 ### Storj Gateway (SJ)
 
-NOTE:
+{{< alert type="note" >}}
+
 The Storj Gateway [does not support](https://github.com/storj/gateway-st/blob/4b74c3b92c63b5de7409378b0d1ebd029db9337d/docs/s3-compatibility.md) multi-threaded copying (see `UploadPartCopy` in the table).
 While an implementation [is planned](https://github.com/storj/roadmap/issues/40), you must [disable multi-threaded copying](#multi-threaded-copying) until completion.
+
+{{< /alert >}}
 
 The [Storj Network](https://www.storj.io/) provides an S3-compatible API gateway. Use the following configuration example:
 
@@ -424,15 +803,18 @@ gitlab_rails['object_store']['connection'] = {
 }
 ```
 
-The signature version must be `2`. Using v4 results in a HTTP 411 Length Required error.
+The signature version must be `2`. Using v4 results in an HTTP 411 Length Required error.
 For more information, see [issue #4419](https://gitlab.com/gitlab-org/gitlab/-/issues/4419).
 
 ### Hitachi Vantara HCP
 
-NOTE:
-Connections to HCP may return an error stating `SigntureDoesNotMatch - The request signature we calculated does not match the signature you provided. Check your HCP Secret Access key and signing method.` In these cases, set the `endpoint` to the URL of the tenant instead of the namespace, and ensure bucket paths are configured as `<namespace_name>/<bucket_name>`.
+{{< alert type="note" >}}
 
-[HCP](https://docs.hitachivantara.com/r/en-us/content-platform-for-cloud-scale/2.6.x/mk-hcpcs008/getting-started/introducing-hcp-for-cloud-scale/support-for-the-amazon-s3-api) provides an S3-compatible API. Use the following configuration example:
+Connections to HCP may return an error stating `SignatureDoesNotMatch - The request signature we calculated does not match the signature you provided. Check your HCP Secret Access key and signing method.` In these cases, set the `endpoint` to the URL of the tenant instead of the namespace, and ensure bucket paths are configured as `<namespace_name>/<bucket_name>`.
+
+{{< /alert >}}
+
+[HCP](https://docs.hitachivantara.com/r/en-us/content-platform/9.7.x/mk-95hcph001/hcp-management-api-reference/introduction-to-the-hcp-management-api/support-for-the-amazon-s3-api) provides an S3-compatible API. Use the following configuration example:
 
 ```ruby
 gitlab_rails['object_store']['connection'] = {
@@ -454,9 +836,9 @@ gitlab_rails['object_store']['objects']['artifacts']['bucket'] = '<namespace_nam
 
 The following example uses AWS S3 to enable object storage for all supported services:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb` and add the following lines, substituting
    the values you want:
@@ -464,7 +846,7 @@ The following example uses AWS S3 to enable object storage for all supported ser
    ```ruby
    # Consolidated object storage configuration
    gitlab_rails['object_store']['enabled'] = true
-   gitlab_rails['object_store']['proxy_download'] = true
+   gitlab_rails['object_store']['proxy_download'] = false
    gitlab_rails['object_store']['connection'] = {
      'provider' => 'AWS',
      'region' => 'eu-central-1',
@@ -483,6 +865,7 @@ The following example uses AWS S3 to enable object storage for all supported ser
    gitlab_rails['object_store']['objects']['packages']['bucket'] = 'gitlab-packages'
    gitlab_rails['object_store']['objects']['dependency_proxy']['bucket'] = 'gitlab-dependency-proxy'
    gitlab_rails['object_store']['objects']['terraform_state']['bucket'] = 'gitlab-terraform-state'
+   gitlab_rails['object_store']['objects']['ci_secure_files']['bucket'] = 'gitlab-ci-secure-files'
    gitlab_rails['object_store']['objects']['pages']['bucket'] = 'gitlab-pages'
    ```
 
@@ -503,7 +886,9 @@ The following example uses AWS S3 to enable object storage for all supported ser
    sudo gitlab-ctl reconfigure
    ```
 
-:::TabTitle Helm chart (Kubernetes)
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
 
 1. Put the following content in a file named `object_storage.yaml` to be used as a
    [Kubernetes Secret](https://docs.gitlab.com/charts/charts/globals.html#connection):
@@ -541,59 +926,31 @@ The following example uses AWS S3 to enable object storage for all supported ser
    ```yaml
    global:
      appConfig:
-       object_store:
-         enabled: false
-         proxy_download: true
-         storage_options: {}
-           # server_side_encryption:
-           # server_side_encryption_kms_key_id
-         connection:
-           secret: gitlab-object-storage
-       lfs:
-         enabled: true
-         proxy_download: true
-         bucket: gitlab-lfs
-         connection: {}
-           # secret:
-           # key:
-       artifacts:
-         enabled: true
-         proxy_download: true
-         bucket: gitlab-artifacts
-         connection: {}
-           # secret:
-           # key:
-       uploads:
-         enabled: true
-         proxy_download: true
-         bucket: gitlab-uploads
-         connection: {}
-           # secret:
-           # key:
-       packages:
-         enabled: true
-         proxy_download: true
-         bucket: gitlab-packages
-         connection: {}
-       externalDiffs:
-         enabled: true
-         when:
-         proxy_download: true
-         bucket: gitlab-mr-diffs
-         connection: {}
-       terraformState:
-         enabled: true
-         bucket: gitlab-terraform-state
-         connection: {}
-       ciSecureFiles:
-         enabled: true
-         bucket: gitlab-ci-secure-files
-         connection: {}
-       dependencyProxy:
-         enabled: true
-         proxy_download: true
-         bucket: gitlab-dependency-proxy
-         connection: {}
+        artifacts:
+          bucket: gitlab-artifacts
+        ciSecureFiles:
+          bucket: gitlab-ci-secure-files
+          enabled: true
+        dependencyProxy:
+          bucket: gitlab-dependency-proxy
+          enabled: true
+        externalDiffs:
+          bucket: gitlab-mr-diffs
+          enabled: true
+        lfs:
+          bucket: gitlab-lfs
+        object_store:
+          connection:
+            secret: gitlab-object-storage
+          enabled: true
+          proxy_download: false
+        packages:
+          bucket: gitlab-packages
+        terraformState:
+          bucket: gitlab-terraform-state
+          enabled: true
+        uploads:
+          bucket: gitlab-uploads
    ```
 
 1. Save the file and apply the new values:
@@ -602,7 +959,9 @@ The following example uses AWS S3 to enable object storage for all supported ser
    helm upgrade -f gitlab_values.yaml gitlab gitlab/gitlab
    ```
 
-:::TabTitle Docker
+{{< /tab >}}
+
+{{< tab title="Docker" >}}
 
 1. Edit `docker-compose.yml`:
 
@@ -614,7 +973,7 @@ The following example uses AWS S3 to enable object storage for all supported ser
          GITLAB_OMNIBUS_CONFIG: |
            # Consolidated object storage configuration
            gitlab_rails['object_store']['enabled'] = true
-           gitlab_rails['object_store']['proxy_download'] = true
+           gitlab_rails['object_store']['proxy_download'] = false
            gitlab_rails['object_store']['connection'] = {
              'provider' => 'AWS',
              'region' => 'eu-central-1',
@@ -654,7 +1013,9 @@ The following example uses AWS S3 to enable object storage for all supported ser
    docker compose up -d
    ```
 
-:::TabTitle Self-compiled (source)
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
 
 1. Edit `/home/git/gitlab/config/gitlab.yml` and add or amend the following lines:
 
@@ -662,7 +1023,7 @@ The following example uses AWS S3 to enable object storage for all supported ser
    production: &base
      object_store:
        enabled: true
-       proxy_download: true
+       proxy_download: false
        connection:
          provider: AWS
          aws_access_key_id: <AWS_ACCESS_KEY_ID>
@@ -731,21 +1092,23 @@ The following example uses AWS S3 to enable object storage for all supported ser
    sudo service gitlab restart
    ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ## Migrate to object storage
 
 To migrate existing local data to object storage see the following guides:
 
-- [Job artifacts](job_artifacts.md#migrating-to-object-storage) including archived job logs
-- [LFS objects](lfs/index.md#migrating-to-object-storage)
+- [Job artifacts](cicd/job_artifacts.md#migrating-to-object-storage) including archived job logs
+- [LFS objects](lfs/_index.md#migrating-to-object-storage)
 - [Uploads](raketasks/uploads/migrate.md#migrate-to-object-storage)
 - [Merge request diffs](merge_request_diffs.md#using-object-storage)
-- [Packages](packages/index.md#migrate-local-packages-to-object-storage) (optional feature)
+- [Packages](packages/_index.md#migrate-packages-between-object-storage-and-local-storage) (optional feature)
 - [Dependency Proxy](packages/dependency_proxy.md#migrate-local-dependency-proxy-blobs-and-manifests-to-object-storage)
 - [Terraform state files](terraform_state.md#migrate-to-object-storage)
-- [Pages content](pages/index.md#migrate-pages-deployments-to-object-storage)
-- [Project-level Secure Files](secure_files.md#migrate-to-object-storage)
+- [Pages content](pages/_index.md#migrate-pages-deployments-to-object-storage)
+- [Project-level Secure Files](cicd/secure_files.md#migrate-to-object-storage)
 
 ## Transition to consolidated form
 
@@ -761,23 +1124,23 @@ For example, a Linux package installation might have the following configuration
 # Original object storage configuration
 gitlab_rails['artifacts_object_store_enabled'] = true
 gitlab_rails['artifacts_object_store_direct_upload'] = true
-gitlab_rails['artifacts_object_store_proxy_download'] = true
+gitlab_rails['artifacts_object_store_proxy_download'] = false
 gitlab_rails['artifacts_object_store_remote_directory'] = 'artifacts'
 gitlab_rails['artifacts_object_store_connection'] = { 'provider' => 'AWS', 'aws_access_key_id' => 'access_key', 'aws_secret_access_key' => 'secret' }
 gitlab_rails['uploads_object_store_enabled'] = true
 gitlab_rails['uploads_object_store_direct_upload'] = true
-gitlab_rails['uploads_object_store_proxy_download'] = true
+gitlab_rails['uploads_object_store_proxy_download'] = false
 gitlab_rails['uploads_object_store_remote_directory'] = 'uploads'
 gitlab_rails['uploads_object_store_connection'] = { 'provider' => 'AWS', 'aws_access_key_id' => 'access_key', 'aws_secret_access_key' => 'secret' }
 ```
 
 Although this provides flexibility in that it makes it possible for GitLab
 to store objects across different cloud providers, it also creates
-additional complexity and unnecessary redundancy. Since both GitLab
+additional complexity and unnecessary redundancy. Because both GitLab
 Rails and Workhorse components need access to object storage, the
 consolidated form avoids excessive duplication of credentials.
 
-The consolidated form is used _only_ if all lines from
+The consolidated form is used only if all lines from
 the original form is omitted. To move to the consolidated form, remove the
 original configuration (for example, `artifacts_object_store_enabled`, or
 `uploads_object_store_connection`)
@@ -801,7 +1164,7 @@ Prerequisites:
 
    The configuration process is interactive. Add at least two "remotes": one for the object storage provider your data is currently on (`old`), and one for the provider you are moving to (`new`).
 
-1. Verify that you can read the old data. The following example refers to the `uploads` bucket , but your bucket may have a different name:
+1. Verify that you can read the old data. The following example refers to the `uploads` bucket, but your bucket may have a different name:
 
    ```shell
    rclone ls old:uploads | head
@@ -827,7 +1190,7 @@ After you have done at least one successful Rclone copy from the old location to
 
 ## Alternatives to file system storage
 
-If you're working to [scale out](reference_architectures/index.md) your GitLab implementation,
+If you're working to [scale out](reference_architectures/_index.md) your GitLab implementation,
 or add fault tolerance and redundancy, you may be
 looking at removing dependencies on block or network file systems.
 See the following additional guides:
@@ -835,14 +1198,14 @@ See the following additional guides:
 1. Make sure the [`git` user home directory](https://docs.gitlab.com/omnibus/settings/configuration.html#move-the-home-directory-for-a-user) is on local disk.
 1. Configure [database lookup of SSH keys](operations/fast_ssh_key_lookup.md)
    to eliminate the need for a shared `authorized_keys` file.
-1. [Prevent local disk usage for job logs](job_logs.md#prevent-local-disk-usage).
-1. [Disable Pages local storage](pages/index.md#disable-pages-local-storage).
+1. [Prevent local disk usage for job logs](cicd/job_logs.md#prevent-local-disk-usage).
+1. [Disable Pages local storage](pages/_index.md#disable-pages-local-storage).
 
 ## Troubleshooting
 
 ### Objects are not included in GitLab backups
 
-As noted in [the backup documentation](../administration/backup_restore/backup_gitlab.md#object-storage),
+As noted in [the backup documentation](backup_restore/backup_gitlab.md#object-storage),
 objects are not included in GitLab backups. You can enable backups with
 your object storage provider instead.
 
@@ -865,12 +1228,18 @@ Helm-based installs require separate buckets to
 
 ### S3 API compatibility issues
 
-Not all S3 providers [are fully compatible](../administration/backup_restore/backup_gitlab.md#other-s3-providers)
+Not all S3 providers [are fully compatible](backup_restore/backup_gitlab.md#other-s3-providers)
 with the Fog library that GitLab uses. Symptoms include an error in `production.log`:
 
 ```plaintext
 411 Length Required
 ```
+
+### Artifacts always downloaded with filename `download`
+
+Downloaded artifact filenames are set with the `response-content-disposition` header in the
+[GetObject request](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html).
+If the S3 provider does not support this header, the downloaded file is always saved as `download`.
 
 ### Proxy Download
 
@@ -883,11 +1252,13 @@ needs to process.
 When the files are stored on local block storage or NFS, GitLab has to act as a proxy.
 This is not the default behavior with object storage.
 
-The `proxy_download` setting controls this behavior: the default is generally `false`.
-Verify this in the documentation for each use case. Set it to `true` if you want
-GitLab to proxy the files.
+The `proxy_download` setting controls this behavior: the default is `false`.
+Verify this in the documentation for each use case.
 
-When not proxying files, GitLab returns an
+Set `proxy_download` to `true` if you want GitLab to proxy the files.
+There can be a large performance hit to the GitLab server if `proxy_download` is set to `true`. The server deployments of GitLab have `proxy_download` set to `false`.
+
+When `proxy_download` to `false`, GitLab returns an
 [HTTP 302 redirect with a pre-signed, time-limited object storage URL](https://gitlab.com/gitlab-org/gitlab/-/issues/32117#note_218532298).
 This can result in some of the following problems:
 
@@ -923,7 +1294,7 @@ This can result in some of the following problems:
   An error occurred while loading the file. Please try again later.
   ```
 
-  See [the LFS documentation](lfs/index.md#error-viewing-a-pdf-file) for more details.
+  See [the LFS documentation](lfs/_index.md#error-viewing-a-pdf-file) for more details.
 
 Additionally for a short time period users could share pre-signed, time-limited object storage URLs
 with others without authentication. Also bandwidth charges may be incurred
@@ -968,7 +1339,11 @@ When the consolidated form is:
 
 #### Google Cloud Storage encryption
 
-> - [Introduced in GitLab 16.11](https://gitlab.com/gitlab-org/gitlab/-/issues/441782).
+{{< history >}}
+
+- [Introduced in GitLab 16.11](https://gitlab.com/gitlab-org/gitlab/-/issues/441782).
+
+{{< /history >}}
 
 ETag mismatch errors occur also in Google Cloud Storage (GCS) when enabling [data encryption with customer-managed encryption keys (CMEK)](https://cloud.google.com/storage/docs/encryption/using-customer-managed-keys).
 
@@ -982,7 +1357,7 @@ does not support this and [returns a 404 error when files are copied during the 
 
 The feature can be disabled using the `:s3_multithreaded_uploads`
 feature flag. To disable the feature, ask a GitLab administrator with
-[Rails console access](feature_flags.md#how-to-enable-and-disable-features-behind-flags)
+[Rails console access](feature_flags/_index.md#how-to-enable-and-disable-features-behind-flags)
 to run the following command:
 
 ```ruby
@@ -996,36 +1371,270 @@ In some situations, it may be helpful to test object storage settings using the 
 1. Start a [Rails console](operations/rails_console.md).
 1. Set up the object storage connection, using the same parameters you set up in `/etc/gitlab/gitlab.rb`, in the following example format:
 
-Example connection using access keys:
+   Example connection using the existing uploads configuration:
 
-  ```ruby
-  connection = Fog::Storage.new(
-    {
-      provider: 'AWS',
-      region: `eu-central-1`,
-      aws_access_key_id: '<AWS_ACCESS_KEY_ID>',
-      aws_secret_access_key: '<AWS_SECRET_ACCESS_KEY>'
-    }
-  )
-  ```
+   ```ruby
+   settings = Gitlab.config.uploads.object_store.connection.deep_symbolize_keys
+   connection = Fog::Storage.new(settings)
+   ```
 
-Example connection using AWS IAM Profiles:
+   Example connection using access keys:
 
-  ```ruby
-  connection = Fog::Storage.new(
-    {
-      provider: 'AWS',
-      use_iam_profile: true,
-      region: 'us-east-1'
-    }
-  )
-  ```
+   ```ruby
+   connection = Fog::Storage.new(
+     {
+       provider: 'AWS',
+       region: 'eu-central-1',
+       aws_access_key_id: '<AWS_ACCESS_KEY_ID>',
+       aws_secret_access_key: '<AWS_SECRET_ACCESS_KEY>'
+     }
+   )
+   ```
+
+   Example connection using AWS IAM Profiles:
+
+   ```ruby
+   connection = Fog::Storage.new(
+     {
+       provider: 'AWS',
+       use_iam_profile: true,
+       region: 'us-east-1'
+     }
+   )
+   ```
 
 1. Specify the bucket name to test against, write, and finally read a test file.
 
-  ```ruby
-  dir = connection.directories.new(key: '<bucket-name-here>')
-  f = dir.files.create(key: 'test.txt', body: 'test')
-  pp f
-  pp dir.files.head('test.txt')
-  ```
+   ```ruby
+   dir = connection.directories.new(key: '<bucket-name-here>')
+   f = dir.files.create(key: 'test.txt', body: 'test')
+   pp f
+   pp dir.files.head('test.txt')
+   ```
+
+#### Enable additional debugging
+
+{{< history >}}
+
+- `AWS_DEBUG` environment variable support [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/198651) in GitLab 18.3.
+
+{{< /history >}}
+
+You can also enable additional debugging to see the HTTP requests. You
+should do it in the [Rails Console](operations/rails_console.md) to avoid leaking credentials in
+log files. The following shows how to enable request debugging for
+different providers:
+
+{{< tabs >}}
+
+{{< tab title="Amazon S3" >}}
+
+Set the `EXCON_DEBUG` environment variable:
+
+```ruby
+ENV['EXCON_DEBUG'] = "1"
+```
+
+You can also enable S3 HTTP request and response header logging in GitLab
+Workhorse logs by setting the `AWS_DEBUG` environment variable to `1`. For the
+Linux package (Omnibus):
+
+1. Edit `/etc/gitlab/gitlab.rb` and add the following lines:
+
+   ```ruby
+   gitlab_workhorse['env'] = {
+     'AWS_DEBUG' => '1'
+   }
+   ```
+
+1. Save the file and reconfigure GitLab:
+
+   ```shell
+   sudo gitlab-ctl reconfigure
+   ```
+
+   S3-compatible storage request and response headers are logged in
+   `/var/log/gitlab/gitlab-workhorse/current`.
+
+{{< /tab >}}
+
+{{< tab title="Google Cloud Storage" >}}
+
+Configure the logger to log to `STDOUT`:
+
+```ruby
+Google::Apis.logger = Logger::new(STDOUT)
+```
+
+{{< /tab >}}
+
+{{< tab title="Azure Blob Storage" >}}
+
+Set the `DEBUG` environment variable:
+
+```ruby
+ENV['DEBUG'] = "1"
+```
+
+{{< /tab >}}
+
+{{< /tabs >}}
+
+### Reset the Geo tracking database to ensure full objects consistency
+
+Assume the following Geo scenario:
+
+- An environment consists of a Geo primary and secondary node.
+- You [migrated to object storage](#migrate-to-object-storage) on the primary.
+  - The secondary uses separate object storage buckets.
+  - The option "Allow this secondary site to replicate content on Object Storage" is activated.
+
+Such migrations can cause objects to be marked as synced in the tracking database while being physically missing from object storage.
+In that case, [Reset your Geo secondary site replication](geo/replication/troubleshooting/synchronization_verification.md#resetting-geo-secondary-site-replication)
+to ensure objects state remains consistent post migration.
+
+### Inconsistencies after migrating to object storage
+
+Data inconsistencies can occur when migrating from local to object storage.
+Especially in combination with [Geo](geo/replication/object_storage.md),
+when files were manually deleted prior to the migration.
+
+For example, an instance administrator manually deletes several artifacts on
+the local file system. Such changes are not properly propagated to the database
+and result in inconsistencies. After the migration to object storage, these
+inconsistencies remain and can cause frictions. Geo secondaries might continue
+to try replicating those files as they are still referenced in the database but
+no longer exist.
+
+#### Identify inconsistencies when using Geo
+
+Assume the following Geo scenario:
+
+- An environment consists of a Geo primary and secondary node
+- Both systems have been migrated to object storage
+  - The secondary uses the same object storage as the primary
+  - The option `Allow this secondary site to replicate content on Object Storage` is deactivated
+- Multiple uploads were manually deleted before the object storage migration
+  - For this example, two images which were uploaded to an issue
+
+In such a scenario, the secondary does no longer need to replicate any data as
+it uses the same object storage as the primary. Because of inconsistencies,
+administrators can observe that the secondary still tries to replicate data:
+
+On the primary site:
+
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Geo > Sites**.
+1. Look at the **primary site** and check the verification information. All uploads were verified:
+   ![The Geo Sites dashboard displaying successful verification of the primary.](img/geo_primary_uploads_verification_v17_11.png)
+1. Look at the **secondary site** and check the verification information. Notice that two uploads are still being synced, even though the secondary should use the same object storage. Meaning it should not have to synchronize any uploads:
+   ![The Geo Sites dashboard displaying inconsistencies of the secondary.](img/geo_secondary_uploads_inconsistencies_v17_11.png)
+
+#### Clean up inconsistencies
+
+{{< alert type="warning" >}}
+
+Ensure you have a recent and working backup at hand before issuing any deletion commands.
+
+{{< /alert >}}
+
+Based on the previous scenario, multiple **uploads** are causing
+inconsistencies which are used as an example below.
+
+Proceed as follows to properly delete potential leftovers:
+
+1. Map the identified inconsistencies to their respective model names. The model name is needed in the following steps.
+
+   | Object storage type      | Model name                                              |
+   |--------------------------|---------------------------------------------------------|
+   | Backups                  | not applicable                                          |
+   | Container registry       | not applicable                                          |
+   | Mattermost               | not applicable                                          |
+   | Autoscale runner caching | not applicable                                          |
+   | Secure Files             | `Ci::SecureFile`                                        |
+   | Job artifacts            | `Ci::JobArtifact` and `Ci::PipelineArtifact`            |
+   | LFS objects              | `LfsObject`                                             |
+   | Uploads                  | `Upload`                                                |
+   | Merge request diffs      | `MergeRequestDiff`                                      |
+   | Packages                 | `Packages::PackageFile`                                 |
+   | Dependency Proxy         | `DependencyProxy::Blob` and `DependencyProxy::Manifest` |
+   | Terraform state files    | `Terraform::StateVersion`                               |
+   | Pages content            | `PagesDeployment`                                       |
+
+1. Start a [Rails console](operations/rails_console.md).
+1. Query for all "files" which are still stored locally (instead of in object storage) based on the model name of the previous step. In this case, as uploads are affected, the model name `Upload` is used. Observe how `openbao.png` is still stored locally:
+
+   ```ruby
+   Upload.with_files_stored_locally
+   ```
+
+   ```ruby
+   #<Upload:0x00007d35b69def68
+     id: 108,
+     size: 13346,
+     path: "c95c1c9bf91a34f7d97346fd3fa6a7be/openbao.png",
+     checksum: "db29d233de49b25d2085dcd8610bac787070e721baa8dcedba528a292b6e816b",
+     model_id: 2,
+     model_type: "Project",
+     uploader: "FileUploader",
+     created_at: Wed, 02 Apr 2025 05:56:47.941319000 UTC +00:00,
+     store: 1,
+     mount_point: nil,
+     secret: "[FILTERED]",
+     version: 2,
+     uploaded_by_user_id: 1,
+     organization_id: nil,
+     namespace_id: nil,
+     project_id: 2,
+     verification_checksum: nil>]
+   ```
+
+1. Use the `id` of the identified resources to properly delete them. First, verify that it is the correct resource by using `find` and then run `destroy`:
+
+   ```ruby
+   Upload.find(108)
+   Upload.find(108).destroy
+   ```
+
+1. Optionally, verify that the resource was deleted correctly by running `find` again which should no longer find it:
+
+   ```ruby
+   Upload.find(108)
+   ```
+
+   ```ruby
+   ActiveRecord::RecordNotFound: Couldn't find Upload with 'id'=108
+   ```
+
+Repeat the steps for all affected object storage types.
+
+### Job logs are missing in a multi-node GitLab instance
+
+On GitLab instances with more than one Rails node (servers running the web services or Sidekiq)
+there needs to be a mechanism to make job logs available to all nodes after they have
+been sent from the Runner. Jobs logs can be stored on local disk or in object storage.
+
+If NFS is not being used, and the
+[incremental logging feature](cicd/job_logs.md#incremental-logging)
+has not been enabled, then job logs can be lost:
+
+1. The node which receives the log from the runner writes the log to local disk.
+1. When GitLab tries to archive the log, often the job runs on a different server which cannot access the log.
+1. Uploading to object storage fails.
+
+The following error might also be logged to `/var/log/gitlab/gitlab-rails/exceptions_json.log`:
+
+```yaml
+{
+  "severity": "ERROR",
+  "exception.class": "Ci::AppendBuildTraceService::TraceRangeError",
+  "extra.build_id": 425187,
+  "extra.body_end": 12955,
+  "extra.stream_size": 720,
+  "extra.stream_class": {},
+  "extra.stream_range": "0-12954"
+}
+```
+
+If CI artifacts are written to object storage in a multi-node environment, you must
+[enable the incremental logging feature](cicd/job_logs.md#configure-incremental-logging).

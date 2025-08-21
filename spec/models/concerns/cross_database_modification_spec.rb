@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe CrossDatabaseModification do
+RSpec.describe CrossDatabaseModification, feature_category: 'database' do
   describe '.transaction' do
     it 'adds the current gitlab schema to gitlab_transactions_stack', :aggregate_failures do
       ApplicationRecord.transaction do
@@ -30,7 +30,7 @@ RSpec.describe CrossDatabaseModification do
       expect(ApplicationRecord.gitlab_transactions_stack).to be_empty
 
       Project.transaction do
-        expect(ApplicationRecord.gitlab_transactions_stack).to contain_exactly(:gitlab_main_cell)
+        expect(ApplicationRecord.gitlab_transactions_stack).to contain_exactly(:gitlab_main_org)
 
         Project.first
       end

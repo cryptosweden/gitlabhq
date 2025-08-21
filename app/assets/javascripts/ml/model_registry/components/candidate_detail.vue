@@ -1,30 +1,11 @@
 <script>
 import { GlAvatarLabeled, GlLink, GlTableLite } from '@gitlab/ui';
 import { isEmpty, maxBy, range } from 'lodash';
-import { __, sprintf } from '~/locale';
-import {
-  INFO_LABEL,
-  ID_LABEL,
-  STATUS_LABEL,
-  EXPERIMENT_LABEL,
-  ARTIFACTS_LABEL,
-  PARAMETERS_LABEL,
-  METADATA_LABEL,
-  MLFLOW_ID_LABEL,
-  CI_SECTION_LABEL,
-  JOB_LABEL,
-  CI_USER_LABEL,
-  CI_MR_LABEL,
-  PERFORMANCE_LABEL,
-  NO_PARAMETERS_MESSAGE,
-  NO_METRICS_MESSAGE,
-  NO_METADATA_MESSAGE,
-  NO_CI_MESSAGE,
-} from '../translations';
+import { __, s__, sprintf } from '~/locale';
 import DetailRow from './candidate_detail_row.vue';
 
 export default {
-  HEADER_CLASSES: ['gl-font-lg', 'gl-mt-5'],
+  HEADER_CLASSES: ['gl-text-lg', 'gl-mt-5'],
   name: 'MlCandidateDetail',
   components: {
     DetailRow,
@@ -37,37 +18,26 @@ export default {
       type: Object,
       required: true,
     },
-    showInfoSection: {
-      type: Boolean,
-      required: false,
-      default: true,
-    },
   },
   i18n: {
-    INFO_LABEL,
-    ID_LABEL,
-    STATUS_LABEL,
-    EXPERIMENT_LABEL,
-    ARTIFACTS_LABEL,
-    MLFLOW_ID_LABEL,
-    CI_SECTION_LABEL,
-    JOB_LABEL,
-    CI_USER_LABEL,
-    CI_MR_LABEL,
-    PARAMETERS_LABEL,
-    METADATA_LABEL,
-    PERFORMANCE_LABEL,
-    NO_PARAMETERS_MESSAGE,
-    NO_METRICS_MESSAGE,
-    NO_METADATA_MESSAGE,
-    NO_CI_MESSAGE,
+    ciSectionLabel: s__('MlModelRegistry|CI Info'),
+    jobLabel: __('Job'),
+    ciUserLabel: s__('MlModelRegistry|Triggered by'),
+    ciMrLabel: __('Merge request'),
+    parametersLabel: s__('MlModelRegistry|Parameters'),
+    metadataLabel: s__('MlModelRegistry|Metadata'),
+    performanceLabel: s__('MlModelRegistry|Performance'),
+    noParametersMessage: s__('MlModelRegistry|No logged parameters'),
+    noMetricsMessage: s__('MlModelRegistry|No logged metrics'),
+    noMetadataMessage: s__('MlModelRegistry|No logged metadata'),
+    noCiMessage: s__('MlModelRegistry|Run not linked to a CI build'),
   },
   computed: {
     info() {
-      return Object.freeze(this.candidate.info);
+      return this.candidate.info;
     },
     ciJob() {
-      return Object.freeze(this.info.ciJob);
+      return this.info.ciJob;
     },
     hasMetadata() {
       return !isEmpty(this.candidate.metadata);
@@ -80,7 +50,7 @@ export default {
     },
     metricsTableFields() {
       const maxStep = maxBy(this.candidate.metrics, 'step').step;
-      const rowClass = 'gl-p-3!';
+      const rowClass = '!gl-p-3';
 
       const cssClasses = { thClass: rowClass, tdClass: rowClass };
 
@@ -108,47 +78,18 @@ export default {
 
 <template>
   <div>
-    <section v-if="showInfoSection" class="gl-mb-6">
-      <table class="candidate-details">
-        <tbody>
-          <detail-row :label="$options.i18n.ID_LABEL">
-            {{ info.iid }}
-          </detail-row>
-
-          <detail-row :label="$options.i18n.MLFLOW_ID_LABEL">{{ info.eid }}</detail-row>
-
-          <detail-row :label="$options.i18n.STATUS_LABEL">{{ info.status }}</detail-row>
-
-          <detail-row :label="$options.i18n.EXPERIMENT_LABEL">
-            <gl-link :href="info.pathToExperiment">
-              {{ info.experimentName }}
-            </gl-link>
-          </detail-row>
-
-          <detail-row v-if="info.pathToArtifact" :label="$options.i18n.ARTIFACTS_LABEL">
-            <gl-link :href="info.pathToArtifact">
-              {{ $options.i18n.ARTIFACTS_LABEL }}
-            </gl-link>
-          </detail-row>
-        </tbody>
-      </table>
-    </section>
-
     <section class="gl-mb-6">
-      <h3 :class="$options.HEADER_CLASSES">{{ $options.i18n.CI_SECTION_LABEL }}</h3>
+      <h3 :class="$options.HEADER_CLASSES">{{ $options.i18n.ciSectionLabel }}</h3>
 
       <table v-if="ciJob" class="candidate-details">
         <tbody>
-          <detail-row
-            :label="$options.i18n.JOB_LABEL"
-            :section-label="$options.i18n.CI_SECTION_LABEL"
-          >
+          <detail-row :label="$options.i18n.jobLabel" :section-label="$options.i18n.ciSectionLabel">
             <gl-link :href="ciJob.path">
               {{ ciJob.name }}
             </gl-link>
           </detail-row>
 
-          <detail-row v-if="ciJob.user" :label="$options.i18n.CI_USER_LABEL">
+          <detail-row v-if="ciJob.user" :label="$options.i18n.ciUserLabel">
             <gl-avatar-labeled label="" :size="24" :src="ciJob.user.avatar">
               <gl-link :href="ciJob.user.path">
                 {{ ciJob.user.name }}
@@ -156,7 +97,7 @@ export default {
             </gl-avatar-labeled>
           </detail-row>
 
-          <detail-row v-if="ciJob.mergeRequest" :label="$options.i18n.CI_MR_LABEL">
+          <detail-row v-if="ciJob.mergeRequest" :label="$options.i18n.ciMrLabel">
             <gl-link :href="ciJob.mergeRequest.path">
               !{{ ciJob.mergeRequest.iid }} {{ ciJob.mergeRequest.title }}
             </gl-link>
@@ -164,11 +105,11 @@ export default {
         </tbody>
       </table>
 
-      <div v-else class="gl-text-secondary">{{ $options.i18n.NO_CI_MESSAGE }}</div>
+      <div v-else class="gl-text-subtle">{{ $options.i18n.noCiMessage }}</div>
     </section>
 
     <section class="gl-mb-6">
-      <h3 :class="$options.HEADER_CLASSES">{{ $options.i18n.PARAMETERS_LABEL }}</h3>
+      <h3 :class="$options.HEADER_CLASSES">{{ $options.i18n.parametersLabel }}</h3>
 
       <table v-if="hasParameters" class="candidate-details">
         <tbody>
@@ -178,11 +119,11 @@ export default {
         </tbody>
       </table>
 
-      <div v-else class="gl-text-secondary">{{ $options.i18n.NO_PARAMETERS_MESSAGE }}</div>
+      <div v-else class="gl-text-subtle">{{ $options.i18n.noParametersMessage }}</div>
     </section>
 
     <section class="gl-mb-6">
-      <h3 :class="$options.HEADER_CLASSES">{{ $options.i18n.METADATA_LABEL }}</h3>
+      <h3 :class="$options.HEADER_CLASSES">{{ $options.i18n.metadataLabel }}</h3>
 
       <table v-if="hasMetadata" class="candidate-details">
         <tbody>
@@ -192,11 +133,11 @@ export default {
         </tbody>
       </table>
 
-      <div v-else class="gl-text-secondary">{{ $options.i18n.NO_METADATA_MESSAGE }}</div>
+      <div v-else class="gl-text-subtle">{{ $options.i18n.noMetadataMessage }}</div>
     </section>
 
     <section class="gl-mb-6">
-      <h3 :class="$options.HEADER_CLASSES">{{ $options.i18n.PERFORMANCE_LABEL }}</h3>
+      <h3 :class="$options.HEADER_CLASSES">{{ $options.i18n.performanceLabel }}</h3>
 
       <div v-if="hasMetrics" class="gl-overflow-x-auto">
         <gl-table-lite
@@ -207,7 +148,7 @@ export default {
         />
       </div>
 
-      <div v-else class="gl-text-secondary">{{ $options.i18n.NO_METRICS_MESSAGE }}</div>
+      <div v-else class="gl-text-subtle">{{ $options.i18n.noMetricsMessage }}</div>
     </section>
   </div>
 </template>

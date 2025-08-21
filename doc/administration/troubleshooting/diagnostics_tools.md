@@ -1,32 +1,79 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Operate
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Diagnostics tools
 ---
 
-# Diagnostics tools
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-These are some of the diagnostics tools the GitLab Support team uses during troubleshooting.
-They are listed here for transparency, and for users with experience
-with troubleshooting GitLab. If you are currently having an issue with GitLab, you
-may want to check your [support options](https://about.gitlab.com/support/) first,
+{{< /details >}}
+
+The GitLab Support team uses these diagnostics tools during troubleshooting. They are listed here for transparency, and
+for users with GitLab troubleshooting experience.
+
+If you have an issue with GitLab, you might want to check your [support options](https://about.gitlab.com/support/)
 before attempting to use these tools.
 
-## gitlabsos
+## SOS scripts
 
-The [gitlabsos](https://gitlab.com/gitlab-com/support/toolbox/gitlabsos/) utility
-provides a unified method of gathering information and logs from GitLab and the system it's
-running on.
+{{< history >}}
 
-## strace-parser
+- Bundling of `gitlabsos` with the Linux package and Docker image [introduced](https://gitlab.com/gitlab-org/omnibus-gitlab/-/merge_requests/8565) in GitLab 18.3.
 
-[strace-parser](https://gitlab.com/wchandler/strace-parser) is a small tool to analyze
-and summarize raw `strace` data.
+{{< /history >}}
 
-## `kubesos`
+- [`gitlabsos`](https://gitlab.com/gitlab-com/support/toolbox/gitlabsos/) gathers information and recent logs from a
+  Linux package or Docker-based GitLab instance and its operating system.
 
-The [`kubesos`](https://gitlab.com/gitlab-com/support/toolbox/kubesos/) utility retrieves GitLab cluster configuration and logs from GitLab Helm chart deployments.
+  ```shell
+  sudo gitlabsos
+  ```
+
+- [`kubesos`](https://gitlab.com/gitlab-com/support/toolbox/kubesos/) gathers Kubernetes cluster configuration and recent
+  logs from a GitLab Helm chart deployment.
+- [`gitlab:db:sos`](../raketasks/maintenance.md#collect-information-and-statistics-about-the-database) gathers detailed
+  diagnostic data about your database.
+
+## `strace-parser`
+
+[`strace-parser`](https://gitlab.com/gitlab-com/support/toolbox/strace-parser) analyzes and summarizes raw `strace` data.
+The [`strace` zine](https://wizardzines.com/zines/strace/) is recommended for context.
+
+## `gitlabrb_sanitizer`
+
+[`gitlabrb_sanitizer`](https://gitlab.com/gitlab-com/support/toolbox/gitlabrb_sanitizer/) outputs a copy of
+`/etc/gitlab/gitlab.rb` content with sensitive values redacted.
+
+`gitlabsos` automatically uses `gitlabrb_sanitizer` to sanitize the configuration.
+
+## `fast-stats`
+
+{{< history >}}
+
+- Bundling of `fast-stats` with the Linux package and Docker image [introduced](https://gitlab.com/gitlab-org/omnibus-gitlab/-/merge_requests/8618) in GitLab 18.3.
+
+{{< /history >}}
+
+To help debug performance and configuration problems,
+[`fast-stats`](https://gitlab.com/gitlab-com/support/toolbox/fast-stats#fast-stats) summarizes errors and
+resource-intensive usage statistics quickly.
+
+Use `fast-stats` to parse and compare large volumes of logs, or to start troubleshooting unknown problems.
+
+```shell
+/opt/gitlab/embedded/bin/fast-stats
+```
+
+## `greenhat`
+
+[`greenhat`](https://gitlab.com/gitlab-com/support/toolbox/greenhat/) provides an interactive shell to analyze, filter,
+and summarize [SOS logs](#sos-scripts).
+
+## GitLab Detective
+
+[GitLab Detective](https://gitlab.com/gitlab-com/support/toolbox/gitlab-detective) runs automated checks on a GitLab
+instance to identify and resolve common issues.

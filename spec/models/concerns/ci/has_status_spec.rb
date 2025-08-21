@@ -284,14 +284,26 @@ RSpec.describe Ci::HasStatus, feature_category: :continuous_integration do
       end
     end
 
-    describe '.alive' do
-      subject { CommitStatus.alive }
+    describe '.executing' do
+      subject { CommitStatus.executing }
 
-      %i[running pending waiting_for_callback waiting_for_resource preparing created].each do |status|
+      %i[running canceling].each do |status|
         it_behaves_like 'containing the job', status
       end
 
-      %i[failed success].each do |status|
+      %i[created failed success canceled].each do |status|
+        it_behaves_like 'not containing the job', status
+      end
+    end
+
+    describe '.alive' do
+      subject { CommitStatus.alive }
+
+      %i[running pending waiting_for_callback waiting_for_resource preparing created canceling].each do |status|
+        it_behaves_like 'containing the job', status
+      end
+
+      %i[canceled failed success].each do |status|
         it_behaves_like 'not containing the job', status
       end
     end
@@ -323,11 +335,11 @@ RSpec.describe Ci::HasStatus, feature_category: :continuous_integration do
     describe '.cancelable' do
       subject { CommitStatus.cancelable }
 
-      %i[running pending waiting_for_callback waiting_for_resource preparing created scheduled].each do |status|
+      %i[running pending waiting_for_callback waiting_for_resource preparing created scheduled manual].each do |status|
         it_behaves_like 'containing the job', status
       end
 
-      %i[failed success skipped canceled manual].each do |status|
+      %i[failed success skipped canceled].each do |status|
         it_behaves_like 'not containing the job', status
       end
     end

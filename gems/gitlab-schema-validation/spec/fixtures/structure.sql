@@ -1,3 +1,11 @@
+CREATE SEQUENCE missing_sequence;
+CREATE SEQUENCE shared_audit_event_id_seq;
+CREATE SEQUENCE abuse_events_id_seq;
+CREATE SEQUENCE zoekt_repositories_id_seq;
+
+ALTER SEQUENCE abuse_events_id_seq OWNED by abuse_events.id;
+ALTER SEQUENCE zoekt_repositories_id_seq OWNED by zoekt_repositories.id;
+
 CREATE INDEX missing_index ON events USING btree (created_at, author_id);
 
 CREATE UNIQUE INDEX wrong_index ON table_name (column_name, column_name_2);
@@ -49,7 +57,8 @@ CREATE TABLE test_table (
   bytea_with_default_column bytea DEFAULT '\xDEADBEEF'::bytea,
   unmapped_column_type anyarray,
   partition_key bigint DEFAULT 1 NOT NULL,
-  created_at timestamp with time zone DEFAULT now() NOT NULL
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  daterange date_range
 ) PARTITION BY HASH (partition_key, created_at);
 
 CREATE TABLE ci_project_mirrors (

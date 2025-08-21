@@ -1,5 +1,6 @@
 import Vue, { nextTick } from 'vue';
 import VueApollo from 'vue-apollo';
+import { GlLink } from '@gitlab/ui';
 import WorkItemMilestone from '~/work_items/components/work_item_milestone.vue';
 import WorkItemSidebarDropdownWidget from '~/work_items/components/shared/work_item_sidebar_dropdown_widget.vue';
 import createMockApollo from 'helpers/mock_apollo_helper';
@@ -9,13 +10,14 @@ import waitForPromises from 'helpers/wait_for_promises';
 import { TRACKING_CATEGORY_SHOW } from '~/work_items/constants';
 import updateWorkItemMutation from '~/work_items/graphql/update_work_item.mutation.graphql';
 import projectMilestonesQuery from '~/sidebar/queries/project_milestones.query.graphql';
+import { ISSUE_MR_CHANGE_MILESTONE } from '~/behaviors/shortcuts/keybindings';
 import {
+  updateWorkItemMutationErrorResponse,
+  updateWorkItemMutationResponse,
   projectMilestonesResponse,
   projectMilestonesResponseWithNoMilestones,
   mockMilestoneWidgetResponse,
-  updateWorkItemMutationErrorResponse,
-  updateWorkItemMutationResponse,
-} from '../mock_data';
+} from 'ee_else_ce_jest/work_items/mock_data';
 
 describe('WorkItemMilestone component', () => {
   Vue.use(VueApollo);
@@ -43,6 +45,7 @@ describe('WorkItemMilestone component', () => {
     milestone = mockMilestoneWidgetResponse,
     searchQueryHandler = successSearchQueryHandler,
     mutationHandler = successUpdateWorkItemMutationHandler,
+    isGroup = false,
   } = {}) => {
     wrapper = mountFn(WorkItemMilestone, {
       apolloProvider: createMockApollo([
@@ -55,6 +58,7 @@ describe('WorkItemMilestone component', () => {
         workItemMilestone: milestone,
         workItemId,
         workItemType,
+        isGroup,
       },
     });
   };
@@ -63,6 +67,12 @@ describe('WorkItemMilestone component', () => {
     createComponent();
 
     expect(findSidebarDropdownWidget().props('dropdownLabel')).toBe('Milestone');
+  });
+
+  it('has key shortcut tooltip', () => {
+    createComponent();
+
+    expect(findSidebarDropdownWidget().props('shortcut')).toBe(ISSUE_MR_CHANGE_MILESTONE);
   });
 
   describe('Default text with canUpdate false and milestone value', () => {
@@ -77,6 +87,20 @@ describe('WorkItemMilestone component', () => {
         expect(findSidebarDropdownWidget().props('canUpdate')).toBe(false);
         expect(wrapper.text()).toContain(value);
       });
+    });
+
+    it('shows set milestone with attributes required for popover', () => {
+      createComponent({ mountFn: mountExtended, milestone: mockMilestoneWidgetResponse });
+
+      const milestoneLink = wrapper.findComponent(GlLink);
+      expect(milestoneLink.classes()).toContain('has-popover');
+      expect(milestoneLink.attributes()).toEqual(
+        expect.objectContaining({
+          'data-placement': 'left',
+          'data-reference-type': 'milestone',
+          'data-milestone': '30',
+        }),
+      );
     });
   });
 
@@ -136,6 +160,15 @@ describe('WorkItemMilestone component', () => {
 
       await waitForPromises();
       expect(findSidebarDropdownWidget().props('updateInProgress')).toBe(false);
+      expect(findSidebarDropdownWidget().props('itemValue')).toBe(null);
+    });
+
+    it('clears the autofilled parent milestone when user clicks on Clear', async () => {
+      findSidebarDropdownWidget().vm.$emit('updateValue', null);
+
+      await waitForPromises();
+
+      expect(wrapper.emitted('parentMilestone')).toEqual([[null]]);
       expect(findSidebarDropdownWidget().props('itemValue')).toBe(null);
     });
 

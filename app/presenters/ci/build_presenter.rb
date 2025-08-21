@@ -13,13 +13,11 @@ module Ci
     end
 
     def trigger_variables
-      return [] unless trigger_request
-
       @trigger_variables ||=
-        if pipeline.variables.any?
-          pipeline.variables.map(&:to_runner_variable)
+        if pipeline.trigger_id.blank?
+          []
         else
-          trigger_request.user_variables
+          pipeline.variables.map(&:to_hash_variable)
         end
     end
 

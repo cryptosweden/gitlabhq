@@ -5,19 +5,10 @@ import JiraImportApp from '~/jira_import/components/jira_import_app.vue';
 import JiraImportForm from '~/jira_import/components/jira_import_form.vue';
 import JiraImportProgress from '~/jira_import/components/jira_import_progress.vue';
 import JiraImportSetup from '~/jira_import/components/jira_import_setup.vue';
-import {
-  imports,
-  issuesPath,
-  jiraIntegrationPath,
-  jiraProjects,
-  projectId,
-  projectPath,
-} from '../mock_data';
+import { imports, issuesPath, jiraIntegrationPath, jiraProjects, projectPath } from '../mock_data';
 
 describe('JiraImportApp', () => {
   let wrapper;
-
-  const inProgressIllustration = 'in-progress-illustration.svg';
 
   const setupIllustration = 'setup-illustration.svg';
 
@@ -40,11 +31,9 @@ describe('JiraImportApp', () => {
   } = {}) =>
     shallowMount(JiraImportApp, {
       propsData: {
-        inProgressIllustration,
         isJiraConfigured,
         issuesPath,
         jiraIntegrationPath,
-        projectId,
         projectPath,
         setupIllustration,
       },
@@ -175,7 +164,7 @@ describe('JiraImportApp', () => {
     });
 
     it('receives the illustration', () => {
-      expect(getProgressComponent().props('illustration')).toBe(inProgressIllustration);
+      expect(getProgressComponent().props('illustration')).toBe(setupIllustration);
     });
 
     it('receives the name of the most recent import initiator', () => {
@@ -210,10 +199,6 @@ describe('JiraImportApp', () => {
 
     it('receives the name of the most recent imported project', () => {
       expect(getFormComponent().props('jiraProjects')).toEqual(jiraProjects);
-    });
-
-    it('receives the project ID', () => {
-      expect(getFormComponent().props('projectId')).toBe(projectId);
     });
 
     it('receives the project path', () => {

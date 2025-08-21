@@ -20,19 +20,24 @@
   .file-holder
     = render "projects/blob/header", blob: @blob, blame: true
 
-    .file-blame-legend
-      %span.left-label Newer
-      %span.legend-box.legend-box-0
-      %span.legend-box.legend-box-1
-      %span.legend-box.legend-box-2
-      %span.legend-box.legend-box-3
-      %span.legend-box.legend-box-4
-      %span.legend-box.legend-box-5
-      %span.legend-box.legend-box-6
-      %span.legend-box.legend-box-7
-      %span.legend-box.legend-box-8
-      %span.legend-box.legend-box-9
-      %span.right-label Older
+    .gl-flex.gl-justify-between.gl-bg-subtle.gl-border-b.gl-border-b-section
+      .file-blame-legend.gl-mt-2
+        %span.left-label
+          = s_("Blame|Newer")
+        %span.legend-box.legend-box-0
+        %span.legend-box.legend-box-1
+        %span.legend-box.legend-box-2
+        %span.legend-box.legend-box-3
+        %span.legend-box.legend-box-4
+        %span.legend-box.legend-box-5
+        %span.legend-box.legend-box-6
+        %span.legend-box.legend-box-7
+        %span.legend-box.legend-box-8
+        %span.legend-box.legend-box-9
+        %span.right-label
+          = s_("Blame|Older")
+
+      #js-blame-preferences{ data: blame_preferences(@project) }
 
     .table-responsive.blame-table
       .blame-table-wrapper
@@ -42,7 +47,7 @@
           #blame-stream-container.blame-stream-container
 
     - if @blame_mode.pagination? && @blame_pagination.total_pages > 1
-      .gl-display-flex.gl-justify-content-center.gl-flex-direction-column.gl-align-items-center.gl-p-3.gl-bg-gray-50.gl-border-t-solid.gl-border-t-1.gl-border-gray-100
+      .gl-flex.gl-justify-center.gl-flex-col.gl-items-center.gl-p-3.gl-bg-strong.gl-border-t-solid.gl-border-t-1.gl-border-default
         = render Pajamas::ButtonComponent.new(href: entire_blame_path(@id, @project), size: :small, button_options: { class: 'gl-mt-3' }) do |c|
           = _('Show full blame')
 
@@ -51,7 +56,7 @@
         .gradient
         = gl_loading_icon(size: 'sm')
         %span.gl-mx-2
-          = _('Loading full blame...')
+          = _('Loading full blame…')
 
   - if @blame_mode.pagination?
     = paginate(@blame_pagination.paginator, theme: "gitlab")

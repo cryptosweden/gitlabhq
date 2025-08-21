@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require 'set' # rubocop:disable Lint/RedundantRequireStatement -- Ruby 3.1 and earlier needs this. Drop this line after Ruby 3.2+ is only supported.
 require 'yaml'
 
 module Tooling
@@ -31,7 +30,7 @@ module Tooling
     end
 
     def mapping
-      @mapping.transform_values { |set| set.to_a }
+      @mapping.transform_values(&:to_a)
     end
 
     private

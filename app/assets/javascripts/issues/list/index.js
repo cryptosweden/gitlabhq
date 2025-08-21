@@ -2,23 +2,12 @@ import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import VueRouter from 'vue-router';
 import IssuesListApp from 'ee_else_ce/issues/list/components/issues_list_app.vue';
-import { resolvers, config } from '~/graphql_shared/issuable_client';
-import createDefaultClient, { createApolloClientWithCaching } from '~/lib/graphql';
-import { addShortcutsExtension } from '~/behaviors/shortcuts';
-import ShortcutsWorkItems from '~/behaviors/shortcuts/shortcuts_work_items';
+import { getApolloProvider } from '~/issues/list/issue_client';
 import { parseBoolean } from '~/lib/utils/common_utils';
+import DesignDetail from '~/work_items/components/design_management/design_preview/design_details.vue';
+import { ROUTES } from '~/work_items/constants';
 import JiraIssuesImportStatusApp from './components/jira_issues_import_status_app.vue';
 import { gqlClient } from './graphql';
-
-let issuesClient;
-
-export async function issuesListClient() {
-  if (issuesClient) return issuesClient;
-  issuesClient = gon.features?.frontendCaching
-    ? await createApolloClientWithCaching(resolvers, { localCacheKey: 'issues_list', ...config })
-    : createDefaultClient(resolvers, config);
-  return issuesClient;
-}
 
 export async function mountJiraIssuesListApp() {
   const el = document.querySelector('.js-jira-issues-import-status-root');
@@ -46,8 +35,6 @@ export async function mountJiraIssuesListApp() {
     render(createComponent) {
       return createComponent(JiraIssuesImportStatusApp, {
         props: {
-          canEdit,
-          isJiraConfigured,
           issuesPath,
           projectPath,
         },
@@ -63,8 +50,6 @@ export async function mountIssuesListApp() {
     return null;
   }
 
-  addShortcutsExtension(ShortcutsWorkItems);
-
   Vue.use(VueApollo);
   Vue.use(VueRouter);
 
@@ -78,21 +63,24 @@ export async function mountIssuesListApp() {
     canImportIssues,
     canReadCrmContact,
     canReadCrmOrganization,
+    duoRemoteFlowsEnabled,
     email,
     emailsHelpPagePath,
     exportCsvPath,
     fullPath,
+    groupId,
     groupPath,
     hasAnyIssues,
     hasAnyProjects,
     hasBlockedIssuesFeature,
-    hasEpicsFeature,
+    hasCustomFieldsFeature,
     hasIssuableHealthStatusFeature,
     hasIssueDateFilterFeature,
     hasIssueWeightsFeature,
     hasIterationsFeature,
-    hasScopedLabelsFeature,
     hasOkrsFeature,
+    hasQualityManagementFeature,
+    hasScopedLabelsFeature,
     importCsvIssuesPath,
     initialEmail,
     initialSort,
@@ -109,24 +97,44 @@ export async function mountIssuesListApp() {
     releasesPath,
     resetPath,
     rssPath,
+    projectNamespaceFullPath,
     showNewIssueLink,
     signInPath,
-    groupId = '',
-    reportAbusePath,
-    registerPath,
-    issuesListPath,
+    wiCanAdminLabel,
+    wiIssuesListPath,
+    wiLabelsManagePath,
+    wiReportAbusePath,
+    wiNewTrialPath,
+    hasLinkedItemsEpicsFeature,
+    timeTrackingLimitToHours,
+    hasSubepicsFeature,
+    hasStatusFeature,
   } = el.dataset;
 
   return new Vue({
     el,
     name: 'IssuesListRoot',
-    apolloProvider: new VueApollo({
-      defaultClient: await issuesListClient(),
-    }),
+    apolloProvider: await getApolloProvider(),
     router: new VueRouter({
       base: window.location.pathname,
       mode: 'history',
-      routes: [{ path: '/' }],
+      routes: [
+        {
+          name: 'root',
+          path: '/',
+        },
+        {
+          name: ROUTES.design,
+          path: '/:iid/designs/:id',
+          component: DesignDetail,
+          beforeEnter({ params: { id } }, _, next) {
+            if (typeof id === 'string') {
+              next();
+            }
+          },
+          props: ({ params: { id, iid } }) => ({ id, iid }),
+        },
+      ],
     }),
     provide: {
       autocompleteAwardEmojisPath,
@@ -136,21 +144,21 @@ export async function mountIssuesListApp() {
       canCreateProjects: parseBoolean(canCreateProjects),
       canReadCrmContact: parseBoolean(canReadCrmContact),
       canReadCrmOrganization: parseBoolean(canReadCrmOrganization),
+      duoRemoteFlowsEnabled: parseBoolean(duoRemoteFlowsEnabled),
       fullPath,
-      projectPath: fullPath,
+      groupId,
       groupPath,
-      reportAbusePath,
-      registerPath,
       hasAnyIssues: parseBoolean(hasAnyIssues),
       hasAnyProjects: parseBoolean(hasAnyProjects),
       hasBlockedIssuesFeature: parseBoolean(hasBlockedIssuesFeature),
-      hasEpicsFeature: parseBoolean(hasEpicsFeature),
+      hasCustomFieldsFeature: parseBoolean(hasCustomFieldsFeature),
       hasIssuableHealthStatusFeature: parseBoolean(hasIssuableHealthStatusFeature),
       hasIssueDateFilterFeature: parseBoolean(hasIssueDateFilterFeature),
       hasIssueWeightsFeature: parseBoolean(hasIssueWeightsFeature),
       hasIterationsFeature: parseBoolean(hasIterationsFeature),
-      hasScopedLabelsFeature: parseBoolean(hasScopedLabelsFeature),
       hasOkrsFeature: parseBoolean(hasOkrsFeature),
+      hasQualityManagementFeature: parseBoolean(hasQualityManagementFeature),
+      hasScopedLabelsFeature: parseBoolean(hasScopedLabelsFeature),
       initialSort,
       isIssueRepositioningDisabled: parseBoolean(isIssueRepositioningDisabled),
       isGroup: !parseBoolean(isProject),
@@ -161,8 +169,10 @@ export async function mountIssuesListApp() {
       newProjectPath,
       releasesPath,
       rssPath,
+      projectNamespaceFullPath,
       showNewIssueLink: parseBoolean(showNewIssueLink),
       signInPath,
+      newTrialPath: wiNewTrialPath,
       // For CsvImportExportButtons component
       canEdit: parseBoolean(canEdit),
       email,
@@ -179,8 +189,15 @@ export async function mountIssuesListApp() {
       markdownHelpPath,
       quickActionsHelpPath,
       resetPath,
-      groupId,
-      issuesListPath,
+      // For work item modal
+      canAdminLabel: wiCanAdminLabel,
+      issuesListPath: wiIssuesListPath,
+      labelsManagePath: wiLabelsManagePath,
+      reportAbusePath: wiReportAbusePath,
+      hasSubepicsFeature: parseBoolean(hasSubepicsFeature),
+      hasLinkedItemsEpicsFeature: parseBoolean(hasLinkedItemsEpicsFeature),
+      timeTrackingLimitToHours: parseBoolean(timeTrackingLimitToHours),
+      hasStatusFeature: parseBoolean(hasStatusFeature),
     },
     render: (createComponent) => createComponent(IssuesListApp),
   });

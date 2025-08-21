@@ -2,9 +2,7 @@ import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import { GlCollapse, GlIcon } from '@gitlab/ui';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
-import { stubTransition } from 'helpers/stub_transition';
 import createMockApollo from 'helpers/mock_apollo_helper';
-import { __, s__ } from '~/locale';
 import DeployBoardWrapper from '~/environments/components/deploy_board_wrapper.vue';
 import DeployBoard from '~/environments/components/deploy_board.vue';
 import setEnvironmentToChangeCanaryMutation from '~/environments/graphql/mutations/set_environment_to_change_canary.mutation.graphql';
@@ -23,13 +21,12 @@ describe('~/environments/components/deploy_board_wrapper.vue', () => {
     return mountExtended(DeployBoardWrapper, {
       propsData: { environment: resolvedEnvironment, rolloutStatus, ...propsData },
       provide: { helpPagePath: '/help' },
-      stubs: { transition: stubTransition() },
       apolloProvider: mockApollo,
     });
   };
 
   const expandCollapsedSection = async () => {
-    const button = wrapper.findByRole('button', { name: __('Expand') });
+    const button = wrapper.findByRole('button', { name: 'Expand' });
     await button.trigger('click');
 
     return button;
@@ -42,7 +39,7 @@ describe('~/environments/components/deploy_board_wrapper.vue', () => {
   it('is labeled Kubernetes Pods', () => {
     wrapper = createWrapper();
 
-    expect(wrapper.findByText(s__('DeployBoard|Kubernetes Pods')).exists()).toBe(true);
+    expect(wrapper.findByText('Kubernetes Pods').exists()).toBe(true);
   });
 
   describe('collapse', () => {
@@ -63,7 +60,7 @@ describe('~/environments/components/deploy_board_wrapper.vue', () => {
     it('opens on click', async () => {
       const button = await expandCollapsedSection();
 
-      expect(button.attributes('aria-label')).toBe(__('Collapse'));
+      expect(button.attributes('aria-label')).toBe('Collapse');
       expect(collapse.props('visible')).toBe(true);
       expect(icon.props('name')).toBe('chevron-lg-down');
 
@@ -73,13 +70,12 @@ describe('~/environments/components/deploy_board_wrapper.vue', () => {
   });
 
   describe('deploy board', () => {
-    it('passes the rollout status on and sets graphql to true', async () => {
+    it('passes the rollout status on', async () => {
       wrapper = createWrapper();
       await expandCollapsedSection();
 
       const deployBoard = findDeployBoard();
       expect(deployBoard.props('deployBoardData')).toEqual(rolloutStatus);
-      expect(deployBoard.props('graphql')).toBe(true);
     });
 
     it('sets the update to the canary via graphql', () => {

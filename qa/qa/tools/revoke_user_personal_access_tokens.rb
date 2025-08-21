@@ -27,7 +27,13 @@
 module QA
   module Tools
     class RevokeUserPersonalAccessTokens < DeleteResourceBase
-      EXCLUDE_TOKENS = %w[cleanup-token].freeze
+      EXCLUDE_TOKENS = %w[
+        cleanup-token
+        api-pat-gitlab-qa
+        GPT_staging_CI_test_token
+        GITLAB_QA_ACCESS_TOKEN
+        GITLAB_QA_ADMIN_ACCESS_TOKEN
+      ].freeze
       TEST_TOKEN_BASE = 'api-pat-'
 
       def initialize(dry_run: false)
@@ -56,7 +62,7 @@ module QA
 
       private
 
-      attr_reader :dry_run, :page_no, :api_client
+      attr_reader :dry_run, :page_no
       alias_method :dry_run?, :dry_run
 
       def fetch_tokens(user_id)

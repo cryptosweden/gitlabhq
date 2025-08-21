@@ -71,6 +71,9 @@ export default class GroupsStore {
     const childrenCount = this.hideProjects
       ? rawGroupItem.subgroup_count
       : rawGroupItem.children_count;
+    const hasChildren = this.hideProjects
+      ? rawGroupItem.has_subgroups
+      : rawGroupItem.children_count > 0;
 
     const groupItem = {
       id: rawGroupItem.id,
@@ -93,12 +96,14 @@ export default class GroupsStore {
       isBeingRemoved: false,
       parentId: rawGroupItem.parent_id,
       childrenCount,
+      hasChildren,
       projectCount: rawGroupItem.project_count,
       subgroupCount: rawGroupItem.subgroup_count,
       memberCount: rawGroupItem.number_users_with_delimiter,
       starCount: rawGroupItem.star_count,
       updatedAt: rawGroupItem.updated_at,
-      pendingRemoval: rawGroupItem.marked_for_deletion,
+      markedForDeletion: rawGroupItem.marked_for_deletion,
+      isSelfDeletionInProgress: rawGroupItem.is_self_deletion_in_progress,
       microdata: this.showSchemaMarkup ? getGroupItemMicrodata(rawGroupItem) : {},
       lastActivityAt: rawGroupItem.last_activity_at
         ? rawGroupItem.last_activity_at

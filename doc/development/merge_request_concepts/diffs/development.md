@@ -1,11 +1,10 @@
 ---
 stage: Create
 group: Code Review
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
-description: "Developer documentation for the backend design and flow of merge request diffs."
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+description: Developer documentation for the backend design and flow of merge request diffs.
+title: Merge request diffs development guide
 ---
-
-# Merge request diffs development guide
 
 This document explains the backend design and flow of merge request diffs.
 It should help contributors:
@@ -18,10 +17,13 @@ can change often. The code better explains these details. The components
 mentioned here are the major parts of the application for how merge request diffs
 are generated, stored, and returned to users.
 
-NOTE:
+{{< alert type="note" >}}
+
 This page is a living document. Update it accordingly when the parts
 of the codebase touched in this document are changed or removed, or when new components
 are added.
+
+{{< /alert >}}
 
 ## Data model
 
@@ -98,7 +100,7 @@ and holds header information about the commit.
   merge_request_diff_id: 28,
   relative_order: 0,
   sha: "bb5206fee213d983da88c47f9cf4cc6caf9c66dc",
-  message: "Feature conflcit added\n\nSigned-off-by: Sample User <sample.user@example.com>\n",
+  message: "Feature conflict added\n\nSigned-off-by: Sample User <sample.user@example.com>\n",
   trailers: {},
   commit_author_id: 19,
   committer_id: 19>
@@ -478,7 +480,7 @@ sequenceDiagram
     break when ETag header is present and is not stale
         .#diffs_batch-->>+Frontend: return 304 HTTP
     end
-    opt Cache higlights and stats when viewing HEAD, latest or specific version
+    opt Cache highlights and stats when viewing HEAD, latest or specific version
         .#diffs_batch->>+Gitlab_Diff_FileCollection_MergeRequestDiffBatch: write_cache()
         Gitlab_Diff_FileCollection_MergeRequestDiffBatch->>+Gitlab_Diff_HighlightCache: write_if_empty()
         Gitlab_Diff_FileCollection_MergeRequestDiffBatch->>+Gitlab_Diff_StatsCache: write_if_empty()

@@ -4,12 +4,12 @@ module Ci
   class BuildFinishedWorker # rubocop:disable Scalability/IdempotentWorker
     include ApplicationWorker
 
-    data_consistency :always
+    data_consistency :sticky
 
     sidekiq_options retry: 3
-    include PipelineQueue
 
     queue_namespace :pipeline_processing
+    feature_category :continuous_integration
     urgency :high
     worker_resource_boundary :cpu
 
@@ -59,6 +59,12 @@ module Ci
       # details.
       #
       Ci::ArchiveTraceWorker.perform_in(ARCHIVE_TRACES_IN, build.id)
+
+      Ci::Slsa::PublishProvenanceWorker.perform_async(build.id) if should_publish_provenance?(build)
+    end
+
+    def should_publish_provenance?(build)
+      Feature.enabled?(:slsa_provenance_statement, build.project) && build.artifacts?
     end
   end
 end

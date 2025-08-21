@@ -23,7 +23,6 @@ export function initUserTracking() {
   window.snowplow('newTracker', opts.namespace, opts.hostname, opts);
 
   document.dispatchEvent(new Event('SnowplowInitialized'));
-  Tracking.flushPendingEvents();
 }
 
 /**
@@ -39,33 +38,39 @@ export function initDefaultTrackers() {
     return;
   }
 
-  const opts = { ...DEFAULT_SNOWPLOW_OPTIONS, ...window.snowplowOptions };
-
   // must be before initializing the trackers
   Tracking.setAnonymousUrls();
 
-  window.snowplow('enableActivityTracking', {
-    minimumVisitLength: 30,
-    heartbeatDelay: 30,
-  });
-  // must be after enableActivityTracking
-  const standardContext = getStandardContext();
-  const experimentContexts = getAllExperimentContexts();
-  // To not expose personal identifying information, the page title is hardcoded as `GitLab`
-  // See: https://gitlab.com/gitlab-org/gitlab/-/issues/345243
-  window.snowplow('trackPageView', {
-    title: 'GitLab',
-    context: [standardContext, ...experimentContexts],
-  });
-  window.snowplow('setDocumentTitle', 'GitLab');
+  if (!window.gl?.onlySendDuoEvents) {
+    window.snowplow('enableActivityTracking', {
+      minimumVisitLength: 30,
+      heartbeatDelay: 30,
+    });
+    // must be after enableActivityTracking
+    const standardContext = getStandardContext();
+    const experimentContexts = getAllExperimentContexts();
+    // To not expose personal identifying information, the page title is hardcoded as `GitLab`
+    // See: https://gitlab.com/gitlab-org/gitlab/-/issues/345243
+    window.snowplow('trackPageView', {
+      title: 'GitLab',
+      context: [standardContext, ...experimentContexts],
+    });
+    window.snowplow('setDocumentTitle', 'GitLab');
 
-  if (window.snowplowOptions.formTracking) {
-    Tracking.enableFormTracking(opts.formTrackingConfig);
+    if (window.snowplowOptions.formTracking) {
+      const opts = { ...DEFAULT_SNOWPLOW_OPTIONS, ...window.snowplowOptions };
+      Tracking.enableFormTracking(opts.formTrackingConfig);
+    }
+
+    if (window.snowplowOptions.linkClickTracking) {
+      window.snowplow('enableLinkClickTracking', {
+        pseudoClicks: true,
+        context: [standardContext, ...experimentContexts],
+      });
+    }
   }
 
-  if (window.snowplowOptions.linkClickTracking) {
-    window.snowplow('enableLinkClickTracking');
-  }
+  Tracking.flushPendingEvents();
 
   Tracking.bindDocument();
   Tracking.trackLoadEvents();

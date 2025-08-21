@@ -1,30 +1,28 @@
 import { GlButton } from '@gitlab/ui';
-import { shallowMount } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
-import component from '~/vue_shared/components/registry/list_item.vue';
+import ListItem from '~/vue_shared/components/registry/list_item.vue';
 
 describe('list item', () => {
   let wrapper;
 
-  const findLeftActionSlot = () => wrapper.find('[data-testid="left-action"]');
-  const findLeftPrimarySlot = () => wrapper.find('[data-testid="left-primary"]');
-  const findLeftSecondarySlot = () => wrapper.find('[data-testid="left-secondary"]');
-  const findLeftAfterToggleSlot = () => wrapper.find('[data-testid="left-after-toggle"]');
-  const findRightPrimarySlot = () => wrapper.find('[data-testid="right-primary"]');
-  const findRightSecondarySlot = () => wrapper.find('[data-testid="right-secondary"]');
-  const findRightActionSlot = () => wrapper.find('[data-testid="right-action"]');
+  const findLeftActionSlot = () => wrapper.findByTestId('left-action');
+  const findLeftPrimarySlot = () => wrapper.findByTestId('left-primary');
+  const findLeftSecondarySlot = () => wrapper.findByTestId('left-secondary');
+  const findRightPrimarySlot = () => wrapper.findByTestId('right-primary');
+  const findRightSecondarySlot = () => wrapper.findByTestId('right-secondary');
+  const findRightActionSlot = () => wrapper.findByTestId('right-action');
   const findDetailsSlot = (name) => wrapper.find(`[data-testid="${name}"]`);
   const findToggleDetailsButton = () => wrapper.findComponent(GlButton);
 
   const mountComponent = (propsData, slots) => {
-    wrapper = shallowMount(component, {
+    wrapper = shallowMountExtended(ListItem, {
       propsData,
       slots: {
         'left-action': '<div data-testid="left-action" />',
         'left-primary': '<div data-testid="left-primary" />',
         'left-secondary': '<div data-testid="left-secondary" />',
-        'left-after-toggle': '<div data-testid="left-after-toggle" />',
         'right-primary': '<div data-testid="right-primary" />',
         'right-secondary': '<div data-testid="right-secondary" />',
         'right-action': '<div data-testid="right-action" />',
@@ -37,14 +35,13 @@ describe('list item', () => {
   };
 
   describe.each`
-    slotName               | finderFunction
-    ${'left-primary'}      | ${findLeftPrimarySlot}
-    ${'left-secondary'}    | ${findLeftSecondarySlot}
-    ${'left-after-toggle'} | ${findLeftAfterToggleSlot}
-    ${'right-primary'}     | ${findRightPrimarySlot}
-    ${'right-secondary'}   | ${findRightSecondarySlot}
-    ${'left-action'}       | ${findLeftActionSlot}
-    ${'right-action'}      | ${findRightActionSlot}
+    slotName             | finderFunction
+    ${'left-primary'}    | ${findLeftPrimarySlot}
+    ${'left-secondary'}  | ${findLeftSecondarySlot}
+    ${'right-primary'}   | ${findRightPrimarySlot}
+    ${'right-secondary'} | ${findRightSecondarySlot}
+    ${'left-action'}     | ${findLeftActionSlot}
+    ${'right-action'}    | ${findRightActionSlot}
   `('$slotName slot', ({ finderFunction, slotName }) => {
     it('exist when the slot is filled', () => {
       mountComponent();
@@ -107,19 +104,14 @@ describe('list item', () => {
         const tooltip = getBinding(findToggleDetailsButton().element, 'gl-tooltip');
 
         expect(tooltip).toBeDefined();
-        expect(findToggleDetailsButton().attributes('title')).toBe(
-          component.i18n.toggleDetailsLabel,
-        );
+        expect(findToggleDetailsButton().attributes('title')).toBe('Show details');
       });
 
       it('has correct attributes and props', () => {
-        expect(findToggleDetailsButton().props()).toMatchObject({
-          selected: false,
-        });
-
         expect(findToggleDetailsButton().attributes()).toMatchObject({
-          title: component.i18n.toggleDetailsLabel,
-          'aria-label': component.i18n.toggleDetailsLabel,
+          'aria-label': 'Show details',
+          icon: 'chevron-down',
+          title: 'Show details',
         });
       });
 
@@ -127,14 +119,11 @@ describe('list item', () => {
         findToggleDetailsButton().vm.$emit('click');
         await nextTick();
 
-        expect(findToggleDetailsButton().props()).toMatchObject({
-          selected: true,
-        });
-
         expect(findToggleDetailsButton().attributes()).toMatchObject({
-          title: component.i18n.toggleDetailsLabel,
-          'aria-label': component.i18n.toggleDetailsLabel,
           'aria-expanded': 'true',
+          'aria-label': 'Hide details',
+          icon: 'chevron-up',
+          title: 'Hide details',
         });
       });
     });
@@ -148,10 +137,10 @@ describe('list item', () => {
   describe('borders and selection', () => {
     it.each`
       first    | selected | shouldHave                                 | shouldNotHave
-      ${true}  | ${true}  | ${['gl-bg-blue-50', 'gl-border-blue-200']} | ${['gl-border-t-transparent', 'gl-border-t-gray-100']}
-      ${false} | ${true}  | ${['gl-bg-blue-50', 'gl-border-blue-200']} | ${['gl-border-t-transparent', 'gl-border-t-gray-100']}
-      ${true}  | ${false} | ${['gl-border-b-gray-100']}                | ${['gl-bg-blue-50', 'gl-border-blue-200']}
-      ${false} | ${false} | ${['gl-border-b-gray-100']}                | ${['gl-bg-blue-50', 'gl-border-blue-200']}
+      ${true}  | ${true}  | ${['gl-bg-blue-50', 'gl-border-blue-200']} | ${['gl-border-t-transparent', 'gl-border-t-default']}
+      ${false} | ${true}  | ${['gl-bg-blue-50', 'gl-border-blue-200']} | ${['gl-border-t-transparent', 'gl-border-t-default']}
+      ${true}  | ${false} | ${['gl-border-b-default']}                 | ${['gl-bg-blue-50', 'gl-border-blue-200']}
+      ${false} | ${false} | ${['gl-border-b-default']}                 | ${['gl-bg-blue-50', 'gl-border-blue-200']}
     `(
       'when first is $first and selected is $selected',
       ({ first, selected, shouldHave, shouldNotHave }) => {

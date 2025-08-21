@@ -30,14 +30,13 @@ module Projects
       end
 
       def use_gitlab_service?
-        container_repository.migrated? &&
-          container_repository.gitlab_api_client.supports_gitlab_api?
+        container_repository.gitlab_api_client.supports_gitlab_api?
       end
 
       def can_destroy?
         return true if container_expiration_policy
 
-        can?(current_user, :destroy_container_image, project)
+        can?(current_user, :destroy_container_image_tag, project)
       end
 
       def valid_regex?

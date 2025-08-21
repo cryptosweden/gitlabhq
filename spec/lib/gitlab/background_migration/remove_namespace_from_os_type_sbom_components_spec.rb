@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::BackgroundMigration::RemoveNamespaceFromOsTypeSbomComponents, feature_category: :software_composition_analysis do
-  let(:components) { table(:sbom_components) }
+RSpec.describe Gitlab::BackgroundMigration::RemoveNamespaceFromOsTypeSbomComponents, schema: 20240909204952, feature_category: :software_composition_analysis do
+  let(:components) { table(:sbom_components, database: :sec) }
   let(:expected) do
     (0...os_prefix_to_purl_type_mapping.size).map { |n| "package-#{n}" }
   end

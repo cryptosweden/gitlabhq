@@ -1,15 +1,17 @@
 ---
 stage: none
 group: unassigned
-info: "See the Technical Writers assigned to Development Guidelines: https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-development-guidelines"
+info: 'See the Technical Writers assigned to Development Guidelines: https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-development-guidelines'
+title: Use ChatOps to enable and disable feature flags
 ---
 
-# Use ChatOps to enable and disable feature flags
+{{< alert type="note" >}}
 
-NOTE:
 This document explains how to contribute to the development of the GitLab product.
 If you want to use feature flags to show and hide functionality in your own applications,
 view [this feature flags information](../../operations/feature_flags.md) instead.
+
+{{< /alert >}}
 
 To turn on/off features behind feature flags in any of the
 GitLab-provided environments, like staging and production, you need to
@@ -32,7 +34,7 @@ When the changes are deployed to the environments it is time to start
 rolling out the feature to our users. The exact procedure of rolling out a
 change is unspecified, as this can vary from change to change. However, in
 general we recommend rolling out changes incrementally, instead of enabling them
-for everybody right away. We also recommend you to _not_ enable a feature
+for everybody right away. We also recommend you to not enable a feature
 _before_ the code is being deployed.
 This allows you to separate rolling out a feature from a deploy, making it
 easier to measure the impact of both separately.
@@ -40,12 +42,11 @@ easier to measure the impact of both separately.
 The GitLab feature library (using
 [Flipper](https://github.com/jnunemaker/flipper), and covered in the
 [Feature flags process](https://handbook.gitlab.com/handbook/product-development-flow/feature-flag-lifecycle/) guide) supports rolling out changes to a percentage of
-time to users. This in turn can be controlled using [GitLab ChatOps](../../ci/chatops/index.md).
+time to users. This in turn can be controlled using [GitLab ChatOps](../../ci/chatops/_index.md).
 
 For an up to date list of feature flag commands see
 [the source code](https://gitlab.com/gitlab-com/chatops/blob/master/lib/chatops/commands/feature.rb).
-Note that all the examples in that file must be preceded by
-`/chatops run`.
+All the examples in that file must be preceded by `/chatops run`.
 
 If you get an error "Whoops! This action is not allowed. This incident
 will be reported." that means your Slack account is not allowed to
@@ -67,21 +68,19 @@ Both of these instances are connected to Sentry so make sure you check the proje
 there for any exceptions while testing your feature after enabling the feature flag.
 
 For these pre-production environments, it's strongly encouraged to run the command in
-`#staging`, `#production`, or `#chatops-ops-test`, for improved visibility.
+`#staging`, `#production`, or `#chat-ops-test`, for improved visibility.
 
-#### Enabling the feature flag with percentage of time
+#### Enabling the feature flag for a given percentage of actors
 
-To enable a feature for 25% of the time, run the following in Slack:
+To enable a feature 25% of the time for any given actor, run the following in Slack:
 
 ```shell
-/chatops run feature set new_navigation_bar 25 --random --dev
-/chatops run feature set new_navigation_bar 25 --random --staging
+/chatops run feature set new_navigation_bar 25 --actors --dev
+/chatops run feature set new_navigation_bar 25 --actors --staging
 ```
 
-NOTE:
-Percentage of time feature flags are deprecated in favor of [percentage of actors](#percentage-based-actor-selection).
-If you understand the consequences of using percentage of time feature flags, you can force it using
-`--ignore-random-deprecation-check`.
+See [percentage of actors](#percentage-based-actor-selection) for your choices of actors
+for which you would like to randomize the rollout.
 
 ### Enabling a feature for GitLab.com
 
@@ -101,8 +100,8 @@ This depends on the feature and what sort of impact it might have.
 
 Guidelines:
 
-- Consider notifying `#support_gitlab-com` beforehand. So in case if the feature has any side effects on user experience, they can mitigate and disable the feature flag to reduce some impact.
-- If the feature meets the requirements for creating a [Change Management](https://handbook.gitlab.com/handbook/engineering/infrastructure/change-management/#feature-flags-and-the-change-management-process) issue, create a Change Management issue per [criticality guidelines](https://handbook.gitlab.com/handbook/engineering/infrastructure/change-management/#change-request-workflows).
+- Notify `#support_gitlab-com` beforehand. So in case if the feature has any side effects on user experience, they can mitigate and disable the feature flag to reduce some impact.
+- If the feature meets the requirements for creating a [Change Management](https://handbook.gitlab.com/handbook/engineering/infrastructure-platforms/change-management/#feature-flags-and-the-change-management-process) issue, create a Change Management issue per [criticality guidelines](https://handbook.gitlab.com/handbook/engineering/infrastructure-platforms/change-management/#change-request-workflows).
 - For simple, low-risk, easily reverted features, proceed and [enable the feature in `#production`](#process).
 - For support requests to toggle feature flags for specific groups or projects, follow the process outlined in the [support workflows](https://handbook.gitlab.com/handbook/support/workflows/saas_feature_flags/).
 
@@ -121,17 +120,15 @@ in these cases:
 
 ##### A. Feature flag for an operation that runs a few times per day
 
-Let's say you are releasing a new functionality that runs a few times per day, for example, in a daily or
-hourly cron job. And this new functionality is controlled by the newly introduced feature flag.
+If, for example, you're releasing a new feature that runs a few times per day in a cron job, and the feature is controlled by the newly introduced feature flag.
 For example, [rewriting the database query for a cron job](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/128759/diffs).
 In this case, releasing the feature flag for a percentage below 25% might give you slow feedback
-regarding whether to proceed with the rollout or not. Also, if the cron job fails, it will [retry](../sidekiq/index.md#retries).
+regarding whether to proceed with the rollout or not. Also, if the cron job fails, it [retries](../sidekiq/_index.md#retries).
 So the consequences of something going wrong won't be that big. In this case, releasing with a percentage of 25% or 50%
 will be an acceptable choice.
 
-But you have to make sure to log the result of the feature flag check to the log of your worker. See instructions
-[here](../logging.md#logging-context-metadata-through-rails-or-grape-requests)
-about best practices for logging.
+But you have to make sure to log the result of the feature flag check to the log of your worker. For more instructions about best practices for logging, see
+[Logging context metadata (through Rails or Grape requests)](../logging.md#logging-context-metadata-through-rails-or-grape-requests).
 
 ##### B. Feature flag for an operation that runs hundreds or thousands times per day
 
@@ -140,7 +137,7 @@ it might not be run often. In this case, choose a percentage high enough to coll
 to know whether to proceed or not. You can consider starting with `5%` or `10%` in this case, while monitoring
 the logs for any errors, or returned `500`s statuses to the users.
 
-But as you continue with the rollout and increasing the percentage, you will need to consider looking at the
+But as you continue with the rollout and increase the percentage, you need to consider looking at the
 performance impact of the feature. You can consider monitoring
 the [Latency: Apdex and error ratios](https://dashboards.gitlab.net/d/general-triage/general-platform-triage?orgId=1)
 dashboard on Grafana.
@@ -198,38 +195,14 @@ incidents or in-progress change issues, for example:
   2021-06-29 Canary deployment failing QA tests
 ```
 
-Before enabling a feature flag, verify that you are not violating any [Production Change Lock periods](https://handbook.gitlab.com/handbook/engineering/infrastructure/change-management/#production-change-lock-pcl) and are in compliance with the [Feature flags and the Change Management Process](https://handbook.gitlab.com/handbook/engineering/infrastructure/change-management/#feature-flags-and-the-change-management-process).
+Before enabling a feature flag, verify that you are not violating any [Production Change Lock periods](https://handbook.gitlab.com/handbook/engineering/infrastructure-platforms/change-management/#production-change-lock-pcl) and are in compliance with the [Feature flags and the Change Management Process](https://handbook.gitlab.com/handbook/engineering/infrastructure-platforms/change-management/#feature-flags-and-the-change-management-process).
 
-The following `/chatops` commands should be performed in the Slack
+The following `/chatops` commands must be performed in the Slack
 `#production` channel.
 
-When you begin to enable the feature, link to the relevant
-feature flag rollout issue within a Slack thread of the first `/chatops`
-command you make so people can understand the change if they need to.
+##### Percentage of actors roll out
 
-To enable a feature for 25% of the time, run the following in Slack:
-
-```shell
-/chatops run feature set new_navigation_bar 25 --random
-```
-
-NOTE:
-Percentage of time feature flags are deprecated in favor of [percentage of actors](#percentage-based-actor-selection).
-If you understand the consequences of using percentage of time feature flags, you can force it using
-`--ignore-random-deprecation-check`.
-
-This sets a feature flag to `true` based on the following formula:
-
-```ruby
-feature_flag_state = rand < (25 / 100.0)
-```
-
-This will enable the feature for GitLab.com, with `new_navigation_bar` being the
-name of the feature.
-This command does *not* enable the feature for 25% of the total users.
-Instead, when the feature is checked with `enabled?`, it will return `true` 25% of the time.
-
-To enable a feature for 25% of actors such as users, projects, or groups,
+To enable a feature for 25% of actors such as users, projects, groups or the current request or job,
 run the following in Slack:
 
 ```shell
@@ -287,7 +260,7 @@ You can use the `--user` option to enable a feature flag for a specific user:
 If you would like to gather feedback internally first,
 feature flags scoped to a user can also be enabled
 for GitLab team members with the `gitlab_team_members`
-[feature group](index.md#feature-groups):
+[feature group](_index.md#feature-groups):
 
 ```shell
 /chatops run feature set --feature-group=gitlab_team_members some_feature true
@@ -307,7 +280,7 @@ generic namespace (including groups) use `--namespace`:
 /chatops run feature set --namespace=myusername some_feature true
 ```
 
-Note that actor-based gates are applied before percentages. For example, considering the
+Actor-based gates are applied before percentages. For example, considering the
 `group/project` as `gitlab-org/gitlab` and a given example feature as `some_feature`, if
 you run these 2 commands:
 
@@ -361,14 +334,28 @@ When the `default_enabled` attribute in the YAML definition is switched to
 /chatops run feature delete some_feature
 ```
 
-##### Percentage of actors vs percentage of time rollouts
+##### Percentage of time roll out (deprecated)
 
-If you want to make sure a feature is always on or off for users, use a **Percentage of actors**
-rollout. Avoid using percentage of _time_ rollouts in this case.
+Previously, to enable a feature 25% of the time, we would run the following in Slack:
 
-A percentage of _time_ rollout can introduce inconsistent behavior when `Feature.enabled?`
-is used multiple times in the code because the feature flag value is randomized each time
-`Feature.enabled?` is called on your code path.
+```shell
+/chatops run feature set new_navigation_bar 25 --random
+```
+
+This command enables the `new_navigation_bar` feature for GitLab.com. However, this command does not enable the feature for 25% of the total users.
+Instead, when the feature is checked with `enabled?`, it returns `true` 25% of the time.
+
+Percentage of time feature flags are now deprecated in favor of [percentage of actors](#percentage-based-actor-selection)
+using the `Feature.current_request` actor. The problem with not using an actor is that the randomized
+choice evaluates for each call into `Feature.enabled?` rather than once per request or job execution,
+which can lead to flip-flopping between states. For example:
+
+```ruby
+feature_flag_state = rand < (25 / 100.0)
+```
+
+For the time being, we continue to allow use of percentage of time feature flags.
+During rollout, you can force it using the `--ignore-random-deprecation-check` switch in ChatOps.
 
 ##### Disabling feature flags
 
@@ -438,7 +425,7 @@ After turning on the feature flag, you need to [monitor the relevant graphs](htt
 
 In this illustration, you can see that the Apdex score started to decline after the feature flag was enabled at `09:46`. The feature flag was then deactivated at `10:31`, and the service returned to the original value:
 
-![Feature flag metrics](../img/feature-flag-metrics.png)
+![A line graph showing the decline and recovery of the Apdex score](img/feature-flag-metrics_v15_8.png)
 
 Certain features necessitate extensive monitoring over multiple days, particularly those that are high-risk and critical to business operations. In contrast, other features may only require a 24-hour monitoring period before continuing with the rollout.
 
@@ -466,7 +453,7 @@ Changes to the issue format can be submitted in the
 #### Instance level
 
 Any feature flag change that affects any GitLab instance is automatically logged in
-[features_json.log](../../administration/logs/index.md#features_jsonlog).
+[features_json.log](../../administration/logs/_index.md#features_jsonlog).
 You can search the change history in [Kibana](https://handbook.gitlab.com/handbook/support/workflows/kibana/).
 You can also access the feature flag change history for GitLab.com [in Kibana](https://log.gprd.gitlab.net/goto/d060337c017723084c6d97e09e591fc6).
 
@@ -478,7 +465,7 @@ and reduces confidence in our testing suite covering all possible combinations.
 Additionally, a feature flag overwritten in some of the environments can result
 in undefined and untested system behavior.
 
-`development` type feature flags should have a short life-cycle because their purpose
+`development` type feature flags should have a short lifecycle because their purpose
 is for rolling out a persistent change. `development` feature flags that are older
 than 2 milestones are reported to engineering managers. The
 [report tool](https://gitlab.com/gitlab-org/gitlab-feature-flag-alert) runs on a
@@ -515,3 +502,22 @@ The record can be deleted once the MR is deployed to all the environments:
 ```shell
 /chatops run feature delete <feature-flag-name> --dev --pre --staging --staging-ref --production
 ```
+
+## Checking feature flag status
+
+You can use the following ChatOps command to see a feature flag's current state:
+
+```shell
+/chatops run feature get <feature-flag-name>
+```
+
+Since this is a read-only command, you can avoid cluttering the production channels by either:
+
+- Running it in the `#chat-ops-test` Slack channel
+- Sending it as a direct message to the ChatOps bot
+
+The result of this command will display:
+
+- Whether the feature flag exists
+- Its current state (enabled/disabled)
+- Any percentage rollouts or actor-based gates that are configured

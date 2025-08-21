@@ -11,15 +11,15 @@ RSpec.describe Ci::Catalog::Resource, feature_category: :pipeline_composition do
 
   let_it_be_with_reload(:resource_a) do
     create(:ci_catalog_resource, project: project_a, latest_released_at: '2023-02-01T00:00:00Z',
-      last_30_day_usage_count: 150)
+      last_30_day_usage_count: 150, verification_level: 100)
   end
 
   let_it_be(:resource_b) do
     create(:ci_catalog_resource, project: project_b, latest_released_at: '2023-01-01T00:00:00Z',
-      last_30_day_usage_count: 100)
+      last_30_day_usage_count: 100, verification_level: 10)
   end
 
-  let_it_be(:resource_c) { create(:ci_catalog_resource, project: project_c) }
+  let_it_be(:resource_c) { create(:ci_catalog_resource, project: project_c, verification_level: 50) }
 
   it { is_expected.to belong_to(:project) }
 
@@ -30,7 +30,7 @@ RSpec.describe Ci::Catalog::Resource, feature_category: :pipeline_composition do
 
   it do
     is_expected.to(
-      have_many(:component_usages).class_name('Ci::Catalog::Resources::Components::Usage')
+      have_many(:component_last_usages).class_name('Ci::Catalog::Resources::Components::LastUsage')
         .with_foreign_key(:catalog_resource_id))
   end
 
@@ -46,6 +46,7 @@ RSpec.describe Ci::Catalog::Resource, feature_category: :pipeline_composition do
 
   it { is_expected.to delegate_method(:avatar_path).to(:project) }
   it { is_expected.to delegate_method(:star_count).to(:project) }
+  it { is_expected.to delegate_method(:archived).to(:project) }
 
   it { is_expected.to define_enum_for(:state).with_values({ unpublished: 0, published: 1 }) }
 
@@ -159,6 +160,42 @@ RSpec.describe Ci::Catalog::Resource, feature_category: :pipeline_composition do
       ordered_resources = described_class.order_by_last_30_day_usage_count_asc
 
       expect(ordered_resources).to eq([resource_c, resource_b, resource_a])
+    end
+  end
+
+  describe '.for_verification_level' do
+    it 'returns catalog resources for required verification_level' do
+      verified_resources = described_class
+        .for_verification_level(Ci::Catalog::VerifiedNamespace::VERIFICATION_LEVELS[:gitlab_maintained])
+
+      expect(verified_resources).to eq([resource_a])
+    end
+  end
+
+  describe '.with_topics' do
+    let_it_be(:topic_ruby) { create(:topic, name: 'ruby') }
+    let_it_be(:topic_rails) { create(:topic, name: 'rails') }
+    let_it_be(:topic_gitlab) { create(:topic, name: 'gitlab') }
+
+    before_all do
+      create(:project_topic, project: project_a, topic: topic_ruby)
+      create(:project_topic, project: project_a, topic: topic_rails)
+      create(:project_topic, project: project_b, topic: topic_gitlab)
+    end
+
+    it 'returns resources with projects matching any of the given topic names' do
+      expect(described_class.with_topics(%w[ruby gitlab]))
+        .to contain_exactly(resource_a, resource_b)
+    end
+
+    it 'returns a resource only once even if it matches multiple topics' do
+      expect(described_class.with_topics(%w[ruby rails]))
+        .to contain_exactly(resource_a)
+    end
+
+    it 'returns no resources when searching for non-existent topics' do
+      expect(described_class.with_topics(%w[nonexistent]))
+        .to be_empty
     end
   end
 

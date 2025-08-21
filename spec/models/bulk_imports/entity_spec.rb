@@ -3,12 +3,12 @@
 require 'spec_helper'
 
 RSpec.describe BulkImports::Entity, type: :model, feature_category: :importers do
-  subject { described_class.new(group: Group.new) }
+  subject { build(:bulk_import_entity, group: Group.new) }
 
   describe 'associations' do
     it { is_expected.to belong_to(:bulk_import).required }
     it { is_expected.to belong_to(:parent) }
-    it { is_expected.to belong_to(:group).optional.with_foreign_key(:namespace_id).inverse_of(:bulk_import_entities) }
+    it { is_expected.to belong_to(:group).with_foreign_key(:namespace_id).inverse_of(:bulk_import_entities) }
     it { is_expected.to belong_to(:project) }
 
     it do
@@ -43,70 +43,120 @@ RSpec.describe BulkImports::Entity, type: :model, feature_category: :importers d
         entity = build(:bulk_import_entity, group: build(:group), project: build(:project))
 
         expect(entity).not_to be_valid
-        expect(entity.errors).to include(:project, :group)
+
+        expect(entity.errors[:base])
+          .to include('Import failed. The bulk import entity must belong to only one organization, group, or project.')
       end
     end
 
-    context 'when not associated with a group or project' do
-      it 'is valid' do
-        entity = build(:bulk_import_entity, group: nil, project: nil)
+    context 'when associated with a group and organization' do
+      it 'is invalid' do
+        entity = build(:bulk_import_entity, organization: build(:organization), group: build(:group))
 
-        expect(entity).to be_valid
+        expect(entity).not_to be_valid
+
+        expect(entity.errors[:base])
+          .to include('Import failed. The bulk import entity must belong to only one organization, group, or project.')
       end
     end
 
-    context 'when associated with a group and no project' do
+    context 'when associated with a project and organization' do
+      it 'is invalid' do
+        entity = build(:bulk_import_entity, organization: build(:organization), project: build(:project))
+
+        expect(entity).not_to be_valid
+
+        expect(entity.errors[:base])
+          .to include('Import failed. The bulk import entity must belong to only one organization, group, or project.')
+      end
+    end
+
+    context 'when not associated with a group or project or organization' do
+      it 'is not valid' do
+        entity = build(:bulk_import_entity, :without_organization, group: nil, project: nil)
+
+        expect(entity).not_to be_valid
+
+        expect(entity.errors[:base])
+          .to include('Import failed. The bulk import entity must belong to only one organization, group, or project.')
+      end
+    end
+
+    context 'when associated with a group and no project or organization' do
+      let(:associations) { { group: build(:group), project: nil, organization: nil } }
+
       it 'is valid as a group_entity' do
-        entity = build(:bulk_import_entity, :group_entity, group: build(:group), project: nil)
+        entity = build(:bulk_import_entity, :group_entity, **associations)
         expect(entity).to be_valid
       end
 
       it 'is valid when destination_namespace is empty' do
-        entity = build(:bulk_import_entity, :group_entity, group: build(:group), project: nil, destination_namespace: '')
+        entity = build(:bulk_import_entity, :group_entity, **associations, destination_namespace: '')
         expect(entity).to be_valid
       end
 
       it 'is invalid when destination_namespace is nil' do
-        entity = build(:bulk_import_entity, :group_entity, group: build(:group), project: nil, destination_namespace: nil)
+        entity = build(:bulk_import_entity, :group_entity, **associations, destination_namespace: nil)
         expect(entity).not_to be_valid
       end
 
       it 'is invalid when destination_slug is empty' do
-        entity = build(:bulk_import_entity, :group_entity, group: build(:group), project: nil, destination_slug: '')
+        entity = build(:bulk_import_entity, :group_entity, **associations, destination_slug: '')
         expect(entity).not_to be_valid
       end
 
       it 'is invalid when destination_slug is nil' do
-        entity = build(:bulk_import_entity, :group_entity, group: build(:group), project: nil, destination_slug: nil)
+        entity = build(:bulk_import_entity, :group_entity, **associations, destination_slug: nil)
         expect(entity).not_to be_valid
       end
 
       it 'is invalid as a project_entity' do
-        entity = build(:bulk_import_entity, :project_entity, group: build(:group), project: nil)
+        entity = build(:bulk_import_entity, :project_entity, **associations)
 
         expect(entity).not_to be_valid
         expect(entity.errors).to include(:group)
       end
     end
 
-    context 'when associated with a project and no group' do
+    context 'when associated with a project and no group or organization' do
+      let(:associations) { { project: build(:project), group: nil, organization: nil } }
+
       it 'is valid' do
-        entity = build(:bulk_import_entity, :project_entity, group: nil, project: build(:project))
+        entity = build(:bulk_import_entity, :project_entity, **associations)
 
         expect(entity).to be_valid
       end
 
       it 'is invalid when destination_namespace is nil' do
-        entity = build(:bulk_import_entity, :group_entity, group: build(:group), project: nil, destination_namespace: nil)
+        entity = build(:bulk_import_entity, :project_entity, **associations, destination_namespace: nil)
         expect(entity).not_to be_valid
         expect(entity.errors).to include(:destination_namespace)
       end
 
-      it 'is invalid as a project_entity' do
-        entity = build(:bulk_import_entity, :group_entity, group: nil, project: build(:project))
+      it 'is invalid as a group_entity' do
+        entity = build(:bulk_import_entity, :group_entity, **associations)
 
         expect(entity).not_to be_valid
         expect(entity.errors).to include(:project)
+      end
+    end
+
+    context 'when associated with an organization and no group or project' do
+      let_it_be(:organization) { build(:organization) }
+      let_it_be(:bulk_import) { build(:bulk_import, organization:) }
+
+      let(:associations) { { project: nil, group: nil, organization: organization, bulk_import: bulk_import } }
+
+      it 'is valid as a project_entity' do
+        entity = build(:bulk_import_entity, :project_entity, **associations)
+
+        expect(entity).to be_valid
+      end
+
+      it 'is valid as a group_entity' do
+        entity = build(:bulk_import_entity, :group_entity, **associations)
+
+        expect(entity).to be_valid
       end
     end
 
@@ -128,42 +178,123 @@ RSpec.describe BulkImports::Entity, type: :model, feature_category: :importers d
     end
 
     context 'validate destination namespace of a group_entity' do
-      it 'is invalid if destination namespace is the source namespace' do
-        group_a = create(:group, path: 'group_a')
-
-        entity = build(
-          :bulk_import_entity,
-          :group_entity,
-          source_full_path: group_a.full_path,
-          destination_namespace: group_a.full_path
-        )
-
-        expect(entity).not_to be_valid
-        expect(entity.errors).to include(:base)
-        expect(entity.errors[:base])
-          .to include('Import failed: Destination cannot be a subgroup of the source group. Change the destination and try again.')
+      let_it_be(:bulk_import) do
+        create(:bulk_import, configuration: create(:bulk_import_configuration, url: 'http://example.gitlab.com'))
       end
 
-      it 'is invalid if destination namespace is a descendant of the source' do
-        group_a = create(:group, path: 'group_a')
-        group_b = create(:group, parent: group_a, path: 'group_b')
+      context 'when source instance and destination instance are the same' do
+        before do
+          allow(Settings.gitlab).to receive(:host).and_return('example.gitlab.com')
+        end
 
-        entity = build(
-          :bulk_import_entity,
-          :group_entity,
-          source_full_path: group_a.full_path,
-          destination_namespace: group_b.full_path
-        )
+        it 'is invalid if destination namespace is the source namespace' do
+          group_a = create(:group, path: 'group_a')
 
-        expect(entity).not_to be_valid
-        expect(entity.errors[:base])
-          .to include('Import failed: Destination cannot be a subgroup of the source group. Change the destination and try again.')
+          entity = build(
+            :bulk_import_entity,
+            :group_entity,
+            source_full_path: group_a.full_path,
+            destination_namespace: group_a.full_path,
+            bulk_import: bulk_import
+          )
+
+          expect(entity).not_to be_valid
+          expect(entity.errors).to include(:base)
+          expect(entity.errors[:base])
+            .to include('Import failed. The destination cannot be a subgroup of the source group. Change the destination and try again.')
+        end
+
+        it 'is invalid if destination namespace is a descendant of the source' do
+          group_a = create(:group, path: 'group_a')
+          group_b = create(:group, parent: group_a, path: 'group_b')
+
+          entity = build(
+            :bulk_import_entity,
+            :group_entity,
+            source_full_path: group_a.full_path,
+            destination_namespace: group_b.full_path,
+            bulk_import: bulk_import
+          )
+
+          expect(entity).not_to be_valid
+          expect(entity.errors[:base])
+            .to include('Import failed. The destination cannot be a subgroup of the source group. Change the destination and try again.')
+        end
+      end
+
+      context 'when source instance and destination instance are not the same' do
+        it 'is valid if destination namespace is the source namespace' do
+          group_a = create(:group, path: 'group_a')
+
+          entity = build(
+            :bulk_import_entity,
+            :group_entity,
+            source_full_path: group_a.full_path,
+            destination_namespace: group_a.full_path,
+            bulk_import: bulk_import
+          )
+
+          expect(entity).to be_valid
+        end
       end
     end
 
     context 'when source_type is a project_entity' do
       it 'is valid' do
         entity = build(:bulk_import_entity, :project_entity)
+
+        expect(entity).to be_valid
+      end
+    end
+
+    context 'when the organization does not match the bulk_import organization' do
+      let(:organization) { build(:organization) }
+      let(:second_organization) { build(:organization) }
+
+      let(:bulk_import) { build(:bulk_import, organization:) }
+
+      it 'is not valid' do
+        # Set the organization manually, rather than with the factory, which would ensure the orgs match
+        entity = build(:bulk_import_entity, :without_organization, organization: second_organization, bulk_import: bulk_import)
+
+        expect(entity).not_to be_valid
+
+        expect(entity.errors[:organization_id])
+          .to include("must match the bulk import organization's ID")
+      end
+    end
+
+    context 'when the entity does not have an organization' do
+      let(:organization) { build(:organization) }
+
+      let(:bulk_import) { build(:bulk_import, organization:) }
+
+      it 'does not add an exception relating to the incorrect organization_id' do
+        entity = build(:bulk_import_entity, organization: nil, bulk_import: bulk_import)
+
+        entity.validate
+
+        expect(entity.errors).not_to include(:organization_id)
+      end
+    end
+
+    context 'when the entity does not have a bulk_import' do
+      it 'does not add an exception relating to the incorrect organization_id' do
+        entity = build(:bulk_import_entity, bulk_import: nil)
+
+        entity.validate
+
+        expect(entity.errors).not_to include(:organization_id)
+      end
+    end
+
+    context 'when the organization matches the bulk_import organization' do
+      let(:organization) { build(:organization) }
+
+      let(:bulk_import) { build(:bulk_import, organization:) }
+
+      it 'is valid' do
+        entity = build(:bulk_import_entity, organization:, bulk_import:)
 
         expect(entity).to be_valid
       end

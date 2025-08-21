@@ -15,7 +15,7 @@ RSpec.describe Groups::AutocompleteService, feature_category: :groups_and_projec
   end
 
   def expect_labels_to_equal(labels, expected_labels)
-    extract_title = lambda { |label| label['title'] }
+    extract_title = ->(label) { label['title'] }
     expect(labels.map(&extract_title)).to match_array(expected_labels.map(&extract_title))
   end
 
@@ -32,21 +32,51 @@ RSpec.describe Groups::AutocompleteService, feature_category: :groups_and_projec
 
       expect_labels_to_equal(results, expected_labels)
     end
+
+    context 'with archived labels' do
+      let!(:archived_label) { create(:group_label, :archived, group: group) }
+
+      it 'does not return archived labels' do
+        results = subject.labels_as_hash(nil)
+
+        expected_labels = [label1, label2, parent_group_label]
+
+        expect_labels_to_equal(results, expected_labels)
+      end
+
+      context 'with feature flag labels_archive disabled' do
+        before do
+          stub_feature_flags(labels_archive: false)
+        end
+
+        it 'returns archived labels as well' do
+          results = subject.labels_as_hash(nil)
+
+          expected_labels = [label1, label2, parent_group_label, archived_label]
+
+          expect_labels_to_equal(results, expected_labels)
+        end
+      end
+    end
   end
 
   describe '#issues' do
-    let(:project) { create(:project, group: group) }
-    let(:sub_group_project) { create(:project, group: sub_group) }
+    let_it_be(:project) { create(:project, group: group) }
+    let_it_be(:sub_group_project) { create(:project, group: sub_group) }
 
-    let!(:project_issue) { create(:issue, project: project) }
-    let!(:sub_group_project_issue) { create(:issue, confidential: true, project: sub_group_project) }
+    let_it_be(:project_issue) { create(:issue, project: project) }
+    let_it_be(:sub_group_project_issue) { create(:issue, confidential: true, project: sub_group_project) }
 
     it 'returns issues in group and subgroups' do
       issues = subject.issues
 
-      expect(issues.map(&:iid)).to contain_exactly(project_issue.iid, sub_group_project_issue.iid)
-      expect(issues.map(&:title)).to contain_exactly(project_issue.title, sub_group_project_issue.title)
-      expect(issues.map(&:icon_name)).to contain_exactly('issue-type-issue', 'issue-type-issue')
+      expect(issues.map(&:iid)).to contain_exactly(
+        project_issue.iid, sub_group_project_issue.iid
+      )
+      expect(issues.map(&:title)).to contain_exactly(
+        project_issue.title, sub_group_project_issue.title
+      )
+      expect(issues.map(&:icon_name).uniq).to contain_exactly('issue-type-issue')
     end
 
     it 'returns only confidential issues if confidential_only is true' do
@@ -54,6 +84,23 @@ RSpec.describe Groups::AutocompleteService, feature_category: :groups_and_projec
 
       expect(issues.map(&:iid)).to contain_exactly(sub_group_project_issue.iid)
       expect(issues.map(&:title)).to contain_exactly(sub_group_project_issue.title)
+    end
+
+    context 'when search param is given' do
+      let_it_be(:issue_8) { create(:issue, project: project, iid: 8) }
+      let_it_be(:issue_80) { create(:work_item, project: project, iid: 80) }
+      let_it_be(:issue_800) { create(:work_item, project: project, iid: 800) }
+      let_it_be(:issue_8000) { create(:issue, project: sub_group_project, iid: 8000) }
+      let_it_be(:issue_80000) { create(:issue, project: sub_group_project, iid: 80000) }
+      let_it_be(:issue_90000) { create(:issue, project: project, title: 'gitlab issue 8', iid: 90000) }
+
+      it 'returns limited list of matching issues' do
+        autocomplete = described_class.new(group, user, { search: '8' })
+
+        issue_iids = autocomplete.issues.map(&:iid)
+
+        expect(issue_iids).to eq([90000, 80000, 8000, 800, 80])
+      end
     end
   end
 

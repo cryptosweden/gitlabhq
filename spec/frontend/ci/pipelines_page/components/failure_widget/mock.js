@@ -20,9 +20,6 @@ export const job = {
     id: '1',
     name: 'build',
   },
-  trace: {
-    htmlSummary: '<h1>Hello</h1>',
-  },
   userPermissions: {
     readBuild: true,
     updateBuild: true,
@@ -35,7 +32,7 @@ export const allowedToFailJob = {
   allowFailure: true,
 };
 
-export const createFailedJobsMockCount = ({ count = 4, active = false } = {}) => {
+export const createFailedJobsMockCount = (count = 4, active = false) => {
   return {
     data: {
       project: {
@@ -76,3 +73,6 @@ export const failedJobsMockEmpty = createFailedJobsMock([]);
 export const activeFailedJobsMock = createFailedJobsMock([allowedToFailJob, job], true);
 
 export const failedJobsMock2 = createFailedJobsMock([job]);
+
+export const failedJobsCountMock = createFailedJobsMockCount();
+export const failedJobsCountMockActive = createFailedJobsMockCount(4, true);

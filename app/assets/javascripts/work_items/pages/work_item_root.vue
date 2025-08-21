@@ -1,12 +1,14 @@
 <script>
 import { GlAlert } from '@gitlab/ui';
 import { visitUrl } from '~/lib/utils/url_utility';
+import { s__, sprintf } from '~/locale';
 import ZenMode from '~/zen_mode';
 import WorkItemDetail from '../components/work_item_detail.vue';
 import {
-  sprintfWorkItem,
   I18N_WORK_ITEM_ERROR_DELETING,
-  I18N_WORK_ITEM_DELETED,
+  NAME_TO_TEXT_LOWERCASE_MAP,
+  NAME_TO_TEXT_MAP,
+  WORK_ITEM_TYPE_NAME_EPIC,
 } from '../constants';
 import deleteWorkItemMutation from '../graphql/delete_work_item.mutation.graphql';
 
@@ -15,9 +17,13 @@ export default {
     GlAlert,
     WorkItemDetail,
   },
-  inject: ['issuesListPath'],
+  inject: { issuesListPath: 'issuesListPath', epicsListPath: { default: '' } },
   props: {
     iid: {
+      type: String,
+      required: true,
+    },
+    rootPageFullPath: {
       type: String,
       required: true,
     },
@@ -48,12 +54,20 @@ export default {
             throw new Error(workItemDelete.errors[0]);
           }
 
-          const msg = sprintfWorkItem(I18N_WORK_ITEM_DELETED, workItemType);
+          const msg = sprintf(s__('WorkItem|%{workItemType} deleted'), {
+            workItemType: NAME_TO_TEXT_MAP[workItemType],
+          });
           this.$toast.show(msg);
-          visitUrl(this.issuesListPath);
+          visitUrl(
+            workItemType === WORK_ITEM_TYPE_NAME_EPIC ? this.epicsListPath : this.issuesListPath,
+          );
         })
         .catch((e) => {
-          this.error = e.message || sprintfWorkItem(I18N_WORK_ITEM_ERROR_DELETING, workItemType);
+          this.error =
+            e.message ||
+            sprintf(I18N_WORK_ITEM_ERROR_DELETING, {
+              workItemType: NAME_TO_TEXT_LOWERCASE_MAP[this.workItemType],
+            });
         });
     },
   },
@@ -63,6 +77,10 @@ export default {
 <template>
   <div>
     <gl-alert v-if="error" variant="danger" @dismiss="error = ''">{{ error }}</gl-alert>
-    <work-item-detail :work-item-iid="iid" @deleteWorkItem="deleteWorkItem($event)" />
+    <work-item-detail
+      :work-item-full-path="rootPageFullPath"
+      :work-item-iid="iid"
+      @deleteWorkItem="deleteWorkItem($event)"
+    />
   </div>
 </template>

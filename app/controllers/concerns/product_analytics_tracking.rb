@@ -5,7 +5,9 @@ module ProductAnalyticsTracking
   extend ActiveSupport::Concern
 
   class_methods do
-    def track_event(*controller_actions, name:, action: nil, label: nil, conditions: nil, destinations: [:redis_hll], &block)
+    def track_event(
+      *controller_actions, name:, action: nil, label: nil, conditions: nil, destinations: [:redis_hll],
+      &block)
       custom_conditions = [:trackable_html_request?, *conditions]
 
       after_action only: controller_actions, if: custom_conditions do
@@ -17,12 +19,23 @@ module ProductAnalyticsTracking
       custom_conditions = [:trackable_html_request?, *conditions]
 
       after_action only: controller_actions, if: custom_conditions do
+        additional_properties = event_args[:additional_properties]
+        additional_properties =
+          if additional_properties.respond_to?(:call)
+            additional_properties.call(self) || {}
+          elsif additional_properties.is_a?(Hash)
+            additional_properties
+          else
+            {}
+          end
+
         Gitlab::InternalEvents.track_event(
           name,
           user: current_user,
           project: tracking_project_source,
           namespace: tracking_namespace_source,
-          **event_args.compact
+          **event_args.except(:additional_properties),
+          additional_properties: additional_properties
         )
       end
     end

@@ -10,6 +10,7 @@ export const rawMockData = {
   minimumPasswordLengthHelpLink: 'help/link',
   domainAllowlistRaw: 'domain1.com, domain2.com',
   newUserSignupsCap: '8',
+  seatControl: '1',
   domainDenylistEnabled: 'true',
   denylistTypeRawSelected: 'true',
   domainDenylistRaw: 'domain2.com, domain3.com',
@@ -22,6 +23,11 @@ export const rawMockData = {
   passwordLowercaseRequired: 'true',
   passwordUppercaseRequired: 'true',
   passwordSymbolRequired: 'true',
+  promotionManagementAvailable: 'true',
+  enableMemberPromotionManagement: 'true',
+  canDisableMemberPromotionManagement: false,
+  rolePromotionRequestsPath: '/admin/role_promotion',
+  licensedUserCount: '',
 };
 
 export const mockData = {
@@ -36,6 +42,7 @@ export const mockData = {
   minimumPasswordLengthHelpLink: 'help/link',
   domainAllowlistRaw: 'domain1.com, domain2.com',
   newUserSignupsCap: '8',
+  seatControl: '1',
   domainDenylistEnabled: true,
   denylistTypeRawSelected: true,
   domainDenylistRaw: 'domain2.com, domain3.com',
@@ -48,4 +55,9 @@ export const mockData = {
   passwordLowercaseRequired: true,
   passwordUppercaseRequired: true,
   passwordSymbolRequired: true,
+  promotionManagementAvailable: true,
+  enableMemberPromotionManagement: true,
+  canDisableMemberPromotionManagement: false,
+  rolePromotionRequestsPath: '/admin/role_promotion',
+  licensedUserCount: '',
 };

@@ -2,9 +2,8 @@
 stage: none
 group: unassigned
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Deprecation terms
 ---
-
-# Deprecation terms
 
 ## Deprecation
 
@@ -15,7 +14,7 @@ info: To determine the technical writer assigned to the Stage/Group associated w
 - Begins after a deprecation announcement outlining an end-of-support or removal date.
 - Ends after the end-of-support date or removal date has passed.
 
-## End of Support
+## End of support
 
 - Optional step before removal.
 - Feature usage strongly discouraged.
@@ -24,7 +23,7 @@ info: To determine the technical writer assigned to the Stage/Group associated w
 - Will be removed in a future major release.
 - Begins after an end-of-support date has passed.
 
-[Announcing an End of Support period](https://handbook.gitlab.com/handbook/marketing/blog/release-posts/#announcing-an-end-of-support-period)
+Announcing an end-of-support period
 should only be used in special circumstances and is not recommended for general use.
 Most features should be deprecated and then removed.
 
@@ -38,10 +37,30 @@ Most features should be deprecated and then removed.
 
 ## Breaking change
 
-A "breaking change" is any change that requires users to make a corresponding change to their code, settings, or workflow. "Users" might be humans, API clients, or even code classes that "use" another class. Examples of breaking changes include:
+Any change counts as a breaking change if customers need to take action to ensure their GitLab workflows aren't disrupted.
 
-- Removing a user-facing feature without a replacement/workaround.
-- Changing the definition of an existing API (by doing things like re-naming query parameters or changing routes).
-- Removing a public method from a code class.
+A breaking change could come from sources such as:
 
-A breaking change can be considered major if it affects many users, or represents a significant change in behavior.
+- An intentional product change
+- A configuration update
+- A third-party deprecation
+
+By default, no breaking change is allowed unless the breaking change implementation plan has been approved by leadership.
+
+## Third-party dependencies
+
+This section applies to all previous terms.
+
+Changes (deprecation, end of support, removal, or breaking change) in third-party dependencies are handled separately from changes to features in GitLab itself:
+
+- These changes follow the dependency's own lifecycle and are not subject to feature process and timeline requirements for GitLab.
+- GitLab will try to minimize impact and provide a smooth migration experience for third-party dependency changes that affect our product.
+- Security updates to dependencies might be applied without following their standard deprecation processes when necessary to address severe vulnerabilities within vulnerability resolution SLAs. For more information, see the GitLab Handbook.
+- In cases where dependencies change outside our control or timeline, GitLab might need to implement changes to our own software outside our usual process and timeline to
+  maintain our functionality, compatibility, or security.
+- GitLab will make reasonable efforts to communicate significant third-party dependency changes.
+- GitLab is not responsible for any changes in third-party dependency functionality that is not directly used by GitLab products.
+- Customers who leverage these third-party dependencies beyond the usage patterns of GitLab do so at their own risk and should:
+  - Monitor the third-party's release notes independently.
+  - Test their custom implementations against new dependency versions.
+  - Plan their own migration strategies for third-party changes.

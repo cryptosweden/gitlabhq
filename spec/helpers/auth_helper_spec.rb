@@ -5,6 +5,43 @@ require "spec_helper"
 RSpec.describe AuthHelper, feature_category: :system_access do
   include LoginHelpers
 
+  describe "#enabled_button_based_providers_for_signup" do
+    [[true, %w[github gitlab]],
+      [false, []],
+      [['github'], ['github']],
+      [[], []]].each do |(allow_single_sign_on, result)|
+      context "when allow_single_sign_on is #{allow_single_sign_on}" do
+        before do
+          allow(helper).to receive(:enabled_button_based_providers) { %w[github gitlab] }
+          stub_omniauth_config(allow_single_sign_on: allow_single_sign_on)
+        end
+
+        it "returns #{result}" do
+          expect(helper.enabled_button_based_providers_for_signup).to eq(result)
+        end
+      end
+    end
+  end
+
+  describe "#signup_button_based_providers_enabled?" do
+    [[true, true, true],
+      [true, ['github'], true],
+      [false, true, false],
+      [true, false, false],
+      [true, [], false]].each do |(omniauth_enable, allow_single_sign_on, result)|
+      context "when omniauth is #{omniauth_enable} and allow_single_sign_on is #{allow_single_sign_on}" do
+        before do
+          allow(Gitlab::Auth).to receive(:omniauth_enabled?).and_return(omniauth_enable)
+          stub_omniauth_config(allow_single_sign_on: allow_single_sign_on)
+        end
+
+        it "returns #{result}" do
+          expect(helper.signup_button_based_providers_enabled?).to eq(result)
+        end
+      end
+    end
+  end
+
   describe "button_based_providers" do
     it 'returns all enabled providers from devise' do
       allow(helper).to receive(:auth_providers) { [:twitter, :github] }
@@ -282,32 +319,45 @@ RSpec.describe AuthHelper, feature_category: :system_access do
   describe '#auth_app_owner_text' do
     shared_examples 'generates text with the correct info' do
       it 'includes the name of the application owner' do
-        auth_app_owner_text = helper.auth_app_owner_text(owner)
+        auth_app_owner_text = helper.auth_app_owner_text(application)
 
-        expect(auth_app_owner_text).to include(owner.name)
+        expect(auth_app_owner_text).to include(application.owner.name)
         expect(auth_app_owner_text).to include(path_to_owner)
       end
     end
 
     context 'when owner is a user' do
-      let_it_be(:owner) { create(:user) }
+      let_it_be(:application) { create(:oauth_application) }
 
-      let(:path_to_owner) { user_path(owner) }
+      let(:path_to_owner) { user_path(application.owner) }
 
       it_behaves_like 'generates text with the correct info'
     end
 
     context 'when owner is a group' do
-      let_it_be(:owner) { create(:group) }
+      let_it_be(:application) { create(:oauth_application, :group_owned) }
 
-      let(:path_to_owner) { user_path(owner) }
+      let(:path_to_owner) { user_path(application.owner) }
 
       it_behaves_like 'generates text with the correct info'
     end
 
     context 'when the user is missing' do
-      it 'returns nil' do
-        expect(helper.auth_app_owner_text(nil)).to be('An administrator added this OAuth application ')
+      let_it_be(:application) { create(:oauth_application, :without_owner) }
+
+      context 'when the application is dynamically created' do
+        let_it_be(:application) { create(:oauth_application, :dynamic) }
+
+        it 'returns a warning' do
+          expect(helper.auth_app_owner_text(application))
+            .to be('An anonymous service added this dynamically created OAuth application ')
+        end
+      end
+
+      context 'when the application is not dynamically generated' do
+        it 'returns nil' do
+          expect(helper.auth_app_owner_text(application)).to be('An administrator added this OAuth application ')
+        end
       end
     end
   end
@@ -409,5 +459,345 @@ RSpec.describe AuthHelper, feature_category: :system_access do
         expect(saml_providers).to match_array([saml_provider_1_name.to_sym, saml_provider_2_name.to_sym])
       end
     end
+  end
+
+  describe '#oidc_providers' do
+    subject(:oidc_providers) { helper.oidc_providers }
+
+    let(:oidc_strategy) { 'OmniAuth::Strategies::OpenIDConnect' }
+
+    let(:oidc_provider_1_name) { 'openid_connect' }
+    let(:oidc_provider_1) do
+      Struct.new(:name, :args).new(
+        oidc_provider_1_name,
+        {}
+      )
+    end
+
+    let(:oidc_provider_2_name) { 'openid_connect2' }
+    let(:oidc_provider_2) do
+      Struct.new(:name, :args).new(
+        oidc_provider_2_name,
+        'strategy_class' => oidc_strategy
+      )
+    end
+
+    let(:oidc_provider_3_name) { 'openid_connect3' }
+    let(:oidc_provider_3) do
+      Struct.new(:name, :args).new(
+        oidc_provider_3_name,
+        'strategy_class' => oidc_strategy
+      )
+    end
+
+    let(:ldap_provider_name) { 'ldap_provider' }
+    let(:ldap_strategy) { 'OmniAuth::Strategies::LDAP' }
+    let(:ldap_provider) do
+      Struct.new(:name, :args).new(
+        ldap_provider_name,
+        'strategy_class' => ldap_strategy
+      )
+    end
+
+    let(:google_oauth2_provider_name) { 'google_oauth2' }
+    let(:google_oauth2_provider) do
+      Struct.new(:name, :args).new(
+        google_oauth2_provider_name,
+        'app_id' => 'YOUR_APP_ID'
+      )
+    end
+
+    context 'when a default openid_connect provider is configured' do
+      before do
+        stub_omniauth_config(providers: [oidc_provider_1])
+      end
+
+      it 'returns the provider' do
+        expect(oidc_providers).to match_array([:openid_connect])
+      end
+    end
+
+    context 'when the configuration specifies no provider' do
+      before do
+        stub_omniauth_config(providers: [])
+      end
+
+      it 'returns an empty list' do
+        expect(oidc_providers).to be_empty
+      end
+    end
+
+    context 'when the configuration specifies a provider with an OIDC strategy_class' do
+      before do
+        stub_omniauth_config(providers: [oidc_provider_2])
+      end
+
+      it 'returns the provider' do
+        expect(oidc_providers).to match_array([oidc_provider_2_name.to_sym])
+      end
+    end
+
+    context 'when the configuration specifies 1 default oidc provider and 1 with an OIDC strategy_class' do
+      before do
+        stub_omniauth_config(providers: [oidc_provider_1, oidc_provider_2])
+      end
+
+      it 'returns the providers' do
+        expect(oidc_providers).to match_array([oidc_provider_1_name.to_sym, oidc_provider_2_name.to_sym])
+      end
+    end
+
+    context 'when the configuration specifies two providers with an OIDC strategy_class' do
+      before do
+        stub_omniauth_config(providers: [oidc_provider_2, oidc_provider_3])
+      end
+
+      it 'returns the providers' do
+        expect(oidc_providers).to match_array([oidc_provider_2_name.to_sym, oidc_provider_3_name.to_sym])
+      end
+    end
+
+    context 'when the configuration specifies a non-OIDC provider' do
+      before do
+        stub_omniauth_config(providers: [ldap_provider])
+      end
+
+      it 'returns an empty list' do
+        expect(oidc_providers).to be_empty
+      end
+    end
+
+    context 'when the configuration specifies 2 non-oidc, 1 default oidc provider and 2 with an OIDC strategy_class' do
+      before do
+        stub_omniauth_config(
+          providers: [oidc_provider_1, ldap_provider, oidc_provider_2, google_oauth2_provider, oidc_provider_3]
+        )
+      end
+
+      it 'returns the providers' do
+        expect(oidc_providers).to match_array(
+          [oidc_provider_1_name.to_sym, oidc_provider_2_name.to_sym, oidc_provider_3_name.to_sym]
+        )
+      end
+    end
+  end
+
+  describe '#delete_otp_authenticator_data' do
+    context 'when password is required' do
+      it 'returns data to delete the OTP authenticator' do
+        expect(helper.delete_otp_authenticator_data(true)).to match(a_hash_including({
+          button_text: _('Delete one-time password authenticator'),
+          icon: 'remove',
+          message: _('Are you sure you want to delete this one-time password authenticator? ' \
+            'Enter your password to continue.'),
+          path: destroy_otp_profile_two_factor_auth_path,
+          password_required: 'true'
+        }))
+      end
+    end
+
+    context 'when password is not required' do
+      it 'returns data to delete the OTP authenticator' do
+        expect(helper.delete_otp_authenticator_data(false)).to match(a_hash_including({
+          button_text: _('Delete one-time password authenticator'),
+          message: _('Are you sure you want to delete this one-time password authenticator?'),
+          path: destroy_otp_profile_two_factor_auth_path,
+          password_required: 'false'
+        }))
+      end
+    end
+  end
+
+  describe '#delete_webauthn_device_data' do
+    let(:path) { 'test/path' }
+
+    context 'when password is required' do
+      it 'returns data to delete a WebAuthn device' do
+        expect(helper.delete_webauthn_device_data(true, path)).to match(a_hash_including({
+          button_text: _('Delete WebAuthn device'),
+          icon: 'remove',
+          message: _('Are you sure you want to delete this WebAuthn device? ' \
+            'Enter your password to continue.'),
+          path: path,
+          password_required: 'true'
+        }))
+      end
+    end
+
+    context 'when password is not required' do
+      it 'returns data to delete a WebAuthn device' do
+        expect(helper.delete_webauthn_device_data(false, path)).to match(a_hash_including({
+          button_text: _('Delete WebAuthn device'),
+          icon: 'remove',
+          message: _('Are you sure you want to delete this WebAuthn device?'),
+          path: path,
+          password_required: 'false'
+        }))
+      end
+    end
+  end
+
+  describe '#disable_two_factor_authentication_data' do
+    context 'when password is required' do
+      it 'returns data to disable two-factor authentication' do
+        expect(helper.disable_two_factor_authentication_data(true)).to match(a_hash_including({
+          button_text: _('Disable two-factor authentication'),
+          message: _('Are you sure you want to invalidate your one-time password authenticator and WebAuthn devices? ' \
+            'Enter your password to continue. This action cannot be undone.'),
+          path: profile_two_factor_auth_path,
+          password_required: 'true',
+          size: 'small'
+        }))
+      end
+    end
+
+    context 'when password is not required' do
+      it 'returns data to disable two-factor authentication' do
+        expect(helper.disable_two_factor_authentication_data(false)).to match(a_hash_including({
+          button_text: _('Disable two-factor authentication'),
+          message: _('Are you sure you want to invalidate your one-time password authenticator and WebAuthn devices?'),
+          path: profile_two_factor_auth_path,
+          password_required: 'false'
+        }))
+      end
+    end
+  end
+
+  describe '#codes_two_factor_authentication_data' do
+    context 'when password is required' do
+      it 'returns data to delete the OTP authenticator' do
+        expect(helper.codes_two_factor_authentication_data(true)).to match(a_hash_including({
+          button_text: _('Regenerate recovery codes'),
+          message: _('Are you sure you want to regenerate recovery codes? ' \
+            'Enter your password to continue.'),
+          method: 'post',
+          path: codes_profile_two_factor_auth_path,
+          password_required: 'true',
+          size: 'small',
+          variant: 'default'
+        }))
+      end
+    end
+
+    context 'when password is not required' do
+      it 'returns data to delete the OTP authenticator' do
+        expect(helper.codes_two_factor_authentication_data(false)).to match(a_hash_including({
+          button_text: _('Regenerate recovery codes'),
+          message: _('Are you sure you want to regenerate recovery codes?'),
+          method: 'post',
+          path: codes_profile_two_factor_auth_path,
+          password_required: 'false',
+          variant: 'default'
+        }))
+      end
+    end
+  end
+
+  describe '#certificate_fingerprint_algorithm' do
+    let_it_be(:sha1_fingerprint_upper) { "DD:80:B1:FA:A9:A7:8D:9D:41:7E:09:10:D8:6F:7D:0A:7E:58:4C:C4" }
+    let_it_be(:sha1_fingerprint_lower) { "dd:80:b1:fa:a9:a7:8d:9d:41:7e:09:10:d8:6f:7d:0a:7e:58:4c:c4" }
+    let_it_be(:sha256_fingerprint_upper) do
+      "73:2D:28:C2:D2:D0:34:9F:F8:9A:9C:74:23:BF:0A:CB:66:75:78:9B:01:4D:1F:7D:60:8F:AD:47:A2:30:D7:4A"
+    end
+
+    let_it_be(:sha256_fingerprint_mixed) do
+      "73:2d:28:c2:d2:d0:34:9F:F8:9a:9c:74:23:BF:0a:cb:66:75:78:9b:01:4D:1F:7D:60:8f:ad:47:a2:30:d7:4a"
+    end
+
+    it 'detects SHA1 fingerprint with upper case characters' do
+      expect(helper.certificate_fingerprint_algorithm(sha1_fingerprint_upper))
+        .to eq('http://www.w3.org/2000/09/xmldsig#sha1')
+    end
+
+    it 'detects SHA1 fingerprint with lower case characters' do
+      expect(helper.certificate_fingerprint_algorithm(sha1_fingerprint_lower))
+        .to eq('http://www.w3.org/2000/09/xmldsig#sha1')
+    end
+
+    it 'detects SHA256 fingerprint with upper case characters' do
+      expect(helper.certificate_fingerprint_algorithm(sha256_fingerprint_upper))
+        .to eq('http://www.w3.org/2001/04/xmlenc#sha256')
+    end
+
+    it 'detects SHA256 fingerprint with mixed case characters' do
+      expect(helper.certificate_fingerprint_algorithm(sha256_fingerprint_mixed))
+        .to eq('http://www.w3.org/2001/04/xmlenc#sha256')
+    end
+  end
+
+  describe '#step_up_auth_params' do
+    using RSpec::Parameterized::TableSyntax
+
+    let(:current_user) { instance_double('User', flipper_id: '1') }
+
+    let(:oidc_setting_with_step_up_auth) do
+      GitlabSettings::Options.new(
+        name: "openid_connect",
+        step_up_auth: {
+          admin_mode: {
+            params: {
+              claims: { acr_values: 'gold' },
+              prompt: 'login'
+            }
+          }
+        }
+      )
+    end
+
+    let(:oidc_setting_without_step_up_auth_params) do
+      GitlabSettings::Options.new(name: "openid_connect",
+        step_up_auth: { admin_mode: { id_token: { required: { acr: 'gold' } } } })
+    end
+
+    let(:oidc_setting_without_step_up_auth) do
+      GitlabSettings::Options.new(name: "openid_connect")
+    end
+
+    subject { helper.step_up_auth_params(provider_name, scope) }
+
+    before do
+      allow(helper).to receive(:current_user).and_return(current_user)
+      stub_omniauth_setting(enabled: true, providers: omniauth_setting_providers)
+    end
+
+    # rubocop:disable Layout/LineLength -- Ensure one-line table syntax for better readability
+    where(:omniauth_setting_providers, :provider_name, :scope, :expected_result) do
+      [ref(:oidc_setting_with_step_up_auth)]           | 'openid_connect'        | :admin_mode  | { step_up_auth_scope: :admin_mode, 'claims' => '{"acr_values":"gold"}', 'prompt' => 'login' }
+      [ref(:oidc_setting_with_step_up_auth)]           | 'openid_connect'        | 'admin_mode' | { step_up_auth_scope: 'admin_mode', 'claims' => '{"acr_values":"gold"}', 'prompt' => 'login' }
+      [ref(:oidc_setting_with_step_up_auth)]           | 'openid_connect'        | nil          | {}
+      [ref(:oidc_setting_with_step_up_auth)]           | 'missing_provider_name' | :admin_mode  | {}
+      [ref(:oidc_setting_with_step_up_auth)]           | nil                     | nil          | {}
+
+      []                                               | 'openid_connect'        | :admin_mode  | {}
+      [ref(:oidc_setting_without_step_up_auth)]        | 'openid_connect'        | :admin_mode  | {}
+      [ref(:oidc_setting_without_step_up_auth_params)] | 'openid_connect'        | :admin_mode  | { step_up_auth_scope: :admin_mode }
+    end
+    # rubocop:enable Layout/LineLength
+
+    with_them do
+      it { is_expected.to eq expected_result }
+
+      context 'when feature flag :omniauth_step_up_auth_for_admin_mode is disabled' do
+        before do
+          stub_feature_flags(omniauth_step_up_auth_for_admin_mode: false)
+        end
+
+        it { is_expected.to eq({}) }
+      end
+    end
+  end
+
+  def omniauth_providers_with_step_up_auth_config(step_up_auth_scope)
+    auth_providers.map { |provider| Gitlab::Auth::OAuth::Provider.config_for(provider) }
+                  .select { |provider_config| provider_config.dig("step_up_auth", step_up_auth_scope.to_s).present? }
+  end
+
+  def step_up_auth_params(provider_name, scope)
+    return {} if Feature.disabled?(:omniauth_step_up_auth_for_admin_mode, current_user)
+
+    provider_config_for_scope = Gitlab::Auth::OAuth::Provider.config_for(provider_name)&.dig('step_up_auth', scope)
+    return {} if provider_config_for_scope&.dig('enabled').blank?
+
+    provider_config_for_scope&.dig('params')&.transform_values { |v| v.is_a?(Hash) ? v.to_json : v }
   end
 end

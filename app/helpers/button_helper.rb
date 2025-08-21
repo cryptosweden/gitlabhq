@@ -57,9 +57,7 @@ module ButtonHelper
     target = data.delete(:target)
     data[:clipboard_target] = target if target
 
-    unless hide_tooltip
-      data = { toggle: 'tooltip', placement: 'bottom', container: 'body', html: 'true' }.merge(data)
-    end
+    data = { toggle: 'tooltip', placement: 'bottom', container: 'body', html: 'true' }.merge(data) unless hide_tooltip
 
     render ::Pajamas::ButtonComponent.new(
       icon: hide_button_icon ? nil : 'copy-to-clipboard',
@@ -81,9 +79,9 @@ module ButtonHelper
 
   def http_dropdown_description(protocol)
     if current_user.try(:require_password_creation_for_git?)
-      _("Set a password on your account to pull or push via %{protocol}.") % { protocol: protocol }
+      safe_format(_("Set a password on your account to pull or push via %{protocol}."), protocol: protocol)
     elsif current_user.try(:require_personal_access_token_creation_for_git_auth?)
-      _("Create a personal access token on your account to pull or push via %{protocol}.") % { protocol: protocol }
+      safe_format(_("Create a personal access token on your account to pull or push via %{protocol}."), protocol: protocol)
     end
   end
 

@@ -19,12 +19,11 @@
 
 .gl-responsive-table-row {
   margin-top: 10px;
-  border: 1px solid $border-color;
-  color: $gray-500;
+  @apply gl-border gl-text-subtle;
 
   &.gl-responsive-table-row-clickable {
     &:hover {
-      background-color: $gray-10;
+      @apply gl-bg-subtle;
 
       .underline {
         text-decoration: underline;
@@ -80,10 +79,6 @@
       flex-wrap: wrap;
     }
   }
-
-  &.section-align-top {
-    align-self: flex-start;
-  }
 }
 
 .table-button-footer {
@@ -95,8 +90,8 @@
     display: block;
     align-self: stretch;
     min-height: 0;
-    background-color: $gray-50;
-    border-top: 1px solid $border-color;
+    @apply gl-bg-strong;
+    @apply gl-border-t;
 
     .table-action-buttons {
       display: flex;
@@ -140,7 +135,7 @@
 
 .table-mobile-header {
   @include flex-max-width(40);
-  color: $gl-text-color-secondary;
+  @apply gl-text-strong;
   text-align: left;
 
   @include media-breakpoint-up(md) {
@@ -153,10 +148,6 @@
     @include flex-max-width(60);
     text-align: right;
   }
-}
-
-.flex-truncate-parent {
-  display: flex;
 }
 
 .flex-truncate-child {

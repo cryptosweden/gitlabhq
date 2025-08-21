@@ -1,14 +1,16 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Plan
+group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Custom issue tracker
 ---
 
-# Custom issue tracker
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 You can integrate an [external issue tracker](../../../integration/external-issue-tracker.md)
 with GitLab. If your preferred issue tracker is not listed in the
@@ -18,7 +20,7 @@ you can enable a custom issue tracker.
 After you enable the custom issue tracker, a link to the issue tracker displays
 on the left sidebar in your project.
 
-![Custom issue tracker link](img/custom_issue_tracker_v14_5.png)
+![Custom issue tracker link](img/custom_issue_tracker_v18_3.png)
 
 ## Enable a custom issue tracker
 
@@ -37,7 +39,7 @@ To enable a custom issue tracker in a project:
      `https://customissuetracker.com/project-name/123`).
    - **New issue URL**:
      <!-- The line below was originally added in January 2018: https://gitlab.com/gitlab-org/gitlab/-/commit/778b231f3a5dd42ebe195d4719a26bf675093350 -->
-     **This URL is not used and an [issue exists](https://gitlab.com/gitlab-org/gitlab/-/issues/327503) to remove it.**
+     **This URL is not used and an [issue exists](https://gitlab.com/gitlab-org/gitlab/-/issues/327503) to remove it**.
      Enter any URL.
 
 1. Optional. Select **Test settings**.

@@ -34,6 +34,7 @@ export const initJobDetails = () => {
     pipelineTestReportUrl,
     logViewerPath,
     duoFeaturesEnabled,
+    canSetPipelineVariables,
   } = el.dataset;
 
   const fullScreenAPIAvailable = document.fullscreenEnabled;
@@ -58,6 +59,7 @@ export const initJobDetails = () => {
       aiRootCauseAnalysisAvailable: parseBoolean(aiRootCauseAnalysisAvailable),
       duoFeaturesEnabled: parseBoolean(duoFeaturesEnabled),
       pipelineTestReportUrl,
+      canSetPipelineVariables: parseBoolean(canSetPipelineVariables),
     },
     render(h) {
       return h(JobApp, {

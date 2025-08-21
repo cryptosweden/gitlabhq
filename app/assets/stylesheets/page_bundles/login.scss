@@ -4,12 +4,12 @@
   margin: 0;
   padding: 0;
   height: 100%;
-  
+
   body {
     &.with-system-header {
       padding-top: $system-header-height;
     }
-    
+
     &.with-system-footer {
       .footer-container {
         padding-bottom: $system-footer-height;
@@ -34,14 +34,4 @@
 
 .devise-errors {
   @include devise-errors;
-}
-
-@include media-breakpoint-down(sm) {
-  .sm-bg-gray {
-    background-color: $gray-10;
-
-    .gl-dark & {
-      background-color: var(--gray-100);
-    }
-  }
 }

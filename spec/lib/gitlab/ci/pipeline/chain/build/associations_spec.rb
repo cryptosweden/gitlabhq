@@ -15,14 +15,15 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Build::Associations, feature_categor
      { key: 'second', secret_value: 'second_world' }]
   end
 
+  let(:source) { :push }
+
   let(:command) do
     Gitlab::Ci::Pipeline::Chain::Command.new(
-      source: :push,
+      source: source,
       origin_ref: 'master',
       checkout_sha: project.commit.id,
       after_sha: nil,
       before_sha: nil,
-      trigger_request: nil,
       schedule: nil,
       merge_request: nil,
       project: project,
@@ -32,6 +33,10 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Build::Associations, feature_categor
   end
 
   let(:step) { described_class.new(pipeline, command) }
+
+  before do
+    project.update!(ci_pipeline_variables_minimum_override_role: :developer)
+  end
 
   shared_examples 'breaks the chain' do
     it 'returns true' do
@@ -46,6 +51,15 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Build::Associations, feature_categor
       step.perform!
 
       expect(step.break?).to be false
+    end
+  end
+
+  shared_examples 'assigns variables_attributes' do
+    specify do
+      step.perform!
+
+      expect(pipeline.variables.map { |var| var.slice(:key, :secret_value) })
+        .to eq variables_attributes.map(&:with_indifferent_access)
     end
   end
 
@@ -85,7 +99,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Build::Associations, feature_categor
 
   context 'when project setting restrict_user_defined_variables is enabled' do
     before do
-      project.update!(restrict_user_defined_variables: true)
+      project.update!(ci_pipeline_variables_minimum_override_role: :maintainer)
     end
 
     context 'when user is developer' do
@@ -109,22 +123,25 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Build::Associations, feature_categor
           expect(pipeline.variables).to be_empty
         end
       end
-    end
 
-    context 'when user is maintainer' do
-      before do
-        project.add_maintainer(user)
-      end
+      context 'when source is :ondemand_dast_validation' do
+        let(:source) { :ondemand_dast_validation }
 
-      it_behaves_like 'does not break the chain'
+        it_behaves_like 'does not break the chain'
 
-      it 'assigns variables_attributes' do
-        step.perform!
-
-        expect(pipeline.variables.map { |var| var.slice(:key, :secret_value) })
-          .to eq variables_attributes.map(&:with_indifferent_access)
+        it_behaves_like 'assigns variables_attributes'
       end
     end
+  end
+
+  context 'when user is maintainer' do
+    before do
+      project.add_maintainer(user)
+    end
+
+    it_behaves_like 'does not break the chain'
+
+    it_behaves_like 'assigns variables_attributes'
   end
 
   context 'with duplicate pipeline variables' do

@@ -9,7 +9,7 @@ RSpec.describe Projects::ImportExport::ExportService, feature_category: :importe
     let_it_be_with_reload(:project) { create(:project, group: group) }
 
     let(:shared) { project.import_export_shared }
-    let!(:after_export_strategy) { Gitlab::ImportExport::AfterExportStrategies::DownloadNotificationStrategy.new }
+    let!(:after_export_strategy) { Import::AfterExportStrategies::DownloadNotificationStrategy.new }
 
     subject(:service) { described_class.new(project, user) }
 
@@ -107,15 +107,29 @@ RSpec.describe Projects::ImportExport::ExportService, feature_category: :importe
         service.execute
       end
 
+      it 'tracks the start_project_export internal event' do
+        allow(Gitlab::ImportExport::Saver).to receive(:save).and_return(true)
+
+        expect { service.execute }
+          .to trigger_internal_events('start_project_export')
+          .with(
+            user: user,
+            project: project,
+            namespace: project.namespace
+          )
+
+        service.execute
+      end
+
       it 'saves the project in the file system' do
-        expect(Gitlab::ImportExport::Saver).to receive(:save).with(exportable: project, shared: shared).and_return(true)
+        expect(Gitlab::ImportExport::Saver).to receive(:save).with(exportable: project, shared: shared, user: user).and_return(true)
 
         service.execute
       end
 
       context 'when the upload fails' do
         before do
-          expect(Gitlab::ImportExport::Saver).to receive(:save).with(exportable: project, shared: shared).and_return(false)
+          expect(Gitlab::ImportExport::Saver).to receive(:save).with(exportable: project, shared: shared, user: user).and_return(false)
         end
 
         it 'notifies the user of an error' do
@@ -204,7 +218,7 @@ RSpec.describe Projects::ImportExport::ExportService, feature_category: :importe
       it 'removes the remaining exported data' do
         expect { service.execute }.to raise_error(Gitlab::ImportExport::Error)
 
-        expect(project.import_export_upload).to be_nil
+        expect(project.import_export_upload_by_user(user)).to be_nil
         expect(File.exist?(shared.archive_path)).to eq(false)
       end
     end

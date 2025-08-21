@@ -1,29 +1,30 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Integrate GitLab with Kerberos
 ---
 
-# Integrate GitLab with Kerberos
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 GitLab can integrate with [Kerberos](https://web.mit.edu/kerberos/) as an authentication mechanism.
 
 - You can configure GitLab so your users can sign in with their Kerberos credentials.
 - You can use Kerberos to [prevent](https://web.mit.edu/sipb/doc/working/guide/guide/node20.html) anyone from intercepting or eavesdropping on the transmitted password.
 
-Kerberos is only available on instances that use GitLab Enterprise Edition (EE). To use Kerberos, you can do one of the following:
+Kerberos is only available on instances that use GitLab Enterprise Edition (EE). If you're running GitLab Community Edition (CE), you can [convert from GitLab CE to GitLab EE](../update/package/convert_to_ee.md).
 
-- [Activate GitLab EE](../administration/license.md#activate-gitlab-ee) for your instance.
-- If you have set up a GitLab Community Edition (CE) instance using the Linux
-  package, [convert from GitLab CE to GitLab EE](../update/package/convert_to_ee.md).
+{{< alert type="warning" >}}
 
-WARNING:
 GitLab CI/CD doesn't work with a Kerberos-enabled GitLab instance unless the integration is
 [set to use a dedicated port](#http-git-access-with-kerberos-token-passwordless-authentication).
+
+{{< /alert >}}
 
 ## Configuration
 
@@ -38,7 +39,7 @@ system's Kerberos settings.
    If your GitLab server is `gitlab.example.com` and your Kerberos realm
    `EXAMPLE.COM`, create a Service Principal `HTTP/gitlab.example.com@EXAMPLE.COM`
    in your Kerberos database.
-1. Create a keytab on the GitLab server for the above Service Principal. For example,
+1. Create a keytab on the GitLab server for the Service Principal. For example,
    `/etc/http.keytab`.
 
 The keytab is a sensitive file and must be readable by the GitLab user. Set
@@ -53,9 +54,12 @@ sudo chmod 0600 /etc/http.keytab
 
 #### Self-compiled installations
 
-NOTE:
+{{< alert type="note" >}}
+
 For self-compiled installations, make sure the `kerberos` gem group
-[has been installed](../install/installation.md#install-gems).
+[has been installed](../install/self_compiled/_index.md#install-gems).
+
+{{< /alert >}}
 
 1. Edit the `kerberos` section of [`gitlab.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/config/gitlab.yml.example) to enable Kerberos ticket-based
    authentication. In most cases, you only need to enable Kerberos and specify
@@ -111,12 +115,16 @@ set up GitLab to create a new account when a Kerberos user tries to sign in.
 
 ### Link a Kerberos account to an existing GitLab account
 
-> - Kerberos SPNEGO [renamed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/96335) to Kerberos in GitLab 15.4.
+{{< history >}}
+
+- Kerberos SPNEGO [renamed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/96335) to Kerberos in GitLab 15.4.
+
+{{< /history >}}
 
 If you're an administrator, you can link a Kerberos account to an
 existing GitLab account. To do so:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Overview > Users**.
 1. Select a user, then select the **Identities** tab.
 1. From the **Provider** dropdown list, select **Kerberos**.
@@ -140,7 +148,7 @@ with your Kerberos credentials.
 The first time users sign in to GitLab with their Kerberos accounts,
 GitLab creates a matching account.
 Before you continue, review the [common configuration settings](omniauth.md#configure-common-settings)
-options in Omnibus and GitLab source. You must also include `kerberos`.
+options for Linux package and self-compiled instances. You must also include `kerberos`.
 
 With that information at hand:
 
@@ -157,25 +165,28 @@ With that information at hand:
       ```
 
       1. As an administrator, you can confirm the new, blocked account:
-         1. On the left sidebar, at the bottom, select **Admin Area**.
+         1. On the left sidebar, at the bottom, select **Admin**.
          1. On the left sidebar, select **Overview > Users** and review the **Blocked** tab.
       1. You can enable the user.
    1. If `block_auto_created_users` is false, the Kerberos user is
       authenticated and is signed in to GitLab.
 
-WARNING:
+{{< alert type="warning" >}}
+
 We recommend that you retain the default for `block_auto_created_users`.
 Kerberos users who create accounts on GitLab without administrator
 knowledge can be a security risk.
 
+{{< /alert >}}
+
 ## Link Kerberos and LDAP accounts together
 
-If your users sign in with Kerberos, but you also have [LDAP integration](../administration/auth/ldap/index.md)
+If your users sign in with Kerberos, but you also have [LDAP integration](../administration/auth/ldap/_index.md)
 enabled, your users are linked to their LDAP accounts on their first sign-in.
 For this to work, some prerequisites must be met:
 
 The Kerberos username must match the LDAP user's UID. You can choose which LDAP
-attribute is used as the UID in the GitLab [LDAP configuration](../administration/auth/ldap/index.md#configure-ldap)
+attribute is used as the UID in the GitLab [LDAP configuration](../administration/auth/ldap/_index.md#configure-ldap)
 but for Active Directory, this should be `sAMAccountName`.
 
 The Kerberos realm must match the domain part of the LDAP user's Distinguished
@@ -193,9 +204,9 @@ match the domain from the user's LDAP DN. The configuration value must specify
 all domains that users may be expected to have. Any other domains are
 ignored and an LDAP identity is not linked.
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb`:
 
@@ -206,7 +217,9 @@ ignored and an LDAP identity is not linked.
 1. Save the file and [reconfigure](../administration/restart_gitlab.md#reconfigure-a-linux-package-installation)
    GitLab for the changes to take effect.
 
-:::TabTitle Self-compiled (source)
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
 
 1. Edit `config/gitlab.yml`:
 
@@ -218,7 +231,9 @@ ignored and an LDAP identity is not linked.
 1. Save the file and [restart](../administration/restart_gitlab.md#self-compiled-installations)
    GitLab for the changes to take effect.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ## HTTP Git access
 
@@ -229,12 +244,15 @@ GitLab users with a linked Kerberos account can also `git pull` and `git push`
 using Kerberos tokens. That is, without having to send their password with each
 operation.
 
-WARNING:
+{{< alert type="warning" >}}
+
 There is a [known issue](https://github.com/curl/curl/issues/1261) with `libcurl`
 older than version 7.64.1 wherein it doesn't reuse connections when negotiating.
 This leads to authorization issues when push is larger than `http.postBuffer`
 configuration. Ensure that Git is using at least `libcurl` 7.64.1 to avoid this. To
 know the `libcurl` version installed, run `curl-config --version`.
+
+{{< /alert >}}
 
 ### HTTP Git access with Kerberos token (passwordless authentication)
 
@@ -250,14 +268,17 @@ with current Git versions, it is possible to offer Kerberos ticket-based
 authentication on a different port (for example, `8443`) while the standard port
 offers only `basic` authentication.
 
-NOTE:
-[Git 2.4 and later](https://github.com/git/git/blob/master/Documentation/RelNotes/2.4.0.txt#L225-L228) supports falling back to `basic` authentication if the
+{{< alert type="note" >}}
+
+[Git 2.4 and later](https://github.com/git/git/blob/master/Documentation/RelNotes/2.4.0.adoc?plain=1#L225-L228) supports falling back to `basic` authentication if the
 username and password is passed interactively or through a credentials manager. It fails to fall back when the username and password is passed as part of the URL instead. For example,
 this can happen in GitLab CI/CD jobs that [authenticate with the CI/CD job token](../ci/jobs/ci_job_token.md).
 
-::Tabs
+{{< /alert >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tabs >}}
+
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb`:
 
@@ -269,7 +290,9 @@ this can happen in GitLab CI/CD jobs that [authenticate with the CI/CD job token
 
 1. [Reconfigure GitLab](../administration/restart_gitlab.md#reconfigure-a-linux-package-installation) for the changes to take effect.
 
-:::TabTitle Self-compiled (source) with HTTPS
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source) with HTTPS" >}}
 
 1. Edit the NGINX configuration file for GitLab
    (for example, `/etc/nginx/sites-available/gitlab-ssl`) and configure NGINX to
@@ -298,7 +321,9 @@ this can happen in GitLab CI/CD jobs that [authenticate with the CI/CD job token
 
 1. [Restart GitLab](../administration/restart_gitlab.md#self-compiled-installations) and NGINX for the changes to take effect.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 After this change, Git remote URLs have to be updated to
 `https://gitlab.example.com:8443/mygroup/myproject.git` to use

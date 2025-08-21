@@ -99,11 +99,11 @@ RSpec.shared_examples 'process helm upload' do |user_type, status|
     it 'creates package files' do
       expect(::Packages::Helm::ExtractionWorker).to receive(:perform_async).once
       expect { subject }
-          .to change { project.packages.count }.by(1)
+          .to change { ::Packages::Helm::Package.for_projects(project).count }.by(1)
           .and change { Packages::PackageFile.count }.by(1)
       expect(response).to have_gitlab_http_status(status)
 
-      package_file = project.packages.last.package_files.reload.last
+      package_file = ::Packages::Helm::Package.for_projects(project).last.package_files.reload.last
       expect(package_file.file_name).to eq('package.tgz')
     end
   end
@@ -227,7 +227,7 @@ RSpec.shared_examples 'handling helm chart index requests' do
         :public  | :not_a_member | 'process helm service index request' | :success
         :public  | :anonymous    | 'process helm service index request' | :success
         :private | :reporter     | 'process helm service index request' | :success
-        :private | :guest        | 'rejects helm packages access'       | :forbidden
+        :private | :guest        | 'process helm service index request' | :success
         :private | :not_a_member | 'rejects helm packages access'       | :not_found
         :private | :anonymous    | 'rejects helm packages access'       | :unauthorized
       end
@@ -264,7 +264,7 @@ RSpec.shared_examples 'handling helm chart index requests' do
         :public  | :not_a_member | 'process helm service index request' | :success
         :public  | :anonymous    | 'process helm service index request' | :success
         :private | :reporter     | 'process helm service index request' | :success
-        :private | :guest        | 'rejects helm packages access'       | :forbidden
+        :private | :guest        | 'process helm service index request' | :success
         :private | :not_a_member | 'rejects helm packages access'       | :not_found
         :private | :anonymous    | 'rejects helm packages access'       | :unauthorized
       end

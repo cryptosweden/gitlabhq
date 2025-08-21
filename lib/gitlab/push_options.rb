@@ -11,8 +11,10 @@ module Gitlab
           :draft,
           :label,
           :merge_when_pipeline_succeeds,
+          :auto_merge,
           :milestone,
           :remove_source_branch,
+          :squash,
           :target,
           :target_project,
           :title,
@@ -21,17 +23,24 @@ module Gitlab
         ]
       },
       ci: {
-        keys: [:skip, :variable]
+        keys: [:skip, :variable, :input]
       },
       integrations: {
         keys: [:skip_ci]
       },
       secret_detection: {
         keys: [:skip_all]
+      },
+      secret_push_protection: {
+        keys: [:skip_all]
+      },
+      security_policy: {
+        keys: [:bypass_reason]
       }
     }).freeze
 
     MULTI_VALUE_OPTIONS = [
+      %w[ci input],
       %w[ci variable],
       %w[merge_request label],
       %w[merge_request unlabel],
@@ -43,7 +52,7 @@ module Gitlab
       mr: :merge_request
     }).freeze
 
-    OPTION_MATCHER = /(?<namespace>[^\.]+)\.(?<key>[^=]+)=?(?<value>.*)/
+    OPTION_MATCHER = Gitlab::UntrustedRegexp.new('(?<namespace>[^\.]+)\.(?<key>[^=]+)=?(?<value>.*)')
 
     CI_SKIP = 'ci.skip'
 
@@ -59,7 +68,7 @@ module Gitlab
 
     # Allow #to_json serialization
     def as_json(*_args)
-      options
+      options.as_json
     end
 
     private
@@ -97,13 +106,20 @@ module Gitlab
       parts = OPTION_MATCHER.match(option)
       return unless parts
 
-      namespace, key, value = parts.values_at(:namespace, :key, :value).map(&:strip)
+      namespace = extract_match(parts, :namespace)
+      key = extract_match(parts, :key)
+      value = extract_match(parts, :value)
+
       namespace = NAMESPACE_ALIASES[namespace] if NAMESPACE_ALIASES[namespace]
       value = value.presence || true
 
       return unless valid_option?(namespace, key)
 
       [namespace, key, value]
+    end
+
+    def extract_match(parts, key)
+      parts[key].to_s.strip
     end
 
     def valid_option?(namespace, key)

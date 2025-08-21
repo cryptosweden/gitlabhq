@@ -26,7 +26,7 @@ module Ci
 
     # rubocop:disable Cop/ActiveRecordSerialize
     serialize :options
-    serialize :yaml_variables, ::Gitlab::Serializer::Ci::Variables
+    serialize :yaml_variables, coder: ::Gitlab::Serializer::Ci::Variables
     # rubocop:enable Cop/ActiveRecordSerialize
 
     state_machine :status do
@@ -34,6 +34,10 @@ module Ci
         bridge.run_after_commit do
           Ci::TriggerDownstreamPipelineService.new(bridge).execute # rubocop: disable CodeReuse/ServiceClass
         end
+      end
+
+      event :created do
+        transition all => :created
       end
 
       event :pending do
@@ -48,28 +52,43 @@ module Ci
         transition all => :scheduled
       end
 
+      event :skip do
+        transition all => :skipped
+      end
+
       event :actionize do
         transition created: :manual
       end
 
       event :start_cancel do
-        transition CANCELABLE_STATUSES.map(&:to_sym) + [:manual] => :canceling
+        transition CANCELABLE_STATUSES.map(&:to_sym) => :canceling
       end
 
       event :finish_cancel do
-        transition CANCELABLE_STATUSES.map(&:to_sym) + [:manual, :canceling] => :canceled
+        transition CANCELABLE_STATUSES.map(&:to_sym) + [:canceling] => :canceled
       end
-    end
 
-    def retryable?
-      return false if failed? && (pipeline_loop_detected? || reached_max_descendant_pipelines_depth?)
+      event :success do
+        transition all => :success
+      end
 
-      super
+      event :canceled do
+        transition all => :canceled
+      end
+
+      event :failed do
+        transition all => :failed
+      end
+
+      event :manual do
+        transition all => :manual
+      end
     end
 
     def self.with_preloads
       preload(
         :metadata,
+        :job_definition,
         user: [:followers, :followees],
         downstream_pipeline: [project: [:route, { namespace: :route }]],
         project: [:namespace]
@@ -78,22 +97,15 @@ module Ci
 
     def self.clone_accessors
       %i[pipeline project ref tag options name
-        allow_failure stage stage_idx
+        allow_failure stage_idx
         yaml_variables when environment description needs_attributes
         scheduling_type ci_stage partition_id].freeze
     end
 
-    def inherit_status_from_downstream!(pipeline)
-      case pipeline.status
-      when 'success'
-        success!
-      when 'canceled'
-        finish_cancel!
-      when 'failed', 'skipped'
-        drop!
-      else
-        false
-      end
+    def retryable?
+      return false if failed? && (pipeline_loop_detected? || reached_max_descendant_pipelines_depth?)
+
+      super
     end
 
     def has_downstream_pipeline?
@@ -122,7 +134,7 @@ module Ci
         project = options&.dig(:trigger, :project)
         next unless project
 
-        scoped_variables.to_runner_variables.then do |all_variables|
+        scoped_variables.to_hash_variables.then do |all_variables|
           ::ExpandVariables.expand(project, all_variables)
         end
       end
@@ -189,7 +201,7 @@ module Ci
     def runner; end
 
     def tag_list
-      ActsAsTaggableOn::TagList.new
+      Gitlab::Ci::Tags::TagList.new
     end
 
     def artifacts?
@@ -223,8 +235,18 @@ module Ci
       branch = options&.dig(:trigger, :branch)
       return unless branch
 
-      scoped_variables.to_runner_variables.then do |all_variables|
+      scoped_variables.to_hash_variables.then do |all_variables|
         ::ExpandVariables.expand(branch, all_variables)
+      end
+    end
+
+    def has_strategy?
+      mirrored? || dependent?
+    end
+
+    def mirrored?
+      strong_memoize(:mirrored) do
+        options&.dig(:trigger, :strategy) == 'mirror'
       end
     end
 
@@ -287,7 +309,45 @@ module Ci
       end
     end
 
+    def inherit_status_from_downstream(pipeline)
+      if pipeline.source_bridge.mirrored?
+        inherit_mirrored_status_from_downstream!(pipeline)
+      else
+        inherit_dependent_status_from_downstream!(pipeline)
+      end
+    end
+
     private
+
+    def inherit_mirrored_status_from_downstream!(pipeline)
+      case pipeline.status
+      when 'success'
+        success!
+      when 'canceled'
+        canceled!
+      when 'failed'
+        failed!
+      when 'manual'
+        manual!
+      when 'skipped'
+        skip!
+      else
+        false
+      end
+    end
+
+    def inherit_dependent_status_from_downstream!(pipeline)
+      case pipeline.status
+      when 'success'
+        success!
+      when 'canceled'
+        canceled!
+      when 'failed', 'skipped'
+        failed!
+      else
+        false
+      end
+    end
 
     def expose_protected_group_variables?
       return true if downstream_project.nil?
@@ -313,8 +373,9 @@ module Ci
         },
         execute_params: {
           ignore_skip_ci: true,
-          bridge: self
-        }
+          bridge: self,
+          inputs: options&.dig(:trigger, :inputs)
+        }.compact
       }
     end
 

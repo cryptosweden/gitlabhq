@@ -1,23 +1,28 @@
-import { GlDisclosureDropdown } from '@gitlab/ui';
+import { GlDisclosureDropdown, GlDisclosureDropdownGroup } from '@gitlab/ui';
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import { createMockDirective } from 'helpers/vue_mock_directive';
 import { stubComponent } from 'helpers/stub_component';
+import EmojiPicker from '~/emoji/components/picker.vue';
 import ReplyButton from '~/notes/components/note_actions/reply_button.vue';
 import WorkItemNoteActions from '~/work_items/components/notes/work_item_note_actions.vue';
 import addAwardEmojiMutation from '~/work_items/graphql/notes/work_item_note_add_award_emoji.mutation.graphql';
+
+jest.mock('~/work_items/notes/award_utils', () => ({
+  ...jest.requireActual('~/work_items/notes/award_utils'),
+  getNewCustomEmojiPath: jest.fn().mockReturnValue('/groups/gitlab-org/-/custom_emoji/new'),
+}));
 
 Vue.use(VueApollo);
 
 describe('Work Item Note Actions', () => {
   let wrapper;
-  const noteId = '1';
   const showSpy = jest.fn();
 
   const findReplyButton = () => wrapper.findComponent(ReplyButton);
-  const findEditButton = () => wrapper.findByTestId('note-actions-edit');
+  const findEditButton = () => wrapper.findByTestId('note-edit-button');
   const findEmojiButton = () => wrapper.findByTestId('note-emoji-button');
   const findDropdown = () => wrapper.findComponent(GlDisclosureDropdown);
   const findDeleteNoteButton = () => wrapper.findByTestId('delete-note-action');
@@ -27,6 +32,7 @@ describe('Work Item Note Actions', () => {
   const findAuthorBadge = () => wrapper.findByTestId('author-badge');
   const findMaxAccessLevelBadge = () => wrapper.findByTestId('max-access-level-badge');
   const findContributorBadge = () => wrapper.findByTestId('contributor-badge');
+  const findDisclosureDropdownGroup = () => wrapper.findComponent(GlDisclosureDropdownGroup);
 
   const addEmojiMutationResolver = jest.fn().mockResolvedValue({
     data: {
@@ -53,7 +59,6 @@ describe('Work Item Note Actions', () => {
         showEdit,
         workItemIid: '1',
         note: {},
-        noteId,
         showAwardEmoji,
         showAssignUnassign,
         canReportAbuse,
@@ -64,12 +69,12 @@ describe('Work Item Note Actions', () => {
         projectName,
       },
       provide: {
-        isGroup: false,
         glFeatures: {
           workItemsAlpha: true,
         },
       },
       stubs: {
+        EmojiPicker,
         GlDisclosureDropdown: stubComponent(GlDisclosureDropdown, {
           methods: { close: showSpy },
         }),
@@ -83,6 +88,42 @@ describe('Work Item Note Actions', () => {
 
   afterEach(() => {
     showSpy.mockClear();
+  });
+
+  describe('dropdown group', () => {
+    it('renders dropdown group when either canReportAbuse or showEdit is true', () => {
+      createComponent({ canReportAbuse: true, showEdit: true });
+
+      expect(findDisclosureDropdownGroup().exists()).toBe(true);
+    });
+
+    it('does not render dropdown group when both canReportAbuse and showEdit are false', () => {
+      createComponent({ canReportAbuse: false, showEdit: false });
+
+      expect(findDisclosureDropdownGroup().exists()).toBe(false);
+    });
+
+    it('renders reportAbuse button inside dropdown group when canReportAbuse is true', () => {
+      createComponent({ canReportAbuse: true });
+
+      expect(findDisclosureDropdownGroup().exists()).toBe(true);
+      expect(findReportAbuseToAdminButton().exists()).toBe(true);
+    });
+
+    it('renders delete note button inside dropdown group when showEdit is true', () => {
+      createComponent({ showEdit: true });
+
+      expect(findDisclosureDropdownGroup().exists()).toBe(true);
+      expect(findDeleteNoteButton().exists()).toBe(true);
+    });
+
+    it('renders both reportAbuse and delete note buttons when both canReportAbuse and showEdit are true', () => {
+      createComponent({ canReportAbuse: true, showEdit: true });
+
+      expect(findDisclosureDropdownGroup().exists()).toBe(true);
+      expect(findReportAbuseToAdminButton().exists()).toBe(true);
+      expect(findDeleteNoteButton().exists()).toBe(true);
+    });
   });
 
   describe('reply button', () => {
@@ -125,6 +166,9 @@ describe('Work Item Note Actions', () => {
       createComponent();
 
       expect(findEmojiButton().exists()).toBe(true);
+      expect(findEmojiButton().props('customEmojiPath')).toBe(
+        '/groups/gitlab-org/-/custom_emoji/new',
+      );
     });
 
     it('is hidden when `showAwardEmoji` prop is false', () => {

@@ -66,7 +66,7 @@ export const diffHasExpandedDiscussions = () => (diff) => {
   const diffLineDiscussionsExpanded = diff[INLINE_DIFF_LINES_KEY].filter(
     (l) => l.discussions.length >= 1,
   ).some((l) => l.discussionsExpanded);
-  const diffFileDiscussionsExpanded = diff.discussions?.some((d) => d.expanded);
+  const diffFileDiscussionsExpanded = diff.discussions?.some((d) => d.expandedOnDiff);
 
   return diffFileDiscussionsExpanded || diffLineDiscussionsExpanded;
 };
@@ -107,6 +107,7 @@ export const diffHasDiscussions = () => (diff) => {
  * @param {Object} diff
  * @returns {Array}
  */
+// eslint-disable-next-line max-params
 export const getDiffFileDiscussions = (state, getters, rootState, rootGetters) => (diff) =>
   rootGetters.discussions.filter(
     (discussion) => discussion.diff_discussion && discussion.diff_file.file_hash === diff.file_hash,
@@ -136,7 +137,8 @@ export const allBlobs = (state, getters) =>
       });
     }
 
-    acc.find((f) => f.path === parentPath).tree.push(file);
+    const id = state.diffFiles.find((diff) => diff.file_hash === file.fileHash)?.id;
+    acc.find((f) => f.path === parentPath).tree.push({ ...file, id });
 
     return acc;
   }, []);
@@ -201,7 +203,7 @@ export function suggestionCommitMessage(state, _, rootState) {
 }
 
 export const isVirtualScrollingEnabled = (state) => {
-  if (state.disableVirtualScroller || getParameterValues('virtual_scrolling')[0] === 'false') {
+  if (state.virtualScrollerDisabled || getParameterValues('virtual_scrolling')[0] === 'false') {
     return false;
   }
 
@@ -212,16 +214,26 @@ export const isBatchLoading = (state) => state.batchLoadingState === 'loading';
 export const isBatchLoadingError = (state) => state.batchLoadingState === 'error';
 
 export const diffFiles = (state, getters) => {
-  const { pinnedFile } = getters;
-  if (pinnedFile) {
+  const { linkedFile } = getters;
+  if (linkedFile) {
     const diffs = state.diffFiles.slice(0);
-    diffs.splice(diffs.indexOf(pinnedFile), 1);
-    return [pinnedFile, ...diffs];
+    diffs.splice(diffs.indexOf(linkedFile), 1);
+    return [linkedFile, ...diffs];
   }
   return state.diffFiles;
 };
 
-export const pinnedFile = (state) => {
-  if (!state.pinnedFileHash) return null;
-  return state.diffFiles.find((file) => file.file_hash === state.pinnedFileHash);
+export const linkedFile = (state) => {
+  if (!state.linkedFileHash) return null;
+  return state.diffFiles.find((file) => file.file_hash === state.linkedFileHash);
+};
+
+export const fileTree = (state) => {
+  const diffs = state.diffFiles;
+  const mapToId = (item) => {
+    const id = diffs.find((diff) => diff.file_hash === item.fileHash)?.id;
+    const tree = item.tree.map(mapToId);
+    return { ...item, id, tree };
+  };
+  return state.tree.map(mapToId);
 };

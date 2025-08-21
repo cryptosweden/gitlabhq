@@ -19,7 +19,7 @@ module Banzai
             milestone_iids = fitered_ids&.pluck(:milestone_iid)&.compact
 
             if milestone_iids.present?
-              relation << find_milestones(parent, true, absolute_path: absolute_path).where(iid: milestone_iids)
+              relation << find_milestones(parent, true, absolute_path: absolute_path).iid_in(milestone_iids)
             end
 
             milestone_names = fitered_ids&.pluck(:milestone_name)&.compact
@@ -157,6 +157,15 @@ module Banzai
 
         def requires_unescaping?
           true
+        end
+
+        def data_attributes_for(text, parent, object, link_content: false, link_reference: false)
+          object_parent = object.resource_parent
+
+          return super unless object_parent.is_a?(Group)
+          return super if object_parent.id == parent.id
+
+          super.merge({ group: object_parent.id, namespace: object_parent.id, project: nil })
         end
       end
     end

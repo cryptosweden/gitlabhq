@@ -24,6 +24,11 @@ RSpec.shared_examples "redis_shared_examples" do
   before do
     allow(described_class).to receive(:config_file_name).and_return(Rails.root.join(config_file_name).to_s)
     allow(described_class).to receive(:redis_yml_path).and_return('/dev/null')
+    clear_params
+  end
+
+  after do
+    clear_params
   end
 
   describe '.config_file_name' do
@@ -102,12 +107,14 @@ RSpec.shared_examples "redis_shared_examples" do
       end
     end
 
-    it 'withstands mutation' do
+    it 'cannot be mutated' do
       params1 = described_class.params
       params2 = described_class.params
-      params1[:foo] = :bar
 
-      expect(params2).not_to have_key(:foo)
+      expect { params1[:foo] = :bar }.to raise_exception(FrozenError)
+
+      expect(params1).to eq(params2)
+      expect(params1.object_id).to eq(params2.object_id)
     end
 
     context 'with command to generate extra config specified' do
@@ -190,17 +197,24 @@ RSpec.shared_examples "redis_shared_examples" do
       context 'with new format' do
         let(:config_file_name) { config_new_format_host }
 
-        where(:rails_env, :host) do
+        where(:rails_env, :host, :username) do
           [
-            %w[development development-host],
-            %w[test test-host],
-            %w[production production-host]
+            %w[development development-host] << nil,
+            %w[test test-host redis-test-user],
+            %w[production production-host redis-prod-user]
           ]
         end
 
         with_them do
-          it 'returns hash with host, port, db, and password' do
+          it 'returns hash with host, port, db, username, and password' do
             is_expected.to include(name: host, password: 'mynewpassword', db: redis_database)
+
+            if username
+              is_expected.to include(username: username)
+            else
+              is_expected.not_to have_key(:username)
+            end
+
             is_expected.not_to have_key(:url)
           end
 
@@ -657,6 +671,13 @@ RSpec.shared_examples "redis_shared_examples" do
         end
       end
     end
+  end
+
+  def clear_params
+    described_class.remove_instance_variable(:@params)
+    described_class.config_fallback&.remove_instance_variable(:@params)
+  rescue NameError
+    # raised if @params was not set; ignore
   end
 
   def clear_pool

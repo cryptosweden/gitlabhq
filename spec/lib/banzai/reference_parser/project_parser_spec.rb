@@ -2,14 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::ReferenceParser::ProjectParser, feature_category: :team_planning do
+RSpec.describe Banzai::ReferenceParser::ProjectParser, feature_category: :markdown do
   include ReferenceParserHelpers
 
   let(:project) { create(:project, :public) }
   let(:user) { create(:user) }
-  subject { described_class.new(Banzai::RenderContext.new(project, user)) }
-
   let(:link) { empty_html_link }
+
+  subject { described_class.new(Banzai::RenderContext.new(project, user)) }
 
   describe '#referenced_by' do
     describe 'when the link has a data-project attribute' do

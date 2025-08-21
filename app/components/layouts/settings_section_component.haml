@@ -1,10 +1,10 @@
-%section.settings-section{ id: @id, data: (@testid ? { testid: @testid } : {}) }
-  .settings-sticky-header
-    .settings-sticky-header-inner
-      %h2.gl-heading-2{ class: '!gl-mb-2' }
-        = heading || @heading
-      - if description || @description
-        %p.gl-text-secondary.gl-m-0
-          = description || @description
-  %div{ data: { testid: 'settings-section-body' } }
+%section.settings-section.js-search-settings-section{ options_attrs }
+  .settings-sticky-header{ class: ('gl-mb-4' if !description && !@description) }
+    %h2.gl-heading-2.gl-mb-0
+      = heading || @heading
+  - if description || @description
+    .settings-sticky-header-description.gl-mb-6
+      %p.gl-text-subtle.gl-mb-0
+        = description || @description
+  .gl-mt-3{ data: { testid: 'settings-section-body' } }
     = body

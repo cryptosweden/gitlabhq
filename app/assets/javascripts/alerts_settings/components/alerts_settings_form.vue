@@ -9,6 +9,7 @@ import {
   GlFormTextarea,
   GlModal,
   GlModalDirective,
+  GlSprintf,
   GlToggle,
   GlTabs,
   GlTab,
@@ -16,14 +17,11 @@ import {
 import { isEqual, isEmpty, omit } from 'lodash';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
-import { PROMO_URL, DOCS_URL_IN_EE_DIR } from 'jh_else_ce/lib/utils/url_utility';
+import { PROMO_URL, DOCS_URL_IN_EE_DIR } from '~/constants';
 import {
   integrationTypes,
   integrationSteps,
-  createStepNumbers,
-  editStepNumbers,
   JSON_VALIDATE_DELAY,
-  targetPrometheusUrlPlaceholder,
   typeSet,
   i18n,
   tabIndices,
@@ -35,9 +33,6 @@ import MappingBuilder from './alert_mapping_builder.vue';
 import AlertSettingsFormHelpBlock from './alert_settings_form_help_block.vue';
 
 export default {
-  placeholders: {
-    prometheus: targetPrometheusUrlPlaceholder,
-  },
   incidentManagementDocsLink: `${DOCS_URL_IN_EE_DIR}/operations/incident_management/integrations.html#configuration`,
   JSON_VALIDATE_DELAY,
   typeSet,
@@ -57,6 +52,7 @@ export default {
     GlFormTextarea,
     GlFormSelect,
     GlModal,
+    GlSprintf,
     GlToggle,
     GlTabs,
     GlTab,
@@ -159,7 +155,7 @@ export default {
       };
     },
     showMappingBuilder() {
-      return this.multiIntegrations && this.isHttp && this.alertFields?.length;
+      return this.multiIntegrations && this.integrationForm.type && this.alertFields?.length;
     },
     hasSamplePayload() {
       return this.isValidNonEmptyJSON(this.currentIntegration?.payloadExample);
@@ -177,6 +173,11 @@ export default {
       return this.isPrometheus
         ? i18n.integrationFormSteps.setupCredentials.prometheusHelp
         : i18n.integrationFormSteps.setupCredentials.help;
+    },
+    customMappingHelpMsg() {
+      return this.isPrometheus
+        ? i18n.integrationFormSteps.mapFields.prometheusHelp
+        : i18n.integrationFormSteps.mapFields.help;
     },
     isFormValid() {
       return (
@@ -208,15 +209,15 @@ export default {
       return this.isFormValid && this.isFormDirty;
     },
     dataForSave() {
-      const { name, active } = this.integrationForm;
+      const { name, active, type } = this.integrationForm;
       const customMappingVariables = {
         payloadAttributeMappings: this.mapping,
         payloadExample: this.samplePayload.json || '{}',
       };
 
-      const variables = this.isHttp ? { name, active, ...customMappingVariables } : { active };
+      const variables = { name, active, type, ...customMappingVariables };
 
-      return { type: this.integrationForm.type, variables };
+      return { variables };
     },
     testAlertModal() {
       return this.isFormDirty ? testAlertModalId : null;
@@ -224,6 +225,8 @@ export default {
   },
   watch: {
     tabIndex(val) {
+      // some interactions change activeTabIndex but not tabIndex, so reset first
+      this.activeTabIndex = tabIndices.configureDetails;
       this.activeTabIndex = val;
     },
     currentIntegration(val) {
@@ -287,13 +290,9 @@ export default {
         : null;
     },
     triggerValidation() {
-      if (this.isHttp) {
-        this.validateName();
-        if (!this.validationState.name) {
-          this.$refs.integrationName.$el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      } else if (this.isPrometheus) {
-        this.validationState.name = true;
+      this.validateName();
+      if (!this.validationState.name) {
+        this.$refs.integrationName.$el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     },
     sendTestAlert() {
@@ -314,7 +313,7 @@ export default {
     reset() {
       this.resetFormValues();
       this.resetPayloadAndMapping();
-      this.$emit('clear-current-integration', { type: this.currentIntegration?.type });
+      this.$emit('clear-current-integration');
     },
     resetFormValues() {
       this.integrationForm.type = integrationTypes.none.value;
@@ -331,7 +330,6 @@ export default {
       }
 
       this.$emit('reset-token', {
-        type: this.integrationForm.type,
         variables: { id: this.currentIntegration.id },
       });
     },
@@ -386,326 +384,296 @@ export default {
       this.parsedPayload = [];
       this.updateMapping([]);
     },
-    getLabelWithStepNumber(step, label) {
-      let stepNumber = editStepNumbers[step];
-
-      if (this.isCreating) {
-        stepNumber = createStepNumbers[step];
-      }
-
-      return stepNumber ? `${stepNumber}.${label}` : label;
-    },
   },
 };
 </script>
 
 <template>
-  <div class="gl-new-card-add-form gl-py-0 gl-m-3">
-    <gl-form @submit.prevent="submit" @reset.prevent="reset">
-      <gl-tabs v-model="activeTabIndex">
-        <gl-tab :title="$options.i18n.integrationTabs.configureDetails" class="gl-mt-3">
-          <gl-form-group
-            v-if="isCreating"
-            id="integration-type"
-            :label="
-              getLabelWithStepNumber(
-                $options.integrationSteps.selectType,
-                $options.i18n.integrationFormSteps.selectType.label,
-              )
-            "
-            label-for="integration-type"
-          >
-            <gl-form-select
-              v-model="integrationForm.type"
-              :disabled="isSelectDisabled"
-              class="gl-max-w-full"
-              data-testid="integration-type-dropdown"
-              :options="integrationTypesOptions"
-              autofocus
-            />
-
-            <alert-settings-form-help-block
-              v-if="!canAddIntegration"
-              disabled="true"
-              class="gl-display-inline-block gl-my-4"
-              :message="$options.i18n.integrationFormSteps.selectType.enterprise"
-              :link="pricingLink"
-              data-testid="multi-integrations-not-supported"
-            />
-          </gl-form-group>
-          <div class="gl-mt-3">
-            <gl-form-group
-              v-if="isHttp"
-              :label="
-                getLabelWithStepNumber(
-                  $options.integrationSteps.nameIntegration,
-                  $options.i18n.integrationFormSteps.nameIntegration.label,
-                )
-              "
-              label-for="name-integration"
-              :invalid-feedback="$options.i18n.integrationFormSteps.nameIntegration.error"
-              :state="validationState.name"
-            >
-              <gl-form-input
-                id="name-integration"
-                ref="integrationName"
-                :value="integrationForm.name"
-                type="text"
-                :placeholder="$options.i18n.integrationFormSteps.nameIntegration.placeholder"
-                data-testid="integration-name-field"
-                @input="setIntegrationName"
-              />
-            </gl-form-group>
-
-            <gl-form-group
-              v-if="!isNone"
-              :label="
-                getLabelWithStepNumber(
-                  isHttp
-                    ? $options.integrationSteps.enableHttpIntegration
-                    : $options.integrationSteps.enablePrometheusIntegration,
-                  $options.i18n.integrationFormSteps.enableIntegration.label,
-                )
-              "
-            >
-              <span>{{ $options.i18n.integrationFormSteps.enableIntegration.help }}</span>
-
-              <gl-toggle
-                id="enable-integration"
-                v-model="integrationForm.active"
-                :is-loading="loading"
-                :label="$options.i18n.integrationFormSteps.nameIntegration.activeToggle"
-                data-testid="active-toggle-container"
-                class="gl-mt-4 gl-font-normal"
-              />
-            </gl-form-group>
-            <template v-if="showMappingBuilder">
-              <gl-form-group
-                data-testid="sample-payload-section"
-                :label="
-                  getLabelWithStepNumber(
-                    $options.integrationSteps.customizeMapping,
-                    $options.i18n.integrationFormSteps.mapFields.label,
-                  )
-                "
-                label-for="sample-payload"
-                class="gl-mb-0!"
-                :invalid-feedback="samplePayload.error"
-              >
-                <span>{{ $options.i18n.integrationFormSteps.mapFields.help }}</span>
-
-                <gl-form-textarea
-                  id="sample-payload"
-                  v-model="samplePayload.json"
-                  :disabled="canEditPayload"
-                  :state="isSampePayloadValid"
-                  :placeholder="$options.i18n.integrationFormSteps.mapFields.placeholder"
-                  class="gl-my-3"
-                  :debounce="$options.JSON_VALIDATE_DELAY"
-                  rows="6"
-                  max-rows="10"
-                  no-resize
-                  @input="validateJson"
-                />
-              </gl-form-group>
-
-              <gl-button
-                v-if="canEditPayload"
-                v-gl-modal.resetPayloadModal
-                data-testid="payload-action-btn"
-                :disabled="!integrationForm.active"
-                class="gl-mt-3"
-              >
-                {{ $options.i18n.integrationFormSteps.mapFields.editPayload }}
-              </gl-button>
-
-              <gl-button
-                v-else
-                data-testid="payload-action-btn"
-                :class="{ 'gl-mt-3': samplePayload.error }"
-                :disabled="!canParseSamplePayload"
-                :loading="samplePayload.loading"
-                @click="parseSamplePayload"
-              >
-                {{ $options.i18n.integrationFormSteps.mapFields.parsePayload }}
-              </gl-button>
-              <gl-modal
-                modal-id="resetPayloadModal"
-                :title="$options.i18n.integrationFormSteps.mapFields.resetHeader"
-                :ok-title="$options.i18n.integrationFormSteps.mapFields.resetOk"
-                ok-variant="danger"
-                @ok="resetPayloadAndMappingConfirmed = true"
-              >
-                {{ $options.i18n.integrationFormSteps.mapFields.resetBody }}
-              </gl-modal>
-
-              <div class="gl-mt-5">
-                <span>{{ $options.i18n.integrationFormSteps.mapFields.mapIntro }}</span>
-                <mapping-builder
-                  :parsed-payload="parsedPayload"
-                  :saved-mapping="mapping"
-                  :alert-fields="alertFields"
-                  @onMappingUpdate="updateMapping"
-                />
-              </div>
-            </template>
-          </div>
-          <div
-            class="gl-display-flex gl-gap-3 gl-justify-content-start gl-py-3 gl-flex-direction-column gl-md-flex-direction-row"
-          >
-            <gl-button
-              :disabled="!canSubmitForm"
-              variant="confirm"
-              class="js-no-auto-disable"
-              data-testid="integration-form-submit"
-              @click="submit(false)"
-            >
-              {{ $options.i18n.saveIntegration }}
-            </gl-button>
-
-            <gl-button
-              :disabled="!canSubmitForm"
-              variant="confirm"
-              category="secondary"
-              class="js-no-auto-disable"
-              data-testid="save-and-create-alert-button"
-              @click="submit(true)"
-            >
-              {{ $options.i18n.saveAndTestIntegration }}
-            </gl-button>
-
-            <gl-button type="reset" class="js-no-auto-disable">{{
-              $options.i18n.cancelAndClose
-            }}</gl-button>
-          </div>
-        </gl-tab>
-
-        <gl-tab
-          :title="$options.i18n.integrationTabs.viewCredentials"
-          :disabled="isCreating"
-          class="gl-mt-3"
+  <gl-form @submit.prevent="submit" @reset.prevent="reset">
+    <gl-tabs v-model="activeTabIndex">
+      <gl-tab :title="$options.i18n.integrationTabs.configureDetails" class="gl-mt-3">
+        <gl-form-group
+          v-if="isCreating"
+          id="integration-type"
+          :label="$options.i18n.integrationFormSteps.selectType.label"
+          label-for="integration-type"
         >
-          <alert-settings-form-help-block
-            :message="viewCredentialsHelpMsg"
-            :link="$options.incidentManagementDocsLink"
+          <gl-form-select
+            id="integration-type"
+            v-model="integrationForm.type"
+            :disabled="isSelectDisabled"
+            class="gl-max-w-full"
+            data-testid="integration-type-dropdown"
+            :options="integrationTypesOptions"
+            autofocus
           />
 
-          <gl-form-group id="integration-webhook">
-            <div class="gl-my-4">
-              <span class="gl-font-bold">
-                {{ $options.i18n.integrationFormSteps.setupCredentials.webhookUrl }}
-              </span>
-
-              <gl-form-input-group id="url" readonly :value="integrationForm.url">
-                <template #append>
-                  <clipboard-button
-                    :text="integrationForm.url || ''"
-                    :title="$options.i18n.copy"
-                    class="gl-m-0!"
-                  />
-                </template>
-              </gl-form-input-group>
-            </div>
-
-            <div class="gl-my-4">
-              <span class="gl-font-bold">
-                {{ $options.i18n.integrationFormSteps.setupCredentials.authorizationKey }}
-              </span>
-
-              <gl-form-input-group
-                id="authorization-key"
-                class="gl-mb-3"
-                readonly
-                :value="integrationForm.token"
-              >
-                <template #append>
-                  <clipboard-button
-                    :text="integrationForm.token || ''"
-                    :title="$options.i18n.copy"
-                    class="gl-m-0!"
-                  />
-                </template>
-              </gl-form-input-group>
-            </div>
-          </gl-form-group>
-
-          <div class="gl-display-flex gl-justify-content-start gl-py-3">
-            <gl-button v-gl-modal.authKeyModal variant="danger">
-              {{ $options.i18n.integrationFormSteps.setupCredentials.reset }}
-            </gl-button>
-
-            <gl-button type="reset" class="gl-ml-3 js-no-auto-disable">
-              {{ $options.i18n.cancelAndClose }}
-            </gl-button>
-          </div>
-
-          <gl-modal
-            modal-id="authKeyModal"
-            :title="$options.i18n.integrationFormSteps.setupCredentials.reset"
-            :ok-title="$options.i18n.integrationFormSteps.setupCredentials.reset"
-            ok-variant="danger"
-            @ok="resetAuthKey"
+          <alert-settings-form-help-block
+            v-if="!canAddIntegration"
+            disabled="true"
+            class="gl-my-4 gl-inline-block"
+            :message="$options.i18n.integrationFormSteps.selectType.enterprise"
+            :link="pricingLink"
+            data-testid="multi-integrations-not-supported"
+          />
+        </gl-form-group>
+        <div class="gl-mt-3">
+          <gl-form-group
+            v-if="integrationForm.type"
+            :label="$options.i18n.integrationFormSteps.nameIntegration.label"
+            label-for="name-integration"
+            :invalid-feedback="$options.i18n.integrationFormSteps.nameIntegration.error"
+            :state="validationState.name"
           >
-            {{ $options.i18n.integrationFormSteps.restKeyInfo.label }}
-          </gl-modal>
-        </gl-tab>
-
-        <gl-tab
-          :title="$options.i18n.integrationTabs.sendTestAlert"
-          :disabled="isCreating"
-          class="gl-mt-3"
-        >
-          <gl-form-group id="test-integration" :invalid-feedback="testPayload.error">
-            <alert-settings-form-help-block
-              :message="$options.i18n.integrationFormSteps.testPayload.help"
-              :link="alertsUsageUrl"
-            />
-
-            <gl-form-textarea
-              id="test-payload"
-              :value="testPayload.json"
-              :state="isTestPayloadValid"
-              :placeholder="$options.i18n.integrationFormSteps.testPayload.placeholder"
-              class="gl-my-3"
-              :debounce="$options.JSON_VALIDATE_DELAY"
-              rows="6"
-              max-rows="10"
-              no-resize
-              data-testid="test-payload-field"
-              @input="setJSONPayload"
+            <gl-form-input
+              id="name-integration"
+              ref="integrationName"
+              :value="integrationForm.name"
+              type="text"
+              :placeholder="$options.i18n.integrationFormSteps.nameIntegration.placeholder"
+              data-testid="integration-name-field"
+              @input="setIntegrationName"
             />
           </gl-form-group>
-          <div class="gl-display-flex gl-justify-content-start gl-py-3">
-            <gl-button
-              v-gl-modal="testAlertModal"
-              :disabled="!isTestPayloadValid"
-              :loading="loading"
-              data-testid="send-test-alert"
-              variant="confirm"
-              class="js-no-auto-disable"
-              @click="isFormDirty ? null : sendTestAlert()"
+
+          <gl-form-group
+            v-if="!isNone"
+            :label="$options.i18n.integrationFormSteps.enableIntegration.label"
+          >
+            <span>{{ $options.i18n.integrationFormSteps.enableIntegration.help }}</span>
+
+            <gl-toggle
+              id="enable-integration"
+              v-model="integrationForm.active"
+              :is-loading="loading"
+              :label="$options.i18n.integrationFormSteps.nameIntegration.activeToggle"
+              data-testid="active-toggle-container"
+              class="gl-mt-4 gl-font-normal"
+            />
+          </gl-form-group>
+          <template v-if="showMappingBuilder">
+            <gl-form-group
+              data-testid="sample-payload-section"
+              :label="$options.i18n.integrationFormSteps.mapFields.label"
+              label-for="sample-payload"
+              class="!gl-mb-0"
+              :invalid-feedback="samplePayload.error"
             >
-              {{ $options.i18n.send }}
+              <gl-sprintf :message="customMappingHelpMsg">
+                <template #code="{ content }">
+                  <code>{{ content }}</code>
+                </template>
+              </gl-sprintf>
+
+              <gl-form-textarea
+                id="sample-payload"
+                v-model="samplePayload.json"
+                :disabled="canEditPayload"
+                :state="isSampePayloadValid"
+                :placeholder="$options.i18n.integrationFormSteps.mapFields.placeholder"
+                class="gl-my-3"
+                :debounce="$options.JSON_VALIDATE_DELAY"
+                rows="6"
+                max-rows="10"
+                no-resize
+                @input="validateJson"
+              />
+            </gl-form-group>
+
+            <gl-button
+              v-if="canEditPayload"
+              v-gl-modal.resetPayloadModal
+              data-testid="payload-action-btn"
+              :disabled="!integrationForm.active"
+              class="gl-mt-3"
+            >
+              {{ $options.i18n.integrationFormSteps.mapFields.editPayload }}
             </gl-button>
 
-            <gl-button type="reset" class="gl-ml-3 js-no-auto-disable">
-              {{ $options.i18n.cancelAndClose }}
+            <gl-button
+              v-else
+              data-testid="payload-action-btn"
+              :class="{ 'gl-mt-3': samplePayload.error }"
+              :disabled="!canParseSamplePayload"
+              :loading="samplePayload.loading"
+              @click="parseSamplePayload"
+            >
+              {{ $options.i18n.integrationFormSteps.mapFields.parsePayload }}
             </gl-button>
+            <gl-modal
+              modal-id="resetPayloadModal"
+              :title="$options.i18n.integrationFormSteps.mapFields.resetHeader"
+              :ok-title="$options.i18n.integrationFormSteps.mapFields.resetOk"
+              ok-variant="danger"
+              @ok="resetPayloadAndMappingConfirmed = true"
+            >
+              {{ $options.i18n.integrationFormSteps.mapFields.resetBody }}
+            </gl-modal>
+
+            <div class="gl-mt-5">
+              <span>{{ $options.i18n.integrationFormSteps.mapFields.mapIntro }}</span>
+              <mapping-builder
+                :parsed-payload="parsedPayload"
+                :saved-mapping="mapping"
+                :alert-fields="alertFields"
+                @onMappingUpdate="updateMapping"
+              />
+            </div>
+          </template>
+        </div>
+        <div class="gl-flex gl-flex-col gl-justify-start gl-gap-3 md:gl-flex-row">
+          <gl-button
+            :disabled="!canSubmitForm"
+            variant="confirm"
+            class="js-no-auto-disable"
+            data-testid="integration-form-submit"
+            @click="submit(false)"
+          >
+            {{ $options.i18n.saveIntegration }}
+          </gl-button>
+
+          <gl-button
+            :disabled="!canSubmitForm"
+            variant="confirm"
+            category="secondary"
+            class="js-no-auto-disable"
+            data-testid="save-and-create-alert-button"
+            @click="submit(true)"
+          >
+            {{ $options.i18n.saveAndTestIntegration }}
+          </gl-button>
+
+          <gl-button type="reset" class="js-no-auto-disable">{{
+            $options.i18n.cancelAndClose
+          }}</gl-button>
+        </div>
+      </gl-tab>
+
+      <gl-tab
+        :title="$options.i18n.integrationTabs.viewCredentials"
+        :disabled="isCreating"
+        class="gl-mt-3"
+      >
+        <alert-settings-form-help-block
+          :message="viewCredentialsHelpMsg"
+          :link="$options.incidentManagementDocsLink"
+        />
+
+        <gl-form-group id="integration-webhook">
+          <div class="gl-my-4">
+            <span class="gl-font-bold">
+              {{ $options.i18n.integrationFormSteps.setupCredentials.webhookUrl }}
+            </span>
+
+            <gl-form-input-group id="url" readonly :value="integrationForm.url">
+              <template #append>
+                <clipboard-button
+                  :text="integrationForm.url || ''"
+                  :title="$options.i18n.copy"
+                  class="!gl-m-0"
+                />
+              </template>
+            </gl-form-input-group>
           </div>
 
-          <gl-modal
-            :modal-id="$options.testAlertModalId"
-            :title="$options.i18n.integrationFormSteps.testPayload.modalTitle"
-            :action-primary="$options.primaryProps"
-            :action-secondary="$options.secondaryProps"
-            :action-cancel="$options.cancelProps"
-            @primary="saveAndSendTestAlert"
-            @secondary="sendTestAlert"
+          <div class="gl-my-4">
+            <span class="gl-font-bold">
+              {{ $options.i18n.integrationFormSteps.setupCredentials.authorizationKey }}
+            </span>
+
+            <gl-form-input-group
+              id="authorization-key"
+              class="gl-mb-3"
+              readonly
+              :value="integrationForm.token"
+            >
+              <template #append>
+                <clipboard-button
+                  :text="integrationForm.token || ''"
+                  :title="$options.i18n.copy"
+                  class="!gl-m-0"
+                />
+              </template>
+            </gl-form-input-group>
+          </div>
+        </gl-form-group>
+
+        <div class="gl-flex gl-justify-start gl-py-3">
+          <gl-button v-gl-modal.authKeyModal variant="danger">
+            {{ $options.i18n.integrationFormSteps.setupCredentials.reset }}
+          </gl-button>
+
+          <gl-button type="reset" class="js-no-auto-disable gl-ml-3">
+            {{ $options.i18n.cancelAndClose }}
+          </gl-button>
+        </div>
+
+        <gl-modal
+          modal-id="authKeyModal"
+          :title="$options.i18n.integrationFormSteps.setupCredentials.reset"
+          :ok-title="$options.i18n.integrationFormSteps.setupCredentials.reset"
+          ok-variant="danger"
+          @ok="resetAuthKey"
+        >
+          {{ $options.i18n.integrationFormSteps.restKeyInfo.label }}
+        </gl-modal>
+      </gl-tab>
+
+      <gl-tab
+        :title="$options.i18n.integrationTabs.sendTestAlert"
+        :disabled="isCreating"
+        class="gl-mt-3"
+      >
+        <gl-form-group id="test-integration" :invalid-feedback="testPayload.error">
+          <alert-settings-form-help-block
+            :message="$options.i18n.integrationFormSteps.testPayload.help"
+            :link="alertsUsageUrl"
+          />
+
+          <gl-form-textarea
+            id="test-payload"
+            :value="testPayload.json"
+            :state="isTestPayloadValid"
+            :placeholder="$options.i18n.integrationFormSteps.testPayload.placeholder"
+            class="gl-my-3"
+            :debounce="$options.JSON_VALIDATE_DELAY"
+            rows="6"
+            max-rows="10"
+            no-resize
+            data-testid="test-payload-field"
+            @input="setJSONPayload"
+          />
+        </gl-form-group>
+        <div class="gl-flex gl-justify-start gl-py-3">
+          <gl-button
+            v-gl-modal="testAlertModal"
+            :disabled="!isTestPayloadValid"
+            :loading="loading"
+            data-testid="send-test-alert"
+            variant="confirm"
+            class="js-no-auto-disable"
+            @click="isFormDirty ? null : sendTestAlert()"
           >
-            {{ $options.i18n.integrationFormSteps.testPayload.modalBody }}
-          </gl-modal>
-        </gl-tab>
-      </gl-tabs>
-    </gl-form>
-  </div>
+            {{ $options.i18n.send }}
+          </gl-button>
+
+          <gl-button type="reset" class="js-no-auto-disable gl-ml-3">
+            {{ $options.i18n.cancelAndClose }}
+          </gl-button>
+        </div>
+
+        <gl-modal
+          :modal-id="$options.testAlertModalId"
+          :title="$options.i18n.integrationFormSteps.testPayload.modalTitle"
+          :action-primary="$options.primaryProps"
+          :action-secondary="$options.secondaryProps"
+          :action-cancel="$options.cancelProps"
+          @primary="saveAndSendTestAlert"
+          @secondary="sendTestAlert"
+        >
+          {{ $options.i18n.integrationFormSteps.testPayload.modalBody }}
+        </gl-modal>
+      </gl-tab>
+    </gl-tabs>
+  </gl-form>
 </template>

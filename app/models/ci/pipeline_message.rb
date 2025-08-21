@@ -3,21 +3,19 @@
 module Ci
   class PipelineMessage < Ci::ApplicationRecord
     include Ci::Partitionable
-    include SafelyChangeColumnDefault
-
-    columns_changing_default :partition_id
 
     MAX_CONTENT_LENGTH = 10_000
 
     belongs_to :pipeline
 
+    validates :project_id, presence: true
     validates :content, presence: true
 
     partitionable scope: :pipeline
 
     before_save :truncate_long_content
 
-    enum severity: { error: 0, warning: 1 }
+    enum :severity, { error: 0, warning: 1 }
 
     private
 
@@ -28,3 +26,5 @@ module Ci
     end
   end
 end
+
+Ci::PipelineMessage.prepend_mod_with('Ci::PipelineMessage')

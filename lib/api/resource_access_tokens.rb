@@ -10,6 +10,8 @@ module API
 
     feature_category :system_access
 
+    helpers ::API::Helpers::PersonalAccessTokensHelpers
+
     %w[project group].each do |source_type|
       resource source_type.pluralize, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
         desc 'Get list of all access tokens for the specified resource' do
@@ -20,13 +22,14 @@ module API
         end
         params do
           requires :id, types: [String, Integer], desc: "ID or URL-encoded path of the #{source_type}"
+          use :access_token_params
         end
         get ":id/access_tokens" do
           resource = find_source(source_type, params[:id])
 
           next unauthorized! unless current_user.can?(:read_resource_access_tokens, resource)
 
-          tokens = PersonalAccessTokensFinder.new({ user: resource.bots, impersonation: false }).execute.preload_users
+          tokens = PersonalAccessTokensFinder.new(declared(params, include_missing: false).merge({ user: resource.bots, impersonation: false })).execute.preload_users
 
           resource.members.load
           present paginate(tokens), with: Entities::ResourceAccessToken, resource: resource
@@ -48,9 +51,7 @@ module API
 
           token = find_token(resource, params[:token_id])
 
-          if token.nil?
-            next not_found!("Could not find #{source_type} access token with token_id: #{params[:token_id]}")
-          end
+          next not_found!("#{source_type} Access Token") if token.nil?
 
           resource.members.load
           present token, with: Entities::ResourceAccessToken, resource: resource
@@ -73,9 +74,7 @@ module API
           resource = find_source(source_type, params[:id])
           token = find_token(resource, params[:token_id])
 
-          if token.nil?
-            next not_found!("Could not find #{source_type} access token with token_id: #{params[:token_id]}")
-          end
+          next not_found!("#{source_type} Access Token") if token.nil?
 
           service = ::ResourceAccessTokens::RevokeService.new(
             current_user,
@@ -92,14 +91,11 @@ module API
           success Entities::ResourceAccessTokenWithToken
         end
         params do
+          use :create_personal_access_token_params
           requires :id,
             type: String,
             desc: "The #{source_type} ID",
             documentation: { example: 2 }
-          requires :name,
-            type: String,
-            desc: "Resource access token name",
-            documentation: { example: 'test' }
           requires :scopes,
             type: Array[String],
             values: ::Gitlab::Auth.resource_bot_scopes.map(&:to_s),
@@ -109,7 +105,10 @@ module API
             type: Date,
             desc: "The expiration date of the token",
             default: PersonalAccessToken::MAX_PERSONAL_ACCESS_TOKEN_LIFETIME_IN_DAYS.days.from_now,
-            documentation: { example: '"2021-01-31' }
+            documentation: {
+              example: '2026-02-14T17:26:19.810Z',
+              default: "As default, the current time + #{PersonalAccessToken::MAX_PERSONAL_ACCESS_TOKEN_LIFETIME_IN_DAYS} days will be calculated"
+            }
           optional :access_level,
             type: Integer,
             values: ALLOWED_RESOURCE_ACCESS_LEVELS.values,
@@ -154,14 +153,14 @@ module API
 
           if token
             response = if source_type == "project"
-                         ::ProjectAccessTokens::RotateService.new(current_user, token, resource)
-                                   .execute(declared_params)
+                         ::ProjectAccessTokens::RotateService.new(
+                           current_user, token, resource, declared_params).execute
                        elsif source_type == "group"
-                         ::GroupAccessTokens::RotateService.new(current_user, token, resource)
-                                   .execute(declared_params)
+                         ::GroupAccessTokens::RotateService.new(
+                           current_user, token, resource, declared_params).execute
                        else
-                         ::PersonalAccessTokens::RotateService.new(current_user, token)
-                                     .execute(declared_params)
+                         ::PersonalAccessTokens::RotateService.new(
+                           current_user, token, nil, declared_params).execute
                        end
 
             if response.success?

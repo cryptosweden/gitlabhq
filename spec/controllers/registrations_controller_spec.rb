@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe RegistrationsController, feature_category: :user_profile do
+RSpec.describe RegistrationsController, :with_current_organization, feature_category: :user_profile do
   include TermsHelper
   include FullNameHelper
 
@@ -209,7 +209,6 @@ RSpec.describe RegistrationsController, feature_category: :user_profile do
                   category: 'RegistrationsController',
                   action: 'accepted',
                   label: 'invite_email',
-                  property: member.id.to_s,
                   user: member.reload.user
                 )
               end
@@ -473,6 +472,16 @@ RSpec.describe RegistrationsController, feature_category: :user_profile do
       end
     end
 
+    context 'for system hooks' do
+      it 'executes user_create system hook' do
+        expect_next_instance_of(SystemHooksService) do |system_hook_service|
+          expect(system_hook_service).to receive(:execute_hooks_for).with(User.find_by(email: 'new@user.com'), :create)
+        end
+
+        expect { post_create }.to change { User.where(email: 'new@user.com').count }.from(0).to(1)
+      end
+    end
+
     context 'when the rate limit has been reached' do
       it 'returns status 429 Too Many Requests', :aggregate_failures do
         ip = '1.2.3.4'
@@ -486,6 +495,8 @@ RSpec.describe RegistrationsController, feature_category: :user_profile do
     end
 
     it "logs a 'User Created' message" do
+      allow(Gitlab::AppLogger).to receive(:info)
+
       expect(Gitlab::AppLogger).to receive(:info).with(/\AUser Created: username=new_username email=new@user.com.+\z/).and_call_original
 
       subject
@@ -503,17 +514,6 @@ RSpec.describe RegistrationsController, feature_category: :user_profile do
       expect(User.last.first_name).to eq(base_user_params[:first_name])
       expect(User.last.last_name).to eq(base_user_params[:last_name])
       expect(User.last.name).to eq full_name(base_user_params[:first_name], base_user_params[:last_name])
-    end
-
-    it 'sets the caller_id in the context' do
-      expect(controller).to receive(:create).and_wrap_original do |m, *args|
-        m.call(*args)
-
-        expect(Gitlab::ApplicationContext.current)
-          .to include('meta.caller_id' => 'RegistrationsController#create')
-      end
-
-      subject
     end
 
     context 'when the password is weak' do
@@ -609,6 +609,69 @@ RSpec.describe RegistrationsController, feature_category: :user_profile do
         end
 
         it_behaves_like 'a user without present first name or last name'
+      end
+    end
+
+    describe 'registration timing tracking' do
+      let(:base_user_params) do
+        { first_name: 'first', last_name: 'last', username: 'new_username', email: 'new@user.com', password: User.random_password }
+      end
+
+      let(:user_params) { { user: base_user_params } }
+
+      context 'when a user is registered successfully' do
+        it 'logs registration metrics with durations' do
+          expect(Gitlab::AppJsonLogger).to receive(:info).with(
+            hash_including(
+              event: 'user_registration_duration',
+              total_duration_s: a_kind_of(Float),
+              set_resource_fields_duration_s: a_kind_of(Float),
+              devise_create_user_duration_s: a_kind_of(Float),
+              after_successful_create_hook_duration_s: a_kind_of(Float)
+            )
+          )
+
+          post :create, params: user_params
+        end
+      end
+
+      context 'when registration fails' do
+        let(:invalid_user_params) { { user: base_user_params.merge(username: '') } }
+
+        it 'logs registration metrics even when registration fails' do
+          expect(Gitlab::AppJsonLogger).to receive(:info).with(
+            hash_including(
+              event: 'user_registration_duration',
+              total_duration_s: a_kind_of(Float)
+            )
+          )
+
+          post :create, params: invalid_user_params
+        end
+      end
+
+      context 'when user is not invited' do
+        it 'tracks user creation with signup label' do
+          post :create, params: user_params
+
+          expect_snowplow_event(
+            category: 'RegistrationsController',
+            action: 'create_user',
+            label: 'signup',
+            user: User.find_by(email: base_user_params[:email])
+          )
+        end
+      end
+
+      context 'when a timing operation fails' do
+        it 'logs warning if timing measurement fails but continues registration' do
+          allow(controller).to receive(:current_monotonic_time).and_return(nil)
+          expect(Gitlab::AppJsonLogger).to receive(:warn).with(/Timing instrumentation failed/).at_least(:once)
+          expect(Gitlab::AppJsonLogger).to receive(:warn).with(/Error logging registration metrics/)
+          expect do
+            post :create, params: user_params
+          end.to change { User.count }.by(1)
+        end
       end
     end
   end
@@ -717,17 +780,6 @@ RSpec.describe RegistrationsController, feature_category: :user_profile do
 
         expect_failure(s_('Profiles|You must accept the Terms of Service in order to perform this action.'))
       end
-    end
-
-    it 'sets the username and caller_id in the context' do
-      expect(controller).to receive(:destroy).and_wrap_original do |m, *args|
-        m.call(*args)
-
-        expect(Gitlab::ApplicationContext.current)
-          .to include('meta.user' => user.username, 'meta.caller_id' => 'RegistrationsController#destroy')
-      end
-
-      post :destroy
     end
   end
 end

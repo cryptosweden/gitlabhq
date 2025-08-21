@@ -1,39 +1,37 @@
 ---
 stage: Create
 group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
-description: "Configure limits on the number of single push events your self-managed GitLab instance will allow."
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+gitlab_dedicated: yes
+description: Configure limits on the number of single push events your instance allows.
+title: Push event activities limit and bulk push events
 ---
 
-# Push event activities limit and bulk push events
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
 
-Set the number of branches or tags to limit the number of single push events
-allowed at once. If the number of events is greater than this, GitLab creates
-bulk push event instead.
+{{< /details >}}
 
-For example, if 4 branches are pushed and the limit is currently set to 3,
-the activity feed displays:
+To maintain good system performance and prevent spam on the activity feed, set a **Push event activities limit**.
+By default, GitLab sets this limit to `3`. When you push changes that affect more than 3 branches and tags,
+GitLab creates a bulk push event instead of individual push events.
 
-![Bulk push event](img/bulk_push_event_v12_4.png)
+For example, if you push to four branches simultaneously, the activity feed displays a single
+{{< icon name="commit">}} `Pushed to 4 branches at (project name)` event instead of four separate
+push events.
 
-With this feature, when a single push includes a lot of changes (for example, 1,000
-branches), only 1 bulk push event is created instead of 1,000 push
-events. This helps in maintaining good system performance and preventing spam on
-the activity feed.
+To set a different **Push event activities limit**, either:
 
-To modify this setting:
+- In the [Application settings API](../../api/settings.md#available-settings), set the
+  `push_event_activities_limit`.
 
-- In the Admin Area:
-  1. On the left sidebar, at the bottom, select **Admin Area**.
-  1. Select **Settings > Network**.
+- In the GitLab UI:
+  1. On the left sidebar, at the bottom, select **Admin**.
+  1. On the left sidebar, select **Settings > Network**.
   1. Expand **Performance optimization**.
-- Through the [Application settings API](../../api/settings.md#list-of-settings-that-can-be-accessed-via-api-calls)
-  as `push_event_activities_limit`.
+  1. Edit the **Push event activities limit** setting.
+  1. Select **Save changes**.
 
-The default value is `3`, but the value can be greater than or equal to `0`. Setting this value to `0` does not disable throttling.
-
-![Push event activities limit](img/push_event_activities_limit_v12_4.png)
+The value can be greater than or equal to `0`. Setting this value to `0` does not disable throttling.

@@ -4,12 +4,12 @@ exports[`packages_list_app renders 1`] = `
 <div>
   <infrastructure-title-stub
     count="1"
-    helpurl="/help/user/packages/terraform_module_registry/index"
+    helpurl="/help/user/packages/terraform_module_registry/_index"
   />
   <infrastructure-search-stub />
   <div>
     <section
-      class="gl-display-flex gl-empty-state gl-flex-direction-column gl-text-center"
+      class="gl-empty-state gl-flex gl-flex-col gl-text-center"
     >
       <div
         class="gl-max-w-full"
@@ -26,25 +26,26 @@ exports[`packages_list_app renders 1`] = `
         data-testid="gl-empty-state-content"
       >
         <h1
-          class="gl-font-size-h-display gl-line-height-36 gl-mb-0 gl-mt-0 h4"
+          class="gl-leading-36 gl-mb-0 gl-mt-0 gl-text-size-h-display h4"
         >
           You have no Terraform modules in your project
         </h1>
         <p
-          class="gl-mb-0 gl-mt-4"
+          class="gl-mb-0 gl-mt-4 gl-text-subtle"
         >
           Learn how to
-          <b-link-stub
+          <a
             class="gl-link"
-            href="/help/user/packages/terraform_module_registry/index"
+            href="/help/user/packages/terraform_module_registry/_index"
+            rel="noopener noreferrer"
             target="_blank"
           >
             publish and share your packages
-          </b-link-stub>
+          </a>
           with GitLab.
         </p>
         <div
-          class="gl-display-flex gl-flex-wrap gl-justify-content-center gl-mt-5"
+          class="gl-flex gl-flex-wrap gl-justify-center gl-mt-5"
         />
       </div>
     </section>

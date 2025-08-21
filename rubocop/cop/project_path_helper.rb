@@ -17,7 +17,7 @@ module RuboCop
         namespace_expr, project_expr = arguments(node)
         return unless namespace_expr && project_expr
 
-        return unless namespace_expr.type == :send
+        return unless namespace_expr.send_type?
         return unless method_name(namespace_expr) == :namespace
         return unless receiver(namespace_expr) == project_expr
 
@@ -29,7 +29,7 @@ module RuboCop
 
           replacement = "#{helper_name}(#{arguments.map(&:source).join(', ')})"
 
-          corrector.replace(node.source_range, replacement)
+          corrector.replace(node, replacement)
         end
       end
 

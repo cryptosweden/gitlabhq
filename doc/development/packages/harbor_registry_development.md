@@ -1,9 +1,9 @@
 ---
 stage: Package
 group: Container Registry
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Harbor registry
 ---
-# Harbor registry
 
 ## Enable Harbor registry
 
@@ -14,10 +14,10 @@ The Harbor configuration requires four fields: `url`, `project_name`, `username`
 | --- | --- |
 | `url` | The URL of the Harbor instance. |
 | `project_name` | The project name of the Harbor instance. |
-| `username` | The username used to log in to the Harbor instance. |
-| `password` | The password used to log in to the Harbor instance. |
+| `username` | The username used to sign in to the Harbor instance. |
+| `password` | The password used to sign in to the Harbor instance. |
 
-You can use [GitLab CI/CD predefined variables](../../ci/variables/index.md) along with the following Harbor registry variables to request data from the Harbor instance.
+You can use [GitLab CI/CD predefined variables](../../ci/variables/_index.md) along with the following Harbor registry variables to request data from the Harbor instance.
 
 | Variable | Description |
 | --- | --- |
@@ -25,8 +25,8 @@ You can use [GitLab CI/CD predefined variables](../../ci/variables/index.md) alo
 | `HARBOR_HOST` | The host of the Harbor instance URL. |
 | `HARBOR_OCI` | The OCI URL of the Harbor instance URL. |
 | `HARBOR_PROJECT` | The project name of the Harbor instance. |
-| `HARBOR_USERNAME` | The username used to log in to the Harbor instance. |
-| `HARBOR_PASSWORD` | The password used to log in to the Harbor instance. |
+| `HARBOR_USERNAME` | The username used to sign in to the Harbor instance. |
+| `HARBOR_PASSWORD` | The password used to sign in to the Harbor instance. |
 
 ### Test settings
 
@@ -135,8 +135,11 @@ The relevant front-end code is located in the `app/assets/javascripts/packages_a
 └── utils.js
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 You can check out this [discussion](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/82777#note_1017875324) to see why we use the REST API instead of GraphQL.
+
+{{< /alert >}}
 
 The file `harbor_registry/pages/index.vue` only contains a single Vue router-view component, which goes to the `images list`, `image detail`, and `tags list` pages via `router.js`.
 

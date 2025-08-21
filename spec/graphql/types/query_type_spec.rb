@@ -57,8 +57,8 @@ RSpec.describe GitlabSchema.types['Query'], feature_category: :shared do
     subject { described_class.fields['metadata'] }
 
     it 'returns metadata' do
-      is_expected.to have_graphql_type(Types::MetadataType)
-      is_expected.to have_graphql_resolver(Resolvers::MetadataResolver)
+      is_expected.to have_graphql_type(Types::AppConfig::InstanceMetadataType)
+      is_expected.to have_graphql_resolver(Resolvers::AppConfig::InstanceMetadataResolver)
     end
   end
 
@@ -119,7 +119,7 @@ RSpec.describe GitlabSchema.types['Query'], feature_category: :shared do
   describe 'container_repository field' do
     subject { described_class.fields['containerRepository'] }
 
-    it { is_expected.to have_graphql_type(Types::ContainerRepositoryDetailsType) }
+    it { is_expected.to have_graphql_type(Types::ContainerRegistry::ContainerRepositoryDetailsType) }
   end
 
   describe 'package field' do
@@ -132,7 +132,20 @@ RSpec.describe GitlabSchema.types['Query'], feature_category: :shared do
     subject { described_class.fields['timelogs'] }
 
     it 'returns timelogs' do
-      is_expected.to have_graphql_arguments(:startDate, :endDate, :startTime, :endTime, :username, :projectId, :groupId, :after, :before, :first, :last, :sort)
+      is_expected.to have_graphql_arguments(
+        :startDate,
+        :endDate,
+        :startTime,
+        :endTime,
+        :username,
+        :projectId,
+        :groupId,
+        :after,
+        :before,
+        :first,
+        :last,
+        :sort
+      )
       is_expected.to have_graphql_type(Types::TimelogType.connection_type)
       is_expected.to have_graphql_resolver(Resolvers::TimelogResolver)
     end
@@ -175,6 +188,85 @@ RSpec.describe GitlabSchema.types['Query'], feature_category: :shared do
       is_expected.to have_graphql_type(GraphQL::Types::Boolean.to_non_null_type)
       is_expected.to have_graphql_arguments(:name)
       is_expected.to have_graphql_resolver(Resolvers::FeatureFlagResolver)
+    end
+  end
+
+  describe 'issues field' do
+    subject { described_class.fields['issues'] }
+
+    it "finds issues" do
+      expected_fields = %i[
+        after
+        assigneeId
+        assigneeUsername
+        assigneeUsernames
+        assigneeWildcardId
+        authorUsername
+        before
+        closedAfter
+        closedBefore
+        confidential
+        createdAfter
+        createdBefore
+        crmContactId
+        crmOrganizationId
+        dueAfter
+        dueBefore
+        first
+        iid
+        iids
+        in
+        includeArchived
+        labelName
+        last
+        milestoneTitle
+        milestoneWildcardId
+        myReactionEmoji
+        not
+        or
+        search
+        sort
+        state
+        subscribed
+        types
+        updatedAfter
+        updatedBefore
+      ]
+
+      if Gitlab.ee?
+        expected_fields += %i[
+          epicId
+          epicWildcardId
+          healthStatusFilter
+          includeSubepics
+          iterationCadenceId
+          iterationId
+          iterationTitle
+          iterationWildcardId
+          weight
+          weightWildcardId
+          customField
+          status
+        ]
+      end
+
+      is_expected.to have_graphql_arguments(*expected_fields)
+      is_expected.to have_graphql_type(Types::IssueType.connection_type)
+    end
+  end
+
+  describe '.authorization_scopes' do
+    it 'includes :ai_workflows' do
+      expect(described_class.authorization_scopes).to include(:ai_workflows)
+    end
+  end
+
+  describe 'fields with :ai_workflows scope' do
+    %w[namespace project].each do |field_name|
+      it "includes :ai_workflows scope for the #{field_name} field" do
+        field = described_class.fields[field_name]
+        expect(field.instance_variable_get(:@scopes)).to include(:ai_workflows)
+      end
     end
   end
 end

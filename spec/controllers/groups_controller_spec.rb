@@ -2,11 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe GroupsController, factory_default: :keep, feature_category: :code_review_workflow do
+RSpec.describe GroupsController, :with_current_organization, factory_default: :keep, feature_category: :code_review_workflow do
   include ExternalAuthorizationServiceHelpers
   include AdminModeHelper
+  include Namespaces::DeletableHelper
 
-  let_it_be(:group_organization) { create(:organization) }
+  let_it_be(:group_organization) { current_organization }
   let_it_be_with_refind(:group) { create_default(:group, :public, organization: group_organization) }
   let_it_be_with_refind(:project) { create(:project, namespace: group) }
   let_it_be(:user) { create(:user) }
@@ -17,6 +18,10 @@ RSpec.describe GroupsController, factory_default: :keep, feature_category: :code
   let_it_be(:maintainer) { group.add_maintainer(create(:user)).user }
   let_it_be(:developer) { group.add_developer(create(:user)).user }
   let_it_be(:guest) { group.add_guest(create(:user)).user }
+
+  before_all do
+    group_organization.users = User.all
+  end
 
   before do
     enable_admin_mode!(admin_with_admin_mode)
@@ -99,6 +104,61 @@ RSpec.describe GroupsController, factory_default: :keep, feature_category: :code
           user: user,
           namespace: group
         )
+      end
+    end
+
+    context 'adjourned deletion' do
+      render_views
+
+      let_it_be(:subgroup) { create(:group, :private, parent: group) }
+      let(:ancestor_notice_regex) do
+        /This group will be deleted on .* because its parent group is scheduled for deletion\./
+      end
+
+      subject(:get_show) { get :show, params: { id: subgroup.to_param } }
+
+      context 'when the parent group has not been scheduled for deletion' do
+        it 'does not show the notice' do
+          subject
+
+          expect(response.body).not_to match(ancestor_notice_regex)
+        end
+      end
+
+      context 'when the parent group has been scheduled for deletion' do
+        before do
+          create(:group_deletion_schedule,
+            group: subgroup.parent,
+            marked_for_deletion_on: Date.current,
+            deleting_user: user
+          )
+        end
+
+        it 'shows the notice that the parent group has been scheduled for deletion' do
+          subject
+
+          expect(response.body).to match(ancestor_notice_regex)
+        end
+
+        context 'when the group itself has also been scheduled for deletion' do
+          before do
+            create(:group_deletion_schedule,
+              group: subgroup,
+              marked_for_deletion_on: Date.current,
+              deleting_user: user
+            )
+          end
+
+          it 'does not show the notice that the parent group has been scheduled for deletion' do
+            subject
+
+            expect(response.body).not_to match(ancestor_notice_regex)
+            # However, shows the notice that the project has been marked for deletion.
+            expect(response.body).to match(
+              /This group and its subgroups and projects are pending deletion, and will be deleted on .*./
+            )
+          end
+        end
       end
     end
   end
@@ -193,7 +253,7 @@ RSpec.describe GroupsController, factory_default: :keep, feature_category: :code
           project = create(:project, group: group)
           create(:event, project: project)
         end
-        subgroup = create(:group, parent: group)
+        subgroup = create(:group, parent: group, organization: group.organization)
         project = create(:project, group: subgroup)
         create(:event, project: project)
 
@@ -240,7 +300,7 @@ RSpec.describe GroupsController, factory_default: :keep, feature_category: :code
 
     context 'authorization' do
       it 'allows an admin to create a group' do
-        sign_in(create(:admin))
+        sign_in(admin_without_admin_mode)
 
         expect do
           post :create, params: { group: { name: 'new_group', path: 'new_group' } }
@@ -301,10 +361,9 @@ RSpec.describe GroupsController, factory_default: :keep, feature_category: :code
       end
     end
 
-    context 'when creating a top level group', :with_current_organization do
+    context 'when creating a top level group' do
       before do
         sign_in(developer)
-        Current.organization.users << developer
       end
 
       context 'and can_create_group is enabled' do
@@ -431,120 +490,6 @@ RSpec.describe GroupsController, factory_default: :keep, feature_category: :code
       end
     end
 
-    context 'when creating a group with captcha protection' do
-      before do
-        sign_in(user)
-
-        stub_application_setting(recaptcha_enabled: true)
-      end
-
-      after do
-        # Avoid test ordering issue and ensure `verify_recaptcha` returns true
-        unless Recaptcha.configuration.skip_verify_env.include?('test')
-          Recaptcha.configuration.skip_verify_env << 'test'
-        end
-      end
-
-      context 'when the reCAPTCHA is not solved' do
-        before do
-          allow(controller).to receive(:verify_recaptcha).and_return(false)
-        end
-
-        it 'displays an error' do
-          post :create, params: { group: { name: 'new_group', path: "new_group" } }
-
-          expect(response).to render_template(:new)
-          expect(flash[:alert]).to eq(_('There was an error with the reCAPTCHA. Please solve the reCAPTCHA again.'))
-        end
-
-        it 'sets gon variables' do
-          Gon.clear
-
-          post :create, params: { group: { name: 'new_group', path: "new_group" } }
-
-          expect(response).to render_template(:new)
-          expect(Gon.all_variables).not_to be_empty
-        end
-      end
-
-      it 'allows creating a group when the reCAPTCHA is solved' do
-        expect do
-          post :create, params: { group: { name: 'new_group', path: "new_group" } }
-        end.to change { Group.count }.by(1)
-
-        expect(response).to have_gitlab_http_status(:found)
-      end
-
-      it 'allows creating a sub-group without checking the captcha' do
-        expect(controller).not_to receive(:verify_recaptcha)
-
-        expect do
-          post :create, params: { group: { name: 'new_group', path: "new_group", parent_id: group.id } }
-        end.to change { Group.count }.by(1)
-
-        expect(response).to have_gitlab_http_status(:found)
-      end
-
-      context 'with feature flag switched off' do
-        before do
-          stub_feature_flags(recaptcha_on_top_level_group_creation: false)
-        end
-
-        it 'allows creating a group without the reCAPTCHA' do
-          expect(controller).not_to receive(:verify_recaptcha)
-
-          expect do
-            post :create, params: { group: { name: 'new_group', path: "new_group" } }
-          end.to change { Group.count }.by(1)
-
-          expect(response).to have_gitlab_http_status(:found)
-        end
-      end
-    end
-
-    context 'when creating a group with the `role` attribute present' do
-      it 'changes the users role' do
-        sign_in(user)
-
-        expect do
-          post :create, params: { group: { name: 'new_group', path: 'new_group' }, user: { role: 'devops_engineer' } }
-        end.to change { user.reload.role }.to('devops_engineer')
-      end
-    end
-
-    context 'when creating a group with the `setup_for_company` attribute present' do
-      before do
-        sign_in(user)
-      end
-
-      subject do
-        post :create, params: { group: { name: 'new_group', path: 'new_group', setup_for_company: 'false' } }
-      end
-
-      it 'sets the groups `setup_for_company` value' do
-        subject
-        expect(Group.last.setup_for_company).to be(false)
-      end
-
-      context 'when the user already has a value for `setup_for_company`' do
-        before do
-          user.update_attribute(:setup_for_company, true)
-        end
-
-        it 'does not change the users `setup_for_company` value' do
-          expect(Users::UpdateService).not_to receive(:new)
-          expect { subject }.not_to change { user.reload.setup_for_company }.from(true)
-        end
-      end
-
-      context 'when the user has no value for `setup_for_company`' do
-        it 'changes the users `setup_for_company` value' do
-          expect(Users::UpdateService).to receive(:new).and_call_original
-          expect { subject }.to change { user.reload.setup_for_company }.to(false)
-        end
-      end
-    end
-
     context 'when creating a group with the `jobs_to_be_done` attribute present' do
       it 'sets the groups `jobs_to_be_done` value' do
         sign_in(user)
@@ -598,108 +543,211 @@ RSpec.describe GroupsController, factory_default: :keep, feature_category: :code
       sign_in(user)
     end
 
-    context 'sorting by votes' do
-      it 'sorts most popular merge requests' do
-        get :merge_requests, params: { id: group.to_param, sort: 'upvotes_desc' }
-        expect(assigns(:merge_requests)).to eq [merge_request_2, merge_request_1]
-      end
+    it 'renders merge requests index template' do
+      get :merge_requests, params: { id: group.to_param }
 
-      it 'sorts least popular merge requests' do
-        get :merge_requests, params: { id: group.to_param, sort: 'downvotes_desc' }
-        expect(assigns(:merge_requests)).to eq [merge_request_2, merge_request_1]
-      end
-    end
-
-    context 'rendering views' do
-      render_views
-
-      it 'displays MR counts in nav' do
-        get :merge_requests, params: { id: group.to_param }
-
-        expect(response.body).to have_content('Open 2 Merged 0 Closed 0 All 2')
-        expect(response.body).not_to have_content('Open Merged Closed All')
-      end
-
-      context 'when MergeRequestsFinder raises an exception' do
-        before do
-          allow_next_instance_of(MergeRequestsFinder) do |instance|
-            allow(instance).to receive(:count_by_state).and_raise(ActiveRecord::QueryCanceled)
-          end
-        end
-
-        it 'does not display MR counts in nav' do
-          get :merge_requests, params: { id: group.to_param }
-
-          expect(response.body).to have_content('Open Merged Closed All')
-          expect(response.body).not_to have_content('Open 0 Merged 0 Closed 0 All 0')
-        end
-      end
-    end
-
-    context 'when an ActiveRecord::QueryCanceled is raised' do
-      before do
-        allow_next_instance_of(Gitlab::IssuableMetadata) do |instance|
-          allow(instance).to receive(:data).and_raise(ActiveRecord::QueryCanceled)
-        end
-      end
-
-      it 'sets :search_timeout_occurred' do
-        get :merge_requests, params: { id: group.to_param }
-
-        expect(response).to have_gitlab_http_status(:ok)
-        expect(assigns(:search_timeout_occurred)).to eq(true)
-      end
-
-      it 'logs the exception' do
-        get :merge_requests, params: { id: group.to_param }
-      end
-
-      context 'rendering views' do
-        render_views
-
-        it 'shows error message' do
-          get :merge_requests, params: { id: group.to_param }
-
-          expect(response.body).to have_content('Too many results to display. Edit your search or add a filter.')
-        end
-
-        it 'does not display MR counts in nav' do
-          get :merge_requests, params: { id: group.to_param }
-
-          expect(response.body).to have_content('Open Merged Closed All')
-          expect(response.body).not_to have_content('Open 0 Merged 0 Closed 0 All 0')
-        end
-      end
+      expect(response).to render_template('groups/merge_requests')
     end
   end
 
   describe 'DELETE #destroy' do
-    context 'as another user' do
-      it 'returns 404' do
-        sign_in(create(:user))
+    let(:format) { :html }
+    let(:params) { {} }
 
-        delete :destroy, params: { id: group.to_param }
+    subject { delete :destroy, format: format, params: { id: group.to_param, **params } }
 
-        expect(response).to have_gitlab_http_status(:not_found)
-      end
-    end
+    context 'when authenticated user can admin the group' do
+      let_it_be(:user) { owner }
 
-    context 'as the group owner' do
       before do
         sign_in(user)
       end
 
-      it 'schedules a group destroy' do
-        Sidekiq::Testing.fake! do
-          expect { delete :destroy, params: { id: group.to_param } }.to change(GroupDestroyWorker.jobs, :size).by(1)
+      context 'success' do
+        it 'marks the group for delayed deletion' do
+          expect { subject }.to change { group.reload.self_deletion_scheduled? }.from(false).to(true)
+        end
+
+        it 'does not immediately delete the group' do
+          Sidekiq::Testing.fake! do
+            expect { subject }.not_to change { GroupDestroyWorker.jobs.size }
+          end
+        end
+
+        context 'for a html request' do
+          it 'redirects to group path' do
+            subject
+
+            expect(response).to redirect_to(group_path(group.reload))
+          end
+        end
+
+        context 'for a json request', :freeze_time do
+          let(:format) { :json }
+
+          it 'returns json with message' do
+            subject
+
+            expect(json_response['message'])
+            .to eq(
+              "'#{group.reload.name}' has been scheduled for deletion and will be deleted on " \
+                "#{permanent_deletion_date_formatted(group)}.")
+          end
         end
       end
 
-      it 'redirects to the root path' do
-        delete :destroy, params: { id: group.to_param }
+      context 'failure' do
+        before do
+          allow(::Groups::MarkForDeletionService).to receive_message_chain(:new, :execute).and_return(ServiceResponse.error(message: 'error'))
+        end
 
-        expect(flash[:toast]).to eq(format(_("Group '%{group_name}' is being deleted."), group_name: group.full_name))
-        expect(response).to redirect_to(root_path)
+        it 'does not mark the group for deletion' do
+          expect { subject }.not_to change { group.reload.self_deletion_scheduled? }.from(false)
+        end
+
+        context 'for a html request' do
+          it 'redirects to group edit page' do
+            subject
+
+            expect(response).to redirect_to(edit_group_path(group))
+            expect(flash[:alert]).to include 'error'
+          end
+        end
+
+        context 'for a json request' do
+          let(:format) { :json }
+
+          it 'returns json with message' do
+            subject
+
+            expect(json_response['message']).to eq("error")
+          end
+        end
+      end
+
+      context 'when group is already marked for deletion' do
+        before do
+          create(:group_deletion_schedule, group: group, marked_for_deletion_on: Date.current)
+        end
+
+        context 'when permanently_remove param is set' do
+          let(:params) { { permanently_remove: true } }
+
+          context 'for a html request' do
+            it 'deletes the group immediately and redirects to root path' do
+              expect(GroupDestroyWorker).to receive(:perform_async)
+
+              subject
+
+              expect(response).to redirect_to(root_path)
+              expect(flash[:toast]).to include "Group '#{group.name}' is being deleted."
+            end
+          end
+
+          context 'for a json request' do
+            let(:format) { :json }
+
+            it 'deletes the group immediately and returns json with message' do
+              expect(GroupDestroyWorker).to receive(:perform_async)
+
+              subject
+
+              expect(json_response['message']).to eq("Group '#{group.name}' is being deleted.")
+            end
+          end
+        end
+
+        context 'when permanently_remove param is not set' do
+          context 'for a html request' do
+            it 'redirects to edit path with error' do
+              subject
+
+              expect(response).to redirect_to(edit_group_path(group))
+              expect(flash[:alert]).to include "Group has been already marked for deletion"
+            end
+          end
+
+          context 'for a json request' do
+            let(:format) { :json }
+
+            it 'returns json with message' do
+              subject
+
+              expect(json_response['message']).to eq("Group has been already marked for deletion")
+            end
+          end
+        end
+      end
+    end
+
+    context 'when authenticated user cannot admin the group' do
+      before do
+        sign_in(create(:user))
+      end
+
+      it 'returns 404' do
+        subject
+
+        expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+  end
+
+  describe 'POST #restore' do
+    let_it_be(:group) do
+      create(:group_with_deletion_schedule,
+        marked_for_deletion_on: 1.day.ago,
+        deleting_user: user)
+    end
+
+    subject { post :restore, params: { group_id: group.to_param } }
+
+    context 'when authenticated user can admin the group' do
+      before do
+        group.add_owner(user)
+        sign_in(user)
+      end
+
+      context 'when the restore succeeds' do
+        it 'restores the group' do
+          expect { subject }.to change { group.reload.self_deletion_scheduled? }.from(true).to(false)
+        end
+
+        it 'renders success notice upon restoring' do
+          subject
+
+          expect(response).to redirect_to(edit_group_path(group))
+          expect(flash[:notice]).to include "Group '#{group.name}' has been successfully restored."
+        end
+      end
+
+      context 'when the restore fails' do
+        before do
+          allow(::Groups::RestoreService).to receive_message_chain(:new, :execute).and_return(ServiceResponse.error(message: 'error'))
+        end
+
+        it 'does not restore the group' do
+          expect { subject }.not_to change { group.reload.self_deletion_scheduled? }.from(true)
+        end
+
+        it 'redirects to group edit page' do
+          subject
+
+          expect(response).to redirect_to(edit_group_path(group))
+          expect(flash[:alert]).to include 'error'
+        end
+      end
+    end
+
+    context 'when authenticated user cannot admin the group' do
+      before do
+        sign_in(create(:user))
+      end
+
+      it 'returns 404' do
+        subject
+
+        expect(response).to have_gitlab_http_status(:not_found)
       end
     end
   end
@@ -812,7 +860,7 @@ RSpec.describe GroupsController, factory_default: :keep, feature_category: :code
       it 'does not allow to path of the group to be changed' do
         post :update, params: { id: group.to_param, group: { path: 'new_path' } }
 
-        expect(assigns(:group).errors[:base].first).to match(/Docker images in their Container Registry/)
+        expect(assigns(:group).errors[:base].first).to match(/Docker images in their container registry/)
         expect(response).to have_gitlab_http_status(:ok)
       end
     end
@@ -1193,7 +1241,7 @@ RSpec.describe GroupsController, factory_default: :keep, feature_category: :code
       end
 
       it 'does not allow the group to be transferred' do
-        expect(controller).to set_flash[:alert].to match(/Docker images in their Container Registry/)
+        expect(controller).to set_flash[:alert].to match(/Docker images in their container registry/)
         expect(response).to redirect_to(edit_group_path(group))
       end
     end
@@ -1273,7 +1321,7 @@ RSpec.describe GroupsController, factory_default: :keep, feature_category: :code
     context 'when there is a file available to download' do
       before do
         sign_in(admin)
-        create(:import_export_upload, group: group, export_file: export_file)
+        create(:import_export_upload, group: group, export_file: export_file, user: admin)
       end
 
       it 'sends the file' do
@@ -1287,8 +1335,8 @@ RSpec.describe GroupsController, factory_default: :keep, feature_category: :code
       before do
         sign_in(admin)
 
-        create(:import_export_upload, group: group, export_file: export_file)
-        group.export_file.file.delete
+        create(:import_export_upload, group: group, export_file: export_file, user: admin)
+        group.export_file(admin).file.delete
       end
 
       it 'returns not found' do
@@ -1418,6 +1466,15 @@ RSpec.describe GroupsController, factory_default: :keep, feature_category: :code
 
           it 'does not update name' do
             expect { subject }.not_to change { group.reload.name }
+          end
+        end
+
+        context 'when default branch name is invalid' do
+          subject { put :update, params: { id: group.to_param, group: { default_branch_name: "***" } } }
+
+          it 'renders an error message' do
+            expect { subject }.not_to change { group.reload.name }
+            expect(flash[:alert]).to eq('Default branch name is invalid.')
           end
         end
       end

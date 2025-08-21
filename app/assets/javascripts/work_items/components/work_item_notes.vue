@@ -1,11 +1,20 @@
 <script>
-import { GlSkeletonLoader, GlModal } from '@gitlab/ui';
-import { uniqueId } from 'lodash';
+import { GlModal } from '@gitlab/ui';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import { __ } from '~/locale';
-import { scrollToTargetOnResize } from '~/lib/utils/resize_observer';
-import { TYPENAME_DISCUSSION, TYPENAME_NOTE } from '~/graphql_shared/constants';
+import {
+  TYPENAME_DISCUSSION,
+  TYPENAME_DISCUSSION_NOTE,
+  TYPENAME_NOTE,
+  TYPENAME_GROUP,
+  TYPENAME_USER,
+} from '~/graphql_shared/constants';
+import { Mousetrap } from '~/lib/mousetrap';
+import { ISSUABLE_COMMENT_OR_REPLY, keysFor } from '~/behaviors/shortcuts/keybindings';
+import { CopyAsGFM } from '~/behaviors/markdown/copy_as_gfm';
 import SystemNote from '~/work_items/components/notes/system_note.vue';
+import gfmEventHub from '~/vue_shared/components/markdown/eventhub';
+import WorkItemNotesLoading from '~/work_items/components/notes/work_item_notes_loading.vue';
 import WorkItemNotesActivityHeader from '~/work_items/components/notes/work_item_notes_activity_header.vue';
 import {
   i18n,
@@ -13,13 +22,16 @@ import {
   WORK_ITEM_NOTES_FILTER_ALL_NOTES,
   WORK_ITEM_NOTES_FILTER_ONLY_COMMENTS,
   WORK_ITEM_NOTES_FILTER_ONLY_HISTORY,
+  NEW_WORK_ITEM_IID,
 } from '~/work_items/constants';
 import { ASC, DESC } from '~/notes/constants';
-import { autocompleteDataSources, markdownPreviewPath } from '~/work_items/utils';
+import { autocompleteDataSources, findNotesWidget, markdownPreviewPath } from '~/work_items/utils';
 import {
   updateCacheAfterCreatingNote,
   updateCacheAfterDeletingNote,
 } from '~/work_items/graphql/cache_utils';
+import { convertToGraphQLId, getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { scrollToTargetOnResize } from '~/lib/utils/resize_observer';
 import { getLocationHash } from '~/lib/utils/url_utility';
 import { collapseSystemNotes } from '~/work_items/notes/collapse_utils';
 import WorkItemDiscussion from '~/work_items/components/notes/work_item_discussion.vue';
@@ -28,24 +40,19 @@ import workItemNoteCreatedSubscription from '~/work_items/graphql/notes/work_ite
 import workItemNoteUpdatedSubscription from '~/work_items/graphql/notes/work_item_note_updated.subscription.graphql';
 import workItemNoteDeletedSubscription from '~/work_items/graphql/notes/work_item_note_deleted.subscription.graphql';
 import deleteNoteMutation from '../graphql/notes/delete_work_item_notes.mutation.graphql';
-import groupWorkItemNotesByIidQuery from '../graphql/notes/group_work_item_notes_by_iid.query.graphql';
+import workItemNoteQuery from '../graphql/notes/work_item_note.query.graphql';
 import workItemNotesByIidQuery from '../graphql/notes/work_item_notes_by_iid.query.graphql';
 import WorkItemAddNote from './notes/work_item_add_note.vue';
 
 export default {
-  loader: {
-    repeat: 10,
-    width: 1000,
-    height: 40,
-  },
   components: {
-    GlSkeletonLoader,
     GlModal,
     SystemNote,
     WorkItemAddNote,
     WorkItemDiscussion,
     WorkItemNotesActivityHeader,
     WorkItemHistoryOnlyFilterNote,
+    WorkItemNotesLoading,
   },
   inject: ['isGroup'],
   props: {
@@ -65,6 +72,11 @@ export default {
       type: String,
       required: true,
     },
+    isDrawer: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
     isModal: {
       type: Boolean,
       required: false,
@@ -80,9 +92,15 @@ export default {
       required: false,
       default: false,
     },
-    reportAbusePath: {
-      type: String,
-      required: true,
+    canSummarizeComments: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    canCreateNote: {
+      type: Boolean,
+      required: false,
+      default: false,
     },
     isDiscussionLocked: {
       type: Boolean,
@@ -99,6 +117,30 @@ export default {
       default: false,
       required: false,
     },
+    parentId: {
+      type: String,
+      default: null,
+      required: false,
+    },
+    newCommentTemplatePaths: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
+    smallHeaderStyle: {
+      type: Boolean,
+      default: false,
+      required: false,
+    },
+    hideFullscreenMarkdownButton: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    uploadsPath: {
+      type: String,
+      required: true,
+    },
   },
   data() {
     return {
@@ -106,15 +148,18 @@ export default {
       sortOrder: ASC,
       noteToDelete: null,
       discussionFilter: WORK_ITEM_NOTES_FILTER_ALL_NOTES,
-      addNoteKey: uniqueId(`work-item-add-note-${this.workItemId}`),
+      workItemNamespace: null,
+      previewNote: null,
+      workItemNotes: [],
+      notesCached: null,
     };
   },
   computed: {
+    shouldLoadPreviewNote() {
+      return this.previewNoteId && !this.isDrawer && !this.isModal;
+    },
     initialLoading() {
       return this.$apollo.queries.workItemNotes.loading && !this.isLoadingMore;
-    },
-    avatarUrl() {
-      return window.gon.current_user_avatar_url;
     },
     pageInfo() {
       return this.workItemNotes?.pageInfo;
@@ -129,12 +174,20 @@ export default {
       return this.sortOrder === DESC;
     },
     markdownPreviewPath() {
-      const { fullPath, isGroup, workItemIid: iid } = this;
-      return markdownPreviewPath({ fullPath, iid, isGroup });
+      const { fullPath, workItemIid: iid } = this;
+      return markdownPreviewPath({ fullPath, iid, isGroup: this.isGroupWorkItem });
+    },
+    isGroupWorkItem() {
+      return this.workItemNamespace?.id?.includes?.(TYPENAME_GROUP);
     },
     autocompleteDataSources() {
-      const { fullPath, isGroup, workItemIid: iid } = this;
-      return autocompleteDataSources({ fullPath, iid, isGroup });
+      const { fullPath, workItemIid: iid } = this;
+      const isNewWorkItemInGroup = this.isGroup && iid === NEW_WORK_ITEM_IID;
+      return autocompleteDataSources({
+        fullPath,
+        iid,
+        isGroup: this.isGroupWorkItem || isNewWorkItemInGroup,
+      });
     },
     workItemCommentFormProps() {
       return {
@@ -145,13 +198,20 @@ export default {
         sortOrder: this.sortOrder,
         isNewDiscussion: true,
         markdownPreviewPath: this.markdownPreviewPath,
+        newCommentTemplatePaths: this.newCommentTemplatePaths,
         autocompleteDataSources: this.autocompleteDataSources,
         isDiscussionLocked: this.isDiscussionLocked,
         isWorkItemConfidential: this.isWorkItemConfidential,
+        parentId: this.parentId,
       };
     },
+    // On the first component load, we want to show per-page skeleton notes
+    // On any subsequent refetch, we want to show the cached notes until all notes are loaded
+    notesSource() {
+      return this.notesCached ?? this.workItemNotes;
+    },
     notesArray() {
-      const notes = this.workItemNotes?.nodes || [];
+      const notes = this.notesSource.nodes || [];
 
       let visibleNotes = collapseSystemNotes(notes);
 
@@ -169,11 +229,24 @@ export default {
         return true;
       });
 
+      // don't show preview in modal, as we might accidentally load a note from the parent work item
+      const urlParams = new URLSearchParams(window.location.search);
+      const modalOpen = urlParams.has('show');
+
+      if (this.previewNote && !this.previewNoteLoadedInList && !modalOpen) {
+        visibleNotes = [...visibleNotes, this.previewNote];
+      }
+
       if (this.sortOrder === DESC) {
         return [...visibleNotes].reverse();
       }
 
       return visibleNotes;
+    },
+    userComments() {
+      return this.notesArray
+        .flatMap((discussion) => discussion.notes.nodes)
+        .filter((note) => !note.system);
     },
     commentsDisabled() {
       return this.discussionFilter === WORK_ITEM_NOTES_FILTER_ONLY_HISTORY;
@@ -181,12 +254,78 @@ export default {
     targetNoteHash() {
       return getLocationHash();
     },
+    previewNoteId() {
+      const hash = this.targetNoteHash;
+      const isSha = /^note_([a-f0-9]{40})/.test(hash); // synthetic note id
+      const isNoteId = /^note_(\d+)/.test(hash);
+
+      if (isSha || !isNoteId) {
+        return null;
+      }
+
+      return hash.replace(/^note_/, '');
+    },
+    previewNoteLoadedInList() {
+      // are these the same? could there be ID conflicts when they aren't? test data was using DiscussionNote
+      const noteId = convertToGraphQLId(TYPENAME_NOTE, this.previewNoteId);
+      const discussionNoteId = convertToGraphQLId(TYPENAME_DISCUSSION_NOTE, this.previewNoteId);
+
+      function matchingNoteId(note) {
+        return note.notes.nodes.find((singleReply) => {
+          return singleReply.id === noteId || singleReply.id === discussionNoteId;
+        });
+      }
+
+      const notes = this.notesSource?.nodes || [];
+      const n = notes.find(matchingNoteId);
+      return Boolean(n);
+    },
+  },
+  mounted() {
+    if (this.shouldLoadPreviewNote) {
+      this.cleanupScrollListener = scrollToTargetOnResize();
+    }
+    if (this.canCreateNote) {
+      Mousetrap.bind(keysFor(ISSUABLE_COMMENT_OR_REPLY), (e) => this.quoteReply(e));
+      gfmEventHub.$on('edit-current-user-last-note', this.editCurrentUserLastNote);
+    }
+  },
+  beforeDestroy() {
+    if (this.canCreateNote) {
+      Mousetrap.unbind(keysFor(ISSUABLE_COMMENT_OR_REPLY), this.quoteReply);
+      gfmEventHub.$off('edit-current-user-last-note', this.editCurrentUserLastNote);
+    }
   },
   apollo: {
-    workItemNotes: {
-      query() {
-        return this.isGroup ? groupWorkItemNotesByIidQuery : workItemNotesByIidQuery;
+    previewNote: {
+      skip() {
+        return !this.shouldLoadPreviewNote;
       },
+      query: workItemNoteQuery,
+      variables() {
+        return {
+          id: convertToGraphQLId(TYPENAME_NOTE, this.previewNoteId),
+        };
+      },
+      update(data) {
+        return data?.note?.discussion;
+      },
+      result(result) {
+        if (result?.errors?.length > 0) {
+          Sentry.captureException(result.errors[0].message);
+        }
+
+        // make sure skeleton notes are placed below the preview note
+        if (result?.data?.note && this.$apollo.queries.workItemNotes?.loading) {
+          this.isLoadingMore = true;
+        }
+      },
+      error(error) {
+        Sentry.captureException(error);
+      },
+    },
+    workItemNotes: {
+      query: workItemNotesByIidQuery,
       variables() {
         return {
           fullPath: this.fullPath,
@@ -196,8 +335,7 @@ export default {
         };
       },
       update(data) {
-        const widgets = data.workspace?.workItem?.widgets;
-        return widgets?.find((widget) => widget.type === 'NOTES')?.discussions || [];
+        return findNotesWidget(data.workspace?.workItem)?.discussions || [];
       },
       skip() {
         return !this.workItemIid;
@@ -205,22 +343,21 @@ export default {
       error() {
         this.$emit('error', i18n.fetchError);
       },
-      result() {
+      result({ data }) {
+        this.workItemNamespace = data?.workspace?.workItem?.namespace;
+        this.isLoadingMore = false;
         if (this.hasNextPage) {
           this.fetchMoreNotes();
-        } else if (this.targetNoteHash) {
-          if (this.isModal) {
-            this.$emit('has-notes');
-          } else {
-            scrollToTargetOnResize();
-          }
+        } else {
+          this.cleanupScrollListener?.();
+          this.notesCached = this.workItemNotes;
         }
       },
       subscribeToMore: [
         {
           document: workItemNoteCreatedSubscription,
-          updateQuery(previousResult, { subscriptionData }) {
-            return updateCacheAfterCreatingNote(previousResult, subscriptionData);
+          updateQuery(previousResult, { subscriptionData: { data } }) {
+            return updateCacheAfterCreatingNote(previousResult, data?.workItemNoteCreated);
           },
           variables() {
             return {
@@ -260,25 +397,102 @@ export default {
     },
   },
   methods: {
+    editCurrentUserLastNote(e) {
+      const currentUserId = convertToGraphQLId(TYPENAME_USER, gon.current_user_id);
+      const isToplevelCommentForm = Boolean(e.target.closest('.js-comment-form'));
+      let availableNotes = [];
+
+      if (isToplevelCommentForm) {
+        // User hit `Up` key from top-level comment form, populate all the comments,
+        // also ensure to reverse them only if sort order is set to newest-first (DESC).
+        availableNotes = this.formAtTop ? [...this.userComments] : [...this.userComments].reverse();
+      } else {
+        // User hit `Up` key from a comment form within an existing thread, populate
+        // all the comments, from this thread, and reverse order so the latest comments come first.
+        const discussionId = convertToGraphQLId(
+          TYPENAME_DISCUSSION_NOTE,
+          e.target.closest('.js-timeline-entry').dataset.discussionId,
+        );
+        availableNotes = [
+          ...this.notesArray.find((discussion) => discussion.id === discussionId).notes.nodes,
+        ].reverse();
+      }
+
+      // Find current user's last note.
+      const currentUserLastNote = availableNotes.find((note) => note.author.id === currentUserId);
+
+      if (!currentUserLastNote) return;
+
+      gfmEventHub.$emit('edit-note', {
+        note: currentUserLastNote,
+      });
+    },
+    getDiscussionIdFromSelection() {
+      const selection = window.getSelection();
+      if (selection.rangeCount <= 0) return null;
+
+      // Return early if selection is from description, we need to use the top-level comment field.
+      if (selection.anchorNode?.parentElement?.closest('.js-work-item-description')) return null;
+
+      const el = selection.getRangeAt(0).startContainer;
+      const node = el.nodeType === Node.TEXT_NODE ? el.parentNode : el;
+      return node.closest('.js-timeline-entry').getAttribute('discussion-id');
+    },
+    async quoteReply(e) {
+      const discussionId = this.getDiscussionIdFromSelection();
+      const text = await CopyAsGFM.selectionToGfm();
+
+      // Prevent 'r' being written.
+      if (e && typeof e.preventDefault === 'function') {
+        e.preventDefault();
+      }
+
+      // Check if selection is coming from an existing discussion
+      if (discussionId) {
+        gfmEventHub.$emit('quote-reply', {
+          discussionId,
+          text,
+          event: e,
+        });
+      } else {
+        // Selection is from description, append it to top-level comment form,
+        this.appendText(text);
+      }
+    },
+    appendText(text) {
+      // Based on selected sort order of discussion timeline,
+      // we have to choose correct <work-item-add-note/> reference.
+      // We're using `append` method from ~/vue_shared/components/markdown/markdown_editor.vue
+      this.$refs[this.formAtTop ? 'addNoteTop' : 'addNoteBottom'].appendText(text);
+    },
     getDiscussionKey(discussion) {
       // discussion key is important like this since after first comment changes
-      const discussionId = discussion.notes.nodes[0].id;
+      const discussionId = discussion.id;
       return discussionId.split('/')[discussionId.split('/').length - 1];
     },
     isSystemNote(note) {
       return note.notes.nodes[0].system;
     },
-    changeNotesSortOrder(direction) {
+    setSort(direction) {
       this.sortOrder = direction;
     },
-    filterDiscussions(filterValue) {
+    setFilter(filterValue) {
       this.discussionFilter = filterValue;
-    },
-    updateKey() {
-      this.addNoteKey = uniqueId(`work-item-add-note-${this.workItemId}`);
     },
     reportAbuse(isOpen, reply = {}) {
       this.$emit('openReportAbuse', reply);
+    },
+    noteId(note) {
+      return getIdFromGraphQLId(note.id);
+    },
+    isHashTargeted(discussion) {
+      return (
+        discussion.notes.nodes.length &&
+        discussion.notes.nodes.some((note) => this.targetNoteHash === `note_${this.noteId(note)}`)
+      );
+    },
+    isDiscussionExpandedOnLoad(discussion) {
+      return !discussion.resolved || this.isHashTargeted(discussion);
     },
     async fetchMoreNotes() {
       this.isLoadingMore = true;
@@ -291,19 +505,18 @@ export default {
           },
         })
         .catch((error) => this.$emit('error', error.message));
-      this.isLoadingMore = false;
     },
     showDeleteNoteModal(note, discussion) {
       const isLastNote = discussion.notes.nodes.length === 1;
       this.$refs.deleteNoteModal.show();
-      this.noteToDelete = { ...note, isLastNote };
+      this.noteToDelete = { ...note, isLastNote, discussionId: discussion.id };
     },
     cancelDeletingNote() {
       this.noteToDelete = null;
     },
     async deleteNote() {
       try {
-        const { id, isLastNote, discussion } = this.noteToDelete;
+        const { id, isLastNote, discussionId } = this.noteToDelete;
         await this.$apollo.mutate({
           mutation: deleteNoteMutation,
           variables: {
@@ -313,7 +526,7 @@ export default {
           },
           update(cache) {
             const deletedObject = isLastNote
-              ? { __typename: TYPENAME_DISCUSSION, id: discussion.id }
+              ? { __typename: TYPENAME_DISCUSSION, id: discussionId }
               : { __typename: TYPENAME_NOTE, id };
             cache.modify({
               id: cache.identify(deletedObject),
@@ -337,98 +550,93 @@ export default {
 </script>
 
 <template>
-  <div class="gl-border-t gl-mt-5 work-item-notes">
+  <div class="work-item-notes">
     <work-item-notes-activity-header
+      :can-summarize-comments="canSummarizeComments"
       :sort-order="sortOrder"
       :disable-activity-filter-sort="disableActivityFilterSort"
+      :work-item-id="workItemId"
       :work-item-type="workItemType"
       :discussion-filter="discussionFilter"
       :use-h2="useH2"
-      @changeSort="changeNotesSortOrder"
-      @changeFilter="filterDiscussions"
+      :small-header-style="smallHeaderStyle"
+      @changeSort="setSort"
+      @changeFilter="setFilter"
     />
-    <div v-if="initialLoading" class="gl-mt-5">
-      <gl-skeleton-loader
-        v-for="i in $options.loader.repeat"
-        :key="i"
-        :width="1000"
-        :height="$options.loader.height"
-        preserve-aspect-ratio="xMinYMax meet"
-      >
-        <circle cx="20" cy="20" r="16" />
-        <rect width="950" x="45" y="15" height="10" rx="4" />
-      </gl-skeleton-loader>
-    </div>
-    <div v-else class="issuable-discussion gl-mb-5 gl-clearfix!">
-      <template v-if="!initialLoading">
-        <div v-if="formAtTop && !commentsDisabled" class="js-comment-form">
-          <ul class="notes notes-form timeline">
-            <work-item-add-note
-              v-bind="workItemCommentFormProps"
-              :key="addNoteKey"
-              @cancelEditing="updateKey"
-              @error="$emit('error', $event)"
-            />
-          </ul>
-        </div>
-        <ul class="notes main-notes-list timeline">
-          <template v-for="discussion in notesArray">
-            <system-note
-              v-if="isSystemNote(discussion)"
-              :key="discussion.notes.nodes[0].id"
-              :note="discussion.notes.nodes[0]"
-            />
-            <template v-else>
-              <work-item-discussion
-                :key="getDiscussionKey(discussion)"
-                :discussion="discussion.notes.nodes"
-                :full-path="fullPath"
-                :work-item-id="workItemId"
-                :work-item-iid="workItemIid"
-                :work-item-type="workItemType"
-                :is-modal="isModal"
-                :autocomplete-data-sources="autocompleteDataSources"
-                :markdown-preview-path="markdownPreviewPath"
-                :assignees="assignees"
-                :can-set-work-item-metadata="canSetWorkItemMetadata"
-                :is-discussion-locked="isDiscussionLocked"
-                :is-work-item-confidential="isWorkItemConfidential"
-                @deleteNote="showDeleteNoteModal($event, discussion)"
-                @reportAbuse="reportAbuse(true, $event)"
-                @error="$emit('error', $event)"
-              />
-            </template>
-          </template>
-
-          <work-item-history-only-filter-note
-            v-if="commentsDisabled"
-            @changeFilter="filterDiscussions"
+    <div class="issuable-discussion gl-mb-5 !gl-clearfix">
+      <div v-if="formAtTop && !commentsDisabled" class="js-comment-form">
+        <ul class="notes notes-form timeline">
+          <work-item-add-note
+            ref="addNoteTop"
+            v-bind="workItemCommentFormProps"
+            :hide-fullscreen-markdown-button="hideFullscreenMarkdownButton"
+            :is-group-work-item="isGroupWorkItem"
+            :uploads-path="uploadsPath"
+            @startEditing="$emit('startEditing')"
+            @stopEditing="$emit('stopEditing')"
+            @error="$emit('error', $event)"
           />
         </ul>
-        <div v-if="!formAtTop && !commentsDisabled" class="js-comment-form">
-          <ul class="notes notes-form timeline">
-            <work-item-add-note
-              v-bind="workItemCommentFormProps"
-              :key="addNoteKey"
-              @cancelEditing="updateKey"
+      </div>
+      <work-item-notes-loading
+        v-if="initialLoading || (formAtTop && isLoadingMore && !notesCached)"
+      />
+      <ul class="notes main-notes-list timeline">
+        <template v-for="discussion in notesArray">
+          <system-note
+            v-if="isSystemNote(discussion)"
+            :key="discussion.notes.nodes[0].id"
+            :note="discussion.notes.nodes[0]"
+          />
+          <template v-else>
+            <work-item-discussion
+              :key="getDiscussionKey(discussion)"
+              ref="workItemDiscussion"
+              :discussion="discussion"
+              :full-path="fullPath"
+              :work-item-id="workItemId"
+              :work-item-iid="workItemIid"
+              :work-item-type="workItemType"
+              :is-modal="isModal"
+              :autocomplete-data-sources="autocompleteDataSources"
+              :markdown-preview-path="markdownPreviewPath"
+              :new-comment-template-paths="newCommentTemplatePaths"
+              :assignees="assignees"
+              :can-reply="canCreateNote"
+              :can-set-work-item-metadata="canSetWorkItemMetadata"
+              :is-discussion-locked="isDiscussionLocked"
+              :is-work-item-confidential="isWorkItemConfidential"
+              :is-expanded-on-load="isDiscussionExpandedOnLoad(discussion)"
+              :hide-fullscreen-markdown-button="hideFullscreenMarkdownButton"
+              :uploads-path="uploadsPath"
+              @deleteNote="showDeleteNoteModal($event, discussion)"
+              @reportAbuse="reportAbuse(true, $event)"
               @error="$emit('error', $event)"
+              @startEditing="$emit('startEditing')"
+              @cancelEditing="$emit('stopEditing')"
             />
-          </ul>
-        </div>
-      </template>
+          </template>
+        </template>
 
-      <template v-if="isLoadingMore">
-        <gl-skeleton-loader
-          v-for="index in $options.loader.repeat"
-          :key="index"
-          :width="$options.loader.width"
-          :height="$options.loader.height"
-          preserve-aspect-ratio="xMinYMax meet"
-        >
-          <circle cx="20" cy="20" r="16" />
-          <rect width="500" x="45" y="15" height="10" rx="4" />
-        </gl-skeleton-loader>
-      </template>
+        <work-item-history-only-filter-note v-if="commentsDisabled" @changeFilter="setFilter" />
+      </ul>
+      <work-item-notes-loading v-if="!formAtTop && isLoadingMore && !notesCached" />
+      <div v-if="!formAtTop && !commentsDisabled" class="js-comment-form">
+        <ul class="notes notes-form timeline">
+          <work-item-add-note
+            ref="addNoteBottom"
+            v-bind="workItemCommentFormProps"
+            :hide-fullscreen-markdown-button="hideFullscreenMarkdownButton"
+            :is-group-work-item="isGroupWorkItem"
+            :uploads-path="uploadsPath"
+            @startEditing="$emit('startEditing')"
+            @stopEditing="$emit('stopEditing')"
+            @error="$emit('error', $event)"
+            @focus="$emit('focus')"
+            @blur="$emit('blur')"
+          />
+        </ul>
+      </div>
     </div>
     <gl-modal
       ref="deleteNoteModal"

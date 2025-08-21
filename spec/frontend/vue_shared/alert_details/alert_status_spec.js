@@ -77,12 +77,12 @@ describe('AlertManagementStatus', () => {
 
     it('hides the dropdown by default', () => {
       mountComponent({ props: { isSidebar: true } });
-      expect(wrapper.classes()).toContain('gl-display-none');
+      expect(wrapper.classes()).toContain('gl-hidden');
     });
 
     it('shows the dropdown', () => {
       mountComponent({ props: { isSidebar: true, isDropdownShowing: true } });
-      expect(wrapper.classes()).not.toContain('gl-display-none');
+      expect(wrapper.classes()).not.toContain('gl-hidden');
     });
   });
 
@@ -151,7 +151,7 @@ describe('AlertManagementStatus', () => {
   describe('Statuses', () => {
     it('renders default translated statuses', () => {
       mountComponent({});
-      expect(findAllStatusOptions().length).toBe(3);
+      expect(findAllStatusOptions()).toHaveLength(3);
       expect(findFirstStatusOption().text()).toBe('Triggered');
     });
 

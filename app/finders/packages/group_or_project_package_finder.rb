@@ -20,6 +20,8 @@ module Packages
 
     private
 
+    attr_reader :params
+
     def packages
       raise NotImplementedError
     end
@@ -30,7 +32,7 @@ module Packages
       elsif group?
         group_packages
       else
-        ::Packages::Package.none
+        packages_class.none
       end
     end
 
@@ -48,6 +50,10 @@ module Packages
 
     def group_packages
       packages_visible_to_user(@current_user, within_group: @project_or_group)
+    end
+
+    def packages_class
+      ::Packages::Package
     end
   end
 end

@@ -2,11 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe Resolvers::UsersResolver do
+RSpec.describe Resolvers::UsersResolver, feature_category: :user_management do
   include GraphqlHelpers
 
   let_it_be(:user1) { create(:user, name: "SomePerson") }
   let_it_be(:user2) { create(:user, username: "someone123784") }
+  let_it_be(:inactive_user) { create(:user, :deactivated, username: "InactivePerson") }
+  let_it_be(:bot_user) { create(:user, :bot, username: "Bot") }
+  let_it_be(:internal_user) { create(:user, :placeholder, username: "InternalPerson") }
+  let_it_be(:service_account_user) { create(:user, :service_account, username: "ServiceAccountPerson") }
   let_it_be(:current_user) { create(:user) }
 
   specify do
@@ -16,7 +20,9 @@ RSpec.describe Resolvers::UsersResolver do
   describe '#resolve' do
     context 'when no arguments are passed' do
       it 'returns all users' do
-        expect(resolve_users).to contain_exactly(user1, user2, current_user)
+        expect(resolve_users).to contain_exactly(
+          user1, user2, current_user, service_account_user, bot_user, internal_user, inactive_user
+        )
       end
     end
 
@@ -54,11 +60,51 @@ RSpec.describe Resolvers::UsersResolver do
       end
     end
 
+    context 'when active is true' do
+      it 'returns only active users' do
+        expect(
+          resolve_users(args: { active: true })
+        ).to contain_exactly(user1, user2, service_account_user, current_user)
+      end
+    end
+
+    context 'when active is false' do
+      it 'returns only non-active users' do
+        expect(
+          resolve_users(args: { active: false })
+        ).to contain_exactly(inactive_user)
+      end
+    end
+
+    context 'when humans is true' do
+      it 'returns only human users' do
+        expect(
+          resolve_users(args: { humans: true })
+        ).to contain_exactly(user1, user2, inactive_user, current_user)
+      end
+    end
+
+    context 'when humans is false' do
+      it 'returns only non-human users' do
+        expect(
+          resolve_users(args: { humans: false })
+        ).to contain_exactly(internal_user, bot_user, service_account_user)
+      end
+    end
+
     context 'when a search term is passed' do
       it 'returns all users who match', :aggregate_failures do
         expect(resolve_users(args: { search: "some" })).to contain_exactly(user1, user2)
         expect(resolve_users(args: { search: "123784" })).to contain_exactly(user2)
         expect(resolve_users(args: { search: "someperson" })).to contain_exactly(user1)
+      end
+    end
+
+    context 'when user_types are passed' do
+      it 'returns all users who match', :aggregate_failures do
+        expect(resolve_users(args: { user_types: %w[human service_account] })).to contain_exactly(
+          service_account_user, user1, user2, inactive_user, current_user
+        )
       end
     end
 

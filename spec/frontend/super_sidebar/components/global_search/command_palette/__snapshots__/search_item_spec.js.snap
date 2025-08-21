@@ -2,7 +2,7 @@
 
 exports[`SearchItem should render the item 1`] = `
 <div
-  class="gl-align-items-center gl-display-flex"
+  class="gl-flex gl-items-center"
 >
   <gl-avatar-stub
     alt="avatar"
@@ -15,10 +15,10 @@ exports[`SearchItem should render the item 1`] = `
     src="https://www.gravatar.com/avatar/a9638f4ec70148d51e56bf05ad41e993?s=80&d=identicon"
   />
   <span
-    class="gl-display-flex gl-flex-direction-column"
+    class="gl-flex gl-gap-2 gl-items-center gl-min-w-0"
   >
     <span
-      class="gl-text-gray-900"
+      class="gl-text-strong gl-truncate"
     >
       Cole Dickinson
     </span>
@@ -28,19 +28,20 @@ exports[`SearchItem should render the item 1`] = `
 
 exports[`SearchItem should render the item 2`] = `
 <div
-  class="gl-align-items-center gl-display-flex"
+  class="gl-flex gl-items-center"
 >
   <gl-icon-stub
-    class="gl-flex-shrink-0 gl-mr-3"
+    class="gl-mr-3 gl-shrink-0"
+    data-testid="icon"
     name="users"
     size="16"
     variant="current"
   />
   <span
-    class="gl-display-flex gl-flex-direction-column"
+    class="gl-flex gl-gap-2 gl-items-center gl-min-w-0"
   >
     <span
-      class="gl-text-gray-900"
+      class="gl-text-strong gl-truncate"
     >
       Manage &gt; Activity
     </span>
@@ -50,7 +51,7 @@ exports[`SearchItem should render the item 2`] = `
 
 exports[`SearchItem should render the item 3`] = `
 <div
-  class="gl-align-items-center gl-display-flex"
+  class="gl-flex gl-items-center"
 >
   <gl-avatar-stub
     alt="avatar"
@@ -59,19 +60,27 @@ exports[`SearchItem should render the item 3`] = `
     entityid="1"
     entityname="MockProject1"
     shape="rect"
-    size="32"
+    size="16"
     src="/project/avatar/1/avatar.png"
   />
   <span
-    class="gl-display-flex gl-flex-direction-column"
+    class="gl-flex gl-gap-2 gl-items-center gl-min-w-0"
   >
     <span
-      class="gl-text-gray-900"
+      class="gl-text-strong gl-truncate"
     >
       MockProject1
     </span>
     <span
-      class="gl-font-sm gl-text-gray-500"
+      aria-hidden="true"
+      class="gl-text-subtle"
+      data-testid="namespace-bullet"
+    >
+      ·
+    </span>
+    <span
+      class="gl-text-sm gl-text-subtle gl-truncate"
+      data-testid="namespace"
     >
       Gitlab Org / MockProject1
     </span>
@@ -81,7 +90,7 @@ exports[`SearchItem should render the item 3`] = `
 
 exports[`SearchItem should render the item 4`] = `
 <div
-  class="gl-align-items-center gl-display-flex"
+  class="gl-flex gl-items-center"
 >
   <gl-avatar-stub
     alt="avatar"
@@ -94,10 +103,10 @@ exports[`SearchItem should render the item 4`] = `
     src=""
   />
   <span
-    class="gl-display-flex gl-flex-direction-column"
+    class="gl-flex gl-gap-2 gl-items-center gl-min-w-0"
   >
     <span
-      class="gl-text-gray-900"
+      class="gl-text-strong gl-truncate"
     >
       Dismiss Cipher with no integrity
     </span>

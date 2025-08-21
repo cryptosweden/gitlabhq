@@ -7,7 +7,16 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Config::Content, feature_category: :
   let(:pipeline) { build(:ci_pipeline, project: project) }
   let(:content) { nil }
   let(:source) { :push }
-  let(:command) { Gitlab::Ci::Pipeline::Chain::Command.new(project: project, content: content, source: source) }
+  let(:inputs) { {} }
+  let(:command) do
+    Gitlab::Ci::Pipeline::Chain::Command.new(
+      project: project,
+      content: content,
+      source: source,
+      inputs: inputs,
+      origin_ref: project.default_branch_or_main
+    )
+  end
 
   subject { described_class.new(pipeline, command) }
 
@@ -51,7 +60,6 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Config::Content, feature_category: :
         subject.perform!
 
         expect(pipeline.config_source).to eq 'repository_source'
-        expect(pipeline.pipeline_config.content).to eq(config_content_result)
         expect(command.config_content).to eq(config_content_result)
         expect(command.pipeline_config.internal_include_prepended?).to eq(true)
       end
@@ -71,7 +79,6 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Config::Content, feature_category: :
         subject.perform!
 
         expect(pipeline.config_source).to eq 'remote_source'
-        expect(pipeline.pipeline_config.content).to eq(config_content_result)
         expect(command.config_content).to eq(config_content_result)
         expect(command.pipeline_config.internal_include_prepended?).to eq(true)
       end
@@ -92,7 +99,6 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Config::Content, feature_category: :
         subject.perform!
 
         expect(pipeline.config_source).to eq 'external_project_source'
-        expect(pipeline.pipeline_config.content).to eq(config_content_result)
         expect(command.config_content).to eq(config_content_result)
         expect(command.pipeline_config.internal_include_prepended?).to eq(true)
       end
@@ -113,7 +119,6 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Config::Content, feature_category: :
           subject.perform!
 
           expect(pipeline.config_source).to eq 'external_project_source'
-          expect(pipeline.pipeline_config.content).to eq(config_content_result)
           expect(command.config_content).to eq(config_content_result)
           expect(command.pipeline_config.internal_include_prepended?).to eq(true)
         end
@@ -141,9 +146,42 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Config::Content, feature_category: :
         subject.perform!
 
         expect(pipeline.config_source).to eq 'repository_source'
-        expect(pipeline.pipeline_config.content).to eq(config_content_result)
         expect(command.config_content).to eq(config_content_result)
         expect(command.pipeline_config.internal_include_prepended?).to eq(true)
+      end
+
+      context 'when passing inputs' do
+        let(:inputs) do
+          {
+            'string' => 'bar',
+            boolean: true,
+            'array' => [{ 'foo' => 'bar' }],
+            number: 1
+          }
+        end
+
+        let(:config_content_result) do
+          <<~CICONFIG
+            ---
+            include:
+            - local: ".gitlab-ci.yml"
+              inputs:
+                string: bar
+                boolean: true
+                array:
+                - foo: bar
+                number: 1
+          CICONFIG
+        end
+
+        it 'builds the config with the inputs' do
+          subject.perform!
+
+          expect(pipeline.config_source).to eq 'repository_source'
+          expect(command.config_content).to eq(config_content_result)
+          expect(command.pipeline_config.internal_include_prepended?).to eq(true)
+          expect(command.pipeline_config.inputs_for_pipeline_creation).to eq({})
+        end
       end
     end
 
@@ -165,7 +203,6 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Config::Content, feature_category: :
         subject.perform!
 
         expect(pipeline.config_source).to eq 'auto_devops_source'
-        expect(pipeline.pipeline_config.content).to eq(config_content_result)
         expect(command.config_content).to eq(config_content_result)
         expect(command.pipeline_config.internal_include_prepended?).to eq(true)
       end
@@ -186,9 +223,29 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Config::Content, feature_category: :
         subject.perform!
 
         expect(pipeline.config_source).to eq 'parameter_source'
-        expect(pipeline.pipeline_config.content).to eq(content)
         expect(command.config_content).to eq(content)
         expect(command.pipeline_config.internal_include_prepended?).to eq(false)
+      end
+
+      context 'when passing inputs' do
+        let(:content) do
+          <<~EOY
+            ---
+            stages:
+              - $[[ inputs.stage ]]
+          EOY
+        end
+
+        let(:inputs) { { stage: 'bar' } }
+
+        it 'uses the parameter content with inputs' do
+          subject.perform!
+
+          expect(pipeline.config_source).to eq 'parameter_source'
+          expect(command.config_content).to eq(content)
+          expect(command.pipeline_config.internal_include_prepended?).to eq(false)
+          expect(command.pipeline_config.inputs_for_pipeline_creation).to eq(inputs)
+        end
       end
     end
 
@@ -203,7 +260,6 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Config::Content, feature_category: :
         subject.perform!
 
         expect(pipeline.config_source).to eq('unknown_source')
-        expect(pipeline.pipeline_config).to be_nil
         expect(command.config_content).to be_nil
         expect(command.pipeline_config).to be_nil
         expect(pipeline.errors.full_messages).to include('Missing CI config file')

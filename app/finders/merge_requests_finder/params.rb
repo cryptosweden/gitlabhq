@@ -20,6 +20,21 @@ class MergeRequestsFinder
       end
     end
 
+    def ignored_reviewer
+      return unless params[:ignored_reviewer_username].present?
+
+      User.find_by_username(params[:ignored_reviewer_username])
+    end
+    strong_memoize_attr :ignored_reviewer
+
+    def assigned_user
+      strong_memoize(:assigned_user) do
+        next unless params[:assigned_user_id].present?
+
+        User.find_by_id(params[:assigned_user_id])
+      end
+    end
+
     def merge_user
       strong_memoize(:merge_user) do
         if merge_user_id?
@@ -30,12 +45,30 @@ class MergeRequestsFinder
       end
     end
 
+    def assigned_review_states
+      return unless params[:assigned_review_states].present?
+
+      params[:assigned_review_states].map { |state| MergeRequestReviewer.states[state] }
+    end
+
+    def reviewer_review_states
+      return unless params[:reviewer_review_states].present?
+
+      params[:reviewer_review_states].map { |state| MergeRequestReviewer.states[state] }
+    end
+
     def review_state
       if params[:review_state].present?
         MergeRequestReviewer.states[params[:review_state]]
       elsif params[:review_states].present?
         params[:review_states].map { |state| MergeRequestReviewer.states[state] }
       end
+    end
+
+    def not_review_states
+      return unless params[:not][:review_states].present?
+
+      params[:not][:review_states].map { |state| MergeRequestReviewer.states[state] }
     end
   end
 end

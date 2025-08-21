@@ -24,7 +24,10 @@ RSpec.describe ResolvesGroups do
 
   let_it_be(:preloaded_fields) do
     <<~FIELDS
+      archived
       containerRepositoriesCount
+      description
+      descriptionHtml
       customEmoji { nodes { id } }
       dependencyProxyBlobCount
       dependencyProxyBlobs { nodes { fileName } }
@@ -55,7 +58,7 @@ RSpec.describe ResolvesGroups do
       expect(data.size).to eq(2)
     }
 
-    expect { multi_group_query.call }.not_to exceed_query_limit(single_group_query)
+    expect { multi_group_query.call }.not_to issue_same_number_of_queries_as(single_group_query)
   end
 
   def query_groups(limit:)

@@ -16,7 +16,11 @@ module Gitlab
         models_with_attributes = Hash.new { |h, k| h[k] = [] }
 
         models_with_encrypted_attributes.each do |model|
-          models_with_attributes[model] += model.attr_encrypted_attributes.keys
+          models_with_attributes[model] += model.encrypted_attributes.to_a
+        end
+
+        models_with_attr_encrypted_attributes.each do |model|
+          models_with_attributes[model] += model.attr_encrypted_encrypted_attributes.keys
         end
 
         models_with_encrypted_tokens.each do |model|
@@ -55,9 +59,16 @@ module Gitlab
           failures_per_row = Hash.new { |h, k| h[k] = [] }
 
           with_skipped_callbacks_for(model) do
-            model.find_each do |data|
-              attributes.each do |att|
-                failures_per_row[data.id] << att unless valid_attribute?(data, att)
+            query = model
+            # Performance optimization
+            # See https://gitlab.com/gitlab-org/gitlab/-/merge_requests/190206
+            query = query.with_token_present if model == ::Ci::Build
+
+            query.in_batches do |batch| # rubocop:disable Cop/InBatches -- We can't skip callbacks in `each_batch`.
+              batch.each do |entry|
+                attributes.each do |attr|
+                  failures_per_row[entry.id] << attr unless valid_attribute?(entry, attr)
+                end
               end
             end
           end
@@ -66,20 +77,24 @@ module Gitlab
           output_failures_for_model(model, failures_per_row)
         end
 
-        logger.info "Total: #{running_failures} row(s) affected".color(:blue)
+        logger.info Rainbow("Total: #{running_failures} row(s) affected").blue
       end
 
       def output_failures_for_model(model, failures)
         status_color = failures.empty? ? :green : :red
 
-        logger.info "- #{model} failures: #{failures.count}".color(status_color)
+        logger.info Rainbow("- #{model} failures: #{failures.count}").color(status_color)
         failures.each do |row_id, attributes|
-          logger.debug "  - #{model}[#{row_id}]: #{attributes.join(", ")}".color(:red)
+          logger.debug Rainbow("  - #{model}[#{row_id}]: #{attributes.join(', ')}").red
         end
       end
 
       def models_with_encrypted_attributes
-        all_models.select { |d| d.attr_encrypted_attributes.present? }
+        all_models.select { |d| d.encrypted_attributes.present? }
+      end
+
+      def models_with_attr_encrypted_attributes
+        all_models.select { |d| d.attr_encrypted_encrypted_attributes.present? }
       end
 
       def models_with_encrypted_tokens
@@ -99,7 +114,7 @@ module Gitlab
       rescue OpenSSL::Cipher::CipherError, TypeError
         false
       rescue StandardError => e
-        logger.debug "> Something went wrong for #{data.class.name}[#{data.id}].#{attr}: #{e}".color(:red)
+        logger.debug Rainbow("> Something went wrong for #{data.class.name}[#{data.id}].#{attr}: #{e}").red
 
         false
       end

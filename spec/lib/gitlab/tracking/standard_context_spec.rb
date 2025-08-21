@@ -59,27 +59,79 @@ RSpec.describe Gitlab::Tracking::StandardContext, feature_category: :service_pin
     end
 
     it 'contains standard properties' do
-      standard_properties = [:user_id, :project_id, :namespace_id, :plan]
+      standard_properties = [:user_id, :project_id, :namespace_id, :plan, :unique_instance_id, :instance_id, :realm]
       expect(snowplow_context.to_json[:data].keys).to include(*standard_properties)
     end
 
     context 'with standard properties' do
-      let(:user_id) { 1 }
+      let(:user) { build_stubbed(:user, user_type: 'human') }
+      let(:top_level_group) { create(:group) }
+      let(:subgroup1) { create(:group, parent: top_level_group) }
+      let(:subgroup2) { create(:group, parent: subgroup1) }
+      let(:bottom_level_group) { create(:group, parent: subgroup2) }
       let(:project_id) { 2 }
-      let(:namespace_id) { 3 }
-      let(:plan_name) { "plan name" }
+      let(:namespace) { bottom_level_group }
+      let(:hostname) { 'example.com' }
+      let(:version) { '17.3.0' }
+      let(:json_data) { snowplow_context.to_json.fetch(:data) }
+      let(:instance_id) { SecureRandom.uuid }
+
+      before do
+        allow(Gitlab.config.gitlab).to receive(:host).and_return(hostname)
+        allow(Gitlab).to receive(:version_info).and_return(Gitlab::VersionInfo.parse(version))
+        allow(Gitlab::GlobalAnonymousId).to receive(:instance_id).and_return(instance_id)
+      end
 
       subject do
-        described_class.new(user_id: user_id, project_id: project_id, namespace_id: namespace_id, plan_name: plan_name)
+        described_class.new(user: user, project_id: project_id, namespace: namespace)
       end
 
       it 'holds the correct values', :aggregate_failures do
-        json_data = snowplow_context.to_json.fetch(:data)
-        expect(json_data[:user_id]).to eq(user_id)
         expect(json_data[:is_gitlab_team_member]).to eq(nil)
         expect(json_data[:project_id]).to eq(project_id)
-        expect(json_data[:namespace_id]).to eq(namespace_id)
-        expect(json_data[:plan]).to eq(plan_name)
+        expect(json_data[:namespace_id]).to eq(namespace.id)
+        expect(json_data[:ultimate_parent_namespace_id]).to eq(top_level_group.id)
+        expect(json_data[:plan]).to eq('free')
+        expect(json_data[:host_name]).to eq(hostname)
+        expect(json_data[:instance_version]).to eq(version)
+        expect(json_data[:correlation_id]).to eq(Labkit::Correlation::CorrelationId.current_or_new_id)
+        expect(json_data[:global_user_id]).to eq(Gitlab::GlobalAnonymousId.user_id(user))
+        expect(json_data[:unique_instance_id]).to eq(Gitlab::GlobalAnonymousId.instance_uuid)
+        expect(json_data[:user_type]).to eq(user.user_type)
+        expect(json_data[:instance_id]).to eq(instance_id)
+        expect(json_data[:realm]).to eq(described_class::GITLAB_REALM_SELF_MANAGED)
+      end
+
+      describe 'user_id' do
+        let(:hashed_user_id) { 'sha256_of_user_id' }
+
+        before do
+          allow(Gitlab::CryptoHelper).to receive(:sha256).and_return(hashed_user_id)
+        end
+
+        context 'when user is nil' do
+          subject { described_class.new(user: nil) }
+
+          it 'pass it to the context' do
+            expect(json_data[:user_id]).to be_nil
+          end
+        end
+
+        context 'when user is not of User class' do
+          subject { described_class.new(user: build_stubbed(:deploy_token)) }
+
+          it 'passes nil to the context' do
+            expect(json_data[:user_id]).to be_nil
+          end
+        end
+
+        context 'when user is an instance of User' do
+          it 'hold the pseudonymized user id value', :aggregate_failures do
+            expect(json_data[:user_id]).to eq(hashed_user_id)
+            expect(json_data[:user_id]).not_to eq(user.id)
+            expect(Gitlab::CryptoHelper).to have_received(:sha256).with(user.id)
+          end
+        end
       end
     end
 

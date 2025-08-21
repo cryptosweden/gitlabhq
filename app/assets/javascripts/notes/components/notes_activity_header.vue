@@ -1,5 +1,6 @@
 <script>
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import glAbilitiesMixin from '~/vue_shared/mixins/gl_abilities_mixin';
 import DiscussionFilter from './discussion_filter.vue';
 
 export default {
@@ -10,7 +11,7 @@ export default {
       import('ee_component/notes/components/note_actions/ai_summarize_notes.vue'),
     MrDiscussionFilter: () => import('./mr_discussion_filter.vue'),
   },
-  mixins: [glFeatureFlagsMixin()],
+  mixins: [glAbilitiesMixin(), glFeatureFlagsMixin()],
   inject: {
     showTimelineViewToggle: {
       default: false,
@@ -35,10 +36,19 @@ export default {
       default: false,
       required: false,
     },
+    noteableType: {
+      type: String,
+      default: '',
+      required: false,
+    },
   },
   computed: {
     showAiActions() {
-      return this.resourceGlobalId && this.glFeatures.summarizeComments;
+      return (
+        this.resourceGlobalId &&
+        this.glAbilities.summarizeComments &&
+        this.glFeatures.summarizeComments
+      );
     },
   },
 };
@@ -46,12 +56,13 @@ export default {
 
 <template>
   <div
-    class="gl-display-flex gl-sm-align-items-center gl-flex-direction-column gl-sm-flex-direction-row gl-justify-content-space-between gl-pt-5 gl-pb-3"
+    class="gl-flex gl-flex-col gl-justify-between gl-pb-3 gl-pt-5 sm:gl-flex-row sm:gl-items-center"
   >
-    <h2 class="gl-font-size-h1 gl-m-0">{{ __('Activity') }}</h2>
-    <div class="gl-display-flex gl-gap-3 gl-w-full gl-sm-w-auto gl-mt-3 gl-sm-mt-0">
+    <h2 class="gl-heading-2 gl-m-0">{{ __('Activity') }}</h2>
+    <div class="gl-mt-3 gl-flex gl-w-full gl-gap-3 sm:gl-mt-0 sm:gl-w-auto">
       <ai-summarize-notes
         v-if="showAiActions"
+        :work-item-type="noteableType"
         :resource-global-id="resourceGlobalId"
         :loading="aiLoading"
       />

@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe Ci::JobArtifacts::DestroyAllExpiredService, :clean_gitlab_redis_shared_state,
-  feature_category: :build_artifacts do
+  feature_category: :job_artifacts do
   include ExclusiveLeaseHelpers
 
   let(:service) { described_class.new }
@@ -245,7 +245,7 @@ RSpec.describe Ci::JobArtifacts::DestroyAllExpiredService, :clean_gitlab_redis_s
       let!(:artifact) { create(:ci_job_artifact, :expired, job: locked_job, locked: locked_job.pipeline.locked) }
 
       it 'destroys no artifacts' do
-        expect { subject }.to change { Ci::JobArtifact.count }.by(0)
+        expect { subject }.to not_change { Ci::JobArtifact.count }
       end
     end
   end

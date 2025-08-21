@@ -1,5 +1,7 @@
 const coreJSVersion = require('./node_modules/core-js/package.json').version;
 
+console.debug(`BABEL_ENV inside Babel config is: ${process.env.BABEL_ENV}`);
+
 let presets = [
   [
     '@babel/preset-env',
@@ -23,9 +25,14 @@ const plugins = [
   '@babel/plugin-transform-optional-chaining',
   // See: https://gitlab.com/gitlab-org/gitlab/-/issues/336216
   '@babel/plugin-transform-nullish-coalescing-operator',
+  // See: https://gitlab.com/gitlab-org/gitlab/-/issues/336216
+  '@babel/plugin-transform-logical-assignment-operators',
   'lodash',
+  '@babel/plugin-transform-class-static-block',
+  '@babel/plugin-transform-export-namespace-from',
 ];
 
+const env = {};
 // Jest is running in node environment
 const isJest = Boolean(process.env.JEST_WORKER_ID);
 if (isJest) {
@@ -39,6 +46,22 @@ if (isJest) {
       },
     ],
   ];
+} else {
+  env.istanbul = {
+    plugins: [
+      [
+        'istanbul',
+        {
+          extension: ['.js', '.vue', '.mjs', '.cjs'],
+        },
+      ],
+    ],
+  };
 }
 
-module.exports = { presets, plugins, sourceType: 'unambiguous' };
+module.exports = {
+  presets,
+  plugins,
+  sourceType: 'unambiguous',
+  env,
+};

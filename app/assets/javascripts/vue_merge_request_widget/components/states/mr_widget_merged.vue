@@ -44,10 +44,6 @@ export default {
         !isRemovingSourceBranch
       );
     },
-    shouldShowSourceBranchRemoving() {
-      const { sourceBranchRemoved, isRemovingSourceBranch } = this.mr;
-      return !sourceBranchRemoved && (isRemovingSourceBranch || this.isMakingRequest);
-    },
     revertTitle() {
       return s__('mrWidget|Revert this merge request in a new merge request');
     },
@@ -63,20 +59,20 @@ export default {
     actions() {
       const actions = [];
 
-      if (this.mr.canRevertInCurrentMR) {
-        actions.push({
-          text: this.revertLabel,
-          tooltipText: this.revertTitle,
-          testId: 'revert-button',
-          onClick: () => this.openRevertModal(),
-        });
-      } else if (this.mr.revertInForkPath) {
+      if (this.mr.revertInForkPath) {
         actions.push({
           text: this.revertLabel,
           tooltipText: this.revertTitle,
           href: this.mr.revertInForkPath,
           testId: 'revert-button',
           dataMethod: 'post',
+        });
+      } else {
+        actions.push({
+          text: this.revertLabel,
+          tooltipText: this.revertTitle,
+          testId: 'revert-button',
+          onClick: () => this.openRevertModal(),
         });
       }
 
@@ -150,7 +146,7 @@ export default {
 };
 </script>
 <template>
-  <state-container :actions="actions" status="merged" is-collapsible>
+  <state-container :actions="actions" status="merged">
     <mr-widget-author-time
       :action-text="s__('mrWidget|Merged by')"
       :author="mr.metrics.mergedBy"

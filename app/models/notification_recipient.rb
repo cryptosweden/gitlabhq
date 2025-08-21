@@ -30,6 +30,7 @@ class NotificationRecipient
   end
 
   def notifiable?
+    return false if composite_identity_enforced?
     return false unless has_access?
     return false if emails_disabled?
     return false if own_activity?
@@ -108,14 +109,21 @@ class NotificationRecipient
       break false unless user.can?(:receive_notifications)
       break true if @skip_read_ability
 
-      break false if @target && !user.can?(:read_cross_project)
-      break false if @project && !user.can?(:read_project, @project)
+      if @project
+        break false unless user.can?(:read_project, @project)
+      else
+        break false unless user.can?(:read_cross_project)
+      end
 
       break true unless read_ability
       break true unless DeclarativePolicy.has_policy?(@target)
 
       user.can?(read_ability, @target)
     end
+  end
+
+  def composite_identity_enforced?
+    user.composite_identity_enforced?
   end
 
   def excluded_watcher_action?
@@ -161,7 +169,8 @@ class NotificationRecipient
   def default_project
     return if @target.nil?
     return @target if @target.is_a?(Project)
-    return @target.project if @target.respond_to?(:project)
+
+    @target.project if @target.respond_to?(:project)
   end
 
   def find_notification_setting
@@ -169,22 +178,11 @@ class NotificationRecipient
 
     return project_setting unless project_setting.nil? || project_setting.global?
 
-    group_setting = closest_non_global_group_notification_setting
+    group_setting = user.closest_non_global_group_notification_setting(@group)
 
     return group_setting unless group_setting.nil?
 
     user.global_notification_setting
-  end
-
-  # Returns the notification_setting of the lowest group in hierarchy with non global level
-  def closest_non_global_group_notification_setting
-    return unless @group
-
-    @group
-      .notification_settings(hierarchy_order: :asc)
-      .where(user: user)
-      .where.not(level: NotificationSetting.levels[:global])
-      .first
   end
 
   def participating_custom_action?

@@ -1,5 +1,4 @@
-// eslint-disable-next-line no-restricted-imports
-import { mapActions, mapGetters, mapState } from 'vuex';
+import { mapState, mapActions } from 'pinia';
 import { getDraftReplyFormData, getDraftFormData } from '~/batch_comments/utils';
 import {
   TEXT_DIFF_POSITION_TYPE,
@@ -11,21 +10,24 @@ import { clearDraft } from '~/lib/utils/autosave';
 import { sprintf } from '~/locale';
 import { formatLineRange } from '~/notes/components/multiline_comment_utils';
 import { SAVING_THE_COMMENT_FAILED, SOMETHING_WENT_WRONG } from '~/diffs/i18n';
+import { useBatchComments } from '~/batch_comments/store';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useNotes } from '~/notes/store/legacy_notes';
 
 export default {
   computed: {
-    ...mapState({
-      noteableData: (state) => state.notes.noteableData,
-      notesData: (state) => state.notes.notesData,
-      withBatchComments: (state) => state.batchComments?.withBatchComments,
-    }),
-    ...mapGetters('diffs', ['getDiffFileByHash']),
-    ...mapGetters('batchComments', ['shouldRenderDraftRowInDiscussion', 'draftForDiscussion']),
-    ...mapState('diffs', ['commit', 'showWhitespace']),
+    ...mapState(useNotes, ['noteableData', 'notesData']),
+    ...mapState(useLegacyDiffs, ['getDiffFileByHash', 'commit', 'showWhitespace']),
+    ...mapState(useBatchComments, [
+      'shouldRenderDraftRowInDiscussion',
+      'draftForDiscussion',
+      'isMergeRequest',
+    ]),
   },
   methods: {
-    ...mapActions('diffs', ['cancelCommentForm', 'toggleFileCommentForm']),
-    ...mapActions('batchComments', ['addDraftToReview', 'saveDraft', 'insertDraftIntoDrafts']),
+    ...mapActions(useLegacyDiffs, ['cancelCommentForm', 'toggleFileCommentForm']),
+    ...mapActions(useBatchComments, ['addDraftToReview', 'saveDraft', 'insertDraftIntoDrafts']),
+    // eslint-disable-next-line max-params
     addReplyToReview(noteText, isResolving, parentElement, errorCallback) {
       const postData = getDraftReplyFormData({
         in_reply_to_discussion_id: this.discussion.reply_id,
@@ -60,6 +62,7 @@ export default {
           errorCallback();
         });
     },
+    // eslint-disable-next-line max-params
     addToReview(note, positionType = null, parentElement, errorCallback) {
       const lineRange =
         (this.line && this.commentLineStart && formatLineRange(this.commentLineStart, this.line)) ||
@@ -127,7 +130,7 @@ export default {
       });
     },
     showDraft(replyId) {
-      return this.withBatchComments && this.shouldRenderDraftRowInDiscussion(replyId);
+      return this.isMergeRequest && this.shouldRenderDraftRowInDiscussion(replyId);
     },
   },
 };

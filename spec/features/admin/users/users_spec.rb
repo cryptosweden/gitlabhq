@@ -2,13 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Admin::Users', feature_category: :user_management do
+RSpec.describe 'Admin::Users', :with_current_organization, feature_category: :user_management do
   include Features::AdminUsersHelpers
   include Spec::Support::Helpers::ModalHelpers
   include ListboxHelpers
 
-  let_it_be(:user, reload: true) { create(:omniauth_user, provider: 'twitter', extern_uid: '123456') }
-  let_it_be(:admin) { create(:admin) }
+  let_it_be(:admin) { create(:admin, organizations: [current_organization]) }
+  let_it_be_with_reload(:user) do
+    create(:omniauth_user, provider: 'twitter', extern_uid: '123456', organizations: [current_organization])
+  end
 
   before do
     sign_in(admin)
@@ -173,6 +175,30 @@ RSpec.describe 'Admin::Users', feature_category: :user_management do
       end
     end
 
+    describe 'Humans filter' do
+      it 'filters by human users' do
+        bot_user = create(:user, user_type: :alert_bot)
+        normal_user = create(:user)
+
+        visit admin_users_path(filter: 'without_bots')
+
+        expect(has_user?(text: bot_user.email)).to be(false)
+        expect(has_user?(text: normal_user.email)).to be(true)
+      end
+    end
+
+    describe 'Bots filter' do
+      it 'filters by bot users' do
+        bot_user = create(:user, user_type: :alert_bot)
+        normal_user = create(:user)
+
+        visit admin_users_path(filter: 'bots')
+
+        expect(has_user?(text: bot_user.email)).to be(true)
+        expect(has_user?(text: normal_user.email)).to be(false)
+      end
+    end
+
     context 'when blocking/unblocking a user' do
       it 'shows confirmation and allows blocking and unblocking', :js do
         expect(has_user?(text: user.email)).to be(true)
@@ -255,7 +281,7 @@ RSpec.describe 'Admin::Users', feature_category: :user_management do
       let_it_be(:locked_user) { create(:user, locked_at: DateTime.parse('2020-02-25 10:30:00 -0700')) }
 
       it "displays `Locked` badge next to user" do
-        expect(page).to have_content("#{locked_user.name} Locked")
+        expect(page).to have_content("#{locked_user.name} #{locked_user.email} Locked")
       end
 
       it 'allows a user to be unlocked from the `User administration dropdown', :js do
@@ -410,10 +436,39 @@ RSpec.describe 'Admin::Users', feature_category: :user_management do
       let_it_be(:user_username) { 'Bing bang' }
 
       it "doesn't create the user and shows an error message" do
-        expect { click_button 'Create user' }.to change { User.count }.by(0)
+        expect { click_button 'Create user' }.not_to change { User.count }
 
         expect(page).to have_content('The form contains the following error')
         expect(page).to have_content('Username can contain only letters, digits')
+      end
+    end
+
+    context 'when organization access level is set', :js do
+      before do
+        within_testid 'organization-section' do
+          select_from_listbox 'Owner', from: 'User'
+        end
+        click_button 'Create user'
+      end
+
+      it 'assigns correct organization access level', :js do
+        user = User.find_by(username: 'bang')
+        organization_user = Organizations::OrganizationUser
+          .find_by(user_id: user.id, organization_id: current_organization.id)
+
+        expect(organization_user.access_level).to eq('owner')
+      end
+    end
+
+    context 'when instance has multiple organizations', :js do
+      let_it_be(:organization) { create(:organization, name: 'New Organization', users: [admin]) }
+
+      it 'creates user in the selected organization' do
+        within_testid 'organization-section' do
+          select_from_listbox 'New Organization', from: current_organization.name
+        end
+
+        expect { click_button 'Create user' }.to change { organization.users.count }.by(1)
       end
     end
 
@@ -546,13 +601,13 @@ RSpec.describe 'Admin::Users', feature_category: :user_management do
 
       visit new_admin_user_identity_path(user)
 
-      check_breadcrumb('New Identity')
+      check_breadcrumb('New identity')
 
       visit admin_user_identities_path(user)
 
       find('.table').find(:link, 'Edit').click
 
-      check_breadcrumb('Edit Identity')
+      check_breadcrumb('Edit')
     end
 
     def check_breadcrumb(content)
@@ -565,28 +620,55 @@ RSpec.describe 'Admin::Users', feature_category: :user_management do
       visit edit_admin_user_path(user)
     end
 
-    describe 'Update user' do
+    it 'shows all breadcrumbs', :js do
+      expect(page_breadcrumbs).to eq([
+        { text: 'Admin area', href: admin_root_path },
+        { text: 'Users', href: admin_users_path },
+        { text: user.name, href: admin_user_path(user) },
+        { text: 'Edit', href: edit_admin_user_path(user) }
+      ])
+    end
+
+    describe 'Update user', :js do
       before do
         fill_in 'user_name', with: 'Big Bang'
         fill_in 'user_email', with: 'bigbang@mail.com'
         fill_in 'user_password', with: 'AValidPassword1'
         fill_in 'user_password_confirmation', with: 'AValidPassword1'
-        choose 'user_access_level_admin'
+        choose 'Administrator'
         check 'Private profile'
-        click_button 'Save changes'
       end
 
       it 'shows page with new data' do
+        click_button 'Save changes'
+
         expect(page).to have_content('bigbang@mail.com')
         expect(page).to have_content('Big Bang')
       end
 
       it 'changes user entry' do
+        click_button 'Save changes'
+
         user.reload
         expect(user.name).to eq('Big Bang')
         expect(user.admin?).to be_truthy
         expect(user.password_expires_at).to be <= Time.zone.now
         expect(user.private_profile).to eq(true)
+      end
+
+      context 'when updating the organization access level' do
+        it 'updates the user organization access level' do
+          organization_user = Organizations::OrganizationUser
+            .find_by(user_id: user.id, organization_id: current_organization.id)
+
+          expect do
+            within_testid 'organization-section' do
+              select_from_listbox 'Owner', from: 'User'
+            end
+
+            click_button 'Save changes'
+          end.to change { organization_user.reload.access_level }.from('default').to('owner')
+        end
       end
     end
 

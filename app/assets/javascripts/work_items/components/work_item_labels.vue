@@ -1,22 +1,28 @@
 <script>
 import { GlButton, GlDisclosureDropdown, GlLabel } from '@gitlab/ui';
+import { difference, unionBy } from 'lodash';
 import fuzzaldrinPlus from 'fuzzaldrin-plus';
-import { difference } from 'lodash';
 import { WORKSPACE_GROUP, WORKSPACE_PROJECT } from '~/issues/constants';
-import { __, n__ } from '~/locale';
+import { __, createListFormat, s__, sprintf } from '~/locale';
 import WorkItemSidebarDropdownWidget from '~/work_items/components/shared/work_item_sidebar_dropdown_widget.vue';
 import DropdownContentsCreateView from '~/sidebar/components/labels/labels_select_widget/dropdown_contents_create_view.vue';
 import groupLabelsQuery from '~/sidebar/components/labels/labels_select_widget/graphql/group_labels.query.graphql';
 import projectLabelsQuery from '~/sidebar/components/labels/labels_select_widget/graphql/project_labels.query.graphql';
 import { isScopedLabel } from '~/lib/utils/common_utils';
 import Tracking from '~/tracking';
-import groupWorkItemByIidQuery from '../graphql/group_work_item_by_iid.query.graphql';
+import { ISSUABLE_CHANGE_LABEL } from '~/behaviors/shortcuts/keybindings';
 import workItemByIidQuery from '../graphql/work_item_by_iid.query.graphql';
 import updateWorkItemMutation from '../graphql/update_work_item.mutation.graphql';
-import { i18n, I18N_WORK_ITEM_ERROR_FETCHING_LABELS, TRACKING_CATEGORY_SHOW } from '../constants';
-import { isLabelsWidget } from '../utils';
+import { i18n, TRACKING_CATEGORY_SHOW, WORK_ITEM_TYPE_NAME_EPIC } from '../constants';
+import {
+  findLabelsWidget,
+  formatLabelForListbox,
+  newWorkItemId,
+  newWorkItemFullPath,
+} from '../utils';
 
 export default {
+  ISSUABLE_CHANGE_LABEL,
   components: {
     DropdownContentsCreateView,
     GlButton,
@@ -25,10 +31,19 @@ export default {
     WorkItemSidebarDropdownWidget,
   },
   mixins: [Tracking.mixin()],
-  inject: ['canAdminLabel', 'isGroup', 'issuesListPath', 'labelsManagePath'],
+  inject: {
+    canAdminLabel: 'canAdminLabel',
+    issuesListPath: 'issuesListPath',
+    labelsManagePath: 'labelsManagePath',
+    epicsListPath: { default: '' },
+  },
   props: {
     fullPath: {
       type: String,
+      required: true,
+    },
+    isGroup: {
+      type: Boolean,
       required: true,
     },
     workItemId: {
@@ -51,16 +66,31 @@ export default {
   },
   data() {
     return {
+      searchLabels: [],
       searchTerm: '',
       searchStarted: false,
+      selectedLabelsIds: [],
       showLabelForm: false,
       updateInProgress: false,
+      workItem: {},
       createdLabelId: undefined,
-      removeLabelIds: [],
-      addLabelIds: [],
+      labelsCache: [],
+      labelsToShowAtTopOfListbox: [],
     };
   },
   computed: {
+    isCreateFlow() {
+      return this.workItemId === newWorkItemId(this.workItemType);
+    },
+    workItemFullPath() {
+      return this.isCreateFlow
+        ? newWorkItemFullPath(this.fullPath, this.workItemType)
+        : this.fullPath;
+    },
+    isEpic() {
+      return this.workItemType === WORK_ITEM_TYPE_NAME_EPIC;
+    },
+    // eslint-disable-next-line vue/no-unused-properties
     tracking() {
       return {
         category: TRACKING_CATEGORY_SHOW,
@@ -68,65 +98,94 @@ export default {
         property: `type_${this.workItemType}`,
       };
     },
-    areLabelsSelected() {
-      return this.addLabelIds.length > 0 || this.itemValues.length > 0;
-    },
-    selectedLabelCount() {
-      return this.addLabelIds.length + this.itemValues.length - this.removeLabelIds.length;
-    },
-    dropDownLabelText() {
-      return n__('%d label', '%d labels', this.selectedLabelCount);
-    },
     dropdownText() {
-      return this.areLabelsSelected ? `${this.dropDownLabelText}` : __('No labels');
+      if (!this.selectedLabelsIds.length) {
+        return __('No labels');
+      }
+
+      const selectedLabelTitles = this.labelsCache
+        .filter(({ id }) => this.selectedLabelsIds.includes(id))
+        .map((label) => label.title);
+
+      return selectedLabelTitles.length > 2
+        ? sprintf(s__('LabelSelect|%{firstLabelName} +%{remainingLabelCount} more'), {
+            firstLabelName: selectedLabelTitles.at(0),
+            remainingLabelCount: selectedLabelTitles.length - 1,
+          })
+        : createListFormat().format(selectedLabelTitles);
     },
     isLoadingLabels() {
       return this.$apollo.queries.searchLabels.loading;
     },
-    visibleLabels() {
-      if (this.searchTerm) {
-        return fuzzaldrinPlus.filter(this.searchLabels, this.searchTerm, {
-          key: ['title'],
-        });
-      }
-      return this.searchLabels;
+    fuzzyFilteredLabels() {
+      return this.searchTerm
+        ? fuzzaldrinPlus.filter(this.searchLabels, this.searchTerm, { key: ['title'] })
+        : this.searchLabels;
     },
-    labelsList() {
-      return this.visibleLabels?.map(({ id, title, color }) => ({
-        value: id,
-        text: title,
-        color,
-      }));
+    listboxItems() {
+      const listboxLabels = this.fuzzyFilteredLabels.map(formatLabelForListbox);
+
+      if (this.searchTerm || this.widgetLabelsIds.length === 0) {
+        return listboxLabels;
+      }
+
+      const selectedLabels = this.labelsToShowAtTopOfListbox.map(formatLabelForListbox);
+
+      return [
+        { text: __('Selected'), options: selectedLabels },
+        { text: __('All'), textSrOnly: true, options: listboxLabels },
+      ];
     },
     labelsWidget() {
-      return this.workItem?.widgets?.find(isLabelsWidget);
+      return findLabelsWidget(this.workItem);
     },
-    localLabels() {
+    widgetLabels() {
       return this.labelsWidget?.labels?.nodes || [];
     },
-    itemValues() {
-      return this.localLabels.map(({ id }) => id);
+    widgetLabelsIds() {
+      return this.widgetLabels.map(({ id }) => id);
     },
     allowsScopedLabels() {
       return this.labelsWidget?.allowsScopedLabels;
+    },
+    createLabelText() {
+      return this.isGroup ? __('Create group label') : __('Create project label');
+    },
+    manageLabelText() {
+      return this.isGroup ? __('Manage group labels') : __('Manage project labels');
     },
     workspaceType() {
       return this.isGroup ? WORKSPACE_GROUP : WORKSPACE_PROJECT;
     },
   },
+  watch: {
+    searchTerm(newVal, oldVal) {
+      if (newVal === '' && oldVal !== '') {
+        this.labelsToShowAtTopOfListbox = this.labelsCache.filter(({ id }) =>
+          this.selectedLabelsIds.includes(id),
+        );
+      }
+    },
+    widgetLabels(newVal) {
+      this.labelsToShowAtTopOfListbox = newVal;
+    },
+  },
   apollo: {
     workItem: {
-      query() {
-        return this.isGroup ? groupWorkItemByIidQuery : workItemByIidQuery;
-      },
+      query: workItemByIidQuery,
       variables() {
         return {
-          fullPath: this.fullPath,
+          fullPath: this.workItemFullPath,
           iid: this.workItemIid,
         };
       },
       update(data) {
         return data.workspace?.workItem || {};
+      },
+      result({ data }) {
+        const labels = findLabelsWidget(data?.workspace?.workItem)?.labels?.nodes || [];
+        this.labelsCache = unionBy(this.labelsCache, labels, 'id');
+        this.selectedLabelsIds = labels.map(({ id }) => id);
       },
       skip() {
         return !this.workItemIid;
@@ -149,10 +208,17 @@ export default {
         return !this.searchStarted;
       },
       update(data) {
-        return data.workspace?.labels?.nodes;
+        return data.workspace?.labels?.nodes ?? [];
+      },
+      result({ data }) {
+        const labels = data?.workspace?.labels?.nodes || [];
+        this.labelsCache = unionBy(this.labelsCache, labels, 'id');
       },
       error() {
-        this.$emit('error', I18N_WORK_ITEM_ERROR_FETCHING_LABELS);
+        this.$emit(
+          'error',
+          s__('WorkItem|Something went wrong when fetching labels. Please try again.'),
+        );
       },
     },
   },
@@ -163,69 +229,89 @@ export default {
     },
     search(searchTerm) {
       this.searchTerm = searchTerm;
-      this.searchStarted = true;
     },
     removeLabel({ id }) {
-      this.removeLabelIds.push(id);
-      this.updateLabels();
+      this.updateLabels({ removeLabelIds: [id] });
     },
-    updateLabel(labels) {
-      this.removeLabelIds = difference(this.itemValues, labels);
-      this.addLabelIds = difference(labels, this.itemValues);
+    setLabels(labels) {
+      this.selectedLabelsIds = labels;
     },
-    async updateLabels(labels) {
-      this.updateInProgress = true;
+    async submitLabels(labels) {
+      this.setLabels(labels);
+      let removeLabelIds = difference(this.widgetLabelsIds, labels);
+      let addLabelIds = difference(labels, this.widgetLabelsIds);
 
       if (labels?.length === 0) {
-        this.removeLabelIds = this.itemValues;
-        this.addLabelIds = [];
+        removeLabelIds = this.widgetLabelsIds;
+        addLabelIds = [];
       }
 
+      if (!addLabelIds.length && !removeLabelIds.length) {
+        return;
+      }
+
+      if (this.isCreateFlow) {
+        await this.updateDraftCache();
+      } else {
+        await this.updateLabels({ addLabelIds, removeLabelIds });
+      }
+    },
+    updateDraftCache(removeLabelIds = []) {
+      let labels = this.labelsCache.filter(({ id }) => this.selectedLabelsIds.includes(id));
+      if (removeLabelIds.length) {
+        labels = labels.filter(({ id }) => !removeLabelIds.includes(id));
+      }
+
+      this.$emit('updateWidgetDraft', { labels });
+    },
+    async updateLabels({ addLabelIds = [], removeLabelIds = [] }) {
       try {
-        const {
-          data: {
-            workItemUpdate: { errors },
-          },
-        } = await this.$apollo.mutate({
-          mutation: updateWorkItemMutation,
-          variables: {
-            input: {
-              id: this.workItemId,
-              labelsWidget: {
-                addLabelIds: this.addLabelIds,
-                removeLabelIds: this.removeLabelIds,
+        this.updateInProgress = true;
+
+        if (this.isCreateFlow) {
+          this.updateDraftCache(removeLabelIds);
+        } else {
+          const {
+            data: {
+              workItemUpdate: { errors },
+            },
+          } = await this.$apollo.mutate({
+            mutation: updateWorkItemMutation,
+            variables: {
+              input: {
+                id: this.workItemId,
+                labelsWidget: {
+                  addLabelIds,
+                  removeLabelIds,
+                },
               },
             },
-          },
-        });
+          });
 
-        if (errors.length > 0) {
-          throw new Error();
+          if (errors.length > 0) {
+            throw new Error();
+          }
+
+          this.track('updated_labels');
         }
-
-        this.track('updated_labels');
+        this.$emit('labelsUpdated', [...addLabelIds, ...removeLabelIds]);
       } catch {
         this.$emit('error', i18n.updateError);
       } finally {
         this.searchTerm = '';
-        this.addLabelIds = [];
-        this.removeLabelIds = [];
         this.updateInProgress = false;
       }
     },
     scopedLabel(label) {
       return this.allowsScopedLabels && isScopedLabel(label);
     },
-    isSelected(id) {
-      return this.itemValues.includes(id) || this.addLabelIds.includes(id);
-    },
     labelFilterUrl(label) {
-      return `${this.issuesListPath}?label_name[]=${encodeURIComponent(label.title)}`;
+      return `${this.isEpic ? this.epicsListPath : this.issuesListPath}?label_name[]=${encodeURIComponent(label.title)}`;
     },
     handleLabelCreated(label) {
       this.showLabelForm = false;
       this.createdLabelId = label.id;
-      this.addLabelIds.push(label.id);
+      this.selectedLabelsIds.push(label.id);
     },
   },
 };
@@ -238,33 +324,35 @@ export default {
     :created-label-id="createdLabelId"
     dropdown-name="label"
     :loading="isLoadingLabels"
-    :list-items="labelsList"
-    :item-value="itemValues"
+    :list-items="listboxItems"
+    :item-value="selectedLabelsIds"
     :update-in-progress="updateInProgress"
     :toggle-dropdown-text="dropdownText"
     :header-text="__('Select labels')"
     :reset-button-label="__('Clear')"
-    multi-select
+    :shortcut="$options.ISSUABLE_CHANGE_LABEL"
     show-footer
+    multi-select
     clear-search-on-item-select
     data-testid="work-item-labels"
     @dropdownShown="onDropdownShown"
     @searchStarted="search"
-    @updateValue="updateLabels"
-    @updateSelected="updateLabel"
+    @updateValue="submitLabels"
+    @updateSelected="setLabels"
   >
     <template #list-item="{ item }">
-      <span
-        :style="{ background: item.color }"
-        :class="{ 'gl-border gl-border-white': isSelected(item.value) }"
-        class="gl-inline-block gl-rounded gl-mr-1 gl-w-5 gl-h-3 gl-align-middle -gl-mt-1"
-      ></span>
-      {{ item.text }}
+      <div class="gl-flex gl-items-center gl-gap-3 gl-break-anywhere">
+        <span
+          :style="{ background: item.color }"
+          class="gl-border gl-h-3 gl-w-5 gl-shrink-0 gl-rounded-base gl-border-white"
+        ></span>
+        {{ item.text }}
+      </div>
     </template>
     <template #readonly>
-      <div class="gl-flex gl-gap-2 gl-flex-wrap gl-mt-1">
+      <div class="gl-mt-1 gl-flex gl-flex-wrap gl-gap-2" data-testid="selected-label-content">
         <gl-label
-          v-for="label in localLabels"
+          v-for="label in widgetLabels"
           :key="label.id"
           :title="label.title"
           :description="label.description"
@@ -272,6 +360,7 @@ export default {
           :scoped="scopedLabel(label)"
           :show-close-button="canUpdate"
           :target="labelFilterUrl(label)"
+          :data-testid="label.title"
           @close="removeLabel(label)"
         />
       </div>
@@ -282,25 +371,30 @@ export default {
         class="!gl-justify-start"
         block
         category="tertiary"
-        data-testid="create-project-label"
+        data-testid="create-label"
         @click="showLabelForm = true"
       >
-        {{ __('Create project label') }}
+        {{ createLabelText }}
       </gl-button>
       <gl-button
-        class="!gl-justify-start !gl-mt-2"
+        class="!gl-mt-2 !gl-justify-start"
         block
         category="tertiary"
         :href="labelsManagePath"
-        data-testid="manage-project-labels"
+        data-testid="manage-labels"
       >
-        {{ __('Manage project labels') }}
+        {{ manageLabelText }}
       </gl-button>
     </template>
     <template v-if="showLabelForm" #body>
-      <gl-disclosure-dropdown block start-opened :toggle-text="dropdownText">
+      <gl-disclosure-dropdown
+        class="work-item-sidebar-dropdown"
+        block
+        start-opened
+        :toggle-text="dropdownText"
+      >
         <div
-          class="gl-text-sm gl-font-bold gl-leading-24 gl-border-b gl-pt-2 gl-pb-3 gl-pl-4 gl-mb-4"
+          class="gl-border-b gl-mb-4 gl-pb-3 gl-pl-4 gl-pt-2 gl-text-sm gl-font-bold gl-leading-24"
         >
           {{ __('Create label') }}
         </div>

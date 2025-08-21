@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Frontend testing standards and style guidelines
 ---
-
-# Frontend testing standards and style guidelines
 
 There are two types of test suites encountered while developing frontend code
 at GitLab. We use Jest for JavaScript unit and integration testing,
@@ -16,22 +15,24 @@ Most of the time, you should use [RSpec](https://github.com/rspec/rspec-rails#fe
 Regression tests should be written for bug fixes to prevent them from recurring
 in the future.
 
-See the [Testing Standards and Style Guidelines](index.md) page for more
+See the [Testing Standards and Style Guidelines](_index.md) page for more
 information on general testing practices at GitLab.
 
 ## Vue.js testing
 
 If you are looking for a guide on Vue component testing, you can jump right away to this [section](../fe_guide/vue.md#testing-vue-components).
 
+Information on testing Vue 3 is contained in [this page](testing_vue3.md).
+
 ## Jest
 
 We use Jest to write frontend unit and integration tests.
 Jest tests can be found in `/spec/frontend` and `/ee/spec/frontend` in EE.
 
-### Limitations of jsdom
+### `jsdom`
 
-Jest uses jsdom instead of a browser for running tests.
-This comes with a number of limitations, namely:
+Jest uses `jsdom` instead of a browser for running tests.
+Known issues include:
 
 - [No scrolling support](https://github.com/jsdom/jsdom/blob/15.1.1/lib/jsdom/browser/Window.js#L623-L625)
 - [No element sizes or positions](https://github.com/jsdom/jsdom/blob/15.1.1/lib/jsdom/living/nodes/Element-impl.js#L334-L371)
@@ -41,7 +42,7 @@ See also the issue for [support running Jest tests in browsers](https://gitlab.c
 
 ### Debugging Jest tests
 
-Running `yarn jest-debug` runs Jest in debug mode, allowing you to debug/inspect as described in the [Jest docs](https://jestjs.io/docs/troubleshooting#tests-are-failing-and-you-don-t-know-why).
+Running `yarn jest-debug` runs Jest in debug mode, allowing you to debug/inspect as described in the [Jest documentation](https://jestjs.io/docs/troubleshooting#tests-are-failing-and-you-don-t-know-why).
 
 ### Timeout error
 
@@ -173,6 +174,24 @@ expect(idGenerator.create()).toBe('1234')
 expect(wrapper.find('div').html()).toBe('<div id="1234">...</div>')
 ```
 
+### Don't use imported values in assertions
+
+Prefer literal values in assertions rather than importing constants. This makes tests easier to read, and resilient to changes. This is discussed further in [internationalization recommendations](../i18n/externalization.md#recommendations).
+
+```javascript
+// Bad: MY_CONSTANT could accidentally be set to undefined, have a typo etc. and test would still pass
+import { MY_CONSTANT } from '../constants';
+
+it('returns the correct value', () => {
+  expect(ding()).toBe(MY_CONSTANT);
+});
+
+// Good: explicit value is asserted
+it('returns the correct value', () => {
+  expect(ding()).toBe('expected literal value');
+});
+```
+
 ### Follow the user
 
 The line between unit and integration tests can be quite blurry in a component heavy world. The most important guideline to give is the following:
@@ -221,12 +240,12 @@ it('exists', () => {
   wrapper.findComponent(FooComponent);
   wrapper.find('input[name=foo]');
   wrapper.find('[data-testid="my-foo-id"]');
-  wrapper.findByTestId('my-foo-id'); // with shallowMountExtended or mountExtended – check below
+  wrapper.findByTestId('my-foo-id'); // with shallowMountExtended or mountExtended, check below
 
   // Bad
   wrapper.find({ ref: 'foo'});
   wrapper.find('.js-foo');
-  wrapper.find('.btn-primary');
+  wrapper.find('.gl-button');
 });
 ```
 
@@ -251,7 +270,17 @@ it('exists', () => {
 });
 ```
 
-### Naming unit tests
+### Naming unit/component tests
+
+Unit/Component tests should be named `${componentName}_spec.js`
+
+If the test name is not specific enough, consider renaming the component.
+
+For Example:
+
+`diff_stats_dropdown.vue` should have a unit/component test named `diff_stats_dropdown_spec.js`
+
+### Describe block naming
 
 When writing describe test blocks to test specific functions/methods,
 use the method name as the describe block name.
@@ -363,7 +392,7 @@ const doSomethingLater = () => {
 };
 ```
 
-**in Jest:**
+**In Jest**:
 
 ```javascript
 it('does something', () => {
@@ -376,9 +405,12 @@ it('does something', () => {
 
 ### Mocking the current location in Jest
 
-NOTE:
+{{< alert type="note" >}}
+
 The value of `window.location.href` is reset before every test to avoid earlier
 tests affecting later ones.
+
+{{< /alert >}}
 
 If your tests require `window.location.href` to take a particular value, use
 the `setWindowLocation` helper:
@@ -423,6 +455,49 @@ it('passes', () => {
 });
 ```
 
+### Testing clean-up of event listeners and timeouts
+
+Often times in components we create event listeners or timeouts on the `beforeDestroy` (`beforeUnmount` for Vue 3) hooks. It is important to test that both listeners and timeouts are cleared when the component instance is destroyed, as forgetting to clean up these events can cause problems like memory leaks and broken references on event listeners.
+
+Consider the following example:
+
+```javascript
+beforeDestroy() {
+  removeEventListener('keydown', someListener)
+  clearTimeout(timeoutPointer)
+}
+```
+
+In the above example, a component is both clearing a `keydown` event listener and a timeout that was created elsewhere.
+
+Let's take a look at the relevant tests.
+
+```javascript
+describe('Cleanup before destroy', () => {
+  beforeEach(() => {
+    createComponent()
+
+    // Destroy the component immediately to invoke the `beforeDestroy` hook
+    wrapper.destroy()
+  })
+
+  it('removes the event listener', () => {
+    const spy = jest.spyOn(window, 'removeEventListener')
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy).toHaveBeenCalledWith('keydown', expect.any(Function))
+  })
+
+  it('clears the pending timeouts', () => {
+    const spy = jest.spyOn(window, 'clearTimeout')
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+})
+```
+
+The above example does not explicitly check for the function that is called on the `keydown` listener as it will usually be an implementation detail. The same happens with the `clearTimeout` call, as the parameter will be a pointer to a timer created internally in the component.
+
+Due to this, it is usually sufficient to check that the spies have been called, with the recommended addition of checking the _times_ that they have been called.
+
 ### Waiting in tests
 
 Sometimes a test needs to wait for something to happen in the application before it continues.
@@ -449,7 +524,7 @@ const askTheServer = () => {
 };
 ```
 
-**in Jest:**
+**In Jest**:
 
 ```javascript
 it('waits for an Ajax call', async () => {
@@ -460,7 +535,7 @@ it('waits for an Ajax call', async () => {
 
 If you cannot register handlers to the `Promise`, for example because it is executed in a synchronous Vue lifecycle hook, take a look at the [`waitFor`](#wait-until-axios-requests-finish) helpers or flush all pending `Promise`s with:
 
-**in Jest:**
+**In Jest**:
 
 ```javascript
 it('waits for an Ajax call', async () => {
@@ -477,7 +552,7 @@ it('waits for an Ajax call', async () => {
 Use [`nextTick()`](https://v2.vuejs.org/v2/api/#Vue-nextTick) to wait until a Vue component is
 re-rendered.
 
-**in Jest:**
+**In Jest**:
 
 ```javascript
 import { nextTick } from 'vue';
@@ -709,7 +784,7 @@ the I/O completes. And it's not part of the Web API, hence, we target NodeJS env
 unit tests.
 
 Instead of `setImmediate`, use `jest.runAllTimers` or `jest.runOnlyPendingTimers` to run pending timers.
-The latter is useful when you have `setInterval` in the code. **Remember:** our Jest configuration uses fake timers.
+The latter is useful when you have `setInterval` in the code. **Remember**: our Jest configuration uses fake timers.
 
 ## Avoid non-deterministic specs
 
@@ -769,6 +844,54 @@ beforeEach(() => {
 });
 ```
 
+## Console warnings and errors in tests
+
+Unexpected console warnings and errors are indicative of problems in our production code.
+We want our test environment to be strict, so your tests should fail when unexpected
+`console.error` or `console.warn` calls are made.
+
+### Ignoring console messages from watcher
+
+Since there's a lot of code outside of our control, there are some console messages that
+are ignored by default and will **not** fail a test if used. This list of ignored
+messages can be maintained where we call `setupConsoleWatcher`. Example:
+
+```javascript
+setupConsoleWatcher({
+  ignores: [
+    ...,
+    // Any call to `console.error('Foo bar')` or `console.warn('Foo bar')` will be ignored by our console watcher.
+    'Foo bar',
+    // Use regex to allow for flexible message matching.
+    /Lorem ipsum/,
+  ]
+});
+```
+
+If a specific test needs to ignore a specific message for a `describe` block, use the
+`ignoreConsoleMessages` helper near the top of the `describe`. This automatically
+calls `beforeAll` and `afterAll` to set up/teardown this set of ignored for the test
+context.
+
+Use this sparingly and only if absolutely necessary for test maintainability. Example:
+
+```javascript
+import { ignoreConsoleMessages } from 'helpers/console_watcher';
+
+describe('foos/components/foo.vue', () => {
+  describe('when blooped', () => {
+    // Will not fail a test if `console.warn('Lorem ipsum')` is called
+    ignoreConsoleMessages([
+      /^Lorem ipsum/
+    ]);
+  });
+
+  describe('default', () => {
+    // Will fail a test if `console.warn('Lorem ipsum')` is called
+  });
+});
+```
+
 ## Factories
 
 TBU
@@ -786,9 +909,13 @@ The more challenging part are mocks, which can be used for functions or even dep
 Manual mocks are used to mock modules across the entire Jest environment. This is a very powerful testing tool that helps simplify
 unit testing by mocking out modules that cannot be easily consumed in our test environment.
 
-> **WARNING:** Do not use manual mocks if a mock should not be consistently applied in every spec (that is, it's only needed by a few specs).
-> Instead, consider using [`jest.mock(..)`](https://jestjs.io/docs/jest-object#jestmockmodulename-factory-options)
-> (or a similar mocking function) in the relevant spec file.
+{{< alert type="warning" >}}
+
+Do not use manual mocks if a mock should not be consistently applied in every spec (that is, it's only needed by a few specs).
+Instead, consider using [`jest.mock(..)`](https://jestjs.io/docs/jest-object#jestmockmodulename-factory-options)
+(or a similar mocking function) in the relevant spec file.
+
+{{< /alert >}}
 
 #### Where should you put manual mocks?
 
@@ -839,6 +966,12 @@ For running the frontend tests, you need the following commands:
 - `rake frontend:fixtures` (re-)generates [fixtures](#frontend-test-fixtures). Make sure that
   fixtures are up-to-date before running tests that require them.
 - `yarn jest` runs Jest tests.
+
+### Running CE and EE tests
+
+Whenever you create tests for both CE and EE environments, because your changes have EE features, you need to take some steps to ensure that both tests pass locally and on the pipeline when run.
+
+Check [this section](../ee_features.md#running-ee-vs-ce-tests) to learn more about testing both environments.
 
 ### Live testing and focused testing -- Jest
 
@@ -898,6 +1031,18 @@ You can generate fixtures by running:
 - `bin/rspec spec/frontend/fixtures/merge_requests.rb` to generate specific fixtures (in this case for `merge_request.rb`)
 
 You can find generated fixtures are in `tmp/tests/frontend/fixtures-ee`.
+
+To generate a single fixture for a _spec.js file identify the import from `test_fixtures/` directory:
+
+```javascript
+// spec/frontend/authentication/webauthn/authenticate_spec.js
+
+import htmlWebauthnAuthenticate from 'test_fixtures/webauthn/authenticate.html';
+```
+
+The corresponding fixture file is `spec/frontend/fixtures/webauthn.rb`
+
+To generate the single fixture from the command line run `bin/rspec spec/frontend/fixtures/webauthn.rb`
 
 ### Download fixtures
 
@@ -987,8 +1132,11 @@ it.each([
 );
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 Only use template literal block if pretty print is not needed for spec output. For example, empty strings, nested objects etc.
+
+{{< /alert >}}
 
 For example, when testing the difference between an empty search string and a non-empty search string, the use of the array block syntax with the pretty print option would be preferred. That way the differences between an empty string (`''`) and a non-empty string (`'search string'`) would be visible in the spec output. Whereas with a template literal block, the empty string would be shown as a space, which could lead to a confusing developer experience.
 
@@ -1097,10 +1245,13 @@ import Subject from '~/feature/the_subject.vue';
 import _Thing from '~/feature/path/to/thing.vue';
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 Do not disregard test timeouts. This could be a sign that there's
 actually a production problem. Use this opportunity to analyze the production webpack bundles and
 chunks and confirm that there is not a production issue with the asynchronous imports.
+
+{{< /alert >}}
 
 ## Overview of Frontend Testing Levels
 
@@ -1155,12 +1306,12 @@ testAction(
 
 ### Wait until Axios requests finish
 
-<!-- vale gitlab.Spelling = NO -->
+<!-- vale gitlab_base.Spelling = NO -->
 
 The Axios Utils mock module located in `spec/frontend/__helpers__/mocks/axios_utils.js` contains two helper methods for Jest tests that spawn HTTP requests.
-These are very useful if you don't have a handle to the request's Promise, for example when a Vue component does a request as part of its life cycle.
+These are very useful if you don't have a handle to the request's Promise, for example when a Vue component does a request as part of its lifecycle.
 
-<!-- vale gitlab.Spelling = YES -->
+<!-- vale gitlab_base.Spelling = YES -->
 
 - `waitFor(url, callback)`: Runs `callback` after a request to `url` finishes (either successfully or unsuccessfully).
 - `waitForAll(callback)`: Runs `callback` once all pending requests have finished. If no requests are pending, runs `callback` on the next tick.
@@ -1419,7 +1570,7 @@ it('makes the name look pretty', () => {
 
 When this test runs the first time a fresh `.snap` file will be created. It will look something like this:
 
-```txt
+```plaintext
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`makes the name look pretty`] = `
@@ -1477,7 +1628,7 @@ You should use a unit test if:
 - You can simulate other components' behavior to trigger the desired effect.
 - You can already select UI elements in the virtual DOM to trigger the desired effects.
 
-Also, if a behavior in your new code needs multiple components to work together, you should consider testing your behavior higher in the component tree. For example, let's say that we have a component called `ParentComponent` with the code:
+Also, if a behavior in your new code needs multiple components to work together, you should consider testing your behavior higher in the component tree. For example, consider a component called `ParentComponent` with the code:
 
 ```vue
   <script>
@@ -1532,9 +1683,9 @@ Feature tests live in `spec/features` folder. You should look for existing files
 1. Start your `gdk` environment with `gdk start` command.
 1. In your terminal, run:
 
-  ```shell
-   bundle exec rspec path/to/file:line_of_my_test
-  ```
+   ```shell
+    bundle exec rspec path/to/file:line_of_my_test
+   ```
 
 You can also prefix this command with `WEBDRIVER_HEADLESS=0` which will run the test by opening an actual browser on your computer that you can see, which is very useful for debugging.
 
@@ -1546,23 +1697,23 @@ To use Firefox, instead of Chrome, prefix the command with `WEBDRIVER=firefox`.
 
 1. Make all string literals unchangeable
 
-  In all feature tests, the very first line should be:
+   In all feature tests, the very first line should be:
 
-  ```ruby
-  # frozen_string_literal: true
-  ```
+   ```ruby
+   # frozen_string_literal: true
+   ```
 
-  This is in every `Ruby` file and makes all string literals unchangeable. There are also some performance benefits, but this is beyond the scope of this section.
+   This is in every `Ruby` file and makes all string literals unchangeable. There are also some performance benefits, but this is beyond the scope of this section.
 
 1. Import dependencies.
 
-  You should import the modules you need. You will most likely always need to require `spec_helper`:
+   You should import the modules you need. You will most likely always need to require `spec_helper`:
 
-  ```ruby
-  require 'spec_helper'
-  ```
+   ```ruby
+   require 'spec_helper'
+   ```
 
-  Import any other relevant module.
+   Import any other relevant module.
 
 1. Create a global scope for RSpec to define our tests, just like what we do in jest with the initial describe block.
 
@@ -1597,7 +1748,7 @@ end
 
 #### Seeding data
 
-Each test is in its own environment and so you must use a factory to seed the required data. To continue on with the pipeline example, let's say that you want a test that takes you to the main pipeline page, which is at the route `/namespace/project/-/pipelines/:id/`.
+Each test is in its own environment and so you must use a factory to seed the required data. For example, to create a test that takes you to the main pipeline page at the route `/namespace/project/-/pipelines/:id/`.
 
 Most feature tests at least require you to create a user, because you want to be signed in. You can skip this step if you don't have to be signed in, but as a general rule, you should **always create a user unless you are specifically testing a feature looked at by an anonymous user**. This makes sure that you explicitly set a level of permission that you can edit in the test as needed to change or test a new level of permission as the section changes. To create a user:
 
@@ -1746,6 +1897,51 @@ If you are stubbing an `ee` feature flag, then use:
   stub_licensed_features(my_feature_flag: false)
 ```
 
+#### Asserting browser console errors
+
+By default, feature specs won't fail if a browser console error is found. Sometimes we want to cover that there are not
+unexpected console errors which could indicate an integration problem.
+
+To set a feature spec to fail if it encounters browser console errors, use `expect_page_to_have_no_console_errors` from
+the `BrowserConsoleHelpers` support module:
+
+```ruby
+RSpec.describe 'Pipeline', :js do
+  after do
+    expect_page_to_have_no_console_errors
+  end
+
+  # ...
+end
+```
+
+{{< alert type="note" >}}
+
+`expect_page_to_have_no_console_errors` will not work on `WEBDRIVER=firefox`. Logs are only captured when
+using the Chrome driver.
+
+{{< /alert >}}
+
+Sometimes, there are known console errors that we want to ignore. To ignore a set of messages, such that the test
+**will not** fail if the message is observed, you can pass an `allow:` parameter to
+`expect_page_to_have_no_console_errors`:
+
+```ruby
+RSpec.describe 'Pipeline', :js do
+  after do
+    expect_page_to_have_no_console_errors(allow: [
+      "Blow up!",
+      /Foo.*happens/
+    ])
+  end
+
+  # ...
+end
+```
+
+Update the `BROWSER_CONSOLE_ERROR_FILTER` constant in `spec/support/helpers/browser_console_helpers.rb` to change
+the list of console errors that should be globally ignored.
+
 ### Debugging
 
 You can run your spec with the prefix `WEBDRIVER_HEADLESS=0` to open an actual browser. However, the specs goes though the commands quickly and leaves you no time to look around.
@@ -1760,7 +1956,7 @@ Inside the terminal, where capybara is running, you can also execute `next` whic
 
 ### Improving execution time on the GDK
 
-Running the Jest test suite, the number of workers is set to use 60% of the available cores of your machine; this results in faster execution times but higher memory consumption. For more benchmarks on how this works please refer to this [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/456885).
+Running the Jest test suite, the number of workers is set to use 60% of the available cores of your machine; this results in faster execution times but higher memory consumption. For more benchmarks on how this works, see [issue 456885](https://gitlab.com/gitlab-org/gitlab/-/issues/456885).
 
 ### Updating ChromeDriver
 
@@ -1769,4 +1965,4 @@ You are no longer required to manually keeping chromedriver in sync.
 
 ---
 
-[Return to Testing documentation](index.md)
+[Return to Testing documentation](_index.md)

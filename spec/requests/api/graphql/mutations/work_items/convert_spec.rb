@@ -7,7 +7,7 @@ RSpec.describe "Converts a work item to a new type", feature_category: :team_pla
 
   let_it_be(:project) { create(:project) }
   let_it_be(:developer) { create(:user, developer_of: project) }
-  let_it_be(:new_type) { create(:work_item_type, :incident, :default) }
+  let_it_be(:new_type) { create(:work_item_type, :incident) }
   let_it_be(:work_item, refind: true) do
     create(:work_item, :task, project: project, milestone: create(:milestone, project: project))
   end
@@ -45,6 +45,8 @@ RSpec.describe "Converts a work item to a new type", feature_category: :team_pla
     end
 
     it 'converts the work item', :aggregate_failures do
+      expect(new_type.to_gid.model_id.to_i).to eq(new_type.id)
+
       expect do
         post_graphql_mutation(mutation, current_user: current_user)
       end.to change { work_item.reload.work_item_type }.to(new_type)
@@ -52,7 +54,9 @@ RSpec.describe "Converts a work item to a new type", feature_category: :team_pla
       expect(response).to have_gitlab_http_status(:success)
       expect(work_item.reload.work_item_type.base_type).to eq('incident')
       expect(mutation_response['workItem']).to include('id' => work_item.to_global_id.to_s)
-      expect(work_item.reload.milestone).to be_nil
+      expect(GlobalID.new(mutation_response.dig('workItem', 'workItemType', 'id')).model_id.to_i).to eq(
+        new_type.id
+      )
     end
 
     it_behaves_like 'has spam protection' do

@@ -27,7 +27,7 @@ module Mutations
       argument :message,
         GraphQL::Types::String,
         required: true,
-        description: copy_field_description(Types::CommitType, :message)
+        description: copy_field_description(Types::Repositories::CommitType, :message)
 
       argument :actions,
         [Types::CommitActionType],
@@ -40,7 +40,7 @@ module Mutations
         description: "ETag path for the commit's pipeline."
 
       field :commit,
-        Types::CommitType,
+        Types::Repositories::CommitType,
         null: true,
         description: 'Commit after mutation.'
 
@@ -64,7 +64,7 @@ module Mutations
         result = ::Files::MultiService.new(project, current_user, attributes).execute
 
         {
-          content: actions.pluck(:content),  # rubocop:disable CodeReuse/ActiveRecord -- Array#pluck
+          content: actions.pluck(:content), # rubocop:disable CodeReuse/ActiveRecord -- Array#pluck
           commit: (project.repository.commit(result[:result]) if result[:status] == :success),
           commit_pipeline_path: UrlHelpers.new.graphql_etag_pipeline_sha_path(result[:result]),
           errors: Array.wrap(result[:message])

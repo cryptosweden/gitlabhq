@@ -3,7 +3,12 @@
 RSpec.shared_examples 'archived project policies' do
   let(:feature_write_abilities) do
     described_class.archived_features.flat_map do |feature|
-      described_class.create_update_admin_destroy(feature)
+      [
+        :"create_#{feature}",
+        :"update_#{feature}",
+        :"admin_#{feature}",
+        :"destroy_#{feature}"
+      ]
     end + additional_maintainer_permissions
   end
 
@@ -86,6 +91,10 @@ end
 
 RSpec.shared_examples 'deploy token does not get confused with user' do
   before do
+    # We force the id of the deploy token and the user to be the same,
+    # which requires deleting the joining record as we cannot update
+    # the id while foreign keys reference it.
+    deploy_token.project_deploy_tokens.delete_all(:delete_all)
     deploy_token.update!(id: user_id)
 
     # Project with public builds are available to all
@@ -195,6 +204,112 @@ RSpec.shared_examples 'project policies as guest' do
   end
 end
 
+RSpec.shared_examples 'project policies as planner' do
+  let(:disallowed_reporter_public_permissions) do
+    %i[
+      create_snippet create_incident daily_statistics metrics_dashboard read_harbor_registry
+      read_prometheus read_sentry_issue read_external_emails
+    ]
+  end
+
+  let(:disallowed_reporter_permissions) do
+    disallowed_reporter_public_permissions +
+      %i[
+        fork_project read_commit_status read_container_image read_deployment
+        read_environment create_merge_request_in download_code
+      ]
+  end
+
+  context 'as a direct project member' do
+    context 'abilities for public projects' do
+      let(:project) { public_project }
+      let(:current_user) { planner }
+
+      specify do
+        expect_allowed(*public_permissions)
+        expect_allowed(*guest_permissions)
+        expect_allowed(*planner_permissions)
+        expect_allowed(*(base_reporter_permissions - disallowed_reporter_public_permissions))
+        expect_disallowed(*disallowed_reporter_public_permissions)
+        expect_disallowed(*(developer_permissions - [:create_wiki]))
+        expect_disallowed(*(maintainer_permissions - [:admin_wiki]))
+        expect_disallowed(*(owner_permissions - [:destroy_issue]))
+      end
+    end
+
+    context 'abilities for non-public projects' do
+      let(:project) { private_project }
+      let(:current_user) { planner }
+
+      specify do
+        expect_allowed(*guest_permissions)
+        expect_allowed(*planner_permissions)
+        expect_allowed(*(base_reporter_permissions - disallowed_reporter_permissions))
+        expect_disallowed(*disallowed_reporter_permissions)
+        expect_disallowed(*(developer_permissions - [:create_wiki]))
+        expect_disallowed(*(maintainer_permissions - [:admin_wiki]))
+        expect_disallowed(*owner_permissions)
+      end
+
+      it_behaves_like 'deploy token does not get confused with user' do
+        let(:user_id) { planner.id }
+      end
+
+      it_behaves_like 'archived project policies' do
+        let(:regular_abilities) { planner_permissions }
+      end
+
+      context 'public builds enabled' do
+        specify do
+          expect_allowed(*guest_permissions)
+          expect_allowed(*planner_permissions)
+          expect_allowed(:read_build, :read_pipeline)
+        end
+      end
+
+      context 'when public builds disabled' do
+        before do
+          project.update!(public_builds: false)
+        end
+
+        specify do
+          expect_allowed(*guest_permissions)
+          expect_allowed(*planner_permissions)
+          expect_disallowed(:read_build, :read_pipeline)
+        end
+      end
+
+      context 'when builds are disabled' do
+        before do
+          project.project_feature.update!(builds_access_level: ProjectFeature::DISABLED)
+        end
+
+        specify do
+          expect_disallowed(:read_build)
+          expect_allowed(:read_pipeline)
+        end
+      end
+    end
+  end
+
+  context 'as an inherited member from the group' do
+    context 'abilities for private projects' do
+      let(:project) { private_project_in_group }
+      let(:current_user) { inherited_planner }
+
+      specify do
+        expect_allowed(*guest_permissions)
+        expect_allowed(*planner_permissions)
+        expect_allowed(*(base_reporter_permissions - disallowed_reporter_permissions))
+        expect_disallowed(*disallowed_reporter_permissions)
+        expect_disallowed(*(developer_permissions - [:create_wiki]))
+        expect_disallowed(*(maintainer_permissions - [:admin_wiki]))
+        expect_disallowed(*owner_permissions)
+      end
+    end
+  end
+end
+
 RSpec.shared_examples 'project policies as reporter' do
   context 'abilities for non-public projects' do
     let(:project) { private_project }
@@ -202,6 +317,7 @@ RSpec.shared_examples 'project policies as reporter' do
 
     specify do
       expect_allowed(*guest_permissions)
+      expect_allowed(*(planner_permissions - %i[create_wiki admin_wiki]))
       expect_allowed(*reporter_permissions)
       expect_allowed(*team_member_reporter_permissions)
       expect_disallowed(*developer_permissions)
@@ -225,6 +341,7 @@ RSpec.shared_examples 'project policies as reporter' do
 
       specify do
         expect_allowed(*guest_permissions)
+        expect_allowed(*(planner_permissions - %i[create_wiki admin_wiki]))
         expect_allowed(*reporter_permissions)
         expect_allowed(*team_member_reporter_permissions)
         expect_disallowed(*developer_permissions)
@@ -242,6 +359,7 @@ RSpec.shared_examples 'project policies as developer' do
 
     specify do
       expect_allowed(*guest_permissions)
+      expect_allowed(*(planner_permissions - %i[admin_wiki]))
       expect_allowed(*reporter_permissions)
       expect_allowed(*team_member_reporter_permissions)
       expect_allowed(*developer_permissions)
@@ -265,6 +383,7 @@ RSpec.shared_examples 'project policies as developer' do
 
       specify do
         expect_allowed(*guest_permissions)
+        expect_allowed(*(planner_permissions - %i[admin_wiki]))
         expect_allowed(*reporter_permissions)
         expect_allowed(*team_member_reporter_permissions)
         expect_allowed(*developer_permissions)
@@ -282,6 +401,7 @@ RSpec.shared_examples 'project policies as maintainer' do
 
     it do
       expect_allowed(*guest_permissions)
+      expect_allowed(*planner_permissions)
       expect_allowed(*reporter_permissions)
       expect_allowed(*team_member_reporter_permissions)
       expect_allowed(*developer_permissions)
@@ -306,6 +426,7 @@ RSpec.shared_examples 'project policies as owner' do
 
     it do
       expect_allowed(*guest_permissions)
+      expect_allowed(*planner_permissions)
       expect_allowed(*reporter_permissions)
       expect_allowed(*team_member_reporter_permissions)
       expect_allowed(*developer_permissions)
@@ -330,6 +451,7 @@ RSpec.shared_examples 'project policies as organization owner' do
 
     it do
       expect_allowed(*guest_permissions)
+      expect_allowed(*planner_permissions)
       expect_allowed(*reporter_permissions)
       expect_disallowed(*team_member_reporter_permissions)
       expect_allowed(*developer_permissions)
@@ -361,6 +483,7 @@ RSpec.shared_examples 'project policies as admin with admin mode' do
 
     it do
       expect_allowed(*guest_permissions)
+      expect_allowed(*planner_permissions)
       expect_allowed(*reporter_permissions)
       expect_disallowed(*team_member_reporter_permissions)
       expect_allowed(*developer_permissions)

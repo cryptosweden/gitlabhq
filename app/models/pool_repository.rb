@@ -42,6 +42,10 @@ class PoolRepository < ApplicationRecord
       transition all => :obsolete
     end
 
+    event :reinitialize do
+      transition all - [:scheduled] => :none, unless: :pool_exists?
+    end
+
     state all - [:ready] do
       def joinable?
         false
@@ -75,6 +79,8 @@ class PoolRepository < ApplicationRecord
 
   def create_object_pool
     object_pool.create
+  rescue GRPC::AlreadyExists
+    # The object pool already exists. Nothing to do here.
   end
 
   # The members of the pool should have fetched the missing objects to their own
@@ -90,7 +96,7 @@ class PoolRepository < ApplicationRecord
   def unlink_repository(repository, disconnect: true)
     repository.disconnect_alternates if disconnect
 
-    if member_projects.where.not(id: repository.project.id).exists?
+    if member_projects.id_not_in(repository.project.id).exists?
       true
     else
       mark_obsolete
@@ -112,6 +118,10 @@ class PoolRepository < ApplicationRecord
   end
 
   private
+
+  def pool_exists?
+    object_pool.exists?
+  end
 
   def set_disk_path
     update!(disk_path: storage.disk_path) if disk_path.blank?

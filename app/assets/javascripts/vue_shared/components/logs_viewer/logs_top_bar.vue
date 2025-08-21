@@ -34,13 +34,13 @@ export default {
         : this.$options.i18n.enterFullScreen;
     },
     headerTopClass() {
-      return this.isFullScreen ? 'gl-top-0' : 'gl-top-app-header';
+      return this.isFullScreen ? 'gl-top-0' : 'top-app-header';
     },
   },
 };
 </script>
 <template>
-  <div class="gl-sticky gl-bg-white" :class="headerTopClass">
+  <div class="gl-sticky gl-bg-default" :class="headerTopClass">
     <div class="gl-border gl-flex gl-flex-wrap gl-items-center">
       <gl-button
         class="gl-m-3"

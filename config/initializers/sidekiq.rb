@@ -5,16 +5,6 @@ module SidekiqLogArguments
   end
 end
 
-def load_cron_jobs!
-  Sidekiq::Cron::Job.load_from_hash! Gitlab::SidekiqConfig.cron_jobs
-
-  Gitlab.ee do
-    Gitlab::Mirror.configure_cron_job!
-
-    Gitlab::Geo.configure_cron_jobs!
-  end
-end
-
 # initialise migrated_shards on start-up to catch any malformed SIDEKIQ_MIGRATED_SHARD lists.
 Gitlab::SidekiqSharding::Router.migrated_shards
 
@@ -25,7 +15,6 @@ Gitlab::SidekiqSharding::Router.migrated_shards
 # can't be referred to.
 #
 # We do not need the custom command builder since Sidekiq will handle the typing of Redis arguments.
-queues_config_hash = Gitlab::Redis::Queues.params.except(:command_builder)
 queue_instance = ENV.fetch('SIDEKIQ_SHARD_NAME', Gitlab::Redis::Queues::SIDEKIQ_MAIN_SHARD_INSTANCE_NAME)
 queues_config_hash = Gitlab::Redis::Queues.instances[queue_instance].params.except(:command_builder)
 
@@ -33,10 +22,12 @@ enable_json_logs = Gitlab.config.sidekiq.log_format != 'text'
 
 # Sidekiq's `strict_args!` raises an exception by default in 7.0
 # https://github.com/sidekiq/sidekiq/blob/31bceff64e10d501323bc06ac0552652a47c082e/docs/7.0-Upgrade.md?plain=1#L59
-Sidekiq.strict_args!(false)
+# We set :warn in development/test to pick out workers that try to serialise complex args
+strict_args_mode = Gitlab.dev_or_test_env? ? :warn : false
+Sidekiq.strict_args!(strict_args_mode)
 
 # Perform version check before configuring server with the custome scheduled job enqueue class
-unless Gem::Version.new(Sidekiq::VERSION) == Gem::Version.new('7.1.6')
+unless Gem::Version.new(Sidekiq::VERSION) == Gem::Version.new('7.3.9')
   raise 'New version of Sidekiq detected, please either update the version for this check ' \
         'and update Gitlab::SidekiqSharding::ScheduledEnq is compatible.'
 end
@@ -72,20 +63,20 @@ Sidekiq.configure_server do |config|
   # This also increases the internal redis pool from 10 to concurrency+5.
   config.redis = queues_config_hash.merge({ size: config.concurrency + 5 })
 
-  config.server_middleware(&Gitlab::SidekiqMiddleware.server_configurator(
+  config.server_middleware(&Gitlab::SidekiqMiddleware::Server.configurator(
     metrics: Settings.monitoring.sidekiq_exporter,
     arguments_logger: SidekiqLogArguments.enabled? && !enable_json_logs,
     skip_jobs: Gitlab::Utils.to_boolean(ENV['SIDEKIQ_SKIP_JOBS'], default: true)
   ))
 
-  config.client_middleware(&Gitlab::SidekiqMiddleware.client_configurator)
+  config.client_middleware(&Gitlab::SidekiqMiddleware::Client.configurator)
 
   config.death_handlers << Gitlab::SidekiqDeathHandler.method(:handler)
 
   config.on :startup do
     # Clear any connections that might have been obtained before starting
     # Sidekiq (e.g. in an initializer).
-    ActiveRecord::Base.clear_all_connections! # rubocop:disable Database/MultipleDatabases
+    ActiveRecord::Base.connection_handler.clear_all_connections!
 
     # Start monitor to track running jobs. By default, cancel job is not enabled
     # To cancel job, it requires `SIDEKIQ_MONITOR_WORKER=1` to enable notification channel
@@ -115,7 +106,8 @@ Sidekiq.configure_server do |config|
 
   config[:cron_poll_interval] = Gitlab.config.cron_jobs.poll_interval
   config[:cron_poll_interval] = 0 if queue_instance != Gitlab::Redis::Queues::SIDEKIQ_MAIN_SHARD_INSTANCE_NAME
-  load_cron_jobs!
+
+  Gitlab::SidekiqConfig::CronJobInitializer.execute
 
   # Avoid autoload issue such as 'Mail::Parsers::AddressStruct'
   # https://github.com/mikel/mail/issues/912#issuecomment-214850355
@@ -133,7 +125,7 @@ Sidekiq.configure_client do |config|
   config.logger = Gitlab::SidekiqLogging::ClientLogger.build
   config.logger.formatter = Gitlab::SidekiqLogging::JSONFormatter.new if enable_json_logs
 
-  config.client_middleware(&Gitlab::SidekiqMiddleware.client_configurator)
+  config.client_middleware(&Gitlab::SidekiqMiddleware::Client.configurator)
 end
 
 Gitlab::Application.configure do |config|
@@ -147,3 +139,5 @@ Sidekiq::Cron::Poller.prepend Gitlab::Patch::SidekiqCronPoller
 Sidekiq::Client.prepend Gitlab::SidekiqSharding::Validator::Client
 Sidekiq::RedisClientAdapter::CompatMethods.prepend Gitlab::SidekiqSharding::Validator
 Sidekiq::Job::Setter.prepend Gitlab::Patch::SidekiqJobSetter
+
+Gitlab::BackgroundTask.new(Gitlab::SidekiqMiddleware::Throttling::RecoveryTask.new).start if Gitlab::Runtime.sidekiq?

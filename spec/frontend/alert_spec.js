@@ -1,7 +1,11 @@
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
+import { sanitize } from '~/lib/dompurify';
 import { createAlert, VARIANT_WARNING } from '~/alert';
 
+jest.mock('~/lib/dompurify', () => ({
+  sanitize: jest.fn((val) => val),
+}));
 jest.mock('~/sentry/sentry_browser_wrapper');
 
 describe('Flash', () => {
@@ -128,6 +132,26 @@ describe('Flash', () => {
             message: 'Error!',
           }),
         );
+      });
+
+      describe('when dismissible', () => {
+        it('renders dismiss button', () => {
+          alert = createAlert({ message: mockMessage });
+
+          expect(
+            document.querySelector('.flash-container .gl-alert button.gl-dismiss-btn'),
+          ).not.toBeNull();
+        });
+      });
+
+      describe('when non-dismissible', () => {
+        it('does not render dismiss button', () => {
+          alert = createAlert({ message: mockMessage, dismissible: false });
+
+          expect(
+            document.querySelector('.flash-container .gl-alert button.gl-dismiss-btn'),
+          ).toBeNull();
+        });
       });
 
       describe('with title', () => {
@@ -337,6 +361,36 @@ describe('Flash', () => {
           const messageLinks = findAlertMessageLinks();
 
           expect(messageLinks).toHaveLength(0);
+        });
+      });
+
+      describe('when rendered as HTML', () => {
+        const findMessageHTML = () => document.querySelector('.gl-alert-body div').innerHTML;
+        const message =
+          'error: <a href="https://documentation.com/further-information">learn more</a>';
+
+        it('renders the given message as HTML', () => {
+          alert = createAlert({
+            message,
+            renderMessageHTML: true,
+          });
+
+          expect(findMessageHTML()).toBe(message);
+        });
+
+        it('sanitizes the given message', () => {
+          expect(sanitize).not.toHaveBeenCalled();
+
+          createAlert({
+            message,
+            renderMessageHTML: true,
+          });
+
+          expect(sanitize).toHaveBeenCalledTimes(1);
+          expect(sanitize).toHaveBeenCalledWith(message, {
+            ALLOWED_TAGS: ['a'],
+            ALLOWED_ATTR: ['href', 'rel', 'target'],
+          });
         });
       });
     });

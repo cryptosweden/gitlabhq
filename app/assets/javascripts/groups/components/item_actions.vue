@@ -54,9 +54,9 @@ export default {
     leaveItem() {
       return {
         text: this.$options.i18n.leaveBtnTitle,
+        variant: 'danger',
         action: this.onLeaveGroup,
         extraAttrs: {
-          class: 'gl-text-red-500!',
           'data-testid': `leave-group-${this.group.id}-btn`,
         },
       };
@@ -65,8 +65,8 @@ export default {
       return {
         text: this.$options.i18n.removeBtnTitle,
         href: this.removeButtonHref,
+        variant: 'danger',
         extraAttrs: {
-          class: 'gl-text-red-500!',
           'data-testid': `remove-group-${this.group.id}-btn`,
         },
       };
@@ -87,13 +87,15 @@ export default {
 </script>
 
 <template>
-  <div class="gl-display-flex gl-justify-content-end gl-ml-5" @click.stop>
+  <div class="gl-ml-5 gl-flex gl-justify-end" @click.stop>
     <gl-disclosure-dropdown
       v-gl-tooltip.hover.focus="$options.i18n.optionsDropdownTitle"
       icon="ellipsis_v"
       category="tertiary"
       no-caret
-      :data-testid="`group-${group.id}-dropdown-button`"
+      text-sr-only
+      :toggle-text="__('More actions')"
+      data-testid="groups-projects-more-actions-dropdown"
       :data-qa-group-id="group.id"
     >
       <gl-disclosure-dropdown-item v-if="group.canEdit" :item="editItem" />

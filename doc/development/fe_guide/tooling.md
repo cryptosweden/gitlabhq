@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Tooling
 ---
-
-# Tooling
 
 ## ESLint
 
@@ -52,8 +51,11 @@ yarn run lint:eslint:all:fix
 
 If manual changes are required, a list of changes are sent to the console.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Limit use to global rule updates. Otherwise, the changes can lead to huge Merge Requests.
+
+{{< /alert >}}
 
 ### Disabling ESLint in new files
 
@@ -88,6 +90,47 @@ import Foo from 'foo';
 new Foo();
 ```
 
+### Generating todo files
+
+When enabling a new ESLint rule that uncovers many offenses across the codebase, it might be easier
+to generate a todo file to temporarily ignore those offenses. This approach has some pros and cons:
+
+**Pros**:
+
+- A single source of truth for all the files that violate a specific rule. This can make it easier
+  to track the work necessary to pay the incurred technical debt.
+- A smaller changeset when initially enabling the rule as you don't need to modify every offending
+  file.
+
+**Cons**:
+
+- Disabling the rule for entire files means that more offenses of the same type can be introduced in
+  those files.
+- When fixing offenses over multiple concurrent merge requests, conflicts can often arise in the todo files,
+  requiring MR authors to rebase their branches.
+
+To generate a todo file, run the `scripts/frontend/generate_eslint_todo_list.mjs` script:
+
+```shell
+node scripts/frontend/generate_eslint_todo_list.mjs <rule_name>
+```
+
+For example, generating a todo file for the `vue/no-unused-properties` rule:
+
+```shell
+node scripts/frontend/generate_eslint_todo_list.mjs vue/no-unused-properties
+```
+
+This creates an ESLint configuration in `.eslint_todo/vue-no-unused-properties.mjs` which gets
+automatically added to the global configuration.
+
+Once a todo file has been created for a given rule, make sure to plan for the work necessary to
+address those violations. Todo files should be as short lived as possible. If some offenses cannot
+be addressed, switch to inline ignores by [disabling ESLint for a single violation](#disabling-eslint-for-a-single-violation).
+
+When all offending files have been fixed, the todo file should be removed along with the `export`
+statement in `.eslint_todo/index.mjs`.
+
 ### The `no-undef` rule and declaring globals
 
 **Never** disable the `no-undef` rule. Declare globals with `/* global Foo */` instead.
@@ -119,7 +162,7 @@ We can use the [`import/no-deprecated`](https://github.com/benmosher/eslint-plug
  * @param {Boolean} options.gatherArrays - gather array values into an Array
  * @returns {Object}
  *
- * ex: "?one=1&two=2" into {one: 1, two: 2}
+ *For example: "?one=1&two=2" into {one: 1, two: 2}
  * @deprecated Please use `queryToObject` instead. See https://gitlab.com/gitlab-org/gitlab/-/issues/283982 for more information
  */
 export function queryToObject(query, options = {}) {
@@ -132,8 +175,11 @@ It is strongly encouraged that you:
 - Put in an **alternative path for developers** looking to use this function.
 - **Provide a link to the issue** that tracks the migration process.
 
-NOTE:
+{{< alert type="note" >}}
+
 Uses are detected if you import the deprecated function into another file. They are not detected when the function is used in the same file.
+
+{{< /alert >}}
 
 Running `$ yarn eslint` after this will give us the list of deprecated usages:
 

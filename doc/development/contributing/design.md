@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Design and user interface changes
 ---
-
-# Design and user interface changes
 
 Follow these guidelines when contributing or reviewing design and user interface
 (UI) changes. Refer to our [code review guide](../code_review.md) for broader
@@ -42,11 +41,11 @@ Check these aspects both when _designing_ and _reviewing_ UI changes.
 ### Writing
 
 - Follow [Pajamas](https://design.gitlab.com/content/ui-text/) as the primary
-  guidelines for UI text and [documentation style guide](../documentation/styleguide/index.md)
+  guidelines for UI text and [documentation style guide](../documentation/styleguide/_index.md)
   as the secondary.
 - Use clear and consistent terminology.
 - Check grammar and spelling.
-- Consider help content and follow its [guidelines](https://design.gitlab.com/usability/contextual-help).
+- Consider help content and follow its [guidelines](https://design.gitlab.com/patterns/contextual-help).
 - Request review from the [appropriate Technical Writer](https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments),
   indicating any specific files or lines they should review, and how to preview
   or understand the location/context of the text from the user's perspective.
@@ -63,18 +62,18 @@ Check these aspects both when _designing_ and _reviewing_ UI changes.
 Check visual design properties using your browser's elements inspector ([Chrome](https://developer.chrome.com/docs/devtools/css/),
 [Firefox](https://firefox-source-docs.mozilla.org/devtools-user/page_inspector/how_to/open_the_inspector/index.html)).
 
-- Use recommended [colors](https://design.gitlab.com/product-foundations/color)
-  and [typography](https://design.gitlab.com/product-foundations/type-fundamentals/).
+- The design system provides [design tokens](https://design.gitlab.com/product-foundations/design-tokens/) and [components](https://design.gitlab.com/components) that work in supported modes.
+- Use recommended [colors based on semantic meaning](https://design.gitlab.com/product-foundations/design-tokens#semantic-design-tokens) as part of designing a unified product experience. These color combinations are supported in all modes.
+- Follow [typography guidelines](https://design.gitlab.com/product-foundations/type-fundamentals/).
 - Follow [layout guidelines](https://design.gitlab.com/product-foundations/layout#grid).
 - Use existing [icons](https://gitlab-org.gitlab.io/gitlab-svgs/) and [illustrations](https://gitlab-org.gitlab.io/gitlab-svgs/illustrations/)
   or propose new ones according to [iconography](https://design.gitlab.com/product-foundations/iconography/)
-  and [illustration](https://design.gitlab.com/product-foundations/illustration/)
+  and [illustration](https://design.gitlab.com/product-foundations/illustration-creation-guide/)
   guidelines.
-- Optional: Consider dark mode. For more information, see [Change the syntax highlighting theme](../../user/profile/preferences.md#change-the-syntax-highlighting-theme).
-
-### Dark Mode
-
-You're not required to design for dark mode while the feature is an [experiment](../../policy/experiment-beta-support.md#experiment). The [UX Foundations team](https://about.gitlab.com/direction/manage/foundations/) plans to improve the dark mode in the future. Until we integrate [Pajamas](https://design.gitlab.com/) components into the product and the underlying design strategy is in place to support dark mode, we cannot guarantee that we won't introduce bugs and debt to this mode. At your discretion, evaluate the need to create dark mode patches.
+- Account for all [supported modes](../../user/profile/preferences.md#change-the-mode).
+  - The design system provides [design tokens](https://design.gitlab.com/product-foundations/design-tokens/) and [components](https://design.gitlab.com/components) that work in supported modes.
+  - Take extra care when mode is a primary factor in customer outcomes.
+- Dark mode design must align with the [dark mode principles](https://handbook.gitlab.com/handbook/product/ux/product-designer/#designing-with-modes).
 
 ### States
 
@@ -129,7 +128,7 @@ At any moment, but usually _during_ or _after_ the design's implementation:
 
 - Contribute [issues to Pajamas](https://design.gitlab.com/get-started/contributing#contribute-an-issue)
   for additions or enhancements to the design system.
-- Create issues with the [`~Deferred UX`](../labels/index.md#technical-debt-and-deferred-ux)
+- Create issues with the [`~Deferred UX`](../labels/_index.md#technical-debt-and-deferred-ux)
   label for intentional deviations from the agreed-upon UX requirements due to
   time or feasibility challenges, linking back to the corresponding issues or
   merge requests.

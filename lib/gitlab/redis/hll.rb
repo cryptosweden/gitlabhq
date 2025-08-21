@@ -1,11 +1,10 @@
-# rubocop:disable Naming/FileName
 # frozen_string_literal: true
 
 module Gitlab
   module Redis
     class HLL
       BATCH_SIZE = 300
-      KEY_REGEX = %r{\A(\w|-|:)*\{\w*\}(\w|-|:|\[|\])*\z}
+      KEY_REGEX = %r{\A(\w|-|:)*\{\w*\}(\w|-|:|\[|,|\])*\z}
       KeyFormatError = Class.new(StandardError)
 
       def self.count(params)
@@ -52,5 +51,3 @@ module Gitlab
     end
   end
 end
-
-# rubocop:enable Naming/FileName

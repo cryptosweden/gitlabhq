@@ -243,8 +243,6 @@ That's all of the required database changes.
 
     has_one :cool_widget_state, autosave: false, inverse_of: :cool_widget, class_name: 'Geo::CoolWidgetState'
 
-    after_save :save_verification_details
-
     # Override the `all` default if not all records can be replicated. For an
     # example of an existing Model that needs to do this, see
     # `EE::MergeRequestDiff`.
@@ -322,13 +320,16 @@ That's all of the required database changes.
 - [ ] Add the following shared examples to `ee/spec/models/ee/cool_widget_spec.rb`:
 
   ```ruby
-    include_examples 'a replicable model with a separate table for verification state' do
+    include_examples 'a verifiable model with a separate table for verification state' do
       let(:verifiable_model_record) { build(:cool_widget) } # add extra params if needed to make sure the record is in `Geo::ReplicableModel.verifiables` scope
       let(:unverifiable_model_record) { build(:cool_widget) } # add extra params if needed to make sure the record is NOT included in `Geo::ReplicableModel.verifiables` scope
     end
   ```
 
 - [ ] Create `ee/app/replicators/geo/cool_widget_replicator.rb`. Implement the `#carrierwave_uploader` method which should return a `CarrierWave::Uploader`, and implement the class method `.model` to return the `CoolWidget` class:
+  - Implement the `replicable_title` and `replicable_title_plural` methods to
+    return the human-readable singular and pluralized title of the replicable,
+    which will be displayed in the UI and Rails console
 
   ```ruby
   # frozen_string_literal: true
@@ -340,6 +341,16 @@ That's all of the required database changes.
 
       def self.model
         ::CoolWidget
+      end
+
+      # @return [String] human-readable title.
+      def self.replicable_title
+        s_('Geo|Cool Widget')
+      end
+
+      # @return [String] pluralized human-readable title.
+      def self.replicable_title_plural
+        s_('Geo|Cool Widgets')
       end
 
       def carrierwave_uploader
@@ -606,7 +617,7 @@ The GraphQL API is used by `Admin > Geo > Replication Details` views, and is dir
         resolver: ::Resolvers::Geo::CoolWidgetRegistriesResolver,
         description: 'Find Cool Widget registries on this Geo node. '\
                      'Ignored if `geo_cool_widget_replication` feature flag is disabled.',
-        alpha: { milestone: '15.5' } # Update the milestone
+        experiment: { milestone: '15.5' } # Update the milestone
   ```
 
 - [ ] Add the new `cool_widget_registries` field name to the `expected_fields` array in `ee/spec/graphql/types/geo/geo_node_type_spec.rb`.
@@ -796,7 +807,7 @@ As illustrated by the above two examples, batch destroy logic cannot be handled 
 When requesting review from database reviewers:
 
 - [ ] Include a comment mentioning that the change is based on a documented template.
-- [ ] `replicables_for_current_secondary` and `available_replicables` may differ per Model. If their queries are new, then add [query plans](https://docs.gitlab.com/ee/development/database_review.html#query-plans) to the MR description. An easy place to gather SQL queries is your GDK's `log/test.log` when running tests of these methods.
+- [ ] `replicables_for_current_secondary` and `available_replicables` may differ per Model. If their queries are new, then add [query plans](https://docs.gitlab.com/development/database_review/#query-plans) to the MR description. An easy place to gather SQL queries is your GDK's `log/test.log` when running tests of these methods.
 
 ### Release Geo support of Cool Widgets
 
@@ -813,7 +824,7 @@ When requesting review from database reviewers:
         resolver: ::Resolvers::Geo::CoolWidgetRegistriesResolver,
         description: 'Find Cool Widget registries on this Geo node. '\
                      'Ignored if `geo_cool_widget_replication` feature flag is disabled.',
-        alpha: { milestone: '15.5' } # Update the milestone
+        experiment: { milestone: '15.5' } # Update the milestone
   ```
 
 - [ ] Run `bundle exec rake gitlab:graphql:compile_docs` after the step above to regenerate the GraphQL docs.

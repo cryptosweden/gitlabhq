@@ -5,20 +5,24 @@ workflow:
   name: $PIPELINE_NAME
 
 include:
-  - component: "gitlab.com/gitlab-org/quality/pipeline-common/allure-report@8.18.3"
+  - local: .gitlab/ci/version.yml
+  - local: .gitlab/ci/global.gitlab-ci.yml
+  - local: .gitlab/ci/ci-images.gitlab-ci.yml
+  - component: "gitlab.com/gitlab-org/quality/pipeline-common/allure-report@11.12.0"
     inputs:
       job_name: "e2e-test-report"
       job_stage: "report"
-      report_title: "E2E Test Result Summary"
+      report_title: '<a href="https://handbook.gitlab.com/handbook/engineering/testing/end-to-end-pipeline-monitoring/#allure-report">E2E Test Result Summary</a>'
       aws_access_key_id_variable_name: "QA_ALLURE_AWS_ACCESS_KEY_ID"
       aws_secret_access_key_variable_name: "QA_ALLURE_AWS_SECRET_ACCESS_KEY"
       gitlab_auth_token_variable_name: "PROJECT_TOKEN_FOR_CI_SCRIPTS_API_USAGE"
       allure_job_name: "${QA_RUN_TYPE}"
   - project: gitlab-org/quality/pipeline-common
-    ref: 8.18.3
+    ref: 11.12.0
     file:
-      - /ci/base.gitlab-ci.yml
-      - /ci/knapsack-report.yml
+      - /ci/notify-slack.gitlab-ci.yml
+      - /ci/qa-report.gitlab-ci.yml
+      - /ci/junit.gitlab-ci.yml
 
 stages:
   - test
@@ -28,146 +32,120 @@ stages:
 # ==========================================
 # Templates
 # ==========================================
+
+# add flag to ignore test runtime when creating example runtime data reports
+.with-ignored-runtime-data:
+  variables:
+    QA_IGNORE_RUNTIME_DATA: "true"
+
 .parallel:
   parallel: 5
-  variables:
-    QA_KNAPSACK_REPORT_PATH: $CI_PROJECT_DIR/qa/knapsack
 
-.ruby-image:
-  # Because this pipeline template can be included directly in other projects,
-  # image path and registry needs to be defined explicitly
-  image: "${REGISTRY_HOST}/${REGISTRY_GROUP}/gitlab-build-images/${BUILD_OS}-${OS_VERSION}-ruby-${RUBY_VERSION}"
-
-.bundler-variables:
+.qa-install:
+  extends:
+    - .with-ruby-slim-image
+    - .qa-cache
   variables:
     BUNDLE_SUPPRESS_INSTALL_USING_MESSAGES: "true"
     BUNDLE_SILENCE_ROOT_WARNING: "true"
     BUNDLE_WITHOUT: development
-
-.qa-run-e2e-with-bundler:
-  script:
-    - source $CI_PROJECT_DIR/scripts/utils.sh
-    - source $CI_PROJECT_DIR/scripts/rspec_helpers.sh
-    - run_e2e_specs "${QA_GITLAB_URL}" "${QA_TESTS}" "${QA_RSPEC_TAGS}"
-
-.qa-install:
-  extends:
-    - .bundler-variables
-    - .gitlab-qa-install
-
-.update-script:
-  script:
-    - !reference [.bundle-prefix]
-    - export QA_COMMAND="$BUNDLE_PREFIX gitlab-qa Test::Omnibus::UpdateFromPrevious $RELEASE $GITLAB_SEMVER_VERSION $UPDATE_TYPE $UPDATE_FROM_EDITION -- $QA_RSPEC_TAGS $RSPEC_REPORT_OPTS"
-    - echo "Running - '$QA_COMMAND'"
-    - eval "$QA_COMMAND"
+  before_script:
+    - cd qa && bundle install
 
 .docker-in-docker:
   services:
-    - docker:${DOCKER_VERSION}-dind
+    - name: "$GL_DOCKER_REGISTRY_MIRROR/docker:${DOCKER_VERSION}-dind"
+      alias: docker
+      entrypoint: ["sh", "-c", "dockerd-entrypoint.sh $GL_DOCKER_DIND_OPTIONS"]
   variables:
     DOCKER_HOST: tcp://docker:2376
     DOCKER_TLS_CERTDIR: "/certs"
     DOCKER_TLS_VERIFY: 1
     DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
+    GL_DOCKER_REGISTRY_MIRROR: mirror.gcr.io
+    GL_DOCKER_REGISTRY_MIRROR_ENDPOINT: https://${GL_DOCKER_REGISTRY_MIRROR}
+    GL_DOCKER_DIND_OPTIONS: "--registry-mirror=$GL_DOCKER_REGISTRY_MIRROR_ENDPOINT"
 
-.qa:
-  extends:
-    - .bundler-variables
-    - .qa-base
-  stage: test
-  tags:
-    - e2e
+.e2e-test-variables:
   variables:
     QA_GENERATE_ALLURE_REPORT: "true"
     QA_CAN_TEST_PRAEFECT: "false"
     QA_INTERCEPT_REQUESTS: "true"
+    QA_ARTIFACTS_DIR: $CI_PROJECT_DIR
+    QA_SUITE_STATUS_ENV_FILE: "${CI_PROJECT_DIR}/suite_status.env"
+    QA_ALLOW_LOCAL_REQUESTS: "true"
     GITLAB_LICENSE_MODE: test
     GITLAB_QA_ADMIN_ACCESS_TOKEN: $QA_ADMIN_ACCESS_TOKEN
-  # Allow QA jobs to fail as they are flaky. The top level `package-and-e2e:ee`
-  # pipeline is not allowed to fail, so without allowing QA to fail, we will be
-  # blocking merges due to flaky tests.
-  allow_failure: true
+    FF_NETWORK_PER_BUILD: "true"
 
-.download-knapsack-report:
+.e2e-test-base:
   extends:
-    - .gitlab-qa-image
-  stage: .pre
-  variables:
-    KNAPSACK_DIR: ${CI_PROJECT_DIR}/qa/knapsack
-    GIT_STRATEGY: none
-  script:
-    - bundle exec rake "knapsack:download[test]"
-    - bundle exec rake "knapsack:create_reports_for_selective"
-  after_script:
-    # when using qa-image, code runs in /home/gitlab/qa folder
-    - mkdir -p "$KNAPSACK_DIR" && cp /home/gitlab/qa/knapsack/*.json "${KNAPSACK_DIR}/"
-  allow_failure: true
-  artifacts:
-    paths:
-      - qa/knapsack/*.json
-    expire_in: 1 day
-
-.upload-knapsack-report:
-  extends:
-    - .generate-knapsack-report-base
+    - .docker-in-docker
     - .qa-install
-    - .ruby-image
+    - .e2e-test-variables
+  variables:
+    # variables related to failure issue reporting
+    # default values from /ci/qa-report.gitlab-ci.yml will work with gitlab-qa orchestrator but not with cng and gdk tests
+    QA_RSPEC_JSON_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/rspec-*.json
+    QA_TEST_METRICS_JSON_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/test-metrics-*.json
+    QA_SYSTEM_LOG_FILE_PATTERN: $CI_PROJECT_DIR/test_output/logs
+  script:
+    - source $CI_PROJECT_DIR/scripts/utils.sh
+    - source $CI_PROJECT_DIR/scripts/rspec_helpers.sh
+    - echo "SUITE_RAN=true" > "${QA_SUITE_STATUS_ENV_FILE}"
+    - run_e2e_specs "${QA_GITLAB_URL}" "${QA_TESTS}" "${QA_RSPEC_TAGS}"
+
+.upload-test-runtime-data:
+  extends:
+    - .qa-install
   stage: report
-  when: always
+  when: on_success
+  variables:
+    QA_JSON_REPORT_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/rspec-*.json
+  script:
+    - bundle exec rake "knapsack:upload_example_runtimes[$QA_JSON_REPORT_FILE_PATTERN]"
 
 .export-test-metrics:
   extends:
     - .qa-install
-    - .ruby-image
   stage: report
   when: always
   variables:
-    QA_METRICS_REPORT_FILE_PATTERN: $CI_PROJECT_DIR/gitlab-qa-run-*/**/test-metrics-*.json
+    QA_METRICS_REPORT_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/test-metrics-*.json
   script:
     - bundle exec rake "ci:export_test_metrics[$QA_METRICS_REPORT_FILE_PATTERN]"
 
 .export-code-paths-mapping:
   extends:
     - .qa-install
-    - .ruby-image
   stage: report
   when: always
   variables:
-    QA_CODE_PATHS_MAPPING_FILE_PATTERN: $CI_PROJECT_DIR/gitlab-qa-run-*/**/test-code-paths-mapping-*.json
+    QA_CODE_PATHS_MAPPING_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/test-code-paths-mapping-*.json
   script:
     - bundle exec rake "ci:export_code_paths_mapping[$QA_CODE_PATHS_MAPPING_FILE_PATTERN]"
+  rules:
+    - if: '$COVERBAND_ENABLED == "true"'
 
-.generate-test-session:
+.export-frontend-code-paths-mapping:
   extends:
     - .qa-install
-    - .ruby-image
   stage: report
   when: always
   variables:
-    QA_RSPEC_JSON_FILE_PATTERN: "${CI_PROJECT_DIR}/gitlab-qa-run-*/**/rspec-*.json"
+    QA_FRONTEND_PATHS_MAPPING_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/js-coverage-by-example-*.json
   script:
-    - |
-      bundle exec generate-test-session \
-        --input-files "${QA_RSPEC_JSON_FILE_PATTERN}" \
-        --project "gitlab-org/quality/testcase-sessions" \
-        --token "${QA_TEST_SESSION_TOKEN}" \
-        --ci-project-token "${GENERATE_TEST_SESSION_READ_API_REPORTER_TOKEN}" \
-        --issue-url-file report_issue_url.txt
-  artifacts:
-    when: always
-    expire_in: 1d
-    paths:
-      - qa/report_issue_url.txt
+    - bundle exec rake "ci:export_frontend_code_paths_mapping[$QA_FRONTEND_PATHS_MAPPING_FILE_PATTERN]"
+  rules:
+    - if: '$BABEL_ENV == "istanbul"'
 
 .notify-slack:
   extends:
-    - .notify-slack-qa
+    - .post-to-slack
     - .qa-install
-    - .ruby-image
   stage: notify
   variables:
-    QA_RSPEC_XML_FILE_PATTERN: "${CI_PROJECT_DIR}/gitlab-qa-run-*/**/rspec-*.xml"
+    QA_RSPEC_XML_FILE_PATTERN: "$CI_PROJECT_DIR/qa/tmp/rspec-*.xml"
     GITLAB_API_TOKEN: $PROJECT_TOKEN_FOR_CI_SCRIPTS_API_USAGE
     SLACK_ICON_EMOJI: ci_failing
     STATUS_SYM: ☠️
@@ -182,7 +160,7 @@ stages:
         exit 0
       fi
     - bundle exec prepare-stage-reports --input-files "${QA_RSPEC_XML_FILE_PATTERN}"
-    - !reference [.notify-slack-qa, script]
+    - !reference [.post-to-slack, script]
 
 .failure-videos:
   variables:
@@ -199,7 +177,7 @@ dont-interrupt-me:
   script:
     - echo "This jobs makes sure this pipeline won't be interrupted! See https://docs.gitlab.com/ee/ci/yaml/#interruptible."
   rules:
-    - if: '$CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH && $CI_MERGE_REQUEST_IID == null'
+    - if: '$PARENT_PIPELINE_SOURCE == "schedule"'
       allow_failure: true
     - if: '$CI_MERGE_REQUEST_EVENT_TYPE == "merged_result" || $CI_MERGE_REQUEST_EVENT_TYPE == "detached"'
       when: manual

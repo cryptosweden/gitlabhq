@@ -38,6 +38,8 @@ RSpec.describe API::Helpers::Authentication do
         end
       end
 
+      cls.attr_writer :current_token
+
       cls.define_method(:unauthorized!) { raise '401' }
       cls.define_method(:bad_request!) { |m| raise "400 - #{m}" }
 
@@ -99,13 +101,19 @@ RSpec.describe API::Helpers::Authentication do
 
       shared_examples 'an anonymous request' do
         it 'returns nil' do
-          expect(subject).to be(nil)
+          expect(subject).to be_nil
         end
       end
 
       shared_examples 'an authenticated request' do
         it 'returns the token' do
           expect(subject).to be(token)
+        end
+
+        it 'sets the current_token' do
+          expect(object).to receive(:current_token=).with(token.password)
+
+          subject
         end
       end
 
@@ -127,10 +135,10 @@ RSpec.describe API::Helpers::Authentication do
       end
 
       context 'with one set of located credentials' do
-        let(:locators) { [double(extract: true)] }
+        let(:locators) { [double(extract: token)] }
+        let(:token) { double(password: 'secret') }
 
         context 'when the credentials contain a valid token' do
-          let(:token) { double }
           let(:resolvers) { [double(resolve: token)] }
 
           it_behaves_like 'an authenticated request'
@@ -151,7 +159,7 @@ RSpec.describe API::Helpers::Authentication do
       end
 
       context 'when a resolver raises UnauthorizedError' do
-        let(:locators) { [double(extract: true)] }
+        let(:locators) { [double(extract: double(password: nil))] }
         let(:resolvers) do
           r = double
           expect(r).to receive(:resolve).and_raise(Gitlab::Auth::UnauthorizedError)
@@ -173,7 +181,21 @@ RSpec.describe API::Helpers::Authentication do
       it 'returns nil if #token_from_namespace_inheritable is not a personal access token' do
         token = double
         expect(object).to receive(:token_from_namespace_inheritable).and_return(token)
-        expect(subject).to be(nil)
+        expect(subject).to be_nil
+      end
+
+      context 'when token is a personal access token' do
+        before do
+          allow(object).to receive(:token_from_namespace_inheritable).and_return(personal_access_token)
+        end
+
+        it 'calls PersonalAccessTokens::LastUsedService' do
+          expect_next_instance_of(PersonalAccessTokens::LastUsedService, personal_access_token) do |service|
+            expect(service).to receive(:execute)
+          end
+
+          subject
+        end
       end
     end
 

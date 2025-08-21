@@ -16,6 +16,7 @@ class RegistrationsController < Devise::RegistrationsController
 
   layout 'devise'
 
+  prepend_before_action :initialize_timer, only: :create
   prepend_before_action :check_captcha, only: :create
   before_action :ensure_first_name_and_last_name_not_empty, only: :create
   before_action :ensure_destroy_prerequisites_met, only: [:destroy]
@@ -28,7 +29,7 @@ class RegistrationsController < Devise::RegistrationsController
 
   feature_category :instance_resiliency
 
-  helper_method :arkose_labs_enabled?, :registration_path_params, :preregistration_tracking_label
+  helper_method :arkose_labs_enabled?, :preregistration_tracking_label, :onboarding_status_presenter
 
   def new
     @resource = build_resource
@@ -36,26 +37,30 @@ class RegistrationsController < Devise::RegistrationsController
   end
 
   def create
-    set_resource_fields
+    store_duration(:set_resource_fields) { set_resource_fields }
+
+    devise_call_start_time = current_monotonic_time
 
     super do |new_user|
       if new_user.persisted?
-        after_successful_create_hook(new_user)
+        store_duration(:devise_create_user, devise_call_start_time)
+        store_duration(:after_successful_create_hook) { after_successful_create_hook(new_user) }
       else
-        track_error(new_user)
+        store_duration(:track_error) { track_error(new_user) }
       end
     end
-
     # Devise sets a flash message on both successful & failed signups,
     # but we only want to show a message if the resource is blocked by a pending approval.
     flash[:notice] = nil unless allow_flash_content?(resource)
+    log_registration_metrics
   rescue Gitlab::Access::AccessDeniedError
     redirect_to(new_user_session_path)
   end
 
   def destroy
     if current_user.required_terms_not_accepted?
-      redirect_to profile_account_path, status: :see_other, alert: s_('Profiles|You must accept the Terms of Service in order to perform this action.')
+      redirect_to profile_account_path, status: :see_other,
+        alert: s_('Profiles|You must accept the Terms of Service in order to perform this action.')
       return
     end
 
@@ -99,10 +104,15 @@ class RegistrationsController < Devise::RegistrationsController
 
   # overridden by EE module
   def after_successful_create_hook(user)
-    accept_pending_invitations
-    persist_accepted_terms_if_required(user)
-    notify_new_instance_access_request(user)
-    track_successful_user_creation(user)
+    store_duration(:accept_pending_invitations) { accept_pending_invitations }
+    store_duration(:persist_accepted_terms_if_required) { persist_accepted_terms_if_required(user) }
+    store_duration(:execute_system_hooks) { execute_system_hooks(user) }
+    store_duration(:notify_new_instance_access_request) { notify_new_instance_access_request(user) }
+    store_duration(:track_successful_user_creation) { track_successful_user_creation(user) }
+  end
+
+  def execute_system_hooks(user)
+    SystemHooksService.new.execute_hooks_for(user, :create)
   end
 
   def notify_new_instance_access_request(user)
@@ -117,7 +127,7 @@ class RegistrationsController < Devise::RegistrationsController
     # Member#accept_invite! operates on the member record to change the association, so the user needs reloaded
     # to update the collection.
     user.reset
-    after_sign_up_path
+    after_sign_up_path(user)
   end
 
   def after_inactive_sign_up_path_for(resource)
@@ -127,7 +137,7 @@ class RegistrationsController < Devise::RegistrationsController
 
     # when email_confirmation_setting is set to `hard`, path to redirect is saved
     # after user confirms and comes back, he will be redirected
-    store_location_for(:redirect, after_sign_up_path)
+    store_location_for(:redirect, after_sign_up_path(resource))
 
     if identity_verification_enabled?
       session[:verification_user_id] = resource.id # This is needed to find the user on the identity verification page
@@ -142,24 +152,62 @@ class RegistrationsController < Devise::RegistrationsController
 
   private
 
-  def onboarding_status
-    Onboarding::Status.new(onboarding_status_params, session, resource)
+  def current_monotonic_time
+    ::Gitlab::Metrics::System.monotonic_time
   end
-  strong_memoize_attr :onboarding_status
 
-  def onboarding_status_params
-    # We'll override this in the trial registrations controller so we can add on trial param
-    # and make it so we can figure out the registration_type with the same code.
-    params.to_unsafe_h.deep_symbolize_keys
+  def format_duration(duration)
+    duration.round(Gitlab::InstrumentationHelper::DURATION_PRECISION)
   end
+
+  def initialize_timer
+    @overall_start_time = current_monotonic_time
+  end
+
+  def duration_statistics
+    @duration_statistics ||= {}
+  end
+
+  def store_duration(operation_name, start = nil, &block)
+    start ||= current_monotonic_time
+    output = yield if block
+    duration_key = :"#{operation_name}_duration_s"
+    duration_statistics[duration_key] = format_duration(current_monotonic_time - start)
+    output
+  rescue StandardError => e
+    # Log timing failure but don't break registration
+    Gitlab::AppJsonLogger.warn("Timing instrumentation failed for #{operation_name}: #{e.message}")
+    output
+  end
+
+  def log_registration_metrics
+    overall_duration = format_duration(current_monotonic_time - @overall_start_time)
+
+    Gitlab::AppJsonLogger.info(
+      event: 'user_registration_duration',
+      total_duration_s: overall_duration,
+      **@duration_statistics
+    )
+  rescue StandardError => e
+    # Log timing failure but don't break registration
+    Gitlab::AppJsonLogger.warn("Error logging registration metrics: #{e.message}")
+  end
+
+  def onboarding_status_presenter
+    Onboarding::StatusPresenter.new(onboarding_status_params, session['user_return_to'], resource)
+  end
+  strong_memoize_attr :onboarding_status_presenter
+
+  # rubocop:disable Gitlab/NoCodeCoverageComment -- Fully tested in EE and tested in Foss through feature specs in spec/features/invites_spec.rb
+  # :nocov:
+  def onboarding_status_params
+    # Onboarding::StatusPresenter does not use any params in CE, we'll override in EE
+    {}
+  end
+  # rubocop:enable Gitlab/NoCodeCoverageComment
 
   def allow_flash_content?(user)
-    user.blocked_pending_approval? || onboarding_status.single_invite?
-  end
-
-  # overridden in EE
-  def registration_path_params
-    {}
+    user.blocked_pending_approval? || onboarding_status_presenter.single_invite?
   end
 
   def track_successful_user_creation(user)
@@ -169,9 +217,9 @@ class RegistrationsController < Devise::RegistrationsController
 
   def ensure_destroy_prerequisites_met
     if current_user.solo_owned_groups.present?
-      redirect_to profile_account_path,
-        status: :see_other,
-        alert: s_('Profiles|You must transfer ownership or delete groups you are an owner of before you can delete your account')
+      redirect_to profile_account_path, status: :see_other,
+        alert: s_('Profiles|You must transfer ownership or delete groups ' \
+          'you are an owner of before you can delete your account')
     end
   end
 
@@ -189,6 +237,7 @@ class RegistrationsController < Devise::RegistrationsController
   end
 
   def check_captcha
+    set_current_organization
     return unless show_recaptcha_sign_up?
     return unless Gitlab::Recaptcha.load_configurations!
 
@@ -235,7 +284,8 @@ class RegistrationsController < Devise::RegistrationsController
   def resource
     @resource ||= Users::RegistrationsBuildService
                     .new(current_user, sign_up_params.merge({ skip_confirmation: skip_confirmation?,
-                                                              preferred_language: preferred_language }))
+                                                              preferred_language: preferred_language,
+                                                              organization_id: Current.organization.id }))
                     .execute
   end
 
@@ -295,7 +345,7 @@ class RegistrationsController < Devise::RegistrationsController
 
     return unless member
 
-    Gitlab::Tracking.event(self.class.name, 'accepted', label: 'invite_email', property: member.id.to_s, user: resource)
+    Gitlab::Tracking.event(self.class.name, 'accepted', label: 'invite_email', user: resource)
   end
 
   def context_user
@@ -311,7 +361,7 @@ class RegistrationsController < Devise::RegistrationsController
     # overridden by EE module
   end
 
-  def arkose_labs_enabled?(user: nil) # rubocop:disable Lint/UnusedMethodArgument -- Param is unused here but used in EE override
+  def arkose_labs_enabled?(user:) # rubocop:disable Lint/UnusedMethodArgument -- Param is unused here but used in EE override
     false
   end
 

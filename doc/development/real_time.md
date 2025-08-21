@@ -1,10 +1,9 @@
 ---
-stage: Systems
-group: Cloud Connector
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: none
+group: unassigned
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Build and deploy real-time view components
 ---
-
-# Build and deploy real-time view components
 
 GitLab provides an interactive user experience through individual view components that accept
 user input and reflect state changes back to the user. For example, on the Merge Request
@@ -19,10 +18,39 @@ to receive state updates in real-time over a WebSocket.
 The following documentation tells you how to build and deploy view components that
 receive updates in real-time from the GitLab Ruby on Rails server.
 
-NOTE:
+{{< alert type="note" >}}
+
 Action Cable and GraphQL subscriptions are a work-in-progress and under active development.
 Developers must evaluate their use case to check if these are the right tools to use.
 If you are not sure, ask for help in the [`#f_real-time` internal Slack channel](https://gitlab.slack.com/archives/CUX9Z2N66).
+
+{{< /alert >}}
+
+## Working Safely with WebSockets
+
+WebSockets are a relatively new technology at GitLab and you should code defensively when
+using a WebSocket connection.
+
+### Backwards Compatibility
+
+Treat the connection as ephemeral and ensure the feature you're building is backwards compatible. Ensure critical functionality degrades gracefully when a WebSocket connection isn't available.
+
+You can work on the frontend and backend at the same time because updates over WebSockets
+are difficult to simulate without the necessary backend code in place.
+
+However, always deploy backend changes first. It is strongly advised to package the backend
+and frontend changes in separate releases or to manage rollout with a Feature Flag, especially
+where a new connection is introduced.
+
+This ensures that when the frontend starts subscribing to events, the backend is already prepared
+to service them.
+
+### New Connections at Scale
+
+Introducing a new WebSocket connection is particularly risky at scale. If you need to establish a
+connection on a new area of the site, perform the steps detailed in the
+[Introduce a new WebSocket Connection](#introduce-a-new-websocket-connection) section before going
+further.
 
 ## Build real-time view components
 
@@ -40,10 +68,13 @@ To build a real-time view component on GitLab, you must:
 
 ### Integrate a Vue component with Apollo subscriptions
 
-NOTE:
+{{< alert type="note" >}}
+
 Our current real-time stack assumes that client code is built using Vue as the rendering layer and
 Apollo as the state and networking layer. If you are working with a part of
 the GitLab frontend that has not been migrated to Vue + Apollo yet, complete that task first.
+
+{{< /alert >}}
 
 Consider a hypothetical `IssueView` Vue component that observes and renders GitLab `Issue` data.
 For simplicity, we assume here that all it does is render an issue's title and description:
@@ -279,8 +310,11 @@ module Types
 end
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 If you are connecting an EE subscription, update `EE::Types::SubscriptionType` instead.
+
+{{< /alert >}}
 
 Make sure the `:issue_updated` argument matches the name used in the `subscription` request sent by the frontend in camel-case (`issueUpdated`), or `graphql-ruby` does not know which subscribers to inform. The event can now trigger.
 
@@ -302,8 +336,11 @@ module GraphqlTriggers
 end
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 If the trigger is for an EE subscription, update `EE::GraphqlTriggers` instead.
+
+{{< /alert >}}
 
 - The first argument, `:issue_updated`, must match the `field` name used in the previous
   step.
@@ -319,20 +356,7 @@ of the issue's fields changing, we could extend `Issues::UpdateService` to call 
 
 The real-time view component is now functional. Updates to an issue should now propagate immediately into the GitLab UI.
 
-## Deploy real-time view components
-
-WebSockets are a relatively new technology at GitLab, and supporting them at
-scale introduces some challenges. For that reason, new features should be rolled
-out using the instructions below.
-
-### Shipping a real-time component
-
-You can work on the frontend and backend at the same time, because updates over WebSockets
-are difficult to simulate without the necessary backend code in place.
-
-However, it is safer to send changes in separate Merge Requests and deploy the backend changes first.
-This ensures that when the frontend starts subscribing to events, the backend is already prepared
-to service them.
+## Shipping a real-time component
 
 ### Reuse an existing WebSocket connection
 
@@ -352,7 +376,7 @@ connections and on downstream services; such as Redis and the primary database.
 The first real-time feature to be fully enabled on GitLab.com was
 [real-time assignees](https://gitlab.com/gitlab-org/gitlab/-/issues/17589). By comparing
 peak throughput to the issue page against peak simultaneous WebSocket connections it is
-possible to crudely estimate that each 1 request per second adds
+possible to crudely estimate that each 1 request per second to a page adds
 approximately 4200 WebSocket connections.
 
 To understand the impact a new feature might have, sum the peak throughput (RPS)
@@ -362,12 +386,12 @@ to the pages it originates from (`n`) and apply the formula:
 (n * 4200) / peak_active_connections
 ```
 
-Current active connections are visible on
-[this Grafana chart](https://dashboards.gitlab.net/d/websockets-main/websockets-overview?viewPanel=1357460996&orgId=1).
-
 This calculation is crude, and should be revised as new features are
 deployed. It yields a rough estimate of the capacity that must be
 supported, as a proportion of existing capacity.
+
+Current active connections are visible on
+[this Grafana chart](https://dashboards.gitlab.net/d/websockets-main/websockets-overview?viewPanel=1357460996&orgId=1).
 
 ### Graduated roll-out
 
@@ -388,16 +412,6 @@ of the feature flag ensures that effects can be observed on the
 1. Copy in a member of the Plan and Scalability teams to estimate a percentage-based
    roll-out plan.
 
-### Backward compatibility
-
-For the duration of the feature flag roll-out and indefinitely thereafter,
-real-time features must be backward-compatible, or at least degrade
-gracefully. Not all customers have Action Cable enabled, and further work
-needs to be done before Action Cable can be enabled by default.
-
-Making real-time a requirement represents a breaking change, so the next
-opportunity to do this is version 15.0.
-
 ### Real-time infrastructure on GitLab.com
 
 On GitLab.com, WebSocket connections are served from dedicated infrastructure,
@@ -412,10 +426,13 @@ Because a push initiated by the server needs to propagate over the network and t
 in the client without any user interaction whatsoever, real-time features can only be understood
 by looking at the entire stack including frontend and backend.
 
-NOTE:
+{{< alert type="note" >}}
+
 For historic reasons, the controller routes that service updates in response to clients polling
 for changes are called `realtime_changes`. They use conditional GET requests and are unrelated
 to the real-time behavior covered in this guide.
+
+{{< /alert >}}
 
 Any real-time update pushed into a client originates from the GitLab Rails application. We use the following
 technologies to initiate and service these updates:
@@ -505,12 +522,15 @@ Action Cable supports different implementations to track which client is subscri
 Shared storage is necessary because different clients might connect to the same Action Cable channel
 from different Puma instances.
 
-NOTE:
+{{< alert type="note" >}}
+
 Do not confuse Action Cable channels with Redis PubSub channels. An Action Cable `Channel` object is a
 programming abstraction to classify and handle the various kinds of data going over the WebSocket connection.
 In Action Cable, the underlying PubSub channel is referred to as a broadcasting instead and the association
 between a client and a broadcasting is called a subscription. In particular, there can be many broadcastings
 (PubSub channels) and subscriptions for each Action Cable `Channel`.
+
+{{< /alert >}}
 
 Because Action Cable allows us to express different kinds of behavior through its `Channel` API, and because
 updates to any `Channel` can use the same WebSocket connection, we only require a single WebSocket connection
@@ -523,7 +543,7 @@ subscribe.
 ### GraphQL subscriptions: Backend
 
 GitLab supports [GraphQL](https://graphql.org) for clients to request structured data from the server
-using GraphQL queries. Refer to the [GitLab GraphQL overview](../api/graphql/index.md) to learn about why we adopted GraphQL.
+using GraphQL queries. Refer to the [GitLab GraphQL overview](../api/graphql/_index.md) to learn about why we adopted GraphQL.
 GraphQL support in the GitLab backend is provided by the [`graphql-ruby`](https://graphql-ruby.org) gem.
 
 Ordinarily, GraphQL queries are client-initiated HTTP POST requests that follow the standard request-response cycle.
@@ -573,9 +593,12 @@ It simplifies:
 - Client-side state management and response caching.
 - Integrating GraphQL with view components using a bridge module.
 
-NOTE:
+{{< alert type="note" >}}
+
 When reading the Apollo Client documentation, it assumes that React.js is used for view rendering. We do not use React.js
 at GitLab. We use Vue.js, which integrates with Apollo using the [Vue.js adapter](https://apollo.vuejs.org/).
+
+{{< /alert >}}
 
 Apollo provides functions and hooks with which you define how:
 

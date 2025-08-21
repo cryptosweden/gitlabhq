@@ -7,6 +7,10 @@ module API
 
     helpers Helpers::FileUploadHelpers
 
+    before do
+      set_current_organization
+    end
+
     helpers do
       def parent_group
         find_group!(params[:parent_id]) if params[:parent_id].present?
@@ -37,8 +41,6 @@ module API
       post 'import/authorize' do
         require_gitlab_workhorse!
 
-        Gitlab::Workhorse.verify_api_request!(headers)
-
         status 200
         content_type Gitlab::Workhorse::INTERNAL_API_CONTENT_TYPE
 
@@ -65,7 +67,7 @@ module API
         requires :name, type: String, desc: 'Group name'
         requires :file, type: ::API::Validations::Types::WorkhorseFile, desc: 'The group export file to be imported', documentation: { type: 'file' }
         optional :parent_id, type: Integer, desc: "The ID of the parent group that the group will be imported into. Defaults to the current user's namespace."
-        optional :organization_id, type: Integer, default: -> { Current.organization_id }, desc: "The ID of the organization that the group will be part of. "
+        optional :organization_id, type: Integer, default: -> { Current.organization.id }, desc: "The ID of the organization that the group will be part of. "
       end
       post 'import' do
         authorize_create_group!
@@ -77,7 +79,7 @@ module API
           name: params[:name],
           parent_id: params[:parent_id],
           visibility_level: closest_allowed_visibility_level,
-          import_export_upload: ImportExportUpload.new(import_file: params[:file]),
+          import_export_upload: ImportExportUpload.new(import_file: params[:file], user: current_user),
           organization_id: params[:organization_id]
         }
 

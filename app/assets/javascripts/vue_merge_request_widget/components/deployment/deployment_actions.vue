@@ -6,7 +6,6 @@ import eventHub from '../../event_hub';
 import MRWidgetService from '../../services/mr_widget_service';
 import {
   MANUAL_DEPLOY,
-  FAILED,
   SUCCESS,
   STOPPING,
   DEPLOYING,
@@ -54,9 +53,6 @@ export default {
     },
     canBeManuallyDeployed() {
       return this.computedDeploymentStatus === MANUAL_DEPLOY && Boolean(this.playPath);
-    },
-    canBeManuallyRedeployed() {
-      return this.computedDeploymentStatus === FAILED && Boolean(this.redeployPath);
     },
     hasExternalUrls() {
       return Boolean(this.deployment.external_url && this.deployment.external_url_formatted);
@@ -151,7 +147,7 @@ export default {
 </script>
 
 <template>
-  <div class="gl-inline-flex">
+  <div class="gl-inline-flex gl-gap-3">
     <deployment-action-button
       v-if="canBeManuallyDeployed"
       :action-in-progress="actionInProgress"

@@ -2,7 +2,6 @@
 
 module ReleasesHelper
   IMAGE_PATH = 'illustrations/rocket-launch-md.svg'
-  DOCUMENTATION_PATH = 'user/project/releases/index'
 
   # This needs to be kept in sync with the constant in
   # app/assets/javascripts/releases/constants.js
@@ -12,16 +11,12 @@ module ReleasesHelper
     image_path(IMAGE_PATH)
   end
 
-  def releases_help_page_path(anchor: nil)
-    help_page_path(DOCUMENTATION_PATH, anchor: anchor)
-  end
-
   def data_for_releases_page
     {
       project_id: @project.id,
       project_path: @project.full_path,
       illustration_path: illustration,
-      documentation_path: releases_help_page_path,
+      documentation_path: help_page_path('user/project/releases/_index.md'),
       atom_feed_path: project_releases_path(@project, rss_url_options)
     }.tap do |data|
       if can?(current_user, :create_release, @project)
@@ -47,7 +42,8 @@ module ReleasesHelper
     {
       project_id: @project.id,
       project_path: @project.full_path,
-      tag_name: @release.tag
+      tag_name: @release.tag,
+      deployments: deployments_for_release.to_json
     }
   end
 
@@ -55,7 +51,7 @@ module ReleasesHelper
     new_edit_pages_shared_data.merge(
       tag_name: @release.tag,
       releases_page_path: project_releases_path(@project, anchor: @release.tag),
-      delete_release_docs_path: releases_help_page_path(anchor: 'delete-a-release')
+      delete_release_docs_path: help_page_path('user/project/releases/_index.md', anchor: 'delete-a-release')
     )
   end
 
@@ -80,12 +76,59 @@ module ReleasesHelper
       group_milestones_available: group_milestone_project_releases_available?(@project),
       project_path: @project.full_path,
       markdown_preview_path: preview_markdown_path(@project),
-      markdown_docs_path: help_page_path('user/markdown'),
-      release_assets_docs_path: releases_help_page_path(anchor: 'release-assets'),
+      markdown_docs_path: help_page_path('user/markdown.md'),
+      release_assets_docs_path: help_page_path('user/project/releases/release_fields.md', anchor: 'release-assets'),
       manage_milestones_path: project_milestones_path(@project),
       new_milestone_path: new_project_milestone_path(@project, redirect_path: 'new_release'),
-      edit_release_docs_path: releases_help_page_path(anchor: 'edit-a-release'),
-      upcoming_release_docs_path: releases_help_page_path(anchor: 'upcoming-releases')
+      edit_release_docs_path: help_page_path('user/project/releases/_index.md', anchor: 'edit-a-release'),
+      upcoming_release_docs_path: help_page_path('user/project/releases/_index.md', anchor: 'upcoming-releases')
+    }
+  end
+
+  def deployments_for_release
+    return [] unless can?(current_user, :read_deployment, @project)
+
+    project = @release.project
+    deployments = @release.related_deployments
+    commit = project.repository.commit(@release.tag)
+
+    deployments.map do |deployment|
+      environment = deployment.environment
+
+      {
+        environment: {
+          name: environment&.name,
+          url: environment ? project_environment_url(project, environment) : nil
+        },
+        status: deployment.status,
+        deployment: {
+          id: deployment.id,
+          url: project_environment_deployment_path(project, environment, deployment)
+        },
+        commit: {
+          sha: commit.id,
+          name: commit.author_name,
+          commit_url: project_commit_url(project, commit),
+          short_sha: commit.short_id,
+          title: commit.title
+        },
+
+        triggerer: triggerer_data(deployment),
+
+        created_at: deployment.created_at,
+        finished_at: deployment.finished_at
+      }
+    end
+  end
+
+  def triggerer_data(deployment)
+    user = deployment.deployable&.user
+    return unless user
+
+    {
+      name: user.name,
+      web_url: user_url(user),
+      avatar_url: user.avatar_url
     }
   end
 end

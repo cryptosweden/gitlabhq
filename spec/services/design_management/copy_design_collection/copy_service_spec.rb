@@ -185,13 +185,30 @@ RSpec.describe DesignManagement::CopyDesignCollection::CopyService, :clean_gitla
 
             expect { subject }.to change { Note.count }.by(2)
 
-            new_notes = target_issue.designs.first.notes.fresh
+            new_notes = target_issue.designs.first.notes.order_created_at_id_asc
 
             expect(new_notes).to match_array(matchers)
           end
 
           it 'links the LfsObjects' do
             expect { subject }.to change { target_issue.project.lfs_objects.count }.by(3)
+            .and change { target_issue.project.lfs_objects_projects.count }.by(3)
+          end
+
+          context 'when some LfsObjects are already linked to the design repository' do
+            let!(:lfs_objects_project) do
+              create(
+                :lfs_objects_project,
+                lfs_object: project.lfs_objects.first,
+                project: target_issue.project,
+                repository_type: :design
+              )
+            end
+
+            it 'links the LfsObjects' do
+              expect { subject }.to change { target_issue.project.lfs_objects.count }.by(2)
+              .and change { target_issue.project.lfs_objects_projects.count }.by(2)
+            end
           end
 
           it 'copies the Git repository data', :aggregate_failures do
@@ -204,12 +221,23 @@ RSpec.describe DesignManagement::CopyDesignCollection::CopyService, :clean_gitla
             expect { subject }.to change { target_repository.branch_names }.from([]).to([project.design_repository.root_ref])
           end
 
-          it 'does not create default branch when one exists' do
-            target_repository.create_if_not_exists
-            target_repository.create_file(user, '.meta', '.gitlab', branch_name: 'new-branch', message: 'message')
+          context 'when default branch exists and is different from source default branch' do
+            before do
+              target_repository.create_if_not_exists
+              target_repository.create_file(user, '.meta', '.gitlab', branch_name: 'new-branch', message: 'message')
+            end
 
-            expect { subject }.not_to change { target_repository.branch_names }
-            expect(target_repository.branch_names).to eq(['new-branch'])
+            include_examples 'service success'
+
+            it 'does not create default branch when one exists' do
+              expect { subject }.not_to change { target_repository.branch_names }
+              expect(target_repository.branch_names).to eq(['new-branch'])
+            end
+
+            it 'does not raise not found error' do
+              expect { subject }.not_to raise_error
+              expect(commits_on_master(limit: 99)).to include(*target_issue.design_versions.ordered.pluck(:sha))
+            end
           end
 
           it 'leaves the design collection in the correct copy state' do
@@ -265,6 +293,21 @@ RSpec.describe DesignManagement::CopyDesignCollection::CopyService, :clean_gitla
 
           def commits_on_master(limit: 10)
             target_repository.commits(target_repository.root_ref, limit: limit).map(&:id)
+          end
+
+          context 'with an invalid target_sha' do
+            before do
+              allow_next_instance_of(Gitlab::GitalyClient::OperationService) do |instance|
+                allow(instance).to receive(:user_delete_branch).and_raise(Gitlab::Git::CommandError, 'Invalid target_sha')
+              end
+            end
+
+            it 'returns a service error with the correct message' do
+              result = subject
+
+              expect(result).to be_error
+              expect(result.message).to eq({ message: "Invalid target_sha" })
+            end
           end
         end
       end

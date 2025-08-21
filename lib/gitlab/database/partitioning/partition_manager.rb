@@ -5,6 +5,7 @@ module Gitlab
     module Partitioning
       class PartitionManager
         include ::Gitlab::Utils::StrongMemoize
+        include ::Gitlab::Database::MigrationHelpers::LooseForeignKeyHelpers
 
         UnsafeToDetachPartitionError = Class.new(StandardError)
 
@@ -12,6 +13,7 @@ module Gitlab
         STATEMENT_TIMEOUT = 1.hour
         MANAGEMENT_LEASE_KEY = 'database_partition_management_%s'
         RETAIN_DETACHED_PARTITIONS_FOR = 1.week
+        MAX_PARTITION_SIZE = 150.gigabytes
 
         def initialize(model, connection: nil)
           @model = model
@@ -19,8 +21,12 @@ module Gitlab
           @connection_name = @connection.pool.db_config.name
         end
 
+        def execute(sql)
+          @connection.execute(sql)
+        end
+
         def sync_partitions(analyze: true)
-          return skip_synching_partitions unless table_partitioned?
+          return skip_syncing_partitions unless table_partitioned?
 
           Gitlab::AppLogger.info(
             message: "Checking state of dynamic postgres partitions",
@@ -55,6 +61,32 @@ module Gitlab
 
         attr_reader :model, :connection
 
+        # Create all partition tables (doesn't take any lock on parent)
+        def create_partition_tables(partitions)
+          partitions.each do |partition|
+            connection.execute(partition.to_create_sql)
+          end
+        end
+
+        # Attach all partitions (takes SHARE UPDATE EXCLUSIVE lock)
+        def attach_partition_tables(partitions)
+          partitions.each do |partition|
+            connection.execute(partition.to_attach_sql)
+            process_created_partition(partition)
+          end
+        end
+
+        def process_created_partition(partition)
+          Gitlab::AppLogger.info(message: "Created partition",
+            partition_name: partition.partition_name,
+            table_name: partition.table,
+            connection_name: @connection_name)
+
+          lock_partitions_for_writes(partition) if should_lock_for_writes?
+
+          attach_loose_foreign_key_trigger(partition) if parent_table_has_loose_foreign_key?
+        end
+
         def missing_partitions
           return [] unless connection.table_exists?(model.table_name)
 
@@ -79,20 +111,8 @@ module Gitlab
           # with_lock_retries starts a requires_new transaction most of the time, but not on the last iteration
           with_lock_retries do
             connection.transaction(requires_new: false) do # so we open a transaction here if not already in progress
-              # Partitions might not get created (IF NOT EXISTS) so explicit locking will not happen.
-              # This LOCK TABLE ensures to have exclusive lock as the first step.
-              connection.execute "LOCK TABLE #{connection.quote_table_name(model.table_name)} IN ACCESS EXCLUSIVE MODE"
-
-              partitions.each do |partition|
-                connection.execute partition.to_sql
-
-                Gitlab::AppLogger.info(message: "Created partition",
-                                       partition_name: partition.partition_name,
-                                       table_name: partition.table,
-                                       connection_name: @connection_name)
-
-                lock_partitions_for_writes(partition) if should_lock_for_writes?
-              end
+              create_partition_tables(partitions)
+              attach_partition_tables(partitions)
 
               model.partitioning_strategy.after_adding_partitions
             end
@@ -111,10 +131,9 @@ module Gitlab
         def detach_one_partition(partition)
           assert_partition_detachable!(partition)
 
-          connection.execute partition.to_detach_sql
+          schedule_detached_partition_cleanup(partition)
 
-          Postgresql::DetachedPartition.create!(table_name: partition.partition_name,
-                                                drop_after: RETAIN_DETACHED_PARTITIONS_FOR.from_now)
+          connection.execute partition.to_detach_sql
 
           Gitlab::AppLogger.info(
             message: "Detached Partition",
@@ -134,11 +153,11 @@ module Gitlab
         end
 
         def with_lock_retries(&block)
-          Gitlab::Database::WithLockRetries.new(
+          Gitlab::Database::Partitioning::WithPartitioningLockRetries.new(
             klass: self.class,
             logger: Gitlab::AppLogger,
             connection: connection
-          ).run(&block)
+          ).run(raise_on_exhaustion: true, &block)
         end
 
         def table_partitioned?
@@ -147,9 +166,9 @@ module Gitlab
           end
         end
 
-        def skip_synching_partitions
+        def skip_syncing_partitions
           Gitlab::AppLogger.warn(
-            message: "Skipping synching partitions",
+            message: "Skipping syncing partitions",
             table_name: model.table_name,
             connection_name: @connection_name
           )
@@ -160,7 +179,7 @@ module Gitlab
 
           primary_transaction(statement_timeout: STATEMENT_TIMEOUT) do
             # Running ANALYZE on partitioned table will go through itself and its partitions
-            connection.execute("ANALYZE #{model.quoted_table_name}")
+            connection.execute("ANALYZE (SKIP_LOCKED) #{model.quoted_table_name}")
           end
         end
 
@@ -180,7 +199,7 @@ module Gitlab
             last_analyzed_at = connection.select_value(
               "SELECT pg_stat_get_last_analyze_time('#{table_to_query}'::regclass)"
             )
-            last_analyzed_at.present? && last_analyzed_at >= Time.current - analyze_interval
+            last_analyzed_at.present? && last_analyzed_at >= ::Time.current - analyze_interval
           end
         end
 
@@ -196,7 +215,7 @@ module Gitlab
         end
 
         def primary_transaction(statement_timeout: nil)
-          Gitlab::Database::LoadBalancing::Session.current.use_primary do
+          Gitlab::Database::LoadBalancing::SessionMap.current(connection.load_balancer).use_primary do
             connection.transaction(requires_new: false) do
               if statement_timeout.present?
                 connection.execute(
@@ -224,6 +243,48 @@ module Gitlab
             database_name: @connection_name,
             with_retries: !connection.transaction_open?
           ).lock_writes
+        end
+
+        def attach_loose_foreign_key_trigger(partition)
+          partition_identifier = "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}.#{partition.partition_name}"
+
+          return unless has_loose_foreign_key?(partition.table)
+
+          track_record_deletions_override_table_name(partition_identifier, partition.table)
+        end
+
+        def parent_table_has_loose_foreign_key?
+          has_loose_foreign_key?(model.table_name)
+        end
+        strong_memoize_attr :parent_table_has_loose_foreign_key?
+
+        def schedule_detached_partition_cleanup(partition)
+          identifier = identifier(partition)
+
+          if above_threshold?(identifier)
+            Postgresql::DetachedPartition.create!(
+              table_name: partition.partition_name,
+              drop_after: RETAIN_DETACHED_PARTITIONS_FOR.from_now.next_occurring(:saturday)
+            )
+          else
+            Postgresql::DetachedPartition.create!(
+              table_name: partition.partition_name,
+              drop_after: RETAIN_DETACHED_PARTITIONS_FOR.from_now
+            )
+          end
+        end
+
+        def above_threshold?(identifier)
+          Gitlab::Database::SharedModel.using_connection(connection) do
+            Gitlab::Database::PostgresPartition
+              .for_identifier(identifier)
+              .above_threshold(MAX_PARTITION_SIZE)
+              .exists?
+          end
+        end
+
+        def identifier(partition)
+          "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}.#{partition.partition_name}"
         end
       end
     end

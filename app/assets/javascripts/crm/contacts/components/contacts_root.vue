@@ -186,7 +186,6 @@ export default {
       :show-items="true"
       :show-error-msg="error"
       :i18n="$options.i18n"
-      :items="contacts.list"
       :page-info="contacts.pageInfo"
       :items-count="contactsCount"
       :status-tabs="$options.statusTabs"
@@ -199,7 +198,7 @@ export default {
       @error-alert-dismissed="errorAlertDismissed"
     >
       <template #header-actions>
-        <div class="gl-display-flex gl-align-items-center gl-justify-content-end gl-my-3 gl-mr-5">
+        <div class="gl-my-3 gl-mr-5 gl-flex gl-items-center gl-justify-end">
           <a
             v-if="canReadCrmOrganization"
             :href="groupOrganizationsPath"

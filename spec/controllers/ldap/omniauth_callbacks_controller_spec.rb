@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ldap::OmniauthCallbacksController, type: :controller, feature_category: :system_access do
+RSpec.describe Ldap::OmniauthCallbacksController, :with_current_organization, type: :controller, feature_category: :system_access do
   include_context 'Ldap::OmniauthCallbacksController'
 
   it 'allows sign in' do
@@ -14,6 +14,12 @@ RSpec.describe Ldap::OmniauthCallbacksController, type: :controller, feature_cat
   it 'creates an authentication event record' do
     expect { post provider }.to change { AuthenticationEvent.count }.by(1)
     expect(AuthenticationEvent.last.provider).to eq(provider.to_s)
+  end
+
+  it 'creates an authentication audit event' do
+    expect { post provider }.to change {
+      AuditEvent.where("details LIKE '%authenticated_with_ldap%'").count
+    }.by(1)
   end
 
   context 'with sign in prevented' do

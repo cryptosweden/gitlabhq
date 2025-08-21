@@ -51,11 +51,6 @@ export default {
       required: false,
       default: i18n.invalidFeedback,
     },
-    id: {
-      type: String,
-      required: false,
-      default: () => uniqueId('listWidget-'),
-    },
     pattern: {
       type: String,
       required: false,
@@ -71,6 +66,11 @@ export default {
       required: false,
       default: false,
     },
+    monospace: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   data() {
     return {
@@ -82,9 +82,6 @@ export default {
     sanitizedValue() {
       // Filter out empty steps
       return this.value.filter(({ value }) => Boolean(value)).map(({ value }) => value) || [];
-    },
-    hasAnyValue() {
-      return this.value.some(({ value }) => Boolean(value));
     },
     needsAnyValue() {
       return this.required && !this.value.some(({ value }) => Boolean(value));
@@ -104,6 +101,9 @@ export default {
       return this.needsAnyValue
         ? this.$options.i18n.errors.needsAnyValueError
         : this.invalidFeedback;
+    },
+    inputClass() {
+      return this.monospace ? '!gl-font-monospace' : '';
     },
   },
   async created() {
@@ -161,15 +161,20 @@ export default {
     >
       <gl-form-input-group
         v-for="(item, i) in value"
+        :id="item.id"
         :key="item.id"
         v-model.trim="value[i].value"
         :placeholder="i === 0 ? placeholder : undefined"
         :state="inputFieldStates[i]"
         class="gl-mb-2"
+        :input-class="inputClass"
         type="text"
         @blur="onTouch"
         @input="onValueUpdate"
       >
+        <template #prepend>
+          <label :for="item.id" class="gl-sr-only">{{ __('Step') }} {{ i + 1 }}</label>
+        </template>
         <template v-if="value.length > 1" #append>
           <gl-button
             :aria-label="$options.i18n.removeStepButtonLabel"

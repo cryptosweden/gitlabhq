@@ -2,16 +2,18 @@
 stage: Verify
 group: Pipeline Execution
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Load Performance Testing
 ---
 
-# Load Performance Testing
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 With Load Performance Testing, you can test the impact of any pending code changes
-to your application's backend in [GitLab CI/CD](../index.md).
+to your application's backend in [GitLab CI/CD](../_index.md).
 
 GitLab uses [k6](https://k6.io/), a free and open source
 tool, for measuring the system performance of applications under
@@ -33,7 +35,7 @@ First, define a job in your `.gitlab-ci.yml` file that generates the
 GitLab checks this report, compares key load performance metrics
 between the source and target branches, and then shows the information in a merge request widget:
 
-![Load Performance Widget](img/load_performance_testing.png)
+![Load Performance Widget](img/load_performance_testing_v13_2.png)
 
 Next, you need to configure the test environment and write the k6 test.
 
@@ -44,12 +46,15 @@ The key performance metrics that the merge request widget shows after the test c
 - TTFB P95: The 95th percentile for TTFB.
 - RPS: The average requests per second (RPS) rate the test was able to achieve.
 
-NOTE:
+{{< alert type="note" >}}
+
 If the Load Performance report has no data to compare, such as when you add the
 Load Performance job in your `.gitlab-ci.yml` for the very first time,
 the Load Performance report widget doesn't display. It must have run at least
 once on the target branch (`main`, for example), before it displays in a
 merge request targeting that branch.
+
+{{< /alert >}}
 
 ## Configure the Load Performance Testing job
 
@@ -64,8 +69,7 @@ Configuring your Load Performance Testing job can be broken down into several di
 The first thing you need to do is determine the [type of load test](https://grafana.com/load-testing/types-of-load-testing/)
 you want to run, and how you want it to run (for example, the number of users, throughput, and so on).
 
-Refer to the [k6 docs](https://k6.io/docs/), especially the [k6 testing guides](https://k6.io/docs/testing-guides),
-for guidance on the above and more.
+Refer to the [k6 docs](https://k6.io/docs/), especially the [k6 testing guides](https://k6.io/docs/testing-guides) for guidance.
 
 ### Test Environment setup
 
@@ -91,11 +95,14 @@ testing job in GitLab CI/CD. The easiest way to do this is to use the
 [`Verify/Load-Performance-Testing.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Verify/Load-Performance-Testing.gitlab-ci.yml)
 template that is included with GitLab.
 
-NOTE:
+{{< alert type="note" >}}
+
 For large scale k6 tests you need to ensure the GitLab Runner instance performing the actual
 test is able to handle running the test. Refer to [k6's guidance](https://k6.io/docs/testing-guides/running-large-tests#hardware-considerations)
 for spec details. The [default shared GitLab.com runners](../runners/hosted_runners/linux.md)
 likely have insufficient specs to handle most large k6 tests.
+
+{{< /alert >}}
 
 This template runs the
 [k6 Docker container](https://hub.docker.com/r/loadimpact/k6/) in the job and provides several ways to customize the
@@ -117,11 +124,14 @@ An example configuration workflow:
        K6_TEST_FILE: <PATH TO K6 TEST FILE IN PROJECT>
    ```
 
-The above example creates a `load_performance` job in your CI/CD pipeline that runs
+The previous example creates a `load_performance` job in your CI/CD pipeline that runs
 the k6 test.
 
-NOTE:
+{{< alert type="note" >}}
+
 For Kubernetes setups a different template should be used: [`Jobs/Load-Performance-Testing.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Jobs/Load-Performance-Testing.gitlab-ci.yml).
+
+{{< /alert >}}
 
 k6 has [various options](https://k6.io/docs/using-k6/k6-options/reference/) to configure how it runs the tests, such as what throughput (RPS) to run with,
 how long the test should run, and so on. Almost all options can be configured in the test itself, but as
@@ -145,13 +155,13 @@ as a [Load Performance report artifact](../yaml/artifacts_reports.md#artifactsre
 The latest Load Performance artifact available is always used, using the
 summary values from the test.
 
-If [GitLab Pages](../../user/project/pages/index.md) is enabled, you can view the report directly in your browser.
+If [GitLab Pages](../../user/project/pages/_index.md) is enabled, you can view the report directly in your browser.
 
 ### Load Performance testing in review apps
 
-The CI/CD YAML configuration example above works for testing against static environments,
-but it can be extended to work with [review apps](../review_apps/index.md) or
-[dynamic environments](../environments/index.md) with a few extra steps.
+The previous CI/CD YAML configuration example works for testing against static environments,
+but it can be extended to work with [review apps](../review_apps/_index.md) or
+[dynamic environments](../environments/_index.md) with a few extra steps.
 
 The best approach is to capture the dynamic URL in a [`.env` file](https://docs.docker.com/compose/environment-variables/env-file/)
 as a job artifact to be shared, then use a custom CI/CD variable we've provided named `K6_DOCKER_OPTIONS`

@@ -1,15 +1,33 @@
 query getModel($id: MlModelID!) {
   mlModel(id: $id) {
     id
+    createdAt
+    author {
+      id
+      name
+      avatarUrl
+      webUrl
+    }
     description
+    descriptionHtml
     name
     versionCount
     candidateCount
+    defaultExperimentPath
     latestVersion {
       id
+      createdAt
+      artifactsCount
+      author {
+        id
+        name
+        avatarUrl
+        webUrl
+      }
       version
       packageId
       description
+      descriptionHtml
       candidate {
         id
         name
@@ -44,18 +62,20 @@ query getModel($id: MlModelID!) {
           name
           pipeline {
             id
-            mergeRequest {
-              id
-              iid
-              title
-              webUrl
-            }
             user {
               id
               avatarUrl
               webUrl
               username
               name
+            }
+            ... on Pipeline {
+              mergeRequest {
+                id
+                iid
+                title
+                webUrl
+              }
             }
           }
         }

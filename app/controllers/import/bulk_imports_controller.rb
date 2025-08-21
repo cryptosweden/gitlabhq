@@ -2,6 +2,7 @@
 
 class Import::BulkImportsController < ApplicationController
   include ActionView::Helpers::SanitizeHelper
+  include SafeFormatHelper
 
   before_action :ensure_bulk_import_enabled
   before_action :verify_blocked_uri, only: :status
@@ -66,10 +67,14 @@ class Import::BulkImportsController < ApplicationController
         entry.delete(:destination_name)
       end
 
-      ::BulkImports::CreateService.new(current_user, entry, credentials).execute
+      ::BulkImports::CreateService.new(
+        current_user, entry.to_h, credentials, fallback_organization: Current.organization
+      ).execute
     end
 
-    render json: responses.map { |response| { success: response.success?, id: response.payload[:id], message: response.message } }
+    render json: responses.map { |response|
+      { success: response.success?, id: response.payload[:id], message: response.message }
+    }
   end
 
   def realtime_changes
@@ -148,11 +153,13 @@ class Import::BulkImportsController < ApplicationController
       destination_slug
       destination_namespace
       migrate_projects
+      migrate_memberships
     ]
   end
 
   def ensure_bulk_import_enabled
-    render_404 unless Gitlab::CurrentSettings.bulk_import_enabled?
+    render_404 unless Gitlab::CurrentSettings.bulk_import_enabled? ||
+      Feature.enabled?(:override_bulk_import_disabled, current_user, type: :ops)
   end
 
   def access_token_key
@@ -175,7 +182,8 @@ class Import::BulkImportsController < ApplicationController
   rescue Gitlab::HTTP_V2::UrlBlocker::BlockedUrlError => e
     clear_session_data
 
-    redirect_to new_group_path(anchor: 'import-group-pane'), alert: _('Specified URL cannot be used: "%{reason}"') % { reason: e.message }
+    redirect_to new_group_path(anchor: 'import-group-pane'),
+      alert: safe_format(_('Specified URL cannot be used: "%{reason}"'), reason: e.message)
   end
 
   def allow_local_requests?
@@ -185,7 +193,7 @@ class Import::BulkImportsController < ApplicationController
   def bulk_import_connection_error(error)
     clear_session_data
 
-    error_message = _("Unable to connect to server: %{error}") % { error: error }
+    error_message = safe_format(_("Unable to connect to server: %{error}"), error: error)
     flash[:alert] = error_message
 
     respond_to do |format|

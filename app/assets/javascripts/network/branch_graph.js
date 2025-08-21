@@ -272,7 +272,7 @@ export default class BranchGraph {
       .text(this.offsetX + this.unitSpace * this.mspace + 35, y, commit.message.split('\n')[0])
       .attr({
         fill: 'currentColor',
-        class: 'gl-text-body',
+        class: 'gl-text-default',
         'text-anchor': 'start',
         font: '14px Monaco, monospace',
       });
@@ -340,7 +340,7 @@ export default class BranchGraph {
       r.path(['M', x + 5, y, 'L', x + 15, y + 4, 'L', x + 15, y - 4, 'Z']).attr({
         fill: '#000',
         'fill-opacity': 0.5,
-        stroke: 'none',
+        stroke: '#FFF',
       });
       // Displayed in the center
       return this.element.scrollTop(y - this.graphHeight / 2);

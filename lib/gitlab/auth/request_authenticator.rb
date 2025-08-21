@@ -14,7 +14,7 @@ module Gitlab
       end
 
       def find_authenticated_requester(request_formats)
-        user(request_formats) || deploy_token_from_request
+        deploy_token_from_request || user(request_formats)
       end
 
       def user(request_formats)
@@ -34,43 +34,27 @@ module Gitlab
       end
 
       def find_sessionless_user(request_format)
-        find_user_from_dependency_proxy_token ||
-          find_user_from_web_access_token(request_format, scopes: [:api, :read_api]) ||
-          find_user_from_feed_token(request_format) ||
-          find_user_from_static_object_token(request_format) ||
-          find_user_from_job_token_basic_auth ||
-          find_user_from_job_token ||
-          find_user_from_personal_access_token_for_api_or_git ||
-          find_user_for_git_or_lfs_request
+        case request_format
+        when :graphql_api
+          find_user_for_graphql_api_request
+        when :api, :git, :rss, :ics, :blob, :download, :archive, nil
+          find_user_from_any_authentication_method(request_format)
+        else
+          raise ArgumentError, "Unknown request format"
+        end
       rescue Gitlab::Auth::AuthenticationError
         nil
       end
 
       def can_sign_in_bot?(user)
-        (user&.project_bot? || user&.service_account?) && api_request?
-      end
-
-      # To prevent Rack Attack from incorrectly rate limiting
-      # authenticated Git activity, we need to authenticate the user
-      # from other means (e.g. HTTP Basic Authentication) only if the
-      # request originated from a Git or Git LFS
-      # request. Repositories::GitHttpClientController or
-      # Repositories::LfsApiController normally does the authentication,
-      # but Rack Attack runs before those controllers.
-      def find_user_for_git_or_lfs_request
-        return unless git_or_lfs_request?
-
-        find_user_from_lfs_token || find_user_from_basic_auth_password
-      end
-
-      def find_user_from_personal_access_token_for_api_or_git
-        return unless api_request? || git_or_lfs_request?
-
-        find_user_from_personal_access_token
+        # Allow bots and service accounts to access both API and archive endpoints
+        (user&.project_bot? || user&.service_account?) && (api_request? || archive_request?)
       end
 
       def valid_access_token?(scopes: [])
-        validate_and_save_access_token!(scopes: scopes)
+        # We may just be checking whether the user has :admin_mode access, so
+        # don't construe an auth failure as a real failure.
+        validate_and_save_access_token!(scopes: scopes, save_auth_context: false)
 
         true
       rescue Gitlab::Auth::AuthenticationError
@@ -78,6 +62,31 @@ module Gitlab
       end
 
       private
+
+      # Use a minimal subset of find_user_from_any_authentication_method
+      # so only token types allowed for GraphQL can authenticate users.
+      # CI_JOB_TOKENs are not allowed for now, since their access is too broad.
+      #
+      # Overridden in EE
+      def find_user_for_graphql_api_request
+        find_user_from_web_access_token(:api, scopes: graphql_authorization_scopes) ||
+          find_user_from_personal_access_token_for_api_or_git
+      end
+
+      # Overridden in EE
+      def graphql_authorization_scopes
+        [:api, :read_api]
+      end
+
+      def find_user_from_any_authentication_method(request_format)
+        find_user_from_dependency_proxy_token ||
+          find_user_from_web_access_token(request_format, scopes: [:api, :read_api]) ||
+          find_user_from_feed_token(request_format) ||
+          find_user_from_static_object_token(request_format) ||
+          find_user_from_job_token ||
+          find_user_from_personal_access_token_for_api_or_git ||
+          find_user_for_git_or_lfs_request
+      end
 
       def access_token
         strong_memoize(:access_token) do
@@ -91,28 +100,6 @@ module Gitlab
           basic_auth_personal_access_token: api_request? || git_request?,
           deploy_token_allowed: api_request? || git_request?
         }
-      end
-
-      def find_user_from_dependency_proxy_token
-        return unless dependency_proxy_request?
-
-        token, _ = ActionController::HttpAuthentication::Token.token_and_options(current_request)
-
-        return unless token
-
-        user_or_deploy_token = ::DependencyProxy::AuthTokenService.user_or_deploy_token_from_jwt(token)
-
-        # Do not return deploy tokens
-        # See https://gitlab.com/gitlab-org/gitlab/-/issues/342481
-        return unless user_or_deploy_token.is_a?(::User)
-
-        user_or_deploy_token
-      rescue ActiveRecord::RecordNotFound
-        nil # invalid id used return no user
-      end
-
-      def dependency_proxy_request?
-        Gitlab::PathRegex.dependency_proxy_route_regex.match?(current_request.path)
       end
     end
   end

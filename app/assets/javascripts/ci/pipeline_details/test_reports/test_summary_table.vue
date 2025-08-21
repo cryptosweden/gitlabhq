@@ -45,7 +45,7 @@ export default {
           {{ __('Job') }}
         </div>
         <div role="rowheader" class="table-section section-25">
-          {{ __('Duration') }}
+          {{ __('Execution time') }}
         </div>
         <div role="rowheader" class="table-section section-10 gl-text-center">
           {{ __('Failed') }}
@@ -68,18 +68,17 @@ export default {
         v-for="(testSuite, index) in getTestSuites"
         :key="index"
         role="row"
-        class="gl-responsive-table-row gl-rounded-base js-suite-row"
+        class="gl-responsive-table-row js-suite-row gl-rounded-base"
         :class="{
           'gl-responsive-table-row-clickable gl-cursor-pointer': !testSuite.suite_error,
         }"
         @click="tableRowClick(index)"
       >
         <div class="table-section section-25">
-          <div role="rowheader" class="table-mobile-header gl-font-bold">
+          <div role="rowheader" class="table-mobile-header gl-truncate gl-font-bold">
             {{ __('Suite') }}
           </div>
-          <div class="table-mobile-content underline gl-text-gray-900 gl-pl-5">
-            {{ testSuite.name }}
+          <div class="table-mobile-content underline gl-truncate gl-pl-5 gl-text-default">
             <gl-icon
               v-if="testSuite.suite_error"
               ref="suiteErrorIcon"
@@ -88,12 +87,13 @@ export default {
               :title="testSuite.suite_error"
               class="vertical-align-middle"
             />
+            {{ testSuite.name }}
           </div>
         </div>
 
         <div class="table-section section-25">
           <div role="rowheader" class="table-mobile-header gl-font-bold">
-            {{ __('Duration') }}
+            {{ __('Execution time') }}
           </div>
           <div class="table-mobile-content gl-text-left">
             {{ testSuite.formattedTime }}
@@ -128,7 +128,7 @@ export default {
           <div class="table-mobile-content">{{ testSuite.success_count }}</div>
         </div>
 
-        <div class="table-section section-10 gl-text-right pr-md-3">
+        <div class="table-section section-10 pr-md-3 gl-text-right">
           <div role="rowheader" class="table-mobile-header gl-font-bold">
             {{ __('Total') }}
           </div>

@@ -2,13 +2,15 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Snippets API
 ---
 
-# Snippets API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Snippets API operates on [snippets](../user/snippets.md). Related APIs exist for
 [project snippets](project_snippets.md) and
@@ -211,8 +213,11 @@ Hello World snippet
 
 Create a new snippet.
 
-NOTE:
+{{< alert type="note" >}}
+
 The user must have permission to create new snippets.
+
+{{< /alert >}}
 
 ```plaintext
 POST /snippets
@@ -240,7 +245,7 @@ curl --request POST "https://gitlab.example.com/api/v4/snippets" \
      -d @snippet.json
 ```
 
-`snippet.json` used in the above example request:
+`snippet.json` used in the previous example request:
 
 ```json
 {
@@ -296,8 +301,11 @@ Example response:
 
 Update an existing snippet.
 
-NOTE:
+{{< alert type="note" >}}
+
 The user must have permission to change an existing snippet.
+
+{{< /alert >}}
 
 ```plaintext
 PUT /snippets/:id
@@ -328,7 +336,7 @@ curl --request PUT "https://gitlab.example.com/api/v4/snippets/1" \
      -d @snippet.json
 ```
 
-`snippet.json` used in the above example request:
+`snippet.json` used in the previous example request:
 
 ```json
 {
@@ -396,7 +404,8 @@ Parameters:
 Example request:
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" \
+curl --request DELETE \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
   --url "https://gitlab.example.com/api/v4/snippets/1"
 ```
 
@@ -477,7 +486,11 @@ Example response:
 
 ## List all snippets
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/419640) in GitLab 16.3.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/419640) in GitLab 16.3.
+
+{{< /history >}}
 
 List all snippets the current user has access to.
 Users with the Administrator or Auditor access levels can see all snippets
@@ -585,8 +598,11 @@ Example response:
 
 ## Get user agent details
 
-NOTE:
+{{< alert type="note" >}}
+
 Available only for administrators.
+
+{{< /alert >}}
 
 ```plaintext
 GET /snippets/:id/user_agent_detail

@@ -2,13 +2,15 @@
 stage: Plan
 group: Knowledge
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting GitLab Pages administration
 ---
 
-# Troubleshooting GitLab Pages administration
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 This page contains a list of issues you might encounter when administering GitLab Pages.
 
@@ -21,6 +23,157 @@ sudo gitlab-ctl tail gitlab-pages
 ```
 
 You can also find the log file in `/var/log/gitlab/gitlab-pages/current`.
+
+For more information, see [Getting the correlation ID from your logs](../logs/tracing_correlation_id.md#getting-the-correlation-id-from-your-logs).
+
+## Debug GitLab Pages
+
+The following sequence diagram illustrates how GitLab Pages requests are served.
+For more information on how a GitLab Pages site is deployed and serves static content from Object Storage,
+see the GitLab Pages Architecture documentation.
+
+```mermaid
+%%{init: { "fontFamily": "GitLab Sans" }}%%
+sequenceDiagram
+    accTitle: GitLab Pages Request Flow
+    accDescr: Sequence diagram showing how a user request flows through GitLab Pages components to serve static files.
+
+    actor User
+    participant PagesNGINX as Pages NGINX
+    participant Pages as GitLab Pages
+    participant GitlabNGINX as GitLab NGINX
+    participant GitlabAPI as GitLab Rails
+    participant ObjectStorage as Object Storage
+
+    User->>PagesNGINX: Request to Pages
+    activate PagesNGINX
+    PagesNGINX->>Pages: Forwarded to Pages
+    activate Pages
+
+    Pages->>GitlabNGINX: Fetch domain info
+    activate GitlabNGINX
+    GitlabNGINX->>GitlabAPI: Forwarded to GitLab API
+    activate GitlabAPI
+    GitlabAPI->>GitlabNGINX: 200 OK (domain info)
+    deactivate GitlabAPI
+    GitlabNGINX->>Pages: 200 OK (domain info)
+    deactivate GitlabNGINX
+
+    Note right of Pages: Domain information cached in Pages
+
+    Pages->>ObjectStorage: Fetch static files
+    activate ObjectStorage
+    ObjectStorage->>Pages: 200 OK (files)
+    deactivate ObjectStorage
+
+    Pages->>User: 200 OK (static files served)
+    deactivate Pages
+    deactivate PagesNGINX
+```
+
+### Identify error logs
+
+You should check logs in the order shown in the previous sequence diagram.
+Filtering based on your domain can also help identify relevant logs.
+
+To start tailing the logs:
+
+1. For **GitLab Pages NGINX** logs, run:
+
+   ```shell
+   # View GitLab Pages NGINX error logs
+   sudo gitlab-ctl tail nginx/gitlab_pages_error.log
+
+   # View GitLab Pages NGINX access logs
+   sudo gitlab-ctl tail nginx/gitlab_pages_access.log
+   ```
+
+1. For **GitLab Pages** logs, run: Start by identifying the [correlation ID from your logs](../logs/tracing_correlation_id.md#getting-the-correlation-id-from-your-logs).
+
+   ```shell
+   sudo gitlab-ctl tail gitlab-pages
+   ```
+
+1. For **GitLab NGINX** logs, run:
+
+   ```shell
+   # View GitLab NGINX error logs
+   sudo gitlab-ctl tail nginx/gitlab_error.log
+
+   # View GitLab NGINX access logs
+   sudo gitlab-ctl tail nginx/gitlab_access.log
+   ```
+
+1. For **GitLab Rails** logs, run:
+   You can filter these logs based on the `correlation_id` [identified in GitLab Pages logs](../logs/tracing_correlation_id.md#getting-the-correlation-id-from-your-logs).
+
+   ```shell
+   sudo gitlab-ctl tail gitlab-rails
+   ```
+
+## Authorization code flow
+
+The following sequence chart illustrates the OAuth authentication flow between the user, GitLab Pages,
+and GitLab Rails for accessing protected Pages sites.
+
+For more information, see
+[GitLab OAuth authorization code flow](../../api/oauth2.md#authorization-code-flow).
+
+```mermaid
+%%{init: { "fontFamily": "GitLab Sans" }}%%
+sequenceDiagram
+   accTitle: GitLab Pages OAuth Flow
+   accDescr: Sequence diagram showing the OAuth authentication flow between User, GitLab Pages, and GitLab Rails for accessing protected pages sites.
+
+   actor User
+   participant PagesService as GitLab Pages
+   participant GitlabApp as GitLab Rails
+
+   User->>PagesService: GET Request for site
+   activate PagesService
+   PagesService-->>User: 302 Redirect to project subdomain https://projects.gitlab.io/auth?state=state1
+   deactivate PagesService
+   Note left of User: Cookie state1
+
+   User->>PagesService: GET https://projects.gitlab.io/auth?state=state1
+   activate PagesService
+   PagesService-->>User: 302 Redirect to gitlab.com/oauth/authorize?state=state1
+   deactivate PagesService
+
+   User->>GitlabApp: GET oauth/authorize?state=state1
+   activate GitlabApp
+   GitlabApp-->>User: 200 OK (authorization form)
+   deactivate GitlabApp
+
+   User->>GitlabApp: POST authorization form
+   activate GitlabApp
+   GitlabApp-->>User: 302 Redirect to oauth/redirect
+   deactivate GitlabApp
+
+   User->>GitlabApp: GET oauth/redirect?state=state1
+   activate GitlabApp
+   GitlabApp-->>User: 200 OK (with auth code)
+   deactivate GitlabApp
+
+   User->>PagesService: GET https://projects.gitlab.io/auth?code=code1&state=state1
+   activate PagesService
+   PagesService->>GitlabApp: POST oauth/token with code=code1
+   activate GitlabApp
+   GitlabApp-->>PagesService: 200 OK (access token)
+   deactivate GitlabApp
+   PagesService-->>User: 302 Redirect to https://[namespace].gitlab.io/auth?code=code2&state=state1
+   deactivate PagesService
+
+   User->>PagesService: GET https://[namespace].gitlab.io/auth?code=code2&state=state1
+   activate PagesService
+   PagesService-->>User: 302 Redirect to site
+   deactivate PagesService
+
+   User->>PagesService: GET Request for site
+   activate PagesService
+   PagesService-->>User: 200 OK (site content)
+   deactivate PagesService
+```
 
 ## `unsupported protocol scheme \"\""`
 
@@ -122,7 +275,7 @@ If you see the following error:
 ERRO[0010] Failed to connect to the internal GitLab API after 0.50s  error="failed to connect to internal Pages API: HTTP status: 401"
 ```
 
-If you are [Running GitLab Pages on a separate server](index.md#running-gitlab-pages-on-a-separate-server)
+If you are [Running GitLab Pages on a separate server](_index.md#running-gitlab-pages-on-a-separate-server)
 you must copy the `/etc/gitlab/gitlab-secrets.json` file
 from the **GitLab server** to the **Pages server**.
 
@@ -145,7 +298,7 @@ WARN[0010] Pages cannot communicate with an instance of the GitLab API. Please s
 ```
 
 This can happen if your `gitlab-secrets.json` file is out of date between GitLab Rails and GitLab
-Pages. Follow steps 8-10 of [Running GitLab Pages on a separate server](index.md#running-gitlab-pages-on-a-separate-server),
+Pages. Follow steps 8-10 of [Running GitLab Pages on a separate server](_index.md#running-gitlab-pages-on-a-separate-server),
 in all of your GitLab Pages instances.
 
 ## Intermittent 502 errors when using an AWS Network Load Balancer and GitLab Pages
@@ -164,31 +317,31 @@ container.
 
 ## 500 error with `securecookie: failed to generate random iv` and `Failed to save the session`
 
-This problem most likely results from an [out-dated operating system](../package_information/supported_os.md#os-versions-that-are-no-longer-supported).
+This problem most likely results from an out-dated operating system.
 The [Pages daemon uses the `securecookie` library](https://gitlab.com/search?group_id=9970&project_id=734943&repository_ref=master&scope=blobs&search=securecookie&snippets=false) to get random strings via [`crypto/rand` in Go](https://pkg.go.dev/crypto/rand#pkg-variables).
 This requires the `getrandom` system call or `/dev/urandom` to be available on the host OS.
-Upgrading to an [officially supported operating system](https://about.gitlab.com/install/) is recommended.
+Upgrading to an [officially supported operating system](../../install/package/_index.md#supported-platforms) is recommended.
 
 ## The requested scope is invalid, malformed, or unknown
 
 This problem comes from the permissions of the GitLab Pages OAuth application. To fix it:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Applications > GitLab Pages**.
 1. Edit the application.
 1. Under **Scopes**, ensure that the `api` scope is selected.
 1. Save your changes.
 
-When running a [separate Pages server](index.md#running-gitlab-pages-on-a-separate-server),
+When running a [separate Pages server](_index.md#running-gitlab-pages-on-a-separate-server),
 this setting needs to be configured on the main GitLab server.
 
 ## Workaround in case no wildcard DNS entry can be set
 
-If the wildcard DNS [prerequisite](index.md#prerequisites) can't be met, you can still use GitLab Pages in a limited fashion:
+If the wildcard DNS [prerequisite](_index.md#prerequisites) can't be met, you can still use GitLab Pages in a limited fashion:
 
-1. [Move](../../user/project/settings/migrate_projects.md#transfer-a-project-to-another-namespace)
+1. [Move](../../user/project/working_with_projects.md#transfer-a-project)
    all projects you need to use Pages with into a single group namespace, for example `pages`.
-1. Configure a [DNS entry](index.md#dns-configuration) without the `*.`-wildcard, for example `pages.example.io`.
+1. Configure a [DNS entry](_index.md#dns-configuration) without the `*.`-wildcard, for example `pages.example.io`.
 1. Configure `pages_external_url http://example.io/` in your `gitlab.rb` file.
    Omit the group namespace here, because it automatically is prepended by GitLab.
 
@@ -216,7 +369,7 @@ You may see this error if `pages_external_url` was updated at some point of time
 
 1. Check the [System OAuth application](../../integration/oauth_provider.md#create-an-instance-wide-application):
 
-   1. On the left sidebar, at the bottom, select **Admin Area**.
+   1. On the left sidebar, at the bottom, select **Admin**.
    1. Select **Applications** and then **Add new application**.
    1. Ensure the **Callback URL/Redirect URI** is using the protocol (HTTP or HTTPS) that
       `pages_external_url` is configured to use.
@@ -256,7 +409,7 @@ the shared pages directory is mounted on a different path on the main GitLab ser
 GitLab Pages server.
 
 In that case, it's highly recommended you to configure
-[object storage and migrate any existing pages data to it](index.md#object-storage-settings).
+[object storage and migrate any existing pages data to it](_index.md#object-storage-settings).
 
 Alternatively, you can mount the GitLab Pages shared directory to the same path on
 both servers.
@@ -265,7 +418,7 @@ both servers.
 
 If the **pages** job succeeds but the **deploy** job gives the error "is not a recognized provider":
 
-![Pages Deploy Failure](img/pages_deploy_failure_v14_8.png)
+![A GitLab Pages pipeline shows success for the pages job but an error for the deploy job.](img/pages_deploy_failure_v14_8.png)
 
 The error message `is not a recognized provider` could be coming from the `fog` gem that GitLab uses to connect to cloud providers for object storage.
 
@@ -273,7 +426,7 @@ To fix that:
 
 1. Check your `gitlab.rb` file. If you have `gitlab_rails['pages_object_store_enabled']` enabled, but no bucket details have been configured, either:
 
-   - Configure object storage for your Pages deployments, following the [S3-compatible connection settings](index.md#s3-compatible-connection-settings) guide.
+   - Configure object storage for your Pages deployments, following the [S3-compatible connection settings](_index.md#s3-compatible-connection-settings) guide.
    - Store your deployments locally, by commenting out that line.
 
 1. Save the changes you made to your `gitlab.rb` file, then [reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation).

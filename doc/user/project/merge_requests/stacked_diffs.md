@@ -2,17 +2,23 @@
 stage: Create
 group: Code Review
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Use stacked diffs to create small merge changes that build upon each other to ultimately deliver a feature."
+description: Use stacked diffs to create small merge changes that build upon each other to ultimately deliver a feature.
+title: Stacked diffs
 ---
 
-# Stacked diffs
+{{< details >}}
 
-DETAILS:
-**Tier:** Core, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
-**Status:** Experiment
+- Tier: Core, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+- Status: Experiment
 
-> - Released in [v1.42.0 of the GitLab CLI](https://gitlab.com/gitlab-org/cli/-/releases/v1.42.0) as an [experiment](../../../policy/experiment-beta-support.md#experiment).
+{{< /details >}}
+
+{{< history >}}
+
+- Released in [v1.42.0 of the GitLab CLI](https://gitlab.com/gitlab-org/cli/-/releases/v1.42.0) as an [experiment](../../../policy/development_stages_support.md#experiment).
+
+{{< /history >}}
 
 In the [GitLab CLI](https://gitlab.com/gitlab-org/cli), stacked diffs are a way of
 creating small changes that build upon each other to ultimately deliver a feature.
@@ -31,7 +37,7 @@ you then extend with other commands.
 </figure>
 <!-- Video published on 2024-06-18 -->
 
-This feature is an [experiment](../../../policy/experiment-beta-support.md).
+This feature is an [experiment](../../../policy/development_stages_support.md).
 We'd love to hear your feedback in [issue 7473](https://gitlab.com/gitlab-org/cli/-/issues/7473).
 
 ## Create a stacked diff
@@ -50,15 +56,15 @@ To do create a stacked diff in the GitLab CLI:
 
 Use these sub-commands with `glab stack`:
 
-- [`amend`](https://gitlab.com/gitlab-org/cli/-/tree/main/docs/source/stack/amend.md)
-- [`create`](https://gitlab.com/gitlab-org/cli/-/tree/main/docs/source/stack/create.md)
-- [`first`](https://gitlab.com/gitlab-org/cli/-/tree/main/docs/source/stack/first.md)
-- [`last`](https://gitlab.com/gitlab-org/cli/-/tree/main/docs/source/stack/last.md)
-- [`move`](https://gitlab.com/gitlab-org/cli/-/tree/main/docs/source/stack/move.md)
-- [`next`](https://gitlab.com/gitlab-org/cli/-/tree/main/docs/source/stack/next.md)
-- [`prev`](https://gitlab.com/gitlab-org/cli/-/tree/main/docs/source/stack/prev.md)
-- [`save`](https://gitlab.com/gitlab-org/cli/-/tree/main/docs/source/stack/save.md)
-- [`sync`](https://gitlab.com/gitlab-org/cli/-/tree/main/docs/source/stack/sync.md)
+- [`amend`](https://gitlab.com/gitlab-org/cli/-/blob/main/docs/source/stack/amend.md)
+- [`create`](https://gitlab.com/gitlab-org/cli/-/blob/main/docs/source/stack/create.md)
+- [`first`](https://gitlab.com/gitlab-org/cli/-/blob/main/docs/source/stack/first.md)
+- [`last`](https://gitlab.com/gitlab-org/cli/-/blob/main/docs/source/stack/last.md)
+- [`move`](https://gitlab.com/gitlab-org/cli/-/blob/main/docs/source/stack/move.md)
+- [`next`](https://gitlab.com/gitlab-org/cli/-/blob/main/docs/source/stack/next.md)
+- [`prev`](https://gitlab.com/gitlab-org/cli/-/blob/main/docs/source/stack/prev.md)
+- [`save`](https://gitlab.com/gitlab-org/cli/-/blob/main/docs/source/stack/save.md)
+- [`sync`](https://gitlab.com/gitlab-org/cli/-/blob/main/docs/source/stack/sync.md)
 
 ## Add changes to a diff in a stack
 

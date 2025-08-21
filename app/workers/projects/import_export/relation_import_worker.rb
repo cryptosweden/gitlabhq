@@ -4,6 +4,7 @@ module Projects
   module ImportExport
     class RelationImportWorker
       include ApplicationWorker
+      include Sidekiq::InterruptionsExhausted
 
       sidekiq_options retry: 6
 
@@ -16,12 +17,26 @@ module Projects
 
       attr_reader :tracker, :project, :current_user
 
+      sidekiq_retries_exhausted do |job, exception|
+        new.perform_failure(job['args'].first, exception)
+      end
+
+      sidekiq_interruptions_exhausted do |job|
+        new.perform_failure(job['args'].first,
+          ::Import::Exceptions::SidekiqExhaustedInterruptionsError.new
+        )
+      end
+
       def perform(tracker_id, user_id)
         @current_user = User.find(user_id)
         @tracker = ::Projects::ImportExport::RelationImportTracker.find(tracker_id)
         @project = tracker.project
 
-        return unless tracker.can_start?
+        unless tracker.can_start?
+          ::Import::Framework::Logger.info(message: 'Cannot start tracker', tracker_id: tracker.id,
+            tracker_status: tracker.status_name)
+          return
+        end
 
         tracker.start!
 
@@ -31,18 +46,19 @@ module Projects
 
         tracker.finish!
       rescue StandardError => error
-        failure_service = Gitlab::ImportExport::ImportFailureService.new(project)
-        failure_service.log_import_failure(
-          source: 'RelationImportWorker#perform',
-          exception: error,
-          relation_key: tracker.relation
-        )
-
-        tracker.fail_op!
+        log_failure(error)
 
         raise
       ensure
         remove_extracted_import
+      end
+
+      def perform_failure(tracker_id, exception)
+        @tracker = ::Projects::ImportExport::RelationImportTracker.find(tracker_id)
+        @project = tracker.project
+
+        log_failure(exception)
+        tracker.fail_op!
       end
 
       private
@@ -52,7 +68,8 @@ module Projects
           importable: project,
           archive_file: nil,
           shared: project.import_export_shared,
-          tmpdir: tmpdir
+          tmpdir: tmpdir,
+          user: current_user
         )
       end
 
@@ -74,12 +91,12 @@ module Projects
           relation_factory: Gitlab::ImportExport::Project::RelationFactory,
           reader: Gitlab::ImportExport::Reader.new(shared: project.import_export_shared),
           importable: project,
-          importable_attributes: relation_reader.consume_attributes('project'),
+          importable_attributes: {},
           importable_path: 'project',
           skip_on_duplicate_iid: true
         )
 
-        tree_restorer.restore_single_relation(tracker.relation)
+        tree_restorer.restore_single_relation(tracker.relation, extra_track_scope: { tracker_id: tracker.id })
       end
 
       def relation_reader
@@ -96,12 +113,24 @@ module Projects
         Gitlab::ImportExport::MembersMapper.new(
           exported_members: project_members,
           user: current_user,
-          importable: project
+          importable: project,
+          default_member: false
         )
       end
 
       def perform_post_import_tasks
         project.reset_counters_and_iids
+        # Issue iids are scoped on :namespace so that scope must be flushed as well
+        InternalId.flush_records!(namespace: project.project_namespace)
+      end
+
+      def log_failure(exception)
+        failure_service = Gitlab::ImportExport::ImportFailureService.new(project)
+        failure_service.log_import_failure(
+          source: 'RelationImportWorker#perform',
+          exception: exception,
+          relation_key: tracker.relation
+        )
       end
     end
   end

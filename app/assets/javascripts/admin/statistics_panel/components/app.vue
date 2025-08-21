@@ -1,13 +1,12 @@
 <script>
-import { GlCard, GlLoadingIcon } from '@gitlab/ui';
 // eslint-disable-next-line no-restricted-imports
 import { mapState, mapGetters, mapActions } from 'vuex';
+import CrudComponent from '~/vue_shared/components/crud_component.vue';
 import statisticsLabels from '../constants';
 
 export default {
   components: {
-    GlCard,
-    GlLoadingIcon,
+    CrudComponent,
   },
   data() {
     return {
@@ -15,7 +14,7 @@ export default {
     };
   },
   computed: {
-    ...mapState(['isLoading', 'statistics']),
+    ...mapState(['isLoading']),
     ...mapGetters(['getStatistics']),
   },
   mounted() {
@@ -28,20 +27,18 @@ export default {
 </script>
 
 <template>
-  <gl-card>
-    <h4 class="gl-heading-4">{{ __('Statistics') }}</h4>
-    <slot name="footer">
-      <gl-loading-icon v-if="isLoading" size="lg" class="my-3" />
-      <template v-else>
-        <p
-          v-for="statistic in getStatistics(statisticsLabels)"
-          :key="statistic.key"
-          class="js-stats"
-        >
-          {{ statistic.label }}
-          <span class="light gl-float-right">{{ statistic.value }}</span>
-        </p>
-      </template>
-    </slot>
-  </gl-card>
+  <crud-component
+    :is-loading="isLoading"
+    :title="__('Statistics')"
+    :body-class="{ '!gl-mt-0': !isLoading }"
+  >
+    <p
+      v-for="statistic in getStatistics(statisticsLabels)"
+      :key="statistic.key"
+      :class="['js-stats', 'gl-py-4', 'gl-m-0', 'gl-border-b', 'last:gl-border-b-0']"
+    >
+      {{ statistic.label }}
+      <span class="light gl-float-right">{{ statistic.value }}</span>
+    </p>
+  </crud-component>
 </template>

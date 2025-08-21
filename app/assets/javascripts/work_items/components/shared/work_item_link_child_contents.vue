@@ -4,26 +4,32 @@ import {
   GlLink,
   GlIcon,
   GlButton,
-  GlAvatar,
-  GlAvatarLink,
   GlAvatarsInline,
   GlTooltip,
   GlTooltipDirective,
 } from '@gitlab/ui';
 import { __, s__, sprintf } from '~/locale';
 import { isScopedLabel } from '~/lib/utils/common_utils';
-import RichTimestampTooltip from '~/vue_shared/components/rich_timestamp_tooltip.vue';
+import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import UserLinkWithTooltip from '~/vue_shared/components/user_link_with_tooltip.vue';
+import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import WorkItemLinkChildMetadata from 'ee_else_ce/work_items/components/shared/work_item_link_child_metadata.vue';
+import RichTimestampTooltip from '../rich_timestamp_tooltip.vue';
 import WorkItemTypeIcon from '../work_item_type_icon.vue';
+import WorkItemStateBadge from '../work_item_state_badge.vue';
+import {
+  canRouterNav,
+  findLinkedItemsWidget,
+  findStatusWidget,
+  getDisplayReference,
+} from '../../utils';
 import {
   STATE_OPEN,
-  WIDGET_TYPE_PROGRESS,
-  WIDGET_TYPE_HIERARCHY,
-  WIDGET_TYPE_HEALTH_STATUS,
-  WIDGET_TYPE_MILESTONE,
   WIDGET_TYPE_ASSIGNEES,
   WIDGET_TYPE_LABELS,
+  INJECTION_LINK_CHILD_PREVENT_ROUTER_NAVIGATION,
 } from '../../constants';
+import WorkItemRelationshipIcons from './work_item_relationship_icons.vue';
 
 export default {
   i18n: {
@@ -31,22 +37,32 @@ export default {
     created: __('Created'),
     closed: __('Closed'),
     remove: s__('WorkItem|Remove'),
+    assignee: s__('WorkItem|Assignee'),
   },
   components: {
     GlLabel,
     GlLink,
     GlIcon,
     GlButton,
-    GlAvatar,
-    GlAvatarLink,
     GlAvatarsInline,
     GlTooltip,
     RichTimestampTooltip,
     WorkItemLinkChildMetadata,
     WorkItemTypeIcon,
+    WorkItemStateBadge,
+    WorkItemRelationshipIcons,
+    UserLinkWithTooltip,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
+  },
+  mixins: [glFeatureFlagMixin()],
+  inject: {
+    preventRouterNav: {
+      from: INJECTION_LINK_CHILD_PREVENT_ROUTER_NAVIGATION,
+      default: false,
+    },
+    isGroup: {},
   },
   props: {
     childItem: {
@@ -57,15 +73,24 @@ export default {
       type: Boolean,
       required: true,
     },
+    workItemFullPath: {
+      type: String,
+      required: true,
+    },
     showLabels: {
       type: Boolean,
       required: false,
       default: true,
     },
-    workItemFullPath: {
-      type: String,
+    showWeight: {
+      type: Boolean,
       required: false,
-      default: '',
+      default: true,
+    },
+    contextualViewEnabled: {
+      type: Boolean,
+      required: false,
+      default: false,
     },
   },
   computed: {
@@ -74,8 +99,7 @@ export default {
     },
     metadataWidgets() {
       return this.childItem.widgets?.reduce((metadataWidgets, widget) => {
-        // Skip Hierarchy widget as it is not part of metadata.
-        if (widget.type && widget.type !== WIDGET_TYPE_HIERARCHY) {
+        if (widget.type) {
           // eslint-disable-next-line no-param-reassign
           metadataWidgets[widget.type] = widget;
         }
@@ -99,14 +123,17 @@ export default {
     isChildItemOpen() {
       return this.childItem.state === STATE_OPEN;
     },
-    statusIconName() {
-      return this.isChildItemOpen ? 'issue-open-m' : 'issue-close';
-    },
     childItemType() {
       return this.childItem.workItemType.name;
     },
-    statusIconClass() {
-      return this.isChildItemOpen ? 'gl-text-green-500' : 'gl-text-blue-500';
+    childItemIid() {
+      return this.childItem.iid;
+    },
+    childItemWebUrl() {
+      return this.childItem.webUrl;
+    },
+    childItemFullPath() {
+      return this.childItem.namespace?.fullPath;
     },
     stateTimestamp() {
       return this.isChildItemOpen ? this.childItem.createdAt : this.childItem.closedAt;
@@ -114,30 +141,71 @@ export default {
     stateTimestampTypeText() {
       return this.isChildItemOpen ? this.$options.i18n.created : this.$options.i18n.closed;
     },
-    hasMetadata() {
-      if (this.metadataWidgets) {
-        return (
-          Number.isInteger(this.metadataWidgets[WIDGET_TYPE_PROGRESS]?.progress) ||
-          Boolean(this.metadataWidgets[WIDGET_TYPE_HEALTH_STATUS]?.healthStatus) ||
-          Boolean(this.metadataWidgets[WIDGET_TYPE_MILESTONE]?.milestone) ||
-          this.metadataWidgets[WIDGET_TYPE_ASSIGNEES]?.assignees?.nodes.length > 0 ||
-          this.metadataWidgets[WIDGET_TYPE_LABELS]?.labels?.nodes.length > 0
-        );
-      }
-      return false;
+    childItemTypeIconVariant() {
+      return this.isChildItemOpen ? 'default' : 'subtle';
     },
     displayLabels() {
       return this.showLabels && this.labels.length;
     },
+    workItemStatus() {
+      return findStatusWidget(this.childItem)?.status?.name;
+    },
+    showState() {
+      return this.glFeatures.workItemStatusFeatureFlag
+        ? !this.workItemStatus || !this.isChildItemOpen
+        : true;
+    },
     displayReference() {
-      // The reference is replaced by work item fullpath in case the project and group are same.
-      // e.g., gitlab-org/gitlab-test#45 will be shown as #45
-      return this.childItem.reference.replace(new RegExp(`${this.workItemFullPath}(?!-)`, 'g'), '');
+      return getDisplayReference(this.workItemFullPath, this.childItem.reference);
+    },
+    linkedItemsWidget() {
+      return findLinkedItemsWidget(this.childItem);
+    },
+    blockingCount() {
+      return this.linkedItemsWidget?.blockingCount || 0;
+    },
+    blockedByCount() {
+      return this.linkedItemsWidget?.blockedByCount || 0;
+    },
+    hasBlockingRelationships() {
+      return this.blockingCount > 0 || this.blockedByCount > 0;
+    },
+    issueAsWorkItem() {
+      return !this.isGroup && this.glFeatures.workItemViewForIssues;
+    },
+    childItemUniqueId() {
+      return `listItem-${this.childItemFullPath}/${getIdFromGraphQLId(this.childItem.id)}`;
     },
   },
   methods: {
     showScopedLabel(label) {
       return isScopedLabel(label) && this.allowsScopedLabels;
+    },
+    handleItemClick(e) {
+      const workItem = this.childItem;
+      if (e.metaKey || e.ctrlKey || e.shiftKey) {
+        return;
+      }
+      const shouldDefaultNavigate =
+        this.preventRouterNav ||
+        !canRouterNav({
+          fullPath: this.workItemFullPath,
+          webUrl: workItem.webUrl,
+          isGroup: this.isGroup,
+          issueAsWorkItem: this.issueAsWorkItem,
+        });
+      const hasListRoute = this.$router.getRoutes().some((route) => route.name === 'workItem');
+      if (shouldDefaultNavigate || !hasListRoute) {
+        this.$emit('click', e);
+      } else {
+        e.preventDefault();
+        this.$router.push({
+          name: 'workItem',
+          params: {
+            iid: workItem.iid,
+          },
+        });
+      }
     },
   },
 };
@@ -145,41 +213,58 @@ export default {
 
 <template>
   <div
-    class="item-body work-item-link-child gl-relative gl-display-flex gl-flex-grow-1 gl-break-words gl-hyphens-auto gl-min-w-0 gl-rounded-base gl-p-3 gl-gap-3"
     data-testid="links-child"
+    class="item-body work-item-link-child gl-relative gl-flex gl-min-w-0 gl-grow gl-gap-3 gl-hyphens-auto gl-break-words gl-rounded-base gl-p-3"
+    @click="handleItemClick"
   >
-    <div ref="stateIcon" class="gl-cursor-help">
-      <work-item-type-icon class="gl-text-secondary" :work-item-type="childItemType" />
+    <a
+      v-if="contextualViewEnabled"
+      :href="childItemWebUrl"
+      class="!gl-absolute gl-left-0 gl-top-0 !gl-z-1 !gl-flex gl-h-full gl-w-full"
+      data-testid="issuable-card-link-overlay"
+      :aria-label="__('Work item')"
+    ></a>
+    <div ref="stateIcon" class="gl-z-2 gl-cursor-help">
+      <work-item-type-icon
+        :icon-variant="childItemTypeIconVariant"
+        :work-item-type="childItemType"
+      />
       <gl-tooltip :target="() => $refs.stateIcon">
         {{ childItemType }}
       </gl-tooltip>
     </div>
-    <div class="gl-display-flex gl-flex-direction-column gl-flex-grow-1 gl-flex-wrap gl-min-w-0">
-      <div
-        class="gl-display-flex gl-flex-wrap flex-xl-nowrap gl-justify-content-space-between gl-gap-3 gl-min-w-0 gl-mb-2"
-      >
-        <div class="item-title gl-min-w-0">
+    <div
+      class="gl-flex gl-min-w-0 gl-grow gl-flex-col gl-flex-wrap"
+      :class="{
+        'issue-clickable': contextualViewEnabled,
+      }"
+    >
+      <div class="gl-mb-2 gl-min-w-0 gl-justify-between gl-gap-3 sm:gl-flex">
+        <div class="item-title gl-mb-2 gl-min-w-0 sm:gl-mb-0">
           <span v-if="childItem.confidential">
             <gl-icon
               v-gl-tooltip.top
               name="eye-slash"
-              class="gl-text-orange-500"
               data-testid="confidential-icon"
               :aria-label="$options.i18n.confidential"
               :title="$options.i18n.confidential"
+              variant="warning"
             />
           </span>
           <gl-link
-            :href="childItem.webUrl"
-            class="gl-break-words gl-hyphens-auto gl-font-semibold"
-            @click="$emit('click', $event)"
+            :id="childItemUniqueId"
+            :href="childItemWebUrl"
+            :class="{ '!gl-text-subtle': !isChildItemOpen }"
+            class="gl-hyphens-auto gl-break-words gl-font-semibold"
             @mouseover="$emit('mouseover')"
             @mouseout="$emit('mouseout')"
           >
             {{ childItem.title }}
           </gl-link>
         </div>
-        <div class="gl-display-flex gl-justify-content-end">
+        <div
+          class="gl-flex gl-shrink-0 gl-flex-row-reverse gl-items-center gl-justify-end gl-gap-3 sm:gl-flex-row"
+        >
           <gl-avatars-inline
             v-if="assignees.length"
             :avatars="assignees"
@@ -188,24 +273,28 @@ export default {
             :avatar-size="16"
             badge-tooltip-prop="name"
             :badge-sr-only-text="assigneesCollapsedTooltip"
-            class="gl-whitespace-nowrap gl-mr-3"
           >
             <template #avatar="{ avatar }">
-              <gl-avatar-link v-gl-tooltip :href="avatar.webUrl" :title="avatar.name">
-                <gl-avatar :alt="avatar.name" :src="avatar.avatarUrl" :size="16" />
-              </gl-avatar-link>
+              <user-link-with-tooltip :label="$options.i18n.assignee" :avatar="avatar" />
             </template>
           </gl-avatars-inline>
+          <work-item-relationship-icons
+            v-if="isChildItemOpen && hasBlockingRelationships"
+            :work-item-type="childItemType"
+            :work-item-full-path="childItemFullPath"
+            :work-item-iid="childItemIid"
+            :work-item-web-url="childItemWebUrl"
+            :blocking-count="blockingCount"
+            :blocked-by-count="blockedByCount"
+          />
+          <slot name="child-contents"></slot>
           <span
+            v-if="showState"
             :id="`statusIcon-${childItem.id}`"
             class="gl-cursor-help"
             data-testid="item-status-icon"
           >
-            <gl-icon
-              :class="statusIconClass"
-              :name="statusIconName"
-              :aria-label="stateTimestampTypeText"
-            />
+            <work-item-state-badge :work-item-state="childItem.state" :show-icon="false" />
           </span>
           <rich-timestamp-tooltip
             :target="`statusIcon-${childItem.id}`"
@@ -216,11 +305,13 @@ export default {
       </div>
       <work-item-link-child-metadata
         :reference="displayReference"
-        :iid="childItem.iid"
+        :is-child-item-open="isChildItemOpen"
         :metadata-widgets="metadataWidgets"
+        :show-weight="showWeight"
+        :work-item-type="childItemType"
         class="ml-xl-0"
       />
-      <div v-if="displayLabels" class="gl-display-flex gl-flex-wrap">
+      <div v-if="displayLabels" class="gl-flex gl-flex-wrap">
         <gl-label
           v-for="label in labels"
           :key="label.id"
@@ -228,22 +319,23 @@ export default {
           :background-color="label.color"
           :description="label.description"
           :scoped="showScopedLabel(label)"
-          class="gl-mt-2 gl-mr-2 gl-mb-auto"
+          class="gl-mb-auto gl-mr-2 gl-mt-2"
           tooltip-placement="top"
+          @click.stop
         />
       </div>
     </div>
     <div v-if="canUpdate">
       <gl-button
         v-gl-tooltip
-        class="-gl-mt-2 -gl-mr-2"
+        class="gl-relative gl-z-2 -gl-mr-2 -gl-mt-1"
         category="tertiary"
         size="small"
         icon="close"
         :aria-label="$options.i18n.remove"
         :title="$options.i18n.remove"
         data-testid="remove-work-item-link"
-        @click="$emit('removeChild', childItem)"
+        @click.stop="$emit('removeChild', childItem)"
       />
     </div>
   </div>

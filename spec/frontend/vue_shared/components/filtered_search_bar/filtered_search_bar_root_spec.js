@@ -4,8 +4,9 @@ import { nextTick } from 'vue';
 import { useLocalStorageSpy } from 'helpers/local_storage_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 
+import { markRaw } from '~/lib/utils/vue3compat/mark_raw';
+
 import RecentSearchesService from '~/filtered_search/services/recent_searches_service';
-import RecentSearchesStore from '~/filtered_search/stores/recent_searches_store';
 import {
   FILTERED_SEARCH_TERM,
   TOKEN_TYPE_AUTHOR,
@@ -37,10 +38,31 @@ jest.mock('~/vue_shared/components/filtered_search_bar/filtered_search_utils', (
   ).filterEmptySearchTerm,
 }));
 
+const mockFetch = jest.fn().mockResolvedValue([]);
+const mockServiceResults = (results) => {
+  mockFetch.mockResolvedValueOnce(results);
+};
+
+jest.mock('~/filtered_search/services/recent_searches_service', () => {
+  const ServiceMock = jest.fn(function ServiceMock() {
+    Object.assign(this, {
+      fetch: mockFetch,
+      save: jest.fn(),
+      isAvailable: () => true,
+    });
+  });
+  ServiceMock.isAvailable = () => true;
+
+  return {
+    __esModule: true,
+    default: ServiceMock,
+  };
+});
+
 const defaultProps = {
   namespace: 'gitlab-org/gitlab-test',
   recentSearchesStorageKey: 'issues',
-  tokens: mockAvailableTokens,
+  tokens: markRaw(mockAvailableTokens),
   initialFilterValue: [],
   showCheckbox: false,
   checkboxChecked: false,
@@ -139,48 +161,36 @@ describe('FilteredSearchBarRoot', () => {
       });
     });
 
-    describe('filteredRecentSearches', () => {
-      beforeEach(() => {
+    describe('GlFilteredSearch history items', () => {
+      it('returns array of recent searches filtering out any deprecated plain strings', async () => {
+        const newSearchFormat = [{ type: FILTERED_SEARCH_TERM, value: { data: 'foo' } }];
+        const oldSearchFormat = 'bar';
+        mockServiceResults([newSearchFormat, oldSearchFormat]);
         createComponent();
+        await waitForPromises();
+
+        expect(findGlFilteredSearch().props('historyItems')).toEqual([newSearchFormat]);
       });
 
-      it('returns array of recent searches filtering out any string type (unsupported) items', async () => {
-        // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-        // eslint-disable-next-line no-restricted-syntax
-        wrapper.setData({
-          recentSearches: [{ foo: 'bar' }, 'foo'],
-        });
+      it('returns array of recent searches removing any duplicate searches', async () => {
+        mockServiceResults([
+          [tokenValueAuthor, tokenValueMilestone],
+          [tokenValueAuthor, tokenValueLabel, tokenValueMilestone, tokenValueLabel],
+          [tokenValueAuthor, tokenValueMilestone],
+        ]);
+        createComponent();
+        await waitForPromises();
 
-        await nextTick();
-
-        expect(wrapper.vm.filteredRecentSearches).toHaveLength(1);
-        expect(wrapper.vm.filteredRecentSearches[0]).toEqual({ foo: 'bar' });
+        expect(findGlFilteredSearch().props('historyItems')).toEqual([
+          [tokenValueAuthor, tokenValueMilestone],
+          [tokenValueAuthor, tokenValueLabel, tokenValueMilestone, tokenValueLabel],
+        ]);
       });
 
-      it('returns array of recent searches sanitizing any duplicate token values', async () => {
-        // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-        // eslint-disable-next-line no-restricted-syntax
-        wrapper.setData({
-          recentSearches: [
-            [tokenValueAuthor, tokenValueLabel, tokenValueMilestone, tokenValueLabel],
-            [tokenValueAuthor, tokenValueMilestone],
-          ],
-        });
+      it('returns no searches when recentSearchesStorageKey prop is not set on component', () => {
+        createComponent({ propsData: { recentSearchesStorageKey: '' } });
 
-        await nextTick();
-
-        expect(wrapper.vm.filteredRecentSearches).toHaveLength(2);
-        expect(uniqueTokens).toHaveBeenCalled();
-      });
-
-      it('returns undefined when recentSearchesStorageKey prop is not set on component', async () => {
-        wrapper.setProps({
-          recentSearchesStorageKey: '',
-        });
-
-        await nextTick();
-
-        expect(wrapper.vm.filteredRecentSearches).not.toBeDefined();
+        expect(findGlFilteredSearch().props('historyItems')).toBeNull();
       });
     });
   });
@@ -209,31 +219,16 @@ describe('FilteredSearchBarRoot', () => {
 
   describe('methods', () => {
     describe('setupRecentSearch', () => {
-      it('initializes `recentSearchesService` and `recentSearchesStore` props when `recentSearchesStorageKey` is available', () => {
-        createComponent();
-        expect(wrapper.vm.recentSearchesService instanceof RecentSearchesService).toBe(true);
-        expect(wrapper.vm.recentSearchesStore instanceof RecentSearchesStore).toBe(true);
-      });
-
-      it('initializes `recentSearchesPromise` prop with a promise by using `recentSearchesService.fetch()`', () => {
-        expect(localStorage.setItem).not.toHaveBeenCalled();
-        createComponent();
-
-        expect(localStorage.setItem).toHaveBeenCalledWith('canUseLocalStorage', 'true');
-        expect(wrapper.vm.recentSearchesPromise instanceof Promise).toBe(true);
-      });
-
       describe('when `recentSearchesStorageKey` is changed', () => {
-        it('gets new items from local storage', async () => {
+        it('reinitializes storage service', async () => {
           createComponent();
-
-          expect(localStorage.getItem).toHaveBeenCalledWith(
+          expect(RecentSearchesService).toHaveBeenLastCalledWith(
             'gitlab-org/gitlab-test-issue-recent-searches',
           );
 
           await wrapper.setProps({ recentSearchesStorageKey: RECENT_SEARCHES_STORAGE_KEY_GROUPS });
 
-          expect(localStorage.getItem).toHaveBeenCalledWith(
+          expect(RecentSearchesService).toHaveBeenLastCalledWith(
             'gitlab-org/gitlab-test-groups-recent-searches',
           );
         });
@@ -261,7 +256,7 @@ describe('FilteredSearchBarRoot', () => {
         findGlSorting().vm.$emit('sortByChange', mockSortOptions[1].id);
         await nextTick();
 
-        expect(wrapper.vm.selectedSortOption).toBe(mockSortOptions[1]);
+        expect(wrapper.vm.selectedSortOption).toEqual(mockSortOptions[1]);
         expect(wrapper.emitted('onSort')[0]).toEqual([mockSortOptions[1].sortDirection.descending]);
       });
     });
@@ -305,32 +300,18 @@ describe('FilteredSearchBarRoot', () => {
       it('clears search history from recent searches store', () => {
         createComponent();
         jest.spyOn(wrapper.vm.recentSearchesStore, 'setRecentSearches').mockReturnValue([]);
-
-        expect(localStorage.setItem).toHaveBeenCalledTimes(2);
         findGlFilteredSearch().vm.$emit('clear-history');
 
         expect(wrapper.vm.recentSearchesStore.setRecentSearches).toHaveBeenCalledWith([]);
-        expect(localStorage.setItem).toHaveBeenCalledTimes(4);
-        expect(localStorage.setItem).toHaveBeenLastCalledWith(
-          'gitlab-org/gitlab-test-issue-recent-searches',
-          '[]',
-        );
         expect(wrapper.vm.recentSearches).toEqual([]);
       });
     });
 
     describe('handleFilterSubmit', () => {
-      const mockFilters = [tokenValueAuthor, 'foo'];
+      const mockFilters = [tokenValueAuthor];
 
       beforeEach(async () => {
-        createComponent();
-
-        // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-        // eslint-disable-next-line no-restricted-syntax
-        wrapper.setData({
-          filterValue: mockFilters,
-        });
-
+        createComponent({ propsData: { initialFilterValue: mockFilters } });
         await nextTick();
       });
 
@@ -353,27 +334,11 @@ describe('FilteredSearchBarRoot', () => {
       });
 
       it('calls `recentSearchesService.save` with array of searches', async () => {
-        expect(localStorage.setItem).toHaveBeenCalledTimes(4);
         findGlFilteredSearch().vm.$emit('submit');
         await waitForPromises();
 
-        expect(localStorage.setItem).toHaveBeenCalledTimes(6);
-        expect(localStorage.setItem).toHaveBeenLastCalledWith(
-          'gitlab-org/gitlab-test-issue-recent-searches',
-          JSON.stringify([mockFilters]),
-        );
-      });
-
-      it('sets `recentSearches` data prop with array of searches', async () => {
-        expect(localStorage.setItem).toHaveBeenCalledTimes(4);
-        findGlFilteredSearch().vm.$emit('submit');
-        await waitForPromises();
-
-        expect(localStorage.setItem).toHaveBeenCalledTimes(6);
-        expect(localStorage.setItem).toHaveBeenLastCalledWith(
-          'gitlab-org/gitlab-test-issue-recent-searches',
-          JSON.stringify([mockFilters]),
-        );
+        const { save } = RecentSearchesService.mock.instances.at(-1);
+        expect(save).toHaveBeenLastCalledWith([mockFilters]);
       });
 
       it('calls `blurSearchInput` method to remove focus from filter input field', () => {
@@ -396,18 +361,19 @@ describe('FilteredSearchBarRoot', () => {
 
   describe('template', () => {
     it('renders gl-filtered-search component', async () => {
+      mockServiceResults(mockHistoryItems);
       createComponent();
-      // setData usage is discouraged. See https://gitlab.com/groups/gitlab-org/-/epics/7330 for details
-      // eslint-disable-next-line no-restricted-syntax
-      await wrapper.setData({
-        recentSearches: mockHistoryItems,
-      });
+      await nextTick();
+      await nextTick();
 
       const glFilteredSearchEl = wrapper.findComponent(GlFilteredSearch);
 
       expect(glFilteredSearchEl.props('placeholder')).toBe('Filter requirements');
       expect(glFilteredSearchEl.props('availableTokens')).toEqual(mockAvailableTokens);
-      expect(glFilteredSearchEl.props('historyItems')).toEqual(mockHistoryItems);
+      expect(glFilteredSearchEl.props('historyItems')).toEqual([
+        [tokenValueAuthor, tokenValueLabel, tokenValueMilestone],
+        [tokenValueAuthor],
+      ]);
     });
 
     it('renders unchecked checkbox when `showCheckbox` prop is true', () => {
@@ -424,10 +390,10 @@ describe('FilteredSearchBarRoot', () => {
     it('renders search history items dropdown with formatting done using token symbols', async () => {
       createComponent({ propsData: { sortOptions: mockSortOptions }, shallow: false });
       wrapper.vm.recentSearchesStore.addRecentSearch(mockHistoryItems[0]);
-      await nextTick();
+      await waitForPromises();
 
       expect(findGlDisclosureDropdownItems().at(0).text()).toBe(
-        'Author := @rootLabel := ~bugMilestone := %v1.0"duo"',
+        'Author := @rootLabel := ~bugMilestone := %v1.0',
       );
     });
 
@@ -442,12 +408,12 @@ describe('FilteredSearchBarRoot', () => {
         });
 
         wrapper.vm.recentSearchesStore.addRecentSearch([tokenValueMembership]);
-        await nextTick();
+        await waitForPromises();
         expect(findGlDisclosureDropdownItem().text()).toBe('Membership := Direct');
       });
     });
 
-    describe('when token options have do not have `title` attribute defined', () => {
+    describe('when token options do not have `title` attribute defined', () => {
       it('renders search history items using the provided `value` attribute', async () => {
         createComponent({
           propsData: {
@@ -457,7 +423,7 @@ describe('FilteredSearchBarRoot', () => {
           shallow: false,
         });
         wrapper.vm.recentSearchesStore.addRecentSearch([tokenValueMembership]);
-        await nextTick();
+        await waitForPromises();
         expect(findGlDisclosureDropdownItem().text()).toBe('Membership := exclude');
       });
     });

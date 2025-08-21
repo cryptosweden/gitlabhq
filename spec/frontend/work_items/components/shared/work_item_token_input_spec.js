@@ -1,17 +1,41 @@
 import Vue, { nextTick } from 'vue';
 import { GlTokenSelector, GlAlert } from '@gitlab/ui';
+import { escape } from 'lodash';
 import VueApollo from 'vue-apollo';
-import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import { shallowMountExtended, mountExtended } from 'helpers/vue_test_utils_helper';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import WorkItemTokenInput from '~/work_items/components/shared/work_item_token_input.vue';
-import { WORK_ITEM_TYPE_ENUM_TASK } from '~/work_items/constants';
+import { WORK_ITEM_TYPE_ENUM_TASK, WORK_ITEM_TYPE_NAME_TASK } from '~/work_items/constants';
 import groupWorkItemsQuery from '~/work_items/graphql/group_work_items.query.graphql';
 import projectWorkItemsQuery from '~/work_items/graphql/project_work_items.query.graphql';
 import workItemsByReferencesQuery from '~/work_items/graphql/work_items_by_references.query.graphql';
-import { searchWorkItemsResponse } from '../../mock_data';
+import workItemAncestorsQuery from '~/work_items/graphql/work_item_ancestors.query.graphql';
+import { searchWorkItemsResponse, mockWorkItemReferenceQueryResponse } from '../../mock_data';
 
 Vue.use(VueApollo);
+
+const WORK_ITEM_ANCESTOR_ID = 'gid://gitlab/WorkItem/1';
+const WORK_ITEM_ID = 'gid://gitlab/WorkItem/2';
+const WORK_ITEM_CHILD_ID = 'gid://gitlab/WorkItem/3';
+
+const workItemAncestorsQueryResponse = {
+  data: {
+    workItem: {
+      widgets: [
+        {
+          ancestors: {
+            nodes: [
+              {
+                id: WORK_ITEM_ANCESTOR_ID,
+              },
+            ],
+          },
+        },
+      ],
+    },
+  },
+};
 
 describe('WorkItemTokenInput', () => {
   let wrapper;
@@ -24,6 +48,17 @@ describe('WorkItemTokenInput', () => {
           iid: '2',
           title: 'Task 1',
           confidential: false,
+          namespace: {
+            id: 'gid://gitlab/Group/1',
+            fullPath: 'test-project-path',
+            __typename: 'Namespace',
+          },
+          workItemType: {
+            id: 'gid://gitlab/WorkItems::Type/5',
+            name: 'Task',
+            iconName: 'issue-type-task',
+            __typename: 'WorkItemType',
+          },
           __typename: 'WorkItem',
         },
         {
@@ -31,10 +66,116 @@ describe('WorkItemTokenInput', () => {
           iid: '3',
           title: 'Task 2',
           confidential: false,
+          namespace: {
+            id: 'gid://gitlab/Group/1',
+            fullPath: 'test-project-path',
+            __typename: 'Namespace',
+          },
+          workItemType: {
+            id: 'gid://gitlab/WorkItems::Type/5',
+            name: 'Task',
+            iconName: 'issue-type-task',
+            __typename: 'WorkItemType',
+          },
           __typename: 'WorkItem',
         },
         {
           id: 'gid://gitlab/WorkItem/460',
+          iid: '4',
+          title: 'Task 3',
+          confidential: false,
+          namespace: {
+            id: 'gid://gitlab/Group/1',
+            fullPath: 'test-project-path',
+            __typename: 'Namespace',
+          },
+          workItemType: {
+            id: 'gid://gitlab/WorkItems::Type/5',
+            name: 'Task',
+            iconName: 'issue-type-task',
+            __typename: 'WorkItemType',
+          },
+          __typename: 'WorkItem',
+        },
+      ],
+    }),
+  );
+
+  const workItemsWithSelfResolver = jest.fn().mockResolvedValue(
+    searchWorkItemsResponse({
+      workItems: [
+        {
+          id: WORK_ITEM_ID,
+          iid: '2',
+          title: 'Task 1',
+          confidential: false,
+          __typename: 'WorkItem',
+        },
+        {
+          id: 'gid://gitlab/WorkItem/439',
+          iid: '3',
+          title: 'Task 2',
+          confidential: false,
+          __typename: 'WorkItem',
+        },
+        {
+          id: 'gid://gitlab/WorkItem/432',
+          iid: '4',
+          title: 'Task 3',
+          confidential: false,
+          __typename: 'WorkItem',
+        },
+      ],
+    }),
+  );
+
+  const workItemsWithChildResolver = jest.fn().mockResolvedValue(
+    searchWorkItemsResponse({
+      workItems: [
+        {
+          id: WORK_ITEM_CHILD_ID,
+          iid: '2',
+          title: 'Task 1',
+          confidential: false,
+          __typename: 'WorkItem',
+        },
+        {
+          id: 'gid://gitlab/WorkItem/439',
+          iid: '3',
+          title: 'Task 2',
+          confidential: false,
+          __typename: 'WorkItem',
+        },
+        {
+          id: 'gid://gitlab/WorkItem/432',
+          iid: '4',
+          title: 'Task 3',
+          confidential: false,
+          __typename: 'WorkItem',
+        },
+      ],
+    }),
+  );
+
+  const workItemsWithAncestorsResolver = jest.fn().mockResolvedValue(
+    searchWorkItemsResponse({
+      workItems: [
+        {
+          id: WORK_ITEM_ANCESTOR_ID,
+          iid: '2',
+          title: 'Task 1',
+          confidential: false,
+          __typename: 'WorkItem',
+        },
+        {
+          id: 'gid://gitlab/WorkItem/439',
+          iid: '3',
+          title: 'Task 2',
+          confidential: false,
+          __typename: 'WorkItem',
+        },
+        {
+          id: 'gid://gitlab/WorkItem/432',
           iid: '4',
           title: 'Task 3',
           confidential: false,
@@ -49,8 +190,39 @@ describe('WorkItemTokenInput', () => {
     iid: '3',
     title: 'Task 2',
     confidential: false,
+    namespace: {
+      id: 'gid://gitlab/Group/1',
+      fullPath: 'test-project-path',
+      __typename: 'Namespace',
+    },
+    workItemType: {
+      id: 'gid://gitlab/WorkItems::Type/5',
+      name: 'Task',
+      iconName: 'issue-type-task',
+      __typename: 'WorkItemType',
+    },
     __typename: 'WorkItem',
   };
+
+  const mockWorkItemWithHTMLInput = {
+    id: 'gid://gitlab/WorkItem/459',
+    iid: 'Task 2 <svg><use href=#/></svg>',
+    title: 'Task 2 <svg><use href=#/></svg>',
+    confidential: false,
+    namespace: {
+      id: 'gid://gitlab/Group/1',
+      fullPath: 'test-project-path',
+      __typename: 'Namespace',
+    },
+    workItemType: {
+      id: 'gid://gitlab/WorkItems::Type/5',
+      name: 'Task',
+      iconName: 'issue-type-task',
+      __typename: 'WorkItemType',
+    },
+    __typename: 'WorkItem',
+  };
+
   const groupSearchedWorkItemResolver = jest.fn().mockResolvedValue(
     searchWorkItemsResponse({
       workItems: [mockWorkItem],
@@ -61,51 +233,43 @@ describe('WorkItemTokenInput', () => {
       workItems: [mockWorkItem],
     }),
   );
-  const mockworkItemReferenceQueryResponse = {
-    data: {
-      workItemsByReference: {
-        nodes: [
-          {
-            id: 'gid://gitlab/WorkItem/705',
-            iid: '111',
-            title: 'Objective linked items 104',
-            confidential: false,
-            __typename: 'WorkItem',
-          },
-        ],
-        __typename: 'WorkItemConnection',
-      },
-    },
-  };
+
   const workItemReferencesQueryResolver = jest
     .fn()
-    .mockResolvedValue(mockworkItemReferenceQueryResponse);
+    .mockResolvedValue(mockWorkItemReferenceQueryResponse);
+
+  const workItemAncestorsQueryHandler = jest.fn().mockResolvedValue(workItemAncestorsQueryResponse);
 
   const createComponent = async ({
+    mountFn = shallowMountExtended,
     workItemsToAdd = [],
     parentConfidential = false,
-    childrenType = WORK_ITEM_TYPE_ENUM_TASK,
+    parentWorkItemId = WORK_ITEM_ID,
+    childrenIds = [],
+    childrenType = WORK_ITEM_TYPE_NAME_TASK,
     areWorkItemsToAddValid = true,
     workItemsResolver = searchWorkItemTextResolver,
     isGroup = false,
   } = {}) => {
-    wrapper = shallowMountExtended(WorkItemTokenInput, {
+    wrapper = mountFn(WorkItemTokenInput, {
       apolloProvider: createMockApollo([
         [projectWorkItemsQuery, workItemsResolver],
         [groupWorkItemsQuery, groupSearchedWorkItemResolver],
         [workItemsByReferencesQuery, workItemReferencesQueryResolver],
+        [workItemAncestorsQuery, workItemAncestorsQueryHandler],
       ]),
-      provide: {
-        isGroup,
-      },
       propsData: {
         value: workItemsToAdd,
         childrenType,
-        childrenIds: [],
+        childrenIds,
         fullPath: 'test-project-path',
-        parentWorkItemId: 'gid://gitlab/WorkItem/1',
+        isGroup,
+        parentWorkItemId,
         parentConfidential,
         areWorkItemsToAddValid,
+      },
+      stubs: {
+        GlTokenSelector,
       },
     });
 
@@ -132,12 +296,50 @@ describe('WorkItemTokenInput', () => {
     expect(findTokenSelector().props('dropdownItems')).toHaveLength(3);
   });
 
+  it.each`
+    type                       | resolver                          | parentWorkItemId | childrenIds             | expectedToOmit
+    ${'the current work item'} | ${workItemsWithSelfResolver}      | ${WORK_ITEM_ID}  | ${[]}                   | ${WORK_ITEM_ID}
+    ${'child work items'}      | ${workItemsWithChildResolver}     | ${undefined}     | ${[WORK_ITEM_CHILD_ID]} | ${WORK_ITEM_CHILD_ID}
+    ${'ancestor work items'}   | ${workItemsWithAncestorsResolver} | ${undefined}     | ${[]}                   | ${WORK_ITEM_ANCESTOR_ID}
+  `('Excludes $type from results', async ({ resolver, parentWorkItemId, childrenIds }) => {
+    createComponent({
+      parentWorkItemId,
+      childrenIds,
+      workItemsResolver: resolver,
+    });
+
+    findTokenSelector().vm.$emit('focus');
+    await waitForPromises();
+
+    expect(findTokenSelector().props('dropdownItems')).not.toContainEqual(
+      expect.objectContaining({ id: WORK_ITEM_ID }),
+    );
+  });
+
   it('renders red border around token selector input when work item is not valid', () => {
     createComponent({
       areWorkItemsToAddValid: false,
     });
 
     expect(findTokenSelector().props('containerClass')).toBe('!gl-shadow-inner-1-red-500');
+  });
+
+  it('renders the escaped dropdown items', async () => {
+    createComponent({
+      mountFn: mountExtended,
+      workItemsResolver: jest.fn().mockResolvedValue(
+        searchWorkItemsResponse({
+          workItems: [mockWorkItemWithHTMLInput],
+        }),
+      ),
+    });
+    findTokenSelector().vm.$emit('focus');
+    await waitForPromises();
+
+    const renderedContent = findTokenSelector().html();
+
+    expect(renderedContent).toContain(escape(mockWorkItemWithHTMLInput.title));
+    expect(renderedContent).toContain(escape(mockWorkItemWithHTMLInput.id));
   });
 
   describe('when input data is provided', () => {
@@ -151,6 +353,17 @@ describe('WorkItemTokenInput', () => {
       iid: '101',
       title: 'Task 3',
       confidential: false,
+      namespace: {
+        id: 'gid://gitlab/Group/1',
+        fullPath: 'test-project-path',
+        __typename: 'Namespace',
+      },
+      workItemType: {
+        id: 'gid://gitlab/WorkItems::Type/5',
+        name: 'Task',
+        iconName: 'issue-type-task',
+        __typename: 'WorkItemType',
+      },
       __typename: 'WorkItem',
     };
     const mockWorkItemResponseItem2 = {
@@ -158,6 +371,17 @@ describe('WorkItemTokenInput', () => {
       iid: '3',
       title: 'Task 123',
       confidential: false,
+      namespace: {
+        id: 'gid://gitlab/Group/1',
+        fullPath: 'test-project-path',
+        __typename: 'Namespace',
+      },
+      workItemType: {
+        id: 'gid://gitlab/WorkItems::Type/5',
+        name: 'Task',
+        iconName: 'issue-type-task',
+        __typename: 'WorkItemType',
+      },
       __typename: 'WorkItem',
     };
     const mockWorkItemResponseItem3 = {
@@ -165,6 +389,17 @@ describe('WorkItemTokenInput', () => {
       iid: '123',
       title: 'Task 2',
       confidential: false,
+      namespace: {
+        id: 'gid://gitlab/Group/1',
+        fullPath: 'test-project-path',
+        __typename: 'Namespace',
+      },
+      workItemType: {
+        id: 'gid://gitlab/WorkItems::Type/5',
+        name: 'Task',
+        iconName: 'issue-type-task',
+        __typename: 'WorkItemType',
+      },
       __typename: 'WorkItem',
     };
 
@@ -283,7 +518,17 @@ describe('WorkItemTokenInput', () => {
     });
 
     it('calls the project work items query', () => {
-      expect(searchWorkItemTextResolver).toHaveBeenCalled();
+      expect(searchWorkItemTextResolver).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fullPath: 'test-project-path',
+          iid: null,
+          in: undefined,
+          searchByIid: false,
+          searchByText: true,
+          searchTerm: '',
+          types: ['TASK'],
+        }),
+      );
     });
 
     it('skips calling the group work items query', () => {
@@ -302,7 +547,19 @@ describe('WorkItemTokenInput', () => {
     });
 
     it('calls the group work items query', () => {
-      expect(groupSearchedWorkItemResolver).toHaveBeenCalled();
+      expect(groupSearchedWorkItemResolver).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fullPath: 'test-project-path',
+          iid: null,
+          in: undefined,
+          includeAncestors: true,
+          includeDescendants: true,
+          searchByIid: false,
+          searchByText: true,
+          searchTerm: '',
+          types: ['TASK'],
+        }),
+      );
     });
   });
 

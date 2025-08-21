@@ -19,19 +19,28 @@ module Resolvers
       required: false,
       description: 'Search query for group name or group full path.'
 
+    argument :ids, [GraphQL::Types::ID],
+      required: false,
+      description: 'Filter groups by IDs.',
+      prepare: ->(global_ids, _ctx) {
+        GitlabSchema.parse_gids(global_ids, expected_type: ::Group).map(&:model_id)
+      }
+
+    argument :sort, Types::Namespaces::GroupSortEnum,
+      required: false,
+      description: 'Sort groups by given criteria.',
+      default_value: :name_asc
+
     alias_method :parent, :object
 
     private
 
-    # rubocop: disable CodeReuse/ActiveRecord
     def resolve_groups(args)
       return Group.none unless parent.present?
 
       GroupsFinder
         .new(context[:current_user], args.merge(parent: parent))
         .execute
-        .reorder(name: :asc)
     end
-    # rubocop: enable CodeReuse/ActiveRecord
   end
 end

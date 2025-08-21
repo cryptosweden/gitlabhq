@@ -11,7 +11,10 @@ import WorkItemTokenInput from '~/work_items/components/shared/work_item_token_i
 import addLinkedItemsMutation from '~/work_items/graphql/add_linked_items.mutation.graphql';
 import { LINKED_ITEM_TYPE_VALUE, MAX_WORK_ITEMS } from '~/work_items/constants';
 
-import { linkedWorkItemResponse, generateWorkItemsListWithId } from '../../mock_data';
+import {
+  linkedWorkItemResponse,
+  generateWorkItemsListWithId,
+} from 'ee_else_ce_jest/work_items/mock_data';
 
 describe('WorkItemAddRelationshipForm', () => {
   Vue.use(VueApollo);
@@ -27,6 +30,7 @@ describe('WorkItemAddRelationshipForm', () => {
     workItemType = 'Objective',
     childrenIds = [],
     linkedWorkItemsMutationHandler = linkedWorkItemsSuccessMutationHandler,
+    hasBlockedWorkItemsFeature = true,
   } = {}) => {
     const mockApolloProvider = createMockApollo([
       [addLinkedItemsMutation, linkedWorkItemsMutationHandler],
@@ -34,15 +38,13 @@ describe('WorkItemAddRelationshipForm', () => {
 
     wrapper = shallowMountExtended(WorkItemAddRelationshipForm, {
       apolloProvider: mockApolloProvider,
-      provide: {
-        isGroup: false,
-      },
       propsData: {
         workItemId,
         workItemIid,
         workItemFullPath: 'test-project-path',
         workItemType,
         childrenIds,
+        hasBlockedWorkItemsFeature,
       },
     });
 
@@ -67,8 +69,15 @@ describe('WorkItemAddRelationshipForm', () => {
       { text: 'blocks', value: LINKED_ITEM_TYPE_VALUE.BLOCKS },
       { text: 'is blocked by', value: LINKED_ITEM_TYPE_VALUE.BLOCKED_BY },
     ]);
-    expect(findLinkWorkItemButton().attributes('disabled')).toBe('true');
-    expect(findMaxWorkItemNote().text()).toBe('Add a maximum of 10 items at a time.');
+    expect(findLinkWorkItemButton().attributes().disabled).toBe('true');
+    expect(findMaxWorkItemNote().text()).toBe('Add up to 10 items at a time.');
+  });
+
+  it('does not render relationship type radio options when hasBlockedWorkItemsFeature is false', async () => {
+    await createComponent({ hasBlockedWorkItemsFeature: false });
+
+    expect(findLinkWorkItemForm().exists()).toBe(true);
+    expect(findRadioGroup().exists()).toBe(false);
   });
 
   it('renders work item token input with default props', () => {
@@ -99,7 +108,7 @@ describe('WorkItemAddRelationshipForm', () => {
       await selectWorkItemTokens(generateWorkItemsListWithId(MAX_WORK_ITEMS + 1));
 
       expect(findWorkItemTokenInput().props('areWorkItemsToAddValid')).toBe(false);
-      expect(findLinkWorkItemButton().attributes('disabled')).toBe('true');
+      expect(findLinkWorkItemButton().attributes().disabled).toBe('true');
     });
 
     it.each`

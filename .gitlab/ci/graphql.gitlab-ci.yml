@@ -7,12 +7,20 @@ graphql-verify:
     - .default-before_script
     - .graphql:rules:graphql-verify
   stage: test
-  needs: []
+  needs:
+    - job: cache:ruby-gems
+      optional: true
   script:
-    - bundle exec rake gitlab:graphql:validate
-    - bundle exec rake gitlab:graphql:check_docs
-    - bundle exec rake gitlab:graphql:schema:dump
-    - node scripts/frontend/graphql_possible_types_extraction.js --check
+    - |
+      function graphql_verify() {
+        bundle exec rake gitlab:graphql:validate
+        bundle exec rake gitlab:graphql:check_docs
+        bundle exec rake gitlab:graphql:schema:dump
+        node scripts/frontend/graphql_possible_types_extraction.js --check
+      }
+
+      run_with_custom_exit_code graphql_verify
+
   artifacts:
     expire_in: 7 days
     name: graphql-schema-verify

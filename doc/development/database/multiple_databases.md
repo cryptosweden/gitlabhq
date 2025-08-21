@@ -1,17 +1,16 @@
 ---
-stage: Data Stores
-group: Tenant Scale
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Tenant Scale
+group: Cells Infrastructure
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Multiple Databases
 ---
-
-# Multiple Databases
 
 To allow GitLab to scale further we
 [decomposed the GitLab application database into multiple databases](https://gitlab.com/groups/gitlab-org/-/epics/6168).
-The main databases are `main`, `ci`, and (optionally) `sec`. GitLab supports being run with one, two, or three databases.
-On GitLab.com we are using separate `main` and `ci` databases.
+The main databases are `main`, `ci`, and `sec`. GitLab supports being run with one, two, or three databases.
+On GitLab.com we are using separate `main` `ci`, and `sec` databases.
 
-For the purpose of building the [Cells](../../architecture/blueprints/cells/index.md) architecture, we are decomposing
+For the purpose of building the [Cells](https://handbook.gitlab.com/handbook/engineering/architecture/design-documents/cells/) architecture, we are decomposing
 the databases further, to introduce another database `gitlab_main_clusterwide`.
 
 ## GitLab Schema
@@ -20,17 +19,22 @@ For properly discovering allowed patterns between different databases
 the GitLab application implements the [database dictionary](database_dictionary.md).
 
 The database dictionary provides a virtual classification of tables into a `gitlab_schema`
-which conceptually is similar to [PostgreSQL Schema](https://www.postgresql.org/docs/current/ddl-schemas.html).
+which conceptually is similar to [PostgreSQL Schema](https://www.postgresql.org/docs/16/ddl-schemas.html).
 We decided as part of [using database schemas to better isolated CI decomposed features](https://gitlab.com/gitlab-org/gitlab/-/issues/333415)
 that we cannot use PostgreSQL schema due to complex migration procedures. Instead we implemented
 the concept of application-level classification.
 Each table of GitLab needs to have a `gitlab_schema` assigned:
 
-| Database | Description | Notes |
+| Schema | Description | Notes |
 | -------- | ----------- | ------- |
-| `gitlab_main`| All tables that are being stored in the `main:` database. | Currently, this is being replaced with `gitlab_main_cell`, for the purpose of building the [Cells](../../architecture/blueprints/cells/index.md) architecture. `gitlab_main_cell` schema describes all tables that are local to a cell in a GitLab installation. For example, `projects` and `groups` |
-| `gitlab_main_clusterwide` | All tables where all rows, or a subset of rows needs to be present across the cluster, in the [Cells](../../architecture/blueprints/cells/index.md) architecture. For example, `users` and `application_settings`.| For the [Cells 1.0 architecture](../../architecture/blueprints/cells/iterations/cells-1.0.md), there are no real clusterwide tables as each cell will have its own database. In effect, these tables will still be stored locally in each cell. |
+| `gitlab_main` | See [Cells / Organizations schemas](../cells/_index.md#available-cells--organization-schemas) | |
+| `gitlab_main_cell` | See [Cells / Organizations schemas](../cells/_index.md#available-cells--organization-schemas) | |
+| `gitlab_main_org` | See [Cells / Organizations schemas](../cells/_index.md#available-cells--organization-schemas) | |
+| `gitlab_main_cell_setting` | See [Cells / Organizations schemas](../cells/_index.md#available-cells--organization-schemas) | |
+| `gitlab_main_clusterwide` | See [Cells / Organizations schemas](../cells/_index.md#available-cells--organization-schemas) | |
+| `gitlab_main_cell_local` | See [Cells / Organizations schemas](../cells/_index.md#available-cells--organization-schemas) | |
 | `gitlab_ci` | All CI tables that are being stored in the `ci:` database (for example, `ci_pipelines`, `ci_builds`) | |
+| `gitlab_ci_cell_local` | See [Cells / Organizations schemas](../cells/_index.md#available-cells--organization-schemas) | |
 | `gitlab_geo` | All Geo tables that are being stored in the `geo:` database (for example, like `project_registry`, `secondary_usage_data`) | |
 | `gitlab_shared` | All application tables that contain data across all decomposed databases (for example, `loose_foreign_keys_deleted_records`) for models that inherit from `Gitlab::Database::SharedModel`. | |
 | `gitlab_internal` | All internal tables of Rails and PostgreSQL (for example, `ar_internal_metadata`, `schema_migrations`, `pg_*`) | |
@@ -41,203 +45,17 @@ More schemas to be introduced with additional decomposed databases
 
 The usage of schema enforces the base class to be used:
 
-- `ApplicationRecord` for `gitlab_main`/`gitlab_main_cell.`
-- `MainClusterwide::ApplicationRecord` for `gitlab_main_clusterwide`.
+- `ApplicationRecord` for `gitlab_main_org`
 - `Ci::ApplicationRecord` for `gitlab_ci`
 - `Geo::TrackingBase` for `gitlab_geo`
 - `Gitlab::Database::SharedModel` for `gitlab_shared`
 - `PackageMetadata::ApplicationRecord` for `gitlab_pm`
-- `Gitlab::Database::SecApplicationRecord` for `gitlab_sec`
-
-### Choose either the `gitlab_main_cell` or `gitlab_main_clusterwide` schema
-
-Depending on the use case, your feature may be [cell-local or clusterwide](../../architecture/blueprints/cells/index.md#how-do-i-decide-whether-to-move-my-feature-to-the-cluster-cell-or-organization-level) and hence the tables used for the feature should also use the appropriate schema.
-
-When you choose the appropriate schema for tables, consider the following guidelines as part of the [Cells](../../architecture/blueprints/cells/index.md) architecture:
-
-- Default to `gitlab_main_cell`: We expect most tables to be assigned to the `gitlab_main_cell` schema by default. Choose this schema if the data in the table is related to `projects` or `namespaces`.
-- Consult with the Tenant Scale group: If you believe that the `gitlab_main_clusterwide` schema is more suitable for a table, seek approval from the Tenant Scale group. This is crucial because it has scaling implications and may require reconsideration of the schema choice.
-
-To understand how existing tables are classified, you can use [this dashboard](https://manojmj.gitlab.io/tenant-scale-schema-progress/).
-
-After a schema has been assigned, the merge request pipeline might fail due to one or more of the following reasons, which can be rectified by following the linked guidelines:
-
-- [Cross-database joins](#suggestions-for-removing-cross-database-joins)
-- [Cross-database transactions](#fixing-cross-database-transactions)
-- [Cross-database foreign keys](#foreign-keys-that-cross-databases)
+- `SecApplicationRecord` for `gitlab_sec`
 
 ### Defining a sharding key for all cell-local tables
 
-All tables with the following `gitlab_schema` are considered "cell-local":
-
-- `gitlab_main_cell`
-- `gitlab_ci`
-
-All newly created cell-local tables are required to have a `sharding_key`
-defined in the corresponding `db/docs/` file for that table.
-
-The purpose of the sharding key is documented in the
-[Organization isolation blueprint](../../architecture/blueprints/organization/isolation.md),
-but in short this column is used to provide a standard way of determining which
-Organization owns a particular row in the database. The column will be used in
-the future to enforce constraints on data not cross Organization boundaries. It
-will also be used in the future to provide a uniform way to migrate data
-between Cells.
-
-The actual name of the foreign key can be anything but it must reference a row
-in `projects` or `groups`. The chosen `sharding_key` column must be non-nullable.
-
-Setting multiple `sharding_key`, with nullable columns are also allowed, provided that
-the table has a check constraint that correctly ensures at least one of the keys must be non-nullable for a row in the table.
-See [`NOT NULL` constraints for multiple columns](not_null_constraints.md#not-null-constraints-for-multiple-columns)
-for instructions on creating these constraints.
-
-The following are examples of valid sharding keys:
-
-- The table entries belong to a project only:
-
-   ```yaml
-   sharding_key:
-     project_id: projects
-   ```
-
-- The table entries belong to a project and the foreign key is `target_project_id`:
-
-   ```yaml
-   sharding_key:
-     target_project_id: projects
-   ```
-
-- The table entries belong to a namespace/group only:
-
-   ```yaml
-   sharding_key:
-     namespace_id: namespaces
-   ```
-
-- The table entries belong to a namespace/group only and the foreign key is `group_id`:
-
-   ```yaml
-   sharding_key:
-     group_id: namespaces
-   ```
-
-- The table entries belong to a namespace or a project:
-
-   ```yaml
-   sharding_key:
-     project_id: projects
-     namespace_id: namespaces
-   ```
-
-#### The sharding key must be immutable
-
-The choice of a `sharding_key` should always be immutable. Therefore, if your feature
-requires a user experience which allows data to be moved between projects or
-groups/namespaces, then you may need to redesign the move feature to create new rows. An
-example of this can be seen in the
-[move an issue feature](../../user/project/issues/managing_issues.md#move-an-issue).
-This feature does not actually change the `project_id` column for an existing
-`issues` row but instead creates a new `issues` row and creates a link in the
-database from the original `issues` row. If there is a particularly challenging
-existing feature that needs to allow moving data you will need to reach out to
-the Tenant Scale team early on to discuss options for how to manage the
-sharding key.
-
-#### Using the same sharding key for projects and namespaces
-
-Developers may also choose to use `namespace_id` only for tables that can
-belong to a project where the feature used by the table is being developed
-following the
-[Consolidating Groups and Projects blueprint](../../architecture/blueprints/consolidating_groups_and_projects/index.md).
-In that case the `namespace_id` would need to be the ID of the
-`ProjectNamespace` and not the group that the namespace belongs to.
-
-#### Define a `desired_sharding_key` to automatically backfill a `sharding_key`
-
-We need to backfill a `sharding_key` to hundreds of tables that do not have one.
-This process will involve creating a merge request like
-<https://gitlab.com/gitlab-org/gitlab/-/merge_requests/136800> to add the new
-column, backfill the data from a related table in the database, and then create
-subsequent merge requests to add indexes, foreign keys and not-null
-constraints.
-
-In order to minimize the amount of repetitive effort for developers we've
-introduced a concise declarative way to describe how to backfill the
-`sharding_key` for this specific table. This content will later be used in
-automation to create all the necessary merge requests.
-
-An example of the `desired_sharding_key` was added in
-<https://gitlab.com/gitlab-org/gitlab/-/merge_requests/139336> and it looks like:
-
-```yaml
---- # db/docs/security_findings.yml
-table_name: security_findings
-classes:
-- Security::Finding
-
-...
-
-desired_sharding_key:
-  project_id:
-    references: projects
-    backfill_via:
-      parent:
-        foreign_key: scanner_id
-        table: vulnerability_scanners
-        sharding_key: project_id
-        belongs_to: scanner
-```
-
-To understand best how this YAML data will be used you can map it onto
-the merge request we created manually in GraphQL
-<https://gitlab.com/gitlab-org/gitlab/-/merge_requests/136800>. The idea
-will be to automatically create this. The content of the YAML specifies
-the parent table and its `sharding_key` to backfill from in the batched
-background migration. It also specifies a `belongs_to` relation which
-will be added to the model to automatically populate the `sharding_key` in
-the `before_save`.
-
-##### Define a `desired_sharding_key` when the parent table also has one
-
-By default, a `desired_sharding_key` configuration will validate that the chosen `sharding_key`
-exists on the parent table. However, if the parent table also has a `desired_sharding_key` configuration
-and is itself waiting to be backfilled, you need to include the `awaiting_backfill_on_parent` field.
-For example:
-
-```yaml
-desired_sharding_key:
-  project_id:
-    references: projects
-    backfill_via:
-      parent:
-        foreign_key: package_file_id
-        table: packages_package_files
-        sharding_key: project_id
-        belongs_to: package_file
-    awaiting_backfill_on_parent: true
-```
-
-There are likely edge cases where this `desired_sharding_key` structure is not
-suitable for backfilling a `sharding_key`. In such cases the team owning the
-table will need to create the necessary merge requests to add the
-`sharding_key` manually.
-
-##### Exempting certain tables from having sharding keys
-
-Certain tables can be exempted from having sharding keys by adding
-
-```yaml
-exempt_from_sharding: true
-```
-
-to the table's database dictionary file. This can be used for:
-
-- JiHu specific tables, since they do not have any data on the .com database. [!145905](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/145905)
-- tables that are marked to be dropped soon, like `operations_feature_flag_scopes`. [!147541](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147541)
-- tables that mandatorily need to be present per cell to support a cell's operations, have unique data per cell, but cannot have a sharding key defined. For example, `zoekt_nodes`.
-
-When tables are exempted from sharding key requirements, they also do not show up in our [progress dashboard](https://cells-progress-tracker-gitlab-org-tenant-scale-g-f4ad96bf01d25f.gitlab.io/sharding_keys).
+This content has been moved to a
+[new location](../organization/_index.md#defining-a-sharding-key-for-all-organizational-tables)
 
 ### The impact of `gitlab_schema`
 
@@ -246,7 +64,7 @@ The `gitlab_schema` primary purpose is to introduce a barrier between different 
 
 This is used as a primary source of classification for:
 
-- [Discovering cross-joins across tables from different schemas](#removing-joins-between-ci-and-non-ci-tables)
+- [Discovering cross-joins across tables from different schemas](#removing-joins-between-main-and-non-main-tables)
 - [Discovering cross-database transactions across tables from different schemas](#removing-cross-database-transactions)
 
 ### The special purpose of `gitlab_shared`
@@ -280,16 +98,19 @@ might be missing some of those application-defined `gitlab_shared` tables (like 
 
 Read [Migrations for Multiple Databases](migrations_for_multiple_databases.md).
 
-## CI/CD Database
+## CI and Sec Databases
 
 ### Configure single database
 
 By default, GDK is configured to run with multiple databases.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Switching back-and-forth between single and multiple databases in
-the same development instance is discouraged. Any data in the `ci`
+the same development instance is discouraged. Any data in the `ci` or `sec`
 database will not be accessible in single database mode. For single database, you should use a separate development instance.
+
+{{< /alert >}}
 
 To configure GDK to use a single database:
 
@@ -297,6 +118,7 @@ To configure GDK to use a single database:
 
    ```shell
    gdk config set gitlab.rails.databases.ci.enabled false
+   gdk config set gitlab.rails.databases.sec.enabled false
    ```
 
 1. Reconfigure GDK:
@@ -305,21 +127,21 @@ To configure GDK to use a single database:
    gdk reconfigure
    ```
 
-To switch back to using multiple databases, set `gitlab.rails.databases.ci.enabled` to `true` and run `gdk reconfigure`.
+To switch back to using multiple databases, set `gitlab.rails.databases.<db_name>.enabled` to `true` and run `gdk reconfigure`.
 
 <!--
-NOTE: The `validate_cross_joins!` method in `spec/support/database/prevent_cross_joins.rb` references
-      the following heading in the code, so if you make a change to this heading, make sure to update
-      the corresponding documentation URL used in `spec/support/database/prevent_cross_joins.rb`.
+The `validate_cross_joins!` method in `spec/support/database/prevent_cross_joins.rb` references
+the following heading in the code, so if you make a change to this heading, make sure to update
+the corresponding documentation URL used in `spec/support/database/prevent_cross_joins.rb`.
 -->
 
-### Removing joins between `ci` and non `ci` tables
+### Removing joins between `main` and non `main` tables
 
 Queries that join across databases raise an error. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/68620)
 in GitLab 14.3, for new queries only. Pre-existing queries do not raise an error.
 
-Because GitLab can be run with multiple separate databases, referencing `ci`
-tables with non `ci` tables in a single query is not possible. Therefore,
+Because GitLab can be run with multiple separate databases, referencing `main`
+tables with non `main` tables in a single query is not possible. Therefore,
 using any kind of `JOIN` in SQL queries will not work.
 
 #### Suggestions for removing cross-database joins
@@ -471,13 +293,13 @@ met:
 1. The data does not update often (for example, the `project_id` column is almost
    never updated for most tables).
 
-One example we found was the `security_scans` table. This table has a foreign
-key `security_scans.build_id` which allows you to join to the build. Therefore
+One example we found was the `terraform_state_versions` table. This table has a foreign
+key `terraform_state_versions.ci_build_id` which allows you to join to the build. Therefore
 you could join to the project like so:
 
 ```sql
-select projects.* from security_scans
-inner join ci_builds on security_scans.build_id = ci_builds.id
+select projects.* from terraform_state_versions
+inner join ci_builds on terraform_state_versions.ci_build_id = ci_builds.id
 inner join projects on ci_builds.project_id = projects.id
 ```
 
@@ -485,14 +307,14 @@ The problem with this query is that `ci_builds` is in a different database
 from the other two tables.
 
 The solution in this case is to add the `project_id` column to
-`security_scans`. This doesn't use much extra storage, and due to the way
+`terraform_state_versions`. This doesn't use much extra storage, and due to the way
 these features work, it's never updated (a build never moves projects).
 
 This simplified the query to:
 
 ```sql
-select projects.* from security_scans
-inner join projects on security_scans.project_id = projects.id
+select projects.* from terraform_state_versions
+inner join projects on terraform_state_versions.project_id = projects.id
 ```
 
 This also improves performance because you don't need to join through an extra
@@ -718,8 +540,11 @@ class Group < Namespace
 end
 ```
 
-WARNING:
+{{< alert type="warning" >}}
+
 Overriding an association can have unintended consequences and may even lead to data loss, as we noticed in [issue 424307](https://gitlab.com/gitlab-org/gitlab/-/issues/424307). Do not override existing ActiveRecord associations to mark a cross-join as allowed, as in the example below.
+
+{{< /alert >}}
 
 ```ruby
 class Group < Namespace
@@ -773,9 +598,7 @@ page.
 A transaction across databases can be explicitly allowed by wrapping the code in the
 `Gitlab::Database::QueryAnalyzers::PreventCrossDatabaseModification.temporary_ignore_tables_in_transaction` helper method.
 
-For cross-database transactions in Rails callbacks, the `cross_database_ignore_tables` method can be used.
-
-These methods should only be used for existing code.
+This method should only be used for existing code.
 
 The `temporary_ignore_tables_in_transaction` helper method can be used as follows:
 
@@ -791,17 +614,6 @@ class GroupMember < Member
        user.update_two_factor_requirement
      end
    end
-end
-```
-
-The `cross_database_ignore_tables` method can be used as follows:
-
-```ruby
-class Namespace < ApplicationRecord
-  include CrossDatabaseIgnoredTables
-
-  # To mark and ignore cross-database transactions involving namespaces and routes/redirect_routes happening within Rails callbacks.
-  cross_database_ignore_tables %w[routes redirect_routes], url: 'https://gitlab.com/gitlab-org/gitlab/-/issues/424277'
 end
 ```
 
@@ -854,7 +666,7 @@ end
 ```
 
 Don't hesitate to reach out to the
-[Pods group](https://handbook.gitlab.com/handbook/engineering/infrastructure/core-platform/data_stores/tenant-scale/)
+[Tenant Scale group](https://handbook.gitlab.com/handbook/engineering/infrastructure-platforms/tenant-scale/)
 for advice.
 
 ##### Avoid `dependent: :nullify` and `dependent: :destroy` across databases
@@ -911,7 +723,7 @@ Later, this foreign key can be converted to a loose foreign key, like we did in 
 In our testing CI pipelines, we test GitLab by default with multiple databases set up, using
 both `main` and `ci` databases. But in merge requests, for example when we modify some database-related code or
 add the label `~"pipeline:run-single-db"` to the MR, we additionally run our tests in
-[two other database modes](../pipelines/index.md#single-database-testing):
+[two other database modes](../pipelines/_index.md#single-database-testing):
 `single-db` and `single-db-ci-connection`.
 
 To handle situations where our tests need to run in specific database modes, we have some RSpec helpers
@@ -924,21 +736,15 @@ to limit the modes where tests can run, and skip them on any other modes.
 | `skip_if_multiple_databases_are_setup(:ci)` | Only on **single-db**   |
 | `skip_if_multiple_databases_not_setup(:ci)` | On **single-db-ci-connection** and **multiple databases** |
 
-## Testing for multiple databases, including `main_clusterwide`
-
-By default, we do not setup the `main_clusterwide` connection in CI pipelines. However, if you add the label `~"pipeline:run-clusterwide-db"`, the pipelines will run with 3 connections, `main`, `ci` and `main_clusterwide`.
-
-NOTE:
-This setup is not completely ready yet, and running pipelines in the setup may fail some jobs. As of July 2023, this is only used by  **group::tenant scale**  to test out changes while building [Cells](../../architecture/blueprints/cells/index.md).
-
 ## Locking writes on the tables that don't belong to the database schemas
 
-When the CI database is promoted and the two databases are fully split,
+When a separate database is promoted and the split from main,
 as an extra safeguard against creating a split brain situation,
 run the Rake task `gitlab:db:lock_writes`. This command locks writes on:
 
-- The `gitlab_main` tables on the CI Database.
-- The `gitlab_ci` tables on the Main Database.
+- Legacy tables on `gitlab_ci` belonging to the Main or Sec Databases.
+- Legacy tables on `gitlab_main` belonging to the CI or Sec Databases.
+- Legacy tables on `gitlab_sec` belonging to the CI or Main Databases.
 
 This Rake task adds triggers to all the tables, to prevent any
 `INSERT`, `UPDATE`, `DELETE`, or `TRUNCATE` statements from running
@@ -974,6 +780,14 @@ There are two processes that automatically lock tables:
 - The `Database::MonitorLockedTablesWorker` locks tables if needed.
   This can be disabled by the `lock_tables_in_monitoring` feature flag.
 
+`Gitlab::Database::MigrationHelpers::AutomaticLockWritesOnTables` compares the list of tables before and after each database migration runs. Then
+it locks the newly added tables on the relevant database. This does not
+cover all cases. Because some migrations need
+to re-create the tables within the same transactional migration. For example: To convert standard unpartitioned tables into partitioned tables.
+See [this example](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/184636).
+Such migrations leave the re-created tables unlocked. But the daily cron job of `Database::MonitorLockedTablesWorker` takes care of
+alerting about this on Slack, and then automatically locks these tables for writes.
+
 ### Manually lock tables
 
 If you need to manually lock a table, use a database migration.
@@ -1003,24 +817,31 @@ end
 
 ## Truncating tables
 
-When the databases `main` and `ci` are fully split, we can free up disk
+When separate databases from `main` are fully split, we can free up disk
 space by truncating tables. This results in a smaller data set: For example,
 the data in `users` table on CI database is no longer read and also no
 longer updated. So this data can be removed by truncating the tables.
 
-For this purpose, GitLab provides two Rake tasks, one for each database:
+For this purpose, GitLab provides separate Rake tasks, one for each database:
 
-- `gitlab:db:truncate_legacy_tables:main` will truncate the CI tables in Main database.
-- `gitlab:db:truncate_legacy_tables:ci` will truncate the Main tables in CI database.
+- `gitlab:db:truncate_legacy_tables:main` will truncate the legacy tables in Main database.
+- `gitlab:db:truncate_legacy_tables:ci` will truncate the legacy tables in CI database.
+- `gitlab:db:truncate_legacy_tables:sec` will truncate the legacy tables in Sec database.
 
-NOTE:
+{{< alert type="note" >}}
+
 These tasks can only be run when the tables in the database are
 [locked for writes](#locking-writes-on-the-tables-that-dont-belong-to-the-database-schemas).
 
-WARNING:
+{{< /alert >}}
+
+{{< alert type="warning" >}}
+
 The examples in this section use `DRY_RUN=true`. This ensures no data is actually
 truncated. GitLab highly recommends to have a backup available before you run any of
 these tasks without `DRY_RUN=true`.
+
+{{< /alert >}}
 
 These tasks have the option to see what they do without actually changing the
 data:

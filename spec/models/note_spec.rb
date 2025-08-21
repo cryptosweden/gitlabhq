@@ -11,10 +11,17 @@ RSpec.describe Note, feature_category: :team_planning do
 
     let_it_be(:note1) { create(:note_on_issue) }
     let_it_be(:note2) { create(:note_on_issue) }
-    let_it_be(:reply) { create(:note_on_issue, in_reply_to: note1) }
+    let_it_be(:reply) { create(:note_on_issue, in_reply_to: note1, project: note1.project) }
 
-    let_it_be(:discussion_note) { create(:discussion_note_on_issue) }
-    let_it_be(:discussion_reply) { create(:discussion_note_on_issue, in_reply_to: discussion_note) }
+    let_it_be_with_reload(:discussion_note) { create(:discussion_note_on_issue) }
+    let_it_be_with_reload(:discussion_note_2) do
+      create(:discussion_note_on_issue, project: discussion_note.project, noteable: discussion_note.noteable)
+    end
+
+    let_it_be_with_reload(:discussion_reply) do
+      create(:discussion_note_on_issue,
+        project: discussion_note.project, noteable: discussion_note.noteable, in_reply_to: discussion_note)
+    end
 
     it_behaves_like 'Notes::ActiveRecord'
     it_behaves_like 'Notes::Discussion'
@@ -27,6 +34,7 @@ RSpec.describe Note, feature_category: :team_planning do
 
     it { is_expected.to have_one(:note_metadata).inverse_of(:note).class_name('Notes::NoteMetadata') }
     it { is_expected.to belong_to(:review).inverse_of(:notes) }
+    it { is_expected.to have_many(:events) }
   end
 
   describe 'modules' do
@@ -89,6 +97,22 @@ RSpec.describe Note, feature_category: :team_planning do
       end
     end
 
+    context 'when noteable is an abuse report' do
+      subject { build(:note, noteable: build_stubbed(:abuse_report), project: nil, namespace: nil) }
+
+      it 'is not valid without project or namespace' do
+        is_expected.to be_invalid
+      end
+    end
+
+    context 'when noteable is a wiki page' do
+      subject { build(:note, noteable: build_stubbed(:wiki_page_meta), project: nil, namespace: nil) }
+
+      it 'is not valid without project or namespace' do
+        is_expected.to be_invalid
+      end
+    end
+
     describe 'max notes limit' do
       let_it_be(:noteable) { create(:issue) }
       let_it_be(:existing_note) { create(:note, project: noteable.project, noteable: noteable) }
@@ -104,7 +128,7 @@ RSpec.describe Note, feature_category: :team_planning do
       end
 
       context 'when creating a user note' do
-        subject { build(:note, project: noteable.project, noteable: noteable) }
+        subject { build(:note, project: noteable.project, noteable: noteable.reload) }
 
         it { is_expected.not_to be_valid }
       end
@@ -185,7 +209,7 @@ RSpec.describe Note, feature_category: :team_planning do
         end
 
         context 'when noteable is not allowed to have confidential notes' do
-          let_it_be(:noteable) { create(:snippet) }
+          let_it_be(:noteable) { create(:project_snippet) }
 
           it 'can not be set confidential' do
             expect(subject).not_to be_valid
@@ -244,6 +268,40 @@ RSpec.describe Note, feature_category: :team_planning do
   end
 
   describe 'callbacks' do
+    describe '#touch_noteable' do
+      let_it_be_with_reload(:noteable) { create(:issue) }
+
+      it 'calls #touch on the noteable' do
+        note = build(:note, project: noteable.project, noteable: noteable)
+
+        expect(note).to receive(:touch_noteable).and_call_original
+        expect(note.noteable).to receive(:touch)
+
+        note.save!
+      end
+
+      shared_examples_for 'skips #touch_noteable' do
+        it 'skips #touch_noteable' do
+          expect(note).not_to receive(:touch_noteable)
+          expect(note.noteable).not_to receive(:touch)
+
+          note.save!
+        end
+      end
+
+      context "when 'importing' is true" do
+        let(:note) { build(:note, project: noteable.project, noteable: noteable, importing: true) }
+
+        it_behaves_like 'skips #touch_noteable'
+      end
+
+      context "when 'skip_touch_noteable' is true" do
+        let(:note) { build(:note, project: noteable.project, noteable: noteable, skip_touch_noteable: true) }
+
+        it_behaves_like 'skips #touch_noteable'
+      end
+    end
+
     describe '#keep_around_commit' do
       let!(:noteable) { create(:issue) }
 
@@ -702,6 +760,56 @@ RSpec.describe Note, feature_category: :team_planning do
     end
   end
 
+  describe '#last_edited_by' do
+    let_it_be(:note, reload: true) do
+      create_timestamp = 1.day.ago
+      create(:note, created_at: create_timestamp, updated_at: create_timestamp)
+    end
+
+    let(:editor) { note.author }
+
+    context 'when the note is not edited' do
+      it 'returns nil' do
+        expect(note.last_edited_by).to be_nil
+      end
+    end
+
+    def update_note(note, **attributes)
+      # Update updated_at manually because of ThrottledTouch concern
+      note.update!(attributes.merge(updated_at: Time.current))
+    end
+
+    context 'with an edited note' do
+      before do
+        update_note(note, last_edited_at: Time.current, updated_by: editor)
+      end
+
+      it 'returns the updated_by user' do
+        expect(note.last_edited_by).to eq(editor)
+      end
+    end
+
+    context 'with an edited note by a deleted user' do
+      before do
+        update_note(note, last_edited_at: Time.current, updated_by: nil)
+      end
+
+      it 'returns the ghost user' do
+        expect(note.last_edited_by).to eq(Users::Internal.ghost)
+      end
+    end
+
+    context 'with a legacy edited note where last_edited_at is not set' do
+      before do
+        update_note(note, updated_by: editor)
+      end
+
+      it 'returns the updated_by user' do
+        expect(note.last_edited_by).to eq(editor)
+      end
+    end
+  end
+
   describe '#confidential?' do
     context 'when note is not confidential' do
       context 'when include_noteable is set to true' do
@@ -957,16 +1065,16 @@ RSpec.describe Note, feature_category: :team_planning do
         create :note, noteable: ext_issue, project: ext_proj, note: "mentioned in merge request !1", system: true
       end
 
-      it "returns true for other users" do
-        expect(note.system_note_visible_for?(private_user)).to be_truthy
+      it "returns false" do
+        expect(note.system_note_visible_for?(private_user)).to be_falsey
       end
 
-      it "returns true if user visible reference count set" do
+      it "returns false if user visible reference count set" do
         note.user_visible_reference_count = 0
         note.total_reference_count = 0
 
         expect(note).not_to receive(:reference_mentionables)
-        expect(note.system_note_visible_for?(ext_issue.author)).to be_truthy
+        expect(note.system_note_visible_for?(ext_issue.author)).to be_falsey
       end
     end
   end
@@ -1058,6 +1166,62 @@ RSpec.describe Note, feature_category: :team_planning do
           it { expect(note.system_note_with_references?).to be_truthy }
         end
       end
+    end
+  end
+
+  describe 'all_referenced_mentionables_allowed?' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:issue) { create(:issue) }
+
+    RSpec.shared_examples 'does not generate N+1 queries for reference parsing' do
+      it 'does not generate N+1 queries for reference parsing', :request_store do
+        ref1 = milestone1.to_reference(issue.project, format: :name, full: true, absolute_path: true)
+        ref2 = milestone2.to_reference(issue.project, format: :name, full: true, absolute_path: true)
+        ref3 = milestone3.to_reference(issue.project, format: :name, full: true, absolute_path: true)
+
+        text = "mentioned in #{ref1}"
+        note = create(:note, :system, noteable: issue, note: text, project: issue.project)
+
+        note.system_note_visible_for?(user)
+
+        text = "mentioned in #{ref1} and #{ref2}"
+        note.update!(note: text)
+
+        control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+          note.system_note_visible_for?(user)
+        end
+
+        text = "mentioned in #{ref1} and #{ref2} and #{ref3}"
+        note.update!(note: text)
+
+        expect do
+          note.system_note_visible_for?(user)
+        end.to issue_same_number_of_queries_as(control).or_fewer
+      end
+    end
+
+    context 'with a project level milestone' do
+      let_it_be(:milestone1) { create(:milestone, project: create(:project, :private)) }
+      let_it_be(:milestone2) { create(:milestone, project: create(:project, :private)) }
+      let_it_be(:milestone3) { create(:milestone, project: create(:project, :private)) }
+      let_it_be(:milestone_event) { create(:resource_milestone_event, issue: issue, milestone: milestone1) }
+      let_it_be(:note) { MilestoneNote.from_event(milestone_event, resource: issue, resource_parent: issue.project) }
+
+      it { expect(note.system_note_visible_for?(user)).to be false }
+
+      it_behaves_like 'does not generate N+1 queries for reference parsing'
+    end
+
+    context 'with a group level milestone' do
+      let_it_be(:milestone1) { create(:milestone, group: create(:group, :private)) }
+      let_it_be(:milestone2) { create(:milestone, group: create(:group, :private)) }
+      let_it_be(:milestone3) { create(:milestone, group: create(:group, :private)) }
+      let_it_be(:milestone_event) { create(:resource_milestone_event, issue: issue, milestone: milestone1) }
+      let_it_be(:note) { MilestoneNote.from_event(milestone_event, resource: issue, resource_parent: issue.project) }
+
+      it { expect(note.system_note_visible_for?(user)).to be false }
+
+      it_behaves_like 'does not generate N+1 queries for reference parsing'
     end
   end
 
@@ -1380,6 +1544,12 @@ RSpec.describe Note, feature_category: :team_planning do
     end
   end
 
+  describe '#for_wiki_page?' do
+    it 'returns true for a wiki_page' do
+      expect(build(:note_on_wiki_page).for_wiki_page?).to be_truthy
+    end
+  end
+
   describe '#for_design' do
     it 'is true when the noteable is a design' do
       note = build(:note, noteable: build(:design))
@@ -1417,6 +1587,10 @@ RSpec.describe Note, feature_category: :team_planning do
 
     it 'returns alert_management_alert for an alert note' do
       expect(build(:note_on_alert).noteable_ability_name).to eq('alert_management_alert')
+    end
+
+    it 'returns wiki page for a wiki page note' do
+      expect(build(:note_on_wiki_page).noteable_ability_name).to eq('wiki_page')
     end
   end
 
@@ -1601,16 +1775,6 @@ RSpec.describe Note, feature_category: :team_planning do
           note.save!
         end
       end
-
-      context 'when adding a note to a commit on the MR' do
-        let(:note) { build(:note_on_commit, commit_id: merge_request.commits.first.id, project: merge_request.project) }
-
-        it 'broadcasts an Action Cable event for the MR' do
-          expect(Noteable::NotesChannel).to receive(:broadcast_to).with(merge_request, event: 'updated')
-
-          note.save!
-        end
-      end
     end
   end
 
@@ -1755,22 +1919,8 @@ RSpec.describe Note, feature_category: :team_planning do
         let_it_be(:banned_user) { create(:banned_user).user }
         let_it_be(:banned_note) { create(:note, author: banned_user) }
 
-        context 'when the :hidden_notes feature is disabled' do
-          before do
-            stub_feature_flags(hidden_notes: false)
-          end
-
-          it { is_expected.to include(banned_note, note1) }
-        end
-
-        context 'when the :hidden_notes feature is enabled' do
-          before do
-            stub_feature_flags(hidden_notes: true)
-          end
-
-          it { is_expected.not_to include(banned_note) }
-          it { is_expected.to include(note1) }
-        end
+        it { is_expected.not_to include(banned_note) }
+        it { is_expected.to include(note1) }
       end
     end
 
@@ -1795,6 +1945,18 @@ RSpec.describe Note, feature_category: :team_planning do
 
           expect(notes_by_author).to contain_exactly(note)
         end
+      end
+    end
+
+    describe '.order_created_at_id_asc' do
+      it 'returns notes in ascending order' do
+        expect(described_class.order_created_at_id_asc).to eq([note1, note2])
+      end
+    end
+
+    describe '.order_created_at_id_desc' do
+      it 'returns notes in descending order' do
+        expect(described_class.order_created_at_id_desc).to eq([note2, note1])
       end
     end
   end
@@ -1859,18 +2021,6 @@ RSpec.describe Note, feature_category: :team_planning do
       let(:note) { build(:note, :with_review) }
 
       it { is_expected.to be_truthy }
-    end
-  end
-
-  describe '#attachment' do
-    it 'is cleaned up correctly when project is destroyed' do
-      note = create(:note_on_issue, :with_attachment)
-
-      attachment = note.attachment
-
-      note.project.destroy!
-
-      expect(attachment).not_to be_exist
     end
   end
 
@@ -1977,6 +2127,82 @@ RSpec.describe Note, feature_category: :team_planning do
         end
 
         it { is_expected.to be_truthy }
+      end
+    end
+  end
+
+  describe '#human_max_access' do
+    let_it_be(:user) { create(:user) }
+
+    subject { note.human_max_access }
+
+    context 'when parent is a project' do
+      let_it_be(:project) { create(:project) }
+      let_it_be(:noteable) { create(:wiki_page_meta, project: project) }
+      let(:note) { create(:note, project: project, author: user, noteable: noteable) }
+
+      before do
+        project.add_developer(user)
+      end
+
+      it { is_expected.to be('Developer') }
+    end
+  end
+
+  describe '#trigger_work_item_updated_subscription' do
+    let(:issue) { create(:issue) }
+    let(:note) { build(:note, noteable: issue, system: true, project: issue.project) }
+
+    before do
+      allow(note).to receive(:for_issue?).and_return(true)
+    end
+
+    context 'when note contains metadata with specific action' do
+      %w[branch relate cross_reference].each do |action|
+        it "triggers subscription for note with '#{action}' action" do
+          build(:system_note_metadata, note: note, action: action)
+
+          expect(GraphqlTriggers).to receive(:work_item_updated).with(issue)
+
+          note.save!
+        end
+      end
+    end
+
+    context 'when note contains metadata with non-actionable action' do
+      %w[label visible assignee].each do |action|
+        it "does not trigger subscription for note with '#{action}' action" do
+          build(:system_note_metadata, note: note, action: action)
+
+          expect(GraphqlTriggers).not_to receive(:work_item_updated)
+
+          note.save!
+        end
+      end
+    end
+
+    context 'when noteable is not an issue' do
+      let(:merge_request) { create(:merge_request) }
+      let(:note) { build(:note, noteable: merge_request, system: true, note: 'merge request created', project: merge_request.project) }
+
+      before do
+        allow(note).to receive(:for_issue?).and_return(false)
+      end
+
+      it 'does not trigger subscription' do
+        expect(GraphqlTriggers).not_to receive(:work_item_updated)
+
+        note.save!
+      end
+    end
+
+    context 'when noteable is not a system note' do
+      let(:note) { build(:note, noteable: issue, system: false, note: 'merge request created', project: issue.project) }
+
+      it 'does not trigger subscription' do
+        expect(GraphqlTriggers).not_to receive(:work_item_updated)
+
+        note.save!
       end
     end
   end

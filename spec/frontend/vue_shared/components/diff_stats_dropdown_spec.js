@@ -79,7 +79,7 @@ describe('Diff Stats Dropdown', () => {
       expect(fileText).toContain(mockFiles[1].name);
       expect(fileText).toContain(mockFiles[1].path);
       expect(fileData.findComponent(GlIcon).props('name')).toEqual(mockFiles[1].icon);
-      expect(fileData.findComponent(GlIcon).classes()).toContain('gl-text-red-500');
+      expect(fileData.findComponent(GlIcon).classes()).toContain('gl-text-danger');
       expect(fileData.find('a').attributes('href')).toEqual(mockFiles[1].href);
     });
 
@@ -154,7 +154,7 @@ describe('Diff Stats Dropdown', () => {
     it('focuses the first item when pressing the down key within the search box', () => {
       const { element } = wrapper.find('.gl-new-dropdown-item');
       const spy = jest.spyOn(element, 'focus');
-      findSearchBox().vm.$emit('keydown', new KeyboardEvent({ key: ARROW_DOWN_KEY }));
+      findSearchBox().vm.$emit('keydown', new KeyboardEvent('keydown', { key: ARROW_DOWN_KEY }));
 
       expect(spy).toHaveBeenCalled();
     });

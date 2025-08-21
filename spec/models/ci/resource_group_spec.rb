@@ -33,11 +33,11 @@ RSpec.describe Ci::ResourceGroup, feature_category: :continuous_delivery do
     end
   end
 
-  describe '#assign_resource_to', :ci_partitionable do
+  describe '#assign_resource_to' do
     include Ci::PartitioningHelpers
 
     before do
-      stub_current_partition_id(ci_testing_partition_id_for_check_constraints)
+      stub_current_partition_id(ci_testing_partition_id)
     end
 
     subject { resource_group.assign_resource_to(build) }
@@ -74,11 +74,11 @@ RSpec.describe Ci::ResourceGroup, feature_category: :continuous_delivery do
     end
   end
 
-  describe '#release_resource_from', :ci_partitionable do
+  describe '#release_resource_from' do
     include Ci::PartitioningHelpers
 
     before do
-      stub_current_partition_id(ci_testing_partition_id_for_check_constraints)
+      stub_current_partition_id(ci_testing_partition_id)
     end
 
     subject { resource_group.release_resource_from(build) }
@@ -154,11 +154,19 @@ RSpec.describe Ci::ResourceGroup, feature_category: :continuous_delivery do
         end
       end
 
+      context 'when process mode is newest_ready_first' do
+        let(:process_mode) { :newest_ready_first }
+
+        it 'returns correct jobs in a specific order' do
+          expect(subject).to eq([build_2_waiting_for_resource, build_1_waiting_for_resource])
+        end
+      end
+
       context 'when process mode is unknown' do
         let(:process_mode) { :unordered }
 
         before do
-          resource_group.update_column(:process_mode, 3)
+          resource_group.update_column(:process_mode, 4)
         end
 
         it 'returns empty' do
@@ -170,7 +178,7 @@ RSpec.describe Ci::ResourceGroup, feature_category: :continuous_delivery do
     describe '#waiting_processables' do
       subject { resource_group.waiting_processables }
 
-      where(:mode) { [:unordered, :oldest_first, :newest_first] }
+      where(:mode) { [:unordered, :oldest_first, :newest_first, :newest_ready_first] }
 
       with_them do
         let(:process_mode) { mode }

@@ -1,11 +1,12 @@
 <script>
-// eslint-disable-next-line no-restricted-imports
-import { mapGetters, mapActions } from 'vuex';
+import { mapState, mapActions } from 'pinia';
+import DuoCodeReviewSystemNote from 'ee_component/vue_shared/components/notes/duo_code_review_system_note.vue';
 import { __ } from '~/locale';
 import PlaceholderNote from '~/vue_shared/components/notes/placeholder_note.vue';
 import PlaceholderSystemNote from '~/vue_shared/components/notes/placeholder_system_note.vue';
 import SystemNote from '~/vue_shared/components/notes/system_note.vue';
 import { FILE_DIFF_POSITION_TYPE } from '~/diffs/constants';
+import { useNotes } from '~/notes/store/legacy_notes';
 import { SYSTEM_NOTE } from '../constants';
 import DiscussionNotesRepliesWrapper from './discussion_notes_replies_wrapper.vue';
 import NoteEditedText from './note_edited_text.vue';
@@ -54,14 +55,9 @@ export default {
       required: false,
       default: false,
     },
-    shouldScrollToNote: {
-      type: Boolean,
-      required: false,
-      default: true,
-    },
   },
   computed: {
-    ...mapGetters(['userCanReply']),
+    ...mapState(useNotes, ['userCanReply']),
     hasReplies() {
       return Boolean(this.replies.length);
     },
@@ -92,7 +88,7 @@ export default {
     },
   },
   methods: {
-    ...mapActions(['toggleDiscussion', 'setSelectedCommentPositionHover']),
+    ...mapActions(useNotes, ['toggleDiscussion', 'setSelectedCommentPositionHover']),
     componentName(note) {
       if (note.isPlaceholderNote) {
         if (note.placeholderType === SYSTEM_NOTE) {
@@ -103,7 +99,9 @@ export default {
       }
 
       if (note.system) {
-        return SystemNote;
+        return note.author?.user_type === 'duo_code_review_bot'
+          ? DuoCodeReviewSystemNote
+          : SystemNote;
       }
 
       return NoteableNote;
@@ -146,9 +144,8 @@ export default {
           :discussion-root="true"
           :discussion-resolve-path="discussion.resolve_path"
           :is-overview-tab="isOverviewTab"
-          :should-scroll-to-note="shouldScrollToNote"
           :internal-note="isDiscussionInternal"
-          :class="{ 'gl-border-top-0!': isFileDiscussion }"
+          :class="{ '!gl-border-t-0': isFileDiscussion }"
           @handleDeleteNote="$emit('deleteNote')"
           @startReplying="$emit('startReplying')"
         >
@@ -158,14 +155,17 @@ export default {
               :edited-at="discussion.resolved_at"
               :edited-by="discussion.resolved_by"
               :action-text="resolvedText"
-              class-name="discussion-headline-light js-discussion-headline discussion-resolved-text gl-mb-2 gl-ml-3"
+              class-name="discussion-headline-light js-discussion-headline discussion-resolved-text -gl-mt-2 gl-mb-3 gl-ml-3"
             />
           </template>
           <template #avatar-badge>
             <slot name="avatar-badge"></slot>
           </template>
         </component>
-        <discussion-notes-replies-wrapper :is-diff-discussion="discussion.diff_discussion">
+        <discussion-notes-replies-wrapper
+          v-if="hasReplies || userCanReply"
+          :is-diff-discussion="discussion.diff_discussion"
+        >
           <toggle-replies-widget
             v-if="hasReplies"
             :collapsed="!isExpanded"
@@ -199,7 +199,6 @@ export default {
           :discussion-root="index === 0"
           :discussion-resolve-path="discussion.resolve_path"
           :is-overview-tab="isOverviewTab"
-          :should-scroll-to-note="shouldScrollToNote"
           :internal-note="isDiscussionInternal"
           @handleDeleteNote="$emit('deleteNote')"
         >

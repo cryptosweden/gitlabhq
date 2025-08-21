@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Pagination performance guidelines
 ---
-
-# Pagination performance guidelines
 
 The following document gives a few ideas for improving the pagination (sorting) performance. These apply both on [offset](pagination_guidelines.md#offset-pagination) and [keyset](pagination_guidelines.md#keyset-pagination) pagination.
 
@@ -39,8 +38,11 @@ SELECT issues.* FROM issues ORDER BY created_at, id;
 
 This change makes the order distinct so we have "stable" sorting.
 
-NOTE:
+{{< alert type="note" >}}
+
 To make the query efficient, we need an index covering both columns: `(created_at, id)`. The order of the columns **should match** the columns in the `ORDER BY` clause.
+
+{{< /alert >}}
 
 ### Incremental sorting
 
@@ -145,8 +147,11 @@ LIMIT 20
 OFFSET 0
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 The query requires an index on `issue_metrics` table with the following column configuration: `(project_id, first_mentioned_in_commit_at DESC, issue_id DESC)`.
+
+{{< /alert >}}
 
 ## Filtering
 
@@ -280,8 +285,11 @@ We might be tempted to add an index on `project_id`, `confidential`, and `iid` t
 
 On the other hand, if we implemented a special filter where we only show confidential issues, we need the index. Finding 20 confidential issues might require the database to scan hundreds of rows or, in the worst case, all issues in the project.
 
-NOTE:
+{{< alert type="note" >}}
+
 Be aware of the data distribution and the table access patterns (how features work) when introducing a new database index. Sampling production data might be necessary to make the right decision.
+
+{{< /alert >}}
 
 #### Columns in a different database table
 
@@ -314,8 +322,8 @@ Example database (oversimplified) execution plan:
 
 1. The database parses the SQL query and detects the `JOIN`.
 1. The database splits the query into two subqueries.
-    - `SELECT "issue_assignees".* FROM "issue_assignees" WHERE "issue_assignees"."user_id" = 10`
-    - `SELECT "issues".* FROM "issues" WHERE "issues"."project_id" = 5`
+   - `SELECT "issue_assignees".* FROM "issue_assignees" WHERE "issue_assignees"."user_id" = 10`
+   - `SELECT "issues".* FROM "issues" WHERE "issues"."project_id" = 5`
 1. The database estimates the number of rows and the costs to run these queries.
 1. The database executes the cheapest query first.
 1. Using the query result, load the rows from the other table (from the other query) using the `JOIN` column and filter the rows further.
@@ -343,7 +351,7 @@ Running the query in production for the GitLab project produces the following ex
 
 The query looks up the `assignees` first, filtered by the `user_id` (`user_id = 4156052`) and it finds 215 rows. Using those 215 rows, the database looks up the 215 associated issue rows by the primary key. Notice that the filter on the `project_id` column is not backed by an index.
 
-In most cases, we are lucky that the joined relation does not return too many rows, therefore, we end up with a relatively efficient database query that accesses a small number of rows. As the database grows, these queries might start to behave differently. Let's say the number `issue_assignees` records for a particular user is very high, in the millions. This join query does not perform well, and it likely times out.
+In most cases, joined relations do not return too many rows, and we end up with a relatively efficient database query that accesses a small number of rows. As the database grows, these queries might start to behave differently. For example, a user with a very high number of `issue_assignees` records might cause this join query to perform poorly and time out.
 
 A similar problem could be a double join, where the filter exists in the 2nd `JOIN` query. Example: `Issue -> LabelLink -> Label(name=bug)`.
 
@@ -386,5 +394,8 @@ The query now performs well for any number of `issue_assignees` records, however
 - The new database query is very specific to the assignee search and needs complex backend code to build it.
   - If the assignee is filtered by the user, then order by a different column, remove the `project_id` filter, etc.
 
-NOTE:
+{{< alert type="note" >}}
+
 Currently we're not doing these kinds of denormalization at GitLab.
+
+{{< /alert >}}

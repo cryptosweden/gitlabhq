@@ -1,7 +1,6 @@
 ---
 table_name: labels
 classes:
-- Admin::AbuseReportLabel
 - GroupLabel
 - Label
 - ProjectLabel
@@ -12,6 +11,5 @@ description: Information related to labels, which can be associated with groups 
 introduced_by_url: https://gitlab.com/gitlab-org/gitlab/-/commit/03654a6abf47c88b8b980a6707874ff78080d2fe
 milestone: '7.2'
 gitlab_schema: gitlab_main_cell
-sharding_key:
-  project_id: projects
-  group_id: namespaces
+sharding_key_issue_url: https://gitlab.com/gitlab-org/gitlab/-/issues/545051
+table_size: small

@@ -142,6 +142,10 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
       expect(metadata['ArchivePath']).to eq(expected_path)
     end
 
+    it 'sets StoragePath to the config' do
+      expect(metadata['StoragePath']).to eq(storage_path)
+    end
+
     context 'path is set' do
       let(:path) { 'foo/bar' }
 
@@ -649,7 +653,7 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
     end
 
     it 'has valid commit ids as keys' do
-      expect(subject.keys).to all( match(Commit::COMMIT_SHA_PATTERN) )
+      expect(subject.keys).to all(match(Commit::COMMIT_SHA_PATTERN))
     end
 
     it 'does not error when dereferenced_target is nil' do
@@ -671,7 +675,6 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
         no_tags: true,
         timeout: described_class::GITLAB_PROJECTS_TIMEOUT,
         prune: false,
-        check_tags_changed: false,
         refmap: nil,
         http_authorization_header: "",
         resolved_address: '172.16.123.1'
@@ -679,7 +682,7 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
 
       expect(repository.gitaly_repository_client).to receive(:fetch_remote).with(url, expected_opts)
 
-      repository.fetch_remote(url, ssh_auth: ssh_auth, forced: true, no_tags: true, prune: false, check_tags_changed: false, resolved_address: '172.16.123.1')
+      repository.fetch_remote(url, ssh_auth: ssh_auth, forced: true, no_tags: true, prune: false, resolved_address: '172.16.123.1')
     end
 
     it_behaves_like 'wrapping gRPC errors', Gitlab::GitalyClient::RepositoryService, :fetch_remote do
@@ -745,7 +748,7 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
       end
     end
 
-    context 'when sending an ivalid regexp' do
+    context 'when sending an invalid regexp' do
       let(:filter) { '*.rb' }
 
       it 'raises error' do
@@ -760,6 +763,18 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
 
       it 'returns an empty array' do
         expect(result).to eq([])
+      end
+    end
+
+    context 'when client raises an exception GRPC::NotFound' do
+      let(:filter) { 'files\/.*\/.*\.rb' }
+
+      before do
+        allow(mutable_repository.gitaly_repository_client).to receive(:search_files_by_regexp).and_raise(GRPC::NotFound)
+      end
+
+      it 'raises an exception NoRepository' do
+        expect { result }.to raise_error(Gitlab::Git::Repository::NoRepository)
       end
     end
   end
@@ -851,153 +866,89 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
   end
 
   describe "#log" do
-    shared_examples 'repository log' do
-      let(:commit_with_old_name) do
-        Gitlab::Git::Commit.find(repository, @commit_with_old_name_id)
+    let(:commit_with_old_name) do
+      Gitlab::Git::Commit.find(repository, @commit_with_old_name_id)
+    end
+
+    let(:commit_with_new_name) do
+      Gitlab::Git::Commit.find(repository, @commit_with_new_name_id)
+    end
+
+    let(:rename_commit) do
+      Gitlab::Git::Commit.find(repository, @rename_commit_id)
+    end
+
+    before do
+      # Add new commits so that there's a renamed file in the commit history
+      @commit_with_old_name_id = repository.commit_files(
+        user,
+        branch_name: repository.root_ref,
+        message: 'Update CHANGELOG',
+        actions: [{
+          action: :update,
+          file_path: 'CHANGELOG',
+          content: 'CHANGELOG'
+        }]
+      ).newrev
+      @rename_commit_id = repository.commit_files(
+        user,
+        branch_name: repository.root_ref,
+        message: 'Move CHANGELOG to encoding/',
+        actions: [{
+          action: :move,
+          previous_path: 'CHANGELOG',
+          file_path: 'encoding/CHANGELOG',
+          content: 'CHANGELOG'
+        }]
+      ).newrev
+      @commit_with_new_name_id = repository.commit_files(
+        user,
+        branch_name: repository.root_ref,
+        message: 'Edit encoding/CHANGELOG',
+        actions: [{
+          action: :update,
+          file_path: 'encoding/CHANGELOG',
+          content: "I'm a new changelog with different text"
+        }]
+      ).newrev
+    end
+
+    after do
+      # Erase our commits so other tests get the original repo
+      repository.write_ref(repository.root_ref, TestEnv::BRANCH_SHA['master'])
+    end
+
+    context "where 'follow' == true" do
+      let(:options) { { ref: "master", follow: true } }
+
+      context "and 'path' is a directory" do
+        it "does not follow renames" do
+          log_commits = repository.log(options.merge(path: "encoding"))
+
+          aggregate_failures do
+            expect(log_commits).to include(commit_with_new_name)
+            expect(log_commits).to include(rename_commit)
+            expect(log_commits).not_to include(commit_with_old_name)
+          end
+        end
       end
 
-      let(:commit_with_new_name) do
-        Gitlab::Git::Commit.find(repository, @commit_with_new_name_id)
-      end
-
-      let(:rename_commit) do
-        Gitlab::Git::Commit.find(repository, @rename_commit_id)
-      end
-
-      before do
-        # Add new commits so that there's a renamed file in the commit history
-        @commit_with_old_name_id = repository.commit_files(
-          user,
-          branch_name: repository.root_ref,
-          message: 'Update CHANGELOG',
-          actions: [{
-            action: :update,
-            file_path: 'CHANGELOG',
-            content: 'CHANGELOG'
-          }]
-        ).newrev
-        @rename_commit_id = repository.commit_files(
-          user,
-          branch_name: repository.root_ref,
-          message: 'Move CHANGELOG to encoding/',
-          actions: [{
-            action: :move,
-            previous_path: 'CHANGELOG',
-            file_path: 'encoding/CHANGELOG',
-            content: 'CHANGELOG'
-          }]
-        ).newrev
-        @commit_with_new_name_id = repository.commit_files(
-          user,
-          branch_name: repository.root_ref,
-          message: 'Edit encoding/CHANGELOG',
-          actions: [{
-            action: :update,
-            file_path: 'encoding/CHANGELOG',
-            content: "I'm a new changelog with different text"
-          }]
-        ).newrev
-      end
-
-      after do
-        # Erase our commits so other tests get the original repo
-        repository.write_ref(repository.root_ref, TestEnv::BRANCH_SHA['master'])
-      end
-
-      context "where 'follow' == true" do
-        let(:options) { { ref: "master", follow: true } }
-
-        context "and 'path' is a directory" do
-          it "does not follow renames" do
-            log_commits = repository.log(options.merge(path: "encoding"))
+      context "and 'path' is a file that matches the new filename" do
+        context 'without offset' do
+          it "follows renames" do
+            log_commits = repository.log(options.merge(path: "encoding/CHANGELOG"))
 
             aggregate_failures do
               expect(log_commits).to include(commit_with_new_name)
               expect(log_commits).to include(rename_commit)
-              expect(log_commits).not_to include(commit_with_old_name)
+              expect(log_commits).to include(commit_with_old_name)
             end
           end
         end
 
-        context "and 'path' is a file that matches the new filename" do
-          context 'without offset' do
-            it "follows renames" do
-              log_commits = repository.log(options.merge(path: "encoding/CHANGELOG"))
-
-              aggregate_failures do
-                expect(log_commits).to include(commit_with_new_name)
-                expect(log_commits).to include(rename_commit)
-                expect(log_commits).to include(commit_with_old_name)
-              end
-            end
-          end
-
-          context 'with offset=1' do
-            it "follows renames and skip the latest commit" do
-              log_commits = repository.log(options.merge(path: "encoding/CHANGELOG", offset: 1))
-
-              aggregate_failures do
-                expect(log_commits).not_to include(commit_with_new_name)
-                expect(log_commits).to include(rename_commit)
-                expect(log_commits).to include(commit_with_old_name)
-              end
-            end
-          end
-
-          context 'with offset=1', 'and limit=1' do
-            it "follows renames, skip the latest commit and return only one commit" do
-              log_commits = repository.log(options.merge(path: "encoding/CHANGELOG", offset: 1, limit: 1))
-
-              expect(log_commits).to contain_exactly(rename_commit)
-            end
-          end
-
-          context 'with offset=1', 'and limit=2' do
-            it "follows renames, skip the latest commit and return only two commits" do
-              log_commits = repository.log(options.merge(path: "encoding/CHANGELOG", offset: 1, limit: 2))
-
-              aggregate_failures do
-                expect(log_commits).to contain_exactly(rename_commit, commit_with_old_name)
-              end
-            end
-          end
-
-          context 'with offset=2' do
-            it "follows renames and skip the latest commit" do
-              log_commits = repository.log(options.merge(path: "encoding/CHANGELOG", offset: 2))
-
-              aggregate_failures do
-                expect(log_commits).not_to include(commit_with_new_name)
-                expect(log_commits).not_to include(rename_commit)
-                expect(log_commits).to include(commit_with_old_name)
-              end
-            end
-          end
-
-          context 'with offset=2', 'and limit=1' do
-            it "follows renames, skip the two latest commit and return only one commit" do
-              log_commits = repository.log(options.merge(path: "encoding/CHANGELOG", offset: 2, limit: 1))
-
-              expect(log_commits).to contain_exactly(commit_with_old_name)
-            end
-          end
-
-          context 'with offset=2', 'and limit=2' do
-            it "follows renames, skip the two latest commit and return only one commit" do
-              log_commits = repository.log(options.merge(path: "encoding/CHANGELOG", offset: 2, limit: 2))
-
-              aggregate_failures do
-                expect(log_commits).not_to include(commit_with_new_name)
-                expect(log_commits).not_to include(rename_commit)
-                expect(log_commits).to include(commit_with_old_name)
-              end
-            end
-          end
-        end
-
-        context "and 'path' is a file that matches the old filename" do
-          it "does not follow renames" do
-            log_commits = repository.log(options.merge(path: "CHANGELOG"))
+        context 'with offset=1' do
+          it "follows renames and skip the latest commit" do
+            log_commits = repository.log(options.merge(path: "encoding/CHANGELOG", offset: 1))
 
             aggregate_failures do
               expect(log_commits).not_to include(commit_with_new_name)
@@ -1007,121 +958,219 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
           end
         end
 
-        context "unknown ref" do
-          it "returns an empty array" do
-            log_commits = repository.log(options.merge(ref: 'unknown'))
+        context 'with offset=1', 'and limit=1' do
+          it "follows renames, skip the latest commit and return only one commit" do
+            log_commits = repository.log(options.merge(path: "encoding/CHANGELOG", offset: 1, limit: 1))
 
-            expect(log_commits).to eq([])
+            expect(log_commits).to contain_exactly(rename_commit)
+          end
+        end
+
+        context 'with offset=1', 'and limit=2' do
+          it "follows renames, skip the latest commit and return only two commits" do
+            log_commits = repository.log(options.merge(path: "encoding/CHANGELOG", offset: 1, limit: 2))
+
+            aggregate_failures do
+              expect(log_commits).to contain_exactly(rename_commit, commit_with_old_name)
+            end
+          end
+        end
+
+        context 'with offset=2' do
+          it "follows renames and skip the latest commit" do
+            log_commits = repository.log(options.merge(path: "encoding/CHANGELOG", offset: 2))
+
+            aggregate_failures do
+              expect(log_commits).not_to include(commit_with_new_name)
+              expect(log_commits).not_to include(rename_commit)
+              expect(log_commits).to include(commit_with_old_name)
+            end
+          end
+        end
+
+        context 'with offset=2', 'and limit=1' do
+          it "follows renames, skip the two latest commit and return only one commit" do
+            log_commits = repository.log(options.merge(path: "encoding/CHANGELOG", offset: 2, limit: 1))
+
+            expect(log_commits).to contain_exactly(commit_with_old_name)
+          end
+        end
+
+        context 'with offset=2', 'and limit=2' do
+          it "follows renames, skip the two latest commit and return only one commit" do
+            log_commits = repository.log(options.merge(path: "encoding/CHANGELOG", offset: 2, limit: 2))
+
+            aggregate_failures do
+              expect(log_commits).not_to include(commit_with_new_name)
+              expect(log_commits).not_to include(rename_commit)
+              expect(log_commits).to include(commit_with_old_name)
+            end
           end
         end
       end
 
-      context "where 'follow' == false" do
-        options = { follow: false }
+      context "and 'path' is a file that matches the old filename" do
+        it "does not follow renames" do
+          log_commits = repository.log(options.merge(path: "CHANGELOG"))
 
-        context "and 'path' is a directory" do
-          let(:log_commits) do
-            repository.log(options.merge(path: "encoding"))
-          end
-
-          it "does not follow renames" do
-            expect(log_commits).to include(commit_with_new_name)
-            expect(log_commits).to include(rename_commit)
-            expect(log_commits).not_to include(commit_with_old_name)
-          end
-        end
-
-        context "and 'path' is a file that matches the new filename" do
-          let(:log_commits) do
-            repository.log(options.merge(path: "encoding/CHANGELOG"))
-          end
-
-          it "does not follow renames" do
-            expect(log_commits).to include(commit_with_new_name)
-            expect(log_commits).to include(rename_commit)
-            expect(log_commits).not_to include(commit_with_old_name)
-          end
-        end
-
-        context "and 'path' is a file that matches the old filename" do
-          let(:log_commits) do
-            repository.log(options.merge(path: "CHANGELOG"))
-          end
-
-          it "does not follow renames" do
-            expect(log_commits).to include(commit_with_old_name)
-            expect(log_commits).to include(rename_commit)
+          aggregate_failures do
             expect(log_commits).not_to include(commit_with_new_name)
+            expect(log_commits).to include(rename_commit)
+            expect(log_commits).to include(commit_with_old_name)
           end
         end
       end
 
-      context "where provides 'after' timestamp" do
-        options = { after: Time.iso8601('2014-03-03T20:15:01+00:00') }
+      context "unknown ref" do
+        it "returns an empty array" do
+          log_commits = repository.log(options.merge(ref: 'unknown'))
 
-        it "returns commits on or after that timestamp" do
-          commits = repository.log(options)
-
-          expect(commits.size).to be > 0
-          expect(commits).to satisfy do |commits|
-            commits.all? { |commit| commit.committed_date >= options[:after] }
-          end
-        end
-      end
-
-      context "where provides 'before' timestamp" do
-        options = { before: Time.iso8601('2014-03-03T20:15:01+00:00') }
-
-        it "returns commits on or before that timestamp" do
-          commits = repository.log(options)
-
-          expect(commits.size).to be > 0
-          expect(commits).to satisfy do |commits|
-            commits.all? { |commit| commit.committed_date <= options[:before] }
-          end
-        end
-      end
-
-      context 'when multiple paths are provided' do
-        let(:options) { { ref: 'master', path: ['PROCESS.md', 'README.md'] } }
-
-        def commit_files(commit)
-          commit.deltas.flat_map do |delta|
-            [delta.old_path, delta.new_path].uniq.compact
-          end
-        end
-
-        it 'only returns commits matching at least one path' do
-          commits = repository.log(options)
-
-          expect(commits.size).to be > 0
-          expect(commits).to satisfy do |commits|
-            commits.none? { |commit| (commit_files(commit) & options[:path]).empty? }
-          end
-        end
-      end
-
-      context 'limit validation' do
-        where(:limit) do
-          [0, nil, '', 'foo']
-        end
-
-        with_them do
-          it { expect { repository.log(limit: limit) }.to raise_error(ArgumentError) }
-        end
-      end
-
-      context 'with all' do
-        it 'returns a list of commits' do
-          commits = repository.log({ all: true, limit: 50 })
-
-          expect(commits.size).to eq(50)
+          expect(log_commits).to eq([])
         end
       end
     end
 
-    context 'when Gitaly find_commits feature is enabled' do
-      it_behaves_like 'repository log'
+    context "where 'follow' == false" do
+      options = { follow: false }
+
+      context "and 'path' is a directory" do
+        let(:log_commits) do
+          repository.log(options.merge(path: "encoding"))
+        end
+
+        it "does not follow renames" do
+          expect(log_commits).to include(commit_with_new_name)
+          expect(log_commits).to include(rename_commit)
+          expect(log_commits).not_to include(commit_with_old_name)
+        end
+      end
+
+      context "and 'path' is a file that matches the new filename" do
+        let(:log_commits) do
+          repository.log(options.merge(path: "encoding/CHANGELOG"))
+        end
+
+        it "does not follow renames" do
+          expect(log_commits).to include(commit_with_new_name)
+          expect(log_commits).to include(rename_commit)
+          expect(log_commits).not_to include(commit_with_old_name)
+        end
+      end
+
+      context "and 'path' is a file that matches the old filename" do
+        let(:log_commits) do
+          repository.log(options.merge(path: "CHANGELOG"))
+        end
+
+        it "does not follow renames" do
+          expect(log_commits).to include(commit_with_old_name)
+          expect(log_commits).to include(rename_commit)
+          expect(log_commits).not_to include(commit_with_new_name)
+        end
+      end
+    end
+
+    context "where provides 'after' timestamp" do
+      options = { after: Time.iso8601('2014-03-03T20:15:01+00:00') }
+
+      it "returns commits on or after that timestamp" do
+        commits = repository.log(options)
+
+        expect(commits.size).to be > 0
+        expect(commits).to satisfy do |commits|
+          commits.all? { |commit| commit.committed_date >= options[:after] }
+        end
+      end
+    end
+
+    context "where provides 'before' timestamp" do
+      options = { before: Time.iso8601('2014-03-03T20:15:01+00:00') }
+
+      it "returns commits on or before that timestamp" do
+        commits = repository.log(options)
+
+        expect(commits.size).to be > 0
+        expect(commits).to satisfy do |commits|
+          commits.all? { |commit| commit.committed_date <= options[:before] }
+        end
+      end
+    end
+
+    context 'when multiple paths are provided' do
+      let(:options) { { ref: 'master', path: ['PROCESS.md', 'README.md'] } }
+
+      def commit_files(commit)
+        commit.deltas.flat_map do |delta|
+          [delta.old_path, delta.new_path].uniq.compact
+        end
+      end
+
+      it 'only returns commits matching at least one path' do
+        commits = repository.log(options)
+
+        expect(commits.size).to be > 0
+        expect(commits).to satisfy do |commits|
+          commits.none? { |commit| (commit_files(commit) & options[:path]).empty? }
+        end
+      end
+    end
+
+    context 'offset' do
+      where(:offset) do
+        [-1, nil, 0]
+      end
+
+      with_them do
+        it 'returns commits with the given offset' do
+          commits = repository.log(offset: offset)
+          expect(commits).to be_an(Array)
+        end
+      end
+    end
+
+    context 'limit validation' do
+      where(:limit) do
+        [0, nil, '', 'foo']
+      end
+
+      with_them do
+        it { expect { repository.log(limit: limit) }.to raise_error(ArgumentError) }
+      end
+    end
+
+    context 'with all' do
+      it 'returns a list of commits' do
+        commits = repository.log({ all: true, limit: 50 })
+
+        expect(commits.size).to eq(50)
+      end
+    end
+
+    context 'with message_regex' do
+      context 'which is valid' do
+        it 'returns a filtered list of commits' do
+          commits = repository.log(message_regex: 'changelog$')
+
+          expect(commits.size).to eq(2)
+          expect(commits.first).to eq(commit_with_new_name)
+          expect(commits.last).to eq(commit_with_old_name)
+        end
+      end
+
+      context 'which is invalid' do
+        it 'raises an argument error' do
+          expect { repository.log(message_regex: '[') }
+            .to raise_error(ArgumentError, 'Invalid message_regex pattern')
+        end
+      end
+
+      context 'which does not match any commits' do
+        it 'does not raise an error and returns an empty list' do
+          commits = repository.log(message_regex: 'fizz buzz fizzbuzz')
+
+          expect(commits.size).to eq(0)
+        end
+      end
     end
   end
 
@@ -1437,6 +1486,15 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
         expect(changes.last.new_path).to eq('with space/README.md')
       end
     end
+
+    context 'with an empty new rev' do
+      let(:old_rev) { 'foo' }
+      let(:new_rev) { Gitlab::Git::SHA1_BLANK_SHA }
+
+      it 'returns an empty array' do
+        expect(changes).to eq([])
+      end
+    end
   end
 
   describe '#merge_base' do
@@ -1528,7 +1586,7 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
         it "returns the number of commits in the whole repository" do
           options = { all: true }
 
-          expect(repository.count_commits(options)).to eq(325)
+          expect(repository.count_commits(options)).to eq(330)
         end
       end
 
@@ -1652,6 +1710,65 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
     end
   end
 
+  describe '#diff_blobs' do
+    let(:gitaly_diff_client) { double('Gitlab::GitalyClient::DiffService') }
+
+    # SHAs used are from https://gitlab.com/gitlab-org/gitlab-test.
+    let(:left_blob) { '1e292f8fedd741b75372e19097c76d327140c312' }
+    let(:right_blob) { 'ddd0f15ae83993f5cb66a927a28673882e99100b' }
+
+    let(:blob_pairs) do
+      [
+        Gitaly::DiffBlobsRequest::BlobPair.new(
+          left_blob: left_blob,
+          right_blob: right_blob
+        )
+      ]
+    end
+
+    before do
+      allow(repository).to receive(:gitaly_diff_client).and_return(gitaly_diff_client)
+      allow(gitaly_diff_client).to receive(:diff_blobs)
+
+      repository.diff_blobs(blob_pairs)
+    end
+
+    it 'passes the values to the diff client' do
+      expect(gitaly_diff_client)
+        .to have_received(:diff_blobs)
+        .with(blob_pairs)
+    end
+  end
+
+  describe '#diff_blobs_with_raw_info' do
+    let(:gitaly_diff_client) { double('Gitlab::GitalyClient::DiffService') }
+    let(:changed_paths) do
+      [
+        Gitaly::ChangedPaths.new(
+          path: '/README',
+          status: :ADDED,
+          old_mode: 0,
+          new_mode: 33188,
+          old_blob_id: "0000000000000000000000000000000000000000",
+          new_blob_id: "ec4cf24cd106b6483345b92f2195491b6d852890"
+        )
+      ]
+    end
+
+    before do
+      allow(repository).to receive(:gitaly_diff_client).and_return(gitaly_diff_client)
+      allow(gitaly_diff_client).to receive(:diff_blobs_with_raw_info)
+
+      repository.diff_blobs_with_raw_info(changed_paths)
+    end
+
+    it 'passes the values to the diff client' do
+      expect(gitaly_diff_client)
+        .to have_received(:diff_blobs_with_raw_info)
+        .with(changed_paths)
+    end
+  end
+
   describe '#diff_stats' do
     let(:left_commit_id) { 'feature' }
     let(:right_commit_id) { 'master' }
@@ -1710,7 +1827,7 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
     let(:commit_1_files) do
       [
         Gitlab::Git::ChangedPath.new(
-          status: :ADDED, path: "files/executables/ls", old_mode: "0", new_mode: "100755",
+          status: :ADDED, path: "files/executables/ls", old_path: '', old_mode: "0", new_mode: "100755",
           old_blob_id: '0000000000000000000000000000000000000000', new_blob_id: 'c84acd1ff0b844201312052f9bb3b7259eb2e177'
         )
       ]
@@ -1719,7 +1836,7 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
     let(:commit_2_files) do
       [
         Gitlab::Git::ChangedPath.new(
-          status: :ADDED, path: "bar/branch-test.txt", old_mode: "0", new_mode: "100644",
+          status: :ADDED, path: "bar/branch-test.txt", old_path: '', old_mode: "0", new_mode: "100644",
           old_blob_id: '0000000000000000000000000000000000000000', new_blob_id: '93e123ac8a3e6a0b600953d7598af629dec7b735'
         )
       ]
@@ -1728,11 +1845,11 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
     let(:commit_3_files) do
       [
         Gitlab::Git::ChangedPath.new(
-          status: :MODIFIED, path: ".gitmodules", old_mode: "100644", new_mode: "100644",
+          status: :MODIFIED, path: ".gitmodules", old_path: '', old_mode: "100644", new_mode: "100644",
           old_blob_id: 'fdaada1754989978413d618ee1fb1c0469d6a664', new_blob_id: '0792c58905eff3432b721f8c4a64363d8e28d9ae'
         ),
         Gitlab::Git::ChangedPath.new(
-          status: :ADDED, path: "gitlab-shell", old_mode: "0", new_mode: "160000",
+          status: :ADDED, path: "gitlab-shell", old_path: '', old_mode: "0", new_mode: "160000",
           old_blob_id: '0000000000000000000000000000000000000000', new_blob_id: '79bceae69cb5750d6567b223597999bfa91cb3b9'
         )
       ]
@@ -1741,15 +1858,15 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
     let(:initial_commit_files) do
       [
         Gitlab::Git::ChangedPath.new(
-          status: :ADDED, path: ".gitignore", old_mode: "0", new_mode: "100644",
+          status: :ADDED, path: ".gitignore", old_path: '', old_mode: "0", new_mode: "100644",
           old_blob_id: '0000000000000000000000000000000000000000', new_blob_id: '470ad2fcf1e33798f1afc5781d08e60c40f51e7a'
         ),
         Gitlab::Git::ChangedPath.new(
-          status: :ADDED, path: "LICENSE", old_mode: "0", new_mode: "100644",
+          status: :ADDED, path: "LICENSE", old_path: '', old_mode: "0", new_mode: "100644",
           old_blob_id: '0000000000000000000000000000000000000000', new_blob_id: '50b27c6518be44c42c4d87966ae2481ce895624c'
         ),
         Gitlab::Git::ChangedPath.new(
-          status: :ADDED, path: "README.md", old_mode: "0", new_mode: "100644",
+          status: :ADDED, path: "README.md", old_path: '', old_mode: "0", new_mode: "100644",
           old_blob_id: '0000000000000000000000000000000000000000', new_blob_id: 'faaf198af3a36dbf41961466703cc1d47c61d051'
         )
       ]
@@ -1786,7 +1903,7 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
       expect(collection.to_a).to be_empty
     end
 
-    describe 'merge_commit_diff_mode argument' do
+    describe 'optional arguments' do
       let(:gitaly_commit_client) { double('Gitlab::GitalyClient::CommitService') }
 
       before do
@@ -1799,24 +1916,38 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
           repository.find_changed_paths(['sha'])
         end
 
-        it 'defaults to nil' do
+        it 'returns default values' do
           expect(gitaly_commit_client)
             .to have_received(:find_changed_paths)
-            .with(['sha'], merge_commit_diff_mode: nil)
+            .with(['sha'], merge_commit_diff_mode: nil, find_renames: false, diff_filters: nil)
         end
       end
 
-      context 'when included' do
-        let(:passed_value) { 'foobar' }
+      context 'merge_commit_diff_mode is given' do
+        let(:merge_commit_diff_mode) { 'foobar' }
 
         before do
-          repository.find_changed_paths(['sha'], merge_commit_diff_mode: passed_value)
+          repository.find_changed_paths(['sha'], merge_commit_diff_mode: merge_commit_diff_mode)
         end
 
         it 'passes the value on to the commit client' do
           expect(gitaly_commit_client)
             .to have_received(:find_changed_paths)
-            .with(['sha'], merge_commit_diff_mode: passed_value)
+            .with(['sha'], merge_commit_diff_mode: merge_commit_diff_mode, find_renames: false, diff_filters: nil)
+        end
+      end
+
+      context 'find_names is included' do
+        let(:find_renames) { true }
+
+        before do
+          repository.find_changed_paths(['sha'], find_renames: find_renames)
+        end
+
+        it 'passes the value on to the commit client' do
+          expect(gitaly_commit_client)
+            .to have_received(:find_changed_paths)
+            .with(['sha'], merge_commit_diff_mode: nil, find_renames: find_renames, diff_filters: nil)
         end
       end
     end
@@ -2107,10 +2238,29 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
     end
   end
 
+  describe '#add_branch' do
+    let_it_be(:project) { create(:project, :repository) }
+    let(:repository) { project.repository.raw }
+    let(:branch_name) { "branch-to-create" }
+
+    before do
+      project.add_developer(user)
+    end
+
+    it "adds the branch and passes skip_ci to gitaly_operation_client" do
+      expect(repository.gitaly_operation_client).to receive(:user_create_branch)
+        .with(branch_name, user, 'HEAD', skip_ci: true)
+        .and_call_original
+
+      repository.add_branch(branch_name, user: user, target: 'HEAD', skip_ci: true)
+    end
+  end
+
   describe '#rm_branch' do
     let(:project) { create(:project, :repository) }
     let(:repository) { project.repository.raw }
     let(:branch_name) { "to-be-deleted-soon" }
+    let(:target_sha) { repository.commit(branch_name).sha }
 
     before do
       project.add_developer(user)
@@ -2118,7 +2268,7 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
     end
 
     it "removes the branch from the repo" do
-      repository.rm_branch(branch_name, user: user)
+      repository.rm_branch(branch_name, user: user, target_sha: target_sha)
 
       expect(repository.find_branch(branch_name)).to be_nil
     end
@@ -2499,7 +2649,6 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
 
   describe '#checksum' do
     it 'calculates the checksum for non-empty repo' do
-      expect(repository.checksum.length).to be(40)
       expect(Gitlab::Git.blank_ref?(repository.checksum)).to be false
     end
 
@@ -2633,7 +2782,7 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
 
   describe '#replicate' do
     let(:new_repository) do
-      Gitlab::Git::Repository.new('test_second_storage', repository.relative_path, '', 'group/project')
+      described_class.new('test_second_storage', repository.relative_path, '', 'group/project')
     end
 
     subject { new_repository.replicate(repository) }
@@ -2980,6 +3129,162 @@ RSpec.describe Gitlab::Git::Repository, feature_category: :source_code_managemen
 
       it 'returns an empty set' do
         expect(generated_files).to eq Set.new
+      end
+    end
+  end
+
+  describe '#gitaly_diff_client' do
+    it 'instantiates a new DiffService class' do
+      expect(repository.gitaly_diff_client).to be_a(Gitlab::GitalyClient::DiffService)
+    end
+  end
+
+  describe '#cherry_pick' do
+    let(:commit) { mutable_repository.commit('7d3b0f7cff5f37573aea97cebfd5692ea1689924') }
+    let(:target_sha) { mutable_repository.commit.id }
+    let(:args) do
+      {
+        user: user,
+        message: 'message',
+        commit: commit,
+        branch_name: 'master',
+        target_sha: target_sha,
+        start_branch_name: 'master',
+        start_repository: mutable_repository
+      }
+    end
+
+    subject(:cherry_pick) do
+      mutable_repository.cherry_pick(**args)
+    end
+
+    it 'delegates to user_cherry_pick' do
+      expect_next_instance_of(Gitlab::GitalyClient::OperationService) do |service|
+        expect(service).to receive(:user_cherry_pick).with(a_hash_including(args)).and_call_original
+      end
+
+      cherry_pick
+    end
+
+    context 'when target_sha does not exist' do
+      let(:target_sha) { '0000000000000000000000000000000000000000' }
+
+      it 'raises an error' do
+        expect { cherry_pick }.to raise_error(Gitlab::Git::CommandError)
+      end
+    end
+
+    context 'when branch changes after target sha' do
+      before do
+        target_sha
+        mutable_project.repository.create_file(user, 'somefile', '', message: 'add a file', branch_name: 'master')
+      end
+
+      it 'raises an error' do
+        expect { cherry_pick }.to raise_error(Gitlab::Git::CommandError)
+      end
+    end
+  end
+
+  describe '#list_commits' do
+    it 'returns commits when no query is passed' do
+      commit_ids = repository.list_commits(ref: 'master', pagination_params: { limit: 2 }).map(&:id)
+
+      expect(commit_ids).to eq(%w[b83d6e391c22777fca1ed3012fce84f633d7fed0 498214de67004b1da3d820901307bed2a68a8ef6])
+    end
+
+    it 'returns commits with messages containing a given string' do
+      commit_ids = repository.list_commits(query: 'test text', ref: 'master').map(&:id)
+
+      expect(commit_ids).to eq(%w[b83d6e391c22777fca1ed3012fce84f633d7fed0 498214de67004b1da3d820901307bed2a68a8ef6])
+    end
+
+    it 'is case insensitive' do
+      commit_ids = repository.list_commits(query: 'TEST TEXT', ref: 'master').map(&:id)
+
+      expect(commit_ids).to eq(%w[b83d6e391c22777fca1ed3012fce84f633d7fed0 498214de67004b1da3d820901307bed2a68a8ef6])
+    end
+
+    it 'returns commits based in before filter' do
+      commit_ids = repository.list_commits(query: 'test text', ref: 'master', committed_before: 1474828200).map(&:id)
+
+      expect(commit_ids).to eq(%w[498214de67004b1da3d820901307bed2a68a8ef6])
+    end
+
+    it 'returns commits based in after filter' do
+      commit_ids = repository.list_commits(query: 'test text', ref: 'master', committed_after: 1474828200).map(&:id)
+
+      expect(commit_ids).to eq(%w[b83d6e391c22777fca1ed3012fce84f633d7fed0])
+    end
+
+    it 'returns commits based in author filter' do
+      commit_ids = repository.list_commits(query: 'test text', ref: 'master', author: 'Job van der Voort').map(&:id)
+
+      expect(commit_ids).to eq(%w[b83d6e391c22777fca1ed3012fce84f633d7fed0])
+    end
+
+    it 'returns the correct page' do
+      commit_ids = repository.list_commits(
+        ref: 'master', pagination_params: { limit: 1, page_token: 'b83d6e391c22777fca1ed3012fce84f633d7fed0' }
+      ).map(&:id)
+
+      expect(commit_ids).to eq(%w[498214de67004b1da3d820901307bed2a68a8ef6])
+    end
+
+    describe 'pagination_params' do
+      let(:gitaly_commit_client) { repository.gitaly_commit_client }
+
+      before do
+        allow(gitaly_commit_client).to receive(:list_commits).and_call_original
+      end
+
+      context 'when a limit is supplied' do
+        it 'does not modify the limit' do
+          repository.list_commits(ref: 'master', pagination_params: { limit: 10 })
+          expect(gitaly_commit_client)
+            .to have_received(:list_commits)
+            .with(['master'], a_hash_including(pagination_params: { limit: 10 }))
+        end
+
+        context 'as nil' do
+          it 'sets the limit to 1000' do
+            repository.list_commits(ref: 'master', pagination_params: { limit: nil })
+            expect(gitaly_commit_client)
+              .to have_received(:list_commits)
+              .with(['master'], a_hash_including(pagination_params: { limit: 1000 }))
+          end
+        end
+      end
+
+      context 'when no limit is supplied' do
+        it 'sets the limit to 1000' do
+          repository.list_commits(ref: 'master')
+          expect(gitaly_commit_client)
+            .to have_received(:list_commits)
+            .with(['master'], a_hash_including(pagination_params: { page_token: nil, limit: 1000 }))
+        end
+      end
+
+      context 'when a page_token is passed' do
+        it 'does not modify it' do
+          repository.list_commits(ref: 'master', pagination_params: { page_token: 'page_token' })
+          expect(gitaly_commit_client)
+            .to have_received(:list_commits)
+            .with(['master'], a_hash_including(pagination_params: { page_token: 'page_token', limit: 1000 }))
+        end
+      end
+    end
+
+    describe 'when storage is broken', :broken_storage do
+      let(:broken_repository) { create(:project, :broken_storage).repository }
+
+      it 'raises a storage error' do
+        expect { broken_repository.list_commits(ref: 'master') }.to raise_error do |exception|
+          storage_exceptions = [Gitlab::Git::CommandError, GRPC::Unavailable]
+          known_exception = storage_exceptions.select { |e| exception.is_a?(e) }
+
+          expect(known_exception).not_to be_nil
+        end
       end
     end
   end

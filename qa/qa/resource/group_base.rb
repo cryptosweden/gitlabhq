@@ -9,15 +9,15 @@ module QA
 
       MAX_NAME_LENGTH = 255
 
-      attr_accessor :path, :avatar
+      attr_accessor :avatar
 
       attributes :id,
         :runners_token,
         :name,
+        :path,
         :full_path,
         # Add visibility to enable create private group
-        :visibility,
-        :shared_with_groups
+        :visibility
 
       # Get group projects
       #
@@ -152,6 +152,22 @@ module QA
         "#{api_get_path}/runners"
       end
 
+      # Get group audit events
+      #
+      # @return [Array]
+      def audit_events
+        api_get_from("#{api_get_path}/audit_events")
+      end
+
+      # Set IP restriction for group
+      #
+      # @param ip_ranges [String] Comma-separated list of IP addresses or subnet masks to restrict group access
+      # @return [void]
+      def set_ip_restriction_range(ip_ranges)
+        put_body = { ip_restriction_ranges: ip_ranges }
+        api_put_to(api_put_path, put_body)
+      end
+
       # Object comparison
       # Override to make sure we are comparing descendands of GroupBase
       #
@@ -181,7 +197,6 @@ module QA
           :require_two_factor_authentication,
           :share_with_group_lock,
           :subgroup_creation_level,
-          :shared_with_groups,
           :two_factor_grace_period
           # TODO: Add back visibility comparison once https://gitlab.com/gitlab-org/gitlab/-/issues/331252 is fixed
           # :visibility

@@ -1,5 +1,5 @@
 # To contribute improvements to CI/CD templates, please follow the Development guide at:
-# https://docs.gitlab.com/ee/development/cicd/templates.html
+# https://docs.gitlab.com/development/cicd/templates/
 # This specific template is located at:
 # https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Auto-DevOps.gitlab-ci.yml
 
@@ -83,6 +83,8 @@ stages:
 
 workflow:
   rules:
+    - if: '$GITLAB_SCAN_EXECUTION_POLICY_PIPELINE'
+
     - if: '$BUILDPACK_URL || $AUTO_DEVOPS_EXPLICITLY_ENABLED == "1" || $DOCKERFILE_PATH'
 
     - exists:

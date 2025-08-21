@@ -109,7 +109,7 @@ describe('Job Log Header Line', () => {
       wrapper.trigger('click');
 
       await nextTick();
-      expect(wrapper.emitted().toggleLine.length).toBe(1);
+      expect(wrapper.emitted().toggleLine).toHaveLength(1);
     });
   });
 
@@ -153,7 +153,7 @@ describe('Job Log Header Line', () => {
       });
 
       it('highlights line', () => {
-        expect(wrapper.classes()).toContain('gl-bg-gray-700');
+        expect(wrapper.classes()).toContain('job-log-line-highlight');
       });
     });
 
@@ -165,7 +165,7 @@ describe('Job Log Header Line', () => {
       });
 
       it('does not highlight line', () => {
-        expect(wrapper.classes()).not.toContain('gl-bg-gray-700');
+        expect(wrapper.classes()).not.toContain('job-log-line-highlight');
       });
     });
 
@@ -173,13 +173,13 @@ describe('Job Log Header Line', () => {
       it('highlights the job log lines', () => {
         createComponent({ ...defaultProps, isHighlighted: true });
 
-        expect(wrapper.classes()).toContain('gl-bg-gray-700');
+        expect(wrapper.classes()).toContain('job-log-line-highlight');
       });
 
       it('does not highlight the job log lines', () => {
         createComponent();
 
-        expect(wrapper.classes()).not.toContain('gl-bg-gray-700');
+        expect(wrapper.classes()).not.toContain('job-log-line-highlight');
       });
     });
   });

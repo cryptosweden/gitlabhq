@@ -9,11 +9,13 @@ prepare-as-if-foss-branch:
     - .as-if-foss-variables
   stage: prepare
   needs: []
+  timeout: 10m
   environment:
     name: "as-if-foss/${CI_MERGE_REQUEST_IID}"
+    auto_stop_in: 2 weeks
     on_stop: delete-as-if-foss-branch
   before_script:
-    - git clone --single-branch --branch master "${FOSS_REPOSITORY}" gitlab-foss
+    - git clone --single-branch --branch master --depth 1 "${FOSS_REPOSITORY}" gitlab-foss
     - git -C gitlab-foss checkout -b "${AS_IF_FOSS_BRANCH}" master
     - git -C gitlab-foss rev-parse HEAD
     - rm -r .git/
@@ -63,10 +65,18 @@ start-as-if-foss:
     - prepare-as-if-foss-branch
     - prepare-as-if-foss-env
   inherit:
-    variables: false  # Otherwise variables will be messed up
+    # runner variable defaults are defined under global `variables:` key
+    # make sure default values are inherited, otherwise these will be interpreted literally in the downstream pipeline
+    variables:
+      - GITLAB_LARGE_RUNNER_OPTIONAL
+      - GLCI_PRODUCTION_ASSETS_RUNNER_OPTIONAL
+      - GLCI_PUSH_RAILS_TEST_FAILURE_ISSUES_TO_GCS
   variables:
     START_AS_IF_FOSS: $START_AS_IF_FOSS
     RUBY_VERSION: $RUBY_VERSION
+    # Use same runner tags as in the parent project
+    GITLAB_LARGE_RUNNER_OPTIONAL: $GITLAB_LARGE_RUNNER_OPTIONAL
+    GLCI_PRODUCTION_ASSETS_RUNNER_OPTIONAL: $GLCI_PRODUCTION_ASSETS_RUNNER_OPTIONAL
     # Variables for `detect-tests` to work in FOSS
     FIND_CHANGES_MERGE_REQUEST_PROJECT_PATH: $FIND_CHANGES_MERGE_REQUEST_PROJECT_PATH
     FIND_CHANGES_MERGE_REQUEST_IID: $FIND_CHANGES_MERGE_REQUEST_IID
@@ -83,12 +93,10 @@ start-as-if-foss:
     ENABLE_RSPEC_MIGRATION: $ENABLE_RSPEC_MIGRATION
     ENABLE_RSPEC_BACKGROUND_MIGRATION: $ENABLE_RSPEC_BACKGROUND_MIGRATION
     ENABLE_RSPEC_FRONTEND_FIXTURE: $ENABLE_RSPEC_FRONTEND_FIXTURE
-    ENABLE_BUILD_ASSETS_IMAGE: $ENABLE_BUILD_ASSETS_IMAGE
     ENABLE_BUILD_QA_IMAGE: $ENABLE_BUILD_QA_IMAGE
     ENABLE_COMPILE_PRODUCTION_ASSETS: $ENABLE_COMPILE_PRODUCTION_ASSETS
     ENABLE_COMPILE_STORYBOOK: $ENABLE_COMPILE_STORYBOOK
     ENABLE_COMPILE_TEST_ASSETS: $ENABLE_COMPILE_TEST_ASSETS
-    ENABLE_CACHE_ASSETS: $ENABLE_CACHE_ASSETS
     ENABLE_DETECT_TESTS: $ENABLE_DETECT_TESTS
     ENABLE_ESLINT: $ENABLE_ESLINT
     ENABLE_GENERATE_APOLLO_GRAPHQL_SCHEMA: $ENABLE_GENERATE_APOLLO_GRAPHQL_SCHEMA
@@ -111,12 +119,13 @@ start-as-if-foss:
 
 delete-as-if-foss-branch:
   extends:
-    - .as-if-foss:rules:start-as-if-foss:allow-failure:manual
+    - .as-if-foss:rules:start-as-if-foss
     - .as-if-foss-variables
   image:
-    name: alpine/git
+    name: ${GITLAB_DEPENDENCY_PROXY_ADDRESS}alpine/git
     entrypoint: [""]
   stage: prepare
+  timeout: 10m
   needs:
     - prepare-as-if-foss-branch
   environment:
@@ -124,6 +133,8 @@ delete-as-if-foss-branch:
     action: stop
   variables:
     GIT_STRATEGY: "none"
+  when: manual
+  allow_failure: true
   script:
     - |
       git init
@@ -135,8 +146,8 @@ delete-as-if-foss-branch:
 # https://docs.gitlab.com/ee/ci/environments/#delete-an-environment
 delete-as-if-foss-environment:
   extends:
-    - .as-if-foss:rules:start-as-if-foss:allow-failure
-  image: alpine:latest
+    - .as-if-foss:rules:start-as-if-foss
+  image: ${GITLAB_DEPENDENCY_PROXY_ADDRESS}alpine:latest
   stage: prepare
   needs:
     - delete-as-if-foss-branch
@@ -150,3 +161,4 @@ delete-as-if-foss-environment:
     - |
       ENV_ID=$(curl --silent --fail --request GET --header "Private-Token: ${PROJECT_TOKEN_FOR_CI_SCRIPTS_API_USAGE}" "${ENVIRONMENT_API_URL}?name=${ESCAPED_ENVIRONMENT_NAME}" | jq '.[0].id')
       curl --silent --request DELETE --header "Private-Token: $PROJECT_TOKEN_FOR_CI_SCRIPTS_API_USAGE" "${ENVIRONMENT_API_URL}/${ENV_ID}"
+  allow_failure: true

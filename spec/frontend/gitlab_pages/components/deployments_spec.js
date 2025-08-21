@@ -1,7 +1,7 @@
 import Vue, { nextTick } from 'vue';
 import VueApollo from 'vue-apollo';
-import { GlLoadingIcon } from '@gitlab/ui';
 import PagesDeployments from '~/gitlab_pages/components/deployments.vue';
+import CrudComponent from '~/vue_shared/components/crud_component.vue';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import getProjectPagesDeploymentsQuery from '~/gitlab_pages/queries/get_project_pages_deployments.graphql';
@@ -18,6 +18,7 @@ describe('PagesDeployments', () => {
         data: {
           project: {
             id: 'gid://gitlab/Project/1',
+            fullPath: 'user/project',
             pagesDeployments: {
               __typename: 'PagesDeploymentConnection',
               count: 14,
@@ -44,6 +45,7 @@ describe('PagesDeployments', () => {
                   pathPrefix: versioned ? '_stg' : '',
                   size: 1082,
                   updatedAt: '2024-05-23T11:48:34Z',
+                  expiresAt: versioned ? '2024-05-23T13:37:22Z' : null,
                   url: 'http://abc.pages.io/',
                 })),
             },
@@ -53,11 +55,11 @@ describe('PagesDeployments', () => {
     });
 
   const findAllPrimaryDeployments = () => wrapper.findAllByTestId('primary-deployment');
-  const findAllEnvironmentDeployments = () => wrapper.findAllByTestId('environment-deployment');
+  const findAllParallelDeployments = () => wrapper.findAllByTestId('parallel-deployment');
   const findPrimaryDeploymentsLoadMoreComponent = () =>
     wrapper.findByTestId('load-more-primary-deployments');
-  const findEnvironmentDeploymentsLoadMoreComponent = () =>
-    wrapper.findByTestId('load-more-environment-deployments');
+  const findParallelDeploymentsLoadMoreComponent = () =>
+    wrapper.findByTestId('load-more-parallel-deployments');
 
   const createComponent = () => {
     wrapper = shallowMountExtended(PagesDeployments, {
@@ -66,6 +68,9 @@ describe('PagesDeployments', () => {
       ]),
       provide: {
         projectFullPath: 'my-group/my-project',
+      },
+      stubs: {
+        CrudComponent,
       },
     });
   };
@@ -94,7 +99,7 @@ describe('PagesDeployments', () => {
       );
     });
 
-    it('calls the environments deployments query', () => {
+    it('calls the parallels deployments query', () => {
       expect(getProjectPagesDeploymentsQueryHandler).toHaveBeenCalledWith(
         expect.objectContaining({
           active: true,
@@ -105,11 +110,11 @@ describe('PagesDeployments', () => {
     });
 
     it('renders a list for all primary deployments', () => {
-      expect(findAllPrimaryDeployments().length).toBe(10);
+      expect(findAllPrimaryDeployments()).toHaveLength(10);
     });
 
-    it('renders a list for all environment deployments', () => {
-      expect(findAllEnvironmentDeployments().length).toBe(10);
+    it('renders a list for all parallel deployments', () => {
+      expect(findAllParallelDeployments()).toHaveLength(10);
     });
   });
 
@@ -123,8 +128,8 @@ describe('PagesDeployments', () => {
       expect(findPrimaryDeploymentsLoadMoreComponent().exists()).toBe(true);
     });
 
-    it('does include the "load more" component for environment deployments', () => {
-      expect(findEnvironmentDeploymentsLoadMoreComponent().exists()).toBe(true);
+    it('does include the "load more" component for parallel deployments', () => {
+      expect(findParallelDeploymentsLoadMoreComponent().exists()).toBe(true);
     });
 
     it('fetches more primary deployments', async () => {
@@ -143,8 +148,8 @@ describe('PagesDeployments', () => {
       expect(findPrimaryDeploymentsLoadMoreComponent().exists()).toBe(false);
     });
 
-    it('fetches more environment deployments', async () => {
-      findEnvironmentDeploymentsLoadMoreComponent().vm.$emit('load-more');
+    it('fetches more parallel deployments', async () => {
+      findParallelDeploymentsLoadMoreComponent().vm.$emit('load-more');
       await nextTick();
 
       expect(getProjectPagesDeploymentsQueryHandler).toHaveBeenCalledWith(
@@ -156,13 +161,14 @@ describe('PagesDeployments', () => {
 
       await waitForPromises();
 
-      expect(findEnvironmentDeploymentsLoadMoreComponent().exists()).toBe(false);
+      expect(findParallelDeploymentsLoadMoreComponent().exists()).toBe(false);
     });
   });
 
   describe('when the "Include stopped deployments" toggle is switched on', () => {
     beforeEach(async () => {
       createComponent();
+      await waitForPromises();
       wrapper.findByTestId('show-inactive-toggle').vm.$emit('change', true);
       await waitForPromises();
     });
@@ -176,7 +182,7 @@ describe('PagesDeployments', () => {
       );
     });
 
-    it('fetches the environmentDeployments with the "active" filter set to undefined', () => {
+    it('fetches the parallelDeployments with the "active" filter set to undefined', () => {
       expect(getProjectPagesDeploymentsQueryHandler).toHaveBeenCalledWith(
         expect.objectContaining({
           versioned: true,
@@ -187,9 +193,9 @@ describe('PagesDeployments', () => {
   });
 
   describe.each`
-    type             | testid
-    ${'primary'}     | ${'primary-deployment'}
-    ${'environment'} | ${'environment-deployment'}
+    type          | testid
+    ${'primary'}  | ${'primary-deployment'}
+    ${'parallel'} | ${'parallel-deployment'}
   `('if a $type PagesDeployment child emits an error', ({ testid }) => {
     const errorMessage = 'Foo';
 
@@ -241,8 +247,8 @@ describe('PagesDeployments', () => {
       createComponent();
     });
 
-    it('displays the loading icon', () => {
-      expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(true);
+    it('displays the loader', () => {
+      expect(wrapper.findComponent(CrudComponent).props('isLoading')).toBe(true);
     });
   });
 });

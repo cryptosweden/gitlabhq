@@ -1,8 +1,8 @@
-import { GlAlert, GlLink, GlSprintf } from '@gitlab/ui';
+import { GlAlert, GlLink, GlSprintf, GlLoadingIcon } from '@gitlab/ui';
 import { EditorContent, Editor } from '@tiptap/vue-2';
 import { nextTick } from 'vue';
 import MockAdapter from 'axios-mock-adapter';
-import axios from 'axios';
+import axios from '~/lib/utils/axios_utils';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import { CONTENT_EDITOR_PASTE } from '~/vue_shared/constants';
 import markdownEditorEventHub from '~/vue_shared/components/markdown/eventhub';
@@ -11,14 +11,15 @@ import ContentEditorAlert from '~/content_editor/components/content_editor_alert
 import ContentEditorProvider from '~/content_editor/components/content_editor_provider.vue';
 import EditorStateObserver from '~/content_editor/components/editor_state_observer.vue';
 import CodeBlockBubbleMenu from '~/content_editor/components/bubble_menus/code_block_bubble_menu.vue';
+import AlertBubbleMenu from '~/content_editor/components/bubble_menus/alert_bubble_menu.vue';
 import LinkBubbleMenu from '~/content_editor/components/bubble_menus/link_bubble_menu.vue';
 import MediaBubbleMenu from '~/content_editor/components/bubble_menus/media_bubble_menu.vue';
 import ReferenceBubbleMenu from '~/content_editor/components/bubble_menus/reference_bubble_menu.vue';
 import FormattingToolbar from '~/content_editor/components/formatting_toolbar.vue';
-import LoadingIndicator from '~/content_editor/components/loading_indicator.vue';
 import waitForPromises from 'helpers/wait_for_promises';
 import { KEYDOWN_EVENT } from '~/content_editor/constants';
 import EditorModeSwitcher from '~/vue_shared/components/markdown/editor_mode_switcher.vue';
+import { HTTP_STATUS_OK } from '~/lib/utils/http_status';
 import { mockChainedCommands } from '../test_utils';
 
 describe('ContentEditor', () => {
@@ -30,7 +31,7 @@ describe('ContentEditor', () => {
   const findEditorElement = () => wrapper.findByTestId('content-editor');
   const findEditorContent = () => wrapper.findComponent(EditorContent);
   const findEditorStateObserver = () => wrapper.findComponent(EditorStateObserver);
-  const findLoadingIndicator = () => wrapper.findComponent(LoadingIndicator);
+  const findLoadingIndicator = () => wrapper.findComponent(GlLoadingIcon);
   const findContentEditorAlert = () => wrapper.findComponent(ContentEditorAlert);
   const createWrapper = ({ markdown, autofocus, ...props } = {}) => {
     wrapper = shallowMountExtended(ContentEditor, {
@@ -56,7 +57,7 @@ describe('ContentEditor', () => {
   beforeEach(() => {
     mock = new MockAdapter(axios);
     // ignore /-/emojis requests
-    mock.onGet().reply(200, []);
+    mock.onGet().reply(HTTP_STATUS_OK, []);
 
     renderMarkdown = jest.fn();
   });
@@ -76,7 +77,7 @@ describe('ContentEditor', () => {
 
     createWrapper({ markdown });
 
-    renderMarkdown.mockResolvedValueOnce(markdown);
+    renderMarkdown.mockResolvedValueOnce({ body: markdown });
 
     await nextTick();
 
@@ -137,9 +138,9 @@ describe('ContentEditor', () => {
 
     describe('succeeds', () => {
       beforeEach(async () => {
-        renderMarkdown.mockResolvedValueOnce('');
+        renderMarkdown.mockResolvedValueOnce({ body: '' });
 
-        createWrapper({ markddown: '' });
+        createWrapper({ markdown: '' });
         await nextTick();
       });
 
@@ -183,13 +184,13 @@ describe('ContentEditor', () => {
 
       it('displays error alert indicating that the content editor failed to load', () => {
         expect(findContentEditorAlert().text()).toContain(
-          'An error occurred while trying to render the content editor. Please try again.',
+          'An error occurred while trying to render the rich text editor. Please try again.',
         );
       });
 
       describe('when clicking the retry button in the loading error alert and loading succeeds', () => {
         beforeEach(async () => {
-          renderMarkdown.mockResolvedValueOnce('hello markdown');
+          renderMarkdown.mockResolvedValueOnce({ body: 'hello markdown' });
           await wrapper.findComponent(GlAlert).vm.$emit('primaryAction');
         });
 
@@ -230,15 +231,26 @@ describe('ContentEditor', () => {
     it('hides placeholder text', () => {
       expect(wrapper.text()).not.toContain('Enter some text here...');
     });
-  });
 
+    it('emits focus event', () => {
+      expect(wrapper.emitted('focus')).toHaveLength(1);
+    });
+
+    it('emits blur event when editorStateObserver emits blur event', async () => {
+      findEditorStateObserver().vm.$emit('blur');
+
+      await nextTick();
+
+      expect(wrapper.emitted('blur')).toHaveLength(1);
+    });
+  });
   describe('when editorStateObserver emits docUpdate event', () => {
     let markdown;
 
     beforeEach(async () => {
       markdown = 'Loaded content';
 
-      renderMarkdown.mockResolvedValueOnce(markdown);
+      renderMarkdown.mockResolvedValueOnce({ body: markdown });
 
       createWrapper({ markdown: 'initial content' });
 
@@ -278,6 +290,7 @@ describe('ContentEditor', () => {
 
   it.each`
     name           | component
+    ${'alert'}     | ${AlertBubbleMenu}
     ${'link'}      | ${LinkBubbleMenu}
     ${'media'}     | ${MediaBubbleMenu}
     ${'codeBlock'} | ${CodeBlockBubbleMenu}
@@ -299,7 +312,7 @@ describe('ContentEditor', () => {
 
     createWrapper({ markdown });
 
-    renderMarkdown.mockResolvedValueOnce(markdown);
+    renderMarkdown.mockResolvedValueOnce({ body: markdown });
 
     await waitForPromises();
 

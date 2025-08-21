@@ -2,26 +2,27 @@
 
 require 'spec_helper'
 
-RSpec.describe Mutations::DesignManagement::Delete do
+RSpec.describe Mutations::DesignManagement::Delete, feature_category: :api do
   include DesignManagementTestHelpers
+  include GraphqlHelpers
 
   let(:issue) { create(:issue) }
   let(:current_designs) { issue.designs.current }
-  let(:user) { issue.author }
+  let(:current_user) { issue.author }
   let(:project) { issue.project }
   let(:design_a) { create(:design, :with_file, issue: issue) }
   let(:design_b) { create(:design, :with_file, issue: issue) }
   let(:design_c) { create(:design, :with_file, issue: issue) }
   let(:filenames) { [design_a, design_b, design_c].map(&:filename) }
 
-  let(:mutation) { described_class.new(object: nil, context: { current_user: user }, field: nil) }
+  let(:mutation) { described_class.new(object: nil, context: context, field: nil) }
 
   before do
     stub_const('Errors', Gitlab::Graphql::Errors, transfer_nested_constants: true)
   end
 
   def run_mutation
-    mutation = described_class.new(object: nil, context: { current_user: user }, field: nil)
+    mutation = described_class.new(object: nil, context: query_context, field: nil)
     mutation.resolve(project_path: project.full_path, iid: issue.iid, filenames: filenames)
   end
 
@@ -54,7 +55,7 @@ RSpec.describe Mutations::DesignManagement::Delete do
       end
 
       context "when the user is not allowed to delete designs" do
-        let(:user) { create(:user) }
+        let(:current_user) { create(:user) }
 
         it_behaves_like "resource not available"
       end
@@ -86,7 +87,7 @@ RSpec.describe Mutations::DesignManagement::Delete do
           end
         end
 
-        it 'runs no more than 34 queries' do
+        it 'runs no more than 39 queries' do
           allow(Gitlab::Tracking).to receive(:event) # rubocop:disable RSpec/ExpectGitlabTracking
           allow(Gitlab::InternalEvents).to receive(:track_event)
 
@@ -127,8 +128,11 @@ RSpec.describe Mutations::DesignManagement::Delete do
           # 33. create event
           # 34. find plan for standard context
           # 35. find issue(work item) type, after query 09
-          #
-          expect { run_mutation }.not_to exceed_query_limit(35)
+          # 36. Fetch the associated issue's namespace when we create_for_designs in DesignManagement::Version
+          # 37. find if self or ancestors projects archived
+          # 38. project or ancestors archived policy check for GraphQL authorization
+          # 39. project or ancestors archived policy check for authorization in DesignManagement::DeleteDesignsService
+          expect { run_mutation }.not_to exceed_query_limit(39)
         end
       end
 

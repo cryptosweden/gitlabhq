@@ -24,7 +24,9 @@ module Gitlab
 
         def valid_authenticity_token?(session, masked_authenticity_token)
           # rubocop:disable GitlabSecurity/PublicSend
-          ActionController::Base.new.send(:valid_authenticity_token?, session, masked_authenticity_token)
+          controller = ActionController::Base.new
+          controller.set_request!(ActionDispatch::Request.new('rack.session' => session))
+          controller.send(:valid_authenticity_token?, nil, masked_authenticity_token)
           # rubocop:enable GitlabSecurity/PublicSend
         end
 

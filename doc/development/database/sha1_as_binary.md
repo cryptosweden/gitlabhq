@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Storing SHA1 Hashes As Binary
 ---
-
-# Storing SHA1 Hashes As Binary
 
 Storing SHA1 hashes as strings is not very space efficient. A SHA1 as a string
 requires at least 40 bytes, an additional byte to store the encoding, and
@@ -37,6 +36,6 @@ commit.sha = '971604de4cfa324d91c41650fabc129420c8d1cc'
 commit.save
 ```
 
-There is however one requirement: the column used to store the SHA has _must_ be
+There is however one requirement: the column used to store the SHA has must be
 a binary type. For Rails this means you need to use the `:binary` type instead
 of `:text` or `:string`.

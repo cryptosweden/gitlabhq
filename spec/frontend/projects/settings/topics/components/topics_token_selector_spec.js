@@ -8,20 +8,23 @@ const mockTopics = [
   { id: 2, name: 'GitLab', title: 'GitLab', avatarUrl: 'avatar.com/GitLab.png' },
 ];
 
+const USER_DEFINED_TOKEN = 'user defined token';
+
 describe('TopicsTokenSelector', () => {
   let wrapper;
   let div;
   let input;
 
-  const createComponent = (selected) => {
+  const createComponent = ({ selected, topics = mockTopics } = {}) => {
     wrapper = mount(TopicsTokenSelector, {
       attachTo: div,
       propsData: {
+        organizationId: '1',
         selected,
       },
       data() {
         return {
-          topics: mockTopics,
+          topics,
         };
       },
       mocks: {
@@ -40,13 +43,14 @@ describe('TopicsTokenSelector', () => {
 
   const findAllAvatars = () => wrapper.findAllComponents(GlAvatarLabeled).wrappers;
 
+  const findSelectedTokensText = () =>
+    wrapper.findAllComponents(GlToken).wrappers.map((w) => w.text());
+
   const setTokenSelectorInputValue = (value) => {
     const tokenSelectorInput = findTokenSelectorInput();
 
     tokenSelectorInput.element.value = value;
-    tokenSelectorInput.trigger('input');
-
-    return nextTick();
+    return tokenSelectorInput.trigger('input');
   };
 
   const tokenSelectorTriggerEnter = (event) => {
@@ -75,7 +79,7 @@ describe('TopicsTokenSelector', () => {
         { id: 12, name: 'topic2' },
         { id: 13, name: 'topic3' },
       ];
-      createComponent(selected);
+      createComponent({ selected });
       await nextTick();
 
       wrapper.findAllComponents(GlToken).wrappers.forEach((tokenWrapper, index) => {
@@ -101,6 +105,60 @@ describe('TopicsTokenSelector', () => {
       tokenSelectorTriggerEnter(event);
 
       expect(event.preventDefault).toHaveBeenCalled();
+    });
+  });
+
+  describe('when tokens are added', () => {
+    it('properly updates selectedTokens and emits `update` with existing token', async () => {
+      createComponent();
+
+      await setTokenSelectorInputValue(mockTopics[0].name);
+      await tokenSelectorTriggerEnter();
+
+      expect(findSelectedTokensText()).toStrictEqual([mockTopics[0].name]);
+      expect(wrapper.emitted('update')[0][0]).toStrictEqual([mockTopics[0]]);
+    });
+
+    it('properly updates selectedTokens and emits `update` with user defined token', async () => {
+      createComponent({ topics: [] });
+
+      await setTokenSelectorInputValue(USER_DEFINED_TOKEN);
+      await tokenSelectorTriggerEnter();
+
+      expect(findSelectedTokensText()).toStrictEqual([USER_DEFINED_TOKEN]);
+      expect(wrapper.emitted('update')[0][0]).toStrictEqual([
+        expect.objectContaining({ name: USER_DEFINED_TOKEN }),
+      ]);
+    });
+
+    it('properly omits duplicate tokens, updates selectedTokens, and emits `update`', async () => {
+      createComponent({ selected: mockTopics });
+
+      await setTokenSelectorInputValue(USER_DEFINED_TOKEN);
+      await tokenSelectorTriggerEnter();
+
+      expect(findSelectedTokensText()).toStrictEqual([
+        mockTopics[0].name,
+        mockTopics[1].name,
+        USER_DEFINED_TOKEN,
+      ]);
+      expect(wrapper.emitted('update')[0][0]).toStrictEqual([
+        ...mockTopics,
+        expect.objectContaining({ name: USER_DEFINED_TOKEN }),
+      ]);
+
+      await setTokenSelectorInputValue(USER_DEFINED_TOKEN);
+      await tokenSelectorTriggerEnter();
+
+      expect(findSelectedTokensText()).toStrictEqual([
+        mockTopics[0].name,
+        mockTopics[1].name,
+        USER_DEFINED_TOKEN,
+      ]);
+      expect(wrapper.emitted('update')[0][0]).toStrictEqual([
+        ...mockTopics,
+        expect.objectContaining({ name: USER_DEFINED_TOKEN }),
+      ]);
     });
   });
 });

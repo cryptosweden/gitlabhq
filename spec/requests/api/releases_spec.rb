@@ -19,6 +19,14 @@ RSpec.describe API::Releases, :aggregate_failures, feature_category: :release_or
   end
 
   describe 'GET /projects/:id/releases', :use_clean_rails_redis_caching do
+    it_behaves_like 'enforcing job token policies', :read_releases,
+      allow_public_access_for_enabled_project_features: [:repository, :releases] do
+      let(:user) { developer }
+      let(:request) do
+        get api("/projects/#{source_project.id}/releases"), params: { job_token: target_job.token }
+      end
+    end
+
     context 'when there are two releases' do
       let!(:release_1) do
         create(:release, project: project, tag: 'v0.1', author: maintainer, released_at: 2.days.ago)
@@ -319,6 +327,14 @@ RSpec.describe API::Releases, :aggregate_failures, feature_category: :release_or
         )
       end
 
+      it_behaves_like 'enforcing job token policies', :read_releases,
+        allow_public_access_for_enabled_project_features: [:repository, :releases] do
+        let(:user) { developer }
+        let(:request) do
+          get api("/projects/#{source_project.id}/releases/v0.1"), params: { job_token: target_job.token }
+        end
+      end
+
       it 'returns 200 HTTP status' do
         get api("/projects/#{project.id}/releases/v0.1", maintainer)
 
@@ -581,6 +597,15 @@ RSpec.describe API::Releases, :aggregate_failures, feature_category: :release_or
     context 'with a valid release tag' do
       context 'when filepath is provided' do
         context 'when filepath exists' do
+          it_behaves_like 'enforcing job token policies', :read_releases, expected_success_status: :redirect,
+            allow_public_access_for_enabled_project_features: [:repository, :releases] do
+            let(:user) { developer }
+            let(:request) do
+              get api("/projects/#{source_project.id}/releases/v0.1/downloads#{filepath}"),
+                params: { job_token: target_job.token }
+            end
+          end
+
           it 'redirects to the file download URL' do
             get api("/projects/#{project.id}/releases/v0.1/downloads#{filepath}", maintainer)
 
@@ -709,6 +734,14 @@ RSpec.describe API::Releases, :aggregate_failures, feature_category: :release_or
         )
       end
 
+      it_behaves_like 'enforcing job token policies', :read_releases, expected_success_status: :redirect,
+        allow_public_access_for_enabled_project_features: [:repository, :releases] do
+        let(:user) { developer }
+        let(:request) do
+          get api("/projects/#{source_project.id}/releases/permalink/latest"), params: { job_token: target_job.token }
+        end
+      end
+
       it 'redirects to the latest release tag' do
         get api("/projects/#{project.id}/releases/permalink/latest", maintainer)
 
@@ -770,13 +803,20 @@ RSpec.describe API::Releases, :aggregate_failures, feature_category: :release_or
           expect(response).to have_gitlab_http_status(:redirect)
           expect(uri.path).to eq("/api/v4/projects/#{project.id}/releases/#{release_b.tag}/downloads/bin/example.exe")
         end
+      end
 
-        it 'returns error when there is path traversal in suffix path' do
-          get api("/projects/#{project.id}/releases/permalink/latest/downloads/bin/../../../../../../../password.txt", maintainer)
+      context 'when a relative URL is configured' do
+        before do
+          stub_config_setting(relative_url_root: '/gitlab-relative-url')
+        end
 
-          expect(response).to have_gitlab_http_status(:bad_request)
+        it 'includes the relative URL in the redirect' do
+          get api("/projects/#{project.id}/releases/permalink/latest", maintainer)
 
-          expect(json_response['error']).to eq('suffix_path should be a valid file path')
+          uri = URI(response.header["Location"])
+
+          expect(response).to have_gitlab_http_status(:redirect)
+          expect(uri.path).to eq("/gitlab-relative-url/api/v4/projects/#{project.id}/releases/#{release_b.tag}")
         end
       end
     end
@@ -805,6 +845,13 @@ RSpec.describe API::Releases, :aggregate_failures, feature_category: :release_or
       initialize_tags
     end
 
+    it_behaves_like 'enforcing job token policies', :admin_releases do
+      let(:user) { developer }
+      let(:request) do
+        post api("/projects/#{source_project.id}/releases"), params: params.merge(job_token: target_job.token)
+      end
+    end
+
     it 'accepts the request' do
       post api("/projects/#{project.id}/releases", maintainer), params: params
 
@@ -831,9 +878,9 @@ RSpec.describe API::Releases, :aggregate_failures, feature_category: :release_or
 
     it 'creates a new release without description' do
       params = {
-          name: 'New release without description',
-          tag_name: 'v0.1',
-          released_at: '2019-03-25 10:00:00'
+        name: 'New release without description',
+        tag_name: 'v0.1',
+        released_at: '2019-03-25 10:00:00'
       }
 
       expect do
@@ -1359,6 +1406,13 @@ RSpec.describe API::Releases, :aggregate_failures, feature_category: :release_or
       initialize_tags
     end
 
+    it_behaves_like 'enforcing job token policies', :admin_releases do
+      let(:user) { developer }
+      let(:request) do
+        put api("/projects/#{source_project.id}/releases/v0.1"), params: params.merge(job_token: target_job.token)
+      end
+    end
+
     it 'accepts the request' do
       put api("/projects/#{project.id}/releases/v0.1", maintainer), params: params
 
@@ -1598,6 +1652,13 @@ RSpec.describe API::Releases, :aggregate_failures, feature_category: :release_or
         name: 'New release',
         description: 'Super nice release'
       )
+    end
+
+    it_behaves_like 'enforcing job token policies', :admin_releases do
+      let(:user) { developer }
+      let(:request) do
+        delete api("/projects/#{source_project.id}/releases/v0.1"), params: { job_token: target_job.token }
+      end
     end
 
     it 'accepts the request' do

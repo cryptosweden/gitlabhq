@@ -2,16 +2,15 @@
 stage: Solutions Architecture
 group: Solutions Architecture
 info: This page is owned by the Solutions Architecture team.
-description: "Integrations Solutions Index for GitLab and AWS."
+description: Integrations Solutions Index for GitLab and AWS.
+title: Integrate with AWS
 ---
-
-# Integrate with AWS
 
 Learn how to integrate GitLab and AWS.
 
 This content is intended for GitLab team members as well as members of the wider community.
 
-Unless otherwise noted, all of this content applies to both GitLab.com and self-managed instances.
+Unless otherwise noted, all of this content applies to both GitLab.com and GitLab Self-Managed instances.
 
 This page attempts to index the ways in which GitLab can integrate with AWS. It does so whether the integration is the result of configuring general functionality, was built in to AWS or GitLab or is provided as a solution.
 
@@ -52,13 +51,13 @@ AWS CodeStar connections are not available in all AWS regions - the exclusion li
 AWS Services that are supported directly by a CodeStar Connection in an AWS account:
 
 - **AWS Service Catalog** directly inherits CodeStar Connections, there is not any specific documentation about GitLab because it just uses any GitLab CodeStar Connection that has been created in the account. ([12/28/2023](https://aws.amazon.com/about-aws/whats-new/2023/12/codepipeline-gitlab-self-managed/)) `[AWS Built]`
-- **AWS Proton** directly inherits CodeStar Connections, there is not any specific documentation about GitLab since it just uses any GitLab CodeStar Connection that has been created in the account. ([12/28/2023](https://aws.amazon.com/about-aws/whats-new/2023/12/codepipeline-gitlab-self-managed/)) `[AWS Built]`
+- **AWS Proton** directly inherits CodeStar Connections, there is not any specific documentation about GitLab because it just uses any GitLab CodeStar Connection that has been created in the account. ([12/28/2023](https://aws.amazon.com/about-aws/whats-new/2023/12/codepipeline-gitlab-self-managed/)) `[AWS Built]`
 - **AWS CodeBuild** - [for GitLab.com, self-managed and dedicated - click documentation tabs here](https://docs.aws.amazon.com/codebuild/latest/userguide/create-project-console.html#create-project-console-source). ([03/26/2024](https://aws.amazon.com/about-aws/whats-new/2024/03/aws-codebuild-gitlab-gitlab-self-managed/)) `[AWS Built]`
 
 Documentation and References:
 
 - [Creating a GitLab CodeStar Connection to a GitLab.com Project](https://docs.aws.amazon.com/codepipeline/latest/userguide/connections-gitlab-managed.html)
-- [Creating a AWS CodeStar Connection for a Self-Managed GitLab Instance or GitLab Dedicated Instance](https://docs.aws.amazon.com/codepipeline/latest/userguide/connections-gitlab-managed.html) (must allow Internet Ingress from AWS or use a VPC connection)
+- [Creating a AWS CodeStar Connection for GitLab Self-Managed or GitLab Dedicated](https://docs.aws.amazon.com/codepipeline/latest/userguide/connections-gitlab-managed.html) (must allow Internet Ingress from AWS or use a VPC connection)
 
 #### AWS CodePipeline Integrations
 
@@ -66,12 +65,12 @@ Documentation and References:
 
 AWS Services that are supported by an AWS CodePipeline integration:
 
-- **Amazon SageMaker MLOps Projects** are created via CodePipeline ([as noted here](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-projects-walkthrough-3rdgit.html#sagemaker-proejcts-walkthrough-connect-3rdgit)), there is not any specific documentation about GitLab since it just uses any GitLab CodeStar Connection that has been created in the account. ([12/28/2023](https://aws.amazon.com/about-aws/whats-new/2023/12/codepipeline-gitlab-self-managed/)) `[AWS Built]`
+- **Amazon SageMaker MLOps Projects** are created via CodePipeline ([as noted here](https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-projects-walkthrough-3rdgit.html#sagemaker-proejcts-walkthrough-connect-3rdgit)), there is not any specific documentation about GitLab because it just uses any GitLab CodeStar Connection that has been created in the account. ([12/28/2023](https://aws.amazon.com/about-aws/whats-new/2023/12/codepipeline-gitlab-self-managed/)) `[AWS Built]`
 
 Documentation and References:
 
 - [Creating a GitLab CodePipeline Integration to a GitLab.com Project](https://docs.aws.amazon.com/codepipeline/latest/userguide/connections-gitlab-managed.html)
-- [Creating a AWS CodePipeline Integration for a Self-Managed GitLab Instance or GitLab Dedicated Instance](https://docs.aws.amazon.com/codepipeline/latest/userguide/connections-gitlab-managed.html) (must allow Internet Ingress from AWS or use a VPC connection)
+- [Creating a AWS CodePipeline Integration for GitLab Self-Managed or GitLab Dedicated](https://docs.aws.amazon.com/codepipeline/latest/userguide/connections-gitlab-managed.html) (must allow Internet Ingress from AWS or use a VPC connection)
 
 #### CodeStar Connections enabled AWS services that are not yet supported for GitLab
 
@@ -83,7 +82,7 @@ Documentation and References:
 
 - **Amazon SageMaker Notebooks** [allow Git repositories to be specified by the Git clone URL](https://docs.aws.amazon.com/sagemaker/latest/dg/nbi-git-resource.html) and configuration of a secret - so GitLab is configurable. ([12/28/2023](https://aws.amazon.com/about-aws/whats-new/2023/12/codepipeline-gitlab-self-managed/)) `[AWS Configuration]`
 - **AWS Amplify** - [uses a Git integration mechanism designed by the AWS Amplify team](https://docs.aws.amazon.com/amplify/latest/userguide/getting-started.html). `[AWS Built]`
-- **AWS Glue Notebook Jobs** support for GitLab respository URL with Personal Access Token (PAT) authentication at the "job" level. ([10/03/2022](https://aws.amazon.com/about-aws/whats-new/2022/10/aws-glue-git-integration/)) [AWS Docs about configuring GitLab](https://docs.aws.amazon.com/glue/latest/dg/edit-job-add-source-control-integration.html) `[AWS Configuration]`
+- **AWS Glue Notebook Jobs** support for GitLab repository URL with personal access token (PAT) authentication at the "job" level. ([10/03/2022](https://aws.amazon.com/about-aws/whats-new/2022/10/aws-glue-git-integration/)) [AWS Docs about configuring GitLab](https://docs.aws.amazon.com/glue/latest/dg/edit-job-add-source-control-integration.html) `[AWS Configuration]`
 
 #### Other SCM Integration Options
 
@@ -99,11 +98,12 @@ See [CD and Operations Integrations](#cd-and-operations-integrations) below for 
 
 ### CD and Operations Integrations
 
-- **AWS CodeDeploy Integration** - through CodePipeline support discussed above in SCM integrations. This capability allows GitLab to interface with [this list of advanced deployment subsystems in AWS](https://docs.aws.amazon.com/codepipeline/latest/userguide/integrations-action-type.html#integrations-deploy). ([12/28/2023](https://aws.amazon.com/about-aws/whats-new/2023/12/codepipeline-gitlab-self-managed/)) `[AWS Built]`
+- **AWS CodeDeploy Integration** - through CodePipeline support discussed previously in the SCM integrations. This capability allows GitLab to interface with [this list of advanced deployment subsystems in AWS](https://docs.aws.amazon.com/codepipeline/latest/userguide/integrations-action-type.html#integrations-deploy). ([12/28/2023](https://aws.amazon.com/about-aws/whats-new/2023/12/codepipeline-gitlab-self-managed/)) `[AWS Built]`
 - **AWS SAM Pipelines** - [pipelines support for GitLab](https://aws.amazon.com/about-aws/whats-new/2021/07/simplify-ci-cd-configuration-serverless-applications-your-favorite-ci-cd-system-public-preview/). (7/31/2021)
 - [Integrate EKS clusters for application deployment](../../../user/infrastructure/clusters/connect/new_eks_cluster.md). `[GitLab Built]`
 - [GitLab pushing a build Artifact to a CodePipeline monitored S3 location](https://docs.aws.amazon.com/codepipeline/latest/userguide/pipelines-about-starting.html#change-detection-methods) `[AWS Built]`
 - [GitLab Pushing a container to a CodePipeline monitored AWS ECR](https://docs.aws.amazon.com/codepipeline/latest/userguide/pipelines-about-starting.html#change-detection-methods) `[AWS Built]`
+- [Use GitLab.com's Container Registry as an Upstream Registry for AWS ECR via Pull-Through Cache Rules](https://docs.aws.amazon.com/AmazonECR/latest/userguide/pull-through-cache-creating-rule.html) [Configuration Tutorial](tutorials/aws_ecr_pull_through_cache.md) `[AWS Built]`
 
 ## End-to-End Solutions for development and deployment of specific development frameworks or ecosystems
 
@@ -113,7 +113,7 @@ Generally solutions demonstrate end-to-end capabilities for the development fram
 
 - [Enterprise DevOps Blueprint: Serverless Framework Apps on AWS](https://gitlab.com/guided-explorations/aws/serverless/serverless-framework-aws) - working example code and tutorials. `[GitLab Solution]` `[CI Solution]`
   - [Tutorial: Serverless Framework Deployment to AWS with GitLab Serverless SAST Scanning](https://gitlab.com/guided-explorations/aws/serverless/serverless-framework-aws/-/blob/master/TUTORIAL.md) `[GitLab Solution]` `[CI Solution]`
-  - [Tutorial: Secure Serverless Framework Development with GitLab Security Policy Approval Rules and Managed DevOps Environments](https://gitlab.com/guided-explorations/aws/serverless/serverless-framework-aws/-/blob/master/TUTORIAL2-SecurityAndManagedEnvs.md) `[GitLab Solution]` `[CI Solution]`
+  - [Tutorial: Secure Serverless Framework Development with GitLab Security Policy Approval Rules and Managed DevOps Environments](https://gitlab.com/guided-explorations/aws/serverless/serverless-framework-aws/-/blob/prod/TUTORIAL2-SecurityAndManagedEnvs.md?ref_type=heads) `[GitLab Solution]` `[CI Solution]`
 
 ### Terraform
 
@@ -138,16 +138,16 @@ Generally solutions demonstrate end-to-end capabilities for the development fram
 
 AWS Identity providers (IDP) can be configured to authenticate into GitLab or GitLab can function as an IDP into AWS accounts.
 
-Top level groups on GitLab.com are also known as "Namespaces" and naming one after your company is the first step to setting up a tenant for your organization on GitLab.com. Namespaces can be configured for special functionality like SSO which then integrates your IDP into GitLab.
+Top-level groups on GitLab.com are also known as "Namespaces" and naming one after your company is the first step to setting up a tenant for your organization on GitLab.com. Namespaces can be configured for special functionality like SSO which then integrates your IDP into GitLab.
 
 ### User authentication and authorization between GitLab and AWS
 
-- [SAML SSO for GitLab.com groups](../../../user/group/saml_sso/index.md) `[GitLab Configuration]` - GitLab.com only
-- [Integrate LDAP with GitLab](../../../administration/auth/ldap/index.md) `[GitLab Configuration]` - Self-managed only
+- [SAML SSO for GitLab.com groups](../../../user/group/saml_sso/_index.md) `[GitLab Configuration]` - GitLab.com only
+- [Integrate LDAP with GitLab](../../../administration/auth/ldap/_index.md) `[GitLab Configuration]` - GitLab Self-Managed only
 
 ### Runner workload authentication and authorization integration
 
-- [Runner Job Authentication using Open ID & JWT Authentication](../../../ci/cloud_services/aws/index.md). `[GitLab Built]`
+- [Runner Job Authentication using Open ID & JWT Authentication](../../../ci/cloud_services/aws/_index.md). `[GitLab Built]`
   - [Configure OpenID Connect between GitLab and AWS](https://gitlab.com/guided-explorations/aws/configure-openid-connect-in-aws) `[GitLab Solution]` `[CI Solution]`
   - [OIDC and Multi-Account Deployment with GitLab and ECS](https://gitlab.com/guided-explorations/aws/oidc-and-multi-account-deployment-with-ecs) `[GitLab Solution]` `[CI Solution]`
 
@@ -169,7 +169,7 @@ While GitLab can be deployed on a single box for up to 500 users, when it is hor
   - GitLab Instance Scaled on AWS EC2 and PaaS. `[GitLab Built]`
     - [Using GitLab Environment Toolkit (GET)](https://gitlab.com/gitlab-org/gitlab-environment-toolkit) - `[GitLab Solution]`
 
-- [Amazon Managed Grafana](https://docs.aws.amazon.com/grafana/latest/userguide/gitlab-AMG-datasource.html) for GitLab self-managed Prometheus metrics. `[AWS Built]`
+- [Amazon Managed Grafana](https://docs.aws.amazon.com/grafana/latest/userguide/gitlab-AMG-datasource.html) for GitLab Self-Managed Prometheus metrics. `[AWS Built]`
 
 ### GitLab Runner on AWS Compute
 

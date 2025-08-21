@@ -2,25 +2,30 @@
 stage: Verify
 group: Pipeline Authoring
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Downstream pipelines
 ---
 
-# Downstream pipelines
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 A downstream pipeline is any GitLab CI/CD pipeline triggered by another pipeline.
 Downstream pipelines run independently and concurrently to the upstream pipeline
 that triggered them.
 
 - A [parent-child pipeline](downstream_pipelines.md#parent-child-pipelines) is a downstream pipeline
-  triggered in the *same* project as the first pipeline.
+  triggered in the same project as the first pipeline.
 - A [multi-project pipeline](#multi-project-pipelines) is a downstream pipeline triggered
-  in a *different* project than the first pipeline.
+  in a different project than the first pipeline.
 
 You can sometimes use parent-child pipelines and multi-project pipelines for similar purposes,
 but there are [key differences](pipeline_architectures.md).
+
+A pipeline hierarchy can contain up to 1000 downstream pipelines by default.
+For more information about this limit and how to change it, see [Limit pipeline hierarchy size](../../administration/instance_limits.md#limit-pipeline-hierarchy-size).
 
 ## Parent-child pipelines
 
@@ -33,8 +38,8 @@ Child pipelines:
 - Do not directly affect the overall status of the ref the pipeline runs against. For example,
   if a pipeline fails for the main branch, it's common to say that "main is broken".
   The status of child pipelines only affects the status of the ref if the child
-  pipeline is triggered with [`strategy:depend`](../yaml/index.md#triggerstrategy).
-- Are automatically canceled if the pipeline is configured with [`interruptible`](../yaml/index.md#interruptible)
+  pipeline is triggered with [`trigger:strategy`](../yaml/_index.md#triggerstrategy).
+- Are automatically canceled if the pipeline is configured with [`interruptible`](../yaml/_index.md#interruptible)
   when a new pipeline is created for the same ref.
 - Are not displayed in the project's pipeline list. You can only view child pipelines on
   their parent pipeline's details page.
@@ -53,7 +58,7 @@ For an overview, see [Nested Dynamic Pipelines](https://youtu.be/C5j3ju9je2M).
 
 A pipeline in one project can trigger downstream pipelines in another project,
 called multi-project pipelines. The user triggering the upstream pipeline must be able to
-start pipelines in the downstream project, otherwise [the downstream pipeline fails to start](#trigger-job-fails-and-does-not-create-multi-project-pipeline).
+start pipelines in the downstream project, otherwise [the downstream pipeline fails to start](downstream_pipelines_troubleshooting.md#trigger-job-fails-and-does-not-create-multi-project-pipeline).
 
 Multi-project pipelines:
 
@@ -62,8 +67,8 @@ Multi-project pipelines:
   choose the ref of the downstream pipeline, and pass CI/CD variables to it.
 - Affect the overall status of the ref of the project it runs in, but does not
   affect the status of the triggering pipeline's ref, unless it was triggered with
-  [`strategy:depend`](../yaml/index.md#triggerstrategy).
-- Are not automatically canceled in the downstream project when using [`interruptible`](../yaml/index.md#interruptible)
+  [`trigger:strategy`](../yaml/_index.md#triggerstrategy).
+- Are not automatically canceled in the downstream project when using [`interruptible`](../yaml/_index.md#interruptible)
   if a new pipeline runs for the same ref in the upstream pipeline. They can be
   automatically canceled if a new pipeline is triggered for the same ref on the downstream project.
 - Are visible in the downstream project's pipeline list.
@@ -78,14 +83,14 @@ always displays:
 
 ## Trigger a downstream pipeline from a job in the `.gitlab-ci.yml` file
 
-Use the [`trigger`](../yaml/index.md#trigger) keyword in your `.gitlab-ci.yml` file
+Use the [`trigger`](../yaml/_index.md#trigger) keyword in your `.gitlab-ci.yml` file
 to create a job that triggers a downstream pipeline. This job is called a trigger job.
 
 For example:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Parent-child pipeline
+{{< tab title="Parent-child pipeline" >}}
 
 ```yaml
 trigger_job:
@@ -94,7 +99,9 @@ trigger_job:
       - local: path/to/child-pipeline.yml
 ```
 
-:::TabTitle Multi-project pipeline
+{{< /tab >}}
+
+{{< tab title="Multi-project pipeline" >}}
 
 ```yaml
 trigger_job:
@@ -102,7 +109,9 @@ trigger_job:
     project: project-group/my-downstream-project
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 After the trigger job starts, the initial status of the job is `pending` while GitLab
 attempts to create the downstream pipeline. The trigger job shows `passed` if the
@@ -112,10 +121,10 @@ instead.
 
 ### Use `rules` to control downstream pipeline jobs
 
-Use CI/CD variables or the [`rules`](../yaml/index.md#rulesif) keyword to
+Use CI/CD variables or the [`rules`](../yaml/_index.md#rulesif) keyword to
 [control job behavior](../jobs/job_control.md) in downstream pipelines.
 
-When you trigger a downstream pipeline with the [`trigger`](../yaml/index.md#trigger) keyword,
+When you trigger a downstream pipeline with the [`trigger`](../yaml/_index.md#trigger) keyword,
 the value of the [`$CI_PIPELINE_SOURCE` predefined variable](../variables/predefined_variables.md)
 for all jobs is:
 
@@ -145,7 +154,7 @@ job3:
 
 ### Use a child pipeline configuration file in a different project
 
-You can use [`include:project`](../yaml/index.md#includeproject) in a trigger job
+You can use [`include:project`](../yaml/_index.md#includeproject) in a trigger job
 to trigger child pipelines with a configuration file in a different project:
 
 ```yaml
@@ -179,7 +188,7 @@ You can trigger a child pipeline from a YAML file generated in a job, instead of
 static file saved in your project. This technique can be very powerful for generating pipelines
 targeting content that changed or to build a matrix of targets and architectures.
 
-The artifact containing the generated YAML file must not be [larger than 5 MB](https://gitlab.com/gitlab-org/gitlab/-/issues/249140).
+The artifact containing the generated YAML file must be within [instance limits](../../administration/instance_limits.md#maximum-size-of-the-ci-artifacts-archive).
 
 <i class="fa fa-youtube-play youtube" aria-hidden="true"></i>
 For an overview, see [Create child pipelines using dynamically generated configurations](https://youtu.be/nMdfus2JWHM).
@@ -194,7 +203,7 @@ You can use a similar process for other templating languages like
 
 To trigger a child pipeline from a dynamically generated configuration file:
 
-1. Generate the configuration file in a job and save it as an [artifact](../yaml/index.md#artifactspaths):
+1. Generate the configuration file in a job and save it as an [artifact](../yaml/_index.md#artifactspaths):
 
    ```yaml
    generate-config:
@@ -224,7 +233,7 @@ with the CI/CD configuration in that file.
 The artifact path is parsed by GitLab, not the runner, so the path must match the
 syntax for the OS running GitLab. If GitLab is running on Linux but using a Windows
 runner for testing, the path separator for the trigger job is `/`. Other CI/CD
-configuration for jobs that use the Windows runner, like scripts, use <code>&#92;</code>.
+configuration for jobs that use the Windows runner, like scripts, use ` \ `.
 
 You cannot use CI/CD variables in an `include` section in a dynamic child pipeline's configuration.
 [Issue 378717](https://gitlab.com/gitlab-org/gitlab/-/issues/378717) proposes fixing
@@ -233,7 +242,7 @@ this issue.
 ### Run child pipelines with merge request pipelines
 
 Pipelines, including child pipelines, run as branch pipelines by default when not using
-[`rules`](../yaml/index.md#rules) or [`workflow:rules`](../yaml/index.md#workflowrules).
+[`rules`](../yaml/_index.md#rules) or [`workflow:rules`](../yaml/_index.md#workflowrules).
 To configure child pipelines to run when triggered from a [merge request (parent) pipeline](merge_request_pipelines.md), use `rules` or `workflow:rules`.
 For example, using `rules`:
 
@@ -264,7 +273,7 @@ For example, using `rules`:
 In child pipelines, `$CI_PIPELINE_SOURCE` always has a value of `parent_pipeline`, so:
 
 - You can use `if: $CI_PIPELINE_SOURCE == "parent_pipeline"` to ensure child pipeline jobs always run.
-- You _can't_ use `if: $CI_PIPELINE_SOURCE == "merge_request_event"` to configure child pipeline
+- You can't use `if: $CI_PIPELINE_SOURCE == "merge_request_event"` to configure child pipeline
   jobs to run for merge request pipelines. Instead, use `if: $CI_MERGE_REQUEST_ID`
   to set child pipeline jobs to run only when the parent pipeline is a merge request pipeline. The parent pipeline's
   [`CI_MERGE_REQUEST_*` predefined variables](../variables/predefined_variables.md#predefined-variables-for-merge-request-pipelines)
@@ -288,7 +297,7 @@ Use:
 - The `project` keyword to specify the full path to the downstream project.
   In [GitLab 15.3 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/367660),
   you can use [variable expansion](../variables/where_variables_can_be_used.md#gitlab-ciyml-file).
-- The `branch` keyword to specify the name of a branch or [tag](../../user/project/repository/tags/index.md)
+- The `branch` keyword to specify the name of a branch or [tag](../../user/project/repository/tags/_index.md)
   in the project specified by `project`. You can use variable expansion.
 
 ## Trigger a multi-project pipeline by using the API
@@ -313,54 +322,66 @@ trigger_pipeline:
 
 ## View a downstream pipeline
 
-In the [pipeline details page](index.md#pipeline-details), downstream pipelines display
+In the [pipeline details page](_index.md#pipeline-details), downstream pipelines display
 as a list of cards on the right of the graph. From this view, you can:
 
 - Select a trigger job to see the triggered downstream pipeline's jobs.
-- Select **Expand jobs** **{chevron-lg-right}** on a pipeline card to expand the view
+- Select **Expand jobs** {{< icon name="chevron-lg-right" >}} on a pipeline card to expand the view
   with the downstream pipeline's jobs. You can view one downstream pipeline at a time.
 - Hover over a pipeline card to have the job that triggered the downstream pipeline highlighted.
 
 ### Retry failed and canceled jobs in a downstream pipeline
 
-> - Retry from graph view [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/354974) in GitLab 15.0 [with a flag](../../administration/feature_flags.md) named `downstream_retry_action`. Disabled by default.
-> - Retry from graph view [generally available and feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/357406) in GitLab 15.1.
+{{< history >}}
 
-To retry failed and canceled jobs, select **Retry** (**{retry}**):
+- Retry from graph view [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/354974) in GitLab 15.0 [with a flag](../../administration/feature_flags/_index.md) named `downstream_retry_action`. Disabled by default.
+- Retry from graph view [generally available and feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/357406) in GitLab 15.1.
+
+{{< /history >}}
+
+To retry failed and canceled jobs, select **Retry** ({{< icon name="retry" >}}):
 
 - From the downstream pipeline's details page.
 - On the pipeline's card in the pipeline graph view.
 
 ### Recreate a downstream pipeline
 
-> - Retry trigger job from graph view [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/367547) in GitLab 15.10 [with a flag](../../administration/feature_flags.md) named `ci_recreate_downstream_pipeline`. Disabled by default.
-> - [Generally available](https://gitlab.com/groups/gitlab-org/-/epics/6947) in GitLab 15.11. Feature flag `ci_recreate_downstream_pipeline` removed.
+{{< history >}}
+
+- Retry trigger job from graph view [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/367547) in GitLab 15.10 [with a flag](../../administration/feature_flags/_index.md) named `ci_recreate_downstream_pipeline`. Disabled by default.
+- [Generally available](https://gitlab.com/groups/gitlab-org/-/epics/6947) in GitLab 15.11. Feature flag `ci_recreate_downstream_pipeline` removed.
+
+{{< /history >}}
 
 You can recreate a downstream pipeline by retrying its corresponding trigger job. The newly created downstream pipeline replaces the current downstream pipeline in the pipeline graph.
 
 To recreate a downstream pipeline:
 
-- Select **Run again** (**{retry}**) on the trigger job's card in the pipeline graph view.
+- Select **Run again** ({{< icon name="retry" >}}) on the trigger job's card in the pipeline graph view.
 
 ### Cancel a downstream pipeline
 
-> - Retry from graph view [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/354974) in GitLab 15.0 [with a flag](../../administration/feature_flags.md) named `downstream_retry_action`. Disabled by default.
-> - Retry from graph view [generally available and feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/357406) in GitLab 15.1.
+{{< history >}}
 
-To cancel a downstream pipeline that is still running, select **Cancel** (**{cancel}**):
+- Retry from graph view [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/354974) in GitLab 15.0 [with a flag](../../administration/feature_flags/_index.md) named `downstream_retry_action`. Disabled by default.
+- Retry from graph view [generally available and feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/357406) in GitLab 15.1.
+
+{{< /history >}}
+
+To cancel a downstream pipeline that is still running, select **Cancel** ({{< icon name="cancel" >}}):
 
 - From the downstream pipeline's details page.
 - On the pipeline's card in the pipeline graph view.
 
 ### Auto-cancel the parent pipeline from a downstream pipeline
 
-You can configure a child pipeline to [auto-cancel](../yaml/index.md#workflowauto_cancelon_job_failure)
+You can configure a child pipeline to [auto-cancel](../yaml/_index.md#workflowauto_cancelon_job_failure)
 as soon as one of its jobs fail.
 
 The parent pipeline only auto-cancels when a job in the child pipeline fails if:
 
 - The parent pipeline is also set up to auto-cancel on job failure.
-- The trigger job is configured with [`strategy: depend`](../yaml/index.md#triggerstrategy).
+- The trigger job is configured with [`strategy: depend`](../yaml/_index.md#triggerstrategy).
 
 For example:
 
@@ -402,60 +423,71 @@ In this example:
 
 1. The parent pipeline triggers the child pipeline and `job3` at the same time
 1. `job2` from the child pipeline fails and the child pipeline is canceled, stopping `job1` as well
-1. The child pipeline has been cancelled so the parent pipeline is auto-canceled
+1. The child pipeline has been canceled so the parent pipeline is auto-canceled
 
 ### Mirror the status of a downstream pipeline in the trigger job
 
 You can mirror the status of the downstream pipeline in the trigger job
-by using [`strategy: depend`](../yaml/index.md#triggerstrategy):
+by using [`strategy: mirror`](../yaml/_index.md#triggerstrategy):
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Parent-child pipeline
+{{< tab title="Parent-child pipeline" >}}
 
 ```yaml
 trigger_job:
   trigger:
     include:
       - local: path/to/child-pipeline.yml
-    strategy: depend
+    strategy: mirror
 ```
 
-:::TabTitle Multi-project pipeline
+{{< /tab >}}
+
+{{< tab title="Multi-project pipeline" >}}
 
 ```yaml
 trigger_job:
   trigger:
     project: my/project
-    strategy: depend
+    strategy: mirror
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### View multi-project pipelines in pipeline graphs
 
-> - [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/422282) from GitLab Premium to GitLab Free in 16.8.
+{{< history >}}
+
+- [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/422282) from GitLab Premium to GitLab Free in 16.8.
+
+{{< /history >}}
 
 After you trigger a multi-project pipeline, the downstream pipeline displays
-to the right of the [pipeline graph](index.md#view-pipelines).
+to the right of the [pipeline graph](_index.md#view-pipelines).
 
-In [pipeline mini graphs](index.md#pipeline-mini-graphs), the downstream pipeline
+In [pipeline mini graphs](_index.md#pipeline-mini-graphs), the downstream pipeline
 displays to the right of the mini graph.
 
 ## Fetch artifacts from an upstream pipeline
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+{{< details >}}
 
-::Tabs
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-:::TabTitle Parent-child pipeline
+{{< /details >}}
 
-Use [`needs:pipeline:job`](../yaml/index.md#needspipelinejob) to fetch artifacts from an
+{{< tabs >}}
+
+{{< tab title="Parent-child pipeline" >}}
+
+Use [`needs:pipeline:job`](../yaml/_index.md#needspipelinejob) to fetch artifacts from an
 upstream pipeline:
 
-1. In the upstream pipeline, save the artifacts in a job with the [`artifacts`](../yaml/index.md#artifacts)
+1. In the upstream pipeline, save the artifacts in a job with the [`artifacts`](../yaml/_index.md#artifacts)
    keyword, then trigger the downstream pipeline with a trigger job:
 
    ```yaml
@@ -490,13 +522,15 @@ upstream pipeline:
 
    Set `job` to the job in the upstream pipeline that created the artifacts.
 
-:::TabTitle Multi-project pipeline
+{{< /tab >}}
 
-Use [`needs:project`](../yaml/index.md#needsproject) to fetch artifacts from an
+{{< tab title="Multi-project pipeline" >}}
+
+Use [`needs:project`](../yaml/_index.md#needsproject) to fetch artifacts from an
 upstream pipeline:
 
 1. In GitLab 15.9 and later, [add the downstream project to the job token scope allowlist](../jobs/ci_job_token.md#add-a-group-or-project-to-the-job-token-allowlist) of the upstream project.
-1. In the upstream pipeline, save the artifacts in a job with the [`artifacts`](../yaml/index.md#artifacts)
+1. In the upstream pipeline, save the artifacts in a job with the [`artifacts`](../yaml/_index.md#artifacts)
    keyword, then trigger the downstream pipeline with a trigger job:
 
    ```yaml
@@ -533,7 +567,9 @@ upstream pipeline:
    - `ref` to the branch.
    - `artifacts` to `true`.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### Fetch artifacts from an upstream merge request pipeline
 
@@ -549,7 +585,7 @@ To fetch the artifacts from the upstream `merge request` pipeline instead of the
 pass `CI_MERGE_REQUEST_REF_PATH` to the downstream pipeline using [variable inheritance](#pass-yaml-defined-cicd-variables):
 
 1. In GitLab 15.9 and later, [add the downstream project to the job token scope allowlist](../jobs/ci_job_token.md#add-a-group-or-project-to-the-job-token-allowlist) of the upstream project.
-1. In a job in the upstream pipeline, save the artifacts using the [`artifacts`](../yaml/index.md#artifacts) keyword.
+1. In a job in the upstream pipeline, save the artifacts using the [`artifacts`](../yaml/_index.md#artifacts) keyword.
 1. In the job that triggers the downstream pipeline, pass the `$CI_MERGE_REQUEST_REF_PATH` variable:
 
    ```yaml
@@ -588,24 +624,79 @@ pass `CI_MERGE_REQUEST_REF_PATH` to the downstream pipeline using [variable inhe
          artifacts: true
    ```
 
-You can use this method to fetch artifacts from upstream merge request pipeline,
-but not from [merge results pipelines](merged_results_pipelines.md).
+You can use this method to fetch artifacts from upstream merge request pipelines,
+but not from [merged results pipelines](merged_results_pipelines.md).
+
+## Pass inputs to a downstream pipeline
+
+You can use the [`inputs`](../inputs/_index.md) keyword to pass input values to downstream pipelines.
+Inputs provide advantages over variables including type checking, validation through options,
+descriptions, and default values.
+
+First, define input parameters in the target configuration file using `spec:inputs`:
+
+```yaml
+# Target pipeline configuration
+spec:
+  inputs:
+    environment:
+      description: "Deployment environment"
+      options: [staging, production]
+    version:
+      type: string
+      description: "Application version"
+```
+
+Then provide values when triggering the pipeline:
+
+{{< tabs >}}
+
+{{< tab title="Parent-child pipeline" >}}
+
+```yaml
+staging:
+  trigger:
+    include:
+      - local: path/to/child-pipeline.yml
+        inputs:
+          environment: staging
+          version: "1.0.0"
+```
+
+{{< /tab >}}
+
+{{< tab title="Multi-project pipeline" >}}
+
+```yaml
+staging:
+  trigger:
+    project: my-group/my-deployment-project
+    inputs:
+      environment: staging
+      version: "1.0.0"
+```
+
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ## Pass CI/CD variables to a downstream pipeline
 
-You can pass [CI/CD variables](../variables/index.md) to a downstream pipeline with
+You can pass [CI/CD variables](../variables/_index.md) to a downstream pipeline with
 a few different methods, based on where the variable is created or defined.
 
 ### Pass YAML-defined CI/CD variables
 
+_Note: Inputs are recommended for pipeline configuration instead of variables as they offer improved security and flexibility._
+
 You can use the `variables` keyword to pass CI/CD variables to a downstream pipeline.
-These variables are "trigger variables" for [variable precedence](../variables/index.md#cicd-variable-precedence).
+These variables are pipeline variables for [variable precedence](../variables/_index.md#cicd-variable-precedence).
 
 For example:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Parent-child pipeline
+{{< tab title="Parent-child pipeline" >}}
 
 ```yaml
 variables:
@@ -620,7 +711,9 @@ staging:
       - local: path/to/child-pipeline.yml
 ```
 
-:::TabTitle Multi-project pipeline
+{{< /tab >}}
+
+{{< tab title="Multi-project pipeline" >}}
 
 ```yaml
 variables:
@@ -633,27 +726,30 @@ staging:
   trigger: my-group/my-deployment-project
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 The `ENVIRONMENT` variable is available in every job defined in the downstream pipeline.
 
-The `VERSION` global variable is also available in the downstream pipeline, because
-all jobs in a pipeline, including trigger jobs, inherit [global `variables`](../yaml/index.md#variables).
+The `VERSION` default variable is also available in the downstream pipeline, because
+all jobs in a pipeline, including trigger jobs, inherit [default `variables`](../yaml/_index.md#default-variables).
 
-#### Prevent global variables from being passed
+#### Prevent default variables from being passed
 
-You can stop global CI/CD variables from reaching the downstream pipeline with
-[`inherit:variables:false`](../yaml/index.md#inheritvariables).
+You can stop default CI/CD variables from reaching the downstream pipeline with
+[`inherit:variables`](../yaml/_index.md#inheritvariables). You can list specific variables to inherit,
+or block all default variables.
 
 For example:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Parent-child pipeline
+{{< tab title="Parent-child pipeline" >}}
 
 ```yaml
 variables:
-  GLOBAL_VAR: value
+  DEFAULT_VAR: value
 
 trigger-job:
   inherit:
@@ -665,11 +761,13 @@ trigger-job:
       - local: path/to/child-pipeline.yml
 ```
 
-:::TabTitle Multi-project pipeline
+{{< /tab >}}
+
+{{< tab title="Multi-project pipeline" >}}
 
 ```yaml
 variables:
-  GLOBAL_VAR: value
+  DEFAULT_VAR: value
 
 trigger-job:
   inherit:
@@ -679,9 +777,11 @@ trigger-job:
   trigger: my-group/my-project
 ```
 
-::EndTabs
+{{< /tab >}}
 
-The `GLOBAL_VAR` variable is not available in the triggered pipeline, but `JOB_VAR`
+{{< /tabs >}}
+
+The `DEFAULT_VAR` variable is not available in the triggered pipeline, but `JOB_VAR`
 is available.
 
 ### Pass a predefined variable
@@ -690,9 +790,9 @@ To pass information about the upstream pipeline using [predefined CI/CD variable
 use interpolation. Save the predefined variable as a new job variable in the trigger
 job, which is passed to the downstream pipeline. For example:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Parent-child pipeline
+{{< tab title="Parent-child pipeline" >}}
 
 ```yaml
 trigger-job:
@@ -703,7 +803,9 @@ trigger-job:
       - local: path/to/child-pipeline.yml
 ```
 
-:::TabTitle Multi-project pipeline
+{{< /tab >}}
+
+{{< tab title="Multi-project pipeline" >}}
 
 ```yaml
 trigger-job:
@@ -712,16 +814,18 @@ trigger-job:
   trigger: my-group/my-project
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 The `UPSTREAM_BRANCH` variable, which contains the value of the upstream pipeline's `$CI_COMMIT_REF_NAME`
 predefined CI/CD variable, is available in the downstream pipeline.
 
-Do not use this method to pass [masked variables](../variables/index.md#mask-a-cicd-variable)
+Do not use this method to pass [masked variables](../variables/_index.md#mask-a-cicd-variable)
 to a multi-project pipeline. The CI/CD masking configuration is not passed to the
 downstream pipeline and the variable could be unmasked in job logs in the downstream project.
 
-You cannot use this method to forward [job-level persisted variables](../variables/where_variables_can_be_used.md#persisted-variables)
+You cannot use this method to forward [job-only variables](../variables/predefined_variables.md#variable-availability)
 to a downstream pipeline, as they are not available in trigger jobs.
 
 Upstream pipelines take precedence over downstream ones. If there are two
@@ -730,11 +834,14 @@ the ones defined in the upstream project take precedence.
 
 ### Pass dotenv variables created in a job
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+{{< details >}}
 
-You can pass variables to a downstream pipeline with [`dotenv` variable inheritance](../variables/index.md#pass-an-environment-variable-to-another-job).
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+You can pass variables to a downstream pipeline with [`dotenv` variable inheritance](../variables/job_scripts.md#pass-an-environment-variable-to-another-job).
 
 For example, in a [multi-project pipeline](#multi-project-pipelines):
 
@@ -774,15 +881,19 @@ For example, in a [multi-project pipeline](#multi-project-pipelines):
 
 ### Control what type of variables to forward to downstream pipelines
 
-Use the [`trigger:forward` keyword](../yaml/index.md#triggerforward) to specify
+Use the [`trigger:forward` keyword](../yaml/_index.md#triggerforward) to specify
 what type of variables to forward to the downstream pipeline. Forwarded variables
-are considered trigger variables, which have the [highest precedence](../variables/index.md#cicd-variable-precedence).
+are considered trigger variables, which have the [highest precedence](../variables/_index.md#cicd-variable-precedence).
 
 ## Downstream pipelines for deployments
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/369061) in GitLab 16.4.
+{{< history >}}
 
-You can use the [`environment`](../yaml/index.md#environment) keyword with [`trigger`](../yaml/index.md#trigger).
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/369061) in GitLab 16.4.
+
+{{< /history >}}
+
+You can use the [`environment`](../yaml/_index.md#environment) keyword with [`trigger`](../yaml/_index.md#trigger).
 You might want to use `environment` from a trigger job if your deployment and application projects are separately managed.
 
 ```yaml
@@ -795,7 +906,7 @@ deploy:
 A downstream pipeline can provision infrastructure, deploy to a designated environment, and return the deployment status
 to the upstream project.
 
-You can [view the environment and deployment](../environments/index.md#view-environments-and-deployments)
+You can [view the environment and deployment](../environments/_index.md#view-environments-and-deployments)
 from the upstream project.
 
 ### Advanced example
@@ -820,7 +931,7 @@ stages:
   trigger:
     project: project-group/deployment-project
     branch: main
-    strategy: depend
+    strategy: mirror
 
 deploy-review:
   stage: deploy
@@ -851,45 +962,3 @@ stop:
   rules:
     - if: $CI_PIPELINE_SOURCE == "pipeline" && $UPSTREAM_ENVIRONMENT_ACTION == "stop"
 ```
-
-## Troubleshooting
-
-### Trigger job fails and does not create multi-project pipeline
-
-With multi-project pipelines, the trigger job fails and does not create the downstream pipeline if:
-
-- The downstream project is not found.
-- The user that creates the upstream pipeline does not have [permission](../../user/permissions.md)
-  to create pipelines in the downstream project.
-- The downstream pipeline targets a protected branch and the user does not have permission
-  to run pipelines against the protected branch. See [pipeline security for protected branches](index.md#pipeline-security-on-protected-branches)
-  for more information.
-
-To identify which user is having permission issues in the downstream project, you can check the trigger job using the following command in the [Rails console](../../administration/operations/rails_console.md) and look at the `user_id` attribute.
-
-```ruby
-Ci::Bridge.find(<job_id>)
-```
-
-### Job in child pipeline is not created when the pipeline runs
-
-If the parent pipeline is a [merge request pipeline](merge_request_pipelines.md),
-the child pipeline must [use `workflow:rules` or `rules` to ensure the jobs run](#run-child-pipelines-with-merge-request-pipelines).
-
-If no jobs in the child pipeline can run due to missing or incorrect `rules` configuration:
-
-- The child pipeline fails to start.
-- The parent pipeline's trigger job fails with: `downstream pipeline can not be created, Pipeline will not run for the selected trigger. The rules configuration prevented any jobs from being added to the pipeline.`
-
-### `Ref is ambiguous`
-
-You cannot trigger a multi-project pipeline with a tag when a branch exists with the same
-name. The downstream pipeline fails to create with the error: `downstream pipeline can not be created, Ref is ambiguous`.
-
-Only trigger multi-project pipelines with tag names that do not match branch names.
-
-### `403 Forbidden` error when downloading a job artifact from an upstream pipeline
-
-In GitLab 15.9 and later, CI/CD job tokens are scoped to the project that the pipeline executes under. Therefore, the job token in a downstream pipeline cannot be used to access an upstream project by default.
-
-To resolve this, [add the downstream project to the job token scope allowlist](../jobs/ci_job_token.md#add-a-group-or-project-to-the-job-token-allowlist).

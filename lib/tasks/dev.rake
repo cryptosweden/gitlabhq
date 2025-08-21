@@ -67,14 +67,14 @@ namespace :dev do
       end
 
       # Clear connections opened by this rake task too
-      ActiveRecord::Base.clear_all_connections! # rubocop:disable Database/MultipleDatabases
+      ActiveRecord::Base.connection_handler.clear_all_connections!
     end
   end
 
   databases = ActiveRecord::Tasks::DatabaseTasks.setup_initial_database_yaml
 
   namespace :copy_db do
-    ALLOWED_DATABASES = %w[ci].freeze
+    ALLOWED_DATABASES = %w[ci sec].freeze
 
     ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
       next unless ALLOWED_DATABASES.include?(name)

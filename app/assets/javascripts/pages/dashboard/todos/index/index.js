@@ -1,3 +1,3 @@
-import Todos from './todos';
+import initTodosApp from '~/todos';
 
-new Todos(); // eslint-disable-line no-new
+initTodosApp();

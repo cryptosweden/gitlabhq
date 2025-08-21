@@ -1,21 +1,20 @@
 ---
 stage: Create
 group: Source Code
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Source Editor
 ---
 
-# Source Editor
-
-**Source Editor** provides the editing experience at GitLab. This thin wrapper around
+Source Editor provides the editing experience at GitLab. This thin wrapper around
 [the Monaco editor](https://microsoft.github.io/monaco-editor/) provides necessary
 helpers and abstractions, and extends Monaco [using extensions](#extensions). Multiple
 GitLab features use it, including:
 
-- [Web IDE](../../user/project/web_ide/index.md)
-- [CI Linter](../../ci/lint.md)
+- [Web IDE](../../user/project/web_ide/_index.md)
+- [CI Linter](../../ci/yaml/lint.md)
 - [Snippets](../../user/snippets.md)
 - [Web Editor](../../user/project/repository/web_editor.md)
-- [Security Policies](../../user/application_security/policies/index.md)
+- [Security Policies](../../user/application_security/policies/_index.md)
 
 ## When to use Source Editor
 
@@ -27,7 +26,7 @@ displaying read-only content in the Source Editor is still a valid option.
 
 ## How to use Source Editor
 
-Source Editor is framework-agnostic and can be used in any application, including both
+Source Editor is framework-independent and can be used in any application, including both
 Rails and Vue. To help with integration, we have the dedicated `<source-editor>`
 Vue component, but the integration of Source Editor is generally straightforward:
 
@@ -63,8 +62,15 @@ An instance of Source Editor accepts the following configuration options:
 | `blobPath`     | `false` | `String`: The name of a file to render in the editor, used to identify the correct syntax highlighter to use with that file, or another file type. Can accept wildcards like `*.js` when the actual filename isn't known or doesn't play any role. |
 | `blobContent`  | `false` | `String`: The initial content to render in the editor. |
 | `extensions`   | `false` | `Array`: Extensions to use in this instance. |
-| `blobGlobalId` | `false` | `String`: An auto-generated property.<br>**Note:** This property may go away in the future. Do not pass `blobGlobalId` unless you know what you're doing.|
+| `blobGlobalId` | `false` | `String`: An auto-generated property.|
 | Editor Options | `false` | `Object(s)`: Any property outside of the list above is treated as an Editor Option for this particular instance. Use this field to override global Editor Options on the instance level. A full [index of Editor Options](https://microsoft.github.io/monaco-editor/docs.html#enums/editor.EditorOption.html) is available. |
+
+{{< alert type="note" >}}
+
+The `blobGlobalId` property may be removed in a future release. Use the standard blob properties
+instead unless you have a specific use case that requires `blobGlobalId`.
+
+{{< /alert >}}
 
 ## API
 
@@ -75,7 +81,7 @@ with additional functions on the instance level:
 | Function              | Arguments | Description |
 | --------------------- | ----- | ----- |
 | `updateModelLanguage` | `path`: String | Updates the instance's syntax highlighting to follow the extension of the passed `path`. Available only on the instance level. |
-| `use`                 | Array of objects | Array of extensions to apply to the instance. Accepts only an array of **objects**. The extensions' ES6 modules must be fetched and resolved in your views or components before they're passed to `use`. Available on the instance and global editor (all instances) levels. |
+| `use`                 | Array of objects | Array of extensions to apply to the instance. Accepts only an array of objects. The extensions' ES6 modules must be fetched and resolved in your views or components before they're passed to `use`. Available on the instance and global editor (all instances) levels. |
 | Monaco Editor options | See [documentation](https://microsoft.github.io/monaco-editor/docs.html#interfaces/editor.IStandaloneCodeEditor.html) | Default Monaco editor options. |
 
 ## Tips
@@ -86,8 +92,6 @@ with additional functions on the instance level:
    rarely needed in HTML. To benefit the built-in loading state, set the `data-editor-loading`
    property on the HTML element that should contain the editor. When bootstrapping,
    Source Editor shows the loader automatically.
-
-   ![Source Editor: loading state](img/editor_lite_loading.png)
 
 1. Update syntax highlighting if the filename changes.
 
@@ -114,8 +118,8 @@ with additional functions on the instance level:
 
    Even though Source Editor itself is extremely slim, it still depends on Monaco editor,
    which adds weight. Every time you add Source Editor to a view, the JavaScript bundle's
-   size significantly increases, affecting your view's loading performance. We recommend
-   you import the editor on demand if either:
+   size significantly increases, affecting your view's loading performance. You should
+   import the editor on demand if either:
 
    - You're uncertain if the view needs the editor.
    - The editor is a secondary element of the view.
@@ -138,7 +142,7 @@ with additional functions on the instance level:
 Source Editor provides a universal, extensible editing tool to the whole product,
 and doesn't depend on any particular group. Even though the Source Editor's core is owned by
 [Create::Editor FE Team](https://handbook.gitlab.com/handbook/engineering/development/dev/create/editor-extensions/),
-any group can own the extensions—the main functional elements. The goal of
+any group can own the extensions (the main functional elements). The goal of
 Source Editor extensions is to keep the editor's core slim and stable. Any
 needed features can be added as extensions to this core. Any group can
 build and own new editing features without worrying about changes to Source Editor
@@ -239,8 +243,6 @@ After that, we can use it any time we need it. In this case, we call it when som
 theoretical button has been clicked.
 
 This script would result in an alert containing the editor's content when `someButton` is clicked.
-
-![Source Editor new extension's result](img/editor_lite_create_ext.png)
 
 ### Tips
 

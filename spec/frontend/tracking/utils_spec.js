@@ -7,7 +7,12 @@ import {
   InternalEventHandler,
   createInternalEventPayload,
   validateAdditionalProperties,
+  getCustomAdditionalProperties,
+  getBaseAdditionalProperties,
+  validateEvent,
+  isEventEligible,
 } from '~/tracking/utils';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import { TRACKING_CONTEXT_SCHEMA } from '~/experimentation/constants';
 import { REFERRER_TTL, URLS_CACHE_STORAGE_KEY } from '~/tracking/constants';
 import { TEST_HOST } from 'helpers/test_constants';
@@ -120,6 +125,42 @@ describe('~/tracking/utils', () => {
           event: 'click',
         });
       });
+
+      it('should return event and parse eventAdditional JSON into additionalProperties', () => {
+        const mockEl = {
+          dataset: {
+            eventTracking: 'click',
+            eventAdditional: '{"key": "value"}',
+          },
+        };
+        const result = createInternalEventPayload(mockEl);
+        expect(result).toEqual({
+          event: 'click',
+          additionalProperties: { key: 'value' },
+        });
+      });
+
+      it('should handle invalid JSON in eventAdditional gracefully', () => {
+        const mockEl = {
+          dataset: {
+            eventTracking: 'click',
+            eventAdditional: '{invalidJson}',
+          },
+        };
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+        const result = createInternalEventPayload(mockEl);
+        expect(result).toEqual({
+          event: 'click',
+          additionalProperties: {},
+        });
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Failed to parse eventAdditional attribute:',
+          '{invalidJson}',
+        );
+
+        consoleErrorSpy.mockRestore();
+      });
     });
 
     describe('InternalEventHandler', () => {
@@ -161,29 +202,121 @@ describe('~/tracking/utils', () => {
       expect(validateAdditionalProperties(additionalProperties)).toBe(undefined);
     });
 
-    it('throws an error if unallowed additional properties are passed', () => {
+    it('throws an error if base property has incorrect type', () => {
       const additionalProperties = {
-        role: 'admin',
+        label: 'value',
+        property: 'property',
+        value: 'invalidType',
       };
 
       expect(() => {
         validateAdditionalProperties(additionalProperties);
-      }).toThrow(
-        'Allowed additional properties are label, property, value for InternalEvents tracking.\nDisallowed additional properties were provided: role.',
-      );
+      }).toThrow('value should be of type: number. Provided type is: string.');
     });
 
-    it('throws an error and lists all disallowed additional properties if multiple are passed', () => {
+    it('does not throw an error for custom properties', () => {
       const additionalProperties = {
-        node: 'admin',
-        lang: 'golang',
+        key: 'value',
       };
 
-      expect(() => {
-        validateAdditionalProperties(additionalProperties);
-      }).toThrow(
-        'Allowed additional properties are label, property, value for InternalEvents tracking.\nDisallowed additional properties were provided: node, lang.',
-      );
+      expect(validateAdditionalProperties(additionalProperties)).toBe(undefined);
     });
+  });
+
+  describe('validateEvent', () => {
+    let sentrySpy;
+
+    beforeEach(() => {
+      sentrySpy = jest.spyOn(Sentry, 'captureException');
+    });
+
+    afterEach(() => {
+      sentrySpy.mockRestore();
+    });
+
+    it('calls Sentry for event names with whitespace', () => {
+      validateEvent('event name');
+
+      expect(sentrySpy).toHaveBeenCalled();
+    });
+
+    it('does not call Sentry for event names eqaual to nil', () => {
+      validateEvent(null);
+
+      expect(sentrySpy).not.toHaveBeenCalled();
+    });
+
+    it('does not call Sentry for event names without whitespace', () => {
+      validateEvent('event-name');
+
+      expect(sentrySpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getCustomAdditionalProperties', () => {
+    it('returns only custom properties', () => {
+      const additionalProperties = {
+        label: 'value',
+        property: 'property',
+        value: 123,
+        key1: 'value1',
+        key2: 2,
+      };
+
+      const customProperties = getCustomAdditionalProperties(additionalProperties);
+
+      expect(customProperties).toEqual({
+        key1: 'value1',
+        key2: 2,
+      });
+    });
+  });
+
+  describe('getBaseAdditionalProperties', () => {
+    it('returns only base properties', () => {
+      const additionalProperties = {
+        label: 'value',
+        property: 'property',
+        value: 123,
+        key1: 'value1',
+        key2: 2,
+      };
+
+      const baseProperties = getBaseAdditionalProperties(additionalProperties);
+
+      expect(baseProperties).toEqual({
+        label: 'value',
+        property: 'property',
+        value: 123,
+      });
+    });
+  });
+
+  describe('isEventEligible', () => {
+    beforeEach(() => {
+      window.gl = {};
+    });
+
+    it('returns false if action is undefined or empty', () => {
+      expect(isEventEligible()).toBe(false);
+      expect(isEventEligible('')).toBe(false);
+    });
+
+    it.each`
+      description                                            | onlySendDuoEvents | duoEvents                            | action                     | expected
+      ${'onlySendDuoEvents is false'}                        | ${false}          | ${[]}                                | ${'any-action'}            | ${true}
+      ${'onlySendDuoEvents is undefined'}                    | ${undefined}      | ${[]}                                | ${'any-action'}            | ${true}
+      ${'action is included in duoEvents when enforced'}     | ${true}           | ${['duo-example-event', 'ai-event']} | ${'duo-example-event'}     | ${true}
+      ${'action is included in duoEvents when enforced (2)'} | ${true}           | ${['duo-example-event', 'ai-event']} | ${'ai-event'}              | ${true}
+      ${'action is missing in duoEvents when enforced'}      | ${true}           | ${['duo-example-event']}             | ${'non-duo-example-event'} | ${false}
+    `(
+      'returns $expected when $description',
+      ({ onlySendDuoEvents, duoEvents, action, expected }) => {
+        window.gl.onlySendDuoEvents = onlySendDuoEvents;
+        window.gl.duoEvents = duoEvents;
+
+        expect(isEventEligible(action)).toBe(expected);
+      },
+    );
   });
 });

@@ -6,8 +6,16 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
   let_it_be(:project) { create(:project) }
   let_it_be_with_refind(:pipeline) { create(:ci_pipeline, project: project) }
 
+  before do
+    stub_feature_flags(ci_validate_config_options: false)
+  end
+
   describe 'associations' do
-    it { is_expected.to belong_to(:trigger_request) }
+    it { is_expected.to have_one(:trigger).through(:pipeline) }
+    it { is_expected.to have_one(:job_environment).class_name('Environments::Job').inverse_of(:job) }
+    it { is_expected.to have_one(:job_definition_instance) }
+    it { is_expected.to have_one(:job_definition).through(:job_definition_instance) }
+    it { is_expected.to have_many(:job_messages).class_name('Ci::JobMessage').inverse_of(:job) }
   end
 
   describe 'delegations' do
@@ -16,7 +24,6 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
     it { is_expected.to delegate_method(:merge_request?).to(:pipeline) }
     it { is_expected.to delegate_method(:merge_request_ref?).to(:pipeline) }
     it { is_expected.to delegate_method(:legacy_detached_merge_request_pipeline?).to(:pipeline) }
-    it { is_expected.to delegate_method(:trigger_short_token).to(:trigger_request) }
   end
 
   describe '#clone' do
@@ -52,17 +59,23 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
         create(
           :ci_build, :failed, :picked, :expired, :erased, :queued, :coverage, :tags,
           :allowed_to_fail, :on_tag, :triggered, :teardown_environment, :resource_group,
-          description: 'my-job', stage: 'test', stage_id: stage.id,
+          description: 'my-job', stage_id: stage.id,
           pipeline: pipeline, auto_canceled_by: another_pipeline,
-          scheduled_at: 10.seconds.since
+          scheduled_at: 10.seconds.since,
+          scoped_user_id: 1,
+          timeout: 3600,
+          timeout_source: 2,
+          exit_code: 127, # command not found
+          debug_trace_enabled: false
         )
       end
 
       let_it_be(:internal_job_variable) { create(:ci_job_variable, job: processable) }
 
       let(:clone_accessors) do
-        %i[pipeline project ref tag options name allow_failure stage stage_idx trigger_request yaml_variables
+        %i[pipeline project ref tag options name allow_failure stage_idx yaml_variables
            when environment coverage_regex description tag_list protected needs_attributes job_variables_attributes
+           timeout timeout_source debug_trace_enabled
            resource_group scheduling_type ci_stage partition_id id_tokens interruptible]
       end
 
@@ -83,22 +96,25 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
            job_artifacts_requirements job_artifacts_coverage_fuzzing
            job_artifacts_requirements_v2 job_artifacts_repository_xray
            job_artifacts_api_fuzzing terraform_state_versions job_artifacts_cyclonedx
-           job_annotations job_artifacts_annotations].freeze
+           scoped_user_id exit_code job_annotations job_artifacts_annotations
+           job_artifacts_jacoco].freeze
       end
 
       let(:ignore_accessors) do
         %i[type namespace lock_version target_url base_tags trace_sections
-           commit_id deployment erased_by_id project_id project_mirror
-           runner_id tag_taggings taggings tags trigger_request_id
+           commit_id deployment job_environment erased_by_id project_id project_mirror
+           runner_id taggings tags trigger trigger_id
            user_id auto_canceled_by_id retried failure_reason
            sourced_pipelines sourced_pipeline artifacts_file_store artifacts_metadata_store
-           metadata runner_manager_build runner_manager runner_session trace_chunks upstream_pipeline_id
+           metadata runner_manager_build runner_manager runner_session trace_chunks
+           upstream_pipeline_id upstream_pipeline_partition_id
            artifacts_file artifacts_metadata artifacts_size commands
            resource resource_group_id processed security_scans author
            pipeline_id report_results pending_state pages_deployments
            queuing_entry runtime_metadata trace_metadata
            dast_site_profile dast_scanner_profile stage_id dast_site_profiles_build
-           dast_scanner_profiles_build auto_canceled_by_partition_id execution_config_id execution_config].freeze
+           dast_scanner_profiles_build auto_canceled_by_partition_id execution_config_id execution_config
+           build_source id_value inputs job_definition job_definition_instance job_messages].freeze
       end
 
       before_all do
@@ -119,7 +135,7 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
 
     shared_examples_for 'clones the processable' do
       before_all do
-        processable.assign_attributes(stage: 'test', stage_id: stage.id, interruptible: true)
+        processable.assign_attributes(stage_id: stage.id, interruptible: true)
         processable.save!
 
         create(:ci_build_need, build: processable)
@@ -147,6 +163,27 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
 
           expect(new_processable.needs_attributes).to match(processable.needs_attributes)
           expect(new_processable.needs).not_to match(processable.needs)
+        end
+
+        context 'when processable has a job definition' do
+          let_it_be(:job_definition) { create(:ci_job_definition, project: pipeline.project) }
+
+          let_it_be(:job_definition_instance) do
+            create(:ci_job_definition_instance,
+              job: processable,
+              job_definition: job_definition,
+              project: pipeline.project)
+          end
+
+          it 'creates a new job definition instance for the new processable' do
+            expect(new_processable.job_definition)
+              .to be_present
+              .and eq(processable.job_definition)
+
+            expect(new_processable.job_definition_instance).to be_present
+            expect(new_processable.job_definition_instance)
+              .not_to eq(processable.job_definition_instance)
+          end
         end
 
         context 'when the processable has protected: nil' do
@@ -193,7 +230,7 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
           Ci::Build.attribute_names.map(&:to_sym) +
           Ci::Build.attribute_aliases.keys.map(&:to_sym) +
           Ci::Build.reflect_on_all_associations.map(&:name) +
-          [:tag_list, :needs_attributes, :job_variables_attributes, :id_tokens, :interruptible]
+          [:tag_list, :needs_attributes, :job_variables_attributes, :id_tokens, :interruptible, :trigger]
 
         current_accessors.uniq!
 
@@ -341,6 +378,45 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
     end
   end
 
+  it_behaves_like 'a degenerable job' do
+    subject(:job) { create(:ci_bridge, pipeline: pipeline) }
+  end
+
+  describe '#archived?' do
+    shared_examples 'an archivable job' do
+      it { is_expected.not_to be_archived }
+
+      context 'when job is degenerated' do
+        before do
+          job.degenerate!
+        end
+
+        it { is_expected.to be_archived }
+      end
+
+      context 'when pipeline is archived' do
+        before do
+          pipeline.update!(created_at: 1.day.ago)
+          stub_application_setting(archive_builds_in_seconds: 3600)
+        end
+
+        it { is_expected.to be_archived }
+      end
+    end
+
+    context 'when job is a build' do
+      subject(:job) { create(:ci_build, pipeline: pipeline) }
+
+      it_behaves_like 'an archivable job'
+    end
+
+    context 'when job is a bridge' do
+      subject(:job) { create(:ci_bridge, pipeline: pipeline) }
+
+      it_behaves_like 'an archivable job'
+    end
+  end
+
   describe '#aggregated_needs_names' do
     let(:with_aggregated_needs) { pipeline.processables.select_with_aggregated_needs(project) }
 
@@ -439,8 +515,8 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
 
       it 'returns all needs attributes' do
         is_expected.to contain_exactly(
-          { 'artifacts' => true, 'name' => 'test1', 'optional' => false, 'partition_id' => build.partition_id },
-          { 'artifacts' => true, 'name' => 'test2', 'optional' => false, 'partition_id' => build.partition_id }
+          { 'artifacts' => true, 'name' => 'test1', 'optional' => false, 'partition_id' => build.partition_id, 'project_id' => build.project_id },
+          { 'artifacts' => true, 'name' => 'test2', 'optional' => false, 'partition_id' => build.partition_id, 'project_id' => build.project_id }
         )
       end
     end
@@ -457,25 +533,11 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
       let(:build) { create(:ci_build, :created, project: project, resource_group: resource_group) }
 
       it 'is waiting for resource when build is enqueued' do
-        expect(Ci::ResourceGroups::AssignResourceFromResourceGroupWorkerV2).to receive(:perform_async).with(resource_group.id)
+        expect(Ci::ResourceGroups::AssignResourceFromResourceGroupWorker).to receive(:perform_async).with(resource_group.id)
 
         expect { build.enqueue! }.to change { build.status }.from('created').to('waiting_for_resource')
 
         expect(build.waiting_for_resource_at).not_to be_nil
-      end
-
-      context 'when `assign_resource_worker_deduplicate_until_executing` FF is disabled' do
-        before do
-          stub_feature_flags(assign_resource_worker_deduplicate_until_executing: false)
-        end
-
-        it 'is waiting for resource when build is enqueued' do
-          expect(Ci::ResourceGroups::AssignResourceFromResourceGroupWorker).to receive(:perform_async).with(resource_group.id)
-
-          expect { build.enqueue! }.to change { build.status }.from('created').to('waiting_for_resource')
-
-          expect(build.waiting_for_resource_at).not_to be_nil
-        end
       end
 
       context 'when build is waiting for resource' do
@@ -489,7 +551,7 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
 
         it 'releases a resource when build finished' do
           expect(build.resource_group).to receive(:release_resource_from).with(build).and_return(true).and_call_original
-          expect(Ci::ResourceGroups::AssignResourceFromResourceGroupWorkerV2).to receive(:perform_async).with(build.resource_group_id)
+          expect(Ci::ResourceGroups::AssignResourceFromResourceGroupWorker).to receive(:perform_async).with(build.resource_group_id)
 
           build.enqueue_waiting_for_resource!
           build.success!
@@ -497,30 +559,9 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
 
         it 're-checks the resource group even if the processable does not retain a resource' do
           expect(build.resource_group).to receive(:release_resource_from).with(build).and_return(false).and_call_original
-          expect(Ci::ResourceGroups::AssignResourceFromResourceGroupWorkerV2).to receive(:perform_async).with(build.resource_group_id)
+          expect(Ci::ResourceGroups::AssignResourceFromResourceGroupWorker).to receive(:perform_async).with(build.resource_group_id)
 
           build.success!
-        end
-
-        context 'when `assign_resource_worker_deduplicate_until_executing` FF is disabled' do
-          before do
-            stub_feature_flags(assign_resource_worker_deduplicate_until_executing: false)
-          end
-
-          it 'releases a resource when build finished' do
-            expect(build.resource_group).to receive(:release_resource_from).with(build).and_return(true).and_call_original
-            expect(Ci::ResourceGroups::AssignResourceFromResourceGroupWorker).to receive(:perform_async).with(build.resource_group_id)
-
-            build.enqueue_waiting_for_resource!
-            build.success!
-          end
-
-          it 're-checks the resource group even if the processable does not retain a resource' do
-            expect(build.resource_group).to receive(:release_resource_from).with(build).and_return(false).and_call_original
-            expect(Ci::ResourceGroups::AssignResourceFromResourceGroupWorker).to receive(:perform_async).with(build.resource_group_id)
-
-            build.success!
-          end
         end
 
         context 'when build has prerequisites' do
@@ -619,17 +660,25 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
 
   describe 'manual_confirmation_message' do
     context 'when job is manual' do
-      subject { build(:ci_build, :manual, :with_manual_confirmation) }
+      subject(:job) { build(:ci_build, :manual, :with_manual_confirmation) }
 
       it 'return manual_confirmation from option' do
-        expect(subject.manual_confirmation_message).to eq('Please confirm. Do you want to proceed?')
+        expect(job.manual_confirmation_message).to eq('Please confirm. Do you want to proceed?')
+      end
+
+      context "when job is not playable because it's archived" do
+        before do
+          allow(job).to receive(:archived?).and_return(true)
+        end
+
+        it { expect(job.manual_confirmation_message).to be_nil }
       end
     end
 
     context 'when job is not manual' do
-      subject { build(:ci_build) }
+      subject(:job) { build(:ci_build) }
 
-      it { expect(subject.manual_confirmation_message).to be_nil }
+      it { expect(job.manual_confirmation_message).to be_nil }
     end
   end
 
@@ -663,26 +712,95 @@ RSpec.describe Ci::Processable, feature_category: :continuous_integration do
     end
   end
 
-  describe 'find_dependencies_with_accessible_artifacts' do
-    let(:build) { create(:ci_build, :created, project: project, pipeline: pipeline) }
-    let(:build2) { create(:ci_build, :created, project: project, pipeline: pipeline) }
-    let!(:job_artifact) { create(:ci_job_artifact, :dotenv, job: build2, accessibility: accessibility) }
+  describe 'job_dependencies_with_accessible_artifacts' do
+    context 'in the same project' do
+      let(:build) { create(:ci_build, :created, project: project, pipeline: pipeline) }
+      let(:build2) { create(:ci_build, :created, project: project, pipeline: pipeline) }
+      let!(:job_artifact) { create(:ci_job_artifact, :dotenv, job: build2, accessibility: accessibility) }
 
-    let!(:job_variable_1) { create(:ci_job_variable, :dotenv_source, job: build2) }
-    let!(:job_variable_2) { create(:ci_job_variable, job: build2) }
+      let!(:job_variable_1) { create(:ci_job_variable, :dotenv_source, job: build2) }
+      let!(:job_variable_2) { create(:ci_job_variable, job: build2) }
 
-    subject { build.find_dependencies_with_accessible_artifacts([build2]) }
+      subject { build.job_dependencies_with_accessible_artifacts([build2]) }
 
-    context 'inherits only jobs whose artifacts are public' do
-      let(:accessibility) { 'public' }
+      context 'inherits only jobs whose artifacts are public' do
+        let(:accessibility) { 'public' }
 
-      it { expect(subject).to eq([build2]) }
+        it { expect(subject).to eq([build2]) }
+      end
+
+      context 'inherits jobs whose artifacts are private' do
+        let(:accessibility) { 'private' }
+
+        it { expect(subject).to eq([build2]) }
+      end
     end
 
-    context 'does not inherits jobs whose artifacts are private' do
-      let(:accessibility) { 'private' }
+    context 'in a different project' do
+      let_it_be(:public_project) { create(:project, :public) }
+      let(:build) { create(:ci_build, :created, project: project, pipeline: pipeline) }
+      let(:build2) { create(:ci_build, :created, project: public_project) }
+      let!(:job_artifact) { create(:ci_job_artifact, :dotenv, job: build2, accessibility: accessibility) }
 
-      it { expect(subject).to eq([]) }
+      let!(:job_variable_1) { create(:ci_job_variable, :dotenv_source, job: build2) }
+      let!(:job_variable_2) { create(:ci_job_variable, job: build2) }
+
+      subject { build.job_dependencies_with_accessible_artifacts([build2]) }
+
+      context 'inherits only jobs whose artifacts are public' do
+        let(:accessibility) { 'public' }
+
+        it { expect(subject).to eq([build2]) }
+      end
+
+      context 'does not inherit jobs whose artifacts are private' do
+        let(:accessibility) { 'private' }
+
+        it { expect(subject).to eq([]) }
+      end
+    end
+  end
+
+  describe '#trigger_short_token' do
+    let_it_be(:pipeline) { create(:ci_pipeline, :triggered, project: project) }
+    let_it_be(:stage) { create(:ci_stage, project: project, pipeline: pipeline, name: 'test') }
+    let_it_be(:processable) { create(:ci_build, :triggered, stage_id: stage.id, pipeline: pipeline) }
+
+    it 'delegates to trigger' do
+      expect(processable.trigger).to receive(:short_token)
+      processable.trigger_short_token
+    end
+  end
+
+  describe '#redis_state' do
+    let(:processable) { build_stubbed(:ci_processable, pipeline: pipeline) }
+
+    it 'is a memoized Ci::JobRedisState record' do
+      expect(processable.redis_state).to be_an_instance_of(Ci::JobRedisState)
+      expect(processable.strong_memoized?(:redis_state)).to be(true)
+    end
+  end
+
+  describe '#enqueue_immediately?', :clean_gitlab_redis_shared_state do
+    let(:processable) { build_stubbed(:ci_processable, pipeline: pipeline) }
+
+    [true, false].each do |value|
+      context "when enqueue_immediately is set to #{value}" do
+        before do
+          processable.redis_state.enqueue_immediately = value
+        end
+
+        it { expect(processable.enqueue_immediately?).to be(value) }
+      end
+    end
+  end
+
+  describe '#set_enqueue_immediately!', :clean_gitlab_redis_shared_state do
+    let(:processable) { build_stubbed(:ci_processable, pipeline: pipeline) }
+
+    it 'changes enqueue_immediately to true' do
+      expect { processable.set_enqueue_immediately! }
+        .to change { processable.enqueue_immediately? }.to(true)
     end
   end
 end

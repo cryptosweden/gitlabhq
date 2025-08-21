@@ -149,6 +149,11 @@ RSpec.describe API::Terraform::State, :snowplow, feature_category: :infrastructu
     context 'job token authentication' do
       let(:auth_header) { job_basic_auth_header(job) }
 
+      it_behaves_like 'enforcing job token policies', :read_terraform_state do
+        let_it_be(:user) { maintainer }
+        let(:job) { target_job }
+      end
+
       context 'with maintainer permissions' do
         let(:job) { create(:ci_build, status: :running, project: project, user: maintainer) }
 
@@ -197,7 +202,7 @@ RSpec.describe API::Terraform::State, :snowplow, feature_category: :infrastructu
           let(:state_name) { given_state_name }
 
           it 'updates the state' do
-            expect { request }.to change { Terraform::State.count }.by(0)
+            expect { request }.not_to change { Terraform::State.count }
 
             expect(response).to have_gitlab_http_status(:ok)
             expect(Gitlab::Json.parse(response.body)).to be_empty
@@ -295,6 +300,11 @@ RSpec.describe API::Terraform::State, :snowplow, feature_category: :infrastructu
       let(:job) { create(:ci_build, status: :running, project: project, user: maintainer) }
       let(:auth_header) { job_basic_auth_header(job) }
 
+      it_behaves_like 'enforcing job token policies', :admin_terraform_state do
+        let_it_be(:user) { maintainer }
+        let(:job) { target_job }
+      end
+
       it 'associates the job with the newly created state version' do
         expect { request }.to change { state.versions.count }.by(1)
 
@@ -349,6 +359,11 @@ RSpec.describe API::Terraform::State, :snowplow, feature_category: :infrastructu
   describe 'DELETE /projects/:id/terraform/state/:name' do
     subject(:request) { delete api(state_path), headers: auth_header }
 
+    it_behaves_like 'enforcing job token policies', :admin_terraform_state do
+      let_it_be(:user) { maintainer }
+      let(:auth_header) { job_basic_auth_header(target_job) }
+    end
+
     it_behaves_like 'endpoint with unique user tracking'
     it_behaves_like 'it depends on value of the `terraform_state.enabled` config'
 
@@ -392,7 +407,7 @@ RSpec.describe API::Terraform::State, :snowplow, feature_category: :infrastructu
       let(:current_user) { developer }
 
       it 'returns forbidden' do
-        expect { request }.to change { Terraform::State.count }.by(0)
+        expect { request }.not_to change { Terraform::State.count }
 
         expect(response).to have_gitlab_http_status(:forbidden)
       end
@@ -413,6 +428,11 @@ RSpec.describe API::Terraform::State, :snowplow, feature_category: :infrastructu
     end
 
     subject(:request) { post api("#{state_path}/lock"), headers: auth_header, params: params }
+
+    it_behaves_like 'enforcing job token policies', :admin_terraform_state do
+      let_it_be(:user) { maintainer }
+      let(:auth_header) { job_basic_auth_header(target_job) }
+    end
 
     it_behaves_like 'endpoint with unique user tracking'
     it_behaves_like 'cannot access a state that is scheduled for deletion'
@@ -491,6 +511,12 @@ RSpec.describe API::Terraform::State, :snowplow, feature_category: :infrastructu
     end
 
     subject(:request) { delete api("#{state_path}/lock"), headers: auth_header, params: params }
+
+    it_behaves_like 'enforcing job token policies', :admin_terraform_state do
+      let_it_be(:user) { maintainer }
+      let(:auth_header) { job_basic_auth_header(target_job) }
+      let(:lock_id) { '123.456' }
+    end
 
     it_behaves_like 'endpoint with unique user tracking' do
       let(:lock_id) { 'irrelevant to this test, just needs to be present' }

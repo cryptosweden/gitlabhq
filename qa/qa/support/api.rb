@@ -10,10 +10,12 @@ module QA
       HTTP_STATUS_NO_CONTENT = 204
       HTTP_STATUS_ACCEPTED = 202
       HTTP_STATUS_PERMANENT_REDIRECT = 308
+      HTTP_STATUS_BAD_REQUEST = 400
       HTTP_STATUS_UNAUTHORIZED = 401
       HTTP_STATUS_NOT_FOUND = 404
       HTTP_STATUS_TOO_MANY_REQUESTS = 429
       HTTP_STATUS_SERVER_ERROR = 500
+      HTTP_STATUS_SERVICE_UNAVAILABLE = 503
 
       def post(url, payload, args = {})
         request_args = {
@@ -133,8 +135,10 @@ module QA
           response = yield
 
           if response.code == HTTP_STATUS_TOO_MANY_REQUESTS
-            wait_seconds = response.headers[:retry_after].to_i
-            QA::Runtime::Logger.debug("Received 429 - Too many requests. Waiting for #{wait_seconds} seconds.")
+            response_wait = response.headers[:retry_after].to_i
+            wait_seconds = response_wait <= 0 ? 60 : response_wait
+
+            QA::Runtime::Logger.warn("Received 429 - Too many requests. Waiting for #{wait_seconds} seconds.")
 
             sleep wait_seconds
           end
@@ -191,6 +195,13 @@ module QA
 
       def success?(response_code)
         [HTTP_STATUS_NO_CONTENT, HTTP_STATUS_ACCEPTED, HTTP_STATUS_OK, HTTP_STATUS_CREATED].include?(response_code)
+      end
+
+      def fatal_response?(response_code)
+        [HTTP_STATUS_UNAUTHORIZED,
+          HTTP_STATUS_SERVER_ERROR,
+          HTTP_STATUS_BAD_REQUEST,
+          HTTP_STATUS_SERVICE_UNAVAILABLE].include?(response_code)
       end
     end
   end

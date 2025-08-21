@@ -22,7 +22,11 @@ module Gitlab
       attr_reader :root, :context, :source_ref_path, :source, :logger, :inject_edge_stages, :pipeline_policy_context
 
       # rubocop: disable Metrics/ParameterLists
-      def initialize(config, project: nil, pipeline: nil, sha: nil, ref: nil, user: nil, parent_pipeline: nil, source: nil, pipeline_config: nil, logger: nil, inject_edge_stages: true, pipeline_policy_context: nil)
+      def initialize(
+        config,
+        project: nil, pipeline: nil, sha: nil, ref: nil, user: nil, parent_pipeline: nil, source: nil,
+        pipeline_config: nil, logger: nil, inject_edge_stages: true, pipeline_policy_context: nil, inputs: {}
+      )
         @logger = logger || ::Gitlab::Ci::Pipeline::Logger.new(project: project)
         @source_ref_path = pipeline&.source_ref_path
         @project = project
@@ -32,7 +36,7 @@ module Gitlab
         @context = self.logger.instrument(:config_build_context, once: true) do
           pipeline ||= ::Ci::Pipeline.new(project: project, sha: sha, ref: ref, user: user, source: source)
 
-          build_context(project: project, pipeline: pipeline, sha: sha, user: user, parent_pipeline: parent_pipeline, pipeline_config: pipeline_config)
+          build_context(project: project, pipeline: pipeline, sha: sha, user: user, parent_pipeline: parent_pipeline, pipeline_config: pipeline_config, pipeline_policy_context: pipeline_policy_context)
         end
 
         @context.set_deadline(TIMEOUT_SECONDS)
@@ -41,7 +45,7 @@ module Gitlab
 
         Gitlab::Ci::Config::FeatureFlags.with_actor(project) do
           @config = self.logger.instrument(:config_expand, once: true) do
-            expand_config(config)
+            expand_config(config, inputs)
           end
 
           @root = self.logger.instrument(:config_root, once: true) do
@@ -76,36 +80,56 @@ module Gitlab
       ##
       # Temporary method that should be removed after refactoring
       #
+      # rubocop:disable Gitlab/NoCodeCoverageComment -- This is an existing method and probably never called
+      # :nocov:
       def variables
-        root.variables_value
+        Gitlab::Ci::Config::FeatureFlags.with_actor(@project) do
+          root.variables_value
+        end
       end
+      # :nocov:
+      # rubocop:enable Gitlab/NoCodeCoverageComment
 
       def variables_with_data
-        root.variables_entry.value_with_data
+        Gitlab::Ci::Config::FeatureFlags.with_actor(@project) do
+          root.variables_entry.value_with_data
+        end
       end
 
       def variables_with_prefill_data
-        root.variables_entry.value_with_prefill_data
+        Gitlab::Ci::Config::FeatureFlags.with_actor(@project) do
+          root.variables_entry.value_with_prefill_data
+        end
       end
 
       def stages
-        root.stages_value
+        Gitlab::Ci::Config::FeatureFlags.with_actor(@project) do
+          root.stages_value
+        end
       end
 
       def jobs
-        root.jobs_value
+        Gitlab::Ci::Config::FeatureFlags.with_actor(@project) do
+          root.jobs_value
+        end
       end
 
       def workflow_rules
-        root.workflow_entry.rules_value
+        Gitlab::Ci::Config::FeatureFlags.with_actor(@project) do
+          root.workflow_entry.rules_value
+        end
       end
 
       def workflow_name
-        root.workflow_entry.name
+        Gitlab::Ci::Config::FeatureFlags.with_actor(@project) do
+          root.workflow_entry.name
+        end
       end
 
       def workflow_auto_cancel
-        root.workflow_entry.auto_cancel_value
+        Gitlab::Ci::Config::FeatureFlags.with_actor(@project) do
+          root.workflow_entry.auto_cancel_value
+        end
       end
 
       def normalized_jobs
@@ -129,8 +153,8 @@ module Gitlab
 
       private
 
-      def expand_config(config)
-        build_config(config)
+      def expand_config(config, inputs)
+        build_config(config, inputs)
 
       rescue Gitlab::Config::Loader::Yaml::DataTooLargeError => e
         track_and_raise_for_dev_exception(e)
@@ -139,11 +163,15 @@ module Gitlab
       rescue Gitlab::Ci::Config::External::Context::TimeoutError => e
         track_and_raise_for_dev_exception(e)
         raise Config::ConfigError, TIMEOUT_MESSAGE
+
+      rescue Gitlab::Ci::Config::Yaml::LoadError => e
+        raise Config::ConfigError, e.message
       end
 
-      def build_config(config)
+      def build_config(config, inputs)
         initial_config = logger.instrument(:config_yaml_load, once: true) do
-          Config::Yaml.load!(config)
+          yaml_context = Config::Yaml::Context.new(variables: @context.variables)
+          Config::Yaml.load!(config, yaml_context, inputs)
         end
 
         initial_config = logger.instrument(:config_external_process, once: true) do
@@ -161,7 +189,7 @@ module Gitlab
         return initial_config unless inject_edge_stages
 
         logger.instrument(:config_stages_inject, once: true) do
-          Config::EdgeStagesInjector.new(initial_config).to_hash
+          Config::Stages.new(initial_config).inject_edge_stages!
         end
       end
 
@@ -173,7 +201,7 @@ module Gitlab
         end
       end
 
-      def build_context(project:, pipeline:, sha:, user:, parent_pipeline:, pipeline_config:)
+      def build_context(project:, pipeline:, sha:, user:, parent_pipeline:, pipeline_config:, pipeline_policy_context:)
         Config::External::Context.new(
           project: project,
           pipeline: pipeline,
@@ -182,6 +210,7 @@ module Gitlab
           parent_pipeline: parent_pipeline,
           variables: build_variables(pipeline: pipeline),
           pipeline_config: pipeline_config,
+          pipeline_policy_context: pipeline_policy_context,
           logger: logger)
       end
 

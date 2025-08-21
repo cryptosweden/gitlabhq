@@ -64,12 +64,19 @@ RSpec.describe Deployment, feature_category: :continuous_delivery do
 
   describe 'modules' do
     it_behaves_like 'AtomicInternalId' do
-      let_it_be(:deployable) { create(:ci_build, project: project) }
+      # Use a fresh project specifically for these IID tests
+      let_it_be(:iid_test_project) { create(:project, :repository) }
+      let_it_be(:iid_test_environment) { create(:environment, project: iid_test_project) }
+      let_it_be(:iid_test_deployable) { create(:ci_build, project: iid_test_project) }
 
       let(:internal_id_attribute) { :iid }
-      let(:instance) { build(:deployment, deployable: deployable, environment: environment) }
+      let(:instance) do
+        build(:deployment, project: iid_test_project, deployable: iid_test_deployable,
+          environment: iid_test_environment)
+      end
+
       let(:scope) { :project }
-      let(:scope_attrs) { { project: project } }
+      let(:scope_attrs) { { project: iid_test_project } }
       let(:usage) { :deployments }
     end
 
@@ -1611,7 +1618,7 @@ RSpec.describe Deployment, feature_category: :continuous_delivery do
       it 'removes deployment without any errors' do
         deployment = create(:deployment, environment: environment, project: project)
 
-        Repositories::DestroyService.new(project.repository).execute
+        ::Repositories::DestroyService.new(project.repository).execute
         project.save! # to trigger a repository removal
 
         expect { described_class.where(id: deployment).fast_destroy_all }

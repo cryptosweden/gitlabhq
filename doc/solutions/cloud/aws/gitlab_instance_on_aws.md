@@ -2,15 +2,12 @@
 stage: Solutions Architecture
 group: Solutions Architecture
 info: This page is owned by the Solutions Architecture team.
+title: Provision GitLab Instances on AWS
 ---
-
-{::options parse_block_html="true" /}
-
-# Provision GitLab Instances on AWS
 
 ## Available Infrastructure as Code for GitLab Instance Installation on AWS
 
-The [GitLab Environment Toolkit (GET)](https://gitlab.com/gitlab-org/gitlab-environment-toolkit/-/blob/main/README.md) is a set of opinionated Terraform and Ansible scripts. These scripts help with the deployment of Linux package or Cloud Native Hybrid environments on selected cloud providers and are used by GitLab developers for [GitLab Dedicated](../../../subscriptions/gitlab_dedicated/index.md) (for example).
+The [GitLab Environment Toolkit (GET)](https://gitlab.com/gitlab-org/gitlab-environment-toolkit/-/blob/main/README.md) is a set of opinionated Terraform and Ansible scripts. These scripts help with the deployment of Linux package or Cloud Native Hybrid environments on selected cloud providers and are used by GitLab developers for [GitLab Dedicated](../../../subscriptions/gitlab_dedicated/_index.md) (for example).
 
 You can use the GitLab Environment Toolkit to deploy a Cloud Native Hybrid environment on AWS. However, it's not required and may not support every valid permutation. That said, the scripts are presented as-is and you can adapt them accordingly.
 
@@ -18,7 +15,7 @@ You can use the GitLab Environment Toolkit to deploy a Cloud Native Hybrid envir
 
 While GitLab Reference Architectures generally encourage three zone redundancy, the AWS Well Architected framework consider two zone redundancy as AWS Well Architected. Individual implementations should weigh the costs of two and three zone configurations against their own high availability requirements for a final configuration.
 
-Gitaly Cluster uses a consistency voting system to implement strong consistency between synchronized nodes. Regardless of the number of availability zones implemented, there will always need to be a minimum of three Gitaly and three Praefect nodes in the cluster to avoid voting stalemates cause by an even number of nodes.
+Gitaly Cluster (Praefect) uses a consistency voting system to implement strong consistency between synchronized nodes. Regardless of the number of availability zones implemented, there will always need to be a minimum of three Gitaly and three Praefect nodes in the cluster to avoid voting stalemates cause by an even number of nodes.
 
 ## AWS PaaS qualified for all GitLab implementations
 

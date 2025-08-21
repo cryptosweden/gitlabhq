@@ -1,4 +1,4 @@
-<!-- This issue template can be used as a great starting point for feature requests. Learn more about the process: https://handbook.gitlab.com/handbook/product/how-to-engage/#customer-feature-requests. The first section "Release notes" is required if you want to have your release post blog MR auto generated. Currently in BETA, details on the **release post item generator** can be found in the handbook:  https://about.gitlab.com/handbook/marketing/blog/release-posts/#release-post-item-generator and this video: https://www.youtube.com/watch?v=rfn9ebgTwKg. The next four sections: "Problem to solve", "Intended users", "User experience goal", and "Proposal", are strongly recommended in your first draft, while the rest of the sections can be filled out during the problem validation or breakdown phase. However, keep in mind that providing complete and relevant information early helps our product team validate the problem and start working on a solution. -->
+<!-- This issue template can be used as a great starting point for feature requests. Learn more about the process: https://handbook.gitlab.com/handbook/product/product-management/#customer-feature-requests. The first section "Release notes" is required if you want to have your release post blog MR auto generated. Currently in BETA, details on the **release post item generator** can be found in the handbook:  https://about.gitlab.com/handbook/marketing/blog/release-posts/#release-post-item-generator and this video: https://www.youtube.com/watch?v=rfn9ebgTwKg. The next four sections: "Problem to solve", "Intended users", "User experience goal", and "Proposal", are strongly recommended in your first draft, while the rest of the sections can be filled out during the problem validation or breakdown phase. However, keep in mind that providing complete and relevant information early helps our product team validate the problem and start working on a solution. -->
 
 ### Release notes
 
@@ -38,11 +38,11 @@ Personas are described at https://handbook.gitlab.com/handbook/product/personas/
 
 <!-- What is the single user experience workflow this problem addresses?
 For example, "The user should be able to use the UI/API/.gitlab-ci.yml with GitLab to <perform a specific task>"
-https://about.gitlab.com/handbook/product/ux/ux-research-training/user-story-mapping/ -->
+https://handbook.gitlab.com/handbook/product/ux/ux-research/user-story-mapping/ -->
 
 ### Proposal
 
-<!-- How are we going to solve the problem? Try to include the user journey! https://about.gitlab.com/handbook/journeys/#user-journey -->
+<!-- How are we going to solve the problem? Try to include the user journey! https://handbook.gitlab.com/handbook/marketing/journeys/#user-journey -->
 
 ### Further details
 
@@ -51,7 +51,7 @@ https://about.gitlab.com/handbook/product/ux/ux-research-training/user-story-map
 ### Permissions and Security
 
 <!-- What permissions are required to perform the described actions? Are they consistent with the existing permissions as documented for users, groups, and projects as appropriate? Is the proposed behavior consistent between the UI, API, and other access methods (e.g. email replies)?
-Consider adding checkboxes and expectations of users with certain levels of membership https://docs.gitlab.com/ee/user/permissions.html
+Consider adding checkboxes and expectations of users with certain levels of membership https://docs.gitlab.com/user/permissions/
 * [ ] Add expected impact to members with no access (0)
 * [ ] Add expected impact to Guest (10) members
 * [ ] Add expected impact to Reporter (20) members
@@ -66,10 +66,10 @@ Don't hesitate to reach out to the Application Security Team (`@gitlab-com/gl-se
 
 ### Documentation
 
-<!-- See the Feature Change Documentation Workflow https://docs.gitlab.com/ee/development/documentation/workflow.html#for-a-product-change
+<!-- See the Feature Change Documentation Workflow https://docs.gitlab.com/development/documentation/workflow/#for-a-product-change
 
-* Add all known Documentation Requirements in this section. See https://docs.gitlab.com/ee/development/documentation/workflow.html
-* If this feature requires changing permissions, update the permissions document. See https://docs.gitlab.com/ee/user/permissions.html -->
+* Add all known Documentation Requirements in this section. See https://docs.gitlab.com/development/documentation/workflow/
+* If this feature requires changing permissions, update the permissions document. See https://docs.gitlab.com/user/permissions/ -->
 
 ### Availability & Testing
 
@@ -91,8 +91,8 @@ Test Planning: https://handbook.gitlab.com/handbook/engineering/infrastructure/t
 <!-- This section should be used for setting the appropriate tier that this feature will belong to. Pricing can be found here: https://about.gitlab.com/pricing/
 
 * Free
-* Premium/Silver
-* Ultimate/Gold
+* Premium
+* Ultimate
 -->
 
 ### Feature Usage Metrics
@@ -105,7 +105,7 @@ Test Planning: https://handbook.gitlab.com/handbook/engineering/infrastructure/t
 <!--
 Define both the success metrics and acceptance criteria. Note that success metrics indicate the desired business outcomes, while acceptance criteria indicate when the solution is working correctly. If there is no way to measure success, link to an issue that will implement a way to measure this.
 
-Explore (../../doc/development/internal_analytics/internal_event_instrumentation/quick_start.md) for a guide.
+For a guide, see https://docs.gitlab.com/development/internal_analytics/internal_event_instrumentation/quick_start/
 -->
 
 ### What is the type of buyer?
@@ -127,7 +127,7 @@ Make sure to add the appropriate labels for the product stage and/or group (e.g 
 Use the following resources to find the appropriate labels:
 - Use only one tier label choosing the lowest tier this is intended for
 - https://gitlab.com/gitlab-org/gitlab/-/labels
-- https://about.gitlab.com/handbook/product/categories/features/
+- https://handbook.gitlab.com/handbook/product/categories/features/
 
 Examples: 
 /label ~group:: ~section:: ~Category:

@@ -1,35 +1,30 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Personal access tokens API
 ---
 
-# Personal access tokens API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-You can read more about [personal access tokens](../user/profile/personal_access_tokens.md).
+{{< /details >}}
 
-## List personal access tokens
+Use this API to interact with personal access tokens. For more information, see [Personal access tokens](../user/profile/personal_access_tokens.md).
 
-> - `created_after`, `created_before`, `last_used_after`, `last_used_before`, `revoked`, `search` and `state` filters were [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/362248) in GitLab 15.5.
+## List all personal access tokens
 
-Get all personal access tokens the authenticated user has access to. By default, returns an unfiltered list of:
+{{< history >}}
 
-- Only personal access tokens created by the current user to a non-administrator.
-- All personal access tokens to an administrator.
+- `created_after`, `created_before`, `last_used_after`, `last_used_before`, `revoked`, `search` and `state` filters were [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/362248) in GitLab 15.5.
 
-Administrators:
+{{< /history >}}
 
-- Can use the `user_id` parameter to filter by a user.
-- Can use other filters on all personal access tokens (GitLab 15.5 and later).
-
-Non-administrators:
-
-- Cannot use the `user_id` parameter to filter on any user except themselves, otherwise they receive a `401 Unauthorized` response.
-- Can only filter on their own personal access tokens (GitLab 15.5 and later).
+Lists all personal access tokens accessible by the authenticating user. For administrators, returns
+a list of all personal access tokens in the instance. For non-administrators, returns a list of the
+personal access tokens for the current user.
 
 ```plaintext
 GET /personal_access_tokens
@@ -45,21 +40,26 @@ GET /personal_access_tokens?user_id=1
 
 Supported attributes:
 
-| Attribute           | Type           | Required | Description         |
-|---------------------|----------------|----------|---------------------|
-| `created_after`     | datetime (ISO 8601) | No | Limit results to PATs created after specified time. |
-| `created_before`    | datetime (ISO 8601) | No | Limit results to PATs created before specified time. |
-| `last_used_after`   | datetime (ISO 8601) | No | Limit results to PATs last used after specified time. |
-| `last_used_before`  | datetime (ISO 8601) | No | Limit results to PATs last used before specified time. |
-| `revoked`           | boolean             | No | Limit results to PATs with specified revoked state. Valid values are `true` and `false`. |
-| `search`            | string              | No | Limit results to PATs with name containing search string. |
-| `state`             | string              | No | Limit results to PATs with specified state. Valid values are `active` and `inactive`. |
-| `user_id`           | integer or string   | No | Limit results to PATs owned by specified user. |
+| Attribute          | Type                | Required | Description |
+| ------------------ | ------------------- | -------- | ----------- |
+| `created_after`    | datetime (ISO 8601) | No       | If defined, returns tokens created after the specified time. |
+| `created_before`   | datetime (ISO 8601) | No       | If defined, returns tokens created before the specified time. |
+| `expires_after`    | date (ISO 8601)     | No       | If defined, returns tokens that expire after the specified time. |
+| `expires_before`   | date (ISO 8601)     | No       | If defined, returns tokens that expire before the specified time. |
+| `last_used_after`  | datetime (ISO 8601) | No       | If defined, returns tokens last used after the specified time. |
+| `last_used_before` | datetime (ISO 8601) | No       | If defined, returns tokens last used before the specified time. |
+| `revoked`          | boolean             | No       | If `true`, only returns revoked tokens. |
+| `search`           | string              | No       | If defined, returns tokens that include the specified value in the name. |
+| `sort`             | string              | No       | If defined, sorts the results by the specified value. Possible values: `created_asc`, `created_desc`, `expires_asc`, `expires_desc`, `last_used_asc`, `last_used_desc`, `name_asc`, `name_desc`. |
+| `state`            | string              | No       | If defined, returns tokens with the specified state. Possible values: `active` and `inactive`. |
+| `user_id`          | integer or string   | No       | If defined, returns tokens owned by the specified user. Non-administrators can only filter their own tokens. |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/personal_access_tokens"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/personal_access_tokens?user_id=3&created_before=2022-01-01"
 ```
 
 Example response:
@@ -71,32 +71,7 @@ Example response:
         "name": "Test Token",
         "revoked": false,
         "created_at": "2020-07-23T14:31:47.729Z",
-        "scopes": [
-            "api"
-        ],
-        "user_id": 24,
-        "last_used_at": "2021-10-06T17:58:37.550Z",
-        "active": true,
-        "expires_at": null
-    }
-]
-```
-
-Example request:
-
-```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/personal_access_tokens?user_id=3"
-```
-
-Example response:
-
-```json
-[
-    {
-        "id": 4,
-        "name": "Test Token",
-        "revoked": false,
-        "created_at": "2020-07-23T14:31:47.729Z",
+        "description": "Test Token description",
         "scopes": [
             "api"
         ],
@@ -108,51 +83,23 @@ Example response:
 ]
 ```
 
-Example request:
+If successful, returns a list of tokens.
 
-```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/personal_access_tokens?revoked=true"
-```
+Other possible response:
 
-Example response:
+- `401: Unauthorized` if a non-administrator uses the `user_id` attribute to filter for other users.
 
-```json
-[
-    {
-        "id": 41,
-        "name": "Revoked Test Token",
-        "revoked": true,
-        "created_at": "2022-01-01T14:31:47.729Z",
-        "scopes": [
-            "api"
-        ],
-        "user_id": 8,
-        "last_used_at": "2022-05-18T17:58:37.550Z",
-        "active": false,
-        "expires_at": null
-    }
-]
-```
+## Get details on a personal access token
 
-You can filter by merged attributes with:
+{{< history >}}
 
-```plaintext
-GET /personal_access_tokens?revoked=true&created_before=2022-01-01
-```
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/362239) in GitLab 15.1.
+- `404` HTTP status code [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/93650) in GitLab 15.3.
 
-## Get single personal access token
+{{< /history >}}
 
-Get a personal access token by either:
-
-- Using the ID of the personal access token.
-- Passing it to the API in a header.
-
-### Using a personal access token ID
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/362239) in GitLab 15.1.
-
-Get a single personal access token by its ID. Users can get their own tokens.
-Administrators can get any token.
+Gets details on a specified personal access token. Administrators can get details on any token.
+Non-administrators can only get details on own tokens.
 
 ```plaintext
 GET /personal_access_tokens/:id
@@ -160,67 +107,66 @@ GET /personal_access_tokens/:id
 
 | Attribute | Type    | Required | Description         |
 |-----------|---------|----------|---------------------|
-| `id` | integer/string | yes | ID of personal access token |
+| `id` | integer or string | yes | ID of a personal access token or the keyword `self`. |
 
 ```shell
-curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/personal_access_tokens/<id>"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/personal_access_tokens/<id>"
 ```
 
-#### Responses
+If successful, returns details on the token.
 
-> - `404` HTTP status code [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/93650) in GitLab 15.3.
+Other possible responses:
 
 - `401: Unauthorized` if either:
-  - The user doesn't have access to the token with the specified ID.
-  - The token with the specified ID doesn't exist.
-- `404: Not Found` if the user is an administrator but the token with the specified ID doesn't exist.
+  - The token does not exist.
+  - You do not have access to the specified token.
+- `404: Not Found` if the user is an administrator but the token does not exist.
 
-### Using a request header
+### Self-inform
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/373999) in GitLab 15.5
+{{< history >}}
 
-Get a single personal access token and information about that token by passing the token in a header.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/373999) in GitLab 15.5
 
-```plaintext
-GET /personal_access_tokens/self
-```
+{{< /history >}}
+
+Instead of getting details on a specific personal access token, you can also return details on
+the personal access token you used to authenticate the request. To return these details, you must
+use the `self` keyword in the request URL.
 
 ```shell
-curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/personal_access_tokens/self"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/personal_access_tokens/self"
 ```
 
-Example response:
+## Create a personal access token
 
-```json
-{
-    "id": 4,
-    "name": "Test Token",
-    "revoked": false,
-    "created_at": "2020-07-23T14:31:47.729Z",
-    "scopes": [
-        "api"
-    ],
-    "user_id": 3,
-    "last_used_at": "2021-10-06T17:58:37.550Z",
-    "active": true,
-    "expires_at": null
-}
-```
+{{< details >}}
+
+- Offering: GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+You can create personal access tokens with the user tokens API. For more information, see the following endpoints:
+
+- [Create a personal access token](user_tokens.md#create-a-personal-access-token)
+- [Create a personal access token for a user](user_tokens.md#create-a-personal-access-token-for-a-user)
 
 ## Rotate a personal access token
 
-Rotate a personal access token. Revokes the previous token and creates a new token that expires in one week
+{{< history >}}
 
-You can either:
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/403042) in GitLab 16.0
+- `expires_at` attribute [added](https://gitlab.com/gitlab-org/gitlab/-/issues/416795) in GitLab 16.6.
 
-- Use the personal access token ID.
-- In GitLab 16.10 and later, pass the personal access token to the API in a request header.
+{{< /history >}}
 
-### Use a personal access token ID
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/403042) in GitLab 16.0
-
-In GitLab 16.6 and later, you can use the `expires_at` parameter to set a different expiry date. This non-default expiry date can be up to a maximum of one year from the rotation date.
+Rotates a specified personal access token. This revokes the previous token and creates a new token
+that expires after one week. Administrators can revoke tokens for any user. Non-administrators can
+only revoke their own tokens.
 
 ```plaintext
 POST /personal_access_tokens/:id/rotate
@@ -228,14 +174,13 @@ POST /personal_access_tokens/:id/rotate
 
 | Attribute | Type      | Required | Description         |
 |-----------|-----------|----------|---------------------|
-| `id` | integer/string | yes      | ID of personal access token |
-| `expires_at` | date   | no       | Expiration date of the access token in ISO format (`YYYY-MM-DD`). [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/416795) in GitLab 16.6. |
-
-NOTE:
-Non-administrators can rotate their own tokens. Administrators can rotate tokens of any user.
+| `id` | integer or string | yes      | ID of a personal access token or the keyword `self`. |
+| `expires_at` | date   | no       | Expiration date of the access token in ISO format (`YYYY-MM-DD`). If the token requires an expiration date, defaults to 1 week. If not required, defaults to the [maximum allowable lifetime limit](../user/profile/personal_access_tokens.md#access-token-expiration). |
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/personal_access_tokens/<personal_access_token_id>/rotate"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/personal_access_tokens/<personal_access_token_id>/rotate"
 ```
 
 Example response:
@@ -246,6 +191,7 @@ Example response:
     "name": "Rotated Token",
     "revoked": false,
     "created_at": "2023-08-01T15:00:00.000Z",
+    "description": "Test Token description",
     "scopes": ["api"],
     "user_id": 1337,
     "last_used_at": null,
@@ -255,87 +201,63 @@ Example response:
 }
 ```
 
-#### Responses
+If successful, returns `200: OK`.
 
-- `200: OK` if the existing token is successfully revoked and the new token successfully created.
+Other possible responses:
+
 - `400: Bad Request` if not rotated successfully.
-- `401: Unauthorized` if either the:
-  - User does not have access to the token with the specified ID.
-  - Token with the specified ID does not exist.
-- `404: Not Found` if the user is an administrator but the token with the specified ID does not exist.
-
-### Use a request header
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/426779) in GitLab 16.10
-
-Requires:
-
-- `api` scope.
-
-You can use the `expires_at` parameter to set a different expiry date. This non-default expiry date can be up to a maximum of one year from the rotation date.
-
-```plaintext
-POST /personal_access_tokens/self/rotate
-```
-
-```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/personal_access_tokens/self/rotate"
-```
-
-Example response:
-
-```json
-{
-    "id": 42,
-    "name": "Rotated Token",
-    "revoked": false,
-    "created_at": "2023-08-01T15:00:00.000Z",
-    "scopes": ["api"],
-    "user_id": 1337,
-    "last_used_at": null,
-    "active": true,
-    "expires_at": "2023-08-15",
-    "token": "s3cr3t"
-}
-```
-
-#### Responses
-
-- `200: OK` if the existing token is successfully revoked and the new token successfully created.
-- `400: Bad Request` if not rotated successfully.
-- `401: Unauthorized` if either:
+- `401: Unauthorized` if any of the following conditions are true:
   - The token does not exist.
   - The token has expired.
-  - The token has been revoked.
+  - The token was revoked.
+  - You do not have access to the specified token.
 - `403: Forbidden` if the token is not allowed to rotate itself.
+- `404: Not Found` if the user is an administrator but the token does not exist.
 - `405: Method Not Allowed` if the token is not a personal access token.
+
+### Self-rotate
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/426779) in GitLab 16.10
+
+{{< /history >}}
+
+Instead of rotating a specific personal access token, you can also rotate the same personal access
+token you used to authenticate the request. To self-rotate a personal access token, you must:
+
+- Rotate a personal access token with the [`api` or `self_rotate` scope](../user/profile/personal_access_tokens.md#personal-access-token-scopes).
+- Use the `self` keyword in the request URL.
+
+```shell
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/personal_access_tokens/self/rotate"
+```
 
 ### Automatic reuse detection
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/395352) in GitLab 16.3
+{{< history >}}
 
-For each rotated token, the previous and now revoked token is referenced. This
-chain of references defines a token family. In a token family, only the latest
-token is active, and all other tokens in that family are revoked.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/395352) in GitLab 16.3
 
-When a revoked token from a token family is used in an authentication attempt
-for the token rotation endpoint, that attempt fails and the active token from
-the token family gets revoked.
-This mechanism helps to prevent compromise when a personal access token is
-leaked.
+{{< /history >}}
 
-Automatic reuse detection is enabled for token rotation API requests.
+When you rotate or revoke a token, GitLab automatically tracks the relationship between the old and
+new tokens. Each time a new token is generated, a connection is made to the previous token. These
+connected tokens form a token family.
+
+If you attempt to use the API to rotate an access token that was already revoked, any active tokens from the same
+token family are revoked.
+
+This feature helps secure GitLab if an old token is ever leaked or stolen. By tracking token
+relationships and automatically revoking access when old tokens are used, attackers cannot exploit
+compromised tokens.
 
 ## Revoke a personal access token
 
-Revoke a personal access token by either:
-
-- Using the ID of the personal access token.
-- Passing it to the API in a header.
-
-### Using a personal access token ID
-
-Revoke a personal access token using its ID.
+Revokes a specified personal access token. Administrators can revoke tokens for any user.
+Non-administrators can only revoke their own tokens.
 
 ```plaintext
 DELETE /personal_access_tokens/:id
@@ -343,56 +265,127 @@ DELETE /personal_access_tokens/:id
 
 | Attribute | Type    | Required | Description         |
 |-----------|---------|----------|---------------------|
-| `id` | integer/string | yes | ID of personal access token |
-
-NOTE:
-Non-administrators can revoke their own tokens. Administrators can revoke tokens of any user.
+| `id` | integer or string | yes | ID of a personal access token or the keyword `self`. |
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/personal_access_tokens/<personal_access_token_id>"
+curl --request DELETE \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/personal_access_tokens/<personal_access_token_id>"
 ```
 
-#### Responses
+If successful, returns `204: No Content`.
 
-- `204: No Content` if successfully revoked.
+Other possible responses:
+
 - `400: Bad Request` if not revoked successfully.
+- `401: Unauthorized` if the request is not authorized.
+- `403: Forbidden` if the request is not allowed.
 
-### Using a request header
+### Self-revoke
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/350240) in GitLab 15.0. Limited to tokens with `api` scope.
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/369103) in GitLab 15.4, any token can use this endpoint.
+{{< history >}}
 
-Revokes a personal access token that is passed in using a request header. Requires:
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/350240) in GitLab 15.0. Limited to tokens with `api` scope.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/369103) in GitLab 15.4, any token can use this endpoint.
 
-- `api` scope in GitLab 15.0 to GitLab 15.3.
-- Any scope in GitLab 15.4 and later.
+{{< /history >}}
+
+Instead of revoking a specific personal access token, you can also revoke the same personal access
+token you used to authenticate the request. To self-revoke a personal access token, you must use
+the `self` keyword in the request URL.
+
+```shell
+curl --request DELETE \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/personal_access_tokens/self"
+```
+
+## List all token associations
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/466046) in GitLab 17.4.
+
+{{< /history >}}
+
+Lists all groups and projects accessible by the personal access token used to authenticate the request. Generally, this includes any groups or projects that the user is a member of.
 
 ```plaintext
-DELETE /personal_access_tokens/self
+GET /personal_access_tokens/self/associations
+GET /personal_access_tokens/self/associations?page=2
+GET /personal_access_tokens/self/associations?min_access_level=40
 ```
+
+Supported attributes:
+
+| Attribute           | Type     | Required | Description                                                              |
+|---------------------|----------|----------|--------------------------------------------------------------------------|
+| `min_access_level`  | integer  | No       | Limit by current user minimal [role (`access_level`)](members.md#roles). |
+| `page`              | integer  | No       | Page to retrieve. Defaults to `1`.                                       |
+| `per_page`          | integer  | No       | Number of records to return per page. Defaults to `20`.                  |
+
+Example request:
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/personal_access_tokens/self"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/personal_access_tokens/self/associations"
 ```
 
-#### Responses
+Example response:
 
-- `204: No Content` if successfully revoked.
-- `400: Bad Request` if not revoked successfully.
+```json
+{
+    "groups": [
+        {
+        "id": 1,
+        "web_url": "http://gitlab.example.com/groups/test",
+        "name": "Test",
+        "parent_id": null,
+        "organization_id": 1,
+        "access_levels": 20,
+        "visibility": "public"
+        },
+        {
+        "id": 3,
+        "web_url": "http://gitlab.example.com/groups/test/test_private",
+        "name": "Test Private",
+        "parent_id": 1,
+        "organization_id": 1,
+        "access_levels": 50,
+        "visibility": "test_private"
+        }
+    ],
+    "projects": [
+        {
+            "id": 1337,
+            "description": "Leet.",
+            "name": "Test Project",
+            "name_with_namespace": "Test / Test Project",
+            "path": "test-project",
+            "path_with_namespace": "Test/test-project",
+            "created_at": "2024-07-02T13:37:00.123Z",
+            "access_levels": {
+                "project_access_level": null,
+                "group_access_level": 20
+            },
+            "visibility": "private",
+            "web_url": "http://gitlab.example.com/test/test_project",
+            "namespace": {
+                "id": 1,
+                "name": "Test",
+                "path": "Test",
+                "kind": "group",
+                "full_path": "Test",
+                "parent_id": null,
+                "avatar_url": null,
+                "web_url": "http://gitlab.example.com/groups/test"
+            }
+        }
+    ]
+}
+```
 
-## Create a personal access token (administrator only)
+## Related topics
 
-See the [Users API documentation](users.md#create-a-personal-access-token) for information on creating a personal access token.
-
-## Create a personal access token with limited scopes for the currently authenticated user
-
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
-
-See the [Users API documentation](users.md#create-a-personal-access-token-with-limited-scopes-for-the-currently-authenticated-user)
-for information on creating a personal access token for the currently authenticated user.
-
-## Troubleshooting access tokens
-
-To troubleshoot access token issues, see the [token troubleshooting guide](../security/token_overview.md#troubleshooting).
+- [Token troubleshooting](../security/tokens/token_troubleshooting.md)

@@ -20,15 +20,13 @@ module Ci
         runner_manager = runner.runner_managers.find_by_system_xid!(system_id)
         runner_manager.destroy!
 
-        runner.clear_heartbeat if runner.runner_managers.empty?
-
         ServiceResponse.success
       end
 
       private
 
       def system_id_missing_error
-        ServiceResponse.error(message: '`system_id` needs to be specified for runners created in the UI.')
+        ServiceResponse.error(message: '`system_id` needs to be specified.')
       end
     end
   end

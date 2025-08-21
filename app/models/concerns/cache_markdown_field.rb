@@ -40,9 +40,7 @@ module CacheMarkdownField
     # Banzai is less strict about authors, so don't always have an author key
     context[:author] = self.author if self.respond_to?(:author)
 
-    if Feature.enabled?(:personal_snippet_reference_filters, context[:author])
-      context[:user] = self.parent_user
-    end
+    context[:user] = self.parent_user if Feature.enabled?(:personal_snippet_reference_filters, context[:author])
 
     context
   end
@@ -75,7 +73,7 @@ module CacheMarkdownField
       # save_markdown updates DB columns directly, so compute and save mentions
       # by calling store_mentions! or we end-up with missing mentions although those
       # would appear in the notes, descriptions, etc in the UI
-      store_mentions! if mentionable_attributes_changed?(updates)
+      store_mentions! if store_mentions? && mentionable_attributes_changed?(updates)
     end
   end
 
@@ -119,8 +117,10 @@ module CacheMarkdownField
         refresh_markdown_cache
       else
         # Invalidated due to stale HTML cache
-        # This could happen when the Markdown cache version is bumped or when a model is imported and the HTML is empty.
-        # We persist the updated HTML here so that subsequent calls to this method do not have to regenerate the HTML again.
+        # This could happen when the Markdown cache version is bumped
+        # or when a model is imported and the HTML is empty.
+        # We persist the updated HTML here so that subsequent calls
+        # to this method do not have to regenerate the HTML again.
         refresh_markdown_cache!
       end
     end
@@ -129,28 +129,16 @@ module CacheMarkdownField
   end
 
   def latest_cached_markdown_version
-    @latest_cached_markdown_version ||= (Gitlab::MarkdownCache::CACHE_COMMONMARK_VERSION << 16) | local_version
-  end
+    # because local_markdown_version is stored in application_settings which uses
+    # cached_markdown_version too, we check explicitly to avoid an endless loop.
+    local_version = local_markdown_version if respond_to?(:has_attribute?) && has_attribute?(:local_markdown_version)
 
-  def local_version
-    # because local_markdown_version is stored in application_settings which
-    # uses cached_markdown_version too, we check explicitly to avoid
-    # endless loop
-    return local_markdown_version if respond_to?(:has_attribute?) && has_attribute?(:local_markdown_version)
-
-    settings = Gitlab::CurrentSettings.current_application_settings
-
-    # Following migrations are not properly isolated and
-    # use real models (by calling .ghost method), in these migrations
-    # local_markdown_version attribute doesn't exist yet, so we
-    # use a default value:
-    # db/migrate/20170825104051_migrate_issues_to_ghost_user.rb
-    # db/migrate/20171114150259_merge_requests_author_id_foreign_key.rb
-    if settings.respond_to?(:local_markdown_version)
-      settings.local_markdown_version
-    else
-      0
-    end
+    # rubocop:disable Gitlab/ModuleWithInstanceVariables -- acceptable use case
+    # See https://docs.gitlab.com/ee/development/module_with_instance_variables.html#acceptable-use
+    @latest_cached_markdown_version ||= Gitlab::MarkdownCache.latest_cached_markdown_version(
+      local_version: local_version
+    )
+    # rubocop:enable Gitlab/ModuleWithInstanceVariables
   end
 
   def parent_user
@@ -199,6 +187,14 @@ module CacheMarkdownField
     end
   end
 
+  def store_mentions?
+    true
+  end
+
+  def store_mentions_after_commit?
+    false
+  end
+
   included do
     cattr_reader :cached_markdown_fields do
       Gitlab::MarkdownCache::FieldData.new
@@ -221,7 +217,7 @@ module CacheMarkdownField
       cached_markdown_fields[markdown_field] = context
 
       html_field = cached_markdown_fields.html_field(markdown_field)
-      invalidation_method = "#{html_field}_invalidated?".to_sym
+      invalidation_method = :"#{html_field}_invalidated?"
 
       # The HTML becomes invalid if any dependent fields change. For now, assume
       # author and project invalidate the cache in all circumstances.

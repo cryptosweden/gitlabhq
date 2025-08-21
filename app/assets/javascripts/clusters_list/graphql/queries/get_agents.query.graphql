@@ -1,41 +1,22 @@
 #import "../fragments/cluster_agent.fragment.graphql"
 
-query getAgents($defaultBranchName: String!, $projectPath: ID!) {
-  project(fullPath: $projectPath) {
+query getAgents($fullPath: ID!, $isGroup: Boolean = false) {
+  project(fullPath: $fullPath) @skip(if: $isGroup) {
     id
     clusterAgents {
       nodes {
         ...ClusterAgentFragment
       }
+      count
     }
-
-    ciAccessAuthorizedAgents {
+  }
+  group(fullPath: $fullPath) @include(if: $isGroup) {
+    id
+    clusterAgents {
       nodes {
-        agent {
-          ...ClusterAgentFragment
-        }
+        ...ClusterAgentFragment
       }
-    }
-
-    userAccessAuthorizedAgents {
-      nodes {
-        agent {
-          ...ClusterAgentFragment
-        }
-      }
-    }
-
-    repository {
-      tree(path: ".gitlab/agents", ref: $defaultBranchName) {
-        trees {
-          nodes {
-            id
-            name
-            path
-            webPath
-          }
-        }
-      }
+      count
     }
   }
 }

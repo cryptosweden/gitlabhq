@@ -5,6 +5,11 @@ import {
   setCurrentHoverElement,
   addInteractionClass,
 } from '~/code_navigation/utils';
+import { sanitize } from '~/lib/dompurify';
+
+jest.mock('~/lib/dompurify', () => ({
+  sanitize: jest.fn((val) => val),
+}));
 
 afterEach(() => {
   if (cachedData.has('current')) {
@@ -62,6 +67,19 @@ describe('addInteractionClass', () => {
     },
   );
 
+  describe('when end_char exists', () => {
+    it('wraps part of a word with code navigation element', () => {
+      addInteractionClass({
+        path: 'index.js',
+        d: { start_line: 0, start_char: 0, end_char: 5, end_line: 0 },
+      });
+
+      expect(document.querySelectorAll(`#LC1 span`)[0].outerHTML).toEqual(
+        '<span><span data-char-index="0" data-line-index="0" class="gl-cursor-pointer code-navigation js-code-navigation">conso</span>le</span>',
+      );
+    });
+  });
+
   describe('wrapTextNodes', () => {
     beforeEach(() => {
       setHTMLFixture(
@@ -75,14 +93,14 @@ describe('addInteractionClass', () => {
     it('does not wrap text nodes by default', () => {
       addInteractionClass(params);
       const spans = findAllSpans();
-      expect(spans.length).toBe(0);
+      expect(spans).toHaveLength(0);
     });
 
     it('wraps text nodes if wrapTextNodes is true', () => {
       addInteractionClass({ ...params, wrapTextNodes: true });
       const spans = findAllSpans();
 
-      expect(spans.length).toBe(3);
+      expect(spans).toHaveLength(3);
       expect(spans[0].textContent).toBe(' ');
       expect(spans[1].textContent).toBe('Text');
       expect(spans[2].textContent).toBe(' ');
@@ -109,6 +127,12 @@ describe('addInteractionClass', () => {
       );
       addInteractionClass({ ...params, wrapTextNodes: true });
       expect(findAllSpans()[1].classList.contains('test')).toBe(true);
+    });
+
+    it('calls sanitize when wrapping text nodes', () => {
+      addInteractionClass({ ...params, wrapTextNodes: true });
+
+      expect(sanitize).toHaveBeenCalled();
     });
   });
 });

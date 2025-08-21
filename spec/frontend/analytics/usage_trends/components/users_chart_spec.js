@@ -1,5 +1,5 @@
 import { GlAlert } from '@gitlab/ui';
-import { GlAreaChart } from '@gitlab/ui/dist/charts';
+import { GlAreaChart } from '@gitlab/ui/src/charts';
 import { shallowMount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
 import VueApollo from 'vue-apollo';
@@ -30,9 +30,7 @@ describe('UsersChart', () => {
 
     wrapper = shallowMount(UsersChart, {
       apolloProvider: createMockApollo([[usersQuery, queryHandler]]),
-      props: {
-        startDate: new Date(2020, 9, 26),
-        endDate: new Date(2020, 10, 1),
+      propsData: {
         totalDataPoints: mockCountsData2.length,
       },
     });
@@ -83,6 +81,14 @@ describe('UsersChart', () => {
 
     it('hides the skeleton loader', () => {
       expect(findLoader().exists()).toBe(false);
+    });
+
+    it('requests data', () => {
+      expect(queryHandler).toHaveBeenCalledTimes(1);
+      expect(queryHandler).toHaveBeenLastCalledWith({
+        first: mockCountsData2.length,
+        after: null,
+      });
     });
 
     it('renders the chart', () => {

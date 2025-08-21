@@ -5,14 +5,9 @@ require 'spec_helper'
 RSpec.describe Environments::StopService, feature_category: :continuous_delivery do
   include CreateEnvironmentsHelpers
 
-  let(:project) { create(:project, :private, :repository) }
-  let(:user) { create(:user) }
-
   let(:service) { described_class.new(project, user) }
 
-  describe '#execute' do
-    subject { service.execute(environment) }
-
+  shared_examples_for 'stopping environment' do
     let_it_be(:project) { create(:project, :private, :repository) }
     let_it_be(:developer) { create(:user, developer_of: project) }
     let_it_be(:reporter) { create(:user, reporter_of: project) }
@@ -23,10 +18,18 @@ RSpec.describe Environments::StopService, feature_category: :continuous_delivery
       let!(:environment) { review_job.persisted_environment }
       let!(:pipeline) { create(:ci_pipeline, project: project) }
       let!(:review_job) { create(:ci_build, :with_deployment, :start_review_app, pipeline: pipeline, project: project) }
-      let!(:stop_review_job) { create(:ci_build, :with_deployment, :stop_review_app, :manual, pipeline: pipeline, project: project) }
+      let!(:stop_review_job) { create(:ci_build, :with_deployment, :stop_review_app, :manual, pipeline: pipeline, project: project, user: user) }
 
       before do
         review_job.success!
+      end
+
+      it 'calls the managed resource deletion service' do
+        expect_next_instance_of(Environments::DeleteManagedResourcesService, environment, current_user: user) do |service|
+          expect(service).to receive(:execute).and_call_original
+        end
+
+        subject
       end
 
       context 'without stop action' do
@@ -50,11 +53,21 @@ RSpec.describe Environments::StopService, feature_category: :continuous_delivery
         end
       end
 
-      context 'when an environment has already been stopped' do
+      context 'when the environment has already been stopped' do
         let!(:environment) { create(:environment, :stopped, project: project) }
 
-        it 'does not play the stop action' do
+        it 'does not play the stop action and returns a success status' do
           expect { subject }.not_to change { stop_review_job.reload.status }
+          expect(subject.status).to eq(:success)
+        end
+      end
+
+      context 'when the environment is currently stopping' do
+        let!(:environment) { create(:environment, :stopping, project: project) }
+
+        it 'does not change the environment state and returns a success status' do
+          expect { subject }.not_to change { environment.state }
+          expect(subject.status).to eq(:success)
         end
       end
     end
@@ -65,21 +78,39 @@ RSpec.describe Environments::StopService, feature_category: :continuous_delivery
       it 'stops the environment' do
         expect { subject }.to change { environment.reload.state }.from('available').to('stopped')
       end
+    end
+  end
 
-      context 'when the actor is a reporter' do
-        let(:user) { reporter }
+  describe '#execute' do
+    subject { service.execute(environment) }
 
-        it 'does not stop the environment' do
-          expect { subject }.not_to change { environment.reload.state }
-        end
+    include_examples 'stopping environment'
+
+    context 'when the actor does not have permission to stop the environment' do
+      let!(:environment) { create(:environment, project: project) }
+      let(:user) { reporter }
+
+      it 'does not stop the environment' do
+        expect { subject }.not_to change { environment.reload.state }
       end
     end
   end
 
+  describe '#unsafe_execute!' do
+    let(:user) { nil }
+
+    subject { service.unsafe_execute!(environment) }
+
+    include_examples 'stopping environment'
+  end
+
   describe '#execute_for_branch' do
+    let_it_be(:project) { create(:project, :private, :repository) }
+    let_it_be(:user) { create(:user) }
+
     context 'when environment with review app exists' do
       context 'when user has permission to stop environment' do
-        before do
+        before_all do
           project.add_developer(user)
         end
 
@@ -122,7 +153,7 @@ RSpec.describe Environments::StopService, feature_category: :continuous_delivery
 
       context 'when user does not have permission to stop environment' do
         context 'when user has no access to manage deployments' do
-          before do
+          before_all do
             project.add_guest(user)
           end
 
@@ -133,7 +164,7 @@ RSpec.describe Environments::StopService, feature_category: :continuous_delivery
       end
 
       context 'when branch for stop action is protected' do
-        before do
+        before_all do
           project.add_developer(user)
           create(:protected_branch, :no_one_can_push, name: 'master', project: project)
         end
@@ -150,7 +181,7 @@ RSpec.describe Environments::StopService, feature_category: :continuous_delivery
       end
 
       context 'when user has permission to stop environments' do
-        before do
+        before_all do
           project.add_maintainer(user)
         end
 
@@ -171,9 +202,9 @@ RSpec.describe Environments::StopService, feature_category: :continuous_delivery
   describe '#execute_for_merge_request_pipeline' do
     subject { service.execute_for_merge_request_pipeline(merge_request) }
 
-    let(:merge_request) { create(:merge_request, source_branch: 'feature', target_branch: 'master') }
-    let(:project) { merge_request.project }
-    let(:user) { create(:user) }
+    let_it_be_with_reload(:merge_request) { create(:merge_request, source_branch: 'feature', target_branch: 'master') }
+    let_it_be(:project) { merge_request.project }
+    let_it_be(:user) { create(:user) }
 
     let(:pipeline) do
       create(:ci_pipeline,
@@ -184,8 +215,8 @@ RSpec.describe Environments::StopService, feature_category: :continuous_delivery
         merge_requests_as_head_pipeline: [merge_request])
     end
 
-    let!(:review_job) { create(:ci_build, :with_deployment, :start_review_app, :success, pipeline: pipeline, project: project) }
-    let!(:stop_review_job) { create(:ci_build, :with_deployment, :stop_review_app, :manual, pipeline: pipeline, project: project) }
+    let!(:review_job) { create(:ci_build, :with_deployment, :start_review_app, :success, pipeline: pipeline, project: project, user: user) }
+    let!(:stop_review_job) { create(:ci_build, :with_deployment, :stop_review_app, :manual, pipeline: pipeline, project: project, user: user) }
 
     before do
       review_job.deployment.success!
@@ -196,7 +227,7 @@ RSpec.describe Environments::StopService, feature_category: :continuous_delivery
     end
 
     context 'when user is a developer' do
-      before do
+      before_all do
         project.add_developer(user)
       end
 
@@ -217,6 +248,18 @@ RSpec.describe Environments::StopService, feature_category: :continuous_delivery
 
         it 'does not affect environments that are not associated to the merge request' do
           expect(environment3.reload).to be_available
+        end
+      end
+
+      context 'and merge request has legacy associated environments' do
+        before do
+          review_job.persisted_environment.update_column(:merge_request_id, nil)
+
+          subject
+        end
+
+        it 'stops the associated environments' do
+          expect(review_job.persisted_environment.reload).to be_stopping
         end
       end
 
@@ -244,8 +287,8 @@ RSpec.describe Environments::StopService, feature_category: :continuous_delivery
       context 'with environment related jobs ' do
         let!(:environment) { create(:environment, :available, name: 'staging', project: project) }
         let!(:prepare_staging_job) { create(:ci_build, :prepare_staging, pipeline: pipeline, project: project) }
-        let!(:start_staging_job) { create(:ci_build, :start_staging, :with_deployment, :manual, pipeline: pipeline, project: project) }
-        let!(:stop_staging_job) { create(:ci_build, :stop_staging, :manual, pipeline: pipeline, project: project) }
+        let!(:start_staging_job) { create(:ci_build, :start_staging, :with_deployment, :manual, pipeline: pipeline, project: project, user: user) }
+        let!(:stop_staging_job) { create(:ci_build, :stop_staging, :manual, pipeline: pipeline, project: project, user: user) }
 
         it 'does not stop environments that was not started by the merge request' do
           subject
@@ -256,7 +299,7 @@ RSpec.describe Environments::StopService, feature_category: :continuous_delivery
     end
 
     context 'when user is a reporter' do
-      before do
+      before_all do
         project.add_reporter(user)
       end
 
@@ -308,6 +351,6 @@ RSpec.describe Environments::StopService, feature_category: :continuous_delivery
   end
 
   def feature_environment
-    create(:environment, :with_review_app, project: project, ref: 'feature')
+    create(:environment, :with_review_app, project: project, ref: 'feature', user: user)
   end
 end

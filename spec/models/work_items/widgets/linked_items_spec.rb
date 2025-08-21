@@ -13,6 +13,18 @@ RSpec.describe WorkItems::Widgets::LinkedItems, feature_category: :portfolio_man
     it { is_expected.to eq(:linked_items) }
   end
 
+  describe '.quick_action_commands', unless: Gitlab.ee? do
+    specify do
+      expect(described_class.quick_action_commands).to contain_exactly(:relate, :unlink)
+    end
+  end
+
+  describe '.sorting_keys', unless: Gitlab.ee? do
+    specify do
+      expect(described_class.sorting_keys.keys).to be_empty
+    end
+  end
+
   describe '#type' do
     subject { described_class.new(work_item).type }
 

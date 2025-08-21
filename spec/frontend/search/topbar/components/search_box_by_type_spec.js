@@ -6,16 +6,16 @@ import { mount, shallowMount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { GlLoadingIcon } from '@gitlab/ui';
 import ClearIcon from '~/search/topbar/components/clear_icon_button.vue';
-import SearchBoxByType from '~/search/topbar/components/search_box_by_type.vue';
+import GlobalSearchInput from '~/search/topbar/components/global_search_input.vue';
 
-const modelEvent = SearchBoxByType.model.event;
+const modelEvent = GlobalSearchInput.model.event;
 const newValue = 'new value';
 
 describe('search box by type component', () => {
   let wrapper;
 
   const createComponent = ({ listeners, ...propsData }, mountFn = shallowMount) => {
-    wrapper = mountFn(SearchBoxByType, { propsData, listeners });
+    wrapper = mountFn(GlobalSearchInput, { propsData, listeners });
   };
 
   const findClearIcon = () => wrapper.findComponent(ClearIcon);
@@ -110,7 +110,7 @@ describe('search box by type component', () => {
     });
   });
 
-  // Regression test for https://gitlab.com/gitlab-org/gitlab-ui/-/issues/937
+  // Regression test for https://gitlab.com/gitlab-org/gitlab-ui/-/issues/937 [CLOSED]
   describe('double input event bug', () => {
     let listener;
 
@@ -132,7 +132,9 @@ describe('search box by type component', () => {
 
         createComponent({ debounce }, mount);
 
-        findInput().setValue(newValue);
+        const input = findInput();
+        input.element.value = newValue;
+        input.trigger('input');
       });
 
       it(`emits a ${modelEvent} after the debounce delay`, () => {
@@ -151,7 +153,9 @@ describe('search box by type component', () => {
     beforeEach(() => {
       createComponent({ lazy: true }, mount);
 
-      findInput().setValue(newValue);
+      const input = findInput();
+      input.element.value = newValue;
+      input.trigger('input');
     });
 
     it.each(['change', 'blur'])(`emits ${modelEvent} event after input's %s event`, (event) => {
@@ -169,7 +173,7 @@ describe('search box by type component', () => {
     expect(wrapper.findComponent(GlLoadingIcon).exists()).toBe(true);
   });
 
-  describe('regular expression button', () => {
+  describe('regular expression button active', () => {
     const regexButtonHandlerSpy = jest.fn();
     beforeEach(() => {
       createComponent({
@@ -181,10 +185,6 @@ describe('search box by type component', () => {
 
     it('renders regular expression button', () => {
       expect(findRegulareExpressionToggle().exists()).toBe(true);
-    });
-
-    it('renders regular expression button state correctly', () => {
-      expect(findRegulareExpressionToggle().classes('gl-bg-blue-50!')).toBe(true);
     });
 
     it('triggers correct action when clicked', () => {

@@ -9,11 +9,26 @@ RSpec.describe RunPipelineScheduleWorker, feature_category: :pipeline_compositio
 
   describe '#perform' do
     let_it_be(:group) { create(:group) }
-    let_it_be(:project) { create(:project, :repository, namespace: group) }
+    let_it_be_with_refind(:project) { create(:project, :repository, namespace: group) }
     let_it_be(:user) { create(:user) }
-    let_it_be(:pipeline_schedule) { create(:ci_pipeline_schedule, :nightly, project: project ) }
-
+    let_it_be(:pipeline_schedule) { create(:ci_pipeline_schedule, :nightly, project: project, owner: user) }
     let(:worker) { described_class.new }
+
+    shared_examples 'with validation errors' do
+      let(:schedule_id) { pipeline_schedule.id }
+      let(:user_id) { user.id }
+      let(:options) { {} }
+
+      it 'logs a message' do
+        expect(Gitlab::AppLogger).to receive(:error)
+                                       .with(log_message)
+        worker.perform(schedule_id, user_id, **options)
+      end
+    end
+
+    before_all do
+      project.add_developer(user)
+    end
 
     around do |example|
       travel_to(pipeline_schedule.next_run_at + 1.hour) do
@@ -28,6 +43,14 @@ RSpec.describe RunPipelineScheduleWorker, feature_category: :pipeline_compositio
 
         worker.perform(non_existing_record_id, user.id)
       end
+
+      it_behaves_like 'with validation errors' do
+        let(:schedule_id) { non_existing_record_id }
+        let(:log_message) do
+          "Failed to create a scheduled pipeline. schedule_id: " \
+            "#{non_existing_record_id} message: Schedule not found"
+        end
+      end
     end
 
     context 'when a schedule project is missing' do
@@ -41,6 +64,36 @@ RSpec.describe RunPipelineScheduleWorker, feature_category: :pipeline_compositio
 
         worker.perform(pipeline_schedule.id, user.id)
       end
+
+      it_behaves_like 'with validation errors' do
+        let(:log_message) do
+          "Failed to create a scheduled pipeline. schedule_id: " \
+            "#{schedule_id} message: Project not found for schedule"
+        end
+      end
+    end
+
+    context 'when a schedule project is archived' do
+      around do |example|
+        project.update!(archived: true)
+        example.run
+      ensure
+        project.update!(archived: false)
+      end
+
+      it 'does not call the Service' do
+        expect(Ci::CreatePipelineService).not_to receive(:new)
+        expect(worker).not_to receive(:run_pipeline_schedule)
+
+        worker.perform(pipeline_schedule.id, user.id)
+      end
+
+      it_behaves_like 'with validation errors' do
+        let(:log_message) do
+          "Failed to create a scheduled pipeline. schedule_id: " \
+            "#{schedule_id} message: Project or ancestors are archived"
+        end
+      end
     end
 
     context 'when a user not found' do
@@ -50,6 +103,37 @@ RSpec.describe RunPipelineScheduleWorker, feature_category: :pipeline_compositio
 
         worker.perform(pipeline_schedule.id, non_existing_record_id)
       end
+
+      it_behaves_like 'with validation errors' do
+        let(:user_id) { non_existing_record_id }
+        let(:log_message) do
+          "Failed to create a scheduled pipeline. schedule_id: " \
+            "#{schedule_id} message: User not found"
+        end
+      end
+    end
+
+    context 'when the next_run_at is in future and scheduling is true' do
+      let(:next_time_in_future) { 1.day.from_now }
+
+      before do
+        pipeline_schedule.update!(next_run_at: next_time_in_future)
+      end
+
+      it_behaves_like 'with validation errors' do
+        let(:options) { { 'scheduling' => true } }
+        let(:log_message) do
+          "Failed to create a scheduled pipeline. schedule_id: " \
+            "#{schedule_id} message: Schedule next run time is in future"
+        end
+      end
+
+      it 'does not call the service' do
+        expect(Ci::CreatePipelineService).not_to receive(:new)
+        expect(worker).not_to receive(:run_pipeline_schedule)
+
+        worker.perform(pipeline_schedule.id, user.id, 'scheduling' => true)
+      end
     end
 
     describe "#run_pipeline_schedule" do
@@ -57,11 +141,18 @@ RSpec.describe RunPipelineScheduleWorker, feature_category: :pipeline_compositio
       let(:service_response) { instance_double(ServiceResponse, payload: pipeline, error?: false) }
       let(:pipeline) { instance_double(Ci::Pipeline, persisted?: true) }
 
+      before_all do
+        project.add_maintainer(user)
+      end
+
       context 'when pipeline can be created' do
         before do
-          expect(Ci::CreatePipelineService).to receive(:new).with(project, user, ref: pipeline_schedule.ref).and_return(create_pipeline_service)
+          expect(Ci::CreatePipelineService).to receive(:new)
+            .with(project, user, ref: pipeline_schedule.ref).and_return(create_pipeline_service)
 
-          expect(create_pipeline_service).to receive(:execute).with(:schedule, ignore_skip_ci: true, save_on_errors: true, schedule: pipeline_schedule).and_return(service_response)
+          expect(create_pipeline_service).to receive(:execute)
+            .with(:schedule, ignore_skip_ci: true, save_on_errors: true, schedule: pipeline_schedule, inputs: {})
+            .and_return(service_response)
         end
 
         context "when pipeline is persisted" do
@@ -71,27 +162,33 @@ RSpec.describe RunPipelineScheduleWorker, feature_category: :pipeline_compositio
 
           it "does not log errors" do
             expect(worker).not_to receive(:log_extra_metadata_on_done)
+            expect(Gitlab::AppLogger).not_to receive(:error)
 
             expect(worker.perform(pipeline_schedule.id, user.id)).to eq(service_response)
           end
 
           it "does not change the next_run_at" do
-            expect { worker.perform(pipeline_schedule.id, user.id) }.not_to change { pipeline_schedule.reload.next_run_at }
+            expect do
+              worker.perform(pipeline_schedule.id, user.id)
+            end.not_to change { pipeline_schedule.reload.next_run_at }
           end
 
           context 'when scheduling option is given as true' do
             it "returns the service response" do
-              expect(worker.perform(pipeline_schedule.id, user.id, scheduling: true)).to eq(service_response)
+              expect(worker.perform(pipeline_schedule.id, user.id, 'scheduling' => true)).to eq(service_response)
             end
 
             it "does not log errors" do
               expect(worker).not_to receive(:log_extra_metadata_on_done)
+              expect(Gitlab::AppLogger).not_to receive(:error)
 
-              expect(worker.perform(pipeline_schedule.id, user.id, scheduling: true)).to eq(service_response)
+              expect(worker.perform(pipeline_schedule.id, user.id, 'scheduling' => true)).to eq(service_response)
             end
 
             it "changes the next_run_at" do
-              expect { worker.perform(pipeline_schedule.id, user.id, scheduling: true) }.to change { pipeline_schedule.reload.next_run_at }.by(1.day)
+              expect do
+                worker.perform(pipeline_schedule.id, user.id, 'scheduling' => true)
+              end.to change { pipeline_schedule.reload.next_run_at }.by(1.day)
             end
           end
         end
@@ -105,13 +202,91 @@ RSpec.describe RunPipelineScheduleWorker, feature_category: :pipeline_compositio
         end
 
         it 'does not change the next_run_at' do
-          expect { worker.perform(pipeline_schedule.id, user.id) }.to not_change { pipeline_schedule.reload.next_run_at }
+          expect do
+            worker.perform(pipeline_schedule.id, user.id)
+          end.to not_change { pipeline_schedule.reload.next_run_at }
         end
 
         it 'creates a pipeline' do
-          expect(Ci::CreatePipelineService).to receive(:new).with(project, user, ref: pipeline_schedule.ref).and_return(create_pipeline_service)
-          expect(create_pipeline_service).to receive(:execute).with(:schedule, ignore_skip_ci: true, save_on_errors: true, schedule: pipeline_schedule).and_return(service_response)
+          expect(Ci::CreatePipelineService).to receive(:new)
+            .with(project, user, ref: pipeline_schedule.ref).and_return(create_pipeline_service)
+          expect(create_pipeline_service).to receive(:execute)
+            .with(:schedule, ignore_skip_ci: true, save_on_errors: true, schedule: pipeline_schedule, inputs: {})
+            .and_return(service_response)
 
+          worker.perform(pipeline_schedule.id, user.id)
+        end
+      end
+
+      context 'when the schedule has inputs' do
+        let(:inputs) do
+          { 'input1' => 'value1', 'input2' => 'value2' }
+        end
+
+        before_all do
+          project.repository.create_file(
+            user,
+            '.gitlab-ci.yml',
+            <<~YAML,
+              spec:
+                inputs:
+                  input1:
+                    default: v1
+                  input2:
+                    default: v2
+
+              ---
+
+              build:
+                stage: build
+                script: echo "build"
+            YAML
+            message: 'test',
+            branch_name: 'master'
+          )
+
+          create(:ci_pipeline_schedule_input, pipeline_schedule: pipeline_schedule, name: 'input1', value: 'value1')
+          create(:ci_pipeline_schedule_input, pipeline_schedule: pipeline_schedule, name: 'input2', value: 'value2')
+        end
+
+        it "calls the create pipeline service with inputs" do
+          expect(Ci::CreatePipelineService).to receive(:new).with(project, user, ref: pipeline_schedule.ref)
+            .and_return(create_pipeline_service)
+          expect(create_pipeline_service).to receive(:execute)
+            .with(:schedule, ignore_skip_ci: true, save_on_errors: true, schedule: pipeline_schedule, inputs: inputs)
+            .and_return(service_response)
+
+          expect(worker.perform(pipeline_schedule.id, user.id)).to eq(service_response)
+        end
+
+        it 'tracks the usage of inputs' do
+          expect do
+            worker.perform(pipeline_schedule.id, user.id)
+          end.to trigger_internal_events('create_pipeline_with_inputs').with(
+            category: 'Gitlab::Ci::Pipeline::Chain::Metrics',
+            additional_properties: { value: 2, label: 'schedule', property: 'repository_source' },
+            project: project,
+            user: user
+          )
+        end
+      end
+
+      context 'when the pipeline creation fails' do
+        let(:error_message) { 'Sample error' }
+        let(:error_response) { ServiceResponse.error(message: error_message) }
+
+        before do
+          allow_next_instance_of(Ci::CreatePipelineService) do |create_pipeline_service|
+            allow(create_pipeline_service).to receive(:execute).and_return(error_response)
+          end
+        end
+
+        it 'logs the error' do
+          expect(Gitlab::AppLogger).to receive(:error)
+                                         .with(
+                                           "Failed to create a scheduled pipeline. schedule_id: " \
+                                             "#{pipeline_schedule.id} message: #{error_message}"
+                                         )
           worker.perform(pipeline_schedule.id, user.id)
         end
       end
@@ -144,6 +319,72 @@ RSpec.describe RunPipelineScheduleWorker, feature_category: :pipeline_compositio
           .to receive(:error)
           .with(a_string_matching('ActiveRecord::StatementInvalid'))
           .and_call_original
+
+        worker.perform(pipeline_schedule.id, user.id)
+      end
+    end
+
+    context 'when the schedule owner is no longer available' do
+      let_it_be(:maintainer) { create(:user) }
+      let_it_be(:project_owner) { create(:user) }
+      let_it_be(:maintainer_2) { create(:user) }
+
+      before_all do
+        project.add_maintainer(maintainer)
+        project.add_maintainer(maintainer_2)
+        project.add_owner(project_owner)
+        user.destroy!
+      end
+
+      it_behaves_like 'with validation errors' do
+        let(:log_message) do
+          "Failed to create a scheduled pipeline. schedule_id: " \
+            "#{schedule_id} message: Pipeline schedule owner is no longer available to schedule the pipeline"
+        end
+      end
+
+      it 'sends an email notification to the project owner and maintainers' do
+        expect(NotificationService).to receive_message_chain(:new, :pipeline_schedule_owner_unavailable)
+           .with(pipeline_schedule)
+
+        worker.perform(pipeline_schedule.id, maintainer.id)
+      end
+
+      it 'sends an email to correct recipients' do
+        expected_recipients = [maintainer.email, project_owner.email, maintainer_2.email]
+        expect do
+          perform_enqueued_jobs do
+            worker.perform(pipeline_schedule.id, maintainer.id)
+          end
+        end.to change { ActionMailer::Base.deliveries.count }.by(3)
+
+        expect(ActionMailer::Base.deliveries.flat_map(&:to)).to match_array(expected_recipients)
+      end
+
+      it 'does not create a pipeline' do
+        expect(Ci::CreatePipelineService).not_to receive(:new)
+
+        worker.perform(pipeline_schedule.id, maintainer.id)
+      end
+
+      context 'when notify_pipeline_schedule_owner_unavailable is not enabled' do
+        before do
+          stub_feature_flags(notify_pipeline_schedule_owner_unavailable: false)
+        end
+
+        it 'does not sent an email notification to the project owner and maintainers' do
+          expect(NotificationService).not_to receive(:pipeline_schedule_owner_unavailable)
+          expect(Gitlab::AppLogger).not_to receive(:error)
+
+          worker.perform(pipeline_schedule.id, maintainer.id)
+        end
+      end
+    end
+
+    context 'when the schedule owner is still available' do
+      it 'does not send any email notifications' do
+        expect(NotificationService).not_to receive(:pipeline_schedule_owner_unavailable)
+        expect(Gitlab::AppLogger).not_to receive(:error)
 
         worker.perform(pipeline_schedule.id, user.id)
       end

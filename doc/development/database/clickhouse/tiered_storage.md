@@ -1,26 +1,28 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: none
+group: unassigned
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Tiered Storages in ClickHouse
 ---
 
-# Tiered Storages in ClickHouse
+{{< alert type="note" >}}
 
-NOTE:
 The MergeTree table engine in ClickHouse supports tiered storage.
 See the documentation for [Using Multiple Block Devices for Data Storage](https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-multiple-volumes)
 for details on setup and further explanation.
 
+{{< /alert >}}
+
 Quoting from the [MergeTree documentation](https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-multiple-volumes):
 
-<!-- vale gitlab.Simplicity = NO -->
+<!-- vale gitlab_base.Simplicity = NO -->
 
 > MergeTree family table engines can store data on multiple block devices. For example,
 > it can be useful when the data of a certain table are implicitly split into "hot" and "cold".
 > The most recent data is regularly requested but requires only a small amount of space.
 > On the contrary, the fat-tailed historical data is requested rarely.
 
-<!-- vale gitlab.Simplicity = YES -->
+<!-- vale gitlab_base.Simplicity = YES -->
 
 When used with remote storage backends such as
 [Amazon S3](https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#table_engine-mergetree-s3),
@@ -80,9 +82,12 @@ PARTITION BY toYYYYMM(event_date)
 SETTINGS storage_policy = 'move_from_local_disks_to_gcs'
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 In this storage policy, the move happens implicitly. It is also possible to keep
 _hot_ data on local disks for a fixed period of time and then move them as _cold_.
+
+{{< /alert >}}
 
 This approach is possible with
 [Table TTLs](https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#mergetree-table-ttl),

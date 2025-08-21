@@ -14,7 +14,7 @@ class Projects::NotesController < Projects::ApplicationController
   before_action :authorize_create_note!, only: [:create]
   before_action :authorize_resolve_note!, only: [:resolve, :unresolve]
 
-  feature_category :team_planning, [:index, :create, :update, :destroy, :delete_attachment, :toggle_award_emoji]
+  feature_category :team_planning, [:index, :create, :update, :destroy, :toggle_award_emoji]
   feature_category :code_review_workflow, [:resolve, :unresolve, :outdated_line_change]
   urgency :low
 
@@ -37,30 +37,12 @@ class Projects::NotesController < Projects::ApplicationController
     end
   end
 
-  def delete_attachment
-    note.remove_attachment!
-    note.update_attribute(:attachment, nil)
-
-    respond_to do |format|
-      format.js { head :ok }
-    end
-  end
-
   def resolve
     return render_404 unless note.resolvable?
 
     Notes::ResolveService.new(project, current_user).execute(note)
 
-    discussion = note.discussion
-
-    if serialize_notes?
-      render_json_with_notes_serializer
-    else
-      render json: {
-        resolved_by: note.resolved_by.try(:name),
-        discussion_headline_html: (view_to_html_string('discussions/_headline', discussion: discussion) if discussion)
-      }
-    end
+    render_json_with_notes_serializer
   end
 
   def unresolve
@@ -68,15 +50,7 @@ class Projects::NotesController < Projects::ApplicationController
 
     note.unresolve!
 
-    discussion = note.discussion
-
-    if serialize_notes?
-      render_json_with_notes_serializer
-    else
-      render json: {
-        discussion_headline_html: (view_to_html_string('discussions/_headline', discussion: discussion) if discussion)
-      }
-    end
+    render_json_with_notes_serializer
   end
 
   def outdated_line_change
@@ -124,6 +98,6 @@ class Projects::NotesController < Projects::ApplicationController
   end
 
   def disable_query_limiting
-    Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/211538', new_threshold: 300)
+    Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/211538', new_threshold: 310)
   end
 end

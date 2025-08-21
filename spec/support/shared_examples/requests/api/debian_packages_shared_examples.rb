@@ -25,17 +25,17 @@ RSpec.shared_examples 'Debian packages upload request' do |status, body = nil|
         expect(::Packages::Debian::FindOrCreateIncomingService).not_to receive(:new)
         expect(::Packages::Debian::ProcessPackageFileWorker).to receive(:perform_async).with(be_a(Integer), extra_params[:distribution], extra_params[:component])
         expect { subject }
-          .to change { container.packages.debian.count }.by(1)
-          .and not_change { container.packages.debian.where(name: 'incoming').count }
-          .and change { container.package_files.count }.by(1)
+          .to change { ::Packages::Debian::Package.for_projects(container).count }.by(1)
+          .and not_change { ::Packages::Debian::Package.for_projects(container).with_name(::Packages::Debian::INCOMING_PACKAGE_NAME).count }
+          .and change { ::Packages::PackageFile.for_projects(container).count }.by(1)
       else
         expect(::Packages::Debian::FindOrCreateIncomingService).to receive(:new).with(container, user).and_call_original
         expect(::Packages::Debian::ProcessPackageFileWorker).not_to receive(:perform_async)
 
         expect { subject }
-          .to change { container.packages.debian.count }.by(1)
-          .and change { container.packages.debian.where(name: 'incoming').count }.by(1)
-          .and change { container.package_files.count }.by(1)
+          .to change { ::Packages::Debian::Package.for_projects(container).count }.by(1)
+          .and change { ::Packages::Debian::Package.for_projects(container).with_name(::Packages::Debian::INCOMING_PACKAGE_NAME).count }.by(1)
+          .and change { ::Packages::PackageFile.for_projects(container).count }.by(1)
       end
 
       expect(response).to have_gitlab_http_status(status)
@@ -115,7 +115,7 @@ RSpec.shared_examples 'Debian packages read endpoint' do |desired_behavior, succ
       :public  | :invalid_token | :basic         | :unauthorized  | nil
       :private | :developer     | :basic         | success_status | success_body
       :private | :developer     | :private_token | :unauthorized  | nil
-      :private | :guest         | :basic         | :forbidden     | nil
+      :private | :guest         | :basic         | success_status | success_body
       :private | :not_a_member  | :basic         | :not_found     | nil
       :private | :anonymous     | :basic         | :unauthorized  | nil
       :private | :invalid_token | :basic         | :unauthorized  | nil

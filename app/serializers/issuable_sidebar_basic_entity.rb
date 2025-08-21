@@ -20,7 +20,7 @@ class IssuableSidebarBasicEntity < Grape::Entity
   expose :milestone, using: ::API::Entities::Milestone
   expose :labels, using: LabelEntity
 
-  expose :current_user, if: lambda { |_issuable| current_user } do
+  expose :current_user, if: ->(_issuable) { current_user } do
     expose :current_user, merge: true, using: ::API::Entities::UserBasic
 
     expose :todo, using: IssuableSidebarTodoEntity do |issuable|
@@ -28,7 +28,9 @@ class IssuableSidebarBasicEntity < Grape::Entity
     end
 
     expose :can_edit do |issuable|
-      can?(current_user, :"admin_#{issuable.to_ability_name}", issuable.project)
+      subject = issuable.try(:incident_type_issue?) ? issuable : issuable.project
+
+      can?(current_user, :"admin_#{issuable.to_ability_name}", subject)
     end
 
     expose :can_move do |issuable|

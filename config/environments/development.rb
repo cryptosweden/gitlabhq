@@ -30,6 +30,8 @@ Rails.application.configure do
   # Only use best-standards-support built into browsers
   config.action_dispatch.best_standards_support = :builtin
 
+  # Configure static asset server for e2e:test-on-gdk
+  config.assets.compile = !Gitlab::Utils.to_boolean(ENV['GITLAB_DEVELOPMENT_USE_PRECOMPILED_ASSETS'], default: false)
   # There is no need to check if assets are precompiled locally
   # To debug AssetNotPrecompiled errors locally, set CHECK_PRECOMPILED_ASSETS to true
   config.assets.check_precompiled_asset = Gitlab::Utils.to_boolean(ENV['CHECK_PRECOMPILED_ASSETS'], default: false)
@@ -68,7 +70,8 @@ Rails.application.configure do
   config.action_mailer.raise_delivery_errors = true
   # Don't make a mess when bootstrapping a development environment
   config.action_mailer.perform_deliveries = (ENV['BOOTSTRAP'] != '1')
-  config.action_mailer.preview_path = GitlabEdition.path_glob('app/mailers/previews')
+
+  config.action_mailer.preview_paths = [GitlabEdition.path_glob('app/mailers/previews')]
 
   config.eager_load = false
 
@@ -111,7 +114,9 @@ Rails.application.configure do
     config.middleware.delete BetterErrors::Middleware
   end
 
-  config.middleware.insert_before(ActionDispatch::Cookies, Gitlab::Middleware::StripCookies, paths: [%r{^/assets/}])
+  config.middleware.insert_before(
+    ActionDispatch::Cookies, Gitlab::Middleware::StripCookies, paths: [%r{^/assets/}]
+  )
 
   config.log_level = Gitlab::Utils.to_rails_log_level(ENV["GITLAB_LOG_LEVEL"], :debug)
 end

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,6 +33,8 @@ const (
 
 	geoProxyEndpointPath = "/api/v4/geo/proxy"
 )
+
+var errResponseLimit = fmt.Errorf("response body exceeded maximum buffer size (%d bytes)", failureResponseLimit)
 
 // API represents a client for interacting with an external API.
 type API struct {
@@ -139,18 +142,34 @@ type RemoteObject struct {
 	ObjectStorage *ObjectStorageParams
 }
 
+// DuoWorkflow holds configuration for the Duo Workflow service.
+type DuoWorkflow struct {
+	Headers    map[string]string
+	ServiceURI string
+	Secure     bool
+}
+
 // Response represents a structure containing various GitLab-related environment variables.
 type Response struct {
 	// GL_ID is an environment variable used by gitlab-shell hooks during 'git
 	// push' and 'git pull'
-	GL_ID string
+	GL_ID string // nolint:revive // used as env variable
 
 	// GL_USERNAME holds gitlab username of the user who is taking the action causing hooks to be invoked
-	GL_USERNAME string
+	GL_USERNAME string // nolint:revive // used as env variable
 
 	// GL_REPOSITORY is an environment variable used by gitlab-shell hooks during
 	// 'git push' and 'git pull'
-	GL_REPOSITORY string
+	GL_REPOSITORY string // nolint:revive // used as env variable
+
+	// Id of the pipeline build
+	GLBuildID string
+
+	// Id of the requested project
+	ProjectID int
+
+	// Id of the requested project's root namespace
+	RootNamespaceID int
 
 	// GitConfigOptions holds the custom options that we want to pass to the git command
 	GitConfigOptions []string
@@ -187,6 +206,10 @@ type Response struct {
 	UploadHashFunctions []string
 	// NeedAudit indicates whether git events should be audited to rails.
 	NeedAudit bool `json:"NeedAudit"`
+	// Gob contains settings for the GitLab Observability Backend (GOB).
+	Gob GOBSettings `json:"gob"`
+
+	DuoWorkflow *DuoWorkflow
 }
 
 // GitalyServer represents configuration parameters for a Gitaly server,
@@ -297,6 +320,7 @@ type GitAuditEventRequest struct {
 	Repo          string                                  `json:"gl_repository"`
 	Username      string                                  `json:"username"`
 	PackfileStats *gitalypb.PackfileNegotiationStatistics `json:"packfile_stats,omitempty"`
+	Changes       string                                  `json:"changes"`
 }
 
 // SendGitAuditEvent sends a Git audit event using the API client.
@@ -396,6 +420,11 @@ func (api *API) PreAuthorizeFixedPath(r *http.Request, method string, path strin
 	return apiResponse, nil
 }
 
+// PreAuthorizer provides methods for pre-authorizing multipart requests.
+type PreAuthorizer interface {
+	PreAuthorizeHandler(next HandleFunc, suffix string) http.Handler
+}
+
 // PreAuthorizeHandler creates an HTTP handler that pre-authorizes requests.
 func (api *API) PreAuthorizeHandler(next HandleFunc, suffix string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -453,6 +482,13 @@ func copyAuthHeader(httpResponse *http.Response, w http.ResponseWriter) {
 	}
 }
 
+// These are internal headers that may be returned by the rails backend. They should not be passed back to the client.
+var sensitiveHeaders = map[string]bool{
+	"gitlab-workhorse-send-data": true,
+	"gitlab-sv":                  true,
+	"gitlab-lb":                  true,
+}
+
 func passResponseBack(httpResponse *http.Response, w http.ResponseWriter, r *http.Request) {
 	// NGINX response buffering is disabled on this path (with
 	// X-Accel-Buffering: no) but we still want to free up the Puma thread
@@ -460,9 +496,19 @@ func passResponseBack(httpResponse *http.Response, w http.ResponseWriter, r *htt
 	// the entire response body in memory before sending it on.
 	responseBody, err := bufferResponse(httpResponse.Body)
 	if err != nil {
-		fail.Request(w, r, err)
+		// A user can issue a git clone command against a URL that doesn't
+		// get handled by the info refs endpoint, resulting in a full-fledged 404
+		// response (i.e. like the one returned in a browser) that's gonna exceed
+		// the response error limit, eventually making Workhorse returning a 500.
+		// Here we intercept such 404s and just return the response code without a body.
+		if errors.Is(err, errResponseLimit) && httpResponse.StatusCode == 404 {
+			fail.Request(w, r, err, fail.WithStatus(httpResponse.StatusCode))
+		} else {
+			fail.Request(w, r, err)
+		}
 		return
 	}
+
 	if err = httpResponse.Body.Close(); err != nil {
 		fmt.Printf("Error closing response body: %s", err)
 	}
@@ -472,7 +518,7 @@ func passResponseBack(httpResponse *http.Response, w http.ResponseWriter, r *htt
 		// Accommodate broken clients that do case-sensitive header lookup
 		if k == "Www-Authenticate" {
 			w.Header()["WWW-Authenticate"] = v
-		} else {
+		} else if !sensitiveHeaders[k] {
 			w.Header()[k] = v
 		}
 	}
@@ -490,7 +536,7 @@ func bufferResponse(r io.Reader) (*bytes.Buffer, error) {
 	}
 
 	if n == failureResponseLimit {
-		return nil, fmt.Errorf("response body exceeded maximum buffer size (%d bytes)", failureResponseLimit)
+		return nil, errResponseLimit
 	}
 
 	return responseBody, nil

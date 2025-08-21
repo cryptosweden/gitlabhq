@@ -205,40 +205,6 @@ RSpec.describe SystemNoteService, feature_category: :shared do
     end
   end
 
-  describe '.merge_when_pipeline_succeeds' do
-    it 'calls MergeRequestsService' do
-      sha = double
-
-      expect_next_instance_of(::SystemNotes::MergeRequestsService) do |service|
-        expect(service).to receive(:merge_when_pipeline_succeeds).with(sha)
-      end
-
-      described_class.merge_when_pipeline_succeeds(noteable, project, author, sha)
-    end
-  end
-
-  describe '.cancel_merge_when_pipeline_succeeds' do
-    it 'calls MergeRequestsService' do
-      expect_next_instance_of(::SystemNotes::MergeRequestsService) do |service|
-        expect(service).to receive(:cancel_merge_when_pipeline_succeeds)
-      end
-
-      described_class.cancel_merge_when_pipeline_succeeds(noteable, project, author)
-    end
-  end
-
-  describe '.abort_merge_when_pipeline_succeeds' do
-    it 'calls MergeRequestsService' do
-      reason = double
-
-      expect_next_instance_of(::SystemNotes::MergeRequestsService) do |service|
-        expect(service).to receive(:abort_merge_when_pipeline_succeeds).with(reason)
-      end
-
-      described_class.abort_merge_when_pipeline_succeeds(noteable, project, author, reason)
-    end
-  end
-
   describe '.change_title' do
     let(:title) { double }
 
@@ -631,6 +597,10 @@ RSpec.describe SystemNoteService, feature_category: :shared do
 
       described_class.approve_mr(noteable, author)
     end
+
+    it 'creates system note' do
+      expect { described_class.approve_mr(noteable, author) }.to change { Note.count }.by(1)
+    end
   end
 
   describe '.unapprove_mr' do
@@ -640,6 +610,10 @@ RSpec.describe SystemNoteService, feature_category: :shared do
       end
 
       described_class.unapprove_mr(noteable, author)
+    end
+
+    it 'creates system note' do
+      expect { described_class.approve_mr(noteable, author) }.to change { Note.count }.by(1)
     end
   end
 
@@ -832,6 +806,24 @@ RSpec.describe SystemNoteService, feature_category: :shared do
       end
 
       described_class.requested_changes(noteable, author)
+    end
+
+    it 'creates system note' do
+      expect { described_class.approve_mr(noteable, author) }.to change { Note.count }.by(1)
+    end
+  end
+
+  describe '.reviewed' do
+    it 'calls MergeRequestsService' do
+      expect_next_instance_of(::SystemNotes::MergeRequestsService) do |service|
+        expect(service).to receive(:reviewed)
+      end
+
+      described_class.reviewed(noteable, author)
+    end
+
+    it 'creates system note' do
+      expect { described_class.reviewed(noteable, author) }.to change { Note.count }.by(1)
     end
   end
 end

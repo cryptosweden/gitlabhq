@@ -4,7 +4,13 @@ import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import createDefaultClient from '~/lib/graphql';
 import { createAlert } from '~/alert';
-import { getCookie, isMetaClick, parseBoolean, scrollToElement } from '~/lib/utils/common_utils';
+import {
+  getCookie,
+  isMetaClick,
+  NO_SCROLL_TO_HASH_CLASS,
+  parseBoolean,
+  scrollToElement,
+} from '~/lib/utils/common_utils';
 import { parseUrlPathname, visitUrl } from '~/lib/utils/url_utility';
 import createEventHub from '~/helpers/event_hub_factory';
 import { renderGFM } from '~/behaviors/markdown/render_gfm';
@@ -104,7 +110,7 @@ function mountPipelines() {
       manualActionsLimit: 50,
       mergeRequestId: mrWidgetData ? mrWidgetData.iid : null,
       sourceProjectFullPath: mrWidgetData?.source_project_full_path || '',
-      useFailedJobsWidget: gon.features?.ciJobFailuresInMr || false,
+      useFailedJobsWidget: true,
     },
     render(createElement) {
       return createElement('merge-request-pipelines-table', {
@@ -119,6 +125,7 @@ function mountPipelines() {
           targetProjectFullPath: mrWidgetData?.target_project_full_path || '',
           projectId: pipelineTableViewEl.dataset.projectId,
           mergeRequestId: mrWidgetData ? mrWidgetData.iid : null,
+          isMergeRequestTable: true,
         },
       });
     },
@@ -172,7 +179,7 @@ export function toggleLoader(state) {
 }
 
 export function getActionFromHref(pathName) {
-  let action = pathName.match(/\/(\d+)\/(commits|diffs|pipelines).*$/);
+  let action = pathName.match(/\/(\d+|new)\/(commits|diffs|pipelines|reports).*$/);
 
   if (action) {
     action = action.at(-1).replace(/(^\/|\.html)/g, '');
@@ -186,10 +193,11 @@ export function getActionFromHref(pathName) {
 export const pageBundles = {
   show: () => import(/* webpackPrefetch: true */ '~/mr_notes/mount_app'),
   diffs: () => import(/* webpackPrefetch: true */ '~/diffs'),
+  reports: () => import('~/merge_requests/reports'),
 };
 
 export default class MergeRequestTabs {
-  constructor({ action, setUrl, stubLocation } = {}) {
+  constructor({ action, setUrl, stubLocation, createRapidDiffsApp } = {}) {
     const containers = document.querySelectorAll('.content-wrapper .container-fluid');
     this.contentWrapper = containers[containers.length - 1];
     this.mergeRequestTabs = document.querySelector('.merge-request-tabs-container');
@@ -208,7 +216,7 @@ export default class MergeRequestTabs {
     this.pageLayout = document.querySelector('.layout-page');
     this.expandSidebar = document.querySelectorAll('.js-expand-sidebar, .js-sidebar-toggle');
     this.paddingTop = 16;
-    this.actionRegex = /\/(commits|diffs|pipelines)(\.html)?\/?$/;
+    this.actionRegex = /\/(commits|diffs|pipelines|reports(?:\/[^/]+)?)(\.html)?\/?$/;
 
     this.scrollPositions = {};
 
@@ -219,6 +227,8 @@ export default class MergeRequestTabs {
     this.diffsClass = null;
     this.commitsLoaded = false;
     this.isFixedLayoutPreferred = this.contentWrapper.classList.contains('container-limited');
+    this.createRapidDiffsApp = createRapidDiffsApp;
+    this.rapidDiffsApp = null;
     this.eventHub = createEventHub();
     this.loadedPages = { [action]: true };
 
@@ -238,8 +248,19 @@ export default class MergeRequestTabs {
 
   bindEvents() {
     $('.merge-request-tabs a[data-toggle="tabvue"]').on('click', this.clickTab);
+    let prevHref = window.location.href;
     window.addEventListener('popstate', (event) => {
+      const [prevPath] = prevHref.split('#');
+      const [newPath, newHash] = window.location.href.split('#');
+
+      prevHref = window.location.href;
+
+      if (prevPath === newPath && newHash) {
+        const target = document.getElementById(newHash);
+        if (target && target.classList.contains(NO_SCROLL_TO_HASH_CLASS)) return;
+      }
       if (event?.state?.skipScrolling) return;
+
       const action = getActionFromHref(window.location.pathname);
 
       this.tabShown(action, location.href);
@@ -333,6 +354,7 @@ export default class MergeRequestTabs {
       }
 
       this.expandSidebar?.forEach((el) => el.classList.toggle('!gl-hidden', action !== 'show'));
+      this.rapidDiffsApp?.hide?.();
 
       if (action === 'commits') {
         if (!this.commitsLoaded) {
@@ -346,7 +368,14 @@ export default class MergeRequestTabs {
         this.resetViewContainer();
         this.mergeRequestPipelinesTable = destroyPipelines(this.mergeRequestPipelinesTable);
       } else if (this.isDiffAction(action)) {
-        if (!isInVueNoteablePage()) {
+        if (this.createRapidDiffsApp) {
+          if (!this.rapidDiffsApp) {
+            this.rapidDiffsApp = this.createRapidDiffsApp();
+            this.rapidDiffsApp.init();
+          } else {
+            this.rapidDiffsApp.show();
+          }
+        } else if (!isInVueNoteablePage()) {
           /*
             for pages where we have not yet converted to the new vue
             implementation we load the diff tab content the old way,
@@ -355,7 +384,7 @@ export default class MergeRequestTabs {
             in practice, this only occurs when comparing commits in
             the new merge request form page.
           */
-          this.loadDiff({ endpoint: href, strip: true });
+          this.startDiffs({ endpoint: href, strip: true });
         }
         // this.hideSidebar();
         this.expandViewContainer();
@@ -365,6 +394,8 @@ export default class MergeRequestTabs {
         // this.hideSidebar();
         this.resetViewContainer();
         this.mountPipelinesView();
+      } else if (action === 'reports') {
+        this.resetViewContainer();
       } else {
         const notesTab = this.mergeRequestTabs.querySelector('.notes-tab');
         const notesPane = this.mergeRequestTabPanes.querySelector('#notes');
@@ -433,18 +464,24 @@ export default class MergeRequestTabs {
   setCurrentAction(action) {
     this.currentAction = action;
 
+    const pathname = location.pathname.replace(/\/*$/, '');
+
     // Remove a trailing '/commits' '/diffs' '/pipelines'
-    let newState = location.pathname.replace(this.actionRegex, '');
+    let newStatePathname = pathname.replace(this.actionRegex, '');
 
     // Append the new action if we're on a tab other than 'notes'
-    if (this.currentAction !== 'show' && this.currentAction !== 'new') {
-      newState += `/${this.currentAction}`;
+    if (
+      this.currentAction !== 'show' &&
+      this.currentAction !== 'new' &&
+      !newStatePathname.endsWith(`/${this.currentAction}`)
+    ) {
+      newStatePathname += `/${this.currentAction}`;
     }
 
     // Ensure parameters and hash come along for the ride
-    newState += location.search + location.hash;
+    const newState = newStatePathname + location.search + location.hash;
 
-    if (window.location.pathname !== newState) {
+    if (pathname !== newStatePathname) {
       window.history.pushState(
         {
           url: newState,
@@ -518,7 +555,11 @@ export default class MergeRequestTabs {
     this.mergeRequestPipelinesTable = mountPipelines();
   }
 
-  // load the diff tab content from the backend
+  // Initialize the Changes tab
+  async startDiffs(options = {}) {
+    this.loadDiff(options);
+  }
+  // load the legacy diff tab content from the backend
   loadDiff({ endpoint, strip = true }) {
     if (this.diffsLoaded) {
       document.dispatchEvent(new CustomEvent('scroll'));
@@ -572,6 +613,7 @@ export default class MergeRequestTabs {
 
   expandViewContainer() {
     this.contentWrapper.classList.remove('container-limited');
+    this.contentWrapper.classList.remove('rd-page-container');
     this.contentWrapper.classList.add('diffs-container-limited');
   }
 

@@ -15,8 +15,11 @@ module Gitlab
               event_id: declined_event[:id]
             )
 
-            user_id = if Feature.enabled?(:bitbucket_server_user_mapping_by_username, project, type: :ops)
-                        user_finder.find_user_id(by: :username, value: declined_event[:decliner_username])
+            user_id = if user_mapping_enabled?(project)
+                        user_finder.uid(
+                          username: declined_event[:decliner_username],
+                          display_name: declined_event[:decliner_name]
+                        )
                       else
                         user_finder.find_user_id(by: :email, value: declined_event[:decliner_email])
                       end
@@ -32,13 +35,22 @@ module Gitlab
               return
             end
 
-            # `user_finder` did some optimization to cache the `user_id`, let's keep avoid loading the `User` object
-            # however, we need to wrap the `user_id` with `User` model so that the downstream logic can work properly
-            user = User.new(id: user_id)
+            state_event = record_state_event(user_id, declined_event)
+            push_reference(
+              project,
+              state_event,
+              :user_id,
+              declined_event[:decliner_username]
+            )
 
-            SystemNoteService.change_status(merge_request, merge_request.target_project, user, 'closed', nil)
-            EventCreateService.new.close_mr(merge_request, user)
-            create_merge_request_metrics(latest_closed_by_id: user_id, latest_closed_at: declined_event[:created_at])
+            event = record_event(user_id)
+            push_reference(project, event, :author_id, declined_event[:decliner_username])
+
+            metric = create_merge_request_metrics(
+              latest_closed_by_id: user_id,
+              latest_closed_at: declined_event[:created_at]
+            )
+            push_reference(project, metric, :latest_closed_by_id, declined_event[:decliner_username])
 
             log_info(
               import_stage: 'import_declined_event',
@@ -46,6 +58,34 @@ module Gitlab
               iid: merge_request.iid,
               event_id: declined_event[:id]
             )
+          end
+
+          private
+
+          def record_event(user_id)
+            Event.create!(
+              project_id: project.id,
+              author_id: user_id,
+              action: 'closed',
+              target_type: 'MergeRequest',
+              target_id: merge_request.id,
+              imported_from: ::Import::HasImportSource::IMPORT_SOURCES[:bitbucket_server]
+            )
+          end
+
+          def record_state_event(user_id, declined_event)
+            attrs = {
+              importing: true,
+              merge_request_id: merge_request.id,
+              user_id: user_id,
+              state: 'closed',
+              close_after_error_tracking_resolve: false,
+              close_auto_resolve_prometheus_alert: false,
+              created_at: declined_event[:created_at],
+              imported_from: ::Import::HasImportSource::IMPORT_SOURCES[:bitbucket_server]
+            }
+
+            ResourceStateEvent.create!(attrs)
           end
         end
       end

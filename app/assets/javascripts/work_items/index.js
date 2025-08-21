@@ -4,16 +4,19 @@ import { DESIGN_MARK_APP_START, DESIGN_MEASURE_BEFORE_APP } from '~/performance/
 import { performanceMarkAndMeasure } from '~/performance/utils';
 import { WORKSPACE_GROUP } from '~/issues/constants';
 import { addShortcutsExtension } from '~/behaviors/shortcuts';
-import ShortcutsWorkItems from '~/behaviors/shortcuts/shortcuts_work_items';
 import ShortcutsNavigation from '~/behaviors/shortcuts/shortcuts_navigation';
 import { parseBoolean } from '~/lib/utils/common_utils';
+import { injectVueAppBreadcrumbs } from '~/lib/utils/breadcrumbs';
 import { apolloProvider } from '~/graphql_shared/issuable_client';
 import App from './components/app.vue';
+import WorkItemBreadcrumb from './components/work_item_breadcrumb.vue';
+import activeDiscussionQuery from './components/design_management/graphql/client/active_design_discussion.query.graphql';
+import { WORK_ITEM_TYPE_NAME_EPIC } from './constants';
 import { createRouter } from './router';
 
 Vue.use(VueApollo);
 
-export const initWorkItemsRoot = ({ workItemType, workspaceType } = {}) => {
+export const initWorkItemsRoot = ({ workItemType, workspaceType, withTabs } = {}) => {
   const el = document.querySelector('#js-work-items');
 
   if (!el) {
@@ -21,48 +24,134 @@ export const initWorkItemsRoot = ({ workItemType, workspaceType } = {}) => {
   }
 
   addShortcutsExtension(ShortcutsNavigation);
-  addShortcutsExtension(ShortcutsWorkItems);
 
   const {
     canAdminLabel,
+    canBulkUpdate,
     fullPath,
     groupPath,
+    groupId,
     hasIssueWeightsFeature,
-    iid,
     issuesListPath,
+    epicsListPath,
     labelsManagePath,
     registerPath,
     signInPath,
+    hasBlockedIssuesFeature,
+    hasGroupBulkEditFeature,
     hasIterationsFeature,
     hasOkrsFeature,
+    hasSubepicsFeature,
     hasIssuableHealthStatusFeature,
-    newCommentTemplatePaths,
+    hasCustomFieldsFeature,
+    newTrialPath,
     reportAbusePath,
     defaultBranch,
+    initialSort,
+    isSignedIn,
+    hasEpicsFeature,
+    showNewWorkItem,
+    canCreateEpic,
+    autocompleteAwardEmojisPath,
+    hasScopedLabelsFeature,
+    hasQualityManagementFeature,
+    canBulkEditEpics,
+    groupIssuesPath,
+    labelsFetchPath,
+    hasLinkedItemsEpicsFeature,
+    duoRemoteFlowsEnabled,
+    canCreateProjects,
+    newProjectPath,
+    projectNamespaceFullPath,
+    hasIssueDateFilterFeature,
+    timeTrackingLimitToHours,
+    hasStatusFeature,
+    workItemPlanningViewEnabled,
+    canReadCrmOrganization,
+    canReadCrmContact,
+    releasesPath,
+    projectImportJiraPath,
   } = el.dataset;
 
   const isGroup = workspaceType === WORKSPACE_GROUP;
+  const router = createRouter({ fullPath, workspaceType, defaultBranch });
+  let listPath = issuesListPath;
+
+  const breadcrumbParams = { workItemType, isGroup };
+
+  if (workItemType === WORK_ITEM_TYPE_NAME_EPIC) {
+    listPath = epicsListPath;
+    breadcrumbParams.listPath = epicsListPath;
+  } else {
+    breadcrumbParams.listPath = issuesListPath;
+  }
+
+  injectVueAppBreadcrumbs(router, WorkItemBreadcrumb, apolloProvider, breadcrumbParams);
+
+  apolloProvider.clients.defaultClient.cache.writeQuery({
+    query: activeDiscussionQuery,
+    data: {
+      activeDesignDiscussion: {
+        __typename: 'ActiveDesignDiscussion',
+        id: null,
+        source: null,
+      },
+    },
+  });
 
   return new Vue({
     el,
     name: 'WorkItemsRoot',
-    router: createRouter({ fullPath, workItemType, workspaceType, defaultBranch }),
+    router,
     apolloProvider,
     provide: {
-      canAdminLabel,
+      canAdminLabel: parseBoolean(canAdminLabel),
+      canBulkUpdate: parseBoolean(canBulkUpdate),
+      duoRemoteFlowsEnabled: parseBoolean(duoRemoteFlowsEnabled),
       fullPath,
       isGroup,
+      isProject: !isGroup,
+      hasBlockedIssuesFeature: parseBoolean(hasBlockedIssuesFeature),
+      hasGroupBulkEditFeature: parseBoolean(hasGroupBulkEditFeature),
       hasIssueWeightsFeature: parseBoolean(hasIssueWeightsFeature),
       hasOkrsFeature: parseBoolean(hasOkrsFeature),
-      issuesListPath,
+      hasSubepicsFeature: parseBoolean(hasSubepicsFeature),
+      hasScopedLabelsFeature: parseBoolean(hasScopedLabelsFeature),
+      issuesListPath: listPath,
       labelsManagePath,
       registerPath,
       signInPath,
       hasIterationsFeature: parseBoolean(hasIterationsFeature),
       hasIssuableHealthStatusFeature: parseBoolean(hasIssuableHealthStatusFeature),
-      newCommentTemplatePaths: JSON.parse(newCommentTemplatePaths),
+      hasCustomFieldsFeature: parseBoolean(hasCustomFieldsFeature),
+      newTrialPath,
       reportAbusePath,
       groupPath,
+      groupId,
+      initialSort,
+      isSignedIn: parseBoolean(isSignedIn),
+      workItemType,
+      hasEpicsFeature: parseBoolean(hasEpicsFeature),
+      showNewWorkItem: parseBoolean(showNewWorkItem),
+      canCreateEpic: parseBoolean(canCreateEpic),
+      autocompleteAwardEmojisPath,
+      hasQualityManagementFeature: parseBoolean(hasQualityManagementFeature),
+      canBulkEditEpics: parseBoolean(canBulkEditEpics),
+      groupIssuesPath,
+      labelsFetchPath,
+      hasLinkedItemsEpicsFeature: parseBoolean(hasLinkedItemsEpicsFeature),
+      canCreateProjects: parseBoolean(canCreateProjects),
+      newIssuePath: '',
+      newProjectPath,
+      projectNamespaceFullPath,
+      hasIssueDateFilterFeature: parseBoolean(hasIssueDateFilterFeature),
+      timeTrackingLimitToHours: parseBoolean(timeTrackingLimitToHours),
+      hasStatusFeature: parseBoolean(hasStatusFeature),
+      workItemPlanningViewEnabled: parseBoolean(workItemPlanningViewEnabled),
+      canReadCrmOrganization: parseBoolean(canReadCrmOrganization),
+      canReadCrmContact: parseBoolean(canReadCrmContact),
+      releasesPath,
+      projectImportJiraPath,
     },
     mounted() {
       performanceMarkAndMeasure({
@@ -77,7 +166,8 @@ export const initWorkItemsRoot = ({ workItemType, workspaceType } = {}) => {
     render(createElement) {
       return createElement(App, {
         props: {
-          iid: isGroup ? iid : undefined,
+          rootPageFullPath: fullPath,
+          withTabs,
         },
       });
     },

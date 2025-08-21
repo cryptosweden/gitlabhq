@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Plan', product_group: :project_management do
+  RSpec.describe 'Plan', :requires_admin, feature_category: :team_planning do
     describe 'Assignees' do
-      let(:user1) { Resource::User.fabricate_or_use(Runtime::Env.gitlab_qa_username_1, Runtime::Env.gitlab_qa_password_1) }
-      let(:user2) { Resource::User.fabricate_or_use(Runtime::Env.gitlab_qa_username_2, Runtime::Env.gitlab_qa_password_2) }
+      let(:user1) { create(:user) }
+      let(:user2) { create(:user) }
       let(:project) { create(:project, name: 'project-to-test-assignees') }
 
       before do
@@ -18,7 +18,10 @@ module QA
         issue = create(:issue, project: project, assignee_ids: [user1.id])
         issue.visit!
 
-        Page::Project::Issue::Show.perform do |show|
+        work_item_enabled = Page::Project::Issue::Show.perform(&:work_item_enabled?)
+        page_type = work_item_enabled ? Page::Project::WorkItem::Show : Page::Project::Issue::Show
+
+        page_type.perform do |show|
           expect(show).to have_assignee(user1.name)
           # We need to wait 1 second for the page to connect to the websocket to subscribe to updates
           # https://gitlab.com/gitlab-org/gitlab/-/issues/293699#note_583959786

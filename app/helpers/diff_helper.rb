@@ -45,6 +45,10 @@ module DiffHelper
     options
   end
 
+  def with_custom_diff_options
+    yield diff_options.dup
+  end
+
   def diff_match_line(old_pos, new_pos, text: '', view: :inline, bottom: false)
     content_line_class = %w[line_content match]
     content_line_class << 'parallel' if view == :parallel
@@ -53,6 +57,13 @@ module DiffHelper
     line_num_class << 'js-unfold-bottom' if bottom
 
     html = []
+
+    expand_data = {}
+    if bottom
+      expand_data[:expand_next_line] = true
+    else
+      expand_data[:expand_prev_line] = true
+    end
 
     if old_pos
       html << content_tag(:td, '...', class: [*line_num_class, 'old_line'], data: { linenumber: old_pos })
@@ -201,7 +212,9 @@ module DiffHelper
   end
 
   def apply_diff_view_cookie!
-    set_secure_cookie(:diff_view, params.delete(:view), type: CookiesHelper::COOKIE_TYPE_PERMANENT) if params[:view].present?
+    return unless params[:view].present?
+
+    set_secure_cookie(:diff_view, params.delete(:view), type: CookiesHelper::COOKIE_TYPE_PERMANENT)
   end
 
   def collapsed_diff_url(diff_file)
@@ -225,9 +238,11 @@ module DiffHelper
   end
 
   def conflicts(allow_tree_conflicts: false)
-    return unless merge_request.cannot_be_merged? && merge_request.source_branch_exists? && merge_request.target_branch_exists?
+    unless merge_request.cannot_be_merged? && merge_request.source_branch_exists? && merge_request.target_branch_exists?
+      return
+    end
 
-    conflicts_service = MergeRequests::Conflicts::ListService.new(merge_request, allow_tree_conflicts: allow_tree_conflicts) # rubocop:disable CodeReuse/ServiceClass
+    conflicts_service = MergeRequests::Conflicts::ListService.new(merge_request, allow_tree_conflicts: allow_tree_conflicts)
 
     return unless allow_tree_conflicts || conflicts_service.can_be_resolved_in_ui?
 
@@ -242,10 +257,17 @@ module DiffHelper
   end
 
   def conflicts_with_types
-    return unless merge_request.cannot_be_merged? && merge_request.source_branch_exists? && merge_request.target_branch_exists?
+    unless merge_request.cannot_be_merged? && merge_request.source_branch_exists? && merge_request.target_branch_exists?
+      return
+    end
 
     cached_conflicts_with_types do
-      conflicts_service = MergeRequests::Conflicts::ListService.new(merge_request, allow_tree_conflicts: true) # rubocop:disable CodeReuse/ServiceClass
+      # We set skip_content to true since we don't really need the content to list the conflicts and their types
+      conflicts_service = MergeRequests::Conflicts::ListService.new(
+        merge_request,
+        allow_tree_conflicts: true,
+        skip_content: true
+      )
 
       {}.tap do |h|
         conflicts_service.conflicts.files.each do |file|
@@ -267,6 +289,16 @@ module DiffHelper
 
   def params_with_whitespace
     hide_whitespace? ? safe_params.except(:w) : safe_params.merge(w: 1)
+  end
+
+  def file_heading_id(diff_file)
+    "#{diff_file.file_hash[0..8]}-heading"
+  end
+
+  def hide_whitespace?
+    return params[:w] == '1' if params.key?(:w)
+
+    current_user.nil? || !current_user.show_whitespace_in_diffs
   end
 
   private
@@ -314,10 +346,6 @@ module DiffHelper
     toggle_whitespace_link(url, options)
   end
 
-  def hide_whitespace?
-    params[:w] == '1'
-  end
-
   def toggle_whitespace_link(url, options)
     toggle_text = hide_whitespace? ? s_('Diffs|Show whitespace changes') : s_('Diffs|Hide whitespace changes')
     link_button_to toggle_text, url, class: options[:class]
@@ -328,9 +356,7 @@ module DiffHelper
   end
 
   def log_overflow_limits(diff_files:, collection_overflow:)
-    if diff_files.any?(&:too_large?)
-      Gitlab::Metrics.add_event(:diffs_overflow_single_file_limits)
-    end
+    Gitlab::Metrics.add_event(:diffs_overflow_single_file_limits) if diff_files.any?(&:too_large?)
 
     Gitlab::Metrics.add_event(:diffs_overflow_collection_limits) if collection_overflow
     Gitlab::Metrics.add_event(:diffs_overflow_max_bytes_limits) if diff_files.overflow_max_bytes?

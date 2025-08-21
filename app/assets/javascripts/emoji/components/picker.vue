@@ -2,10 +2,10 @@
 <script>
 import {
   GlButton,
-  GlIcon,
   GlDisclosureDropdown,
   GlSearchBoxByType,
   GlTooltipDirective,
+  GlAnimatedSmileIcon,
 } from '@gitlab/ui';
 import { findLastIndex } from 'lodash';
 import VirtualList from 'vue-virtual-scroll-list';
@@ -19,9 +19,9 @@ import { addToFrequentlyUsed, getEmojiCategories, hasFrequentlyUsedEmojis } from
 export default {
   components: {
     GlButton,
-    GlIcon,
     GlDisclosureDropdown,
     GlSearchBoxByType,
+    GlAnimatedSmileIcon,
     VirtualList,
     Category,
     EmojiList,
@@ -50,15 +50,25 @@ export default {
       required: false,
       default: true,
     },
+    customEmojiPath: {
+      type: String,
+      required: false,
+      default: '',
+    },
   },
   data() {
     return {
       isVisible: false,
+      isHovered: false,
+      isFocused: false,
       currentCategory: 0,
       searchValue: '',
     };
   },
   computed: {
+    newEmojiPath() {
+      return this.newCustomEmojiPath || this.customEmojiPath;
+    },
     categoryNames() {
       return CATEGORY_NAMES.filter((c) => {
         if (c === FREQUENTLY_USED_KEY) return hasFrequentlyUsedEmojis();
@@ -72,20 +82,11 @@ export default {
     placement() {
       return this.right ? 'bottom-end' : 'bottom-start';
     },
-    newCustomEmoji() {
-      return {
-        text: __('Create new emoji'),
-        href: this.newCustomEmojiPath,
-        extraAttrs: {
-          'data-testid': 'create-new-emoji',
-        },
-      };
+    smileIcon() {
+      return this.isHovered || this.isFocused || this.isVisible;
     },
   },
   methods: {
-    categoryAppeared(category) {
-      this.currentCategory = category;
-    },
     async scrollToCategory(categoryName) {
       const categories = await getEmojiCategories();
       const { top } = categories[categoryName];
@@ -101,8 +102,10 @@ export default {
       }
     },
     onSearchInput() {
-      this.$refs.virtualScoller.setScrollTop(0);
-      this.$refs.virtualScoller.forceRender();
+      if (this.$refs.virtualScoller) {
+        this.$refs.virtualScoller.setScrollTop(0);
+        this.$refs.virtualScoller.forceRender();
+      }
     },
     async onScroll(event, { offset }) {
       const categories = await getEmojiCategories();
@@ -111,8 +114,6 @@ export default {
     },
     onShow() {
       this.isVisible = true;
-      this.$refs.searchValue.focusInput();
-
       this.$emit('shown');
     },
     onHide() {
@@ -120,6 +121,18 @@ export default {
       this.currentCategory = 0;
       this.searchValue = '';
       this.$emit('hidden');
+    },
+    onButtonHovered() {
+      this.isHovered = true;
+    },
+    onButtonHoverLeave() {
+      this.isHovered = false;
+    },
+    onButtonFocused() {
+      this.isFocused = true;
+    },
+    onButtonFocusLeave() {
+      this.isFocused = false;
     },
   },
   i18n: {
@@ -143,34 +156,24 @@ export default {
           v-gl-tooltip
           :title="$options.i18n.addReaction"
           :class="[toggleClass, { 'is-active': isVisible }]"
-          class="gl-relative gl-h-full add-reaction-button btn-icon"
+          class="add-reaction-button btn-icon gl-relative gl-h-full"
           data-testid="add-reaction-button"
+          @mouseover="onButtonHovered"
+          @mouseleave="onButtonHoverLeave"
+          @focusin="onButtonFocused"
+          @focusout="onButtonFocusLeave"
         >
           <slot name="button-content">
-            <span class="reaction-control-icon reaction-control-icon-neutral">
-              <gl-icon class="award-control-icon-neutral gl-button-icon" name="slight-smile" />
-            </span>
-            <span class="reaction-control-icon reaction-control-icon-positive">
-              <gl-icon
-                class="award-control-icon-positive gl-button-icon !gl-left-3"
-                name="smiley"
-              />
-            </span>
-            <span class="reaction-control-icon reaction-control-icon-super-positive">
-              <gl-icon
-                class="award-control-icon-super-positive gl-button-icon !gl-left-3"
-                name="smile"
-              />
-            </span>
+            <gl-animated-smile-icon :is-on="smileIcon" class="gl-button-icon" />
           </slot>
         </gl-button>
       </template>
 
-      <template #header>
+      <template v-if="isVisible" #header>
         <gl-search-box-by-type
           ref="searchValue"
           v-model="searchValue"
-          class="add-reaction-search gl-border-b-1 gl-border-b-solid gl-border-b-gray-200"
+          class="add-reaction-search gl-border-b-1 gl-border-b-dropdown gl-border-b-solid"
           borderless
           autofocus
           debounce="500"
@@ -180,15 +183,17 @@ export default {
       </template>
 
       <div
+        v-if="isVisible"
         v-show="!searchValue"
-        class="award-list gl-display-flex gl-border-b-solid gl-border-gray-100 gl-border-b-1"
+        class="gl-flex gl-border-b-1 gl-border-default gl-border-b-solid"
+        data-testid="category-buttons"
       >
         <gl-button
           v-for="(category, index) in categoryNames"
           :key="category.name"
           category="tertiary"
           :class="{ 'emoji-picker-category-active': index === currentCategory }"
-          class="gl-px-3! gl-rounded-0! gl-border-b-2! gl-border-b-solid! gl-flex-grow-1 emoji-picker-category-tab"
+          class="emoji-picker-category-tab gl-grow !gl-rounded-none !gl-border-b-2 !gl-px-3 !gl-border-b-solid focus:!gl-shadow-none focus:!gl-outline focus:!gl-outline-2 focus:-gl-outline-offset-2 focus:!gl-outline-focus"
           :icon="category.icon"
           :aria-label="category.name"
           @click="scrollToCategory(category.name)"
@@ -216,16 +221,16 @@ export default {
         </template>
       </emoji-list>
 
-      <template v-if="newCustomEmojiPath" #footer>
+      <template v-if="newEmojiPath" #footer>
         <div
-          class="gl-border-t-solid gl-border-t-1 gl-border-t-gray-200 gl-display-flex gl-flex-direction-column gl-p-2! gl-pt-0!"
+          class="gl-flex gl-flex-col gl-border-t-1 gl-border-t-dropdown !gl-p-2 !gl-pt-0 gl-border-t-solid"
         >
           <gl-button
-            :href="newCustomEmojiPath"
+            :href="newEmojiPath"
             category="tertiary"
             block
             data-testid="create-new-emoji"
-            class="gl-justify-content-start! gl-mt-2!"
+            class="!gl-mt-2 !gl-justify-start"
           >
             {{ $options.i18n.createEmoji }}
           </gl-button>

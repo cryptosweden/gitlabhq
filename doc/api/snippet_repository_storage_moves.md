@@ -2,16 +2,18 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Snippet repository storage moves API
 ---
 
-# Snippet repository storage moves API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Snippet repositories can be moved between storages. This API can help you when
-[migrating to Gitaly Cluster](../administration/gitaly/index.md#migrate-to-gitaly-cluster), for
+[migrating to Gitaly Cluster (Praefect)](../administration/gitaly/praefect/_index.md#migrate-to-gitaly-cluster-praefect), for
 example.
 
 As snippet repository storage moves are processed, they transition through different states. Values
@@ -29,7 +31,7 @@ To ensure data integrity, snippets are put in a temporary read-only state for th
 duration of the move. During this time, users receive a `The repository is temporarily read-only. Please try again later.`
 message if they try to push new commits.
 
-This API requires you to [authenticate yourself](rest/index.md#authentication) as an administrator.
+This API requires you to [authenticate yourself](rest/authentication.md) as an administrator.
 
 For other repository types see:
 
@@ -43,7 +45,7 @@ GET /snippet_repository_storage_moves
 ```
 
 By default, `GET` requests return 20 results at a time because the API results
-are [paginated](rest/index.md#pagination).
+are [paginated](rest/_index.md#pagination).
 
 Example request:
 
@@ -86,7 +88,7 @@ GET /snippets/:snippet_id/repository_storage_moves
 ```
 
 By default, `GET` requests return 20 results at a time because the API results
-are [paginated](rest/index.md#pagination).
+are [paginated](rest/_index.md#pagination).
 
 Supported attributes:
 

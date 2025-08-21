@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require "spec_helper"
 
-RSpec.describe Pajamas::AvatarComponent, type: :component do
+RSpec.describe Pajamas::AvatarComponent, type: :component, feature_category: :design_system do
   let_it_be(:user) { create(:user) }
   let_it_be(:project) { create(:project) }
   let_it_be(:group) { create(:group) }
@@ -34,7 +34,7 @@ RSpec.describe Pajamas::AvatarComponent, type: :component do
       let(:item) { project }
 
       it "has default shape (rect)" do
-        expect(page).to have_css ".gl-avatar"
+        expect(page).to have_css ".gl-avatar.\\!gl-rounded-base"
         expect(page).not_to have_css ".gl-avatar-circle"
       end
     end
@@ -43,7 +43,7 @@ RSpec.describe Pajamas::AvatarComponent, type: :component do
       let(:item) { group }
 
       it "has default shape (rect)" do
-        expect(page).to have_css ".gl-avatar"
+        expect(page).to have_css ".gl-avatar.\\!gl-rounded-base"
         expect(page).not_to have_css ".gl-avatar-circle"
       end
     end
@@ -97,6 +97,11 @@ RSpec.describe Pajamas::AvatarComponent, type: :component do
         expect(page).to have_css "div.gl-avatar.gl-avatar-identicon", text: item.name[0].upcase
       end
 
+      it "automatically sets aria-hidden to true and omits alt text for accessibility" do
+        expect(page).to have_css "div.gl-avatar.gl-avatar-identicon[aria-hidden]"
+        expect(page).not_to have_css "div.gl-avatar.gl-avatar-identicon[alt]"
+      end
+
       context "when the item has no id" do
         let(:item) { build :group }
 
@@ -148,6 +153,14 @@ RSpec.describe Pajamas::AvatarComponent, type: :component do
       context "without a value" do
         it "uses the item's name as alt text" do
           expect(page).to have_css ".gl-avatar[alt='#{item.name}']"
+        end
+      end
+
+      context "when aria-hidden is true" do
+        let(:options) { { avatar_options: { aria: { hidden: true } } } }
+
+        it "sets aria-hidden to true" do
+          expect(page).to have_css ".gl-avatar[aria-hidden='true']"
         end
       end
     end

@@ -1,24 +1,31 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Applications API
 ---
 
-# Applications API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
 
-The Applications API operates on instance-wide OAuth applications for:
+{{< /details >}}
+
+Use this API to interact instance-wide OAuth applications for:
 
 - [Using GitLab as an authentication provider](../integration/oauth_provider.md).
 - [Allowing access to GitLab resources on a user's behalf](oauth2.md).
 
-The Applications API cannot be used to manage group applications or applications of individual users.
+{{< alert type="note" >}}
 
-NOTE:
-Only administrator users can use the Applications API.
+You cannot use this API to manage group applications or individual user applications.
+
+{{< /alert >}}
+
+Prerequisites:
+
+- You must have administrator access to the instance.
 
 ## Create an application
 
@@ -42,9 +49,10 @@ Supported attributes:
 Example request:
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
-     --data "name=MyApplication&redirect_uri=http://redirect.uri&scopes=api read_user email" \
-     "https://gitlab.example.com/api/v4/applications"
+curl --request POST \
+    --header "PRIVATE-TOKEN: <your_access_token>" \
+    --data "name=MyApplication&redirect_uri=http://redirect.uri&scopes=api read_user email" \
+    --url "https://gitlab.example.com/api/v4/applications"
 ```
 
 Example response:
@@ -71,7 +79,9 @@ GET /applications
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/applications"
+curl --request GET \
+    --header "PRIVATE-TOKEN: <your_access_token>" \
+    --url "https://gitlab.example.com/api/v4/applications"
 ```
 
 Example response:
@@ -88,8 +98,11 @@ Example response:
 ]
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 The `secret` value is not exposed by this API.
+
+{{< /alert >}}
 
 ## Delete an application
 
@@ -110,12 +123,18 @@ Supported attributes:
 Example request:
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/applications/:id"
+curl --request DELETE \
+    --header "PRIVATE-TOKEN: <your_access_token>" \
+    --url "https://gitlab.example.com/api/v4/applications/:id"
 ```
 
 ## Renew an application secret
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/422420) in GitLab 16.11.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/422420) in GitLab 16.11.
+
+{{< /history >}}
 
 Renews an application secret. Returns `200` if the request succeeds.
 
@@ -132,7 +151,9 @@ Supported attributes:
 Example request:
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/applications/:id/renew-secret"
+curl --request POST \
+    --header "PRIVATE-TOKEN: <your_access_token>" \
+    --url "https://gitlab.example.com/api/v4/applications/:id/renew-secret"
 ```
 
 Example response:

@@ -3,10 +3,12 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::ClosingIssueExtractor do
+  let_it_be(:group) { create(:group) }
   let_it_be_with_reload(:project) { create(:project) }
   let_it_be_with_reload(:project2) { create(:project) }
   let_it_be(:issue) { create(:issue, project: project) }
   let_it_be(:issue2) { create(:issue, project: project2) }
+  let_it_be(:group_work_item) { create(:work_item, :group_level, namespace: group) }
 
   let(:reference) { issue.to_reference }
   let(:cross_reference) { issue2.to_reference(project) }
@@ -17,6 +19,7 @@ RSpec.describe Gitlab::ClosingIssueExtractor do
     project.add_developer(project.creator)
     project.add_developer(project2.creator)
     project2.add_maintainer(project.creator)
+    group.add_developer(project.creator)
   end
 
   describe "#closed_by_message" do
@@ -328,6 +331,15 @@ RSpec.describe Gitlab::ClosingIssueExtractor do
         message = "Closes #{urls.project_issue_url(issue2.project, issue2)}"
         expect(subject.closed_by_message(message)).to eq([issue2])
       end
+
+      context 'when multiple references are used for the same issue (also as work item)' do
+        it 'only returns the same issue once' do
+          message =
+            "Closes #{urls.project_issue_url(issue2.project, issue2)} " \
+            "Closes #{urls.project_work_item_url(issue2.project, issue2)}"
+          expect(subject.closed_by_message(message).map(&:id)).to contain_exactly(issue2.id)
+        end
+      end
     end
 
     context "with a cross-project fork reference" do
@@ -347,9 +359,9 @@ RSpec.describe Gitlab::ClosingIssueExtractor do
         project2.update!(autoclose_referenced_issues: false)
       end
 
-      it 'omits the issue reference' do
+      it 'still includes the issue reference' do
         message = "Closes #{cross_reference}"
-        expect(subject.closed_by_message(message)).to be_empty
+        expect(subject.closed_by_message(message)).to contain_exactly(issue2)
       end
     end
 
@@ -476,14 +488,9 @@ RSpec.describe Gitlab::ClosingIssueExtractor do
         project.update!(autoclose_referenced_issues: false)
       end
 
-      it 'excludes same project references' do
-        message = "Awesome commit (Closes #{reference})"
-        expect(subject.closed_by_message(message)).to eq([])
-      end
-
-      it 'includes issues from other projects with autoclose enabled' do
-        message = "Closes #{cross_reference}"
-        expect(subject.closed_by_message(message)).to eq([issue2])
+      it 'still includes issues from projects that have the setting disabled' do
+        message = "Closes #{cross_reference} Closes #{reference}"
+        expect(subject.closed_by_message(message)).to contain_exactly(issue, issue2)
       end
     end
   end

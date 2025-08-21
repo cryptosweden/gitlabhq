@@ -30,7 +30,7 @@ module Ci
     validates :target_repository, presence: true
     validates :status, presence: true
 
-    enum status: {
+    enum :status, {
       open: 1,
       closed: 2
     }
@@ -50,6 +50,16 @@ module Ci
 
       safe_find_or_initialize_and_update(find: find_params, update: params) do |pull_request|
         yield(pull_request) if block_given?
+      end
+    end
+
+    def self.safe_find_or_initialize_and_update(find:, update:)
+      safe_ensure_unique(retries: 1) do
+        model = find_or_initialize_by(find)
+
+        yield(model) if model.update(update) && block_given?
+
+        model
       end
     end
 
@@ -91,16 +101,6 @@ module Ci
       return unless from_fork?
 
       errors.add(:base, _('Pull requests from fork are not supported'))
-    end
-
-    def self.safe_find_or_initialize_and_update(find:, update:)
-      safe_ensure_unique(retries: 1) do
-        model = find_or_initialize_by(find)
-
-        yield(model) if model.update(update) && block_given?
-
-        model
-      end
     end
   end
 end

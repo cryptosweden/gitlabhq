@@ -3,7 +3,12 @@
 class Admin::RunnersController < Admin::ApplicationController
   include RunnerSetupScripts
 
+  TAGS_LIMIT = 20
+
   before_action :runner, only: [:show, :edit, :register, :update]
+  before_action only: [:new] do
+    push_frontend_feature_flag(:runner_create_wizard_admin, current_user)
+  end
 
   feature_category :runner
   urgency :low
@@ -23,7 +28,7 @@ class Admin::RunnersController < Admin::ApplicationController
   end
 
   def update
-    if Ci::Runners::UpdateRunnerService.new(@runner).execute(runner_params).success?
+    if Ci::Runners::UpdateRunnerService.new(current_user, @runner).execute(runner_params).success?
       respond_to do |format|
         format.html { redirect_to edit_admin_runner_path(@runner) }
       end
@@ -34,9 +39,9 @@ class Admin::RunnersController < Admin::ApplicationController
   end
 
   def tag_list
-    tags = Autocomplete::ActsAsTaggableOn::TagsFinder.new(params: params).execute
+    tags = Ci::TagsFinder.new(params: params).execute.limit(TAGS_LIMIT)
 
-    render json: ActsAsTaggableOn::TagSerializer.new.represent(tags)
+    render json: Ci::TagSerializer.new.represent(tags)
   end
 
   def runner_setup_scripts
@@ -61,21 +66,19 @@ class Admin::RunnersController < Admin::ApplicationController
     end
   end
 
-  # rubocop: disable CodeReuse/ActiveRecord
   def assign_projects
     @projects =
       if params[:search].present?
-        ::Project.search(params[:search])
+        ::Project.search(params[:search], include_namespace: true)
       else
         Project.all
       end
 
-    runner_projects_ids = runner.runner_projects.pluck(:project_id)
-    @projects = @projects.where.not(id: runner_projects_ids) if runner_projects_ids.any?
+    runner_projects_ids = runner.project_ids
+    @projects = @projects.id_not_in(runner_projects_ids) if runner_projects_ids.any?
     @projects = @projects.inc_routes
     @projects = @projects.page(params[:page]).per(30).without_count
   end
-  # rubocop: enable CodeReuse/ActiveRecord
 end
 
 Admin::RunnersController.prepend_mod

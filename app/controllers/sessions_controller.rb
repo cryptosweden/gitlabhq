@@ -58,6 +58,7 @@ class SessionsController < Devise::SessionsController
 
   CAPTCHA_HEADER = 'X-GitLab-Show-Login-Captcha'
   MAX_FAILED_LOGIN_ATTEMPTS = 5
+  PRESERVE_COOKIES = %w[current_signin_tab preferred_language].freeze
 
   def new
     set_minimum_password_length
@@ -80,9 +81,7 @@ class SessionsController < Devise::SessionsController
 
       accept_pending_invitations
 
-      if Feature.enabled?(:new_broadcast_message_dismissal, current_user, type: :gitlab_com_derisk)
-        synchronize_broadcast_message_dismissals
-      end
+      synchronize_broadcast_message_dismissals(current_user)
 
       log_audit_event(current_user, resource, with: authentication_method)
       log_user_activity(current_user)
@@ -90,12 +89,21 @@ class SessionsController < Devise::SessionsController
   end
 
   def destroy
-    headers['Clear-Site-Data'] = '"*"'
-
+    headers['Clear-Site-Data'] = '"cache", "storage", "executionContexts", "clientHints"'
     Gitlab::AppLogger.info("User Logout: username=#{current_user.username} ip=#{request.remote_ip}")
+
     super
+
     # hide the signed_out notice
     flash[:notice] = nil
+
+    # cookies must be deleted after super call
+    # Warden sets some cookies for deletion, this will not override those settings
+    cookies.each do |cookie|
+      next if PRESERVE_COOKIES.include?(cookie[0])
+
+      cookies.delete(cookie[0])
+    end
   end
 
   private
@@ -260,7 +268,8 @@ class SessionsController < Devise::SessionsController
     # Prevent alert from popping up on the first page shown after authentication.
     flash[:alert] = nil
 
-    redirect_to omniauth_authorize_path(:user, provider)
+    @provider_path = omniauth_authorize_path(:user, provider)
+    render 'devise/sessions/redirect_to_provider', layout: false
   end
 
   def valid_otp_attempt?(user)
@@ -271,10 +280,37 @@ class SessionsController < Devise::SessionsController
     user.invalidate_otp_backup_code!(user_params[:otp_attempt])
   end
 
+  def audit_event_name_for_authentication_method(method)
+    case method
+    when AuthenticationEvent::TWO_FACTOR
+      'authenticated_with_two_factor'
+    when AuthenticationEvent::TWO_FACTOR_WEBAUTHN
+      'authenticated_with_webauthn'
+    else
+      'authenticated_with_password'
+    end
+  end
+
   def log_audit_event(user, resource, options = {})
-    Gitlab::AppLogger.info("Successful Login: username=#{resource.username} ip=#{request.remote_ip} method=#{options[:with]} admin=#{resource.admin?}")
-    AuditEventService.new(user, user, options)
-      .for_authentication.security_event
+    Gitlab::AppLogger.info(
+      "Successful Login: username=#{resource.username} ip=#{request.remote_ip} " \
+        "method=#{options[:with]} admin=#{resource.admin?}"
+    )
+
+    event_name = audit_event_name_for_authentication_method(options[:with] || AuthenticationEvent::STANDARD)
+    audit_context = {
+      name: event_name,
+      author: user,
+      scope: user,
+      target: user,
+      message: "Signed in with #{options[:with]} authentication",
+      authentication_event: true,
+      authentication_provider: options[:with],
+      additional_details: {
+        with: options[:with]
+      }
+    }
+    ::Gitlab::Audit::Auditor.audit(audit_context)
   end
 
   def log_user_activity(user)

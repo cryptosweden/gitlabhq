@@ -2,17 +2,19 @@ import { createAlert } from '~/alert';
 import axios from './lib/utils/axios_utils';
 import { parseBoolean } from './lib/utils/common_utils';
 import { __ } from './locale';
+import { visitUrl } from './lib/utils/url_utility';
 
-const DEFERRED_LINK_CLASS = 'deferred-link';
-
+/**
+ * Integrates with server-side rendered callouts, adding dismissing interaction to them.
+ * See https://docs.gitlab.com/development/callouts/#server-side-rendered-callouts
+ */
 export default class PersistentUserCallout {
   constructor(container, options = container.dataset) {
-    const { dismissEndpoint, featureId, groupId, namespaceId, projectId, deferLinks } = options;
+    const { dismissEndpoint, featureId, groupId, projectId, deferLinks } = options;
     this.container = container;
     this.dismissEndpoint = dismissEndpoint;
     this.featureId = featureId;
     this.groupId = groupId;
-    this.namespaceId = namespaceId;
     this.projectId = projectId;
     this.deferLinks = parseBoolean(deferLinks);
     this.closeButtons = this.container.querySelectorAll('.js-close');
@@ -21,34 +23,20 @@ export default class PersistentUserCallout {
   }
 
   init() {
-    const followLink = this.container.querySelector('.js-follow-link');
-
-    if (this.closeButtons.length) {
-      this.handleCloseButtonCallout();
-    } else if (followLink) {
-      this.handleFollowLinkCallout(followLink);
-    }
-  }
-
-  handleCloseButtonCallout() {
     this.closeButtons.forEach((closeButton) => {
       closeButton.addEventListener('click', this.dismiss);
     });
 
-    if (this.deferLinks) {
+    if (this.closeButtons.length && this.deferLinks) {
       this.container.addEventListener('click', (event) => {
-        const isDeferredLink = event.target.classList.contains(DEFERRED_LINK_CLASS);
-        if (isDeferredLink) {
-          const { href, target } = event.target;
+        const deferredLinkEl = event.target.closest('.deferred-link');
+        if (deferredLinkEl) {
+          const { href, target } = deferredLinkEl;
 
           this.dismiss(event, { href, target });
         }
       });
     }
-  }
-
-  handleFollowLinkCallout(followLink) {
-    followLink.addEventListener('click', (event) => this.registerCalloutWithLink(event));
   }
 
   dismiss = (event, deferredLinkOptions = null) => {
@@ -58,7 +46,6 @@ export default class PersistentUserCallout {
       .post(this.dismissEndpoint, {
         feature_name: this.featureId,
         group_id: this.groupId,
-        namespace_id: this.namespaceId,
         project_id: this.projectId,
       })
       .then(() => {
@@ -69,7 +56,7 @@ export default class PersistentUserCallout {
 
         if (deferredLinkOptions) {
           const { href, target } = deferredLinkOptions;
-          window.open(href, target);
+          visitUrl(href, target === '_blank');
         }
       })
       .catch(() => {
@@ -80,27 +67,6 @@ export default class PersistentUserCallout {
         });
       });
   };
-
-  registerCalloutWithLink(event) {
-    event.preventDefault();
-
-    const { href } = event.currentTarget;
-
-    axios
-      .post(this.dismissEndpoint, {
-        feature_name: this.featureId,
-      })
-      .then(() => {
-        window.location.assign(href);
-      })
-      .catch(() => {
-        createAlert({
-          message: __(
-            'An error occurred while acknowledging the notification. Refresh the page and try again.',
-          ),
-        });
-      });
-  }
 
   static factory(container, options) {
     if (!container) {

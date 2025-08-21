@@ -1,14 +1,17 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Project import and export API
+description: "Import and export projects with the REST API."
 ---
 
-# Project import and export API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Use the project import and export API to import and export projects using file transfers.
 
@@ -18,7 +21,7 @@ Before using the project import and export API, you might want to use the
 After using the project import and export API, you might want to use the
 [Project-level CI/CD variables API](project_level_variables.md).
 
-You must still migrate your [Container Registry](../user/packages/container_registry/index.md)
+You must still migrate your [Container Registry](../user/packages/container_registry/_index.md)
 over a series of Docker pulls and pushes. Re-run any CI/CD pipelines to retrieve any build artifacts.
 
 ## Prerequisites
@@ -43,14 +46,15 @@ project to a web server or to any S3-compatible platform. For exports, GitLab:
 - Administrators can modify the maximum export file size. By default, the maximum is unlimited (`0`). To change this,
   edit `max_export_size` using either:
   - [GitLab UI](../administration/settings/import_and_export_settings.md).
-  - [Application settings API](settings.md#change-application-settings)
+  - [Application settings API](settings.md#update-application-settings)
 - Has a fixed limit for the maximum import file size on GitLab.com. For more information, see
-  [Account and limit settings](../user/gitlab_com/index.md#account-and-limit-settings).
+  [Account and limit settings](../user/gitlab_com/_index.md#account-and-limit-settings).
 
 The `upload[url]` parameter is required if the `upload` parameter is present.
 
 For uploads to Amazon S3, refer to [Generating a pre-signed URL for uploading objects](https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html)
 documentation scripts to generate the `upload[url]`.
+Because of a [known issue](https://gitlab.com/gitlab-org/gitlab/-/issues/430277), you can only upload files with a maximum file size of 5 GB to Amazon S3.
 
 ```plaintext
 POST /projects/:id/export
@@ -58,17 +62,18 @@ POST /projects/:id/export
 
 | Attribute | Type           | Required | Description                              |
 | --------- | -------------- | -------- | ---------------------------------------- |
-| `id`                  | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`                  | integer or string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `upload[url]`         | string | yes      | The URL to upload the project. |
 | `description`         | string | no | Overrides the project description. |
 | `upload`              | hash | no | Hash that contains the information to upload the exported project to a web server. |
 | `upload[http_method]` | string | no      | The HTTP method to upload the exported project. Only `PUT` and `POST` methods allowed. Default is `PUT`. |
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
-    "https://gitlab.example.com/api/v4/projects/1/export" \
-    --data "upload[http_method]=PUT" \
-    --data-urlencode "upload[url]=https://example-bucket.s3.eu-west-3.amazonaws.com/backup?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=<your_access_token>%2F20180312%2Feu-west-3%2Fs3%2Faws4_request&X-Amz-Date=20180312T110328Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=8413facb20ff33a49a147a0b4abcff4c8487cc33ee1f7e450c46e8f695569dbd"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/export" \
+  --data "upload[http_method]=PUT" \
+  --data-urlencode "upload[url]=https://example-bucket.s3.eu-west-3.amazonaws.com/backup?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=<your_access_token>%2F20180312%2Feu-west-3%2Fs3%2Faws4_request&X-Amz-Date=20180312T110328Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=8413facb20ff33a49a147a0b4abcff4c8487cc33ee1f7e450c46e8f695569dbd"
 ```
 
 ```json
@@ -87,16 +92,17 @@ GET /projects/:id/export
 
 | Attribute | Type           | Required | Description                              |
 | --------- | -------------- | -------- | ---------------------------------------- |
-| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" \
-  "https://gitlab.example.com/api/v4/projects/1/export"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/export"
 ```
 
 Status can be one of:
 
-- `none`: No exports _queued_, _started_, _finished_, or _being regenerated_.
+- `none`: No exports queued, started, finished, or being regenerated.
 - `queued`: The request for export is received, and is in the queue to be processed.
 - `started`: The export process has started and is in progress. It includes:
   - The process of exporting.
@@ -136,11 +142,14 @@ GET /projects/:id/export/download
 
 | Attribute | Type              | Required | Description                              |
 | --------- | ----------------- | -------- | ---------------------------------------- |
-| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" --remote-header-name \
-     --remote-name "https://gitlab.example.com/api/v4/projects/5/export/download"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --remote-header-name \
+  --remote-name \
+  --url "https://gitlab.example.com/api/v4/projects/5/export/download"
 ```
 
 ```shell
@@ -150,7 +159,11 @@ ls *export.tar.gz
 
 ## Import a file
 
-> - Requirement for Maintainer role instead of Developer role introduced in GitLab 16.0 and backported to GitLab 15.11.1 and GitLab 15.10.5.
+{{< history >}}
+
+- Requirement for Maintainer role instead of Developer role introduced in GitLab 16.0 and backported to GitLab 15.11.1 and GitLab 15.10.5.
+
+{{< /history >}}
 
 ```plaintext
 POST /projects/import
@@ -173,8 +186,11 @@ The `file=` parameter must point to a file on your file system and be preceded
 by `@`. For example:
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" --form "path=api-project" \
-     --form "file=@/path/to/file" "https://gitlab.example.com/api/v4/projects/import"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --form "path=api-project" \
+  --form "file=@/path/to/file" \
+  --url "https://gitlab.example.com/api/v4/projects/import"
 ```
 
 cURL doesn't support posting a file from a remote server. This example imports a project
@@ -211,18 +227,27 @@ requests.post(url, headers=headers, data=data, files=files)
 }
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 The maximum import file size can be set by the Administrator. It defaults to `0` (unlimited).
-As an administrator, you can modify the maximum import file size. To do so, use the `max_import_size` option in the [Application settings API](settings.md#change-application-settings) or the [Admin Area](../administration/settings/account_and_limit_settings.md).
+As an administrator, you can modify the maximum import file size. To do so, use the `max_import_size` option in the [Application settings API](settings.md#update-application-settings) or the [**Admin** area](../administration/settings/account_and_limit_settings.md).
+
+{{< /alert >}}
 
 ## Import a file from a remote object storage
 
-DETAILS:
-**Status:** Beta
+{{< details >}}
 
-FLAG:
-On self-managed GitLab, by default this feature is available. To hide the feature, an administrator can [disable the feature flag](../administration/feature_flags.md) named `import_project_from_remote_file`.
+- Status: Beta
+
+{{< /details >}}
+
+{{< alert type="flag" >}}
+
+On GitLab Self-Managed, by default this feature is available. To hide the feature, an administrator can [disable the feature flag](../administration/feature_flags/_index.md) named `import_project_from_remote_file`.
 On GitLab.com and GitLab Dedicated, this feature is available.
+
+{{< /alert >}}
 
 ```plaintext
 POST /projects/remote-import
@@ -268,8 +293,12 @@ The `Content-Type` header must be `application/gzip`.
 
 ## Import a single relation
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/425798) in GitLab 16.11 in [beta](../policy/experiment-beta-support.md#beta)), [with a flag](../administration/feature_flags.md) named `single_relation_import`. Disabled by default.
-> - [Enabled on GitLab.com, self-managed and Dedicated](https://gitlab.com/gitlab-org/gitlab/-/issues/455889) in 17.1.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/425798) as a [beta](../policy/development_stages_support.md#beta) in GitLab 16.11 [with a flag](../administration/feature_flags/_index.md) named `single_relation_import`. Disabled by default.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/455889) in GitLab 17.1. Feature flag `single_relation_import` removed.
+
+{{< /history >}}
 
 This endpoint accepts a project export archive and a named relation (issues,
 merge requests, pipelines, or milestones) and re-imports that relation, skipping
@@ -297,11 +326,12 @@ The `file=` parameter must point to a file on your file system and be preceded
 by `@`. For example:
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
-     --form "path=api-project" \
-     --form "file=@/path/to/file" \
-     --form "relation=issues" \
-     "https://gitlab.example.com/api/v4/projects/import-relation"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --form "path=api-project" \
+  --form "file=@/path/to/file" \
+  --form "relation=issues" \
+  --url "https://gitlab.example.com/api/v4/projects/import-relation"
 ```
 
 ```json
@@ -315,7 +345,11 @@ curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
 
 ## Check relation import statuses
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/425798) in GitLab 16.11.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/425798) in GitLab 16.11.
+
+{{< /history >}}
 
 This endpoint fetches the status of any relation imports associated with a project. Because
 only one relation import can be scheduled at a time, you can use this endpoint to check whether
@@ -327,11 +361,12 @@ GET /projects/:id/relation-imports
 
 | Attribute | Type               | Required | Description                                                                          |
 | --------- |--------------------| -------- |--------------------------------------------------------------------------------------|
-| `id`      | integer or string  | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `id`      | integer or string  | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" \
-     "https://gitlab.example.com/api/v4/projects/18/relation-imports"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/18/relation-imports"
 ```
 
 ```json
@@ -356,7 +391,11 @@ Status can be one of:
 
 ## Import a file from AWS S3
 
-> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/350571) in GitLab 15.11. Feature flag `import_project_from_remote_file_s3` removed.
+{{< history >}}
+
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/350571) in GitLab 15.11. Feature flag `import_project_from_remote_file_s3` removed.
+
+{{< /history >}}
 
 ```plaintext
 POST /projects/remote-import-s3
@@ -369,7 +408,7 @@ POST /projects/remote-import-s3
 | `file_key`          | string         | yes      | [AWS S3 file key](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingObjects.html) to identify the file. |
 | `path`              | string         | yes      | The full path of the new project. |
 | `region`            | string         | yes      | [AWS S3 region name](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#Regions) where the file is stored. |
-| `secret_access_key` | string         | yes      | [AWS S3 secret access key](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html#access-keys-and-secret-access-keys). |
+| `secret_access_key` | string         | yes      | [AWS S3 secret access key](https://docs.aws.amazon.com/IAM/latest/UserGuide/security-creds.html#access-keys-and-secret-access-keys). |
 | `name`              | string         | no       | The name of the project to import. If not provided, defaults to the path of the project. |
 | `namespace`         | integer or string | no       | The ID or path of the namespace to import the project to. Defaults to the current user's namespace. |
 
@@ -438,11 +477,12 @@ GET /projects/:id/import
 
 | Attribute | Type           | Required | Description                              |
 | --------- | -------------- | -------- | ---------------------------------------- |
-| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" \
-  "https://gitlab.example.com/api/v4/projects/1/import"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/import"
 ```
 
 Status can be one of:
@@ -460,11 +500,16 @@ be populated with any occurrences of relations that failed to import due to eith
 - Unrecoverable errors.
 - Retries were exhausted. A typical example: query timeouts.
 
-NOTE:
+{{< alert type="note" >}}
+
 An element's `id` field in `failed_relations` references the failure record, not the relation.
 
-NOTE:
+{{< /alert >}}
+
+{{< alert type="note" >}}
+
 The `failed_relations` array is capped to 100 items.
+{{< /alert >}}
 
 ```json
 {

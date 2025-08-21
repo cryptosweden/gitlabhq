@@ -7,15 +7,13 @@ module Gitlab
         module MigratorPgBackendPid
           extend ::Gitlab::Utils::Override
 
-          override :with_advisory_lock_connection
-          def with_advisory_lock_connection
-            super do |conn|
-              Gitlab::Database::Migrations::PgBackendPid.say(conn)
+          override :with_advisory_lock
+          def with_advisory_lock
+            Gitlab::Database::Migrations::PgBackendPid.say(connection)
 
-              yield(conn)
-            ensure
-              Gitlab::Database::Migrations::PgBackendPid.say(conn)
-            end
+            super
+          ensure
+            Gitlab::Database::Migrations::PgBackendPid.say(connection)
           end
         end
 

@@ -7,6 +7,11 @@ RSpec.describe Ci::JobsHelper, feature_category: :continuous_integration do
     let_it_be(:project) { create(:project, :repository) }
     let_it_be(:job) { create(:ci_build, project: project) }
     let_it_be(:user) { create(:user) }
+    let_it_be(:report) { create(:ci_build_report_result, build: job, project: project) }
+
+    before_all do
+      project.add_maintainer(user)
+    end
 
     before do
       helper.instance_variable_set(:@project, project)
@@ -24,12 +29,13 @@ RSpec.describe Ci::JobsHelper, feature_category: :continuous_integration do
         "test_report_summary_url" => "/#{project.full_path}/-/jobs/#{job.id}/test_report_summary.json",
         "page_path" => "/#{project.full_path}/-/jobs/#{job.id}",
         "project_path" => project.full_path,
-        "artifact_help_url" => "/help/user/gitlab_com/index.md#gitlab-cicd",
+        "artifact_help_url" => "/help/user/gitlab_com/_index.md#cicd",
         "deployment_help_url" => "/help/user/project/clusters/deploy_to_cluster.md#troubleshooting",
         "runner_settings_url" => "/#{project.full_path}/-/runners#js-runners-settings",
-        "retry_outdated_job_docs_url" => "/help/ci/pipelines/settings#retry-outdated-jobs",
+        "retry_outdated_job_docs_url" => "/help/ci/pipelines/settings.md#prevent-outdated-deployment-jobs",
         "pipeline_test_report_url" => "/#{project.full_path}/-/pipelines/#{job.pipeline.id}/test_report",
-        "log_viewer_path" => "/#{project.full_path}/-/jobs/#{job.id}/viewer"
+        "log_viewer_path" => "/#{project.full_path}/-/jobs/#{job.id}/viewer",
+        "can_set_pipeline_variables" => Ability.allowed?(user, :set_pipeline_variables, project).to_s
       })
     end
 

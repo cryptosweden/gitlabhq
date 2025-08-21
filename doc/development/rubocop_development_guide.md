@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: RuboCop rule development guidelines
 ---
-
-# RuboCop rule development guidelines
 
 Our codebase style is defined and enforced by [RuboCop](https://github.com/rubocop-hq/rubocop).
 
@@ -28,7 +27,7 @@ discussions, nitpicking, or back-and-forth in reviews. The
 list of styles that commonly come up in reviews and are not enforced.
 
 Additionally, we have dedicated
-[test-specific style guides and best practices](testing_guide/index.md).
+[test-specific style guides and best practices](testing_guide/_index.md).
 
 ## Disabling rules inline
 
@@ -68,7 +67,7 @@ end
 # good
 module Types
   module Domain
-    # rubocop:disable Graphql/AuthorizeTypes -- already authroized in parent entity
+    # rubocop:disable Graphql/AuthorizeTypes -- already authorized in parent entity
     class SomeType < BaseObject
       if condition # rubocop:todo Style/GuardClause -- Cleanup via https://gitlab.com/gitlab-org/gitlab/-/issues/1234567890
         # more logic...
@@ -107,11 +106,26 @@ On the default branch, offenses from cops in the [grace period](rake_tasks.md#ru
 
 A grace period can safely be lifted as soon as there are no warnings for 1 week in the `#f_rubocop` channel on Slack.
 
+When [generating TODOs](rake_tasks.md#generate-initial-rubocop-todo-list), RuboCop cop rules are placed in a grace period under the following conditions:
+
+- The rule was previously in a grace period
+- The rule is newly added
+- The number of violations for the rule has increased since the last generation
+
+## Proposing a new cop or cop change
+
+If you want to make a proposal to enforce a new cop or change existing cop configuration use the
+[`gitlab-styles` merge request template](https://gitlab.com/gitlab-org/ruby/gems/gitlab-styles/-/blob/master/.gitlab/merge_request_templates/New%20Static%20Analysis%20Check.md)
+or the
+[`gitlab` merge request template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/merge_request_templates/New%20Static%20Analysis%20Check.md)
+depending on where you want to add this rule. Using this template encourages
+all maintainers to provide feedback on our preferred style and provides
+a structured way of communicating the consequences of the new rule.
+
 ## Enabling a new cop
 
 1. Enable the new cop in `.rubocop.yml` (if not already done via [`gitlab-styles`](https://gitlab.com/gitlab-org/ruby/gems/gitlab-styles)).
 1. [Generate TODOs for the new cop](rake_tasks.md#generate-initial-rubocop-todo-list).
-1. [Set the new cop to `grace period`](#cop-grace-period).
 1. Create an issue to fix TODOs and encourage community contributions (via ~"quick win" and/or ~"Seeking community contributions"). [See some examples](https://gitlab.com/gitlab-org/gitlab/-/issues/?sort=created_date&state=opened&label_name%5B%5D=quick%20win&label_name%5B%5D=static%20code%20analysis&first_page_size=20).
 1. Create an issue to remove `grace period` after 1 week of silence in the `#f_rubocop` Slack channel. [See an example](https://gitlab.com/gitlab-org/gitlab/-/issues/374903).
 
@@ -155,12 +169,35 @@ located in `.rubocop_todo/gitlab/namespaced_class.yml`.
 
 Make sure to commit any changes in `.rubocop_todo/` after running the Rake task.
 
+## Periodically generating RuboCop todo files
+
+Due to code changes, some RuboCop offenses get automatically fixed over time. To avoid reintroducing these offenses,
+we periodically regenerate the `.rubocop_todo` files.
+
+We use the [housekeeper gem](https://gitlab.com/gitlab-org/gitlab/-/tree/master/gems/gitlab-housekeeper) for this purpose.
+It regenerates the `.rubocop_todo` files and creates a merge request.
+A reviewer is randomly assigned to review the generated merge request.
+
+To run the keep locally follow [these steps](https://gitlab.com/gitlab-org/gitlab/-/tree/master/gems/gitlab-housekeeper#running-for-real)
+and run `bundle exec gitlab-housekeeper -k Keeps::GenerateRubocopTodos`.
+
 ## Reveal existing RuboCop exceptions
 
-To reveal existing RuboCop exceptions in the code that have been excluded via `.rubocop_todo.yml` and
+To reveal existing RuboCop exceptions in the code that have been excluded via
 `.rubocop_todo/**/*.yml`, set the environment variable `REVEAL_RUBOCOP_TODO` to `1`.
 
 This allows you to reveal existing RuboCop exceptions during your daily work cycle and fix them along the way.
 
-NOTE:
-Define permanent `Exclude`s in `.rubocop.yml` instead of `.rubocop_todo/**/*.yml`.
+{{< alert type="note" >}}
+
+Define `Include`s and permanent `Exclude`s in `.rubocop.yml` instead of `.rubocop_todo/**/*.yml`.
+
+{{< /alert >}}
+
+## RuboCop documentation
+
+When creating internal RuboCop rules, these should include RDoc style docs.
+
+These docs are used to generate a static site using Hugo, and are published to <https://gitlab-org.gitlab.io/gitlab/rubocop-docs/>.
+
+The site includes all the internal cops from the `gitlab` and `gitlab-styles` projects, along with "good" and "bad" examples.

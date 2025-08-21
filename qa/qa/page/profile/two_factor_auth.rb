@@ -4,11 +4,12 @@ module QA
   module Page
     module Profile
       class TwoFactorAuth < Page::Base
-        view 'app/assets/javascripts/pages/profiles/two_factor_auths/index.js' do
+        view 'app/views/profiles/two_factor_auths/_configure_later_button.html.haml' do
           element 'configure-it-later-button'
         end
 
-        view 'app/views/profiles/two_factor_auths/show.html.haml' do
+        view 'app/views/profiles/two_factor_auths/_otp_registration.html.haml' do
+          element 'register-otp-authenticator-button'
           element 'otp-secret-content'
           element 'pin-code-field'
           element 'current-password-field'
@@ -23,10 +24,7 @@ module QA
         end
 
         def click_configure_it_later_button
-          # TO DO: Investigate why button does not appear sometimes:
-          # https://gitlab.com/gitlab-org/gitlab/-/issues/382698
           page.refresh
-          return unless has_element?('configure-it-later-button', wait: 60)
 
           click_element 'configure-it-later-button'
           wait_until(max_duration: 10, message: "Waiting for create a group page") do
@@ -35,6 +33,8 @@ module QA
         end
 
         def otp_secret_content
+          click_register_otp_authenticator_button
+
           find_element('otp-secret-content').text.gsub('Key:', '').delete(' ')
         end
 
@@ -44,6 +44,10 @@ module QA
 
         def set_current_password(password)
           fill_element('current-password-field', password)
+        end
+
+        def click_register_otp_authenticator_button
+          click_element 'register-otp-authenticator-button'
         end
 
         def click_register_2fa_app_button

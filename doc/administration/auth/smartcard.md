@@ -1,14 +1,16 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Smart card authentication
 ---
 
-# Smart card authentication
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 GitLab supports authentication using smart cards.
 
@@ -29,8 +31,11 @@ GitLab supports two authentication methods:
 
 ### Authentication against a local database with X.509 certificates
 
-DETAILS:
-**Status:** Experiment
+{{< details >}}
+
+- Status: Experiment
+
+{{< /details >}}
 
 Smart cards with X.509 certificates can be used to authenticate with GitLab.
 
@@ -53,8 +58,11 @@ Certificate:
 
 ### Authentication against a local database with X.509 certificates and SAN extension
 
-DETAILS:
-**Status:** Experiment
+{{< details >}}
+
+- Status: Experiment
+
+{{< /details >}}
 
 Smart cards with X.509 certificates using SAN extensions can be used to authenticate
 with GitLab.
@@ -92,8 +100,11 @@ Certificate:
 
 ### Authentication against an LDAP server
 
-DETAILS:
-**Status:** Experiment
+{{< details >}}
+
+- Status: Experiment
+
+{{< /details >}}
 
 GitLab implements a standard way of certificate matching following
 [RFC4523](https://www.rfc-editor.org/rfc/rfc4523). It uses the
@@ -105,7 +116,12 @@ attribute. As a prerequisite, you must use an LDAP server that:
 
 ### Authentication against an Active Directory LDAP server
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/328074) in GitLab 16.9.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/328074) in GitLab 16.9.
+- [Added](https://gitlab.com/gitlab-org/gitlab/-/issues/514025) `reverse_issuer_and_subject` and `reverse_issuer_and_serial_number` formats in GitLab 17.11.
+
+{{< /history >}}
 
 Active Directory does not support the `certificateExactMatch` rule or the `userCertificate` attribute. Most tools for certificate-based authentication such as smart cards use the `altSecurityIdentities` attribute, which can contain multiple certificates for each user. The data in the field must match [one of the formats Microsoft recommends](https://learn.microsoft.com/en-us/entra/identity/authentication/concept-certificate-based-authentication-certificateuserids#supported-patterns-for-certificate-user-ids).
 
@@ -119,18 +135,30 @@ Use the following attributes to customize the field GitLab checks and the format
 | -------------------------- | ------------------------------------------------------------ |
 | `principal_name`           | `X509:<PN>alice@example.com`                                 |
 | `rfc822_name`              | `X509:<RFC822>bob@example.com`                               |
-| `issuer_and_subject`       | `X509:<I>DC=com,DC=example,CN=EXAMPLE-DC-CA<S>DC=com,DC=example,OU=UserAccounts,CN=cynthia` |
 | `subject`                  | `X509:<S>DC=com,DC=example,OU=UserAccounts,CN=dennis`        |
 | `issuer_and_serial_number` | `X509:<I>DC=com,DC=example,CN=CONTOSO-DC-CA<SR>1181914561`   |
+| `issuer_and_subject`       | `X509:<I>DC=com,DC=example,CN=EXAMPLE-DC-CA<S>DC=com,DC=example,OU=UserAccounts,CN=cynthia` |
+| `reverse_issuer_and_serial_number` | `X509:<I>CN=CONTOSO-DC-CA,DC=example,DC=com<SR>1181914561`   |
+| `reverse_issuer_and_subject`   | `X509:<I>CN=EXAMPLE-DC-CA,DC=example,DC=com<S>DC=com,DC=example,OU=UserAccounts,CN=cynthia` |
 
-For `issuer_and_serial_number` , the `<SR>` portion is in reverse-byte-order, with the least-significant byte first. For more information, see [Microsoft's documentation on `altSecurityIdentities` formats](https://learn.microsoft.com/en-us/archive/blogs/spatdsg/howto-map-a-user-to-a-certificate-via-all-the-methods-available-in-the-altsecurityidentities-attribute).
+For `issuer_and_serial_number`, the `<SR>` portion is in reverse-byte-order, with the least-significant byte first. For more information, see [how to map a user to a certificate using the altSecurityIdentities attribute](https://learn.microsoft.com/en-us/archive/blogs/spatdsg/howto-map-a-user-to-a-certificate-via-all-the-methods-available-in-the-altsecurityidentities-attribute).
 
-NOTE:
+The reverse issuer formats sort the issuer string from the smallest unit to the largest. Some
+Active Directory servers store certificates in this format.
+
+{{< alert type="note" >}}
+
 If no `smartcard_ad_cert_format` is specified, but an LDAP server is configured with `active_directory: true` and smart cards enabled, GitLab defaults to the behavior of 16.8 and earlier, and uses `certificateExactMatch` on the `userCertificate` attribute.
+
+{{< /alert >}}
 
 ### Authentication against Entra ID Domain Services
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/328074) in GitLab 16.9.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/328074) in GitLab 16.9.
+
+{{< /history >}}
 
 [Microsoft Entra ID](https://learn.microsoft.com/en-us/entra/fundamentals/whatis), formerly known as Azure Active Directory, provides a cloud-based directory for companies and organizations. [Entra Domain Services](https://learn.microsoft.com/en-us/entra/identity/domain-services/overview) provides a secure read-only LDAP interface to the directory, but only exposes a limited subset of the fields Entra ID has.
 
@@ -161,10 +189,13 @@ For Linux package installations:
    gitlab_rails['smartcard_client_certificate_required_port'] = 3444
    ```
 
-   NOTE:
+   {{< alert type="note" >}}
+
    Assign a value to at least one of the following variables:
    `gitlab_rails['smartcard_client_certificate_required_host']` or
    `gitlab_rails['smartcard_client_certificate_required_port']`.
+
+   {{< /alert >}}
 
 1. Save the file and [reconfigure](../restart_gitlab.md#reconfigure-a-linux-package-installation)
    GitLab for the changes to take effect.
@@ -255,9 +286,12 @@ For self-compiled installations:
      client_certificate_required_port: 3443
    ```
 
-   NOTE:
+   {{< alert type="note" >}}
+
    Assign a value to at least one of the following variables:
    `client_certificate_required_host` or `client_certificate_required_port`.
+
+   {{< /alert >}}
 
 1. Save the file and [restart](../restart_gitlab.md#self-compiled-installations)
    GitLab for the changes to take effect.
@@ -376,15 +410,3 @@ For self-compiled installations:
 ## Passwords for users created via smart card authentication
 
 The [Generated passwords for users created through integrated authentication](../../security/passwords_for_integrated_authentication_methods.md) guide provides an overview of how GitLab generates and sets passwords for users created via smart card authentication.
-
-<!-- ## Troubleshooting
-
-Include any troubleshooting steps that you can foresee. If you know beforehand what issues
-one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
-This is important to minimize requests for support, and to avoid doc comments with
-questions that you know someone might ask.
-
-Each scenario can be a third-level heading, for example `### Getting error message X`.
-If you have none to add when creating a doc, leave this section in place
-but commented out to help encourage others to add to it in the future. -->

@@ -2,19 +2,28 @@
 stage: Verify
 group: Pipeline Authoring
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Instance-level CI/CD variables API
 ---
 
-# Instance-level CI/CD variables API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+Use this API to interact with [CI/CD variables](../ci/variables/_index.md#for-an-instance) for your instance.
 
 ## List all instance variables
 
-> - `description` parameter [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418331) in GitLab 16.8.
+{{< history >}}
 
-Get the list of all instance-level variables.
+- `description` parameter [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418331) in GitLab 16.8.
+
+{{< /history >}}
+
+Get the list of all instance-level variables. Use the `page` and `per_page` [pagination](rest/_index.md#offset-based-pagination)
+parameters to control the pagination of results.
 
 ```plaintext
 GET /admin/ci/variables
@@ -49,7 +58,11 @@ curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/a
 
 ## Show instance variable details
 
-> - `description` parameter [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418331) in GitLab 16.8.
+{{< history >}}
+
+- `description` parameter [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418331) in GitLab 16.8.
+
+{{< /history >}}
 
 Get the details of a specific instance-level variable.
 
@@ -79,7 +92,11 @@ curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/a
 
 ## Create instance variable
 
-> - `description` parameter [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418331) in GitLab 16.8.
+{{< history >}}
+
+- `description` parameter [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418331) in GitLab 16.8.
+
+{{< /history >}}
 
 Create a new instance-level variable.
 
@@ -118,7 +135,11 @@ curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
 
 ## Update instance variable
 
-> - `description` parameter [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418331) in GitLab 16.8.
+{{< history >}}
+
+- `description` parameter [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/418331) in GitLab 16.8.
+
+{{< /history >}}
 
 Update an instance-level variable.
 

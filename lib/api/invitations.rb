@@ -46,7 +46,7 @@ module API
 
           source = find_source(source_type, params[:id])
 
-          authorize_admin_source_member!(source_type, source)
+          authorize_invite_source_member!(source_type, source)
 
           create_service_params = declared_params.merge(source: source)
 
@@ -101,7 +101,7 @@ module API
           bad_request! unless update_params.any?
 
           result = ::Members::UpdateService
-            .new(current_user, update_params)
+            .new(current_user, update_params.merge({ source: source }))
             .execute(invite)
 
           updated_member = result[:members].first

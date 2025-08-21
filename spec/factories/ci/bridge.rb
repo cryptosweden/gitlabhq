@@ -9,6 +9,8 @@ FactoryBot.define do
     name { 'bridge' }
     created_at { '2013-10-29 09:50:00 CET' }
     status { :created }
+    # We default options to a non-blank value so that `Ci::Metadatable.degenerated?` is false
+    options { { trigger: {} } }
 
     trait :variables do
       yaml_variables do
@@ -25,13 +27,13 @@ FactoryBot.define do
       bridge.project ||= bridge.pipeline.project
 
       if evaluator.downstream.present?
-        bridge.options = bridge.options.to_h.merge(
+        bridge.options = bridge.options.to_h.deep_merge(
           trigger: { project: evaluator.downstream.full_path }
         )
       end
 
       if evaluator.upstream.present?
-        bridge.options = bridge.options.to_h.merge(
+        bridge.options = bridge.options.to_h.deep_merge(
           bridge_needs: { pipeline: evaluator.upstream.full_path }
         )
       end
@@ -80,6 +82,10 @@ FactoryBot.define do
     trait :skipped do
       started
       status { 'skipped' }
+    end
+
+    trait :strategy_mirror do
+      options { { trigger: { strategy: 'mirror' } } }
     end
 
     trait :strategy_depend do

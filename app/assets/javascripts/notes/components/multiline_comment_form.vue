@@ -1,8 +1,8 @@
 <script>
 import { GlFormSelect, GlSprintf } from '@gitlab/ui';
-// eslint-disable-next-line no-restricted-imports
-import { mapActions } from 'vuex';
-import { getSymbol, getLineClasses } from './multiline_comment_utils';
+import { mapActions } from 'pinia';
+import { useNotes } from '~/notes/store/legacy_notes';
+import { getLineClasses } from './multiline_comment_utils';
 
 export default {
   components: { GlFormSelect, GlSprintf },
@@ -24,7 +24,6 @@ export default {
   data() {
     return {
       commentLineStart: {},
-      commentLineEndType: this.lineRange?.end?.line_type || this.line.type,
     };
   },
   computed: {
@@ -48,10 +47,7 @@ export default {
     this.setSelectedCommentPosition();
   },
   methods: {
-    ...mapActions(['setSelectedCommentPosition']),
-    getSymbol({ type }) {
-      return getSymbol(type);
-    },
+    ...mapActions(useNotes, ['setSelectedCommentPosition']),
     getLineClasses(line) {
       return getLineClasses(line);
     },
@@ -74,7 +70,7 @@ export default {
 </script>
 
 <template>
-  <div>
+  <div class="gl-flex gl-flex-wrap gl-items-center gl-gap-2">
     <gl-sprintf
       :message="
         s__('MergeRequestDiffs|Commenting on lines %{selectStart}start%{selectEnd} to %{end}')
@@ -89,7 +85,7 @@ export default {
           :value="commentLineStart"
           :options="commentLineOptions"
           width="sm"
-          class="gl-w-auto gl-align-baseline"
+          class="gl-w-auto"
           @change="updateCommentLineStart"
         />
       </template>

@@ -1,16 +1,24 @@
 <script>
-import { GlCollapsibleListbox, GlButton, GlIcon, GlSprintf, GlButtonGroup } from '@gitlab/ui';
-// eslint-disable-next-line no-restricted-imports
-import { mapActions, mapState } from 'vuex';
+import {
+  GlCollapsibleListbox,
+  GlButton,
+  GlIcon,
+  GlSprintf,
+  GlButtonGroup,
+  GlTooltipDirective,
+} from '@gitlab/ui';
+import { mapActions, mapState } from 'pinia';
 import { InternalEvents } from '~/tracking';
 import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
 import { __ } from '~/locale';
+import { SORT_DIRECTION_UI } from '~/search/sort/constants';
 import {
   MR_FILTER_OPTIONS,
   MR_FILTER_TRACKING_OPENED,
   MR_FILTER_TRACKING_USER_COMMENTS,
   MR_FILTER_TRACKING_BOT_COMMENTS,
 } from '~/notes/constants';
+import { useNotes } from '~/notes/store/legacy_notes';
 
 const filterOptionToTrackingEventMap = {
   comments: MR_FILTER_TRACKING_USER_COMMENTS,
@@ -27,6 +35,9 @@ export default {
     GlSprintf,
     LocalStorageSync,
   },
+  directives: {
+    GlTooltip: GlTooltipDirective,
+  },
   mixins: [InternalEvents.mixin()],
   data() {
     return {
@@ -35,10 +46,7 @@ export default {
     };
   },
   computed: {
-    ...mapState({
-      mergeRequestFilters: (state) => state.notes.mergeRequestFilters,
-      discussionSortOrder: (state) => state.notes.discussionSortOrder,
-    }),
+    ...mapState(useNotes, ['mergeRequestFilters', 'discussionSortOrder']),
     selectedFilterText() {
       const { length } = this.mergeRequestFilters;
 
@@ -51,21 +59,25 @@ export default {
       if (length === MR_FILTER_OPTIONS.length) {
         return __('All activity');
       }
-      if (length > 1) {
-        return `%{strongStart}${firstSelected.text}%{strongEnd} +${length - 1} more`;
-      }
 
       return firstSelected.text;
     },
     isSortAsc() {
       return this.discussionSortOrder === 'asc';
     },
-    sortIcon() {
-      return this.isSortAsc ? 'sort-lowest' : 'sort-highest';
+    sortDirectionData() {
+      return this.isSortAsc ? SORT_DIRECTION_UI.asc : SORT_DIRECTION_UI.desc;
+    },
+    firstSelected() {
+      return MR_FILTER_OPTIONS.find(({ value }) => this.mergeRequestFilters[0] === value);
+    },
+    multipleSelected() {
+      const { length } = this.mergeRequestFilters;
+      return length > 1 && length !== MR_FILTER_OPTIONS.length;
     },
   },
   methods: {
-    ...mapActions(['updateMergeRequestFilters', 'setDiscussionSortDirection']),
+    ...mapActions(useNotes, ['updateMergeRequestFilters', 'setDiscussionSortDirection']),
     updateSortDirection() {
       this.setDiscussionSortDirection({
         direction: this.isSortAsc ? 'desc' : 'asc',
@@ -114,6 +126,7 @@ export default {
     },
   },
   MR_FILTER_OPTIONS,
+  multipleSelectedPhrase: __('%{strongStart}%{firstSelected}%{strongEnd} +%{length} more'),
 };
 </script>
 
@@ -146,8 +159,14 @@ export default {
         @select="select"
       >
         <template #toggle>
-          <gl-button class="gl-rounded-top-right-none! gl-rounded-bottom-right-none!">
-            <gl-sprintf :message="selectedFilterText">
+          <gl-button class="!gl-rounded-br-none !gl-rounded-tr-none !gl-border-r-0">
+            <gl-sprintf v-if="multipleSelected" :message="$options.multipleSelectedPhrase">
+              <template #length>{{ mergeRequestFilters.length - 1 }}</template>
+              <template #strong>
+                <strong>{{ firstSelected.text }}</strong>
+              </template>
+            </gl-sprintf>
+            <gl-sprintf v-else :message="selectedFilterText">
               <template #strong="{ content }">
                 <strong>{{ content }}</strong>
               </template>
@@ -160,7 +179,14 @@ export default {
           <span v-else>{{ item.text }}</span>
         </template>
       </gl-collapsible-listbox>
-      <gl-button :icon="sortIcon" @click="updateSortDirection" />
+      <gl-button
+        v-gl-tooltip
+        data-testid="mr-discussion-sort-direction"
+        :aria-label="sortDirectionData.tooltip"
+        :title="sortDirectionData.tooltip"
+        :icon="sortDirectionData.icon"
+        @click="updateSortDirection"
+      />
     </gl-button-group>
   </div>
 </template>

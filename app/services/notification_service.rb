@@ -75,15 +75,19 @@ class NotificationService
     end
   end
 
-  def bot_resource_access_token_about_to_expire(bot_user, token_name)
-    recipients = bot_user.resource_bot_owners_and_maintainers.select { |user| user.can?(:receive_notifications) }
+  def bot_resource_access_token_about_to_expire(bot_user, token_name, params = {})
     resource = bot_user.resource_bot_resource
 
-    recipients.each do |recipient|
+    bot_resource_access_token_about_to_expire_recipients(bot_user) do |recipient|
+      next unless recipient.can?(:receive_notifications)
+
+      log_info("Notifying resource access token owner about expiring tokens", recipient)
+
       mailer.bot_resource_access_token_about_to_expire_email(
         recipient,
         resource,
-        token_name
+        token_name,
+        params
       ).deliver_later
     end
   end
@@ -97,10 +101,12 @@ class NotificationService
 
   # Notify the owner of the personal access token, when it is about to expire
   # And mark the token with about_to_expire_delivered
-  def access_token_about_to_expire(user, token_names)
+  def access_token_about_to_expire(user, token_names, params = {})
     return unless user.can?(:receive_notifications)
 
-    mailer.access_token_about_to_expire_email(user, token_names).deliver_later
+    log_info("Notifying User about expiring tokens", user)
+
+    mailer.access_token_about_to_expire_email(user, token_names, params).deliver_later
   end
 
   # Notify the user when at least one of their personal access tokens has expired today
@@ -115,6 +121,23 @@ class NotificationService
     return unless user.can?(:receive_notifications)
 
     mailer.access_token_revoked_email(user, token_name, source).deliver_later
+  end
+
+  # Notify the user when one of their personal access tokens is rotated
+  def access_token_rotated(user, token_name)
+    return unless user.can?(:receive_notifications)
+
+    mailer.access_token_rotated_email(user, token_name).deliver_later
+  end
+
+  # Notify the owner of the deploy token, when it is about to expire
+  def deploy_token_about_to_expire(user, token_name, project, params = {})
+    return unless user.can?(:receive_notifications)
+    return unless project.team.owner?(user) || project.team.maintainer?(user)
+
+    log_info("Notifying user about expiring deploy tokens", user)
+
+    mailer.deploy_token_about_to_expire_email(user, token_name, project, params).deliver_later
   end
 
   # Notify the user when at least one of their ssh key has expired today
@@ -133,10 +156,10 @@ class NotificationService
 
   # Notify a user when a previously unknown IP or device is used to
   # sign in to their account
-  def unknown_sign_in(user, ip, time)
+  def unknown_sign_in(user, ip, time, request_info)
     return unless user.can?(:receive_notifications)
 
-    mailer.unknown_sign_in_email(user, ip, time).deliver_later
+    mailer.unknown_sign_in_email(user, ip, time, country: request_info.country, city: request_info.city).deliver_later
   end
 
   # Notify a user when a wrong 2FA OTP has been entered to
@@ -431,38 +454,6 @@ class NotificationService
     send_service_desk_notification(note)
   end
 
-  def send_new_note_notifications(note)
-    notify_method = "note_#{note.noteable_ability_name}_email".to_sym
-
-    recipients = NotificationRecipients::BuildService.build_new_note_recipients(note)
-    recipients.each do |recipient|
-      mailer.send(notify_method, recipient.user.id, note.id, recipient.reason).deliver_later
-    end
-  end
-
-  def send_service_desk_notification(note)
-    return unless note.noteable_type == 'Issue'
-    return if note.confidential
-    return unless note.project.service_desk_enabled?
-
-    issue = note.noteable
-    recipients = issue.issue_email_participants
-
-    return unless recipients.any?
-
-    # Only populated if note is from external participant
-    note_external_author = note.note_metadata&.email_participant&.downcase
-
-    recipients.each do |recipient|
-      # Don't send Service Desk notification if the recipient is the author of the note.
-      # We store emails as-is but compare downcased versions.
-      next if recipient.email.downcase == note_external_author
-
-      mailer.service_desk_new_note_email(issue.id, note.id, recipient).deliver_later
-      Gitlab::Metrics::BackgroundTransaction.current&.add_event(:service_desk_new_note_email)
-    end
-  end
-
   # Notify users when a new release is created
   def send_new_release_notifications(release)
     unless release.author&.can_trigger_notifications?
@@ -497,35 +488,6 @@ class NotificationService
     mailer.user_deactivated_email(name, email).deliver_later
   end
 
-  # Members
-  def new_access_request(member)
-    return true unless member.notifiable?(:subscription)
-
-    recipients = member.source.access_request_approvers_to_be_notified
-
-    return true if recipients.empty?
-
-    recipients.each { |recipient| deliver_access_request_email(recipient, member) }
-  end
-
-  def decline_access_request(member)
-    return true unless member.notifiable?(:subscription)
-
-    mailer.member_access_denied_email(member.real_source_type, member.source_id, member.user_id).deliver_later
-  end
-
-  def decline_invite(member)
-    # Must always send, regardless of project/namespace configuration since it's a
-    # response to the user's action.
-
-    mailer.member_invite_declined_email(
-      member.real_source_type,
-      member.source.id,
-      member.invite_email,
-      member.created_by_id
-    ).deliver_later
-  end
-
   def new_member(member)
     notifiable_options = case member.source
                          when Group
@@ -537,12 +499,6 @@ class NotificationService
     return true unless member.notifiable?(:mention, notifiable_options)
 
     mailer.member_access_granted_email(member.real_source_type, member.id).deliver_later
-  end
-
-  def accept_invite(member)
-    return true if member.source.is_a?(Project) && !member.notifiable?(:subscription)
-
-    mailer.member_invite_accepted_email(member.real_source_type, member.id).deliver_later
   end
 
   def updated_member_access_level(member)
@@ -562,10 +518,6 @@ class NotificationService
     return true unless member.notifiable?(:mention)
 
     mailer.member_about_to_expire_email(member.real_source_type, member.id).deliver_later
-  end
-
-  def invite_member_reminder(group_member, token, reminder_index)
-    mailer.member_invited_reminder_email(group_member.real_source_type, group_member.id, token, reminder_index).deliver_later
   end
 
   def project_was_moved(project, old_path_with_namespace)
@@ -613,13 +565,18 @@ class NotificationService
     mailer.project_was_not_exported_email(current_user, project, errors).deliver_later
   end
 
+  def email_template_name(status)
+    "pipeline_#{status}_email"
+  end
+
   def pipeline_finished(pipeline, ref_status: nil, recipients: nil)
     # Must always check project configuration since recipients could be a list of emails
     # from the PipelinesEmailService integration.
     return if pipeline.project.emails_disabled?
 
+    # If changing the next line don't forget to do the same in EE section
     status = pipeline_notification_status(ref_status, pipeline)
-    email_template = "pipeline_#{status}_email"
+    email_template = email_template_name(status)
 
     return unless mailer.respond_to?(email_template)
 
@@ -633,6 +590,12 @@ class NotificationService
 
     recipients.each do |recipient|
       mailer.public_send(email_template, pipeline, recipient).deliver_later
+    end
+  end
+
+  def pipeline_schedule_owner_unavailable(schedule)
+    schedule.project.owners_and_maintainers.each do |recipient|
+      mailer.pipeline_schedule_owner_unavailable_email(schedule, recipient).deliver_later
     end
   end
 
@@ -698,6 +661,18 @@ class NotificationService
     return if project.emails_disabled?
 
     mailer.send(:repository_cleanup_failure_email, project, user, error).deliver_later
+  end
+
+  def repository_rewrite_history_success(project, user)
+    return if project.emails_disabled?
+
+    mailer.repository_rewrite_history_success_email(project, user).deliver_later
+  end
+
+  def repository_rewrite_history_failure(project, user, error)
+    return if project.emails_disabled?
+
+    mailer.repository_rewrite_history_failure_email(project, user, error).deliver_later
   end
 
   def remote_mirror_update_failed(remote_mirror)
@@ -809,6 +784,32 @@ class NotificationService
     mailer.new_achievement_email(user, achievement)
   end
 
+  def project_scheduled_for_deletion(project)
+    return if project.emails_disabled?
+
+    recipients = owners_without_invites(project)
+
+    recipients.each do |recipient|
+      mailer.project_scheduled_for_deletion(
+        recipient.id,
+        project.id
+      ).deliver_later
+    end
+  end
+
+  def group_scheduled_for_deletion(group)
+    return if group.emails_disabled?
+
+    recipients = group.members.active_without_invites_and_requests.owners.map(&:user)
+
+    recipients.each do |recipient|
+      mailer.group_scheduled_for_deletion(
+        recipient.id,
+        group.id
+      ).deliver_later
+    end
+  end
+
   protected
 
   def new_resource_email(target, current_user, method)
@@ -890,6 +891,56 @@ class NotificationService
 
   private
 
+  def send_new_note_notifications(note)
+    notify_method = :"note_#{note.noteable_ability_name}_email"
+
+    recipients = NotificationRecipients::BuildService.build_new_note_recipients(note)
+    recipients.each do |recipient|
+      mailer.send(notify_method, recipient.user.id, note.id, recipient.reason).deliver_later
+    end
+  end
+
+  def send_service_desk_notification(note)
+    return unless note.noteable_type == 'Issue'
+    return if note.confidential
+    return unless note.project && ::ServiceDesk.enabled?(note.project)
+
+    issue = note.noteable
+    recipients = issue.issue_email_participants
+
+    return unless recipients.any?
+
+    # Only populated if note is from external participant
+    note_external_author = note.note_metadata&.email_participant&.downcase
+
+    recipients.each do |recipient|
+      # Don't send Service Desk notification if the recipient is the author of the note.
+      # We store emails as-is but compare downcased versions.
+      next if recipient.email.downcase == note_external_author
+
+      mailer.service_desk_new_note_email(issue.id, note.id, recipient).deliver_later
+      Gitlab::Metrics::BackgroundTransaction.current&.add_event(:service_desk_new_note_email)
+    end
+  end
+
+  def owners_without_invites(project)
+    recipients = project.members.active_without_invites_and_requests.owners
+
+    if recipients.empty? && project.group
+      recipients = project.group.members.active_without_invites_and_requests.owners
+    end
+
+    recipients.map(&:user)
+  end
+
+  def log_info(message_text, user)
+    Gitlab::AppLogger.info(
+      message: message_text,
+      class: self.class,
+      user_id: user.id
+    )
+  end
+
   def approve_mr_email(merge_request, project, current_user)
     recipients = ::NotificationRecipients::BuildService.build_recipients(merge_request, current_user, action: 'approve')
 
@@ -938,16 +989,63 @@ class NotificationService
     NotificationRecipients::BuildService.build_project_maintainers_recipients(target, action: action)
   end
 
+  def bot_resource_access_token_about_to_expire_recipients(bot_user)
+    resource = bot_user.resource_bot_resource
+
+    if send_bot_rat_expiry_to_inherited?(resource)
+      inherited_rat_members_relation(resource, bot_user).find_each do |user|
+        yield user
+      end
+    else
+      bot_user.resource_bot_owners_and_maintainers.find_each do |user|
+        yield user
+      end
+    end
+  end
+
+  def inherited_rat_members_relation(resource, bot_user)
+    finder = case resource
+             when Group
+               GroupMembersFinder.new(
+                 resource,
+                 bot_user,
+                 params: {
+                   access_levels: [
+                     Gitlab::Access::OWNER,
+                     Gitlab::Access::ADMIN
+                   ],
+                   non_invite: true
+                 }
+               ).execute(include_relations: [:direct, :inherited])
+             when Project
+               MembersFinder
+                 .new(
+                   resource,
+                   bot_user,
+                   params: {
+                     owners_and_maintainers: true,
+                     active_without_invites_and_requests: true
+                   }
+                 ).execute(include_relations: [:direct, :inherited])
+             else
+               raise ArgumentError, "#{bot_user} is not connected to a Group or Project"
+             end
+
+    User.id_in(finder.distinct(false).reselect('DISTINCT user_id')) # rubocop:disable CodeReuse/ActiveRecord -- moving this to the finder or model adds a lot of complexity and risk
+  end
+
+  def send_bot_rat_expiry_to_inherited?(group_or_project)
+    namespace = group_or_project.is_a?(Namespace) ? group_or_project : group_or_project.namespace
+
+    namespace.resource_access_token_notify_inherited?
+  end
+
   def notifiable?(...)
     NotificationRecipients::BuildService.notifiable?(...)
   end
 
   def notifiable_users(...)
     NotificationRecipients::BuildService.notifiable_users(...)
-  end
-
-  def deliver_access_request_email(recipient, member)
-    mailer.member_access_requested_email(member.real_source_type, member.id, recipient.user.id).deliver_later
   end
 
   def warn_skipping_notifications(user, object)

@@ -14,11 +14,13 @@ module Security
       end
 
       def execute
-        if project.repository.empty? && !(@params && @params[:initialize_with_sast])
+        if project.repository.empty? &&
+            !(@params && (@params[:initialize_with_sast] ||
+                         @params[:initialize_with_secret_detection]))
           docs_link = ActionController::Base.helpers.link_to(
             _('add at least one file to the repository'),
             Rails.application.routes.url_helpers.help_page_url(
-              'user/project/repository/index.md', anchor: 'add-files-to-a-repository'
+              'user/project/repository/_index.md', anchor: 'add-files-to-a-repository'
             ),
             target: '_blank',
             rel: 'noopener noreferrer'
@@ -66,12 +68,13 @@ module Security
         return if root_ref.nil?
 
         @gitlab_ci_yml ||= project.ci_config_for(root_ref)
-        YAML.safe_load(@gitlab_ci_yml) if @gitlab_ci_yml
-      rescue Psych::BadAlias
-        raise CiContentParseError, _(".gitlab-ci.yml with aliases/anchors is not supported. " \
-                                     "Please change the CI configuration manually.")
-      rescue Psych::Exception => e
+        Gitlab::Ci::Config::Yaml.load!(@gitlab_ci_yml, ::Gitlab::Ci::Config::Yaml::Context.new) if @gitlab_ci_yml
+      rescue Gitlab::Config::Loader::FormatError => e
         Gitlab::AppLogger.error("Failed to process existing .gitlab-ci.yml: #{e.message}")
+
+        raise CiContentParseError, "#{name} merge request creation failed"
+      rescue ::Gitlab::Ci::Config::Yaml::LoadError => e
+        Gitlab::AppLogger.error("Failed to load existing .gitlab-ci.yml: #{e.message}")
 
         raise CiContentParseError, "#{name} merge request creation failed"
       end
@@ -82,7 +85,10 @@ module Security
       end
 
       def remove_branch_on_exception
-        project.repository.rm_branch(current_user, branch_name) if project.repository.branch_exists?(branch_name)
+        return unless project.repository.branch_exists?(branch_name)
+
+        target_sha = project.repository.commit(branch_name).sha
+        project.repository.rm_branch(current_user, branch_name, target_sha: target_sha)
       end
 
       def track_event(attributes_for_commit)

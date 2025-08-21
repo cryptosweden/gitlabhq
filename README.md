@@ -36,7 +36,7 @@ files in this repository.
 
 ## Hiring
 
-We are hiring developers, support people, and production engineers all the time, please see our [jobs page](https://about.gitlab.com/jobs/).
+We are hiring developers, support engineers, and production engineers all the time, please see our [jobs page](https://about.gitlab.com/jobs/).
 
 ## Website
 
@@ -56,10 +56,10 @@ Please see the [requirements documentation](doc/install/requirements.md) for sys
 ## Installation
 
 The recommended way to install GitLab is with the [Omnibus packages](https://about.gitlab.com/downloads/) on our package server.
-Compared to an installation from source, this is faster and less error prone.
+Compared to [a self-compiled installation](https://docs.gitlab.com/install/installation/), this is faster and less error prone.
 Just select your operating system, download the respective package (Debian or RPM) and install it using the system's package manager.
 
-There are various other options to install GitLab, please refer to the [installation page on the GitLab website](https://about.gitlab.com/installation/) for more information.
+For more information about other installation methods, see [install GitLab](https://about.gitlab.com/install/).
 
 ## Contributing
 
@@ -67,8 +67,8 @@ GitLab is an open source project and we are very happy to accept community contr
 
 ## Install a development environment
 
-To work on GitLab itself, we recommend setting up your development environment with [the GitLab Development Kit](https://gitlab.com/gitlab-org/gitlab-development-kit).
-If you do not use the GitLab Development Kit you need to install and configure all the dependencies yourself, this is a lot of work and error prone.
+To work on GitLab itself, we recommend setting up your development environment with [the GitLab Development Kit (GDK)](https://gitlab.com/gitlab-org/gitlab-development-kit).
+If you do not use GDK, you need to [install and configure all the dependencies yourself](https://docs.gitlab.com/install/installation/), this is a lot of work and error prone.
 One small thing you also have to do when installing it yourself is to copy the example development Puma configuration file:
 
 ```shell
@@ -82,7 +82,7 @@ Instructions on how to start GitLab and how to run the tests can be found in the
 GitLab is a Ruby on Rails application that runs on the following software:
 
 - Ubuntu/Debian/CentOS/RHEL/OpenSUSE
-- Ruby (MRI) 3.1.4
+- Ruby (MRI) 3.2.5
 - Git 2.33+
 - Redis 6.0+
 - PostgreSQL 14.9+

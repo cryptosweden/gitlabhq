@@ -1,16 +1,22 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Plan
+group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: ClickUp
 ---
 
-# ClickUp
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/120732) in GitLab 16.1.
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/120732) in GitLab 16.1.
+
+{{< /history >}}
 
 You can use [ClickUp](https://clickup.com/) as an external issue tracker.
 To enable the ClickUp integration in a project:
@@ -36,9 +42,9 @@ For example, this is a configuration for a project named `gitlab-ci`:
 - Project URL: `https://app.clickup.com/1234567`
 - Issue URL: `https://app.clickup.com/t/1234567/:id`
 
-You can also disable [GitLab internal issue tracking](../issues/index.md) in this project.
+You can also disable [GitLab internal issue tracking](../issues/_index.md) in this project.
 For more information about the steps and consequences of disabling GitLab issues, see
-Configure project [visibility](../../../user/public_access.md#change-project-visibility), [features, and permissions](../settings/index.md#configure-project-features-and-permissions).
+Configure project [visibility](../../public_access.md#change-project-visibility), [features, and permissions](../settings/_index.md#configure-project-features-and-permissions).
 
 ## Reference ClickUp issues in GitLab
 

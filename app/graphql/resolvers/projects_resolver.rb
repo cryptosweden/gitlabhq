@@ -2,8 +2,8 @@
 
 module Resolvers
   class ProjectsResolver < BaseResolver
+    prepend ::Projects::LookAheadPreloads
     include ProjectSearchArguments
-    include LooksAhead
 
     type Types::ProjectType.connection_type, null: true
 
@@ -22,6 +22,46 @@ module Resolvers
     argument :with_merge_requests_enabled, GraphQL::Types::Boolean,
       required: false,
       description: "Return only projects with merge requests enabled."
+
+    argument :archived, ::Types::Projects::ArchivedEnum,
+      required: false,
+      description: 'Filter projects by archived status.'
+
+    argument :min_access_level, ::Types::AccessLevelEnum,
+      required: false,
+      description: 'Return only projects where current user has at least the specified access level.'
+
+    argument :programming_language_name, GraphQL::Types::String,
+      required: false,
+      description: 'Filter projects by programming language name (case insensitive). For example: "css" or "ruby".'
+
+    argument :trending, GraphQL::Types::Boolean,
+      required: false,
+      description: "Return only projects that are trending."
+
+    argument :aimed_for_deletion, GraphQL::Types::Boolean,
+      required: false,
+      description: 'Return only projects marked for deletion.'
+
+    argument :not_aimed_for_deletion, GraphQL::Types::Boolean,
+      required: false,
+      description: "Exclude projects that are marked for deletion."
+
+    argument :marked_for_deletion_on, ::Types::DateType,
+      required: false,
+      description: 'Date when the project was marked for deletion.'
+
+    argument :active, GraphQL::Types::Boolean,
+      required: false,
+      description: "Filters by projects that are not archived and not marked for deletion."
+
+    argument :visibility_level, ::Types::VisibilityLevelsEnum,
+      required: false,
+      description: 'Filter projects by visibility level.'
+
+    before_connection_authorization do |projects, current_user|
+      ::Preloaders::UserMaxAccessLevelInProjectsPreloader.new(projects, current_user).execute
+    end
 
     def resolve_with_lookahead(**args)
       validate_args!(args)
@@ -42,21 +82,16 @@ module Resolvers
     end
 
     def unconditional_includes
-      [:creator, :group, :invited_groups, :project_setting]
-    end
-
-    def preloads
-      {
-        full_path: [:route],
-        topics: [:topics],
-        import_status: [:import_state],
-        service_desk_address: [:project_feature, :service_desk_setting],
-        jira_import_status: [:jira_imports],
-        container_repositories: [:container_repositories],
-        container_repositories_count: [:container_repositories],
-        web_url: { namespace: [:route] },
-        is_catalog_resource: [:catalog_resource]
-      }
+      [
+        :creator,
+        :group,
+        :invited_groups,
+        :project_setting,
+        :project_namespace,
+        {
+          namespace: [:namespace_settings_with_ancestors_inherited_settings]
+        }
+      ]
     end
 
     def finder_params(args)
@@ -64,7 +99,17 @@ module Resolvers
         **project_finder_params(args),
         with_issues_enabled: args[:with_issues_enabled],
         with_merge_requests_enabled: args[:with_merge_requests_enabled],
-        full_paths: args[:full_paths]
+        full_paths: args[:full_paths],
+        archived: args[:archived],
+        min_access_level: args[:min_access_level],
+        language_name: args[:programming_language_name],
+        trending: args[:trending],
+        aimed_for_deletion: args[:aimed_for_deletion],
+        not_aimed_for_deletion: args[:not_aimed_for_deletion],
+        marked_for_deletion_on: args[:marked_for_deletion_on],
+        visibility_level: args[:visibility_level],
+        active: args[:active],
+        organization: ::Current.organization
       }
     end
 

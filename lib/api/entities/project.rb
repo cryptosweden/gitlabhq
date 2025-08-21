@@ -41,10 +41,12 @@ module API
         end
       end
 
+      expose :marked_for_deletion_at
+      expose :marked_for_deletion_at, as: :marked_for_deletion_on
+
       expose :packages_enabled, documentation: { type: 'boolean' }
       expose :empty_repo?, as: :empty_repo, documentation: { type: 'boolean' }
-      expose :archived?, as: :archived, documentation: { type: 'boolean' }
-      expose :visibility, documentation: { type: 'string', example: 'public' }
+      expose :self_or_ancestors_archived?, as: :archived, documentation: { type: 'boolean' }
       expose :owner, using: Entities::UserBasic, unless: ->(project, options) { project.group }
       expose :resolve_outdated_diff_discussions, documentation: { type: 'boolean' }
       expose :container_expiration_policy,
@@ -60,9 +62,11 @@ module API
       expose(:jobs_enabled, documentation: { type: 'boolean' }) { |project, options| project.feature_available?(:builds, options[:current_user]) }
       expose(:snippets_enabled, documentation: { type: 'boolean' }) { |project, options| project.feature_available?(:snippets, options[:current_user]) }
       expose(:container_registry_enabled, documentation: { type: 'boolean' }) { |project, options| project.feature_available?(:container_registry, options[:current_user]) }
-      expose :service_desk_enabled, documentation: { type: 'boolean' }
-      expose :service_desk_address, documentation: { type: 'string', example: 'address@example.com' }, if: ->(project, options) do
-        Ability.allowed?(options[:current_user], :admin_issue, project)
+      expose(:service_desk_enabled, documentation: { type: 'boolean' }) { |project, options| ::ServiceDesk.enabled?(project) }
+
+      expose :service_desk_address, documentation: { type: 'string', example: 'address@example.com' },
+        if: ->(project, options) { Ability.allowed?(options[:current_user], :admin_issue, project) } do |project|
+        ::ServiceDesk::Emails.new(project).address
       end
 
       expose(:can_create_merge_request_in, documentation: { type: 'boolean' }) do |project, options|
@@ -90,6 +94,7 @@ module API
 
       expose(:emails_disabled, documentation: { type: 'boolean' }) { |project, options| project.emails_disabled? }
       expose :emails_enabled, documentation: { type: 'boolean' }
+      expose(:show_diff_preview_in_email, documentation: { type: 'boolean' }) { |project, options| project.show_diff_preview_in_email? }
 
       expose :shared_runners_enabled, documentation: { type: 'boolean' }
       expose :lfs_enabled?, as: :lfs_enabled, documentation: { type: 'boolean' }
@@ -101,28 +106,29 @@ module API
       end
       expose :import_type, documentation: { type: 'string', example: 'git' }, if: ->(project, options) { Ability.allowed?(options[:current_user], :admin_project, project) }
       expose :import_status, documentation: { type: 'string', example: 'none' }
-      expose :import_error, documentation: { type: 'string', example: 'Import error' }, if: lambda { |_project, options| options[:user_can_admin_project] } do |project|
+      expose :import_error, documentation: { type: 'string', example: 'Import error' }, if: ->(_project, options) { options[:user_can_admin_project] } do |project|
         project.import_state&.last_error
       end
-      expose :open_issues_count, documentation: { type: 'integer', example: 1 }, if: lambda { |project, options| project.feature_available?(:issues, options[:current_user]) }
+      expose :open_issues_count, documentation: { type: 'integer', example: 1 }, if: ->(project, options) { project.feature_available?(:issues, options[:current_user]) }
       expose :description_html, documentation: { type: 'string' }
       expose :updated_at, documentation: { type: 'dateTime', example: '2020-05-07T04:27:17.016Z' }
 
       with_options if: ->(_, _) { Ability.allowed?(options[:current_user], :admin_project, project) } do
         # CI/CD Settings
         expose :ci_default_git_depth, documentation: { type: 'integer', example: 20 }
+        expose :ci_delete_pipelines_in_seconds, documentation: { type: 'integer', example: 86400 }
         expose :ci_forward_deployment_enabled, documentation: { type: 'boolean' }
         expose :ci_forward_deployment_rollback_allowed, documentation: { type: 'boolean' }
         expose(:ci_job_token_scope_enabled, documentation: { type: 'boolean' }) { |p, _| p.ci_outbound_job_token_scope_enabled? }
         expose :ci_separated_caches, documentation: { type: 'boolean' }
         expose :ci_allow_fork_pipelines_to_run_in_parent_project, documentation: { type: 'boolean' }
+        expose :ci_id_token_sub_claim_components, documentation: { is_array: true, type: 'string' }
         expose :build_git_strategy, documentation: { type: 'string', example: 'fetch' } do |project, options|
           project.build_allow_git_fetch ? 'fetch' : 'clone'
         end
         expose :keep_latest_artifacts_available?, as: :keep_latest_artifact, documentation: { type: 'boolean' }
-        expose :restrict_user_defined_variables, documentation: { type: 'boolean' }
+        expose(:restrict_user_defined_variables, documentation: { type: 'boolean' }) { |p, _| p.restrict_user_defined_variables? }
         expose :ci_pipeline_variables_minimum_override_role, documentation: { type: 'string' }
-        expose :runners_token, documentation: { type: 'string', example: 'b8547b1dc37721d05889db52fa2f02' }
         expose :runner_token_expiration_interval, documentation: { type: 'integer', example: 3600 }
         expose :group_runners_enabled, documentation: { type: 'boolean' }
         expose :auto_cancel_pending_pipelines, documentation: { type: 'string', example: 'enabled' }
@@ -132,6 +138,11 @@ module API
           project.auto_devops.nil? ? 'continuous' : project.auto_devops.deploy_strategy
         end
         expose :ci_push_repository_for_job_token_allowed, documentation: { type: 'boolean' }
+      end
+
+      with_options if: ->(_, _) { Ability.allowed?(options[:current_user], :read_runners_registration_token, project) } do
+        # Runner token settings
+        expose :runners_token, documentation: { type: 'string', example: 'b8547b1dc37721d05889db52fa2f02' }
       end
 
       expose :ci_config_path, documentation: { type: 'string', example: '' }, if: ->(project, options) { Ability.allowed?(options[:current_user], :read_code, project) }
@@ -150,6 +161,8 @@ module API
       expose :remove_source_branch_after_merge, documentation: { type: 'boolean' }
       expose :printing_merge_request_link_enabled, documentation: { type: 'boolean' }
       expose :merge_method, documentation: { type: 'string', example: 'merge' }
+      expose :merge_request_title_regex, documentation: { type: 'string', example: '/Title of merge request/' }
+      expose :merge_request_title_regex_description, documentation: { type: 'string', example: 'This requires the title to include a Jira label' }
       expose :squash_option, documentation: { type: 'string', example: 'default_off' }
       expose :enforce_auth_checks_on_uploads, documentation: { type: 'boolean' }
       expose :suggestion_commit_message, documentation: { type: 'string', example: 'Suggestion message' }
@@ -162,6 +175,8 @@ module API
       expose :warn_about_potentially_unwanted_characters, documentation: { type: 'boolean' }
 
       expose :autoclose_referenced_issues, documentation: { type: 'boolean' }
+
+      expose :max_artifacts_size, documentation: { type: 'integer' }
 
       # rubocop: disable CodeReuse/ActiveRecord
       def self.preload_resource(project)

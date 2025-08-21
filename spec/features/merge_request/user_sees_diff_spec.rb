@@ -47,7 +47,7 @@ RSpec.describe 'Merge request > User sees diff', :js, feature_category: :code_re
       visit "#{diffs_project_merge_request_path(project, merge_request)}##{line_code}"
     end
 
-    it 'shows the linked line' do
+    it 'shows the linked line', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/496702' do
       expect(page).to have_selector("[id='#{line_code}']", visible: true, obscured: false)
     end
   end
@@ -61,6 +61,8 @@ RSpec.describe 'Merge request > User sees diff', :js, feature_category: :code_re
 
       page.within('.gl-alert') do
         expect(page).to have_text("Some changes are not shown. For a faster browsing experience, only 3 of 3+ files are shown. Download one of the files below to see all changes. Plain diff Patches")
+        expect(page).to have_link("Plain diff", href: merge_request_path(merge_request, format: :diff))
+        expect(page).to have_link("Patches", href: merge_request_path(merge_request, format: :patch))
       end
     end
   end
@@ -138,7 +140,7 @@ RSpec.describe 'Merge request > User sees diff', :js, feature_category: :code_re
         find_by_scrolling("[id='#{file_hash}']")
 
         expect(page).to have_text("function foo<input> {")
-        expect(page).to have_css(".line[lang='rust'] .k")
+        expect(page).to have_css(".line[data-lang=\"rust\"] .k")
       end
     end
 

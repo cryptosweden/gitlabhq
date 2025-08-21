@@ -20,6 +20,7 @@ export default {
     pageDescription: {
       default: defaultDescription,
     },
+    legalDisclaimer: { default: '' },
   },
   data() {
     return {
@@ -42,7 +43,7 @@ export default {
     },
     learnMore: __('Learn more'),
   },
-  learnMorePath: helpPagePath('ci/components/index'),
+  learnMorePath: helpPagePath('ci/components/_index'),
   ChatBubbleSvg,
 };
 </script>
@@ -61,12 +62,15 @@ export default {
         {{ $options.i18n.banner.description }}
       </p>
     </gl-banner>
-    <h1 class="page-title gl-font-size-h-display">{{ pageTitle }}</h1>
-    <p>
+    <h1 class="page-title gl-text-size-h-display">{{ pageTitle }}</h1>
+    <p class="gl-mb-3">
       <span data-testid="page-description">{{ pageDescription }}</span>
       <gl-link :href="$options.learnMorePath" target="_blank">{{
         $options.i18n.learnMore
       }}</gl-link>
+    </p>
+    <p v-if="legalDisclaimer" data-testid="legal-disclaimer" class="gl-text-sm gl-text-subtle">
+      {{ legalDisclaimer }}
     </p>
   </div>
 </template>

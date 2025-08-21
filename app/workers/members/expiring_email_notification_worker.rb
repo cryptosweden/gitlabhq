@@ -1,21 +1,21 @@
 # frozen_string_literal: true
 
 module Members
-  class ExpiringEmailNotificationWorker # rubocop:disable Scalability/CronWorkerContext
+  class ExpiringEmailNotificationWorker
     include ApplicationWorker
+    include CronjobChildWorker
 
-    data_consistency :always # rubocop:disable SidekiqLoadBalancing/WorkerDataConsistency
+    data_consistency :always
     feature_category :system_access
     urgency :low
     idempotent!
 
-    def perform(member_id)
-      notification_service = NotificationService.new
-      member = ::Member.find_by_id(member_id)
+    attr_reader :member
 
-      return unless member
-      return unless Feature.enabled?(:member_expiring_email_notification, member.source.root_ancestor)
-      return if member.expiry_notified_at.present?
+    def perform(member_id)
+      member = ::Member.including_user.including_source.find_by_id(member_id)
+
+      return unless valid_for_notification?(member)
 
       with_context(user: member.user) do
         notification_service.member_about_to_expire(member)
@@ -23,6 +23,20 @@ module Members
 
         member.update(expiry_notified_at: Time.current)
       end
+    end
+
+    def valid_for_notification?(member)
+      member.expiry_notified_at.blank? &&
+        member&.user.present? &&
+        member.user.active? &&
+        member.user.human? &&
+        Feature.enabled?(:member_expiring_email_notification, member.source&.root_ancestor)
+    end
+
+    private
+
+    def notification_service
+      @notification_service ||= NotificationService.new
     end
   end
 end

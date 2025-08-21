@@ -2,14 +2,18 @@
 import { GlLink } from '@gitlab/ui';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import Tracking from '~/tracking';
-import { s__, __ } from '~/locale';
+import { newWorkItemId } from '~/work_items/utils';
+import { getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { s__, __, sprintf } from '~/locale';
 import { MILESTONE_STATE } from '~/sidebar/constants';
 import WorkItemSidebarDropdownWidget from '~/work_items/components/shared/work_item_sidebar_dropdown_widget.vue';
+import { ISSUE_MR_CHANGE_MILESTONE } from '~/behaviors/shortcuts/keybindings';
 import projectMilestonesQuery from '~/sidebar/queries/project_milestones.query.graphql';
+import groupMilestonesQuery from '~/sidebar/queries/group_milestones.query.graphql';
 import updateWorkItemMutation from '~/work_items/graphql/update_work_item.mutation.graphql';
 import {
   I18N_WORK_ITEM_ERROR_UPDATING,
-  sprintfWorkItem,
+  NAME_TO_TEXT_LOWERCASE_MAP,
   TRACKING_CATEGORY_SHOW,
 } from '../constants';
 
@@ -37,6 +41,10 @@ export default {
       type: String,
       required: true,
     },
+    isGroup: {
+      type: Boolean,
+      required: true,
+    },
     workItemMilestone: {
       type: Object,
       required: false,
@@ -60,9 +68,11 @@ export default {
       updateInProgress: false,
       milestones: [],
       localMilestone: this.workItemMilestone,
+      shortcut: ISSUE_MR_CHANGE_MILESTONE,
     };
   },
   computed: {
+    // eslint-disable-next-line vue/no-unused-properties
     tracking() {
       return {
         category: TRACKING_CATEGORY_SHOW,
@@ -94,6 +104,9 @@ export default {
     localMilestoneId() {
       return this.localMilestone?.id;
     },
+    localMilestoneNumericId() {
+      return this.localMilestoneId ? getIdFromGraphQLId(this.localMilestoneId) : '';
+    },
   },
   watch: {
     workItemMilestone(newVal) {
@@ -103,7 +116,9 @@ export default {
   },
   apollo: {
     milestones: {
-      query: projectMilestonesQuery,
+      query() {
+        return this.isGroup ? groupMilestonesQuery : projectMilestonesQuery;
+      },
       variables() {
         return {
           fullPath: this.fullPath,
@@ -140,12 +155,34 @@ export default {
         return;
       }
 
+      if (!selectedMilestoneId) {
+        this.localMilestone = null;
+        this.$emit('parentMilestone', null);
+      }
+
       this.localMilestone = selectedMilestoneId
         ? this.milestones.find(({ id }) => id === selectedMilestoneId)
         : null;
 
       this.track('updated_milestone');
       this.updateInProgress = true;
+
+      if (this.workItemId === newWorkItemId(this.workItemType)) {
+        this.$emit('updateWidgetDraft', {
+          milestone: this.localMilestone
+            ? {
+                ...this.localMilestone,
+                webPath: this.localMilestone.webUrl,
+                startDate: '',
+                projectMilestone: false,
+              }
+            : null,
+        });
+        this.updateInProgress = false;
+        this.searchTerm = '';
+        this.shouldFetch = false;
+        return;
+      }
 
       this.$apollo
         .mutate({
@@ -163,10 +200,13 @@ export default {
           if (data.workItemUpdate.errors.length) {
             throw new Error(data.workItemUpdate.errors.join('\n'));
           }
+          this.$emit('milestoneUpdated', selectedMilestoneId);
         })
         .catch((error) => {
           this.localMilestone = this.workItemMilestone;
-          const msg = sprintfWorkItem(I18N_WORK_ITEM_ERROR_UPDATING, this.workItemType);
+          const msg = sprintf(I18N_WORK_ITEM_ERROR_UPDATING, {
+            workItemType: NAME_TO_TEXT_LOWERCASE_MAP[this.workItemType],
+          });
           this.$emit('error', msg);
           Sentry.captureException(error);
         })
@@ -192,6 +232,7 @@ export default {
     :toggle-dropdown-text="dropdownText"
     :header-text="__('Select milestone')"
     :reset-button-label="__('Clear')"
+    :shortcut="shortcut"
     data-testid="work-item-milestone"
     @dropdownShown="onDropdownShown"
     @searchStarted="search"
@@ -202,7 +243,14 @@ export default {
       <div v-if="item.title">{{ item.title }}</div>
     </template>
     <template #readonly>
-      <gl-link class="gl-text-gray-900!" :href="localMilestone.webPath">
+      <gl-link
+        class="has-popover !gl-text-default"
+        :data-milestone="localMilestoneNumericId"
+        data-reference-type="milestone"
+        data-placement="left"
+        :href="localMilestone.webPath"
+        data-testid="work-item-milestone-link"
+      >
         {{ localMilestone.title }}{{ expired }}
       </gl-link>
     </template>

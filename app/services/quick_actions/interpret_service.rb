@@ -32,6 +32,9 @@ module QuickActions
       end.compact
     end
 
+    # IMPORTANT: unsafe! Use `execute_with_original_text` instead as it handles cleanup of any residual quick actions
+    # left in the original description.
+    #
     # Takes a text and interprets the commands that are extracted from it.
     # Returns the content without commands, a hash of changes to be applied to a record
     # and a string containing the execution_message to show to the user.
@@ -46,6 +49,26 @@ module QuickActions
       extract_updates(commands)
 
       [content, @updates, execution_messages_for(commands), command_names(commands)]
+    end
+
+    # Similar to `execute` except also tries to extract any quick actions from original_text,
+    # and if found removes them from the main list of quick actions.
+    def execute_with_original_text(new_text, quick_action_target, only: nil, original_text: nil)
+      sanitized_new_text, new_command_params, execution_messages, command_names = execute(
+        new_text, quick_action_target, only: only
+      )
+
+      if original_text
+        _, original_command_params = self.class.new(
+          container: container,
+          current_user: current_user,
+          params: params
+        ).execute(original_text, quick_action_target, only: only)
+
+        new_command_params = (new_command_params.to_a - original_command_params.to_a).to_h if original_command_params
+      end
+
+      [sanitized_new_text, new_command_params, execution_messages, command_names]
     end
 
     # Takes a text and interprets the commands that are extracted from it.
@@ -99,10 +122,19 @@ module QuickActions
       end
     end
 
-    def find_milestones(project, params = {})
-      group_ids = project.group.self_and_ancestors.select(:id) if project.group
+    def find_milestones(container, params = {})
+      return [] unless container
 
-      MilestonesFinder.new(params.merge(project_ids: [project.id], group_ids: group_ids)).execute
+      group_ids =
+        if container.is_a?(Group)
+          group.self_and_ancestors.select(:id)
+        elsif container.is_a?(Project) && container.group
+          container.group.self_and_ancestors.select(:id)
+        else
+          []
+        end
+
+      MilestonesFinder.new(params.merge(project_ids: [project&.id], group_ids: group_ids)).execute
     end
 
     def parent
@@ -110,7 +142,9 @@ module QuickActions
     end
 
     def find_labels(labels_params = nil)
-      extract_references(labels_params, :label) | find_labels_by_name_no_tilde(labels_params)
+      extracted_references = extract_references(labels_params, :label)
+      extracted_references = extracted_references.reject(&:archived?) if Feature.enabled?(:labels_archive, :instance)
+      extracted_references | find_labels_by_name_no_tilde(labels_params)
     end
 
     def find_labels_by_name_no_tilde(labels_params)
@@ -120,6 +154,7 @@ module QuickActions
       finder_params[:project_id] = project.id if project
       finder_params[:group_id] = group.id if group
       finder_params[:name] = extract_label_names(labels_params) if labels_params
+      finder_params[:archived] = false if Feature.enabled?(:labels_archive, :instance)
 
       LabelsFinder.new(current_user, finder_params).execute
     end
@@ -154,7 +189,7 @@ module QuickActions
     end
 
     def map_commands(commands, method)
-      commands.map do |name_or_alias, arg|
+      commands.flat_map do |name_or_alias, arg|
         definition = self.class.definition_by_name(name_or_alias)
         next unless definition
 
@@ -208,7 +243,8 @@ module QuickActions
       Gitlab::UsageDataCounters::QuickActionActivityUniqueCounter.track_unique_action(
         quick_action_name.to_s,
         args: arg&.strip,
-        user: current_user
+        user: current_user,
+        project: project
       )
     end
 

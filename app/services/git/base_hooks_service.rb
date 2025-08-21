@@ -51,14 +51,27 @@ module Git
       EventCreateService.new.push(project, current_user, event_push_data)
     end
 
+    def removing_ref?
+      Gitlab::Git.blank_ref?(newrev)
+    end
+
     def create_pipelines
       return unless params.fetch(:create_pipelines, true)
+      return if removing_ref?
 
-      response = Ci::CreatePipelineService
-          .new(project, current_user, pipeline_params)
-          .execute(:push, **pipeline_options)
+      if Feature.enabled?(:async_pipeline_creation_on_push, project)
+        sidekiq_safe_pipeline_params = pipeline_params.merge(push_options: push_options&.deep_stringify_keys)
 
-      log_pipeline_errors(response.message) unless response.payload.persisted?
+        Ci::CreatePipelineService
+          .new(project, current_user, sidekiq_safe_pipeline_params)
+          .execute_async(:push, pipeline_options)
+      else
+        response = Ci::CreatePipelineService
+                     .new(project, current_user, pipeline_params)
+                     .execute(:push, **pipeline_options)
+
+        log_pipeline_errors(response.message) unless response.payload.persisted?
+      end
     end
 
     def execute_project_hooks
@@ -78,7 +91,7 @@ module Git
 
       return unless file_types.present?
 
-      ProjectCacheWorker.perform_async(project.id, file_types, [], false)
+      ProjectCacheWorker.perform_async(project.id, file_types.map(&:to_s), [], false)
     end
 
     def enqueue_notify_kas
@@ -93,17 +106,18 @@ module Git
           before: oldrev,
           after: newrev,
           ref: ref,
-          variables_attributes: generate_vars_from_push_options || [],
-          push_options: params[:push_options] || {},
+          variables_attributes: ci_push_options.variables,
+          push_options: ci_push_options,
+          gitaly_context: gitaly_context,
           checkout_sha: Gitlab::DataBuilder::Push.checkout_sha(
             project.repository, newrev, ref)
         }
       end
     end
 
-    def ci_variables_from_push_options
-      strong_memoize(:ci_variables_from_push_options) do
-        push_options&.dig(:ci, :variable)
+    def ci_push_options
+      strong_memoize(:ci_push_options) do
+        Ci::PipelineCreation::PushOptions.fabricate(push_options)
       end
     end
 
@@ -117,23 +131,6 @@ module Git
       strong_memoize(:push_options) do
         params[:push_options]&.deep_symbolize_keys
       end
-    end
-
-    def generate_vars_from_push_options
-      return [] unless ci_variables_from_push_options
-
-      ci_variables_from_push_options.map do |var_definition, _count|
-        key, value = var_definition.to_s.split("=", 2)
-
-        # Accept only valid format. We ignore the following formats
-        # 1. "=123". In this case, `key` will be an empty string
-        # 2. "FOO". In this case, `value` will be nil.
-        # However, the format "FOO=" will result in key beign `FOO` and value
-        # being an empty string. This is acceptable.
-        next if key.blank? || value.nil?
-
-        { "key" => key, "variable_type" => "env_var", "secret_value" => value }
-      end.compact
     end
 
     def push_data_params(commits:, with_changed_files: true)
@@ -165,9 +162,11 @@ module Git
       @push_data.dup
     end
 
-    # to be overridden in EE
+    # merges with EE override
     def pipeline_options
-      {}
+      {
+        inputs: ci_push_options.inputs
+      }
     end
 
     def log_pipeline_errors(error_message)

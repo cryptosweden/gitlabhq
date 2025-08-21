@@ -3,6 +3,8 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::VisibilityLevel do
+  using RSpec::Parameterized::TableSyntax
+
   describe '.level_value' do
     where(:string_value, :integer_value) do
       [
@@ -129,6 +131,62 @@ RSpec.describe Gitlab::VisibilityLevel do
 
       expect(described_class.closest_allowed_level(described_class::PUBLIC))
         .to eq(described_class::PRIVATE)
+    end
+  end
+
+  describe '.allowed_levels_for_user' do
+    let_it_be(:group) { create(:group) }
+
+    subject { described_class.allowed_levels_for_user(user, group) }
+
+    context 'when user is not present' do
+      let(:user) { nil }
+
+      it 'returns an empty array' do
+        is_expected.to be_empty
+      end
+    end
+
+    context 'when user is present' do
+      let(:user) { build(:user) }
+
+      context 'with restricted visibility_levels' do
+        before do
+          allow(Gitlab::CurrentSettings).to receive(:restricted_visibility_levels).and_return([0])
+        end
+
+        it 'returns an array with correct allowed levels for a user' do
+          is_expected.to match_array([described_class::PUBLIC, described_class::INTERNAL])
+        end
+      end
+
+      context 'with different organization and group visibilities' do
+        let_it_be(:private_organization) { create(:organization, :private) }
+        let_it_be(:public_organization) { create(:organization, :public) }
+
+        # rubocop:disable Layout/LineLength, Lint/RedundantCopDisableDirective -- For readability
+        where(:organization, :group_visibility, :allowed_visibility_levels) do
+          lazy { private_organization } | :private  | [described_class::PRIVATE]
+          lazy { public_organization }  | :private  | [described_class::PRIVATE]
+          lazy { public_organization }  | :internal | [described_class::PRIVATE, described_class::INTERNAL]
+          lazy { public_organization }  | :public   | [described_class::PRIVATE, described_class::INTERNAL, described_class::PUBLIC]
+        end
+        # rubocop:enable Layout/LineLength, Lint/RedundantCopDisableDirective
+
+        with_them do
+          let(:group) { create(:group, group_visibility, organization: organization) }
+
+          it { is_expected.to match_array(allowed_visibility_levels) }
+        end
+      end
+    end
+
+    context 'when admin mode is enabled', :enable_admin_mode do
+      let(:user) { build(:user, :admin) }
+
+      it 'returns an array with correct allowed levels for admin user' do
+        is_expected.to match_array([described_class::PUBLIC, described_class::INTERNAL, described_class::PRIVATE])
+      end
     end
   end
 

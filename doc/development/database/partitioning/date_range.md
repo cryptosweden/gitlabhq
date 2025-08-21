@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Date range partitioning
 ---
-
-# Date range partitioning
 
 ## Description
 
@@ -56,9 +55,12 @@ CREATE TABLE audit_events (
 PARTITION BY RANGE(created_at);
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 The primary key of a partitioned table must include the partition key as
 part of the primary key definition.
+
+{{< /alert >}}
 
 And we might have a list of partitions for the table, such as:
 
@@ -99,6 +101,52 @@ likely be acceptable, but on more complex queries the overhead can be
 substantial. Partitioning should only be leveraged if the access patterns
 of the data support the partitioning strategy, otherwise performance
 suffers.
+
+## Time-range Partitioning Strategies
+
+GitLab supports two strategies for time-range partitioning:
+
+- Daily partitioning
+- Monthly partitioning
+
+### Using Time-range Partitioning
+
+To use time-range partitioning in your model, include the `PartitionedTable` module and configure the partition settings:
+
+```ruby
+class WebHookLog < ApplicationRecord
+  include PartitionedTable
+
+  partitioned_by :created_at, strategy: :monthly, retain_for: 1.month
+end
+```
+
+### Available Strategies
+
+#### Daily Strategy (`:daily`)
+
+The daily strategy creates one partition per day:
+
+```ruby
+partitioned_by :created_at, strategy: :daily, retain_for: 7.days
+```
+
+#### Monthly Strategy (`:monthly`)
+
+The monthly strategy creates one partition per month:
+
+```ruby
+partitioned_by :created_at, strategy: :monthly, retain_for: 3.months, analyze_interval: 3.days
+```
+
+### Configuration Options
+
+- `column`: The column to partition on (required, must be a timestamp or date column)
+- `strategy`: Either `:daily` or `:monthly` (required)
+- `retain_for`: Duration to retain partitions (optional)
+- `analyze_interval`: How often to run ANALYZE on new partitions (optional)
+
+Choose `:daily` for high-volume tables that need fine-grained partitioning, or `:monthly` for tables with moderate data volume where daily partitioning would be excessive.
 
 ## Example
 
@@ -146,7 +194,7 @@ class BackfillPartitionAuditEvents < Gitlab::Database::Migration[2.1]
 
   disable_ddl_transaction!
 
-  restrict_gitlab_migration gitlab_schema: :gitlab_main
+  restrict_gitlab_migration gitlab_schema: :gitlab_main_org
 
   def up
     enqueue_partitioning_data_migration :audit_events
@@ -160,18 +208,20 @@ end
 
 This step [queues a batched background migration](../batched_background_migrations.md#enqueue-a-batched-background-migration) internally with BATCH_SIZE and SUB_BATCH_SIZE as `50,000` and `2,500`. Refer [Batched Background migrations guide](../batched_background_migrations.md) for more details.
 
-### Step 3: Post-backfill cleanup (Release N+1)
+### Step 3: Post-backfill cleanup (Release after a required stop post Step 2)
 
-This step must occur at least one release after the release that
-includes step (2). This gives time for the background
-migration to execute properly in self-managed installations. In this step,
+{{< alert type="warning" >}}
+
+A [required stop](../required_stops.md) must occur between steps 2 and 3 to allow the background migration from step 2 to complete successfully
+in GitLab Self-Managed instances.
+
+{{< /alert >}}
+
+In this step,
 add another post-deployment migration that cleans up after the
 background migration. This includes forcing any remaining jobs to
 execute, and copying data that may have been missed, due to dropped or
 failed jobs.
-
-WARNING:
-A required stop must occur between steps 2 and 3 to allow the background migration from step 2 to complete successfully.
 
 Once again, continuing the example, this migration would look like:
 
@@ -181,7 +231,7 @@ class CleanupPartitionedAuditEventsBackfill < Gitlab::Database::Migration[2.1]
 
   disable_ddl_transaction!
 
-  restrict_gitlab_migration gitlab_schema: :gitlab_main
+  restrict_gitlab_migration gitlab_schema: :gitlab_main_org
 
   def up
     finalize_backfilling_partitioned_table :audit_events

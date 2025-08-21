@@ -5,7 +5,6 @@ require 'spec_helper'
 RSpec.describe Noteable, feature_category: :code_review_workflow do
   let!(:active_diff_note1) { create(:diff_note_on_merge_request) }
   let(:project) { active_diff_note1.project }
-  subject { active_diff_note1.noteable }
 
   let!(:active_diff_note2) { create(:diff_note_on_merge_request, project: project, noteable: subject, in_reply_to: active_diff_note1) }
   let!(:active_diff_note3) { create(:diff_note_on_merge_request, project: project, noteable: subject, position: active_position2) }
@@ -42,6 +41,8 @@ RSpec.describe Noteable, feature_category: :code_review_workflow do
       diff_refs: project.commit('874797c3a73b60d2187ed6e2fcabd289ff75171e').diff_refs
     )
   end
+
+  subject { active_diff_note1.noteable }
 
   describe '#discussions' do
     let(:discussions) { subject.discussions }
@@ -167,29 +168,56 @@ RSpec.describe Noteable, feature_category: :code_review_workflow do
     let!(:milestone_event) { create(:resource_milestone_event, merge_request: subject) }
     let!(:state_event) { create(:resource_state_event, merge_request: subject) }
 
+    let(:discussions_by_created_asc) do
+      [
+        a_hash_including(table_name: 'notes', id: active_diff_note1.id),
+        a_hash_including(table_name: 'notes', id: active_diff_note3.id),
+        a_hash_including(table_name: 'notes', id: outdated_diff_note1.id),
+        a_hash_including(table_name: 'notes', id: discussion_note1.id),
+        a_hash_including(table_name: 'notes', id: commit_diff_note1.id),
+        a_hash_including(table_name: 'notes', id: commit_note1.id),
+        a_hash_including(table_name: 'notes', id: commit_note2.id),
+        a_hash_including(table_name: 'notes', id: commit_discussion_note1.id),
+        a_hash_including(table_name: 'notes', id: commit_discussion_note3.id),
+        a_hash_including(table_name: 'notes', id: note1.id),
+        a_hash_including(table_name: 'notes', id: note2.id),
+        a_hash_including(table_name: 'resource_label_events', id: label_event.id),
+        a_hash_including(table_name: 'notes', id: system_note.id),
+        a_hash_including(table_name: 'resource_milestone_events', id: milestone_event.id),
+        a_hash_including(table_name: 'resource_state_events', id: state_event.id)
+      ]
+    end
+
     it 'returns ordered discussion_ids and synthetic note ids' do
       discussions = subject.discussion_root_note_ids(notes_filter: UserPreference::NOTES_FILTERS[:all_notes]).map do |n|
         { table_name: n.table_name, id: n.id }
       end
 
-      expect(discussions).to match(
-        [
-          a_hash_including(table_name: 'notes', id: active_diff_note1.id),
-          a_hash_including(table_name: 'notes', id: active_diff_note3.id),
-          a_hash_including(table_name: 'notes', id: outdated_diff_note1.id),
-          a_hash_including(table_name: 'notes', id: discussion_note1.id),
-          a_hash_including(table_name: 'notes', id: commit_diff_note1.id),
-          a_hash_including(table_name: 'notes', id: commit_note1.id),
-          a_hash_including(table_name: 'notes', id: commit_note2.id),
-          a_hash_including(table_name: 'notes', id: commit_discussion_note1.id),
-          a_hash_including(table_name: 'notes', id: commit_discussion_note3.id),
-          a_hash_including(table_name: 'notes', id: note1.id),
-          a_hash_including(table_name: 'notes', id: note2.id),
-          a_hash_including(table_name: 'resource_label_events', id: label_event.id),
-          a_hash_including(table_name: 'notes', id: system_note.id),
-          a_hash_including(table_name: 'resource_milestone_events', id: milestone_event.id),
-          a_hash_including(table_name: 'resource_state_events', id: state_event.id)
-        ])
+      expect(discussions).to match(discussions_by_created_asc)
+    end
+
+    context 'when sort param is given' do
+      it 'returns discussion_ids and synthetic note ids in ascending order' do
+        discussions = subject.discussion_root_note_ids(notes_filter: UserPreference::NOTES_FILTERS[:all_notes], sort: :created_asc).map do |n|
+          { table_name: n.table_name, id: n.id }
+        end
+
+        expect(discussions).to match(discussions_by_created_asc)
+      end
+
+      it 'returns discussion_ids and synthetic note ids in descending order' do
+        discussions = subject.discussion_root_note_ids(notes_filter: UserPreference::NOTES_FILTERS[:all_notes], sort: :created_desc).map do |n|
+          { table_name: n.table_name, id: n.id }
+        end
+
+        expect(discussions).to match(discussions_by_created_asc.reverse)
+      end
+
+      it 'raises an error when sort param is invalid' do
+        expect do
+          subject.discussion_root_note_ids(notes_filter: UserPreference::NOTES_FILTERS[:all_notes], sort: :invalid)
+        end.to raise_error(ArgumentError, 'Invalid sort order')
+      end
     end
 
     it 'filters by comments only' do
@@ -465,7 +493,7 @@ RSpec.describe Noteable, feature_category: :code_review_workflow do
     let_it_be(:source_branch) { 'compare-with-merge-head-source' }
 
     let(:issue) { create(:issue, project: project) }
-    let(:snippet) { build(:snippet) }
+    let(:snippet) { build(:personal_snippet) }
 
     context 'incoming email enabled' do
       before do
@@ -490,26 +518,6 @@ RSpec.describe Noteable, feature_category: :code_review_workflow do
 
       it 'returns nil' do
         expect(issue.creatable_note_email_address(user)).to be_nil
-      end
-    end
-  end
-
-  describe '#supports_resolvable_notes' do
-    context 'when noteable is an abuse report' do
-      let(:abuse_report) { build(:abuse_report) }
-
-      it 'returns true' do
-        expect(abuse_report.supports_resolvable_notes?).to be(true)
-      end
-    end
-  end
-
-  describe '#supports_replying_to_individual_notes' do
-    context 'when noteable is an abuse report' do
-      let(:abuse_report) { build(:abuse_report) }
-
-      it 'returns true' do
-        expect(abuse_report.supports_replying_to_individual_notes?).to be(true)
       end
     end
   end

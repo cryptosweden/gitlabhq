@@ -15,7 +15,8 @@ module ContainerRegistry
       401 => :unauthorized,
       404 => :not_found,
       409 => :name_taken,
-      422 => :too_many_subrepositories
+      422 => :too_many_subrepositories,
+      501 => :rename_not_supported
     }.freeze
 
     REGISTRY_GITLAB_V1_API_FEATURE = 'gitlab_v1_api'
@@ -27,9 +28,11 @@ module ContainerRegistry
     UnsuccessfulResponseError = Class.new(StandardError)
 
     def self.supports_gitlab_api?
-      with_dummy_client(return_value_if_disabled: false) do |client|
-        client.supports_gitlab_api?
-      end
+      with_dummy_client(return_value_if_disabled: false, &:supports_gitlab_api?)
+    end
+
+    def self.statistics
+      with_dummy_client(return_value_if_disabled: {}, token_config: { type: :statistics_token }, &:statistics)
     end
 
     def self.deduplicated_size(path)
@@ -55,11 +58,37 @@ module ContainerRegistry
       end
     end
 
-    def self.rename_base_repository_path(path, name:, dry_run: false)
-      downcased_path = path&.downcase
+    def self.rename_base_repository_path(path, name:, project:, dry_run: false)
+      raise ArgumentError, 'incomplete parameters given' unless path.present? && name.present?
 
-      with_dummy_client(token_config: { type: :push_pull_nested_repositories_token, path: downcased_path }) do |client|
-        client.rename_base_repository_path(downcased_path, name: name&.downcase, dry_run: dry_run)
+      downcased_path = path.downcase
+
+      token_config = {
+        type: :push_pull_nested_repositories_token,
+        path: downcased_path,
+        project: project
+      }
+
+      with_dummy_client(token_config:) do |client|
+        client.rename_base_repository_path(downcased_path, name: name.downcase, dry_run: dry_run)
+      end
+    end
+
+    def self.move_repository_to_namespace(path, namespace:, project:, dry_run: false)
+      raise ArgumentError, 'incomplete parameters given' unless path.present? && namespace.present?
+
+      downcased_path = path.downcase
+      downcased_namespace = namespace.downcase
+
+      token_config = {
+        type: :push_pull_move_repositories_access_token,
+        path: downcased_path,
+        new_path: downcased_namespace,
+        project: project
+      }
+
+      with_dummy_client(token_config:) do |client|
+        client.move_repository_to_namespace(downcased_path, namespace: downcased_namespace, dry_run: dry_run)
       end
     end
 
@@ -189,11 +218,41 @@ module ContainerRegistry
     # with a successful rename, it will be 'group/subgroup/newname'
     # https://gitlab.com/gitlab-org/container-registry/-/blob/master/docs/spec/gitlab/api.md#rename-base-repository
     def rename_base_repository_path(path, name:, dry_run: false)
+      patch_repository(path, { name: name }, dry_run: dry_run)
+    end
+
+    # Given a path 'group/subgroup/project' and a namespace 'group/subgroup_2'
+    # with a successful move, it will be 'group/subgroup_2/project'
+    # https://gitlab.com/gitlab-org/container-registry/-/blob/master/docs/spec/gitlab/api.md#renamemove-origin-repository
+    def move_repository_to_namespace(path, namespace:, dry_run: false)
+      patch_repository(path, { namespace: namespace }, dry_run: dry_run)
+    end
+
+    # https://gitlab.com/gitlab-org/container-registry/-/blob/master/docs/spec/gitlab/api.md?ref_type=heads#get-registry-statistics
+    # example output: {"release"=>{"ext_features"=>"tag_delete", "version"=>"v4.20"}, "database"=>{"enabled"=>true}}
+    def statistics
+      with_token_faraday do |faraday_client|
+        req = faraday_client.get('/gitlab/v1/statistics/')
+        result = response_body(req)
+
+        break {} unless result.present?
+
+        {
+          features: result.dig('release', 'ext_features')&.split(',') || [],
+          version: result.dig('release', 'version'),
+          db_enabled: result.dig('database', 'enabled')
+        }
+      end
+    end
+
+    private
+
+    def patch_repository(path, body, dry_run: false)
       with_token_faraday do |faraday_client|
         url = "#{GITLAB_REPOSITORIES_PATH}/#{path}/"
         response = faraday_client.patch(url) do |req|
           req.params['dry_run'] = dry_run
-          req.body = { name: name }
+          req.body = body
         end
 
         unless response.success?
@@ -209,8 +268,6 @@ module ContainerRegistry
       end
     end
 
-    private
-
     def with_token_faraday
       yield faraday
     end
@@ -223,3 +280,5 @@ module ContainerRegistry
     end
   end
 end
+
+ContainerRegistry::GitlabApiClient.prepend_mod

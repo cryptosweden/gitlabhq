@@ -96,13 +96,21 @@ RSpec.describe DeployToken, feature_category: :continuous_delivery do
   end
 
   describe '#valid_for_dependency_proxy?' do
-    let_it_be_with_reload(:deploy_token) { create(:deploy_token, :group, :dependency_proxy_scopes) }
-
     subject { deploy_token.valid_for_dependency_proxy? }
 
-    it { is_expected.to eq(true) }
-
     it_behaves_like 'invalid group deploy token'
+
+    context 'has legacy registry scopes' do
+      let_it_be_with_reload(:deploy_token) { create(:deploy_token, :group, :dependency_proxy_scopes) }
+
+      it { is_expected.to eq(true) }
+    end
+
+    context 'has virtual registry scopes' do
+      let_it_be_with_reload(:deploy_token) { create(:deploy_token, :group, :virtual_registry_scopes) }
+
+      it { is_expected.to eq(true) }
+    end
 
     context 'insufficient scopes' do
       before do
@@ -115,8 +123,7 @@ RSpec.describe DeployToken, feature_category: :continuous_delivery do
 
   describe '#has_access_to_group?' do
     let_it_be(:group) { create(:group) }
-    let_it_be_with_reload(:deploy_token) { create(:deploy_token, :group) }
-    let_it_be(:group_deploy_token) { create(:group_deploy_token, group: group, deploy_token: deploy_token) }
+    let_it_be_with_reload(:deploy_token) { create(:deploy_token, :group, groups: [group]) }
 
     let(:test_group) { group }
 
@@ -312,11 +319,7 @@ RSpec.describe DeployToken, feature_category: :continuous_delivery do
       context 'and when the token is of group type' do
         let_it_be(:group) { create(:group) }
 
-        let(:deploy_token) { create(:deploy_token, :group) }
-
-        before do
-          deploy_token.groups << group
-        end
+        let(:deploy_token) { create(:deploy_token, :group, groups: [group]) }
 
         context 'and the passed-in project does not belong to any group' do
           it { is_expected.to be_falsy }
@@ -480,5 +483,160 @@ RSpec.describe DeployToken, feature_category: :continuous_delivery do
     subject(:plaintext) { create(:deploy_token, token_encrypted: nil).token }
 
     it { is_expected.to match(/gldt-[A-Za-z0-9_-]{20}/) }
+  end
+
+  describe '.with_encrypted_tokens' do
+    let(:deploy_token_1) { create(:deploy_token) }
+    let(:deploy_token_2) { create(:deploy_token) }
+    let(:deploy_token_3) { create(:deploy_token) }
+
+    it 'returns deploy tokens matching the given token values' do
+      encrypted_token_values = [deploy_token_1.token_encrypted, deploy_token_3.token_encrypted]
+
+      result = described_class.with_encrypted_tokens(encrypted_token_values)
+
+      expect(result).to contain_exactly(deploy_token_1, deploy_token_3)
+      expect(result).not_to include(deploy_token_2)
+    end
+
+    it 'returns an empty relation when no tokens match' do
+      result = described_class.with_encrypted_tokens(['non-existent-token'])
+
+      expect(result).to be_empty
+    end
+
+    it 'returns an empty relation when given an empty array' do
+      result = described_class.with_encrypted_tokens([])
+
+      expect(result).to be_empty
+    end
+  end
+
+  describe '.encode' do
+    let(:token_string) { 'test_token_123' }
+
+    it 'encodes the provided token' do
+      expect(Authn::TokenField::EncryptionHelper).to receive(:encrypt_token)
+        .with(token_string)
+        .and_return('fake_encrypted_token')
+
+      encoded_token = described_class.encode(token_string)
+
+      expect(encoded_token).to eq('fake_encrypted_token')
+    end
+  end
+
+  describe '.notification_interval' do
+    it 'returns the maximum days for seven_days interval' do
+      expect(described_class.notification_interval(:seven_days)).to eq(7)
+    end
+
+    it 'returns the maximum days for thirty_days interval' do
+      expect(described_class.notification_interval(:thirty_days)).to eq(30)
+    end
+
+    it 'returns the maximum days for sixty_days interval' do
+      expect(described_class.notification_interval(:sixty_days)).to eq(60)
+    end
+
+    it 'raises KeyError for invalid interval' do
+      expect { described_class.notification_interval(:invalid) }.to raise_error(KeyError)
+    end
+  end
+
+  describe '.scope_for_notification_interval' do
+    let_it_be(:project) { create(:project) }
+
+    context 'for seven_days interval' do
+      let!(:token_in_range) do
+        create(:deploy_token, :project, projects: [project], expires_at: 5.days.from_now.iso8601)
+      end
+
+      let!(:token_out_of_range) do
+        create(:deploy_token, :project, projects: [project], expires_at: 10.days.from_now.iso8601)
+      end
+
+      let!(:already_notified_token) do
+        create(:deploy_token, :project, projects: [project],
+          expires_at: 3.days.from_now.iso8601,
+          seven_days_notification_sent_at: 1.day.ago)
+      end
+
+      let!(:revoked_token) do
+        create(:deploy_token, :project, :revoked, projects: [project], expires_at: 4.days.from_now.iso8601)
+      end
+
+      it 'returns tokens expiring within the interval that have not been notified' do
+        result = described_class.scope_for_notification_interval(:seven_days)
+
+        expect(result).to include(token_in_range)
+        expect(result).not_to include(token_out_of_range)
+        expect(result).not_to include(already_notified_token)
+        expect(result).not_to include(revoked_token)
+      end
+    end
+
+    context 'with custom date range' do
+      let!(:token) do
+        create(:deploy_token, :project, projects: [project], expires_at: 15.days.from_now.iso8601)
+      end
+
+      it 'respects min_expires_at parameter' do
+        result = described_class.scope_for_notification_interval(:thirty_days, min_expires_at: 20.days.from_now)
+        expect(result).not_to include(token)
+      end
+
+      it 'respects max_expires_at parameter' do
+        result = described_class.scope_for_notification_interval(:thirty_days, max_expires_at: 10.days.from_now)
+        expect(result).not_to include(token)
+      end
+    end
+  end
+
+  describe 'scopes' do
+    describe '.project_token' do
+      let_it_be(:project) { create(:project) }
+      let_it_be(:group_deploy_token) { create(:deploy_token, :group) }
+
+      let!(:project_deploy_token) do
+        create(:deploy_token, :project, projects: [project])
+      end
+
+      it 'returns only project type tokens' do
+        expect(described_class.project_token).to include(project_deploy_token)
+        expect(described_class.project_token).not_to include(group_deploy_token)
+      end
+    end
+
+    describe '.group_token' do
+      let_it_be(:project) { create(:project) }
+      let_it_be(:group_deploy_token) { create(:deploy_token, :group) }
+
+      let!(:project_deploy_token) do
+        create(:deploy_token, :project, projects: [project])
+      end
+
+      it 'returns only group type tokens' do
+        expect(described_class.group_token).to include(group_deploy_token)
+        expect(described_class.group_token).not_to include(project_deploy_token)
+      end
+    end
+
+    describe '.order_expires_at_asc' do
+      let!(:token_expires_later) { create(:deploy_token, expires_at: 10.days.from_now.iso8601) }
+      let!(:token_expires_sooner) { create(:deploy_token, expires_at: 5.days.from_now.iso8601) }
+
+      it 'orders tokens by expires_at in ascending order' do
+        result = described_class.order_expires_at_asc.to_a
+        expect(result.index(token_expires_sooner)).to be < result.index(token_expires_later)
+      end
+    end
+
+    describe '.with_project_owners_and_maintainers' do
+      it 'includes projects association with owners and maintainers' do
+        query = described_class.with_project_owners_and_maintainers
+        expect(query.includes_values).to include(projects: :owners_and_maintainers)
+      end
+    end
   end
 end

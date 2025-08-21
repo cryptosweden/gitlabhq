@@ -9,10 +9,8 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
   let_it_be(:personal_access_token) { create(:personal_access_token, user: user) }
   let_it_be(:package_name) { 'package-name' }
   let_it_be(:project, reload: true) { create(:project, :custom_repo, files: { 'composer.json' => { name: package_name }.to_json }, group: group) }
-  let_it_be(:deploy_token_for_project) { create(:deploy_token, read_package_registry: true, write_package_registry: true) }
-  let_it_be(:project_deploy_token) { create(:project_deploy_token, deploy_token: deploy_token_for_project, project: project) }
-  let_it_be(:deploy_token_for_group) { create(:deploy_token, :group, read_package_registry: true, write_package_registry: true) }
-  let_it_be(:group_deploy_token) { create(:group_deploy_token, deploy_token: deploy_token_for_group, group: group) }
+  let_it_be(:deploy_token_for_project) { create(:deploy_token, read_package_registry: true, write_package_registry: true, projects: [project]) }
+  let_it_be(:deploy_token_for_group) { create(:deploy_token, :group, read_package_registry: true, write_package_registry: true, groups: [group]) }
   let_it_be(:job) { create(:ci_build, :running, user: user, project: project) }
 
   let(:snowplow_gitlab_standard_context) do
@@ -51,9 +49,9 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
             'PRIVATE' | :developer | :user | true  | true
             'PRIVATE' | :developer | :user | false | false # Anonymous User - fallback
             'PRIVATE' | :developer | :job  | true  | true
-            'PRIVATE' | :guest     | :user | true  | false
+            'PRIVATE' | :guest     | :user | true  | true
             'PRIVATE' | :guest     | :user | false | false # Anonymous User - fallback
-            'PRIVATE' | :guest     | :job  | true  | false
+            'PRIVATE' | :guest     | :job  | true  | true
             'PRIVATE' | nil        | :user | true  | false
             'PRIVATE' | nil        | :user | false | false # Anonymous User - fallback
             'PRIVATE' | nil        | :job  | true  | false
@@ -82,9 +80,9 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
             :PRIVATE | :developer | :user | true  | :success      | true
             :PRIVATE | :developer | :user | false | :unauthorized | false
             :PRIVATE | :developer | :job  | true  | :success      | false # Anonymous User - fallback
-            :PRIVATE | :guest     | :user | true  | :success      | false
+            :PRIVATE | :guest     | :user | true  | :success      | true
             :PRIVATE | :guest     | :user | false | :unauthorized | false
-            :PRIVATE | :guest     | :job  | true  | :success      | false # Anonymous User - fallback
+            :PRIVATE | :guest     | :job  | true  | :success      | false
             :PRIVATE | nil        | :user | true  | :success      | false
             :PRIVATE | nil        | :user | false | :unauthorized | false
             :PRIVATE | nil        | nil   | nil   | :success      | false # Anonymous User
@@ -110,9 +108,9 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
             :developer | :user | true  | 'Composer package index'       | :success      | true
             :developer | :user | false | 'process Composer api request' | :unauthorized | false
             :developer | :job  | true  | 'Composer package index'       | :success      | true
-            :guest     | :user | true  | 'Composer package index'       | :success      | false
+            :guest     | :user | true  | 'Composer package index'       | :success      | true
             :guest     | :user | false | 'process Composer api request' | :unauthorized | false
-            :guest     | :job  | true  | 'Composer package index'       | :success      | false
+            :guest     | :job  | true  | 'Composer package index'       | :success      | true
             nil        | :user | true  | 'Composer package index'       | :not_found    | false
             nil        | :user | false | 'process Composer api request' | :unauthorized | false
             nil        | :job  | true  | 'Composer package index'       | :not_found    | false
@@ -131,7 +129,7 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
             :developer  | :user | true  | 'Composer package index'       | :success      | true
             :developer  | :user | false | 'process Composer api request' | :unauthorized | false
             :developer  | :job  | true  | 'process Composer api request' | :unauthorized | false
-            :guest      | :user | true  | 'Composer package index'       | :success      | false
+            :guest      | :user | true  | 'Composer package index'       | :success      | true
             :guest      | :user | false | 'process Composer api request' | :unauthorized | false
             :guest      | :job  | true  | 'process Composer api request' | :unauthorized | false
             nil         | :user | true  | 'Composer package index'       | :not_found    | false
@@ -146,6 +144,10 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
             end
           end
         end
+      end
+
+      it_behaves_like 'updating personal access token last used' do
+        let(:headers) { build_token_auth_header(personal_access_token.token) }
       end
     end
 
@@ -175,9 +177,9 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
           'PRIVATE' | :developer | :user | true  | 'Composer provider index'       | :success
           'PRIVATE' | :developer | :user | false | 'process Composer api request'  | :unauthorized
           'PRIVATE' | :developer | :job  | true  | 'Composer provider index'       | :success
-          'PRIVATE' | :guest     | :user | true  | 'Composer empty provider index' | :success
+          'PRIVATE' | :guest     | :user | true  | 'Composer provider index'       | :success
           'PRIVATE' | :guest     | :user | false | 'process Composer api request'  | :unauthorized
-          'PRIVATE' | :guest     | :job  | true  | 'Composer empty provider index' | :success
+          'PRIVATE' | :guest     | :job  | true  | 'Composer provider index'       | :success
           'PRIVATE' | nil        | :user | true  | 'process Composer api request'  | :not_found
           'PRIVATE' | nil        | :user | false | 'process Composer api request'  | :unauthorized
           'PRIVATE' | nil        | :job  | true  | 'process Composer api request'  | :not_found
@@ -206,7 +208,7 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
           'PRIVATE' | :developer | :user | true  | 'Composer provider index'       | :success
           'PRIVATE' | :developer | :user | false | 'process Composer api request'  | :unauthorized
           'PRIVATE' | :developer | :job  | true  | 'process Composer api request'  | :unauthorized
-          'PRIVATE' | :guest     | :user | true  | 'Composer empty provider index' | :success
+          'PRIVATE' | :guest     | :user | true  | 'Composer provider index'       | :success
           'PRIVATE' | :guest     | :user | false | 'process Composer api request'  | :unauthorized
           'PRIVATE' | :guest     | :job  | true  | 'process Composer api request'  | :unauthorized
           'PRIVATE' | nil        | :user | true  | 'process Composer api request'  | :not_found
@@ -220,6 +222,10 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
             it_behaves_like params[:shared_examples_name], member_role: params[:member_role], expected_status: params[:expected_status]
           end
         end
+      end
+
+      it_behaves_like 'updating personal access token last used' do
+        let(:headers) { build_token_auth_header(personal_access_token.token) }
       end
 
       it_behaves_like 'Composer access with deploy tokens'
@@ -259,9 +265,9 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
           'PRIVATE' | :developer | :user | true  | 'Composer package api request' | :success
           'PRIVATE' | :developer | :user | false | 'process Composer api request' | :unauthorized
           'PRIVATE' | :developer | :job  | true  | 'Composer package api request' | :success
-          'PRIVATE' | :guest     | :user | true  | 'process Composer api request' | :not_found
+          'PRIVATE' | :guest     | :user | true  | 'Composer package api request' | :success
           'PRIVATE' | :guest     | :user | false | 'process Composer api request' | :unauthorized
-          'PRIVATE' | :guest     | :job  | true  | 'process Composer api request' | :not_found
+          'PRIVATE' | :guest     | :job  | true  | 'Composer package api request' | :success
           'PRIVATE' | nil        | :user | true  | 'process Composer api request' | :not_found
           'PRIVATE' | nil        | :user | false | 'process Composer api request' | :unauthorized
           'PRIVATE' | nil        | :job  | true  | 'process Composer api request' | :not_found
@@ -290,7 +296,7 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
           'PRIVATE' | :developer | :user | true  | 'Composer package api request' | :success
           'PRIVATE' | :developer | :user | false | 'process Composer api request' | :unauthorized
           'PRIVATE' | :developer | :job  | true  | 'process Composer api request' | :unauthorized
-          'PRIVATE' | :guest     | :user | true  | 'process Composer api request' | :not_found
+          'PRIVATE' | :guest     | :user | true  | 'Composer package api request' | :success
           'PRIVATE' | :guest     | :user | false | 'process Composer api request' | :unauthorized
           'PRIVATE' | :guest     | :job  | true  | 'process Composer api request' | :unauthorized
           'PRIVATE' | nil        | :user | true  | 'process Composer api request' | :not_found
@@ -312,6 +318,10 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
         include_context 'Composer api group access', project_visibility_level: 'PRIVATE', token_type: :user, auth_method: :token do
           it_behaves_like 'process Composer api request', member_role: :developer, expected_status: :not_found
         end
+      end
+
+      it_behaves_like 'updating personal access token last used' do
+        let(:headers) { build_token_auth_header(personal_access_token.token) }
       end
 
       it_behaves_like 'Composer access with deploy tokens'
@@ -350,9 +360,9 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
           'PRIVATE' | :developer | :user | true  | 'Composer package api request' | :success
           'PRIVATE' | :developer | :user | false | 'process Composer api request' | :unauthorized
           'PRIVATE' | :developer | :job  | true  | 'Composer package api request' | :success
-          'PRIVATE' | :guest     | :user | true  | 'process Composer api request' | :not_found
+          'PRIVATE' | :guest     | :user | true  | 'Composer package api request' | :success
           'PRIVATE' | :guest     | :user | false | 'process Composer api request' | :unauthorized
-          'PRIVATE' | :guest     | :job  | true  | 'process Composer api request' | :not_found
+          'PRIVATE' | :guest     | :job  | true  | 'Composer package api request' | :success
           'PRIVATE' | nil        | :user | true  | 'process Composer api request' | :not_found
           'PRIVATE' | nil        | :user | false | 'process Composer api request' | :unauthorized
           'PRIVATE' | nil        | :job  | true  | 'process Composer api request' | :not_found
@@ -381,7 +391,7 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
           'PRIVATE' | :developer | :user | true  | 'Composer package api request' | :success
           'PRIVATE' | :developer | :user | false | 'process Composer api request' | :unauthorized
           'PRIVATE' | :developer | :job  | true  | 'process Composer api request' | :unauthorized
-          'PRIVATE' | :guest     | :user | true  | 'process Composer api request' | :not_found
+          'PRIVATE' | :guest     | :user | true  | 'Composer package api request' | :success
           'PRIVATE' | :guest     | :user | false | 'process Composer api request' | :unauthorized
           'PRIVATE' | :guest     | :job  | true  | 'process Composer api request' | :unauthorized
           'PRIVATE' | nil        | :user | true  | 'process Composer api request' | :not_found
@@ -395,6 +405,10 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
             it_behaves_like params[:shared_examples_name], member_role: params[:member_role], expected_status: params[:expected_status]
           end
         end
+      end
+
+      it_behaves_like 'updating personal access token last used' do
+        let(:headers) { build_token_auth_header(personal_access_token.token) }
       end
 
       it_behaves_like 'Composer access with deploy tokens'
@@ -411,7 +425,15 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
       project.repository.add_tag(user, 'v1.2.99', 'master')
     end
 
-    subject { post api(url), headers: headers, params: params }
+    subject(:request) { post api(url), headers: headers, params: params }
+
+    it_behaves_like 'enforcing job token policies', :admin_packages do
+      before_all do
+        project.add_developer(user)
+      end
+
+      let(:params) { { tag: 'v1.2.99', job_token: target_job.token } }
+    end
 
     shared_examples 'composer package publish' do
       where(:project_visibility_level, :member_role, :token_type, :valid_token, :shared_examples_name, :expected_status) do
@@ -460,7 +482,7 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
 
       it 'does not create a new package' do
         expect { subject }
-          .to change { ::Packages::Composer::Package.for_projects(project).count }.by(0)
+          .not_to change { ::Packages::Composer::Package.for_projects(project).count }
 
         expect(response).to have_gitlab_http_status(:created)
       end
@@ -539,6 +561,11 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
         it_behaves_like 'process Composer api request', member_role: :developer, expected_status: :unprocessable_entity
       end
     end
+
+    it_behaves_like 'updating personal access token last used' do
+      let(:headers) { basic_auth_header(user.username, personal_access_token.token) }
+      let(:params) { { tag: 'v1.2.99' } }
+    end
   end
 
   describe 'GET /api/v4/projects/:id/packages/composer/archives/*package_name?sha=:sha' do
@@ -546,7 +573,7 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
     let(:url) { "/projects/#{project.id}/packages/composer/archives/#{package_name}.zip" }
     let(:params) { { sha: sha } }
 
-    subject { get api(url), headers: headers, params: params }
+    subject(:request) { get api(url), headers: headers, params: params }
 
     context 'with valid project' do
       let!(:package) { create(:composer_package, :with_metadatum, name: package_name, project: project) }
@@ -587,6 +614,15 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
         let(:branch) { project.repository.find_branch('master') }
         let(:sha) { branch.target }
 
+        it_behaves_like 'enforcing job token policies', :read_packages,
+          allow_public_access_for_enabled_project_features: :package_registry do
+          before_all do
+            project.add_developer(user)
+          end
+
+          let(:headers) { job_basic_auth_header(target_job) }
+        end
+
         context 'with basic auth' do
           where(:project_visibility_level, :member_role, :token_type, :valid_token, :expected_status) do
             'PUBLIC'  | :developer | :user | true  | :success
@@ -602,9 +638,9 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
             'PRIVATE' | :developer | :user | true  | :success
             'PRIVATE' | :developer | :user | false | :unauthorized
             'PRIVATE' | :developer | :job  | true  | :success
-            'PRIVATE' | :guest     | :user | true  | :forbidden
+            'PRIVATE' | :guest     | :user | true  | :success
             'PRIVATE' | :guest     | :user | false | :unauthorized
-            'PRIVATE' | :guest     | :job  | true  | :forbidden
+            'PRIVATE' | :guest     | :job  | true  | :success
             'PRIVATE' | nil        | :user | true  | :not_found
             'PRIVATE' | nil        | :user | false | :unauthorized
             'PRIVATE' | nil        | :job  | true  | :not_found
@@ -660,7 +696,7 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
             'PRIVATE' | :developer | :user | true  | :success
             'PRIVATE' | :developer | :user | false | :unauthorized
             'PRIVATE' | :developer | :job  | true  | :unauthorized
-            'PRIVATE' | :guest     | :user | true  | :forbidden
+            'PRIVATE' | :guest     | :user | true  | :success
             'PRIVATE' | :guest     | :user | false | :unauthorized
             'PRIVATE' | :guest     | :job  | true  | :unauthorized
             'PRIVATE' | nil        | :user | true  | :not_found
@@ -703,6 +739,10 @@ RSpec.describe API::ComposerPackages, feature_category: :package_registry do
 
           it_behaves_like 'returning response status', :success
         end
+      end
+
+      it_behaves_like 'updating personal access token last used' do
+        let(:headers) { basic_auth_header(user.username, personal_access_token.token) }
       end
     end
 

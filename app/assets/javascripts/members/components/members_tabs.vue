@@ -87,7 +87,7 @@ export default {
 <template>
   <gl-tabs
     v-model="selectedTabIndex"
-    content-class="gl-py-0"
+    content-class="gl-py-0 gl-isolation-auto"
     sync-active-tab-with-query-params
     :query-param-name="$options.ACTIVE_TAB_QUERY_PARAM_NAME"
   >
@@ -96,6 +96,7 @@ export default {
       :key="tab.namespace"
       :title-link-attributes="tab.attrs"
       :query-param-value="tab.queryParamValue"
+      :lazy="tab.lazy"
     >
       <template #title>
         <span>{{ tab.title }}</span>
@@ -109,11 +110,11 @@ export default {
       />
       <members-app v-else :namespace="tab.namespace" :tab-query-param-value="tab.queryParamValue" />
     </gl-tab>
-    <template #tabs-end>
+    <template #toolbar-end>
       <gl-button
         v-if="shouldShowExportButton"
-        class="gl-align-self-center gl-ml-auto"
-        icon="export"
+        data-event-tracking="click_export_group_members_as_csv"
+        class="gl-ml-auto gl-self-center"
         :href="exportCsvPath"
       >
         {{ __('Export as CSV') }}

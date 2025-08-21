@@ -1,7 +1,11 @@
 <script>
-import { Mousetrap } from '~/lib/mousetrap';
-import { keysFor, MR_TOGGLE_FILE_BROWSER } from '~/behaviors/shortcuts/keybindings';
+import { debounce } from 'lodash';
+import { mapActions } from 'pinia';
 import PanelResizer from '~/vue_shared/components/panel_resizer.vue';
+import { getCookie, setCookie } from '~/lib/utils/common_utils';
+import * as types from '~/diffs/store/mutation_types';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import FileBrowserHeight from '~/diffs/components/file_browser_height.vue';
 import {
   INITIAL_TREE_WIDTH,
   MIN_TREE_WIDTH,
@@ -12,55 +16,148 @@ import TreeList from './tree_list.vue';
 
 export default {
   name: 'DiffsFileTree',
-  components: { TreeList, PanelResizer },
+  components: { FileBrowserHeight, TreeList, PanelResizer },
   minTreeWidth: MIN_TREE_WIDTH,
   maxTreeWidth: window.innerWidth / 2,
   props: {
-    visible: {
+    loadedFiles: {
+      type: Object,
+      required: false,
+      default: null,
+    },
+    floatingResize: {
       type: Boolean,
-      required: true,
+      required: false,
+      default: false,
+    },
+    totalFilesCount: {
+      type: [Number, String],
+      default: undefined,
+      required: false,
+    },
+    groupBlobsListItems: {
+      type: Boolean,
+      required: false,
+      default: true,
     },
   },
   data() {
-    const treeWidth =
-      parseInt(localStorage.getItem(TREE_LIST_WIDTH_STORAGE_KEY), 10) || INITIAL_TREE_WIDTH;
-
     return {
-      treeWidth,
+      treeWidth: INITIAL_TREE_WIDTH,
+      rowHeight: 0,
+      floating: false,
+      newWidth: 0,
+      cachedHeight: 0,
+      cachedTop: 0,
     };
   },
   computed: {
     hideFileStats() {
       return this.treeWidth <= TREE_HIDE_STATS_WIDTH;
     },
+    applyNewWidthDebounced() {
+      return debounce(this.applyNewWidth, 250);
+    },
+    floatingWrapperStyles() {
+      if (!this.floating) return undefined;
+      return {
+        height: `${this.cachedHeight}px`,
+        width: `${this.newWidth}px`,
+        top: `${this.cachedTop}px`,
+      };
+    },
+  },
+  watch: {
+    newWidth() {
+      this.applyNewWidthDebounced();
+    },
+  },
+  created() {
+    this.restoreTreeWidthUserPreference();
   },
   mounted() {
-    Mousetrap.bind(keysFor(MR_TOGGLE_FILE_BROWSER), this.toggle);
-  },
-  beforeDestroy() {
-    Mousetrap.unbind(keysFor(MR_TOGGLE_FILE_BROWSER), this.toggle);
+    const computedStyles = getComputedStyle(this.$refs.root.$el);
+    this.rowHeight = parseInt(computedStyles.getPropertyValue('--file-row-height'), 10);
   },
   methods: {
-    toggle() {
-      this.$emit('toggled');
+    ...mapActions(useLegacyDiffs, {
+      setCurrentDiffFile: types.SET_CURRENT_DIFF_FILE,
+    }),
+    restoreTreeWidthUserPreference() {
+      const userPreference =
+        getCookie(TREE_LIST_WIDTH_STORAGE_KEY) || localStorage.getItem(TREE_LIST_WIDTH_STORAGE_KEY);
+      if (!userPreference) return;
+      this.treeWidth = parseInt(userPreference, 10);
     },
-    cacheTreeListWidth(size) {
-      localStorage.setItem(TREE_LIST_WIDTH_STORAGE_KEY, size);
+    onFileClick(file) {
+      this.setCurrentDiffFile(file.fileHash);
+      this.$emit('clickFile', file);
+    },
+    onResizeStart() {
+      if (!this.floatingResize) return;
+      this.floating = true;
+      this.newWidth = this.treeWidth;
+      const { height, top } = this.$el.getBoundingClientRect();
+      this.cachedHeight = height;
+      this.cachedTop = top;
+    },
+    onResizeEnd(size) {
+      setCookie(TREE_LIST_WIDTH_STORAGE_KEY, size);
+      if (!this.floatingResize) return;
+      this.floating = false;
+      this.cachedHeight = null;
+      this.newWidth = null;
+      this.cachedTop = null;
+      this.treeWidth = size;
+    },
+    onSizeUpdate(value) {
+      if (this.floating) {
+        this.newWidth = value;
+      } else {
+        this.treeWidth = value;
+      }
+    },
+    applyNewWidth() {
+      if (this.newWidth) {
+        this.treeWidth = this.newWidth;
+      }
     },
   },
 };
 </script>
 
 <template>
-  <div v-if="visible" :style="{ width: `${treeWidth}px` }" class="diff-tree-list gl-px-5">
-    <panel-resizer
-      :size.sync="treeWidth"
-      :start-size="treeWidth"
-      :min-size="$options.minTreeWidth"
-      :max-size="$options.maxTreeWidth"
-      side="right"
-      @resize-end="cacheTreeListWidth"
-    />
-    <tree-list :hide-file-stats="hideFileStats" />
-  </div>
+  <file-browser-height
+    ref="root"
+    data-testid="file-browser-tree"
+    :style="{ width: `${treeWidth}px` }"
+    class="rd-app-sidebar diff-tree-list"
+    :class="{ 'diff-tree-list-floating': floating }"
+  >
+    <div
+      data-testid="file-browser-floating-wrapper"
+      class="diff-tree-list-floating-wrapper"
+      :style="floatingWrapperStyles"
+    >
+      <panel-resizer
+        class="diff-tree-list-resizer gl-hidden lg:gl-block"
+        :start-size="treeWidth"
+        :min-size="$options.minTreeWidth"
+        :max-size="$options.maxTreeWidth"
+        side="right"
+        @update:size="onSizeUpdate"
+        @resize-start="onResizeStart"
+        @resize-end="onResizeEnd"
+      />
+      <tree-list
+        :hide-file-stats="hideFileStats"
+        :loaded-files="loadedFiles"
+        :total-files-count="totalFilesCount"
+        :row-height="rowHeight"
+        :group-blobs-list-items="groupBlobsListItems"
+        @clickFile="onFileClick"
+        @toggleFolder="$emit('toggleFolder', $event)"
+      />
+    </div>
+  </file-browser-height>
 </template>

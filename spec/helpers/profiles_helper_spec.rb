@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe ProfilesHelper do
+RSpec.describe ProfilesHelper, feature_category: :user_profile do
+  include SafeFormatHelper
+
   describe '#commit_email_select_options' do
     it 'returns an array with private commit email along with all the verified emails' do
       user = create(:user)
@@ -14,7 +16,7 @@ RSpec.describe ProfilesHelper do
 
       emails = [
         [s_('Use primary email (%{email})') % { email: user.email }, ''],
-        [s_("Profiles|Use a private email - %{email}").html_safe % { email: private_email }, Gitlab::PrivateCommitEmail::TOKEN],
+        [safe_format(s_("Profiles|Use a private email - %{email}"), email: private_email), Gitlab::PrivateCommitEmail::TOKEN],
         user.email,
         confirmed_email1.email,
         confirmed_email2.email
@@ -37,12 +39,14 @@ RSpec.describe ProfilesHelper do
       stub_omniauth_setting(sync_profile_attributes: true)
       stub_auth0_omniauth_provider
       auth0_user = create(:omniauth_user, provider: example_omniauth_provider)
-      auth0_user.create_user_synced_attributes_metadata(provider: example_omniauth_provider, name_synced: true, email_synced: true, location_synced: true)
+      auth0_user.create_user_synced_attributes_metadata(provider: example_omniauth_provider, name_synced: true, email_synced: true, location_synced: true, organization_synced: true, job_title_synced: true)
       allow(helper).to receive(:current_user).and_return(auth0_user)
 
       expect(helper.attribute_provider_label(:email)).to eq(example_omniauth_provider_label)
       expect(helper.attribute_provider_label(:name)).to eq(example_omniauth_provider_label)
       expect(helper.attribute_provider_label(:location)).to eq(example_omniauth_provider_label)
+      expect(helper.attribute_provider_label(:organization)).to eq(example_omniauth_provider_label)
+      expect(helper.attribute_provider_label(:job_title)).to eq(example_omniauth_provider_label)
     end
 
     it "returns the correct omniauth provider label for users with some external attributes" do
@@ -50,12 +54,14 @@ RSpec.describe ProfilesHelper do
       stub_omniauth_setting(sync_profile_attributes: true)
       stub_auth0_omniauth_provider
       auth0_user = create(:omniauth_user, provider: example_omniauth_provider)
-      auth0_user.create_user_synced_attributes_metadata(provider: example_omniauth_provider, name_synced: false, email_synced: true, location_synced: false)
+      auth0_user.create_user_synced_attributes_metadata(provider: example_omniauth_provider, name_synced: false, email_synced: true, location_synced: false, organization_synced: false, job_title_synced: false)
       allow(helper).to receive(:current_user).and_return(auth0_user)
 
       expect(helper.attribute_provider_label(:name)).to be_nil
       expect(helper.attribute_provider_label(:email)).to eq(example_omniauth_provider_label)
       expect(helper.attribute_provider_label(:location)).to be_nil
+      expect(helper.attribute_provider_label(:organization)).to be_nil
+      expect(helper.attribute_provider_label(:job_title)).to be_nil
     end
 
     it "returns 'LDAP' for users with external email but no email provider" do
@@ -102,22 +108,6 @@ RSpec.describe ProfilesHelper do
     it { is_expected.to eq(s_('Profiles|Optional but recommended. If set, key becomes invalid on the specified date.')) }
   end
 
-  describe '#middle_dot_divider_classes' do
-    using RSpec::Parameterized::TableSyntax
-
-    where(:stacking, :breakpoint, :expected) do
-      nil  | nil | %w[gl-mb-3 gl-display-inline-block middle-dot-divider]
-      true | nil | %w[gl-mb-3 middle-dot-divider-sm gl-block sm:gl-inline-block]
-      nil  | :sm | %w[gl-mb-3 gl-display-inline-block middle-dot-divider-sm]
-    end
-
-    with_them do
-      it 'returns CSS classes needed to render the middle dot divider' do
-        expect(helper.middle_dot_divider_classes(stacking, breakpoint)).to eq expected
-      end
-    end
-  end
-
   describe '#prevent_delete_account?' do
     it 'returns false' do
       expect(helper.prevent_delete_account?).to eq false
@@ -128,12 +118,22 @@ RSpec.describe ProfilesHelper do
     let(:time) { 3.hours.ago }
     let(:timezone) { 'Europe/London' }
     let(:user) do
-      build_stubbed(:user, status: UserStatus.new(
-        message: 'Some message',
-        emoji: 'basketball',
-        availability: 'busy',
-        clear_status_at: time
-      ), timezone: timezone)
+      build_stubbed(
+        :user,
+        status: UserStatus.new(
+          message: 'Some message',
+          emoji: 'basketball',
+          availability: 'busy',
+          clear_status_at: time
+        ),
+        timezone: timezone,
+        pronouns: 'they/them',
+        pronunciation: 'test-user',
+        job_title: 'Developer',
+        user_detail_organization: 'GitLab',
+        location: 'Remote',
+        website_url: 'https://example.com',
+        bio: 'Test bio')
     end
 
     before do
@@ -159,6 +159,41 @@ RSpec.describe ProfilesHelper do
       expect(data[:default_emoji]).to eq(UserStatus::DEFAULT_EMOJI)
       expect(data[:timezones]).to eq(helper.timezone_data_with_unique_identifiers.to_json)
       expect(data[:user_timezone]).to eq(timezone)
+    end
+
+    it 'includes all user profile fields' do
+      data = helper.user_profile_data(user)
+
+      expect(data[:id]).to eq(user.id)
+      expect(data[:name]).to eq(user.name)
+      expect(data[:pronouns]).to eq('they/them')
+      expect(data[:pronunciation]).to eq('test-user')
+      expect(data[:website_url]).to eq('https://example.com')
+      expect(data[:location]).to eq('Remote')
+      expect(data[:job_title]).to eq('Developer')
+      expect(data[:organization]).to eq('GitLab')
+      expect(data[:bio]).to eq('Test bio')
+      expect(data[:include_private_contributions]).to eq(user.include_private_contributions?.to_s)
+      expect(data[:achievements_enabled]).to eq(user.achievements_enabled.to_s)
+      expect(data[:private_profile]).to eq(user.private_profile?.to_s)
+    end
+  end
+
+  describe '#delete_account_modal_data' do
+    it 'returns the correct data hash for the delete account modal' do
+      user = build_stubbed(:user, username: 'johndoe')
+      allow(user).to receive(:confirm_deletion_with_password?).and_return(true)
+      allow(helper).to receive_messages(current_user: user, user_registration_path: '/users')
+      allow(Gitlab::CurrentSettings).to receive(:delay_user_account_self_deletion).and_return(true)
+
+      result = helper.delete_account_modal_data
+
+      expect(result).to eq(
+        action_url: '/users',
+        confirm_with_password: 'true',
+        username: 'johndoe',
+        delay_user_account_self_deletion: 'true'
+      )
     end
   end
 

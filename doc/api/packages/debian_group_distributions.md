@@ -2,36 +2,45 @@
 stage: Package
 group: Package Registry
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Debian group distributions API
 ---
 
-# Debian group distributions API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-> - [Deployed behind a feature flag](../../user/feature_flags.md), disabled by default.
+{{< /details >}}
+
+{{< history >}}
+
+- [Deployed behind a feature flag](../../administration/feature_flags/_index.md), disabled by default.
+
+{{< /history >}}
 
 This is the reference documentation for the Debian group distributions API. This API is behind a
 feature flag that is disabled by default. To use this API, you must [enable it](#enable-the-debian-group-api).
 
-WARNING:
+{{< alert type="warning" >}}
+
 This API is under development and is not meant for production use.
 
+{{< /alert >}}
+
 For more information about working with Debian packages, see the
-[Debian package registry documentation](../../user/packages/debian_repository/index.md).
+[Debian package registry documentation](../../user/packages/debian_repository/_index.md).
 
 ## Enable the Debian group API
 
 Debian group repository support is still a work in progress. It's gated behind a feature flag that's
 **disabled by default**.
-[GitLab administrators with access to the GitLab Rails console](../../administration/feature_flags.md)
+[GitLab administrators with access to the GitLab Rails console](../../administration/feature_flags/_index.md)
 can opt to enable it. To enable it, follow the instructions in
-[Enable the Debian group API](../../user/packages/debian_repository/index.md#enable-the-debian-group-api).
+[Enable the Debian group API](../../user/packages/debian_repository/_index.md#enable-the-debian-group-api).
 
 ## Authenticate to the Debian distributions APIs
 
-See [Authenticate to the Debian distributions APIs](../../user/packages/debian_repository/index.md#authenticate-to-the-debian-distributions-apis).
+See [Authenticate to the Debian distributions APIs](../../user/packages/debian_repository/_index.md#authenticate-to-the-debian-distributions-apis).
 
 ## List all Debian distributions in a group
 
@@ -43,7 +52,7 @@ GET /groups/:id/-/debian_distributions
 
 | Attribute  | Type            | Required | Description |
 | ---------- | --------------- | -------- | ----------- |
-| `id`       | integer/string  | yes      | The ID or [URL-encoded path of the group](../rest/index.md#namespaced-path-encoding). |
+| `id`       | integer/string  | yes      | The ID or [URL-encoded path of the group](../rest/_index.md#namespaced-paths). |
 | `codename` | string          | no       | Filter with specific `codename`. |
 | `suite`    | string          | no       | Filter with specific `suite`. |
 
@@ -85,7 +94,7 @@ GET /groups/:id/-/debian_distributions/:codename
 
 | Attribute  | Type           | Required | Description |
 | ---------- | -------------- | -------- | ----------- |
-| `id`       | integer/string | yes      | The ID or [URL-encoded path of the group](../rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`       | integer/string | yes      | The ID or [URL-encoded path of the group](../rest/_index.md#namespaced-paths). |
 | `codename` | string         | yes      | The `codename` of a distribution. |
 
 ```shell
@@ -124,7 +133,7 @@ GET /groups/:id/-/debian_distributions/:codename/key.asc
 
 | Attribute  | Type           | Required | Description |
 | ---------- | -------------- | -------- | ----------- |
-| `id`       | integer/string | yes      | The ID or [URL-encoded path of the group](../rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`       | integer/string | yes      | The ID or [URL-encoded path of the group](../rest/_index.md#namespaced-paths). |
 | `codename` | string         | yes      | The `codename` of a distribution. |
 
 ```shell
@@ -161,7 +170,7 @@ POST /groups/:id/-/debian_distributions
 
 | Attribute                     | Type           | Required | Description |
 | ----------------------------- | -------------- | -------- | ----------- |
-| `id`                          | integer/string | yes      | The ID or [URL-encoded path of the group](../rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`                          | integer/string | yes      | The ID or [URL-encoded path of the group](../rest/_index.md#namespaced-paths). |
 | `codename`                    | string         | yes      | The codename of a Debian distribution. |
 | `suite`                       | string         | no       | The suite of the new Debian distribution. |
 | `origin`                      | string         | no       | The origin of the new Debian distribution. |
@@ -208,7 +217,7 @@ PUT /groups/:id/-/debian_distributions/:codename
 
 | Attribute                     | Type           | Required | Description |
 | ----------------------------- | -------------- | -------- | ----------- |
-| `id`                          | integer/string | yes      | The ID or [URL-encoded path of the group](../rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`                          | integer/string | yes      | The ID or [URL-encoded path of the group](../rest/_index.md#namespaced-paths). |
 | `codename`                    | string         | yes      | The Debian distribution's new codename.  |
 | `suite`                       | string         | no       | The Debian distribution's new suite. |
 | `origin`                      | string         | no       | The Debian distribution's new origin. |
@@ -255,7 +264,7 @@ DELETE /groups/:id/-/debian_distributions/:codename
 
 | Attribute  | Type           | Required | Description |
 | ---------- | -------------- | -------- | ----------- |
-| `id`       | integer/string | yes      | The ID or [URL-encoded path of the group](../rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`       | integer/string | yes      | The ID or [URL-encoded path of the group](../rest/_index.md#namespaced-paths). |
 | `codename` | string         | yes      | The codename of the Debian distribution. |
 
 ```shell

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::References::ProjectReferenceFilter, feature_category: :team_planning do
+RSpec.describe Banzai::Filter::References::ProjectReferenceFilter, feature_category: :markdown do
   include FilterSpecHelper
 
   def invalidate_reference(reference)
@@ -14,10 +14,10 @@ RSpec.describe Banzai::Filter::References::ProjectReferenceFilter, feature_categ
   end
 
   let(:project) { create(:project, :public) }
-  subject { project }
-
   let(:subject_name) { "project" }
   let(:reference) { get_reference(project) }
+
+  subject { project }
 
   it_behaves_like 'user reference or project reference'
 
@@ -32,7 +32,7 @@ RSpec.describe Banzai::Filter::References::ProjectReferenceFilter, feature_categ
       it 'fails fast for long strings' do
         # took well under 1 second in CI https://dev.gitlab.org/gitlab/gitlabhq/merge_requests/3267#note_172824
         expect do
-          Timeout.timeout(3.seconds) { reference_filter(ref_string).to_html }
+          Timeout.timeout(BANZAI_FILTER_TIMEOUT_MAX) { reference_filter(ref_string).to_html }
         end.not_to raise_error
       end
     end
@@ -127,5 +127,10 @@ RSpec.describe Banzai::Filter::References::ProjectReferenceFilter, feature_categ
         reference_filter(markdown)
       end.not_to exceed_all_query_limit(control)
     end
+  end
+
+  it_behaves_like 'limits the number of filtered items' do
+    let(:text) { "#{reference} #{reference} #{reference}" }
+    let(:ends_with) { "</a> #{CGI.escapeHTML(reference)}" }
   end
 end

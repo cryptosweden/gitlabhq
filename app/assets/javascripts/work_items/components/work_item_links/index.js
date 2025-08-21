@@ -1,7 +1,7 @@
 import Vue from 'vue';
 import { GlToast } from '@gitlab/ui';
-import { parseBoolean } from '~/lib/utils/common_utils';
 import { apolloProvider } from '~/graphql_shared/issuable_client';
+import { parseBoolean } from '~/lib/utils/common_utils';
 import WorkItemLinks from './work_item_links.vue';
 
 Vue.use(GlToast);
@@ -15,7 +15,6 @@ export default function initWorkItemLinks() {
 
   const {
     fullPath,
-    isGroup,
     registerPath,
     signInPath,
     wiCanAdminLabel,
@@ -26,6 +25,8 @@ export default function initWorkItemLinks() {
     wiIssuesListPath,
     wiLabelsManagePath,
     wiReportAbusePath,
+    wiNewTrialPath,
+    hasLinkedItemsEpicsFeature,
   } = workItemLinksRoot.dataset;
 
   return new Vue({
@@ -34,7 +35,6 @@ export default function initWorkItemLinks() {
     apolloProvider,
     provide: {
       fullPath,
-      isGroup: parseBoolean(isGroup),
       registerPath,
       signInPath,
       // for work item modal
@@ -46,6 +46,8 @@ export default function initWorkItemLinks() {
       issuesListPath: wiIssuesListPath,
       labelsManagePath: wiLabelsManagePath,
       reportAbusePath: wiReportAbusePath,
+      planTrialPath: wiNewTrialPath,
+      hasLinkedItemsEpicsFeature: parseBoolean(hasLinkedItemsEpicsFeature),
     },
     render: (createElement) =>
       createElement(WorkItemLinks, {

@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Verify' do
-    describe 'Pipeline with prefill variables', product_group: :pipeline_security do
+  RSpec.describe 'Verify', feature_category: :pipeline_composition do
+    describe 'Pipeline with prefill variables' do
       let(:prefill_variable_description1) { Faker::Lorem.sentence }
       let(:prefill_variable_value1) { Faker::Lorem.word }
       let(:prefill_variable_value5) { Faker::Lorem.word }
@@ -38,6 +38,8 @@ module QA
       end
 
       before do
+        project.change_pipeline_variables_minimum_override_role('developer')
+
         Flow::Login.sign_in
         project.visit!
         Support::Waiter.wait_until(message: 'Wait for pipeline creation') { project.pipelines.length == 1 }
@@ -47,7 +49,7 @@ module QA
         Page::Project::Pipeline::Index.perform(&:click_run_pipeline_button)
       end
 
-      it 'shows only variables with description as prefill variables on the run pipeline page', :blocking,
+      it 'shows only variables with description as prefill variables on the run pipeline page',
         testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/378977' do
         Page::Project::Pipeline::New.perform do |new|
           aggregate_failures do
@@ -68,7 +70,7 @@ module QA
         end
       end
 
-      it 'shows dropdown for variables with description, value, and options defined', :blocking,
+      it 'shows dropdown for variables with description, value, and options defined',
         testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/383820' do
         Page::Project::Pipeline::New.perform do |new|
           aggregate_failures do

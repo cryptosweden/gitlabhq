@@ -2,19 +2,9 @@
 
 module Gitlab
   module Metrics
-    include Gitlab::Metrics::Prometheus
+    include ::Gitlab::Metrics::Labkit
 
     EXECUTION_MEASUREMENT_BUCKETS = [0.001, 0.01, 0.1, 1].freeze
-
-    @error = false
-
-    def self.enabled?
-      prometheus_metrics_enabled?
-    end
-
-    def self.error?
-      @error
-    end
 
     def self.record_duration_for_status?(status)
       status.to_i.between?(200, 499)
@@ -100,6 +90,31 @@ module Gitlab
       end
 
       retval
+    end
+
+    def self.initialize_slis!
+      preload_sli_modules!
+
+      Gitlab::Metrics::SliConfig.enabled_slis.each do |sli|
+        Gitlab::AppLogger.info "#{self}: enabling #{sli}, runtime=#{Gitlab::Runtime.safe_identify}"
+
+        sli.initialize_slis!
+      end
+    end
+
+    def self.preload_sli_modules!
+      sli_paths = [
+        Rails.root.join('lib/gitlab/metrics/*_slis.rb'),
+        Rails.root.join('ee/lib/gitlab/metrics/*_slis.rb')
+      ]
+      Gitlab::AppLogger.info "#{self}: preloading path(s) #{sli_paths.join(', ')}"
+
+      sli_paths.flat_map { |path| Dir.glob(path) }.each do |file|
+        require_dependency file # rubocop:disable Rails/RequireDependency -- This is required to
+        # load the SLI implementation modules, as they are not referred directly in code.
+        # The alternative would be a more convoluted implementation where we camelize and
+        # constantize based on filenames.
+      end
     end
   end
 end

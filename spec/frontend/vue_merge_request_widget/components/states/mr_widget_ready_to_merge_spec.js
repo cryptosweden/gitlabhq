@@ -4,6 +4,7 @@ import VueApollo from 'vue-apollo';
 import produce from 'immer';
 import { createMockSubscription as createMockApolloSubscription } from 'mock-apollo-client';
 import readyToMergeResponse from 'test_fixtures/graphql/merge_requests/states/ready_to_merge.query.graphql.json';
+import axios from '~/lib/utils/axios_utils';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import createMockApollo from 'helpers/mock_apollo_helper';
@@ -14,9 +15,10 @@ import CommitMessageDropdown from '~/vue_merge_request_widget/components/states/
 import ReadyToMerge from '~/vue_merge_request_widget/components/states/ready_to_merge.vue';
 import SquashBeforeMerge from '~/vue_merge_request_widget/components/states/squash_before_merge.vue';
 import MergeFailedPipelineConfirmationDialog from '~/vue_merge_request_widget/components/states/merge_failed_pipeline_confirmation_dialog.vue';
-import { MWPS_MERGE_STRATEGY, MWCP_MERGE_STRATEGY } from '~/vue_merge_request_widget/constants';
+import { MWCP_MERGE_STRATEGY } from '~/vue_merge_request_widget/constants';
 import eventHub from '~/vue_merge_request_widget/event_hub';
 import readyToMergeSubscription from '~/vue_merge_request_widget/queries/states/ready_to_merge.subscription.graphql';
+import { joinPaths } from '~/lib/utils/url_utility';
 
 jest.mock('~/lib/utils/simple_poll', () =>
   jest.fn().mockImplementation(jest.requireActual('~/lib/utils/simple_poll').default),
@@ -29,6 +31,7 @@ const commitMessageWithDescription =
   readyToMergeResponse.data.project.mergeRequest.defaultMergeCommitMessageWithDescription;
 const createTestMr = (customConfig) => {
   const mr = {
+    iid: 1,
     isPipelineActive: false,
     pipeline: null,
     isPipelineFailed: false,
@@ -52,8 +55,8 @@ const createTestMr = (customConfig) => {
     shouldRemoveSourceBranch: true,
     canRemoveSourceBranch: false,
     targetBranch: 'main',
-    preferredAutoMergeStrategy: MWPS_MERGE_STRATEGY,
-    availableAutoMergeStrategies: [MWPS_MERGE_STRATEGY],
+    preferredAutoMergeStrategy: MWCP_MERGE_STRATEGY,
+    availableAutoMergeStrategies: [MWCP_MERGE_STRATEGY],
     mergeImmediatelyDocsPath: 'path/to/merge/immediately/docs',
     transitionStateMachine: (transition) => eventHub.$emit('StateMachineValueChanged', transition),
     translateStateToMachine: () => this.transitionStateMachine(),
@@ -64,6 +67,7 @@ const createTestMr = (customConfig) => {
       removeSourceBranch: true,
       canMerge: true,
     },
+    targetProjectId: 1,
   };
 
   Object.assign(mr, customConfig.mr);
@@ -154,6 +158,10 @@ const findDeleteSourceBranchCheckbox = () =>
 const triggerApprovalUpdated = () => eventHub.$emit('ApprovalUpdated');
 const triggerEditCommitInput = () =>
   wrapper.find('[data-testid="widget_edit_commit_message"]').vm.$emit('input', true);
+const triggerEditSquashInput = (text) =>
+  findCommitEditWithInputId('squash-message-edit').vm.$emit('input', text);
+const triggerEditMergeInput = (text) =>
+  wrapper.find('[data-testid="merge-commit-message"]').vm.$emit('input', text);
 const findMergeHelperText = () => wrapper.find('[data-testid="auto-merge-helper-text"]');
 const findTextareas = () => wrapper.findAllComponents(GlFormTextarea);
 
@@ -208,31 +216,24 @@ describe('ReadyToMerge', () => {
       expect(findMergeButton().text()).toBe('Merge');
     });
 
-    it('should return Set to auto-merge in the button and Merge when pipeline succeeds in the helper text', () => {
-      createComponent({ mr: { preferredAutoMergeStrategy: MWPS_MERGE_STRATEGY } });
-
-      expect(findMergeButton().text()).toBe('Set to auto-merge');
-      expect(findMergeHelperText().text()).toBe('Merge when pipeline succeeds');
-    });
-
     it('should return Set to auto-merge in the button and Merge when checks pass in the helper text', () => {
       createComponent({ mr: { preferredAutoMergeStrategy: MWCP_MERGE_STRATEGY } });
 
       expect(findMergeButton().text()).toBe('Set to auto-merge');
-      expect(findMergeHelperText().text()).toBe('Merge when pipeline succeeds');
+      expect(findMergeHelperText().text()).toBe('Merge when all merge checks pass');
     });
 
     it('should show merge help text when pipeline has failed and has an auto merge strategy', () => {
       createComponent({
         mr: {
           pipeline: { status: 'FAILED' },
-          availableAutoMergeStrategies: MWPS_MERGE_STRATEGY,
+          availableAutoMergeStrategies: MWCP_MERGE_STRATEGY,
           hasCI: true,
         },
       });
 
       expect(findMergeButton().text()).toBe('Set to auto-merge');
-      expect(findMergeHelperText().text()).toBe('Merge when pipeline succeeds');
+      expect(findMergeHelperText().text()).toBe('Merge when all merge checks pass');
     });
   });
 
@@ -240,7 +241,7 @@ describe('ReadyToMerge', () => {
     it('dropdown should be visible if auto merge is available', () => {
       createComponent({
         mr: {
-          availableAutoMergeStrategies: [MWPS_MERGE_STRATEGY],
+          availableAutoMergeStrategies: [MWCP_MERGE_STRATEGY],
           mergeable: true,
           headPipeline: { active: false },
           onlyAllowMergeIfPipelineSucceeds: false,
@@ -266,7 +267,7 @@ describe('ReadyToMerge', () => {
     it('dropdown should be hidden if the MR is not mergeable', () => {
       createComponent({
         mr: {
-          availableAutoMergeStrategies: [MWPS_MERGE_STRATEGY],
+          availableAutoMergeStrategies: [MWCP_MERGE_STRATEGY],
           mergeable: false,
           headPipeline: { active: true },
           onlyAllowMergeIfPipelineSucceeds: false,
@@ -381,11 +382,11 @@ describe('ReadyToMerge', () => {
         );
     });
 
-    it('should handle merge when pipeline succeeds', async () => {
+    it('should handle auto merge', async () => {
       createComponent({ mr: { shouldRemoveSourceBranch: false } }, true);
 
       jest.spyOn(eventHub, '$emit').mockImplementation(() => {});
-      jest.spyOn(service, 'merge').mockResolvedValue(response('merge_when_pipeline_succeeds'));
+      jest.spyOn(service, 'merge').mockResolvedValue(response(MWCP_MERGE_STRATEGY));
 
       findMergeButton().vm.$emit('click');
 
@@ -401,11 +402,82 @@ describe('ReadyToMerge', () => {
       expect(params).toEqual(
         expect.objectContaining({
           sha: '12345678',
-          commit_message: commitMessage,
           should_remove_source_branch: false,
-          auto_merge_strategy: 'merge_when_pipeline_succeeds',
+          auto_merge_strategy: 'merge_when_checks_pass',
         }),
       );
+    });
+
+    describe('commit message content', () => {
+      describe('with squashing', () => {
+        const NEW_SQUASH_MESSAGE = 'updated squash message';
+
+        beforeEach(async () => {
+          createComponent({
+            mr: { shouldRemoveSourceBranch: false, enableSquashBeforeMerge: true },
+          });
+
+          jest.spyOn(service, 'merge').mockResolvedValue(response('merge_when_pipeline_succeeds'));
+
+          await triggerEditCommitInput();
+          await findCheckboxElement().vm.$emit('input', true);
+        });
+
+        it('sends the user-updated squash message', async () => {
+          await triggerEditSquashInput(NEW_SQUASH_MESSAGE);
+          await findMergeButton().vm.$emit('click');
+
+          expect(service.merge).toHaveBeenCalledWith(
+            expect.objectContaining({
+              squash_commit_message: NEW_SQUASH_MESSAGE,
+            }),
+          );
+        });
+
+        it('does not send the squash message if the user has not updated it', async () => {
+          await findMergeButton().vm.$emit('click');
+
+          expect(service.merge).toHaveBeenCalledTimes(1);
+          expect(service.merge).toHaveBeenCalledWith(
+            expect.not.objectContaining({
+              squash_commit_message: expect.anything(),
+            }),
+          );
+        });
+      });
+
+      describe('without squashing', () => {
+        const NEW_COMMIT_MESSAGE = 'updated commit message';
+
+        beforeEach(async () => {
+          createComponent({ mr: { shouldRemoveSourceBranch: false } });
+
+          jest.spyOn(service, 'merge').mockResolvedValue(response('merge_when_pipeline_succeeds'));
+          await triggerEditCommitInput(); // Note this is intentional: `commit_message` shouldn't send until they actually edit it, even if they check the box
+        });
+
+        it('sends the user-updated commit message', async () => {
+          await triggerEditMergeInput(NEW_COMMIT_MESSAGE);
+          await findMergeButton().vm.$emit('click');
+
+          expect(service.merge).toHaveBeenCalledWith(
+            expect.objectContaining({
+              commit_message: NEW_COMMIT_MESSAGE,
+            }),
+          );
+        });
+
+        it('does not send the commit message if the user has not updated it', async () => {
+          await findMergeButton().vm.$emit('click');
+
+          expect(service.merge).toHaveBeenCalledTimes(1);
+          expect(service.merge).toHaveBeenCalledWith(
+            expect.not.objectContaining({
+              commit_message: expect.anything(),
+            }),
+          );
+        });
+      });
     });
 
     it('should handle merge failed', async () => {
@@ -459,13 +531,13 @@ describe('ReadyToMerge', () => {
 
       await triggerEditCommitInput();
 
-      expect(wrapper.findComponent('[data-testid="edit_commit_message"]').exists()).toBe(true);
+      expect(wrapper.findByTestId('edit_commit_message').exists()).toBe(true);
 
       findMergeButton().vm.$emit('click');
 
       await waitForPromises();
 
-      expect(wrapper.findComponent('[data-testid="edit_commit_message"]').exists()).toBe(false);
+      expect(wrapper.findByTestId('edit_commit_message').exists()).toBe(false);
     });
   });
 
@@ -816,15 +888,39 @@ describe('ReadyToMerge', () => {
     });
 
     it('should display the correct merge text', () => {
-      expect(findMergeButton().text()).toBe('Merge...');
+      expect(findMergeButton().text()).toBe('Merge…');
     });
 
     it('should display confirmation modal when merge button is clicked', async () => {
-      expect(findPipelineFailedConfirmModal().props()).toEqual({ visible: false });
+      expect(findPipelineFailedConfirmModal().props()).toEqual(
+        expect.objectContaining({ visible: false }),
+      );
 
       await findMergeButton().vm.$emit('click');
 
-      expect(findPipelineFailedConfirmModal().props()).toEqual({ visible: true });
+      expect(findPipelineFailedConfirmModal().props()).toEqual(
+        expect.objectContaining({ visible: true }),
+      );
+    });
+  });
+
+  describe('Merge button when merge request has been retargeted', () => {
+    beforeEach(() => {
+      createComponent({
+        mr: { retargeted: true },
+      });
+    });
+
+    it('should display confirmation modal when merge button is clicked', async () => {
+      expect(findPipelineFailedConfirmModal().props()).toEqual(
+        expect.objectContaining({ visible: false }),
+      );
+
+      await findMergeButton().vm.$emit('click');
+
+      expect(findPipelineFailedConfirmModal().props()).toEqual(
+        expect.objectContaining({ visible: true }),
+      );
     });
   });
 
@@ -900,6 +996,98 @@ describe('ReadyToMerge', () => {
     it("doesn't show auto-merge hint when auto merge is not set", () => {
       createComponent({ mr: { autoMergeEnabled: false } });
       expect(wrapper.text()).not.toContain('Auto-merge enabled');
+    });
+  });
+
+  describe('rebase button', () => {
+    describe('when rebasing', () => {
+      let axiosSpy;
+
+      beforeEach(() => {
+        axiosSpy = jest.spyOn(axios, 'post').mockResolvedValue({});
+
+        createComponent(
+          {
+            mr: {
+              divergedCommitsCount: 2,
+              targetProjectFullPath: 'namespace/project',
+              iid: 123,
+              sourceBranch: 'feature-branch',
+              state: 'readyToMerge',
+              userPermissions: { canMerge: true },
+              availableAutoMergeStrategies: [],
+              canPushToSourceBranch: true,
+            },
+          },
+          true,
+        );
+      });
+
+      it('shows confirmation dialog when clicking rebase button handler', async () => {
+        wrapper.vm.handleRebaseClick();
+        await nextTick();
+
+        expect(wrapper.vm.isRebaseModalVisible).toBe(true);
+      });
+
+      it('calls rebase endpoint when confirmed', async () => {
+        const expectedPath = joinPaths('/', 'namespace/project/-/merge_requests/123/rebase');
+
+        wrapper.vm.isRebaseModalVisible = true;
+        wrapper.vm.rebaseConfirmed();
+
+        await waitForPromises();
+
+        expect(axiosSpy).toHaveBeenCalledWith(expectedPath);
+        expect(wrapper.vm.isRebaseInProgress).toBe(false);
+      });
+
+      it('has correct computed properties for showing rebase button', () => {
+        expect(wrapper.vm.sourceHasDivergedFromTarget).toBe(true);
+        expect(wrapper.vm.mr.canPushToSourceBranch).toBe(true);
+        expect(wrapper.vm.canRebase).toBe(true);
+      });
+    });
+
+    describe('rebase button permissions', () => {
+      const findRebaseButton = () => wrapper.find('[data-testid="rebase-button"]');
+
+      describe('when source branch has diverged from target', () => {
+        it('shows rebase button when user can push to source branch', () => {
+          createComponent({
+            mr: {
+              divergedCommitsCount: 5,
+              canPushToSourceBranch: true,
+            },
+          });
+
+          expect(findRebaseButton().exists()).toBe(true);
+        });
+
+        it('hides rebase button when user cannot push to source branch', () => {
+          createComponent({
+            mr: {
+              divergedCommitsCount: 5,
+              canPushToSourceBranch: false,
+            },
+          });
+
+          expect(findRebaseButton().exists()).toBe(false);
+        });
+      });
+
+      describe('when source branch is up to date with target', () => {
+        it('hides rebase button even if user can push to source branch', () => {
+          createComponent({
+            mr: {
+              divergedCommitsCount: 0,
+              canPushToSourceBranch: true,
+            },
+          });
+
+          expect(findRebaseButton().exists()).toBe(false);
+        });
+      });
     });
   });
 

@@ -31,8 +31,8 @@ module Ci
 
       response = Ci::CreatePipelineService
         .new(project, trigger.owner, ref: params[:ref], variables_attributes: variables)
-        .execute(:trigger, ignore_skip_ci: true) do |pipeline|
-          pipeline.trigger_requests.build(trigger: trigger)
+        .execute(:trigger, ignore_skip_ci: true, inputs: inputs) do |pipeline|
+          pipeline.trigger = trigger
         end
 
       pipeline_service_response(response.payload)
@@ -61,7 +61,7 @@ module Ci
 
       response = Ci::CreatePipelineService
         .new(project, job.user, ref: params[:ref], variables_attributes: variables)
-        .execute(:pipeline, ignore_skip_ci: true) do |pipeline|
+        .execute(:pipeline, ignore_skip_ci: true, inputs: inputs) do |pipeline|
           source = job.sourced_pipelines.build(
             source_pipeline: job.pipeline,
             source_project: job.project,
@@ -79,6 +79,10 @@ module Ci
       strong_memoize(:job) do
         Ci::AuthJobFinder.new(token: params[:token].to_s).execute!
       end
+    end
+
+    def inputs
+      params[:inputs]
     end
 
     def variables

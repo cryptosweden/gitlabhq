@@ -9,7 +9,7 @@ describe('ProjectsList', () => {
   let wrapper;
 
   const defaultPropsData = {
-    projects: convertObjectPropsToCamelCase(projects, { deep: true }),
+    items: convertObjectPropsToCamelCase(projects, { deep: true }),
     listItemClass: 'gl-px-5',
   };
 
@@ -26,33 +26,34 @@ describe('ProjectsList', () => {
     const expectedProps = projectsListItemWrappers.map((projectsListItemWrapper) =>
       projectsListItemWrapper.props(),
     );
-    const expectedClasses = projectsListItemWrappers.map((projectsListItemWrapper) =>
-      projectsListItemWrapper.classes(),
-    );
 
     expect(expectedProps).toEqual(
-      defaultPropsData.projects.map((project) => ({
+      defaultPropsData.items.map((project) => ({
         project,
         showProjectIcon: false,
+        listItemClass: defaultPropsData.listItemClass,
         timestampType: TIMESTAMP_TYPE_CREATED_AT,
       })),
     );
-    expect(expectedClasses).toEqual(
-      defaultPropsData.projects.map(() => [defaultPropsData.listItemClass]),
-    );
   });
 
-  describe('when `ProjectListItem` emits `delete` event', () => {
-    const [firstProject] = defaultPropsData.projects;
-
+  describe.each`
+    eventName             | payload
+    ${'refetch'}          | ${undefined}
+    ${'hover-visibility'} | ${'private'}
+    ${'hover-stat'}       | ${'Stars'}
+    ${'click-stat'}       | ${'Stars'}
+    ${'click-avatar'}     | ${undefined}
+    ${'click-topic'}      | ${undefined}
+  `('when `ProjectListItem` emits $eventName event', ({ eventName, payload }) => {
     beforeEach(() => {
       createComponent();
 
-      wrapper.findComponent(ProjectsListItem).vm.$emit('delete', firstProject);
+      wrapper.findComponent(ProjectsListItem).vm.$emit(eventName, payload);
     });
 
-    it('emits `delete` event', () => {
-      expect(wrapper.emitted('delete')).toEqual([[firstProject]]);
+    it(`emits ${eventName}`, () => {
+      expect(wrapper.emitted(eventName)).toEqual([[payload]]);
     });
   });
 });

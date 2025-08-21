@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe ViteHelper, feature_category: :tooling do
-  describe '#vite_page_entrypoint_path' do
+  describe '#vite_page_entrypoint_paths' do
     using RSpec::Parameterized::TableSyntax
 
     where(:path, :action, :result) do
@@ -22,10 +22,20 @@ RSpec.describe ViteHelper, feature_category: :tooling do
 
       it { expect(helper.vite_page_entrypoint_paths).to eq(result) }
     end
+
+    context 'with js_action_name instance variable set' do
+      it 'accepts custom action name' do
+        allow(helper.controller).to receive(:controller_path).and_return('some_path')
+        allow(helper.controller).to receive(:action_name).and_return('new')
+        expect(helper.vite_page_entrypoint_paths('new_2')).to eq(%w[pages.some_path.js pages.some_path.new_2.js])
+      end
+    end
   end
 
   describe '#universal_stylesheet_link_tag' do
     let_it_be(:path) { 'application' }
+
+    subject(:link_tag) { Capybara.string(helper.universal_stylesheet_link_tag(path)).first('link', visible: :all) }
 
     context 'when Vite is disabled' do
       before do
@@ -34,7 +44,6 @@ RSpec.describe ViteHelper, feature_category: :tooling do
 
       it 'uses stylesheet_link_tag' do
         expect(helper).to receive(:stylesheet_link_tag).with(path).and_call_original
-        link_tag = Capybara.string(helper.universal_stylesheet_link_tag(path)).first('link', visible: :all)
 
         expect(link_tag[:rel]).to eq('stylesheet')
         expect(link_tag[:href]).to match_asset_path("#{path}.css")
@@ -44,11 +53,15 @@ RSpec.describe ViteHelper, feature_category: :tooling do
     context 'when Vite is enabled' do
       before do
         allow(helper).to receive(:vite_enabled?).and_return(true)
+
+        allow(ViteRuby.instance.manifest).to receive(:path_for)
+                                               .with("stylesheets/styles.#{path}.scss", type: :stylesheet)
+                                               .and_return("/vite-dev/stylesheets/styles.#{path}.scss.css")
       end
 
       it 'uses vite_stylesheet_tag' do
-        expect(helper).to receive(:vite_stylesheet_tag).with("stylesheets/styles.#{path}.scss")
-        helper.universal_stylesheet_link_tag(path)
+        expect(link_tag[:rel]).to eq('stylesheet')
+        expect(link_tag[:href]).to eq('/vite-dev/stylesheets/styles.application.scss.css')
       end
     end
   end

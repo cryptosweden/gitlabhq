@@ -11,6 +11,9 @@ RSpec.describe GraphqlChannel, feature_category: :api do
     create(:personal_access_token, scopes: %w[read_user read_api], user: user)
   end
 
+  let_it_be(:expired_token) { create(:personal_access_token, :expired, scopes: %w[read_api], user: user) }
+  let_it_be(:revoked_token) { create(:personal_access_token, :revoked, scopes: %w[read_api], user: user) }
+
   describe '#subscribed' do
     let(:query) do
       <<~GRAPHQL
@@ -41,6 +44,8 @@ RSpec.describe GraphqlChannel, feature_category: :api do
     end
 
     context 'with a personal access token' do
+      let(:app_context) { Gitlab::ApplicationContext.current }
+
       before do
         stub_action_cable_connection current_user: user, access_token: access_token
       end
@@ -53,6 +58,7 @@ RSpec.describe GraphqlChannel, feature_category: :api do
 
           expect(subscription).to be_confirmed
           expect(subscription.streams).to include(/graphql-event::mergeRequestReviewersUpdated:issuableId/)
+          expect(app_context.keys).not_to include('meta.auth_fail_reason', 'meta.auth_fail_token_id')
         end
       end
 
@@ -63,6 +69,8 @@ RSpec.describe GraphqlChannel, feature_category: :api do
           subscribe(subscribe_params)
 
           expect(subscription).not_to be_confirmed
+          expect(app_context['meta.auth_fail_reason']).to eq('insufficient_scope')
+          expect(app_context['meta.auth_fail_token_id']).to eq("PersonalAccessToken/#{access_token.id}")
         end
       end
 
@@ -74,7 +82,79 @@ RSpec.describe GraphqlChannel, feature_category: :api do
 
           expect(subscription).to be_confirmed
           expect(subscription.streams).to include(/graphql-event::mergeRequestReviewersUpdated:issuableId/)
+          expect(app_context.keys).not_to include('meta.auth_fail_reason', 'meta.auth_fail_token_id')
         end
+      end
+
+      context 'with an expired read_user personal access token' do
+        let(:access_token) { expired_token }
+
+        it 'does not subscribe to the given graphql subscription' do
+          subscribe(subscribe_params)
+
+          expect(subscription).not_to be_confirmed
+          expect(app_context['meta.auth_fail_reason']).to eq('token_expired')
+          expect(app_context['meta.auth_fail_token_id']).to eq("PersonalAccessToken/#{access_token.id}")
+        end
+      end
+
+      context 'with a revoked read_user personal access token' do
+        let(:access_token) { revoked_token }
+
+        it 'does not subscribe to the given graphql subscription' do
+          subscribe(subscribe_params)
+
+          expect(subscription).not_to be_confirmed
+          expect(app_context['meta.auth_fail_reason']).to eq('token_revoked')
+          expect(app_context['meta.auth_fail_token_id']).to eq("PersonalAccessToken/#{access_token.id}")
+        end
+      end
+    end
+
+    describe 'metrics' do
+      before do
+        stub_action_cable_connection current_user: create(:user)
+      end
+
+      it 'does not track unauthorized subscriptions as errors' do
+        expect(Gitlab::Metrics::RailsSlis.graphql_query_apdex).not_to receive(:increment)
+
+        expect(Gitlab::Metrics::RailsSlis.graphql_query_error_rate).to receive(:increment).with({
+          labels: anything,
+          error: false
+        })
+
+        subscribe(subscribe_params)
+
+        expect(transmissions.first['result']).to match(a_hash_including(
+          'errors' => [
+            a_hash_including(
+              'message' => 'Unauthorized subscription'
+            )
+          ]
+        ))
+      end
+    end
+
+    describe 'context' do
+      let_it_be(:organization) { create(:organization) }
+      let(:graphql_result) do
+        instance_double(GraphQL::Query::Result, to_h: {}, subscription?: false, context: {})
+      end
+
+      before do
+        stub_action_cable_connection current_organization: organization
+      end
+
+      it 'includes current_organization context' do
+        expect(GitlabSchema).to receive(:execute).with(
+          anything,
+          hash_including(
+            context: hash_including(current_organization: organization)
+          )
+        ).and_return(graphql_result)
+
+        subscribe(subscribe_params)
       end
     end
   end

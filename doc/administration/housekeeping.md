@@ -1,14 +1,16 @@
 ---
-stage: Systems
+stage: Data Access
 group: Gitaly
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Housekeeping
 ---
 
-# Housekeeping
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 GitLab supports and automates housekeeping tasks in Git repositories to ensure
 that they can be served as efficiently as possible. Housekeeping tasks include:
@@ -19,10 +21,13 @@ that they can be served as efficiently as possible. Housekeeping tasks include:
 - Maintaining data structures that improve performance.
 - Updating object pools to improve object deduplication across forks.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Do not manually execute Git commands to perform housekeeping in Git
 repositories that are controlled by GitLab. Doing so may lead to corrupt
 repositories and data loss.
+
+{{< /alert >}}
 
 ## Housekeeping strategy
 
@@ -49,9 +54,13 @@ be slow.
 
 ### Heuristical housekeeping
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/2634) in GitLab 14.9 for the [manual trigger](#manual-trigger) and the push-based trigger [with a flag](feature_flags.md) named `optimized_housekeeping`. Enabled by default.
-> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/353607) in GitLab 14.10.
-> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/107661) in GitLab 15.8. Feature flag `optimized_housekeeping` removed.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitaly/-/issues/2634) in GitLab 14.9 for the [manual trigger](#manual-trigger) and the push-based trigger [with a flag](feature_flags/_index.md) named `optimized_housekeeping`. Enabled by default.
+- [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/353607) in GitLab 14.10.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/107661) in GitLab 15.8. Feature flag `optimized_housekeeping` removed.
+
+{{< /history >}}
 
 The heuristical (or "opportunistic") housekeeping strategy analyzes the
 repository's state and executes housekeeping tasks only when it finds one or
@@ -80,8 +89,8 @@ frequently.
 
 You can change how often Gitaly is asked to optimize a repository.
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Settings > Repository**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Settings** > **Repository**.
 1. Expand **Repository maintenance**.
 1. In the **Housekeeping** section, configure the housekeeping options.
 1. Select **Save changes**.
@@ -113,25 +122,30 @@ housekeeping tasks. The manual trigger can be useful when either:
 To trigger housekeeping tasks manually:
 
 1. On the left sidebar, select **Search or go to** and find your project.
-1. Select **Settings > General**.
+1. Select **Settings** > **General**.
 1. Expand **Advanced**.
 1. Select **Run housekeeping**.
 
 This starts an asynchronous background worker for the project's repository. The
 background worker asks Gitaly to perform a number of optimizations.
 
-Housekeeping also [removes unreferenced LFS files](../raketasks/cleanup.md#remove-unreferenced-lfs-files)
+Housekeeping also [removes unreferenced LFS files](raketasks/cleanup.md#remove-unreferenced-lfs-files)
 from your project every `200` push, freeing up storage space for your project.
 
 ### Prune unreachable objects
 
-Unreachable objects are pruned as part of scheduled housekeeping. However,
-you can trigger manual pruning as well. An example: removing commits that contain sensitive
-information. Triggering housekeeping prunes unreachable objects with a grace period of
-two weeks. When you manually trigger the pruning of unreachable objects, the grace period
-is reduced to 30 minutes.
+Unreachable objects are pruned as part of scheduled housekeeping. However, you can trigger
+manual pruning as well. Triggering housekeeping prunes unreachable objects with a grace
+period of two weeks. When you manually trigger the pruning of unreachable objects, the
+grace period is reduced to 30 minutes.
 
-WARNING:
+{{< alert type="warning" >}}
+
+Pruning unreachable objects does not guarantee the removal of leaked secrets and other sensitive information. For information on how to remove secrets that
+were committed but not pushed, see the [remove a secret from your commits tutorial](../user/application_security/secret_detection/remove_secrets_tutorial.md).
+Additionally, you can [remove blobs individually](../user/project/repository/repository_size.md#remove-blobs). Refer to that documentation for possible
+consequences of performing that operation.
+
 If a concurrent process (like `git push`) has created an object but hasn't created
 a reference to the object yet, your repository can become corrupted if a reference
 to the object is added after the object is deleted. The grace period exists to
@@ -141,10 +155,12 @@ then the risk that comes with pruning unreachable objects is much higher than in
 environment where the project can be accessed only from inside the company with a performant
 connection. Consider the project usage profile when using this option and select a quiet period.
 
+{{< /alert >}}
+
 To trigger a manual prune of unreachable objects:
 
 1. On the left sidebar, select **Search or go to** and find your project.
-1. Select **Settings > General**.
+1. Select **Settings** > **General**.
 1. Expand **Advanced**.
 1. Select **Run housekeeping**.
 1. Wait 30 minutes for the operation to complete.
@@ -152,9 +168,15 @@ To trigger a manual prune of unreachable objects:
 
 ### Scheduled housekeeping
 
+{{< details >}}
+
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
+
 While GitLab automatically performs housekeeping tasks based on the number of
 pushes, it does not maintain repositories that don't receive any pushes at all.
-As a result, inactive repositories or repositories that are only getting read
+As a result, dormant repositories or repositories that are only getting read
 requests may not benefit from improvements in the repository housekeeping
 strategy.
 
@@ -172,20 +194,20 @@ duration of 10 minutes.
 
 You can change this default in Gitaly configuration.
 
-For environments with Gitaly Cluster, the scheduled housekeeping start time can be
+For environments with Gitaly Cluster (Praefect), the scheduled housekeeping start time can be
 staggered across Gitaly nodes so the scheduled housekeeping is not running
 simultaneously on multiple nodes.
 
 If a scheduled housekeeping run reaches the `duration` specified, the running tasks are
-gracefully cancelled. On subsequent scheduled housekeeping runs, Gitaly randomly shuffles
+gracefully canceled. On subsequent scheduled housekeeping runs, Gitaly randomly shuffles
 the repository list to process.
 
 The following snippet enables daily background repository maintenance starting at
 23:00 for 1 hour for the `default` storage:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Self-compiled (source)
+{{< tab title="Self-compiled (source)" >}}
 
 ```toml
 [daily_maintenance]
@@ -203,7 +225,9 @@ maintenance:
 disabled = true
 ```
 
-:::TabTitle Linux package (Omnibus)
+{{< /tab >}}
+
+{{< tab title="Linux package (Omnibus)" >}}
 
 ```ruby
 gitaly['configuration'] = {
@@ -228,10 +252,12 @@ gitaly['configuration'] = {
 }
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 When the scheduled housekeeping is executed, you can see the following entries in
-your [Gitaly log](logs/index.md#gitaly-logs):
+your [Gitaly log](logs/_index.md#gitaly-logs):
 
 ```json
 # When the scheduled housekeeping starts
@@ -242,17 +268,23 @@ your [Gitaly log](logs/index.md#gitaly-logs):
 ```
 
 The `actual_duration` (in nanoseconds) indicates how long the scheduled maintenance
-took to execute. In the example above, the scheduled housekeeping completed
+took to execute. In the previous example, the scheduled housekeeping completed
 in just over 5 minutes.
 
 ## Object pool repositories
+
+{{< details >}}
+
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 Object pool repositories are used by GitLab to deduplicate objects across forks
 of a repository. When creating the first fork, we:
 
 1. Create an object pool repository that contains all objects of the repository
    that is about to be forked.
-1. Link the repository to this new object pool via the alternates mechanism of Git.
+1. Link the repository to this new object pool by using the alternates mechanism of Git.
 1. Repack the repository so that it uses objects from the object pool. It thus
    can drop its own copy of the objects.
 

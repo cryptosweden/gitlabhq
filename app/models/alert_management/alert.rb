@@ -10,22 +10,24 @@ module AlertManagement
     include Sortable
     include Noteable
     include Mentionable
+    include Todoable
     include Gitlab::SQL::Pattern
     include Presentable
     include Gitlab::Utils::StrongMemoize
     include Referable
     include ::IncidentManagement::Escalatable
 
+    ignore_column :prometheus_alert_id, remove_with: '18.5', remove_after: '2025-10-05'
+
     belongs_to :project
     belongs_to :issue, optional: true
-    belongs_to :prometheus_alert, optional: true
     belongs_to :environment, optional: true
 
     has_many :alert_assignees, inverse_of: :alert
     has_many :assignees, through: :alert_assignees
 
     has_many :notes, as: :noteable, inverse_of: :noteable, dependent: :delete_all # rubocop:disable Cop/ActiveRecordDependent
-    has_many :ordered_notes, -> { fresh }, as: :noteable, class_name: 'Note', inverse_of: :noteable
+    has_many :ordered_notes, -> { order_created_at_id_asc }, as: :noteable, class_name: 'Note', inverse_of: :noteable
     has_many :user_mentions, class_name: 'AlertManagement::AlertUserMention', foreign_key: :alert_management_alert_id,
       inverse_of: :alert
     has_many :metric_images, class_name: '::AlertManagement::MetricImage'
@@ -58,7 +60,7 @@ module AlertManagement
     }, unless: :resolved?
     validate :hosts_format
 
-    enum severity: {
+    enum :severity, {
       critical: 0,
       high: 1,
       medium: 2,
@@ -67,7 +69,7 @@ module AlertManagement
       unknown: 5
     }
 
-    enum domain: {
+    enum :domain, {
       operations: 0,
       threat_monitoring: 1
     }
@@ -81,7 +83,6 @@ module AlertManagement
     scope :for_assignee_username, ->(assignee_username) { joins(:assignees).merge(User.by_username(assignee_username)) }
     scope :search, ->(query) { fuzzy_search(query, [:title, :description, :monitoring_tool, :service]) }
     scope :not_resolved, -> { without_status(:resolved) }
-    scope :with_prometheus_alert, -> { includes(:prometheus_alert) }
     scope :with_operations_alerts, -> { where(domain: :operations) }
 
     scope :order_start_time,    ->(sort_order) { order(started_at: sort_order) }
@@ -92,7 +93,7 @@ module AlertManagement
     # Descending sort order sorts severity from more critical to less critical.
     # https://gitlab.com/gitlab-org/gitlab/-/issues/221242#what-is-the-expected-correct-behavior
     scope :order_severity,      ->(sort_order) { order(severity: sort_order == :asc ? :desc : :asc) }
-    scope :order_severity_with_open_prometheus_alert, -> { open.with_prometheus_alert.order(severity: :asc, started_at: :desc) }
+    scope :open_order_by_severity, -> { open.order(severity: :asc, started_at: :desc) }
 
     scope :counts_by_project_id, -> { group(:project_id).count }
 
@@ -123,11 +124,6 @@ module AlertManagement
       for_fingerprint(project, fingerprint).not_resolved.take
     end
 
-    def self.last_prometheus_alert_by_project_id
-      ids = select(arel_table[:id].maximum).group(:project_id)
-      with_prometheus_alert.where(id: ids)
-    end
-
     def self.reference_prefix
       '^alert#'
     end
@@ -140,7 +136,8 @@ module AlertManagement
     end
 
     def self.link_reference_pattern
-      @link_reference_pattern ||= compose_link_reference_pattern('alert_management', %r{(?<alert>\d+)/details(\#)?})
+      pattern = %r{(?<alert>\d+)/details(?:\#)?}
+      @link_reference_pattern ||= compose_link_reference_pattern('alert_management', pattern)
     end
 
     def self.reference_valid?(reference)

@@ -2,17 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::RunScheduledBuildService, feature_category: :continuous_integration do
-  let(:user) { create(:user) }
-  let(:project) { create(:project) }
-  let(:pipeline) { create(:ci_pipeline, project: project) }
+RSpec.describe Ci::RunScheduledBuildService, :aggregate_failures, feature_category: :continuous_integration do
+  let_it_be(:user) { create(:user) }
+  let_it_be(:project) { create(:project) }
+  let_it_be(:pipeline) { create(:ci_pipeline, project: project, created_at: 1.day.ago) }
 
-  subject { described_class.new(project, user).execute(build) }
+  subject(:execute_service) { described_class.new(build).execute }
 
   context 'when user can update build' do
-    before do
+    before_all do
       project.add_developer(user)
+    end
 
+    before do
       create(:protected_branch, :developers_can_merge, name: pipeline.ref, project: project)
     end
 
@@ -21,7 +23,7 @@ RSpec.describe Ci::RunScheduledBuildService, feature_category: :continuous_integ
         let(:build) { create(:ci_build, :expired_scheduled, user: user, project: project, pipeline: pipeline) }
 
         it 'can run the build' do
-          expect { subject }.not_to raise_error
+          expect { execute_service }.not_to raise_error
 
           expect(build).to be_pending
         end
@@ -34,7 +36,7 @@ RSpec.describe Ci::RunScheduledBuildService, feature_category: :continuous_integ
           end
 
           it 'transits to waiting for resource status' do
-            expect { subject }.to change { build.status }.from('scheduled').to('waiting_for_resource')
+            expect { execute_service }.to change { build.status }.from('scheduled').to('waiting_for_resource')
           end
         end
       end
@@ -43,7 +45,7 @@ RSpec.describe Ci::RunScheduledBuildService, feature_category: :continuous_integ
         let(:build) { create(:ci_build, :scheduled, user: user, project: project, pipeline: pipeline) }
 
         it 'can not run the build' do
-          expect { subject }.to raise_error(StateMachines::InvalidTransition)
+          expect { execute_service }.to raise_error(StateMachines::InvalidTransition)
 
           expect(build).to be_scheduled
         end
@@ -54,9 +56,23 @@ RSpec.describe Ci::RunScheduledBuildService, feature_category: :continuous_integ
       let(:build) { create(:ci_build, :created, user: user, project: project, pipeline: pipeline) }
 
       it 'can not run the build' do
-        expect { subject }.to raise_error(StateMachines::InvalidTransition)
+        expect { execute_service }.to raise_error(StateMachines::InvalidTransition)
 
         expect(build).to be_created
+      end
+    end
+
+    context 'when the pipeline is archived' do
+      let(:build) { create(:ci_build, :scheduled, user: user, project: project, pipeline: pipeline) }
+
+      before do
+        stub_application_setting(archive_builds_in_seconds: 3600)
+      end
+
+      it 'can not run the build' do
+        expect { execute_service }.to raise_error(Gitlab::Access::AccessDeniedError)
+
+        expect(build).to be_scheduled
       end
     end
   end
@@ -66,7 +82,7 @@ RSpec.describe Ci::RunScheduledBuildService, feature_category: :continuous_integ
       let(:build) { create(:ci_build, :scheduled, user: user, project: project, pipeline: pipeline) }
 
       it 'can not run the build' do
-        expect { subject }.to raise_error(Gitlab::Access::AccessDeniedError)
+        expect { execute_service }.to raise_error(Gitlab::Access::AccessDeniedError)
 
         expect(build).to be_scheduled
       end

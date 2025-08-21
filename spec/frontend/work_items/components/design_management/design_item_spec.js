@@ -26,6 +26,7 @@ describe('Design item component', () => {
   const findEventIcon = () => findDesignEvent().findComponent(GlIcon);
   const findLoadingIcon = () => wrapper.findComponent(GlLoadingIcon);
   const findImage = () => wrapper.find('img');
+  const findImageSrc = () => findImage().element.src;
 
   function createComponent({
     notesCount = 0,
@@ -45,6 +46,9 @@ describe('Design item component', () => {
           event,
           notesCount,
           updatedAt: '01-01-2019',
+          useRouter: true,
+          workItemWebUrl: '/gitlab-org/gitlab-test/-/work_items/1',
+          workItemIid: 'gid://gitlab/WorkItem/1',
           ...props,
         },
         data() {
@@ -57,11 +61,63 @@ describe('Design item component', () => {
     );
   }
 
+  describe('when router navigation is possible', () => {
+    beforeEach(() => {
+      createComponent();
+    });
+
+    it('renders a router-link', () => {
+      expect(wrapper.findComponent(RouterLinkStub).exists()).toBe(true);
+    });
+
+    it('provides a valid `to` prop to the router-link', () => {
+      const routerLink = wrapper.findComponent(RouterLinkStub);
+
+      expect(routerLink.props('to')).toEqual(
+        expect.objectContaining({
+          params: {
+            id: 'test',
+            iid: 'gid://gitlab/WorkItem/1',
+          },
+        }),
+      );
+    });
+  });
+
+  describe('when router navigation is not possible', () => {
+    beforeEach(() => {
+      createComponent({
+        props: {
+          useRouter: false,
+        },
+      });
+    });
+
+    it('renders an anchor element instead of router-link', () => {
+      expect(wrapper.find('a').exists()).toBe(true);
+      expect(wrapper.findComponent(RouterLinkStub).exists()).toBe(false);
+    });
+
+    it('provides a valid `to` prop to the router-link', () => {
+      const anchor = wrapper.find('a');
+
+      expect(anchor.attributes('href')).toBe('/gitlab-org/gitlab-test/-/work_items/1/designs/test');
+    });
+  });
+
   describe('when item is not in view', () => {
     it('image is not rendered', () => {
       createComponent();
 
-      expect(findImage().attributes('src')).toBe('');
+      const imageSrc = findImageSrc();
+
+      /**
+       * Test for <img> tag source handling.
+       * When running this spec in Vue 3 mode, the src attribute
+       * of the image element is null. While in browser `img.src` would
+       * be an empty string, in `jsdom` it can be `null`.
+       */
+      expect(imageSrc === '' || imageSrc === null).toBe(true);
     });
   });
 
@@ -95,7 +151,7 @@ describe('Design item component', () => {
       });
 
       it('renders an image', () => {
-        expect(image.attributes('src')).toBe('http://via.placeholder.com/300');
+        expect(findImageSrc()).toBe('http://via.placeholder.com/300');
         expect(image.isVisible()).toBe(true);
       });
 
@@ -129,7 +185,7 @@ describe('Design item component', () => {
         });
 
         it('renders imageV432x230 image', () => {
-          expect(findImage().attributes('src')).toBe(mockSrc);
+          expect(findImageSrc()).toBe(mockSrc);
         });
       });
     });
@@ -164,9 +220,9 @@ describe('Design item component', () => {
   describe('with associated event', () => {
     it.each`
       event                                | icon                     | className
-      ${DESIGN_VERSION_EVENT.MODIFICATION} | ${'file-modified-solid'} | ${'gl-text-blue-500'}
-      ${DESIGN_VERSION_EVENT.DELETION}     | ${'file-deletion-solid'} | ${'gl-text-red-500'}
-      ${DESIGN_VERSION_EVENT.CREATION}     | ${'file-addition-solid'} | ${'gl-text-green-500'}
+      ${DESIGN_VERSION_EVENT.MODIFICATION} | ${'file-modified-solid'} | ${'gl-fill-icon-info'}
+      ${DESIGN_VERSION_EVENT.DELETION}     | ${'file-deletion-solid'} | ${'gl-fill-icon-danger'}
+      ${DESIGN_VERSION_EVENT.CREATION}     | ${'file-addition-solid'} | ${'gl-fill-icon-success'}
     `('renders item with correct status icon for $event event', ({ event, icon, className }) => {
       createComponent({ event });
       const eventIcon = findEventIcon();

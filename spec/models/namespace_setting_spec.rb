@@ -3,6 +3,8 @@
 require 'spec_helper'
 
 RSpec.describe NamespaceSetting, feature_category: :groups_and_projects, type: :model do
+  using RSpec::Parameterized::TableSyntax
+
   let_it_be(:group) { create(:group) }
   let_it_be(:subgroup, refind: true) { create(:group, parent: group) }
   let(:namespace_settings) { group.namespace_settings }
@@ -24,14 +26,131 @@ RSpec.describe NamespaceSetting, feature_category: :groups_and_projects, type: :
     it { expect(setting.default_branch_protection_defaults).to eq({}) }
   end
 
-  describe '.for_namespaces' do
-    let(:setting_1) { create(:namespace_settings, namespace: namespace_1) }
-    let(:setting_2) { create(:namespace_settings, namespace: namespace_2) }
-    let_it_be(:namespace_1) { create(:namespace) }
-    let_it_be(:namespace_2) { create(:namespace) }
+  describe 'scopes' do
+    describe '.for_namespaces' do
+      let(:setting_1) { create(:namespace_settings, namespace: namespace_1) }
+      let(:setting_2) { create(:namespace_settings, namespace: namespace_2) }
+      let_it_be(:namespace_1) { create(:namespace) }
+      let_it_be(:namespace_2) { create(:namespace) }
 
-    it 'returns namespace setting for the given projects' do
-      expect(described_class.for_namespaces(namespace_1)).to contain_exactly(setting_1)
+      it 'returns namespace setting for the given projects' do
+        expect(described_class.for_namespaces(namespace_1)).to contain_exactly(setting_1)
+      end
+    end
+
+    describe '.with_ancestors_inherited_settings' do
+      let_it_be_with_reload(:root_group) { create(:group) }
+      let_it_be_with_reload(:child_group) { create(:group, parent: root_group) }
+      let_it_be_with_reload(:grandchild_group) { create(:group, parent: child_group) }
+
+      let_it_be_with_reload(:root_settings) { root_group.namespace_settings }
+      let_it_be_with_reload(:child_settings) { child_group.namespace_settings }
+      let_it_be_with_reload(:grandchild_settings) { grandchild_group.namespace_settings }
+
+      subject(:namespaces_with_ancestors_inherited_settings) { described_class.with_ancestors_inherited_settings }
+
+      context 'when no ancestors are archived' do
+        before do
+          root_settings.update!(archived: false)
+          child_settings.update!(archived: false)
+          grandchild_settings.update!(archived: false)
+        end
+
+        it 'returns the original archived value for each namespace' do
+          results = namespaces_with_ancestors_inherited_settings.index_by(&:namespace_id)
+
+          expect(results[root_group.id].archived).to be false
+          expect(results[child_group.id].archived).to be false
+          expect(results[grandchild_group.id].archived).to be false
+        end
+      end
+
+      context 'when root namespace is archived' do
+        before do
+          root_settings.update!(archived: true)
+          child_settings.update!(archived: false)
+          grandchild_settings.update!(archived: false)
+        end
+
+        it 'marks all descendants as archived' do
+          results = namespaces_with_ancestors_inherited_settings.index_by(&:namespace_id)
+
+          expect(results[root_group.id].archived).to be true
+          expect(results[child_group.id].archived).to be true
+          expect(results[grandchild_group.id].archived).to be true
+        end
+      end
+
+      context 'when middle namespace is archived' do
+        before do
+          root_settings.update!(archived: false)
+          child_settings.update!(archived: true)
+          grandchild_settings.update!(archived: false)
+        end
+
+        it 'marks only descendants of archived namespace as archived' do
+          results = namespaces_with_ancestors_inherited_settings.index_by(&:namespace_id)
+
+          expect(results[root_group.id].archived).to be false
+          expect(results[child_group.id].archived).to be true
+          expect(results[grandchild_group.id].archived).to be true
+        end
+      end
+
+      context 'when leaf namespace is archived' do
+        before do
+          root_settings.update!(archived: false)
+          child_settings.update!(archived: false)
+          grandchild_settings.update!(archived: true)
+        end
+
+        it 'only affects the leaf namespace itself' do
+          results = namespaces_with_ancestors_inherited_settings.index_by(&:namespace_id)
+
+          expect(results[root_group.id].archived).to be false
+          expect(results[child_group.id].archived).to be false
+          expect(results[grandchild_group.id].archived).to be true
+        end
+      end
+
+      context 'when multiple ancestors are archived' do
+        before do
+          root_settings.update!(archived: true)
+          child_settings.update!(archived: false)
+          grandchild_settings.update!(archived: true)
+        end
+
+        it 'inherits archived status from any archived ancestor' do
+          results = namespaces_with_ancestors_inherited_settings.index_by(&:namespace_id)
+
+          expect(results[root_group.id].archived).to be true
+          expect(results[child_group.id].archived).to be true
+          expect(results[grandchild_group.id].archived).to be true
+        end
+      end
+
+      context 'with separate namespace hierarchies' do
+        let_it_be(:other_root) { create(:group) }
+        let_it_be(:other_child) { create(:group, parent: other_root) }
+        let_it_be(:other_root_settings) { other_root.namespace_settings }
+        let_it_be(:other_child_settings) { other_child.namespace_settings }
+
+        before do
+          root_settings.update!(archived: true)
+        end
+
+        it 'does not affect unrelated namespace hierarchies' do
+          results = namespaces_with_ancestors_inherited_settings.index_by(&:namespace_id)
+
+          # First hierarchy - affected by root being archived
+          expect(results[root_group.id].archived).to be true
+          expect(results[child_group.id].archived).to be true
+
+          # Second hierarchy - unaffected
+          expect(results[other_root.id].archived).to be false
+          expect(results[other_child.id].archived).to be false
+        end
+      end
     end
   end
 
@@ -69,75 +188,9 @@ RSpec.describe NamespaceSetting, feature_category: :groups_and_projects, type: :
       end
     end
 
-    describe 'allow_mfa_for_subgroups' do
-      context 'group is top-level group' do
-        it 'is valid' do
-          namespace_settings.allow_mfa_for_subgroups = false
-
-          expect(namespace_settings).to be_valid
-        end
-      end
-
-      context 'group is a subgroup' do
-        let(:namespace_settings) { subgroup.namespace_settings }
-
-        it 'is valid if true' do
-          namespace_settings.allow_mfa_for_subgroups = true
-
-          expect(namespace_settings).to be_valid
-        end
-
-        it 'is invalid if false' do
-          namespace_settings.allow_mfa_for_subgroups = false
-
-          expect(namespace_settings).to be_invalid
-        end
-
-        it 'is invalid if nil' do
-          namespace_settings.allow_mfa_for_subgroups = nil
-
-          expect(namespace_settings).to be_invalid
-        end
-      end
-    end
-
-    describe 'resource_access_token_creation_allowed' do
-      context 'group is top-level group' do
-        it 'is valid' do
-          namespace_settings.resource_access_token_creation_allowed = false
-
-          expect(namespace_settings).to be_valid
-        end
-      end
-
-      context 'group is a subgroup' do
-        let(:namespace_settings) { subgroup.namespace_settings }
-
-        it 'is invalid when resource access token creation is not enabled' do
-          namespace_settings.resource_access_token_creation_allowed = false
-
-          expect(namespace_settings).to be_invalid
-        end
-
-        it 'is valid when resource access tokens are enabled' do
-          namespace_settings.resource_access_token_creation_allowed = true
-
-          expect(namespace_settings).to be_valid
-        end
-
-        it 'is invalid if nil' do
-          namespace_settings.resource_access_token_creation_allowed = nil
-
-          expect(namespace_settings).to be_invalid
-        end
-      end
-    end
-
     context 'default_branch_protections_defaults validations' do
       let(:charset) { [*'a'..'z'] + [*0..9] }
       let(:value) { Array.new(byte_size) { charset.sample }.join }
-
-      it { expect(described_class).to validate_jsonb_schema(['default_branch_protection_defaults']) }
 
       context 'when json is more than 1kb' do
         let(:byte_size) { 1.1.kilobytes }
@@ -152,16 +205,75 @@ RSpec.describe NamespaceSetting, feature_category: :groups_and_projects, type: :
       end
     end
 
-    describe 'remove_dormant_members' do
-      it { expect(subgroup.namespace_settings).to validate_inclusion_of(:remove_dormant_members).in_array([false]) }
+    context 'when enterprise bypass confirmation is allowed' do
+      subject do
+        build(:namespace_settings, allow_enterprise_bypass_placeholder_confirmation: true)
+      end
+
+      let(:valid_times) { [1.day.from_now, 30.days.from_now, 1.year.from_now - 1.day] }
+      let(:invalid_times) { [nil, 1.day.ago, Time.zone.today, 1.year.from_now] }
+
+      it 'does not allow invalid expiration times' do
+        invalid_times.each do |time|
+          expect(subject).not_to allow_value(time).for(:enterprise_bypass_expires_at)
+        end
+      end
+
+      it 'allows valid expiration times' do
+        valid_times.each do |time|
+          expect(subject).to allow_value(time).for(:enterprise_bypass_expires_at)
+        end
+      end
     end
 
-    describe 'remove_dormant_members_period' do
-      it do
-        expect(namespace_settings).to validate_numericality_of(:remove_dormant_members_period)
-          .only_integer
-          .is_greater_than_or_equal_to(90)
+    context 'when allow_enterprise_bypass_placeholder_confirmation is false' do
+      subject do
+        build(:namespace_settings, allow_enterprise_bypass_placeholder_confirmation: false)
       end
+
+      it { expect(subject).to allow_value(nil).for(:enterprise_bypass_expires_at) }
+      it { expect(subject).to allow_value('').for(:enterprise_bypass_expires_at) }
+      it { expect(subject).to allow_value(1.day.ago).for(:enterprise_bypass_expires_at) }
+      it { expect(subject).to allow_value(Time.current).for(:enterprise_bypass_expires_at) }
+    end
+  end
+
+  describe '#enterprise_placeholder_bypass_enabled?' do
+    subject { namespace_settings.enterprise_placeholder_bypass_enabled? }
+
+    before do
+      namespace_settings.assign_attributes(
+        allow_enterprise_bypass_placeholder_confirmation: enterprise_bypass_placeholder_confirmation,
+        enterprise_bypass_expires_at: expire_at_value
+      )
+    end
+
+    let(:enterprise_bypass_placeholder_confirmation) { true }
+    let(:expire_at_value) { nil }
+
+    context 'when bypass is enabled with future expiry' do
+      let(:expire_at_value) { 30.days.from_now }
+
+      it { is_expected.to be true }
+    end
+
+    context 'when bypass is enabled but expired' do
+      let(:expire_at_value) { 1.day.ago }
+
+      it { is_expected.to be false }
+    end
+
+    context 'when bypass is disabled' do
+      let(:enterprise_bypass_placeholder_confirmation) { false }
+      let(:expire_at_value) { 30.days.from_now }
+
+      it { is_expected.to be false }
+    end
+
+    context 'when bypass is enabled without expiry date' do
+      let(:expire_at_value) { nil }
+
+      it { is_expected.to be false }
     end
   end
 
@@ -436,12 +548,16 @@ RSpec.describe NamespaceSetting, feature_category: :groups_and_projects, type: :
     end
   end
 
-  describe '#toggle_security_policy_custom_ci' do
-    it_behaves_like 'a cascading namespace setting boolean attribute', settings_attribute_name: :toggle_security_policy_custom_ci
-  end
-
   describe '#math_rendering_limits_enabled' do
     it_behaves_like 'a cascading namespace setting boolean attribute', settings_attribute_name: :math_rendering_limits_enabled
+  end
+
+  describe '#resource_access_token_notify_inherited' do
+    it_behaves_like 'a cascading namespace setting boolean attribute', settings_attribute_name: :resource_access_token_notify_inherited
+  end
+
+  describe '#web_based_commit_signing_enabled' do
+    it_behaves_like 'a cascading namespace setting boolean attribute', settings_attribute_name: :web_based_commit_signing_enabled
   end
 
   describe 'default_branch_protection_defaults' do
@@ -461,6 +577,129 @@ RSpec.describe NamespaceSetting, feature_category: :groups_and_projects, type: :
 
       # invalid json
       it { is_expected.not_to allow_value({ foo: 'bar' }).for(:default_branch_protection_defaults) }
+    end
+  end
+
+  describe 'pipeline_variables_default_role' do
+    subject { group.namespace_settings.pipeline_variables_default_role }
+
+    context 'validations' do
+      let(:namespace_settings) { build(:namespace_settings) }
+
+      context 'when pipeline_variables_default_role is valid' do
+        it 'does not add an error' do
+          valid_roles = ProjectCiCdSetting::PIPELINE_VARIABLES_OVERRIDE_ROLES.keys.map(&:to_s)
+
+          valid_roles.each do |role|
+            namespace_settings.pipeline_variables_default_role = role
+            expect(namespace_settings).to be_valid
+          end
+        end
+      end
+    end
+
+    context 'when an invalid role is assigned to pipeline_variables_default_role' do
+      it 'raises an ArgumentError' do
+        expect do
+          namespace_settings.pipeline_variables_default_role = 'invalid_role'
+        end.to raise_error(ArgumentError, "'invalid_role' is not a valid pipeline_variables_default_role")
+      end
+    end
+
+    context 'when namespace is root' do
+      let(:group) { create(:group) }
+      let(:variables_default_role) { group.namespace_settings.pipeline_variables_default_role }
+
+      it { expect(variables_default_role).to eq('developer') }
+
+      context 'when application setting `pipeline_variables_default_allowed` is false' do
+        before do
+          stub_application_setting(pipeline_variables_default_allowed: false)
+        end
+
+        it { expect(variables_default_role).to eq('no_one_allowed') }
+      end
+    end
+
+    context 'when namespace is not root' do
+      let(:root_group) { create(:group) }
+
+      before do
+        group.parent = root_group
+
+        root_settings = group.parent.namespace_settings
+        root_settings.pipeline_variables_default_role = 'maintainer'
+      end
+
+      it { is_expected.to eq('maintainer') }
+    end
+  end
+
+  describe '#jwt_ci_cd_job_token_enabled?' do
+    let(:settings) { described_class.new }
+
+    subject(:jwt_ci_cd_job_token_enabled?) { settings.jwt_ci_cd_job_token_enabled? }
+
+    where(:jwt_ci_cd_job_token_enabled, :feature_flag_enabled?, :jwt_ci_cd_job_token_opted_out, :jwt_enabled?) do
+      false | false | false | false
+      false | false | true  | false
+      false | true  | false | true
+      true  | false | false | true
+      false | true  | true  | false
+      true  | false | true  | true
+      true  | true  | false | true
+      true  | true  | true  | true
+    end
+
+    with_them do
+      before do
+        settings.jwt_ci_cd_job_token_enabled = jwt_ci_cd_job_token_enabled
+        settings.jwt_ci_cd_job_token_opted_out = jwt_ci_cd_job_token_opted_out
+        stub_feature_flags(ci_job_token_jwt: feature_flag_enabled?)
+      end
+
+      it { is_expected.to be(jwt_enabled?) }
+    end
+  end
+
+  describe 'descendants cache invalidation' do
+    context 'when cached record is present' do
+      let_it_be_with_reload(:cache) { create(:namespace_descendants, namespace: group) }
+
+      it 'invalidates the cache when archived changes to true' do
+        expect { namespace_settings.update!(archived: true) }.to change { cache.reload.outdated_at }.from(nil)
+      end
+
+      it 'invalidates the cache when archived changes to false' do
+        namespace_settings.update!(archived: true)
+        cache.update!(outdated_at: nil) # reset cache to be valid again
+
+        expect { namespace_settings.update!(archived: false) }.to change { cache.reload.outdated_at }.from(nil)
+      end
+
+      it 'does not invalidate cache when other attributes change' do
+        expect { namespace_settings.update!(emails_enabled: true) }.not_to change { cache.reload.outdated_at }
+      end
+    end
+
+    context 'when namespace is UserNamespace' do
+      let(:user_namespace) { create(:user_namespace) }
+      let!(:namespace_settings) { create(:namespace_settings, namespace: user_namespace) }
+      let!(:cache) { create(:namespace_descendants, namespace: user_namespace) }
+
+      it 'does not invalidate cache' do
+        expect { user_namespace.namespace_settings.update!(archived: true) }.not_to change { cache.reload.outdated_at }
+      end
+    end
+
+    context 'when parent group has cached record' do
+      let(:parent_group) { create(:group) }
+      let(:child_group) { create(:group, parent: parent_group) }
+      let!(:parent_cache) { create(:namespace_descendants, namespace: parent_group) }
+
+      it 'invalidates the parent cache when child is archived' do
+        expect { child_group.namespace_settings.update!(archived: true) }.to change { parent_cache.reload.outdated_at }.from(nil)
+      end
     end
   end
 end

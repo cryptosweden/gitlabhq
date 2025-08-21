@@ -2,50 +2,53 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: OpenTofu integration in merge requests
 ---
 
-# Terraform integration in merge requests
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-Collaborating around Infrastructure as Code (IaC) changes requires both code changes and expected infrastructure changes to be checked and approved. GitLab provides a solution to help collaboration around Terraform code changes and their expected effects using the merge request pages. This way users don't have to build custom tools or rely on 3rd party solutions to streamline their IaC workflows.
+{{< /details >}}
 
-## Output Terraform Plan information into a merge request
+Collaborating around Infrastructure as Code (IaC) changes requires both code changes and expected infrastructure changes to be checked and approved. GitLab provides a solution to help collaboration around OpenTofu code changes and their expected effects using the merge request pages. This way users don't have to build custom tools or rely on third-party solutions to streamline their IaC workflows.
 
-Using the [GitLab Terraform Report artifact](../../../ci/yaml/artifacts_reports.md#artifactsreportsterraform),
-you can expose details from `terraform plan` runs directly into a merge request widget,
-enabling you to see statistics about the resources that Terraform creates,
+## Output OpenTofu Plan information into a merge request
+
+Using the [GitLab Terraform/OpenTofu Report artifact](../../../ci/yaml/artifacts_reports.md#artifactsreportsterraform),
+you can expose details from `tofu plan` runs directly into a merge request widget,
+enabling you to see statistics about the resources that OpenTofu creates,
 modifies, or destroys.
 
-WARNING:
-Like any other job artifact, Terraform plan data is viewable by anyone with the Guest role on the repository.
-Neither Terraform nor GitLab encrypts the plan file by default. If your Terraform `plan.json` or `plan.cache`
+{{< alert type="warning" >}}
+
+Like any other job artifact, OpenTofu plan data is viewable by anyone with the Guest role on the repository.
+Neither OpenTofu nor GitLab encrypts the plan file by default. If your OpenTofu `plan.json` or `plan.cache`
 files include sensitive data like passwords, access tokens, or certificates, you should
 encrypt the plan output or modify the project visibility settings. You should also **disable**
 [public pipelines](../../../ci/pipelines/settings.md#change-pipeline-visibility-for-non-project-members-in-public-projects)
-and set the [artifact's public flag to false](../../../ci/yaml/index.md#artifactspublic) (`public: false`).
+and set the [artifact's public flag to false](../../../ci/yaml/_index.md#artifactspublic) (`public: false`).
 This setting ensures artifacts are accessible only to GitLab administrators and project members with at least the Reporter role.
 
-## Configure Terraform report artifacts
+{{< /alert >}}
 
-GitLab [integrates with Terraform](index.md#integrate-your-project-with-terraform) and [OpenTofu](index.md#integrate-your-project-with-opentofu)
-through CI/CD templates and components that use GitLab-managed Terraform state and display Terraform changes on merge requests.
+## Configure OpenTofu report artifacts
 
-### Automatically configure Terraform report artifacts
+GitLab [integrates with OpenTofu](_index.md#quickstart-an-opentofu-project-in-pipelines)
+through the OpenTofu CI/CD component. This component uses GitLab-managed OpenTofu state to display OpenTofu changes on merge requests.
 
-You should use either the [Terraform CI/CD templates](index.md#integrate-your-project-with-terraform)
-or the [OpenTofu CI/CD component](https://gitlab.com/components/opentofu), which automatically configure the Terraform report artifacts
-in the `plan` jobs.
+### Automatically configure OpenTofu report artifacts
 
-### Manually configure Terraform report artifacts
+You should use the [OpenTofu CI/CD component](https://gitlab.com/components/opentofu), which automatically configures the OpenTofu report artifacts in the `plan` jobs.
 
-For a quick setup, you should customize the pre-built image and rely on the `gitlab-terraform` and `gitlab-tofu` helpers.
+### Manually configure OpenTofu report artifacts
 
-To manually configure a GitLab Terraform Report artifact:
+For a quick setup, you should customize the pre-built image and rely on the `gitlab-tofu` helper.
 
-1. For simplicity, let's define a few reusable variables to allow us to
+To manually configure a GitLab OpenTofu Report artifact:
+
+1. Define reusable variables to
    refer to these files multiple times:
 
    ```yaml
@@ -56,8 +59,8 @@ To manually configure a GitLab Terraform Report artifact:
 
 1. Install `jq`, a
    [lightweight and flexible command-line JSON processor](https://stedolan.github.io/jq/).
-1. Create an alias for a specific `jq` command that parses out the information we
-   want to extract from the `terraform plan` output:
+1. Create an alias for a specific `jq` command that parses out the information you
+   want to extract from the `tofu plan` output:
 
    ```yaml
    before_script:
@@ -65,11 +68,14 @@ To manually configure a GitLab Terraform Report artifact:
      - alias convert_report="jq -r '([.resource_changes[]?.change.actions?]|flatten)|{\"create\":(map(select(.==\"create\"))|length),\"update\":(map(select(.==\"update\"))|length),\"delete\":(map(select(.==\"delete\"))|length)}'"
    ```
 
-   NOTE:
+   {{< alert type="note" >}}
+
    In distributions that use Bash (for example, Ubuntu), `alias` statements are not
    expanded in non-interactive mode. If your pipelines fail with the error
    `convert_report: command not found`, alias expansion can be activated explicitly
    by adding a `shopt` command to your script:
+
+   {{< /alert >}}
 
    ```yaml
    before_script:
@@ -77,29 +83,37 @@ To manually configure a GitLab Terraform Report artifact:
      - alias convert_report="jq -r '([.resource_changes[]?.change.actions?]|flatten)|{\"create\":(map(select(.==\"create\"))|length),\"update\":(map(select(.==\"update\"))|length),\"delete\":(map(select(.==\"delete\"))|length)}'"
    ```
 
-1. Define a `script` that runs `terraform plan` and `terraform show`. These commands
+1. Define a `script` that runs `tofu plan` and `tofu show`. These commands
    pipe the output and convert the relevant bits into a store variable `PLAN_JSON`.
    This JSON is used to create a
-   [GitLab Terraform Report artifact](../../../ci/yaml/artifacts_reports.md#artifactsreportsterraform).
-   The Terraform report obtains a Terraform `tfplan.json` file. The collected
-   Terraform plan report is uploaded to GitLab as an artifact, and is shown in merge requests.
+   [GitLab OpenTofu Report artifact](../../../ci/yaml/artifacts_reports.md#artifactsreportsterraform).
+   The OpenTofu report obtains a OpenTofu `tfplan.json` file. The collected
+   OpenTofu plan report is uploaded to GitLab as an artifact, and is shown in merge requests.
 
    ```yaml
    plan:
      stage: build
      script:
        - terraform plan -out=$PLAN
-       - terraform show --json $PLAN | convert_report > $PLAN_JSON
+       - terraform show -json $PLAN | convert_report > $PLAN_JSON
      artifacts:
        reports:
          terraform: $PLAN_JSON
    ```
 
-1. Running the pipeline displays the widget in the merge request, like this:
+1. Run the pipeline to display the widget in the merge request, like this:
 
    ![merge request Terraform widget](img/terraform_plan_widget_v13_2.png)
 
-1. Selecting the **View Full Log** button in the widget takes you directly to the
+   {{< alert type="note" >}}
+
+   The maximum number of changes reported by the widget is 999,999 for
+   each action. This limitation is only for display purposes, plans that
+   change a higher number of resources can be applied as intended.
+
+   {{< /alert >}}
+
+1. In the widget, select **View Full Log** to go to the
    plan output present in the pipeline logs:
 
    ![Terraform plan logs](img/terraform_plan_log_v13_0.png)

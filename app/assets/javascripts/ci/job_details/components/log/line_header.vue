@@ -5,6 +5,7 @@ import DurationBadge from './duration_badge.vue';
 import LineNumber from './line_number.vue';
 
 export default {
+  name: 'LineHeader',
   components: {
     GlIcon,
     LineNumber,
@@ -69,14 +70,14 @@ export default {
 <template>
   <div
     class="js-log-line job-log-line-header job-log-line"
-    :class="{ 'gl-bg-gray-700': isHighlighted || applyHashHighlight }"
+    :class="{ 'job-log-line-highlight': isHighlighted || applyHashHighlight }"
     role="button"
     @click="handleOnClick"
   >
     <gl-icon :name="iconName" class="arrow gl-absolute gl-top-2" />
     <line-number :line-number="line.lineNumber" :path="path" />
     <span v-if="line.time" class="job-log-time">{{ line.time }}</span>
-    <span class="gl-flex-grow-1 gl-whitespace-pre-wrap">
+    <span class="job-log-line-content">
       <span v-for="(content, i) in line.content" :key="i" :class="content.style">{{
         content.text
       }}</span>

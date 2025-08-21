@@ -1,18 +1,19 @@
 <script>
 import { nextTick } from 'vue';
-// eslint-disable-next-line no-restricted-imports
-import { mapState, mapGetters, mapActions } from 'vuex';
+import { mapState, mapActions } from 'pinia';
 import { s__, __, sprintf } from '~/locale';
 import { createAlert } from '~/alert';
 import diffLineNoteFormMixin from '~/notes/mixins/diff_line_note_form';
 import { clearDraft } from '~/lib/utils/autosave';
 import { confirmAction } from '~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal';
 import { ignoreWhilePending } from '~/lib/utils/ignore_while_pending';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import MultilineCommentForm from '~/notes/components/multiline_comment_form.vue';
 import { commentLineOptions, formatLineRange } from '~/notes/components/multiline_comment_utils';
 import NoteForm from '~/notes/components/note_form.vue';
 import { capitalizeFirstCharacter } from '~/lib/utils/text_utility';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useMrNotes } from '~/mr_notes/store/legacy_mr_notes';
+import { useNotes } from '~/notes/store/legacy_notes';
 import {
   DIFF_NOTE_TYPE,
   INLINE_DIFF_LINES_KEY,
@@ -26,7 +27,7 @@ export default {
     NoteForm,
     MultilineCommentForm,
   },
-  mixins: [diffLineNoteFormMixin, glFeatureFlagsMixin()],
+  mixins: [diffLineNoteFormMixin],
   props: {
     diffFileHash: {
       type: String,
@@ -68,19 +69,20 @@ export default {
     };
   },
   computed: {
-    ...mapState({
-      diffViewType: ({ diffs }) => diffs.diffViewType,
-      showSuggestPopover: ({ diffs }) => diffs.showSuggestPopover,
-      noteableData: ({ notes }) => notes.noteableData,
-      selectedCommentPosition: ({ notes }) => notes.selectedCommentPosition,
-    }),
-    ...mapGetters('diffs', ['getDiffFileByHash', 'diffLines']),
-    ...mapGetters([
-      'isLoggedIn',
+    ...mapState(useLegacyDiffs, [
+      'diffViewType',
+      'showSuggestPopover',
+      'getDiffFileByHash',
+      'diffLines',
+    ]),
+    ...mapState(useMrNotes, ['isLoggedIn']),
+    ...mapState(useNotes, [
+      'noteableData',
       'noteableType',
       'getNoteableData',
       'getNotesDataByProp',
       'getUserData',
+      'selectedCommentPosition',
     ]),
     author() {
       return this.getUserData;
@@ -186,7 +188,7 @@ export default {
     }
   },
   methods: {
-    ...mapActions('diffs', [
+    ...mapActions(useLegacyDiffs, [
       'cancelCommentForm',
       'saveDiffDiscussion',
       'setSuggestPopoverDismissed',
@@ -241,7 +243,7 @@ export default {
 
 <template>
   <div class="content discussion-form discussion-form-container discussion-notes">
-    <div class="gl-mb-3 gl-text-gray-500 gl-pb-3">
+    <div class="gl-mb-3 gl-pb-3 gl-text-subtle">
       <multiline-comment-form
         :line="line"
         :line-range="lines"

@@ -1,14 +1,17 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Operate
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Using NFS with GitLab
+description: Use NFS with GitLab.
 ---
 
-# Using NFS with GitLab
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 NFS can be used as an alternative for object storage but this isn't typically
 recommended for performance reasons.
@@ -100,7 +103,8 @@ To disable NFS server delegation, do the following:
 
 1. Restart the NFS server process. For example, on CentOS run `service nfs restart`.
 
-NOTE:
+{{< alert type="note" >}}
+
 The kernel bug may be fixed in
 [more recent kernels with this commit](https://github.com/torvalds/linux/commit/95da1b3a5aded124dd1bda1e3cdb876184813140).
 Red Hat Enterprise 7 [shipped a kernel update](https://access.redhat.com/errata/RHSA-2019:2029)
@@ -108,6 +112,8 @@ on August 6, 2019 that may also have resolved this problem.
 You may not need to disable NFS server delegation if you know you are using a version of
 the Linux kernel that has been fixed. That said, GitLab still encourages instance
 administrators to keep NFS server delegation disabled.
+
+{{< /alert >}}
 
 ## NFS client
 
@@ -128,7 +134,6 @@ Here is an example snippet to add to `/etc/fstab`:
 10.1.0.1:/var/opt/gitlab/gitlab-rails/uploads /var/opt/gitlab/gitlab-rails/uploads nfs4 defaults,vers=4.1,hard,rsize=1048576,wsize=1048576,noatime,nofail,_netdev,lookupcache=positive 0 2
 10.1.0.1:/var/opt/gitlab/gitlab-rails/shared /var/opt/gitlab/gitlab-rails/shared nfs4 defaults,vers=4.1,hard,rsize=1048576,wsize=1048576,noatime,nofail,_netdev,lookupcache=positive 0 2
 10.1.0.1:/var/opt/gitlab/gitlab-ci/builds /var/opt/gitlab/gitlab-ci/builds nfs4 defaults,vers=4.1,hard,rsize=1048576,wsize=1048576,noatime,nofail,_netdev,lookupcache=positive 0 2
-10.1.0.1:/var/opt/gitlab/git-data /var/opt/gitlab/git-data nfs4 defaults,vers=4.1,hard,rsize=1048576,wsize=1048576,noatime,nofail,_netdev,lookupcache=positive 0 2
 ```
 
 You can view information and options set for each of the mounted NFS file
@@ -170,7 +175,7 @@ use the `hard` option, because (from the man page):
 
 Other vendors make similar recommendations, including
 [Recommended mount options for read-write directories](https://help.sap.com/docs/SUPPORT_CONTENT/basis/3354611703.html) and NetApp's
-[knowledge base](https://kb.netapp.com/Advice_and_Troubleshooting/Data_Storage_Software/ONTAP_OS/What_are_the_differences_between_hard_mount_and_soft_mount),
+[knowledge base](https://kb.netapp.com/on-prem/ontap/da/NAS/NAS-KBs/What_are_the_differences_between_hard_mount_and_soft_mount),
 they highlight that if the NFS client driver caches data, `soft` means there is no certainty if
 writes by GitLab are actually on disk.
 
@@ -208,7 +213,6 @@ restore of backups without manually moving existing data.
 mountpoint
 └── gitlab-data
     ├── builds
-    ├── git-data
     ├── shared
     └── uploads
 ```
@@ -220,7 +224,6 @@ Mount `/gitlab-nfs` then use the following Linux package
 configuration to move each data location to a subdirectory:
 
 ```ruby
-git_data_dirs({"default" => { "path" => "/gitlab-nfs/gitlab-data/git-data"} })
 gitlab_rails['uploads_directory'] = '/gitlab-nfs/gitlab-data/uploads'
 gitlab_rails['shared_path'] = '/gitlab-nfs/gitlab-data/shared'
 gitlab_ci['builds_directory'] = '/gitlab-nfs/gitlab-data/builds'
@@ -242,7 +245,6 @@ NFS mount point is `/gitlab-nfs`. Then, add the following bind mounts in
 `/etc/fstab`:
 
 ```shell
-/gitlab-nfs/gitlab-data/git-data /var/opt/gitlab/git-data none bind 0 0
 /gitlab-nfs/gitlab-data/.ssh /var/opt/gitlab/.ssh none bind 0 0
 /gitlab-nfs/gitlab-data/uploads /var/opt/gitlab/gitlab-rails/uploads none bind 0 0
 /gitlab-nfs/gitlab-data/shared /var/opt/gitlab/gitlab-rails/shared none bind 0 0
@@ -251,13 +253,13 @@ NFS mount point is `/gitlab-nfs`. Then, add the following bind mounts in
 
 Using bind mounts requires you to manually make sure the data directories
 are empty before attempting a restore. Read more about the
-[restore prerequisites](../administration/backup_restore/index.md).
+[restore prerequisites](backup_restore/_index.md).
 
 ### Multiple NFS mounts
 
-When using default Linux package configuration, you need to share 4 data locations
+When using default Linux package configuration, you need to share 3 data locations
 between all GitLab cluster nodes. No other locations should be shared. The
-following are the 4 locations need to be shared:
+following are the 3 locations need to be shared:
 
 | Location | Description | Default configuration |
 | -------- | ----------- | --------------------- |
@@ -272,7 +274,7 @@ provides configuration for [UDP log shipping](https://docs.gitlab.com/omnibus/se
 
 Having multiple NFS mounts requires you to manually make sure the data directories
 are empty before attempting a restore. Read more about the
-[restore prerequisites](../administration/backup_restore/index.md).
+[restore prerequisites](backup_restore/_index.md).
 
 ## Testing NFS
 
@@ -351,7 +353,7 @@ across NFS. The GitLab support team is not able to assist on performance issues 
 this configuration.
 
 Additionally, this configuration is specifically warned against in the
-[PostgreSQL Documentation](https://www.postgresql.org/docs/current/creating-cluster.html#CREATING-CLUSTER-NFS):
+[PostgreSQL Documentation](https://www.postgresql.org/docs/16/creating-cluster.html#CREATING-CLUSTER-NFS):
 
 >PostgreSQL does nothing special for NFS file systems, meaning it assumes NFS behaves exactly like
 >locally-connected drives. If the client or server NFS implementation does not provide standard file

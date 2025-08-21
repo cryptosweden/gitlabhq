@@ -1,34 +1,46 @@
 ---
-stage: Systems
+stage: Data Access
 group: Gitaly
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+gitlab_dedicated: no
+title: Repository storage
+description: How GitLab stores repository data.
 ---
 
-# Repository storage
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-GitLab stores [repositories](../user/project/repository/index.md) on repository storage. Repository
+{{< /details >}}
+
+GitLab stores [repositories](../user/project/repository/_index.md) on repository storage. Repository
 storage is either:
 
-- Physical storage configured with a `gitaly_address` that points to a [Gitaly node](gitaly/index.md).
-- [Virtual storage](gitaly/index.md#virtual-storage) that stores repositories on a Gitaly Cluster.
+- Physical storage configured with a `gitaly_address` that points to a [Gitaly node](gitaly/_index.md).
+- [Virtual storage](gitaly/praefect/_index.md#virtual-storage) that stores repositories on a Gitaly Cluster (Praefect).
 
-WARNING:
+{{< alert type="warning" >}}
+
 Repository storage could be configured as a `path` that points directly to the directory where the repositories are
 stored. GitLab directly accessing a directory containing repositories is deprecated. You should configure GitLab to
 access repositories through a physical or virtual storage.
 
+{{< /alert >}}
+
 For more information on:
 
 - Configuring Gitaly, see [Configure Gitaly](gitaly/configure_gitaly.md).
-- Configuring Gitaly Cluster, see [Configure Gitaly Cluster](gitaly/praefect.md).
+- Configuring Gitaly Cluster (Praefect), see [Configure Gitaly Cluster (Praefect)](gitaly/praefect/configure.md).
 
 ## Hashed storage
 
-> - **Storage name** field [renamed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/128416) from **Gitaly storage name** and **Relative path** field [renamed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/128416) from **Gitaly relative path** in GitLab 16.3.
+{{< history >}}
+
+- Support for legacy storage, where repository paths were generated based on the project path, has been completely removed in GitLab 14.0.
+- **Storage name** field [renamed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/128416) from **Gitaly storage name** and **Relative path** field [renamed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/128416) from **Gitaly relative path** in GitLab 16.3.
+
+{{< /history >}}
 
 Hashed storage stores projects on disk in a location based on a hash of the project's ID. This makes the folder
 structure immutable and eliminates the need to synchronize state from URLs to disk structure. This means that renaming a
@@ -65,12 +77,12 @@ translate between the human-readable project name and the hashed storage path. Y
 
 Administrators can look up a project's hashed path from its name or ID using:
 
-- The [Admin Area](../administration/admin_area.md#administering-projects).
+- The [**Admin** area](admin_area.md#administering-projects).
 - A Rails console.
 
-To look up a project's hash path in the Admin Area:
+To look up a project's hash path in the **Admin** area:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Overview > Projects** and select the project.
 1. Locate the **Relative path** field. The value is similar to:
 
@@ -114,20 +126,12 @@ The output includes the project ID and the project name. For example:
 => #<Project id:16 it/supportteam/ticketsystem>
 ```
 
-To look up a project's name using the `config` file in the `*.git` directory:
-
-1. Locate the `*.git` directory. This directory is located in `/var/opt/gitlab/git-data/repositories/@hashed/`, where the first four
-   characters of the hash are the first two directories in the path under `@hashed/`. For example, on a default Linux package installation the
-   `*.git` directory of the hash `b17eb17ef6d19c7a5b1ee83b907c595526dcb1eb06db8227d650d5dda0a9f4ce8cd9` would be
-   `/var/opt/gitlab/git-data/repositories/@hashed/b1/7e/b17ef6d19c7a5b1ee83b907c595526dcb1eb06db8227d650d5dda0a9f4ce8cd9.git`.
-1. Open the `config` file and locate the `fullpath=` key under `[gitlab]`.
-
 ### Hashed object pools
 
 Object pools are repositories used to deduplicate [forks of public and internal projects](../user/project/repository/forking_workflow.md) and
 contain the objects from the source project. Using `objects/info/alternates`, the source project and
 forks use the object pool for shared objects. For more information, see
-[How Git object deduplication works in GitLab](../development/git_object_deduplication.md).
+Git object deduplication information in the GitLab development documentation.
 
 Objects are moved from the source project to the object pool when housekeeping is run on the source
 project. Object pool repositories are stored similarly to regular repositories in a directory called `@pools` instead of `@hashed`
@@ -137,9 +141,12 @@ project. Object pool repositories are stored similarly to regular repositories i
 "@pools/#{hash[0..1]}/#{hash[2..3]}/#{hash}.git"
 ```
 
-WARNING:
+{{< alert type="warning" >}}
+
 Do not run `git prune` or `git gc` in object pool repositories, which are stored in the `@pools` directory.
 This can cause data loss in the regular repositories that depend on the object pool.
+
+{{< /alert >}}
 
 ### Translate hashed object pool storage paths
 
@@ -172,11 +179,75 @@ For example:
 "@groups/#{hash[0..1]}/#{hash[2..3]}/#{hash}.wiki.git"
 ```
 
-### Gitaly Cluster storage
+### Gitaly Cluster (Praefect) storage
 
-If Gitaly Cluster is used, Praefect manages storage locations. The internal path used by Praefect for the repository
+If Gitaly Cluster (Praefect) is used, Praefect manages storage locations. The internal path used by Praefect for the repository
 differs from the hashed path. For more information, see
-[Praefect-generated replica paths](gitaly/index.md#praefect-generated-replica-paths).
+[Praefect-generated replica paths](gitaly/praefect/_index.md#praefect-generated-replica-paths).
+
+### Repository file archive cache
+
+Users can download an archive in formats such as `.zip` or `.tar.gz` of a repository by using either:
+
+- The GitLab UI.
+- The [Repositories API](../api/repositories.md#get-file-archive).
+
+GitLab stores this archive in a cache in a directory on the GitLab server.
+
+A background job running on Sidekiq periodically cleans out stale
+archives from this directory. For this reason, this directory must be
+accessible by both the Sidekiq and GitLab Workhorse services. If Sidekiq
+can't access the same directory used by GitLab Workhorse, the [disk containing the directory fills up](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/6005).
+
+If you don't want to use a shared mount for Sidekiq and GitLab
+Workhorse, you can instead configure a separate `cron` job to delete
+files from this directory.
+
+{{< tabs >}}
+
+{{< tab title="Linux package (Omnibus)" >}}
+
+The default directory for the file archive cache is `/var/opt/gitlab/gitlab-rails/shared/cache/archive`. You can
+configure this with the `gitlab_rails['gitlab_repository_downloads_path']` setting in `/etc/gitlab/gitlab.rb`.
+
+To disable the cache:
+
+1. Set the `WORKHORSE_ARCHIVE_CACHE_DISABLED` environment variable on all nodes that run Puma:
+
+   ```shell
+   sudo -e /etc/gitlab/gitlab.rb
+   ```
+
+   ```ruby
+   gitlab_rails['env'] = { 'WORKHORSE_ARCHIVE_CACHE_DISABLED' => '1' }
+   ```
+
+1. Reconfigure the updated nodes for the change to take effect:
+
+   ```shell
+   sudo gitlab-ctl reconfigure
+   ```
+
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
+
+The Helm chart stores the cache in `/srv/gitlab/shared/cache/archive`.
+The directory cannot be configured.
+
+To disable the cache, you can use `--set gitlab.webservice.extraEnv.WORKHORSE_ARCHIVE_CACHE_DISABLED="1"`, or
+specify the following in your values file:
+
+```yaml
+gitlab:
+  webservice:
+    extraEnv:
+      WORKHORSE_ARCHIVE_CACHE_DISABLED: "1"
+```
+
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### Object storage support
 
@@ -211,7 +282,7 @@ CI/CD artifacts are S3-compatible.
 
 #### LFS objects
 
-[LFS Objects in GitLab](../topics/git/lfs/index.md) implement a similar
+[LFS Objects in GitLab](../topics/git/lfs/_index.md) implement a similar
 storage pattern using two characters and two-level folders, following the Git implementation:
 
 ```ruby
@@ -221,13 +292,13 @@ storage pattern using two characters and two-level folders, following the Git im
 "shared/lfs-objects/89/09/029eb962194cfb326259411b22ae3f4a814b5be4f80651735aeef9f3229c"
 ```
 
-LFS objects are also [S3-compatible](lfs/index.md#storing-lfs-objects-in-remote-object-storage).
+LFS objects are also [S3-compatible](lfs/_index.md#storing-lfs-objects-in-remote-object-storage).
 
 ## Configure where new repositories are stored
 
 After you [configure multiple repository storages](https://docs.gitlab.com/omnibus/settings/configuration.html#store-git-data-in-an-alternative-directory), you can choose where new repositories are stored:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Repository**.
 1. Expand **Repository storage**.
 1. Enter values in the **Storage nodes for new repositories** fields.
@@ -244,12 +315,15 @@ By default, if repository weights have not been configured earlier:
 - `default` is weighted `100`.
 - All other storages are weighted `0`.
 
-NOTE:
+{{< alert type="note" >}}
+
 If all storage weights are `0` (for example, when `default` does not exist), GitLab attempts to
 create new repositories on `default`, regardless of the configuration or if `default` exists.
 See [the tracking issue](https://gitlab.com/gitlab-org/gitlab/-/issues/36175) for more information.
 
+{{< /alert >}}
+
 ## Move repositories
 
 To move a repository to a different repository storage (for example, from `default` to `storage2`), use the
-same process as [migrating to Gitaly Cluster](gitaly/index.md#migrate-to-gitaly-cluster).
+same process as [migrating to Gitaly Cluster (Praefect)](gitaly/praefect/_index.md#migrate-to-gitaly-cluster-praefect).

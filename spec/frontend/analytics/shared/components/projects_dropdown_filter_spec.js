@@ -195,6 +195,8 @@ describe('ProjectsDropdownFilter component', () => {
         await findDropdown().vm.$emit('reset');
 
         expect(findSelectedProjectsLabel().text()).toBe('Select projects');
+
+        expect(wrapper.emitted('selected')).toEqual([[[]]]);
       });
     });
   });
@@ -216,11 +218,26 @@ describe('ProjectsDropdownFilter component', () => {
     });
 
     it('hides the unhighlighted items that do not match the string', () => {
-      expect(wrapper.find(`[name="Selected"]`).findAllComponents(GlListboxItem).length).toBe(1);
-      expect(wrapper.find(`[name="Unselected"]`).findAllComponents(GlListboxItem).length).toBe(0);
+      expect(wrapper.find(`[name="Selected"]`).findAllComponents(GlListboxItem)).toHaveLength(1);
+      expect(wrapper.find(`[name="Unselected"]`).findAllComponents(GlListboxItem)).toHaveLength(0);
     });
   });
 
+  describe.each([true, false])('when loadingDefaultProjects = %s', (loadingDefaultProjects) => {
+    beforeEach(() => {
+      createComponent({
+        mountFn: mountExtended,
+        props: {
+          loadingDefaultProjects,
+        },
+      });
+      return waitForPromises();
+    });
+
+    it('sets the button loading state', () => {
+      expect(findDropdownButton().props('loading')).toBe(loadingDefaultProjects);
+    });
+  });
   describe('when passed an array of defaultProject as prop', () => {
     beforeEach(async () => {
       createComponent({

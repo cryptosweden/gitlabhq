@@ -10,7 +10,7 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
 
   let_it_be_with_refind(:package_settings) { create(:namespace_package_setting, :group) }
   let_it_be_with_refind(:group) { package_settings.namespace }
-  let_it_be(:user) { create(:user) }
+  let_it_be(:user) { create(:user, organization: group.organization) }
   let_it_be(:project, reload: true) { create(:project, :public, namespace: group, developers: user) }
   let_it_be(:package, reload: true) { create(:maven_package, project: project, name: project.full_path) }
   let_it_be(:maven_metadatum, reload: true) { package.maven_metadatum }
@@ -18,10 +18,8 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
   let_it_be(:jar_file) { package.package_files.with_file_name_like('%.jar').first }
   let_it_be(:personal_access_token) { create(:personal_access_token, user: user) }
   let_it_be(:job, reload: true) { create(:ci_build, user: user, status: :running, project: project) }
-  let_it_be(:deploy_token) { create(:deploy_token, read_package_registry: true, write_package_registry: true) }
-  let_it_be(:project_deploy_token) { create(:project_deploy_token, deploy_token: deploy_token, project: project) }
-  let_it_be(:deploy_token_for_group) { create(:deploy_token, :group, read_package_registry: true, write_package_registry: true) }
-  let_it_be(:group_deploy_token) { create(:group_deploy_token, deploy_token: deploy_token_for_group, group: group) }
+  let_it_be(:deploy_token) { create(:deploy_token, read_package_registry: true, write_package_registry: true, projects: [project]) }
+  let_it_be(:deploy_token_for_group) { create(:deploy_token, :group, read_package_registry: true, write_package_registry: true, groups: [group]) }
 
   let(:snowplow_gitlab_standard_context) { { project: project, namespace: project.namespace, user: user, property: 'i_package_maven_user' } }
 
@@ -30,14 +28,17 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
   let(:headers_with_token) { headers.merge('Private-Token' => personal_access_token.token) }
   let(:group_deploy_token_headers) { { Gitlab::Auth::AuthFinders::DEPLOY_TOKEN_HEADER => deploy_token_for_group.token } }
 
-  let(:headers_with_deploy_token) do
-    headers.merge(
-      Gitlab::Auth::AuthFinders::DEPLOY_TOKEN_HEADER => deploy_token.token
-    )
-  end
+  let(:sha1_checksum_header) { ::API::Helpers::Packages::Maven::SHA1_CHECKSUM_HEADER }
+  let(:md5_checksum_header) { ::API::Helpers::Packages::Maven::MD5_CHECKSUM_HEADER }
+
+  let(:headers_with_deploy_token) { headers.merge(Gitlab::Auth::AuthFinders::DEPLOY_TOKEN_HEADER => deploy_token.token) }
 
   let(:version) { '1.0-SNAPSHOT' }
   let(:param_path) { "#{package_name}/#{version}" }
+
+  before do
+    Gitlab::Database::LoadBalancing::SessionMap.clear_session
+  end
 
   shared_examples 'handling groups and subgroups for' do |shared_example_name, shared_example_args = {}, visibilities: { public: :redirect }|
     context 'within a group' do
@@ -97,62 +98,6 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
       let_it_be(:package_file) { jar_file }
 
       it_behaves_like 'a package tracking event', described_class.name, 'pull_package'
-    end
-  end
-
-  shared_examples 'processing HEAD requests' do |instance_level: false|
-    subject { head api(url) }
-
-    before do
-      allow_any_instance_of(::Packages::PackageFileUploader).to receive(:fog_credentials).and_return(object_storage_credentials)
-      stub_package_file_object_storage(enabled: object_storage_enabled)
-    end
-
-    context 'with object storage enabled' do
-      let(:object_storage_enabled) { true }
-
-      before do
-        allow_any_instance_of(::Packages::PackageFileUploader).to receive(:file_storage?).and_return(false)
-      end
-
-      context 'non AWS provider' do
-        let(:object_storage_credentials) { { provider: 'Google' } }
-
-        it 'does not generated a signed url for head' do
-          expect_any_instance_of(Fog::AWS::Storage::Files).not_to receive(:head_url)
-
-          subject
-
-          expect(response).to have_gitlab_http_status(:redirect)
-        end
-      end
-
-      context 'with AWS provider' do
-        let(:object_storage_credentials) { { provider: 'AWS', aws_access_key_id: 'test', aws_secret_access_key: 'test' } }
-
-        it 'generates a signed url for head' do
-          expect_any_instance_of(Fog::AWS::Storage::Files).to receive(:head_url).and_call_original
-
-          subject
-        end
-      end
-    end
-
-    context 'with object storage disabled' do
-      let(:object_storage_enabled) { false }
-      let(:object_storage_credentials) { {} }
-
-      it 'does not generate a signed url for head' do
-        expect_any_instance_of(Fog::AWS::Storage::Files).not_to receive(:head_url)
-
-        subject
-      end
-
-      context 'with a non existing maven path' do
-        let(:path) { 'foo/bar/1.2.3' }
-
-        it_behaves_like 'returning response status', instance_level ? :forbidden : :redirect
-      end
     end
   end
 
@@ -230,12 +175,7 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
         end
       end
 
-      subject do
-        download_file(
-          file_name: package_file.file_name,
-          request_headers: headers
-        )
-      end
+      subject { download_file(file_name: package_file.file_name, request_headers: headers) }
 
       if params[:valid]
         it_behaves_like 'allowing the download'
@@ -254,15 +194,18 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
   end
 
   shared_examples 'downloads with a job token' do
-    where(:valid, :sent_using) do
-      true  | :custom_params
-      false | :custom_params
-      true  | :basic_auth
-      false | :basic_auth
+    shared_examples 'invalid download' do
+      it_behaves_like 'not allowing the download with', :unauthorized
+    end
+
+    where(:token, :sent_using, :shared_example_name) do
+      lazy { job.token } | :custom_params | 'allowing the download'
+      'not_valid'        | :custom_params | 'invalid download'
+      lazy { job.token } | :basic_auth    | 'allowing the download'
+      'not_valid'        | :basic_auth    | 'invalid download'
     end
 
     with_them do
-      let(:token) { valid ? job.token : 'not_valid' }
       let(:headers) { basic_auth_header(::Gitlab::Auth::CI_JOB_USER, token) }
       let(:params) { { job_token: token } }
 
@@ -276,11 +219,7 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
       end
 
       context 'with a running job' do
-        if params[:valid]
-          it_behaves_like 'allowing the download'
-        else
-          it_behaves_like 'not allowing the download with', :unauthorized
-        end
+        it_behaves_like params[:shared_example_name]
       end
 
       context 'with a finished job' do
@@ -299,18 +238,25 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
     it_behaves_like 'downloads with a job token'
   end
 
-  shared_examples 'successfully returning the file' do
+  shared_examples 'successfully returning the file' do |include_md5_checksum: true|
     it 'returns the file', :aggregate_failures do
       subject
 
       expect(response).to have_gitlab_http_status(:ok)
       expect(response.media_type).to eq('application/octet-stream')
+      expect(response.headers[sha1_checksum_header]).to be_an_instance_of(String)
+
+      if include_md5_checksum
+        expect(response.headers[md5_checksum_header]).to be_an_instance_of(String)
+      else
+        expect(response.headers[md5_checksum_header]).to be_nil
+      end
     end
   end
 
   shared_examples 'file download in FIPS mode' do
     context 'in FIPS mode', :fips_mode do
-      it_behaves_like 'successfully returning the file'
+      it_behaves_like 'successfully returning the file', include_md5_checksum: false
 
       it 'rejects the request for an md5 file' do
         download_file(file_name: package_file.file_name + '.md5')
@@ -473,13 +419,19 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
         it_behaves_like 'bumping the package last downloaded at field'
         it_behaves_like 'successfully returning the file'
 
-        it 'denies download when not enough permissions' do
-          unless project.root_namespace == user.namespace
-            project.add_guest(user)
+        context 'when allow_guest_plus_roles_to_pull_packages is disabled' do
+          before do
+            stub_feature_flags(allow_guest_plus_roles_to_pull_packages: false)
+          end
 
-            subject
+          it 'denies download when not enough permissions' do
+            unless project.root_namespace == user.namespace
+              project.add_guest(user)
 
-            expect(response).to have_gitlab_http_status(:forbidden)
+              subject
+
+              expect(response).to have_gitlab_http_status(:forbidden)
+            end
           end
         end
 
@@ -497,7 +449,10 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
           another_user = create(:user)
           project.add_developer(another_user)
 
-          # We force the id of the deploy token and the user to be the same
+          # We force the id of the deploy token and the user to be the same,
+          # which requires deleting the joining record as we cannot update
+          # the id while foreign keys reference it.
+          unauthorized_deploy_token.project_deploy_tokens.delete_all(:delete_all)
           unauthorized_deploy_token.update!(id: another_user.id)
 
           download_file(
@@ -515,6 +470,15 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
         end
       end
 
+      it_behaves_like 'enforcing job token policies', :read_packages,
+        allow_public_access_for_enabled_project_features: :package_registry do
+        before_all do
+          project.add_maintainer(user)
+        end
+
+        let(:request) { download_file(file_name: package_file.file_name, params: { job_token: target_job.token }) }
+      end
+
       it_behaves_like 'rejecting request with invalid params'
 
       it_behaves_like 'handling groups, subgroups and user namespaces for', 'getting a file', visibilities: { public: :redirect, internal: :not_found, private: :not_found }
@@ -528,6 +492,10 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
       end
     end
 
+    it_behaves_like 'updating personal access token last used' do
+      subject { download_file_with_token(file_name: package_file.file_name) }
+    end
+
     def download_file(file_name:, params: {}, request_headers: headers, path: maven_metadatum.path)
       get api("/packages/maven/#{path}/#{file_name}"), params: params, headers: request_headers
     end
@@ -535,17 +503,6 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
     def download_file_with_token(file_name:, params: {}, request_headers: headers_with_token, path: maven_metadatum.path)
       download_file(file_name: file_name, params: params, request_headers: request_headers, path: path)
     end
-  end
-
-  describe 'HEAD /api/v4/packages/maven/*path/:file_name' do
-    let(:path) { package.maven_metadatum.path }
-    let(:url) { "/packages/maven/#{path}/#{package_file.file_name}" }
-
-    shared_examples 'heading a file' do
-      it_behaves_like 'processing HEAD requests', instance_level: true
-    end
-
-    it_behaves_like 'handling groups, subgroups and user namespaces for', 'heading a file'
   end
 
   describe 'GET /api/v4/groups/:id/-/packages/maven/*path/:file_name' do
@@ -640,12 +597,18 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
         it_behaves_like 'bumping the package last downloaded at field'
         it_behaves_like 'successfully returning the file'
 
-        it 'denies download when not enough permissions' do
-          group.add_guest(user)
+        context 'when allow_guest_plus_roles_to_pull_packages is disabled' do
+          before do
+            stub_feature_flags(allow_guest_plus_roles_to_pull_packages: false)
+          end
 
-          subject
+          it 'denies download when not enough permissions' do
+            group.add_guest(user)
 
-          expect(response).to have_gitlab_http_status(download_denied_status)
+            subject
+
+            expect(response).to have_gitlab_http_status(download_denied_status)
+          end
         end
 
         it 'denies download when no private token' do
@@ -686,6 +649,13 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
         end
       end
 
+      it_behaves_like 'enforcing job token policies', :read_packages,
+        allow_public_access_for_enabled_project_features: :package_registry do
+        let(:request) do
+          download_file(file_name: package_file.file_name, params: { job_token: target_job.token })
+        end
+      end
+
       context 'with the duplicate packages in the two projects' do
         let_it_be(:recent_project) { create(:project, :private, namespace: group) }
 
@@ -696,21 +666,27 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
           project.add_developer(user)
         end
 
-        context 'when user does not have enough permission for the recent project' do
-          it 'tries to download the recent package' do
-            subject
-
-            expect(response).to have_gitlab_http_status(:forbidden)
-          end
-        end
-
-        context 'when the FF maven_remove_permissions_check_from_finder disabled' do
+        context 'when allow_guest_plus_roles_to_pull_packages is disabled' do
           before do
-            stub_feature_flags(maven_remove_permissions_check_from_finder: false)
+            stub_feature_flags(allow_guest_plus_roles_to_pull_packages: false)
           end
 
-          it_behaves_like 'bumping the package last downloaded at field'
-          it_behaves_like 'successfully returning the file'
+          context 'when user does not have enough permission for the recent project' do
+            it 'tries to download the recent package' do
+              subject
+
+              expect(response).to have_gitlab_http_status(:forbidden)
+            end
+          end
+
+          context 'when the FF maven_remove_permissions_check_from_finder disabled' do
+            before do
+              stub_feature_flags(maven_remove_permissions_check_from_finder: false)
+            end
+
+            it_behaves_like 'bumping the package last downloaded at field'
+            it_behaves_like 'successfully returning the file'
+          end
         end
       end
 
@@ -743,6 +719,19 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
           it_behaves_like 'returning response status', :redirect
         end
       end
+
+      context 'with anonymous access to a public registry' do
+        let(:headers_with_token) { {} }
+
+        before do
+          project.project_feature.update!(package_registry_access_level: ::ProjectFeature::PUBLIC)
+          stub_feature_flags(maven_remove_permissions_check_from_finder: false)
+        end
+
+        it_behaves_like 'successfully returning the file'
+      end
+
+      it_behaves_like 'updating personal access token last used'
     end
 
     context 'maven metadata file' do
@@ -798,6 +787,10 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
       end
     end
 
+    it_behaves_like 'updating personal access token last used' do
+      subject { download_file_with_token(file_name: package_file.file_name) }
+    end
+
     def download_file(file_name:, params: {}, request_headers: headers, path: maven_metadatum.path, group_id: group.id)
       get api("/groups/#{group_id}/-/packages/maven/#{path}/#{file_name}"), params: params, headers: request_headers
     end
@@ -805,13 +798,6 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
     def download_file_with_token(file_name:, params: {}, request_headers: headers_with_token, path: maven_metadatum.path, group_id: group.id)
       download_file(file_name: file_name, params: params, request_headers: request_headers, path: path, group_id: group_id)
     end
-  end
-
-  describe 'HEAD /api/v4/groups/:id/-/packages/maven/*path/:file_name' do
-    let(:path) { package.maven_metadatum.path }
-    let(:url) { "/groups/#{group.id}/-/packages/maven/#{path}/#{package_file.file_name}" }
-
-    it_behaves_like 'handling groups and subgroups for', 'processing HEAD requests'
   end
 
   describe 'GET /api/v4/projects/:id/packages/maven/*path/:file_name' do
@@ -863,16 +849,29 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
 
       subject { download_file_with_token(file_name: package_file.file_name) }
 
+      it_behaves_like 'enforcing job token policies', :read_packages,
+        allow_public_access_for_enabled_project_features: :package_registry do
+        let(:request) do
+          download_file(file_name: package_file.file_name, params: { job_token: target_job.token })
+        end
+      end
+
       it_behaves_like 'tracking the file download event'
       it_behaves_like 'bumping the package last downloaded at field'
       it_behaves_like 'successfully returning the file'
 
-      it 'denies download when not enough permissions' do
-        project.add_guest(user)
+      context 'when allow_guest_plus_roles_to_pull_packages is disabled' do
+        before do
+          stub_feature_flags(allow_guest_plus_roles_to_pull_packages: false)
+        end
 
-        subject
+        it 'denies download when not enough permissions' do
+          project.add_guest(user)
 
-        expect(response).to have_gitlab_http_status(:forbidden)
+          subject
+
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
       end
 
       it 'denies download when no private token' do
@@ -904,6 +903,10 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
 
     it_behaves_like 'forwarding package requests'
 
+    it_behaves_like 'updating personal access token last used' do
+      subject { download_file_with_token(file_name: package_file.file_name) }
+    end
+
     def download_file(file_name:, params: {}, request_headers: headers, path: maven_metadatum.path)
       get api("/projects/#{project.id}/packages/maven/" \
               "#{path}/#{file_name}"), params: params, headers: request_headers
@@ -914,14 +917,11 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
     end
   end
 
-  describe 'HEAD /api/v4/projects/:id/packages/maven/*path/:file_name' do
-    let(:path) { package.maven_metadatum.path }
-    let(:url) { "/projects/#{project.id}/packages/maven/#{path}/#{package_file.file_name}" }
-
-    it_behaves_like 'processing HEAD requests'
-  end
-
   describe 'PUT /api/v4/projects/:id/packages/maven/*path/:file_name/authorize' do
+    it_behaves_like 'enforcing job token policies', :admin_packages do
+      let(:request) { authorize_upload(job_token: target_job.token) }
+    end
+
     it 'rejects a malicious request' do
       put api("/projects/#{project.id}/packages/maven/com/example/my-app/#{version}/%2e%2e%2F.ssh%2Fauthorized_keys/authorize"), headers: headers_with_token
 
@@ -978,7 +978,10 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
       another_user = create(:user)
       project.add_developer(another_user)
 
-      # We force the id of the deploy token and the user to be the same
+      # We force the id of the deploy token and the user to be the same,
+      # which requires deleting the joining record as we cannot update
+      # the id while foreign keys reference it.
+      unauthorized_deploy_token.project_deploy_tokens.delete_all(:delete_all)
       unauthorized_deploy_token.update!(id: another_user.id)
 
       authorize_upload({}, headers.merge(Gitlab::Auth::AuthFinders::DEPLOY_TOKEN_HEADER => unauthorized_deploy_token.token))
@@ -987,19 +990,100 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
     end
 
     context 'with basic auth' do
-      where(:token_type) do
-        %i[personal_access_token deploy_token job]
+      let(:user_username) { user.username }
+
+      where(:username, :password) do
+        ref(:user_username)         | lazy { personal_access_token.token }
+        ref(:user_username)         | lazy { deploy_token.token }
+        ::Gitlab::Auth::CI_JOB_USER | lazy { job.token }
       end
 
       with_them do
-        let(:token) { send(token_type).token }
-
-        it "authorizes upload with #{params[:token_type]} token" do
-          authorize_upload({}, headers.merge(basic_auth_header(token_type == :job ? ::Gitlab::Auth::CI_JOB_USER : user.username, token)))
+        it 'authorizes upload' do
+          authorize_upload({}, headers.merge(basic_auth_header(username, password)))
 
           expect(response).to have_gitlab_http_status(:ok)
         end
       end
+    end
+
+    context 'with package protection rule for different roles and package_name_patterns' do
+      let_it_be_with_reload(:package_protection_rule) do
+        create(:package_protection_rule, package_type: :maven, project: project)
+      end
+
+      let(:maven_package_name) { 'com/example/my-app' }
+      let(:maven_package_name_no_match) { 'other-scope/com/example/my-app' }
+
+      subject do
+        authorize_upload_with_token
+        response
+      end
+
+      before do
+        package_protection_rule.update!(
+          package_name_pattern: package_name_pattern,
+          minimum_access_level_for_push: minimum_access_level_for_push
+        )
+      end
+
+      shared_examples 'authorized package' do
+        it { is_expected.to have_gitlab_http_status(:ok) }
+      end
+
+      shared_examples 'protected package' do
+        it 'responds with forbidden' do
+          subject
+
+          expect(response).to have_gitlab_http_status(:forbidden)
+          expect(json_response['message']).to eq '403 Forbidden - Package protected.'
+        end
+      end
+
+      context 'for personal access token' do
+        let_it_be(:pat_project_developer) { create(:personal_access_token, user: user) }
+        let_it_be(:pat_project_maintainer) { create(:personal_access_token, user: create(:user, maintainer_of: project)) }
+        let_it_be(:pat_project_owner) { create(:personal_access_token, user: create(:user, owner_of: project)) }
+        let_it_be(:pat_with_scope_admin_mode) { create(:personal_access_token, user: create(:admin), scopes: [:api, :admin_mode]) }
+
+        where(:package_name_pattern, :minimum_access_level_for_push, :personal_access_token, :shared_examples_name) do
+          ref(:maven_package_name)          | :maintainer | ref(:pat_project_developer)     | 'protected package'
+          ref(:maven_package_name)          | :maintainer | ref(:pat_project_maintainer)    | 'authorized package'
+          ref(:maven_package_name)          | :owner      | ref(:pat_project_developer)     | 'protected package'
+          ref(:maven_package_name)          | :owner      | ref(:pat_project_owner)         | 'authorized package'
+          ref(:maven_package_name)          | :admin      | ref(:pat_project_owner)         | 'protected package'
+          ref(:maven_package_name)          | :admin      | ref(:pat_with_scope_admin_mode) | 'authorized package'
+          ref(:maven_package_name_no_match) | :maintainer | ref(:pat_project_developer)     | 'authorized package'
+          ref(:maven_package_name_no_match) | :maintainer | ref(:pat_project_maintainer)    | 'authorized package'
+          ref(:maven_package_name_no_match) | :admin      | ref(:pat_project_owner)         | 'authorized package'
+        end
+
+        with_them do
+          it_behaves_like params[:shared_examples_name]
+        end
+      end
+
+      context 'for deploy token' do
+        subject do
+          authorize_upload_with_token({}, headers_with_deploy_token)
+          response
+        end
+
+        where(:package_name_pattern, :minimum_access_level_for_push, :shared_examples_name) do
+          ref(:maven_package_name)          | :maintainer | 'protected package'
+          ref(:maven_package_name)          | :owner      | 'protected package'
+          ref(:maven_package_name)          | :admin      | 'protected package'
+          ref(:maven_package_name_no_match) | :maintainer | 'authorized package'
+        end
+
+        with_them do
+          it_behaves_like params[:shared_examples_name]
+        end
+      end
+    end
+
+    it_behaves_like 'updating personal access token last used' do
+      subject { authorize_upload_with_token }
     end
 
     def authorize_upload(params = {}, request_headers = headers)
@@ -1018,6 +1102,10 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
     before do
       # by configuring this path we allow to pass temp file from any path
       allow(Packages::PackageFileUploader).to receive(:workhorse_upload_path).and_return('/')
+    end
+
+    it_behaves_like 'enforcing job token policies', :admin_packages do
+      let(:request) { upload_file(params: { file: file_upload, job_token: target_job.token }) }
     end
 
     it 'rejects requests without a file from workhorse' do
@@ -1094,7 +1182,7 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
       it 'creates package and stores package file' do
         expect_use_primary
 
-        expect { upload_file_with_token(params: params) }.to change { project.packages.count }.by(1)
+        expect { upload_file_with_token(params: params) }.to change { ::Packages::Maven::Package.for_projects(project).count }.by(1)
           .and change { Packages::Maven::Metadatum.count }.by(1)
           .and change { Packages::PackageFile.count }.by(1)
 
@@ -1125,10 +1213,13 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
       it 'rejects uploads by a unauthorized deploy token with same id as a user with access' do
         unauthorized_deploy_token = create(:deploy_token, read_package_registry: true, write_package_registry: true)
 
-        another_user = create(:user)
+        another_user = create(:user, id: unauthorized_deploy_token.id)
         project.add_developer(another_user)
 
-        # We force the id of the deploy token and the user to be the same
+        # We force the id of the deploy token and the user to be the same,
+        # which requires deleting the joining record as we cannot update
+        # the id while foreign keys reference it.
+        unauthorized_deploy_token.project_deploy_tokens.delete_all(:delete_all)
         unauthorized_deploy_token.update!(id: another_user.id)
 
         upload_file(
@@ -1159,7 +1250,7 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
         let(:file_name) { 'a' * (Packages::Maven::FindOrCreatePackageService::MAX_FILE_NAME_LENGTH + 1) }
 
         it 'rejects request' do
-          expect { upload_file_with_token(params: params, file_name: file_name) }.not_to change { project.packages.count }
+          expect { upload_file_with_token(params: params, file_name: file_name) }.not_to change { ::Packages::Maven::Package.for_projects(project).count }
 
           expect(response).to have_gitlab_http_status(:bad_request)
           expect(json_response['message']).to include('File name is too long')
@@ -1170,7 +1261,7 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
         let(:version) { '$%123' }
 
         it 'rejects request' do
-          expect { upload_file_with_token(params: params) }.not_to change { project.packages.count }
+          expect { upload_file_with_token(params: params) }.not_to change { ::Packages::Maven::Package.for_projects(project).count }
 
           expect(response).to have_gitlab_http_status(:bad_request)
           expect(json_response['message']).to include('Validation failed')
@@ -1306,12 +1397,77 @@ RSpec.describe API::MavenPackages, feature_category: :package_registry do
       end
 
       def expect_use_primary
-        lb_session = ::Gitlab::Database::LoadBalancing::Session.current
+        lb_session = ::Gitlab::Database::LoadBalancing::SessionMap.current(ApplicationRecord.load_balancer)
 
         expect(lb_session).to receive(:use_primary).and_call_original
 
-        allow(::Gitlab::Database::LoadBalancing::Session).to receive(:current).and_return(lb_session)
+        allow(::Gitlab::Database::LoadBalancing::SessionMap).to receive(:current).and_return(lb_session)
       end
+
+      context 'with package protection rule for different roles and package_name_patterns' do
+        let_it_be_with_reload(:package_protection_rule) do
+          create(:package_protection_rule, package_type: :maven, project: project)
+        end
+
+        let(:maven_package_name) { 'com/example/my-app' }
+        let(:maven_package_name_no_match) { 'other-scope/com/example/my-app' }
+
+        before do
+          package_protection_rule.update!(
+            package_name_pattern: package_name_pattern,
+            minimum_access_level_for_push: minimum_access_level_for_push
+          )
+        end
+
+        shared_examples 'protected package' do
+          it 'responds with forbidden' do
+            subject
+
+            expect(response).to have_gitlab_http_status(:forbidden)
+            expect(json_response['message']).to eq '403 Forbidden - Package protected.'
+          end
+        end
+
+        context 'for personal access token' do
+          let_it_be(:pat_project_developer) { create(:personal_access_token, user: user) }
+          let_it_be(:pat_project_maintainer) { create(:personal_access_token, user: create(:user, maintainer_of: project)) }
+          let_it_be(:pat_project_owner) { create(:personal_access_token, user: create(:user, owner_of: project)) }
+          let_it_be(:pat_with_scope_admin_mode) { create(:personal_access_token, user: create(:admin), scopes: [:api, :admin_mode]) }
+
+          where(:package_name_pattern, :minimum_access_level_for_push, :personal_access_token, :shared_examples_name) do
+            ref(:maven_package_name)          | :maintainer | ref(:pat_project_developer)     | 'protected package'
+            ref(:maven_package_name)          | :maintainer | ref(:pat_project_maintainer)    | 'package workhorse uploads'
+            ref(:maven_package_name)          | :owner      | ref(:pat_project_developer)     | 'protected package'
+            ref(:maven_package_name)          | :owner      | ref(:pat_project_owner)         | 'package workhorse uploads'
+            ref(:maven_package_name)          | :admin      | ref(:pat_project_owner)         | 'protected package'
+            ref(:maven_package_name)          | :admin      | ref(:pat_with_scope_admin_mode) | 'package workhorse uploads'
+            ref(:maven_package_name_no_match) | :maintainer | ref(:pat_project_developer)     | 'package workhorse uploads'
+            ref(:maven_package_name_no_match) | :maintainer | ref(:pat_project_maintainer)    | 'package workhorse uploads'
+            ref(:maven_package_name_no_match) | :admin      | ref(:pat_project_owner)         | 'package workhorse uploads'
+          end
+
+          with_them do
+            it_behaves_like params[:shared_examples_name]
+          end
+        end
+
+        context 'for deploy token' do
+          subject { upload_file_with_token(params: params, request_headers: headers_with_deploy_token) }
+
+          where(:package_name_pattern, :minimum_access_level_for_push, :shared_examples_name) do
+            ref(:maven_package_name)          | :maintainer | 'protected package'
+            ref(:maven_package_name)          | :owner      | 'protected package'
+            ref(:maven_package_name)          | :admin      | 'protected package'
+            ref(:maven_package_name_no_match) | :maintainer | 'package workhorse uploads'
+          end
+
+          with_them do
+            it_behaves_like params[:shared_examples_name]
+          end
+        end
+      end
+
+      it_behaves_like 'updating personal access token last used'
     end
 
     def upload_file(params: {}, request_headers: headers, file_extension: 'jar', file_name: 'my-app-1.0-20180724.124855-1')

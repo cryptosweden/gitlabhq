@@ -4,7 +4,10 @@ module API
   class ProjectSnippets < ::API::Base
     include PaginationParams
 
-    before { check_snippets_enabled }
+    before do
+      check_snippets_enabled
+      set_current_organization
+    end
 
     feature_category :source_code_management
 
@@ -97,7 +100,8 @@ module API
           present snippet, with: Entities::ProjectSnippet, current_user: current_user
         else
           with_captcha_check_rest_api(spammable: snippet) do
-            render_api_error!({ error: service_response.message }, service_response.http_status)
+            http_status = Helpers::Snippets::HttpResponseMap.status_for(service_response.reason)
+            render_api_error!({ error: service_response.message }, http_status)
           end
         end
       end
@@ -143,7 +147,8 @@ module API
           present snippet, with: Entities::ProjectSnippet, current_user: current_user
         else
           with_captcha_check_rest_api(spammable: snippet) do
-            render_api_error!({ error: service_response.message }, service_response.http_status)
+            http_status = Helpers::Snippets::HttpResponseMap.status_for(service_response.reason)
+            render_api_error!({ error: service_response.message }, http_status)
           end
         end
       end
@@ -172,9 +177,10 @@ module API
         destroy_conditionally!(snippet) do |snippet|
           service = ::Snippets::DestroyService.new(current_user, snippet)
           response = service.execute
+          http_status = Helpers::Snippets::HttpResponseMap.status_for(response.reason)
 
           if response.error?
-            render_api_error!({ error: response.message }, response.http_status)
+            render_api_error!({ error: response.message }, http_status)
           end
         end
       end

@@ -1,23 +1,26 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Group and project migration by direct transfer API
+description: "Start and view group and project migrations with the REST API."
 ---
 
-# Group and project migration by direct transfer API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - Project migration [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/390515) in GitLab 15.11.
+{{< /details >}}
+
+{{< history >}}
+
+- Project migration [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/390515) in GitLab 15.11.
+
+{{< /history >}}
 
 With the group migration by direct transfer API, you can start and view the progress of migrations initiated with
-[group migration by direct transfer](../user/group/import/index.md).
-
-WARNING:
-Migrating projects with this API is in [beta](../policy/experiment-beta-support.md#beta). This feature is not
-ready for production use.
+[group migration by direct transfer](../user/group/import/_index.md).
 
 ## Prerequisites
 
@@ -26,12 +29,14 @@ prerequisites for [migrating groups by direct transfer](../user/group/import/dir
 
 ## Start a new group or project migration
 
-> - `project_entity` source type [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/390515) in GitLab 15.11.
+{{< history >}}
 
-Use this endpoint to start a new group or project migration. Specify:
+- `project_entity` source type [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/390515) in GitLab 15.11.
 
-- `entities[group_entity]` to migrate a group.
-- `entities[project_entity]` to migrate a project. (**Status:** Beta)
+{{< /history >}}
+
+Use this endpoint to start a new group or project migration.
+To migrate a project, specify `entities[project_entity]`.
 
 ```plaintext
 POST /bulk_imports
@@ -47,11 +52,14 @@ POST /bulk_imports
 | `entities[source_full_path]`      | String | yes      | Source full path of the entity to import. For example, `gitlab-org/gitlab`. |
 | `entities[destination_slug]`      | String | yes      | Destination slug for the entity. GitLab uses the slug as the URL path to the entity. The name of the imported entity is copied from the name of the source entity and not the slug. |
 | `entities[destination_name]`      | String | no       | Deprecated: Use `destination_slug` instead. Destination slug for the entity. |
-| `entities[destination_namespace]` | String | yes      | Full path of the destination group [namespace](../user/namespace/index.md) for the entity. Must be an existing group in the destination instance. |
+| `entities[destination_namespace]` | String | yes      | Full path of the destination group [namespace](../user/namespace/_index.md) for the entity. Must be an existing group in the destination instance. Personal namespaces are not supported. |
 | `entities[migrate_projects]`      | Boolean | no      | Also import all nested projects of the group (if `source_type` is `group_entity`). Defaults to `true`. |
+| `entities[migrate_memberships]`   | Boolean | no      | Import user memberships. Defaults to `true`. |
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token_for_destination_gitlab_instance>" "https://destination-gitlab-instance.example.com/api/v4/bulk_imports" \
+curl --request POST \
+  --url "https://destination-gitlab-instance.example.com/api/v4/bulk_imports" \
+  --header "PRIVATE-TOKEN: <your_access_token_for_destination_gitlab_instance>" \
   --header "Content-Type: application/json" \
   --data '{
     "configuration": {
@@ -74,6 +82,7 @@ curl --request POST --header "PRIVATE-TOKEN: <your_access_token_for_destination_
   "id": 1,
   "status": "created",
   "source_type": "gitlab",
+  "source_url": "https://gitlab.example.com",
   "created_at": "2021-06-18T09:45:55.358Z",
   "updated_at": "2021-06-18T09:46:27.003Z",
   "has_failures": false
@@ -101,7 +110,9 @@ The status can be one of the following:
 - `failed`
 
 ```shell
-curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/bulk_imports?per_page=2&page=1"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/bulk_imports?per_page=2&page=1"
 ```
 
 ```json
@@ -110,6 +121,7 @@ curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab
         "id": 1,
         "status": "finished",
         "source_type": "gitlab",
+        "source_url": "https://gitlab.example.com",
         "created_at": "2021-06-18T09:45:55.358Z",
         "updated_at": "2021-06-18T09:46:27.003Z",
         "has_failures": false
@@ -118,6 +130,7 @@ curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab
         "id": 2,
         "status": "started",
         "source_type": "gitlab",
+        "source_url": "https://gitlab.example.com",
         "created_at": "2021-06-18T09:47:36.581Z",
         "updated_at": "2021-06-18T09:47:58.286Z",
         "has_failures": false
@@ -146,7 +159,9 @@ The status can be one of the following:
 - `failed`
 
 ```shell
-curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/bulk_imports/entities?per_page=2&page=1&status=started"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/bulk_imports/entities?per_page=2&page=1&status=started"
 ```
 
 ```json
@@ -168,6 +183,7 @@ curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab
         "updated_at": "2021-06-18T09:47:51.867Z",
         "failures": [],
         "migrate_projects": true,
+        "migrate_memberships": true,
         "has_failures": false,
         "stats": {
             "labels": {
@@ -210,6 +226,7 @@ curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab
             }
         ],
         "migrate_projects": true,
+        "migrate_memberships": true,
         "has_failures": false,
         "stats": { }
     }
@@ -223,7 +240,9 @@ GET /bulk_imports/:id
 ```
 
 ```shell
-curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/bulk_imports/1"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/bulk_imports/1"
 ```
 
 ```json
@@ -231,6 +250,7 @@ curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab
   "id": 1,
   "status": "finished",
   "source_type": "gitlab",
+  "source_url": "https://gitlab.example.com",
   "created_at": "2021-06-18T09:45:55.358Z",
   "updated_at": "2021-06-18T09:46:27.003Z"
 }
@@ -257,7 +277,9 @@ The status can be one of the following:
 - `failed`
 
 ```shell
-curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/bulk_imports/1/entities?per_page=2&page=1&status=finished"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/bulk_imports/1/entities?per_page=2&page=1&status=finished"
 ```
 
 ```json
@@ -290,6 +312,7 @@ curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab
             }
         ],
         "migrate_projects": true,
+        "migrate_memberships": true,
         "has_failures": true,
         "stats": {
             "labels": {
@@ -314,7 +337,9 @@ GET /bulk_imports/:id/entities/:entity_id
 ```
 
 ```shell
-curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/bulk_imports/1/entities/2"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/bulk_imports/1/entities/2"
 ```
 
 ```json
@@ -346,6 +371,7 @@ curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab
         }
     ],
     "migrate_projects": true,
+    "migrate_memberships": true,
     "has_failures": true,
     "stats": {
         "labels": {
@@ -364,14 +390,20 @@ curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab
 
 ## Get list of failed import records for group or project migration entity
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/428016) in GitLab 16.6.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/428016) in GitLab 16.6.
+
+{{< /history >}}
 
 ```plaintext
 GET /bulk_imports/:id/entities/:entity_id/failures
 ```
 
 ```shell
-curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/bulk_imports/1/entities/2/failures"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/bulk_imports/1/entities/2/failures"
 ```
 
 ```json
@@ -387,16 +419,22 @@ curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab
 
 ## Cancel a migration
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/438281) in GitLab 17.1.
+{{< history >}}
 
-Cancel a direct transfer migration. Requires administrator access.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/438281) in GitLab 17.1.
+
+{{< /history >}}
+
+Cancel a direct transfer migration.
 
 ```plaintext
 POST /bulk_imports/:id/cancel
 ```
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/bulk_imports/1/cancel"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/bulk_imports/1/cancel"
 ```
 
 ```json

@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Database Reviewer Guidelines
 ---
-
-# Database Reviewer Guidelines
 
 This page includes introductory material for new database reviewers.
 
@@ -42,7 +41,7 @@ to your profile YAML file:
 1. Create the merge request
    [using the "Database reviewer" template](https://gitlab.com/gitlab-com/www-gitlab-com/-/blob/master/.gitlab/merge_request_templates/Database%20reviewer.md).
 1. Assign to a database maintainer or the
-   [Database Team's Engineering Manager](https://handbook.gitlab.com/handbook/engineering/infrastructure/core-platform/data_stores/database/).
+   [Database Team's Engineering Manager](https://handbook.gitlab.com/handbook/engineering/infrastructure-platforms/data-access/database-framework/).
 
 After the `team.yml` update is merged, the [Reviewer roulette](../code_review.md#reviewer-roulette)
 may recommend you as a database reviewer.
@@ -51,13 +50,6 @@ may recommend you as a database reviewer.
 
 As a database reviewer, join the internal `#database` Slack channel and ask questions or discuss
 database related issues with other database reviewers and maintainers.
-
-There is also an optional database office hours call held bi-weekly, alternating between
-European/US and Asia-Pacific (APAC) friendly hours. You can join the office hours call and bring topics
-that require a more in-depth discussion between the database reviewers and maintainers:
-
-- [Database Office Hours Agenda](https://docs.google.com/document/d/1wgfmVL30F8SdMg-9yY6Y8djPSxWNvKmhR5XmsvYX1EI/edit).
-- <i class="fa fa-youtube-play youtube" aria-hidden="true"></i> [YouTube playlist with past recordings](https://www.youtube.com/playlist?list=PL05JrBw4t0Kp-kqXeiF7fF7cFYaKtdqXM).
 
 Get familiar with using [Database Lab from postgres.ai](database_lab.md), a bot that
 provides developers with their own clone of the production database.
@@ -71,17 +63,17 @@ The following guides provide a quick introduction and links to follow on more ad
 We also have licensed access to The Art of PostgreSQL. If you are interested in getting access, GitLab team
 members can check out the issue here: `https://gitlab.com/gitlab-org/database-team/team-tasks/-/issues/23`.
 
-Finally, you can find various guides in the [Database guides](index.md) page that cover more specific
+Finally, you can find various guides in the [Database guides](_index.md) page that cover more specific
 topics and use cases. The most frequently required during database reviewing are the following:
 
 - [Migrations style guide](../migration_style_guide.md) for creating safe SQL migrations.
 - [Avoiding downtime in migrations](avoiding_downtime_in_migrations.md).
 - [SQL guidelines](../sql.md) for working with SQL queries.
-- [Guidelines for JiHu contributions with database migrations](https://handbook.gitlab.com/handbook/ceo/chief-of-staff-team/jihu-support/jihu-database-change-process/)
+- [Guidelines for JiHu contributions with database migrations](https://handbook.gitlab.com/handbook/ceo/office-of-the-ceo/jihu-support/jihu-database-change-process/)
 
 ## How to apply to become a database maintainer
 
-Database maintainership uses the same process as other projects for identifying maintainers.
+Becoming a database maintainer uses the same process as the other projects.
 [Follow the general process documented here](https://handbook.gitlab.com/handbook/engineering/workflow/code-review/#how-to-become-a-project-maintainer).
 
 For database specific requirements, see [`Project maintainer process for gitlab-database`](https://handbook.gitlab.com/handbook/engineering/workflow/code-review/#project-maintainer-process-for-gitlab-database)

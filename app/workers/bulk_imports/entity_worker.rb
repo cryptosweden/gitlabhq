@@ -7,7 +7,7 @@ module BulkImports
 
     idempotent!
     deduplicate :until_executing
-    data_consistency :always
+    data_consistency :sticky
     feature_category :importers
     sidekiq_options retry: 3, dead: false
     worker_has_external_dependencies!
@@ -78,6 +78,13 @@ module BulkImports
             pipeline_tracker.stage,
             entity.id
           )
+
+          if Import::BulkImports::EphemeralData.new(entity.bulk_import.id).importer_user_mapping_enabled?
+            Import::LoadPlaceholderReferencesWorker.perform_async(
+              Import::SOURCE_DIRECT_TRANSFER,
+              entity.bulk_import.id
+            )
+          end
         end
       end
     end

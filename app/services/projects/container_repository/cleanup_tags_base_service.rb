@@ -5,6 +5,8 @@ module Projects
     class CleanupTagsBaseService < BaseContainerRepositoryService
       private
 
+      include ContainerRegistry::Protection::Concerns::TagRule
+
       def filter_out_latest!(tags)
         return unless keep_latest
 
@@ -18,6 +20,17 @@ module Projects
         tags.select! do |tag|
           # regex_retain will override any overlapping matches by regex_delete
           regex_delete.match?(tag.name) && !regex_retain.match?(tag.name)
+        end
+      end
+
+      def filter_out_protected!(tags)
+        patterns = protected_patterns_for_delete(project:, current_user:)
+        return if patterns.blank?
+
+        tags.reject! do |tag|
+          patterns.detect do |pattern|
+            pattern.match?(tag.name)
+          end
         end
       end
 

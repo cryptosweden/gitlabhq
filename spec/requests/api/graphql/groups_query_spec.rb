@@ -16,6 +16,7 @@ RSpec.describe 'searching groups', :with_license, feature_category: :groups_and_
       nodes {
         #{all_graphql_fields_for('Group', excluded: %w[runners ciQueueingHistory])}
       }
+      count
     FIELDS
   end
 
@@ -30,6 +31,12 @@ RSpec.describe 'searching groups', :with_license, feature_category: :groups_and_
   end
 
   subject { post_graphql(query, current_user: user) }
+
+  it 'is countable' do
+    subject
+
+    expect(graphql_data_at(:groups, :count)).to eq(1)
+  end
 
   describe "Query groups(search)" do
     let(:groups) { graphql_data_at(:groups, :nodes) }
@@ -74,6 +81,79 @@ RSpec.describe 'searching groups', :with_license, feature_category: :groups_and_
         expect(names).to contain_exactly(other_group.name)
       end
     end
+
+    context 'with `owned_only` argument' do
+      let_it_be(:owned_group) { create(:group, name: 'with owner role', owners: user) }
+
+      let(:query) do
+        <<~QUERY
+          query {
+            groups(ownedOnly: true) {
+              #{fields}
+            }
+          }
+        QUERY
+      end
+
+      it 'return only owned groups' do
+        subject
+
+        expect(names).to contain_exactly(owned_group.name)
+      end
+    end
+  end
+
+  describe 'active argument' do
+    let_it_be(:group_pending_deletion) { create(:group_with_deletion_schedule, owners: user) }
+
+    context 'when active argument is nil' do
+      it 'returns all groups' do
+        subject
+
+        expect(graphql_data_at(:groups,
+          :nodes)).to match_array([a_graphql_entity_for(public_group), a_graphql_entity_for(group_pending_deletion)])
+      end
+    end
+
+    context 'when active argument is true' do
+      let(:query) do
+        <<~QUERY
+          query {
+            groups(active: true) {
+              nodes {
+                id
+              }
+            }
+          }
+        QUERY
+      end
+
+      it 'returns only groups that are not pending deletion' do
+        subject
+
+        expect(graphql_data_at(:groups, :nodes)).to match_array([a_graphql_entity_for(public_group)])
+      end
+    end
+
+    context 'when active argument is false' do
+      let(:query) do
+        <<~QUERY
+          query {
+            groups(active: false) {
+              nodes {
+                id
+              }
+            }
+          }
+        QUERY
+      end
+
+      it 'returns only groups that are pending deletion' do
+        subject
+
+        expect(graphql_data_at(:groups, :nodes)).to match_array([a_graphql_entity_for(group_pending_deletion)])
+      end
+    end
   end
 
   describe 'group sorting' do
@@ -104,6 +184,38 @@ RSpec.describe 'searching groups', :with_license, feature_category: :groups_and_
         '', {},
         query_nodes(:groups, :id, include_pagination_info: true, args: params)
       )
+    end
+  end
+
+  describe 'project statistics' do
+    context 'when user can read statistics' do
+      before_all do
+        public_group.add_owner(user)
+      end
+
+      it 'returns project_statistics field' do
+        subject
+
+        expect(graphql_data_at(:groups, :nodes, 0, :project_statistics)).to include({
+          "buildArtifactsSize" => 0.0,
+          "lfsObjectsSize" => 0.0,
+          "packagesSize" => 0.0,
+          "pipelineArtifactsSize" => 0.0,
+          "repositorySize" => 0.0,
+          "snippetsSize" => 0.0,
+          "storageSize" => 0.0,
+          "uploadsSize" => 0.0,
+          "wikiSize" => 0.0
+        })
+      end
+    end
+
+    context 'when user does not have admin ability' do
+      it 'returns project_statistics field as nil' do
+        subject
+
+        expect(graphql_data_at(:groups, :nodes, 0, :project_statistics)).to be_nil
+      end
     end
   end
 end

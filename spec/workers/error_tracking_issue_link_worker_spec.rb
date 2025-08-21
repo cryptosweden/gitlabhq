@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ErrorTrackingIssueLinkWorker, feature_category: :error_tracking do
+RSpec.describe ErrorTrackingIssueLinkWorker, feature_category: :observability do
   let_it_be(:error_tracking) { create(:project_error_tracking_setting) }
   let_it_be(:project) { error_tracking.project }
   let_it_be(:issue) { create(:issue, project: project) }
@@ -36,7 +36,7 @@ RSpec.describe ErrorTrackingIssueLinkWorker, feature_category: :error_tracking d
         expect_any_instance_of(ErrorTracking::SentryClient).not_to receive(:repos)
         expect_any_instance_of(ErrorTracking::SentryClient).not_to receive(:create_issue_link)
 
-        expect(subject).to be nil
+        expect(subject).to be_nil
       end
     end
 

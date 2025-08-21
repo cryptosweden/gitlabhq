@@ -32,7 +32,7 @@ RSpec.describe 'getting a repository in a project', feature_category: :source_co
     it 'returns nil' do
       post_graphql(query, current_user: current_user)
 
-      expect(graphql_data['project']).to be(nil)
+      expect(graphql_data['project']).to be_nil
     end
   end
 
@@ -103,6 +103,34 @@ RSpec.describe 'getting a repository in a project', feature_category: :source_co
       post_graphql(query, current_user: current_user)
 
       expect(graphql_data['project']['repository']['paginatedTree']).to be_present
+    end
+  end
+
+  context 'when commit is requested' do
+    let(:fields) do
+      %(
+        commit(ref: "#{ref}") {
+          sha
+        }
+      )
+    end
+
+    let(:ref) { 'b83d6e391c22777fca1ed3012fce84f633d7fed0' }
+
+    it 'returns requested commit' do
+      post_graphql(query, current_user: current_user)
+
+      expect(graphql_data.dig('project', 'repository', 'commit', 'sha')).to eq ref
+    end
+
+    context 'when ref does not point to an existing commit' do
+      let(:ref) { 'unknown' }
+
+      it 'returns nil' do
+        post_graphql(query, current_user: current_user)
+
+        expect(graphql_data.dig('project', 'repository', 'commit')).to be_nil
+      end
     end
   end
 end

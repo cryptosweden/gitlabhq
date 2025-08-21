@@ -1,11 +1,10 @@
 import { nextTick } from 'vue';
 import { shallowMount } from '@vue/test-utils';
-import { GlTabs, GlDrawer } from '@gitlab/ui';
+import { GlTabs } from '@gitlab/ui';
 import KubernetesTabs from '~/environments/environment_details/components/kubernetes/kubernetes_tabs.vue';
 import KubernetesPods from '~/environments/environment_details/components/kubernetes/kubernetes_pods.vue';
 import KubernetesServices from '~/environments/environment_details/components/kubernetes/kubernetes_services.vue';
 import KubernetesSummary from '~/environments/environment_details/components/kubernetes/kubernetes_summary.vue';
-import WorkloadDetails from '~/kubernetes_dashboard/components/workload_details.vue';
 import { k8sResourceType } from '~/environments/graphql/resolvers/kubernetes/constants';
 import { mockKasTunnelUrl, fluxKustomization } from 'jest/environments/mock_data';
 import { mockPodsTableItems } from 'jest/kubernetes_dashboard/graphql/mock_data';
@@ -25,8 +24,6 @@ describe('~/environments/environment_details/components/kubernetes/kubernetes_ta
   const findKubernetesPods = () => wrapper.findComponent(KubernetesPods);
   const findKubernetesServices = () => wrapper.findComponent(KubernetesServices);
   const findKubernetesSummary = () => wrapper.findComponent(KubernetesSummary);
-  const findDrawer = () => wrapper.findComponent(GlDrawer);
-  const findWorkloadDetails = () => wrapper.findComponent(WorkloadDetails);
 
   const createWrapper = ({
     activeTab = k8sResourceType.k8sPods,
@@ -37,7 +34,6 @@ describe('~/environments/environment_details/components/kubernetes/kubernetes_ta
         glFeatures: { k8sTreeView: k8sTreeViewEnabled },
       },
       propsData: { configuration, namespace, fluxKustomization, value: activeTab },
-      stubs: { GlDrawer },
     });
   };
 
@@ -84,6 +80,7 @@ describe('~/environments/environment_details/components/kubernetes/kubernetes_ta
         [summaryTab, 0, 2, k8sResourceType.k8sServices],
       ])(
         'when activeTab is %s, it activates the right tab and emit the correct tab name when switching',
+        // eslint-disable-next-line max-params
         async (activeTab, tabIndex, newTabIndex, newActiveTab) => {
           createWrapper({ k8sTreeViewEnabled: true, activeTab });
           const tabsComponent = findTabs();
@@ -101,6 +98,7 @@ describe('~/environments/environment_details/components/kubernetes/kubernetes_ta
         [k8sResourceType.k8sServices, 1, 0, k8sResourceType.k8sPods],
       ])(
         'when activeTab is %s, it activates the right tab and emit the correct tab name when switching',
+        // eslint-disable-next-line max-params
         async (activeTab, tabIndex, newTabIndex, newActiveTab) => {
           createWrapper({ activeTab });
           await nextTick();
@@ -133,18 +131,18 @@ describe('~/environments/environment_details/components/kubernetes/kubernetes_ta
       createWrapper();
     });
 
-    it('emits loading event when gets it from the component', () => {
-      findKubernetesPods().vm.$emit('loading', true);
-      expect(wrapper.emitted('loading')[0]).toEqual([true]);
+    it('emits cluster state event when gets it from the component', () => {
+      findKubernetesPods().vm.$emit('update-cluster-state', 'needs-attention');
+      expect(wrapper.emitted('update-cluster-state')[0]).toEqual(['needs-attention']);
 
-      findKubernetesPods().vm.$emit('loading', false);
-      expect(wrapper.emitted('loading')[1]).toEqual([false]);
+      findKubernetesPods().vm.$emit('update-cluster-state', 'success');
+      expect(wrapper.emitted('update-cluster-state')[1]).toEqual(['success']);
     });
 
-    it('emits a state update event when gets it from the component', () => {
-      const eventData = { pods: true };
-      findKubernetesPods().vm.$emit('update-failed-state', eventData);
-      expect(wrapper.emitted('update-failed-state')).toEqual([[eventData]]);
+    it('emits select-item event when gets it from the component', () => {
+      findKubernetesPods().vm.$emit('select-item', mockPodsTableItems[0]);
+
+      expect(wrapper.emitted('select-item')).toEqual([[mockPodsTableItems[0]]]);
     });
 
     it('emits a cluster error event when gets it from the component', () => {
@@ -152,47 +150,12 @@ describe('~/environments/environment_details/components/kubernetes/kubernetes_ta
       findKubernetesPods().vm.$emit('cluster-error', errorMessage);
       expect(wrapper.emitted('cluster-error')).toEqual([[errorMessage]]);
     });
-  });
 
-  describe('resource details drawer', () => {
-    beforeEach(() => {
-      createWrapper();
-    });
+    it('emits delete pod event when gets it from the component', () => {
+      expect(wrapper.emitted('delete-pod')).toBeUndefined();
 
-    it('is closed by default', () => {
-      expect(findDrawer().props('open')).toBe(false);
-    });
-
-    describe('when receives show-resource-details event', () => {
-      beforeEach(() => {
-        findKubernetesPods().vm.$emit('show-resource-details', mockPodsTableItems[0]);
-      });
-
-      it('opens the drawer', () => {
-        expect(findDrawer().props('open')).toBe(true);
-      });
-
-      it('provides the resource details to the drawer', () => {
-        expect(findWorkloadDetails().props('item')).toEqual(mockPodsTableItems[0]);
-      });
-
-      it('renders a title with the selected item name', () => {
-        expect(findDrawer().text()).toContain(mockPodsTableItems[0].name);
-      });
-
-      it('is closed when clicked on a cross button', async () => {
-        expect(findDrawer().props('open')).toBe(true);
-
-        await findDrawer().vm.$emit('close');
-        expect(findDrawer().props('open')).toBe(false);
-      });
-
-      it('is closed on remove-selection event', async () => {
-        expect(findDrawer().props('open')).toBe(true);
-
-        await findKubernetesPods().vm.$emit('remove-selection');
-        expect(findDrawer().props('open')).toBe(false);
-      });
+      findKubernetesPods().vm.$emit('delete-pod', mockPodsTableItems[0]);
+      expect(wrapper.emitted('delete-pod')).toEqual([[mockPodsTableItems[0]]]);
     });
   });
 });

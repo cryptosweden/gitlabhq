@@ -1,3 +1,5 @@
+// This is the only file allowed to import directly from the package.
+// eslint-disable-next-line no-restricted-imports
 import axios from 'axios';
 import { registerCaptchaModalInterceptor } from '~/captcha/captcha_modal_axios_interceptor';
 import setupAxiosStartupCalls from './axios_startup_calls';
@@ -8,6 +10,10 @@ import suppressAjaxErrorsDuringNavigation from './suppress_ajax_errors_during_na
 axios.defaults.headers.common[csrf.headerKey] = csrf.token;
 // Used by Rails to check if it is a valid XHR request
 axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
+
+if (gon.current_organization?.id) {
+  axios.defaults.headers.common['X-GitLab-Organization-ID'] = gon.current_organization.id;
+}
 
 // Maintain a global counter for active requests
 // see: spec/support/wait_for_requests.rb

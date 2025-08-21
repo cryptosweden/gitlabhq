@@ -127,6 +127,10 @@ RSpec.describe Atlassian::JiraConnect::Client, feature_category: :integrations d
     let(:errors) { [{ 'message' => 'X' }, { 'message' => 'Y' }] }
     let(:processed) { subject.send(:handle_response, response, 'foo') { |x| [:data, x] } }
 
+    before do
+      allow(subject).to receive(:parse_jira_error_messages).and_call_original
+    end
+
     context 'when the response is 200 OK' do
       let(:response) { double(code: 200, parsed_response: :foo) }
 
@@ -147,6 +151,7 @@ RSpec.describe Atlassian::JiraConnect::Client, feature_category: :integrations d
       let(:response) { double(code: 400, parsed_response: errors) }
 
       it 'extracts the errors messages' do
+        expect(subject).to receive(:parse_jira_error_messages).with(errors).and_return(%w[X Y])
         expect(processed).to eq('errorMessages' => %w[X Y], 'responseCode' => 400)
       end
     end
@@ -171,6 +176,7 @@ RSpec.describe Atlassian::JiraConnect::Client, feature_category: :integrations d
       let(:response) { double(code: 413, parsed_response: errors) }
 
       it 'extracts the errors messages' do
+        expect(subject).to receive(:parse_jira_error_messages).with(errors).and_return(%w[X Y])
         expect(processed).to eq('errorMessages' => ['Data too large', 'X', 'Y'], 'responseCode' => 413)
       end
     end
@@ -261,14 +267,26 @@ RSpec.describe Atlassian::JiraConnect::Client, feature_category: :integrations d
       subject.send(:store_deploy_info, project: project, deployments: deployments)
     end
 
-    it 'does not call the API if no issue keys are found' do
+    it 'calls the API if no issue keys are found, but there are service IDs' do
       allow_next_instances_of(Atlassian::JiraConnect::Serializers::DeploymentEntity, nil) do |entity|
         allow(entity).to receive(:issue_keys).and_return([])
+        allow(entity).to receive(:service_ids_from_integration_configuration).and_return([{ associationType: 'serviceIdOrKeys', values: ['foo'] }])
+      end
+
+      expect(subject).to receive(:post).with(
+        '/rest/deployments/0.1/bulk', { deployments: have_attributes(size: 1) }
+      ).and_call_original
+
+      subject.send(:store_deploy_info, project: project, deployments: deployments)
+    end
+
+    it 'does not call the API if no issue keys or service IDs are found' do
+      allow_next_instances_of(Atlassian::JiraConnect::Serializers::DeploymentEntity, nil) do |entity|
+        allow(entity).to receive(:issue_keys).and_return([])
+        allow(entity).to receive(:service_ids_from_integration_configuration).and_return([])
       end
 
       expect(subject).not_to receive(:post)
-
-      subject.send(:store_deploy_info, project: project, deployments: deployments)
     end
 
     context 'when there are errors' do
@@ -556,6 +574,50 @@ RSpec.describe Atlassian::JiraConnect::Client, feature_category: :integrations d
         it 'returns nil' do
           expect(client.user_info(account_id)).to be_nil
         end
+      end
+    end
+  end
+
+  describe '#parse_jira_error_messages' do
+    subject { client.send(:parse_jira_error_messages, data) }
+
+    context 'with array data' do
+      let(:data) { [{ 'message' => 'Error 1' }, { 'message' => 'Error 2' }] }
+
+      it 'extracts messages from array' do
+        expect(subject).to match_array(['Error 1', 'Error 2'])
+      end
+    end
+
+    context 'with hash data containing message' do
+      let(:data) { { 'message' => 'Single error' } }
+
+      it 'returns message in array' do
+        expect(subject).to match_array(['Single error'])
+      end
+    end
+
+    context 'with hash data containing error' do
+      let(:data) { { 'error' => 'Error message' } }
+
+      it 'returns error in array' do
+        expect(subject).to match_array(['Error message'])
+      end
+    end
+
+    context 'with hash data without message or error' do
+      let(:data) { { 'foo' => 'bar' } }
+
+      it 'returns unknown error' do
+        expect(subject).to match_array(['Unknown error'])
+      end
+    end
+
+    context 'with unexpected data type' do
+      let(:data) { 'string' }
+
+      it 'returns invalid error format' do
+        expect(subject).to match_array(['Unknown error'])
       end
     end
   end

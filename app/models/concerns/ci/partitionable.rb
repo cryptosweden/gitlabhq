@@ -25,8 +25,8 @@ module Ci
       before_validation :set_partition_id, on: :create
       validates :partition_id, presence: true
 
-      scope :in_partition, ->(id) do
-        where(partition_id: (id.respond_to?(:partition_id) ? id.partition_id : id))
+      scope :in_partition, ->(id, partition_foreign_key: :partition_id) do
+        where(partition_id: (id.respond_to?(partition_foreign_key) ? id.try(partition_foreign_key) : id))
       end
 
       def set_partition_id
@@ -88,11 +88,9 @@ module Ci
       end
 
       def create_database_partition?(database_partition)
-        if Feature.enabled?(:ci_partitioning_automation, :instance)
-          Ci::Partition.provisioning(database_partition.values.max).present?
-        else
-          database_partition.before?(Ci::Pipeline::NEXT_PARTITION_VALUE)
-        end
+        return true if database_partition.before?(Ci::Partition::LAST_STATIC_PARTITION_VALUE)
+
+        Ci::Partition.provisioning(database_partition.values.max).present?
       end
     end
   end

@@ -9,16 +9,15 @@ module Types
 
     field :name,
       GraphQL::Types::String,
-      description: 'Name of this git tag.'
+      description: 'Name of the git tag.'
 
     field :path,
       GraphQL::Types::String,
-      description: 'Path for this tag.',
-      hash_key: :path
+      description: 'Path for the tag.'
 
     field :web_path,
       GraphQL::Types::String,
-      description: 'Web path for this tag.'
+      description: 'Web path for the tag.'
   end
   # rubocop:enable Graphql/AuthorizeTypes
 end

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Sandboxed Mermaid rendering', :js, feature_category: :team_planning do
+RSpec.describe 'Sandboxed Mermaid rendering', :js, feature_category: :markdown do
   let_it_be(:project) { create(:project, :public, :repository) }
   let_it_be(:description) do
     <<~MERMAID
@@ -64,6 +64,29 @@ RSpec.describe 'Sandboxed Mermaid rendering', :js, feature_category: :team_plann
       wait_for_requests
 
       expect(page.html).to include(expected)
+    end
+  end
+
+  context 'in a project home page' do
+    let!(:wiki) { create(:project_wiki, project: project) }
+    let!(:wiki_page) { create(:wiki_page, wiki: wiki, title: 'home', content: description) }
+
+    before do
+      project.project_feature.update_attribute(:repository_access_level, ProjectFeature::DISABLED)
+    end
+
+    it 'includes mermaid frame correctly', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/554077' do
+      visit(project_path(project))
+
+      wait_for_all_requests
+
+      page.within '.js-wiki-content' do
+        # the find is needed to ensure the lazy container is loaded, otherwise
+        # it can be a flaky test, similar to
+        # https://gitlab.com/gitlab-org/gitlab/-/merge_requests/25408
+        #
+        expect(page.html).to include(expected)
+      end
     end
   end
 

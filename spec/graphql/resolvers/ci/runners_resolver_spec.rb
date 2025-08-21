@@ -6,9 +6,6 @@ RSpec.describe Resolvers::Ci::RunnersResolver, feature_category: :fleet_visibili
   include GraphqlHelpers
 
   describe '#resolve' do
-    let(:obj) { nil }
-    let(:args) { {} }
-
     subject(:resolve_scope) do
       resolve(
         described_class,
@@ -20,6 +17,10 @@ RSpec.describe Resolvers::Ci::RunnersResolver, feature_category: :fleet_visibili
     end
 
     include_context 'runners resolver setup'
+
+    let(:user) { build(:user, :admin) }
+    let(:obj) { nil }
+    let(:args) { {} }
 
     # First, we can do a couple of basic real tests to verify common cases. That ensures that the code works.
     context 'when user cannot see runners' do
@@ -80,7 +81,7 @@ RSpec.describe Resolvers::Ci::RunnersResolver, feature_category: :fleet_visibili
         let(:args) do
           {
             active: true,
-            status: 'active',
+            status: 'offline',
             upgrade_status: 'recommended',
             type: :instance_type,
             tag_list: ['active_runner'],
@@ -88,6 +89,7 @@ RSpec.describe Resolvers::Ci::RunnersResolver, feature_category: :fleet_visibili
             sort: :contacted_asc,
             creator_id: 'gid://gitlab/User/1',
             creator_username: 'root',
+            owner_full_path: '',
             version_prefix: '15.'
           }
         end
@@ -95,7 +97,7 @@ RSpec.describe Resolvers::Ci::RunnersResolver, feature_category: :fleet_visibili
         let(:expected_params) do
           {
             active: true,
-            status_status: 'active',
+            status_status: 'offline',
             upgrade_status: 'recommended',
             type_type: :instance_type,
             tag_name: ['active_runner'],
@@ -104,6 +106,7 @@ RSpec.describe Resolvers::Ci::RunnersResolver, feature_category: :fleet_visibili
             sort: 'contacted_asc',
             creator_id: '1',
             creator_username: 'root',
+            owner_full_path: '',
             version_prefix: '15.'
           }
         end

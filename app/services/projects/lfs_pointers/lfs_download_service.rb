@@ -8,7 +8,7 @@ module Projects
       OidError = Class.new(StandardError)
       ResponseError = Class.new(StandardError)
 
-      LARGE_FILE_SIZE = 1.megabytes
+      LARGE_FILE_SIZE = 1.megabyte
 
       attr_reader :lfs_download_object
 
@@ -23,7 +23,7 @@ module Projects
       def execute
         return unless project&.lfs_enabled? && lfs_download_object
         return error("LFS file with oid #{lfs_oid} has invalid attributes") unless lfs_download_object.valid?
-        return link_existing_lfs_object! if Feature.enabled?(:lfs_link_existing_object, project) && lfs_size > LARGE_FILE_SIZE && lfs_object
+        return link_existing_lfs_object! if lfs_size > LARGE_FILE_SIZE && lfs_object
 
         wrap_download_errors do
           download_lfs_file!
@@ -79,7 +79,10 @@ module Projects
       end
 
       def download_options
-        http_options = { headers: lfs_headers, stream_body: true }
+        # Set accept-encoding to identity to request web servers not to send a compressed response to avoid using too
+        # much memory to decompress the file. In case the response is encoded, the response size will be limited by
+        # `max_http_decompressed_size application` application setting.
+        http_options = { headers: lfs_headers.merge('accept-encoding' => 'identity'), stream_body: true }
 
         return http_options if lfs_download_object.has_authorization_header?
 
@@ -113,7 +116,7 @@ module Projects
           # when it is added to the project's lfs files.
           # Nevertheless if any exception raises the file would remain
           # in the file system. Here we ensure to remove it
-          File.unlink(file) if File.exist?(file)
+          FileUtils.rm_f(file)
 
           raise e
         end
@@ -124,7 +127,7 @@ module Projects
       end
 
       def create_tmp_storage_dir
-        FileUtils.makedirs(tmp_storage_dir) unless Dir.exist?(tmp_storage_dir)
+        FileUtils.makedirs(tmp_storage_dir)
       end
 
       def tmp_storage_dir

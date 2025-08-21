@@ -22,6 +22,8 @@ module Clusters
     has_many :ci_access_project_authorizations, class_name: 'Clusters::Agents::Authorizations::CiAccess::ProjectAuthorization'
     has_many :ci_access_authorized_projects, class_name: '::Project', through: :ci_access_project_authorizations, source: :project
 
+    has_many :ci_access_organization_authorizations, class_name: 'Clusters::Agents::Authorizations::CiAccess::OrganizationAuthorization'
+
     has_many :user_access_group_authorizations, class_name: 'Clusters::Agents::Authorizations::UserAccess::GroupAuthorization'
     has_many :user_access_authorized_groups, class_name: '::Group', through: :user_access_group_authorizations, source: :group
 
@@ -35,11 +37,9 @@ module Clusters
     scope :ordered_by_name, -> { order(:name) }
     scope :with_name, ->(name) { where(name: name) }
     scope :has_vulnerabilities, ->(value = true) { where(has_vulnerabilities: value) }
+    scope :for_projects, ->(projects) { where(project: projects) }
 
-    enum connection_mode: {
-      outgoing: 0, # agentk -> kas
-      incoming: 1  # kas -> agentk
-    }, _prefix: true
+    ignore_column :connection_mode, remove_with: '17.6', remove_after: '2024-11-01'
 
     validates :name,
       presence: true,
@@ -86,10 +86,18 @@ module Clusters
     # As of today, all config values of associated authorization rows have the same value.
     # See `UserAccess::RefreshService` for more information.
     def user_access_config
+      user_access_authorizations&.config
+    end
+
+    def user_access_authorizations
       self.class.from_union(
         user_access_project_authorizations.select('config').limit(1),
         user_access_group_authorizations.select('config').limit(1)
-      ).compact.first&.config
+      ).select('config').compact.first
+    end
+
+    def resource_management_enabled?
+      false # Overridden in EE
     end
 
     private

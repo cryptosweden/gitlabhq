@@ -1,14 +1,16 @@
 ---
-stage: Systems
+stage: Tenant Scale
 group: Geo
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting Geo client and HTTP response code errors
 ---
 
-# Troubleshooting Geo client and HTTP response code errors
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 ## Fixing client errors
 
@@ -20,7 +22,7 @@ requests redirected from the secondary to the primary site do not properly send 
 Authorization header. This may result in either an infinite `Authorization <-> Redirect`
 loop, or Authorization error messages.
 
-### Error: Net::ReadTimeout when pushing through SSH on a Geo secondary
+### Error: `Net::ReadTimeout` when pushing through SSH on a Geo secondary
 
 When you push large repositories through SSH on a Geo secondary site, you may encounter a timeout.
 This is because Rails proxies the push to the primary and has a 60 second default timeout,
@@ -39,7 +41,7 @@ Failed to contact primary https://primary.domain.com/namespace/push_test.git\\nE
 
 ### Repair OAuth authorization between Geo sites
 
-When upgrading a Geo site, you might not be able to log in into a secondary site that only uses OAuth for authentication. In that case, start a [Rails console](../../../operations/rails_console.md) session on your primary site and perform the following steps:
+When upgrading a Geo site, you might not be able to sign into a secondary site that only uses OAuth for authentication. In that case, start a [Rails console](../../../operations/rails_console.md) session on your primary site and perform the following steps:
 
 1. To find the affected node, first list all the Geo Nodes you have:
 
@@ -57,7 +59,7 @@ When upgrading a Geo site, you might not be able to log in into a secondary site
 
 ### Secondary site returns 502 errors with Geo proxying
 
-When [Geo proxying for secondary sites](../../secondary_proxy/index.md) is enabled, and the secondary site user interface returns
+When [Geo proxying for secondary sites](../../secondary_proxy/_index.md) is enabled, and the secondary site user interface returns
 502 errors, it is possible that the response header proxied from the primary site is too large.
 
 Check the NGINX logs for errors similar to this example:
@@ -71,13 +73,15 @@ To resolve this issue:
 1. Set `nginx['proxy_custom_buffer_size'] = '8k'` in `/etc/gitlab.rb` on all web nodes on the secondary site.
 1. Reconfigure the **secondary** using `sudo gitlab-ctl reconfigure`.
 
-If you still get this error, you can further increase the buffer size by repeating the steps above
+If you still get this error, you can further increase the buffer size by repeating the previous steps
 and changing the `8k` size, for example by doubling it to `16k`.
 
-### Geo Admin Area shows 'Unknown' for health status and 'Request failed with status code 401'
+### Geo Admin area shows `Unknown` for health status and 'Request failed with status code 401'
 
 If using a load balancer, ensure that the load balancer's URL is set as the `external_url` in the
 `/etc/gitlab/gitlab.rb` of the nodes behind the load balancer.
+
+On the primary site, go to **Admin > Geo > Settings** and find the **Allowed Geo IP** field. Ensure the IP address of the secondary site is listed.
 
 ### Primary site returns 500 error when accessing `/admin/geo/replication/projects`
 
@@ -92,7 +96,7 @@ Geo::TrackingBase::SecondaryNotConfigured: Geo secondary database is not configu
 
 On a Geo primary site this error can be ignored.
 
-This happens because GitLab is attempting to display registries from the [Geo tracking database](../../../../administration/geo/index.md#geo-tracking-database) which doesn't exist on the primary site (only the original projects exist on the primary; no replicated projects are present, therefore no tracking database exists).
+This happens because GitLab is attempting to display registries from the [Geo tracking database](../../_index.md#geo-tracking-database) which doesn't exist on the primary site (only the original projects exist on the primary; no replicated projects are present, therefore no tracking database exists).
 
 ### Secondary site returns 400 error "Request header or cookie too large"
 
@@ -106,7 +110,7 @@ To fix this issue, set the primary site's internal URL to a URL that is:
 - Accessible from all secondary sites.
 
 1. Visit the primary site.
-1. [Set up the internal URLs](../../../../administration/geo_sites.md#set-up-the-internal-urls).
+1. [Set up the internal URLs](../../../geo_sites.md#set-up-the-internal-urls).
 
 ### Secondary site returns `Received HTTP code 403 from proxy after CONNECT`
 
@@ -139,10 +143,10 @@ The bug causes all wildcard domains (`.example.com`) to be ignored except for th
 
 You can have only one wildcard domain in the `no_proxy` list.
 
-### Geo Admin Area returns 404 error for a secondary site
+### Geo Admin area returns 404 error for a secondary site
 
 Sometimes `sudo gitlab-rake gitlab:geo:check` indicates that **Rails nodes of the secondary** sites are
-healthy, but a 404 Not Found error message for the **secondary** site is returned in the Geo Admin Area on the web interface for
+healthy, but a 404 Not Found error message for the **secondary** site is returned in the Geo **Admin** area on the web interface for
 the **primary** site.
 
 To resolve this issue:

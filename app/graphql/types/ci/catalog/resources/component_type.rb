@@ -17,14 +17,18 @@ module Types
           field :include_path, GraphQL::Types::String, null: true,
             description: 'Path used to include the component.'
 
-          field :inputs, [Types::Ci::Catalog::Resources::Components::InputType], null: true,
+          field :inputs, [Types::Ci::Inputs::SpecType], null: true,
             description: 'Inputs for the component.'
+
+          field :last_30_day_usage_count, GraphQL::Types::Int, null: true,
+            description: 'Number of times the component has been used in the last 30 days ' \
+              'in a pipeline using `include`.'
 
           def inputs
             object.spec.fetch('inputs', {}).map do |key, value|
               {
                 name: key,
-                required: !value&.key?('default'),
+                required?: !value&.key?('default'),
                 default: value&.dig('default'),
                 description: value&.dig('description'),
                 regex: value&.dig('regex'),

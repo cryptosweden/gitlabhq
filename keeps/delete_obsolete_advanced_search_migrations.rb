@@ -21,20 +21,24 @@ module Keeps
 
     GROUP_LABEL = 'group::global search'
 
-    def initialize(logger: nil)
+    def initialize(...)
       @obsolete_migrations_to_delete = {}
       load_migrations_to_process
 
-      super(logger: logger)
+      super
     end
 
-    def each_change
+    def each_identified_change
       return unless obsolete_migrations_to_delete.size > 1
 
-      remove_obsolete_change = create_remove_obsolete_change
-      yield(remove_obsolete_change) if remove_obsolete_change
+      change = ::Gitlab::Housekeeper::Change.new
+      change.identifiers = [self.class.name.demodulize, 'remove_obsolete']
+      change.context = { obsolete_migrations: obsolete_migrations_to_delete }
+      yield(change)
+    end
 
-      nil
+    def make_change!(change)
+      create_remove_obsolete_change(change)
     end
 
     private
@@ -74,18 +78,16 @@ module Keeps
       Dir.glob("#{MIGRATIONS_PATH}/*.rb")
     end
 
-    def create_remove_obsolete_change
-      change = ::Gitlab::Housekeeper::Change.new
+    def create_remove_obsolete_change(change)
       change.title = 'Remove obsolete Advanced search migrations'
-      change.identifiers = [self.class.name.demodulize, 'remove_obsolete']
       change.labels = [
         'maintenance::removal',
         GROUP_LABEL
       ]
-      change.reviewers = groups_helper.pick_reviewer(group_data, change.identifiers)
+      change.assignees = groups_helper.pick_reviewer(group_data, change.identifiers)
       change.changelog_ee = true
 
-      # rubocop:disable Gitlab/DocUrl -- Not running inside rails application
+      # rubocop:disable Gitlab/DocumentationLinks/HardcodedUrl -- Not running inside rails application
       change.description = <<~MARKDOWN
         This migration removes all but the latest obsolete Advanced search migration files from the project.
 
@@ -96,14 +98,20 @@ module Keeps
         [required stop](https://docs.gitlab.com/ee/development/database/required_stops.html) as obsolete migrations
         before removing the migration code from the project. Therefore we can remove code for all Advanced search
         migrations that were made obsolete before the last required stop.
+
+        ## Tasks to complete before merging
+
+        - [ ] Update the archive of migrations in https://gitlab.com/gitlab-org/search-team/migration-graveyard
+        - [ ] Remove references to affected migration or spec files from Rubocop TODOs
       MARKDOWN
-      # rubocop:enable Gitlab/DocUrl
+      # rubocop:enable Gitlab/DocumentationLinks/HardcodedUrl
 
       change.changed_files = []
       # always leave one migration
-      last_key = obsolete_migrations_to_delete.keys.max
-      obsolete_migrations_to_delete.delete(last_key)
-      obsolete_migrations_to_delete.each do |version, migration_data|
+      obsolete_migrations = change.context[:obsolete_migrations].dup
+      last_key = obsolete_migrations.keys.max
+      obsolete_migrations.delete(last_key)
+      obsolete_migrations.each do |version, migration_data|
         FileUtils.rm_f(migration_data[:file])
         change.changed_files << migration_data[:file]
 

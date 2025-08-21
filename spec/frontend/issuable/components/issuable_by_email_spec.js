@@ -1,7 +1,7 @@
 import { GlModal, GlSprintf, GlFormInputGroup, GlButton } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
-import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
+import axios from '~/lib/utils/axios_utils';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import IssuableByEmail from '~/issuable/components/issuable_by_email.vue';
@@ -16,7 +16,7 @@ describe('IssuableByEmail', () => {
   let mockAxios;
   let glModalDirective;
 
-  function createComponent(injectedProperties = {}, props = {}) {
+  function createComponent(injectedProperties = {}) {
     glModalDirective = jest.fn();
 
     return extendedWrapper(
@@ -39,7 +39,6 @@ describe('IssuableByEmail', () => {
             show: mockToastShow,
           },
         },
-        propsData: props,
         provide: {
           issuableType: 'issue',
           initialEmail,
@@ -85,20 +84,6 @@ describe('IssuableByEmail', () => {
       findButton().trigger('click');
 
       expect(glModalDirective).toHaveBeenCalled();
-    });
-
-    describe('when passing variant and button text', () => {
-      it('renders correct button', () => {
-        const variant = 'default';
-        const text = 'Email a new issue';
-
-        wrapper = createComponent({}, { variant, text });
-
-        const button = findButton();
-
-        expect(button.attributes('variant')).toBe(variant);
-        expect(button.text()).toBe(text);
-      });
     });
   });
 

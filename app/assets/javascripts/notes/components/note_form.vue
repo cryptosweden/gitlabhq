@@ -1,15 +1,18 @@
 <script>
 import { GlButton, GlSprintf, GlLink, GlFormCheckbox } from '@gitlab/ui';
-// eslint-disable-next-line no-restricted-imports
-import { mapGetters, mapActions, mapState } from 'vuex';
+import { mapState, mapActions } from 'pinia';
 import { mergeUrlParams } from '~/lib/utils/url_utility';
 import { __ } from '~/locale';
+import glAbilitiesMixin from '~/vue_shared/mixins/gl_abilities_mixin';
 import MarkdownEditor from '~/vue_shared/components/markdown/markdown_editor.vue';
 import { trackSavedUsingEditor } from '~/vue_shared/components/markdown/tracking';
+import { useBatchComments } from '~/batch_comments/store';
+import { useNotes } from '~/notes/store/legacy_notes';
 import eventHub from '../event_hub';
 import issuableStateMixin from '../mixins/issuable_state';
 import resolvable from '../mixins/resolvable';
 import { COMMENT_FORM } from '../i18n';
+import { isSlashCommand } from '../utils';
 import CommentFieldLayout from './comment_field_layout.vue';
 
 export default {
@@ -22,8 +25,12 @@ export default {
     GlSprintf,
     GlLink,
     GlFormCheckbox,
+    CommentTemperature: () =>
+      import(
+        /* webpackChunkName: 'comment_temperature' */ 'ee_component/ai/components/comment_temperature.vue'
+      ),
   },
-  mixins: [issuableStateMixin, resolvable],
+  mixins: [issuableStateMixin, resolvable, glAbilitiesMixin()],
   props: {
     noteBody: {
       type: String,
@@ -100,14 +107,21 @@ export default {
       required: false,
       default: true,
     },
+    restoreFromAutosave: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   data() {
     return {
       updatedNoteBody: this.noteBody,
       conflictWhileEditing: false,
       isSubmitting: false,
+      isMeasuringCommentTemperature: false,
       isResolving: this.resolveDiscussion,
       isUnresolving: !this.resolveDiscussion,
+      onSaveHandler: null,
       resolveAsThread: true,
       isSubmittingWithKeydown: false,
       formFieldProps: {
@@ -121,22 +135,18 @@ export default {
     };
   },
   computed: {
-    ...mapGetters([
-      'getDiscussionLastNote',
+    ...mapState(useNotes, [
+      'getDiscussionCurrentUserLastNote',
       'getNoteableData',
-      'getNoteableDataByProp',
       'getNotesDataByProp',
       'getUserDataByProp',
     ]),
-    ...mapState({
-      withBatchComments: (state) => state.batchComments?.withBatchComments,
-    }),
-    ...mapGetters('batchComments', ['hasDrafts']),
+    ...mapState(useBatchComments, ['hasDrafts', 'withBatchComments', 'isMergeRequest']),
     autocompleteDataSources() {
       return gl.GfmAutoComplete?.dataSources;
     },
     showBatchCommentsActions() {
-      return this.withBatchComments && this.noteId === '' && !this.discussion.for_commit;
+      return this.isMergeRequest && this.noteId === '' && !this.discussion.for_commit;
     },
     showResolveDiscussionToggle() {
       if (!this.discussion?.notes) return false;
@@ -152,6 +162,9 @@ export default {
         return `#note_${this.noteId}`;
       }
       return '#';
+    },
+    noteableType() {
+      return this.getNoteableData.noteableType;
     },
     diffParams() {
       if (this.diffFile) {
@@ -176,7 +189,7 @@ export default {
       return null;
     },
     markdownPreviewPath() {
-      const notable = this.getNoteableDataByProp('preview_note_path');
+      const notable = this.getNoteableData.preview_note_path;
 
       const previewSuggestions = this.line && this.diffParams;
       const params = previewSuggestions
@@ -202,13 +215,7 @@ export default {
       return !this.updatedNoteBody.length || this.isSubmitting;
     },
     isInternalNote() {
-      return this.discussionNote.internal || this.discussion.confidential;
-    },
-    discussionNote() {
-      const discussionNote = this.discussion.id
-        ? this.getDiscussionLastNote(this.discussion)
-        : this.note;
-      return discussionNote || {};
+      return this.discussion.confidential;
     },
     canSuggest() {
       return (
@@ -232,6 +239,12 @@ export default {
         diffFile: this.diffFile,
       };
     },
+    shouldDisableField() {
+      return this.isSubmitting && !this.isMeasuringCommentTemperature;
+    },
+    shouldMeasureNoteTemperature() {
+      return !isSlashCommand(this.updatedNoteBody) && this.glAbilities.measureCommentTemperature;
+    },
   },
   watch: {
     noteBody() {
@@ -246,7 +259,7 @@ export default {
     this.updatePlaceholder();
   },
   methods: {
-    ...mapActions(['toggleResolveNote']),
+    ...mapActions(useNotes, ['toggleResolveNote']),
     shouldToggleResolved(beforeSubmitDiscussionState) {
       return (
         this.showResolveDiscussionToggle && beforeSubmitDiscussionState !== this.newResolvedState()
@@ -260,7 +273,7 @@ export default {
     },
     editMyLastNote() {
       if (this.updatedNoteBody === '') {
-        const lastNoteInDiscussion = this.getDiscussionLastNote(this.discussion);
+        const lastNoteInDiscussion = this.getDiscussionCurrentUserLastNote(this.discussion);
 
         if (lastNoteInDiscussion) {
           eventHub.$emit('enterEditMode', {
@@ -280,12 +293,15 @@ export default {
       }
     },
     updatePlaceholder() {
-      this.formFieldProps.placeholder = this.discussionNote?.internal
+      this.formFieldProps.placeholder = this.isInternalNote
         ? this.$options.i18n.bodyPlaceholderInternal
         : this.$options.i18n.bodyPlaceholder;
     },
     onInput(value) {
       this.updatedNoteBody = value;
+    },
+    append(value) {
+      this.$refs.markdownEditor.append(value);
     },
     handleKeySubmit(forceUpdate = false) {
       if (this.showBatchCommentsActions && !forceUpdate) {
@@ -294,15 +310,28 @@ export default {
         this.isSubmittingWithKeydown = true;
         this.handleUpdate();
       }
-      this.updatedNoteBody = '';
+      if (!this.isMeasuringCommentTemperature) {
+        this.updatedNoteBody = '';
+      }
     },
-    handleUpdate() {
+    runCommentTemperatureMeasurement(onSaveHandler) {
+      this.isMeasuringCommentTemperature = true;
+      this.$refs.commentTemperature.measureCommentTemperature();
+      this.onSaveHandler = this[onSaveHandler].bind(this, { shouldMeasureTemperature: false });
+    },
+    handleUpdate({ shouldMeasureTemperature = true } = {}) {
       const beforeSubmitDiscussionState = this.discussionResolved;
       this.isSubmitting = true;
+      if (shouldMeasureTemperature && this.shouldMeasureNoteTemperature) {
+        this.runCommentTemperatureMeasurement('handleUpdate');
+        return;
+      }
+
+      this.isMeasuringCommentTemperature = false;
 
       trackSavedUsingEditor(
         this.$refs.markdownEditor.isContentEditorActive,
-        `${this.getNoteableData.noteableType}_note`,
+        `${this.noteableType}_note`,
       );
 
       this.$emit(
@@ -319,13 +348,19 @@ export default {
         this.discussionResolved ? !this.isUnresolving : this.isResolving,
       );
     },
-    handleAddToReview() {
+    handleAddToReview({ shouldMeasureTemperature = true } = {}) {
       const clickType = this.hasDrafts ? 'noteFormAddToReview' : 'noteFormStartReview';
       // check if draft should resolve thread
       const shouldResolve =
         (this.discussionResolved && !this.isUnresolving) ||
         (!this.discussionResolved && this.isResolving);
       this.isSubmitting = true;
+      if (shouldMeasureTemperature && this.shouldMeasureNoteTemperature) {
+        this.runCommentTemperatureMeasurement('handleAddToReview');
+        return;
+      }
+
+      this.isMeasuringCommentTemperature = false;
 
       eventHub.$emit(clickType, { name: clickType });
       this.$emit(
@@ -356,22 +391,26 @@ export default {
     </div>
     <div class="flash-container"></div>
     <form :data-line-code="lineCode" class="edit-note common-note-form js-quick-submit gfm-form">
-      <comment-field-layout :noteable-data="getNoteableData" :is-internal-note="isInternalNote">
+      <comment-field-layout
+        :is-internal-note="isInternalNote"
+        :note="updatedNoteBody"
+        :noteable-data="getNoteableData"
+      >
         <markdown-editor
           ref="markdownEditor"
           :value="updatedNoteBody"
           :render-markdown-path="markdownPreviewPath"
           :markdown-docs-path="markdownDocsPath"
           :code-suggestions-config="codeSuggestionsConfig"
-          :add-spacing-classes="false"
           :help-page-path="helpPagePath"
-          :note="discussionNote"
+          :noteable-type="noteableType"
           :form-field-props="formFieldProps"
           :autosave-key="autosaveKey"
           :autocomplete-data-sources="autocompleteDataSources"
-          :disabled="isSubmitting"
+          :disabled="shouldDisableField"
           supports-quick-actions
           :autofocus="autofocus"
+          :restore-from-autosave="restoreFromAutosave"
           @keydown.shift.meta.enter="handleKeySubmit((forceUpdate = true))"
           @keydown.shift.ctrl.enter="handleKeySubmit((forceUpdate = true))"
           @keydown.meta.enter.exact="handleKeySubmit()"
@@ -382,12 +421,21 @@ export default {
           @handleSuggestDismissed="() => $emit('handleSuggestDismissed')"
         />
       </comment-field-layout>
+      <comment-temperature
+        v-if="glAbilities.measureCommentTemperature"
+        ref="commentTemperature"
+        v-model="updatedNoteBody"
+        :item-id="getNoteableData.id"
+        :item-type="getNoteableData.noteableType"
+        :user-id="currentUserId"
+        @save="onSaveHandler()"
+      />
       <div class="note-form-actions gl-font-size-0">
         <template v-if="showResolveDiscussionToggle">
           <label>
             <template v-if="discussionResolved">
               <gl-form-checkbox v-model="isUnresolving" class="js-unresolve-checkbox">
-                {{ __('Unresolve thread') }}
+                {{ __('Reopen thread') }}
               </gl-form-checkbox>
             </template>
             <template v-else>
@@ -399,12 +447,12 @@ export default {
         </template>
 
         <template v-if="showBatchCommentsActions">
-          <div class="gl-display-flex gl-flex-wrap -gl-mb-3">
+          <div class="-gl-mb-3 gl-flex gl-flex-wrap">
             <gl-button
               :disabled="isDisabled"
               category="primary"
               variant="confirm"
-              class="gl-sm-mr-3 gl-mb-3"
+              class="gl-mb-3 sm:gl-mr-3"
               data-testid="start-review-button"
               @click="handleAddToReview"
             >
@@ -416,13 +464,13 @@ export default {
               category="secondary"
               variant="confirm"
               data-testid="comment-now-button"
-              class="gl-sm-mr-3 gl-mb-3 js-comment-button"
+              class="js-comment-button gl-mb-3 sm:gl-mr-3"
               @click="handleUpdate()"
             >
               {{ __('Add comment now') }}
             </gl-button>
             <gl-button
-              class="note-edit-cancel gl-mb-3 js-close-discussion-note-form"
+              class="note-edit-cancel js-close-discussion-note-form gl-mb-3"
               category="secondary"
               variant="default"
               data-testid="cancelBatchCommentsEnabled"
@@ -433,13 +481,13 @@ export default {
           </div>
         </template>
         <template v-else>
-          <div class="gl-display-sm-flex gl-flex-wrap gl-font-size-0">
+          <div class="gl-display-sm-flex gl-font-size-0 gl-flex-wrap">
             <gl-button
               :disabled="isDisabled"
               category="primary"
               variant="confirm"
               data-testid="reply-comment-button"
-              class="gl-sm-mr-3 gl-mb-3 gl-sm-mb-0 js-vue-issue-save js-comment-button"
+              class="js-vue-issue-save js-comment-button gl-mb-3 sm:gl-mb-0 sm:gl-mr-3"
               @click="handleUpdate()"
             >
               {{ saveButtonTitle }}

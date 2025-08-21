@@ -8,6 +8,7 @@ module Gitlab
       SEARCH_CHAR_LIMIT = 4096
       SEARCH_TERM_LIMIT = 64
       MIN_TERM_LENGTH = 2
+      BOOLEAN_PARAMS = %i[confidential exclude_forks include_archived].freeze
 
       # Generic validation
       validates :query_string, length: { maximum: SEARCH_CHAR_LIMIT }
@@ -18,7 +19,7 @@ module Gitlab
       alias_method :term, :query_string
 
       def initialize(params, detect_abuse: true)
-        @raw_params      = convert_all_boolean_params(params)
+        @raw_params      = process_params(params)
         @query_string    = strip_surrounding_whitespace(@raw_params[:search] || @raw_params[:term])
         @detect_abuse    = detect_abuse
         @abuse_detection = AbuseDetection.new(self) if @detect_abuse
@@ -32,10 +33,14 @@ module Gitlab
           # like @query_string
           #
           # This takes precedence over values in @raw_params
-          public_send(key) # rubocop:disable GitlabSecurity/PublicSend
+          public_send(key) # rubocop:disable GitlabSecurity/PublicSend -- metaprogramming is needed
         else
           raw_params[key]
         end
+      end
+
+      def slice(*keys)
+        keys.index_with { |key| self[key] }.with_indifferent_access
       end
 
       def abusive?
@@ -59,19 +64,9 @@ module Gitlab
       end
 
       def validate
-        if detect_abuse?
-          abuse_detection.validate
-        end
+        abuse_detection.validate if detect_abuse?
 
         super
-      end
-
-      def valid?
-        if detect_abuse?
-          abuse_detection.valid? && super
-        else
-          super
-        end
       end
 
       private
@@ -85,31 +80,38 @@ module Gitlab
       end
 
       def not_too_many_terms
-        if search_terms.count > SEARCH_TERM_LIMIT
-          errors.add :query_string, "has too many search terms (maximum is #{SEARCH_TERM_LIMIT})"
-        end
+        return unless search_terms.count > SEARCH_TERM_LIMIT
+
+        errors.add :query_string, "has too many search terms (maximum is #{SEARCH_TERM_LIMIT})"
       end
 
       def strip_surrounding_whitespace(obj)
         obj.to_s.strip
       end
 
+      def process_params(params)
+        processed_params = params.is_a?(Hash) ? params.with_indifferent_access : params.dup
+        processed_params = convert_all_boolean_params(processed_params)
+        convert_not_params(processed_params)
+      end
+
+      def convert_not_params(params)
+        not_params = params.delete(:not)
+        return params unless not_params&.respond_to?(:to_h)
+
+        not_params.each do |key, value|
+          params[:"not_#{key}"] = value
+        end
+
+        params
+      end
+
       def convert_all_boolean_params(params)
-        converted_params = params.is_a?(Hash) ? params.with_indifferent_access : params.dup
-
-        if converted_params.key?(:confidential)
-          converted_params[:confidential] = Gitlab::Utils.to_boolean(converted_params[:confidential])
+        BOOLEAN_PARAMS.each do |key|
+          params[key] = Gitlab::Utils.to_boolean(params[key]) if params.key?(key)
         end
 
-        if converted_params.key?(:include_archived)
-          converted_params[:include_archived] = Gitlab::Utils.to_boolean(converted_params[:include_archived])
-        end
-
-        if converted_params.key?(:include_forked)
-          converted_params[:include_forked] = Gitlab::Utils.to_boolean(converted_params[:include_forked])
-        end
-
-        converted_params
+        params
       end
     end
   end

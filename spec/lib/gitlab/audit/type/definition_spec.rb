@@ -95,7 +95,7 @@ RSpec.describe Gitlab::Audit::Type::Definition do
       let(:undefined_audit_event_type) { 'undefined_audit_event_type' }
 
       it 'returns nil' do
-        expect(described_class.get(undefined_audit_event_type)).to be nil
+        expect(described_class.get(undefined_audit_event_type)).to be_nil
       end
     end
 
@@ -203,7 +203,7 @@ RSpec.describe Gitlab::Audit::Type::Definition do
 
         expect do
           described_class.send(:load_from_file, path)
-        end.to raise_error(%r{property '/name' is not of type: string})
+        end.to raise_error(Gitlab::Audit::Type::Definition::InvalidAuditEventTypeError, /Invalid definition/)
       end
     end
   end

@@ -1,15 +1,17 @@
 ---
 stage: Create
 group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
-description: "Syntax highlighting helps you read files in your GitLab project more easily, and identify what files contain."
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: Syntax highlighting helps you read files in your GitLab project and identify what files contain.
+title: Syntax Highlighting
 ---
 
-# Syntax Highlighting
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 GitLab provides syntax highlighting on all files through [Highlight.js](https://github.com/highlightjs/highlight.js/) and the
 [Rouge](https://rubygems.org/gems/rouge) Ruby gem. It attempts to guess what language
@@ -17,15 +19,21 @@ to use based on the file extension, which most of the time is sufficient.
 
 The paths here use the [`.gitattributes` interface](https://git-scm.com/docs/gitattributes) in Git.
 
-NOTE:
-The [Web IDE](../../web_ide/index.md) and [Snippets](../../../snippets.md) use [Monaco Editor](https://microsoft.github.io/monaco-editor/)
+{{< alert type="note" >}}
+
+The [Web IDE](../../web_ide/_index.md) and [Snippets](../../../snippets.md) use [Monaco Editor](https://microsoft.github.io/monaco-editor/)
 for text editing, which internally uses the [Monarch](https://microsoft.github.io/monaco-editor/monarch.html)
 library for syntax highlighting.
 
+{{< /alert >}}
+
 ## Override syntax highlighting for a file type
 
-NOTE:
+{{< alert type="note" >}}
+
 The Web IDE [does not support `.gitattribute` files](https://gitlab.com/gitlab-org/gitlab/-/issues/22014).
+
+{{< /alert >}}
 
 To override syntax highlighting for a file type:
 
@@ -35,7 +43,7 @@ To override syntax highlighting for a file type:
    declaring the file extension and your desired highlighting language:
 
    ```conf
-   # This extension would normally receive Perl syntax highlighting
+   # This extension would typically receive Perl syntax highlighting
    # but if we also use Prolog, we may want to override highlighting for
    # files with this extension:
    *.pl gitlab-language=prolog

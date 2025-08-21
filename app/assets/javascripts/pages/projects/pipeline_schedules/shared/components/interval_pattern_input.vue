@@ -1,8 +1,9 @@
 <script>
-import { GlFormRadio, GlFormRadioGroup, GlIcon, GlLink, GlTooltipDirective } from '@gitlab/ui';
+import { GlFormRadio, GlFormRadioGroup, GlLink, GlTooltipDirective } from '@gitlab/ui';
 import { getWeekdayNames } from '~/lib/utils/datetime_utility';
 import { __, s__, sprintf } from '~/locale';
 import { DOCS_URL_IN_EE_DIR } from 'jh_else_ce/lib/utils/url_utility';
+import HelpIcon from '~/vue_shared/components/help_icon/help_icon.vue';
 
 const KEY_EVERY_DAY = 'everyDay';
 const KEY_EVERY_WEEK = 'everyWeek';
@@ -19,12 +20,13 @@ export default {
   components: {
     GlFormRadio,
     GlFormRadioGroup,
-    GlIcon,
     GlLink,
+    HelpIcon,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
   },
+  inject: ['workerCronExpression'],
   props: {
     initialCronInterval: {
       type: String,
@@ -44,7 +46,6 @@ export default {
   },
   data() {
     return {
-      isEditingCustom: false,
       randomMinute: getRandomCronValue(MINUTE),
       randomHour: getRandomCronValue(HOUR),
       randomWeekDayIndex: getRandomCronValue(WEEKDAY_INDEX),
@@ -53,6 +54,7 @@ export default {
       radioValue: this.initialCronInterval ? KEY_CUSTOM : KEY_EVERY_DAY,
       cronInterval: this.initialCronInterval,
       cronSyntaxUrl: `${DOCS_URL_IN_EE_DIR}/topics/cron/`,
+      pipelineScheduleWorkerUrl: `${DOCS_URL_IN_EE_DIR}/administration/cicd/#change-maximum-scheduled-pipeline-frequency`,
     };
   },
   computed: {
@@ -148,12 +150,22 @@ export default {
   i18n: {
     learnCronSyntax: s__('PipelineScheduleIntervalPattern|Set a custom interval with Cron syntax.'),
     cronSyntaxLink: s__('PipelineScheduleIntervalPattern|What is Cron syntax?'),
+    pipelineScheduleWorkerExplanation: s__(
+      'PipelineScheduleIntervalPattern|Pipelines cannot run more frequently than the pipeline schedule worker cron setting (%{workerCronExpression}) allows.',
+    ),
+    pipelineScheduleWorkerLink: s__('PipelineScheduleIntervalPattern|Learn more.'),
   },
 };
 </script>
 
 <template>
   <div>
+    <p class="gl-mb-3 gl-mt-0 gl-text-subtle" data-testid="worker-cron-expression-hint">
+      {{ sprintf($options.i18n.pipelineScheduleWorkerExplanation, { workerCronExpression }) }}
+      <gl-link :href="pipelineScheduleWorkerUrl" target="_blank" variant="inline">
+        {{ $options.i18n.pipelineScheduleWorkerLink }}
+      </gl-link>
+    </p>
     <gl-form-radio-group v-model="radioValue" :name="inputNameAttribute">
       <gl-form-radio
         v-for="option in radioOptions"
@@ -163,10 +175,9 @@ export default {
       >
         {{ option.text }}
 
-        <gl-icon
+        <help-icon
           v-if="showDailyLimitMessage(option)"
           v-gl-tooltip.hover
-          name="question-o"
           :title="scheduleDailyLimitMsg"
           data-testid="daily-limit"
         />
@@ -176,15 +187,16 @@ export default {
       id="schedule_cron"
       v-model="cronInterval"
       :placeholder="__('Define a custom pattern with cron syntax')"
+      :aria-label="__('Define a custom pattern with cron syntax')"
       :name="inputNameAttribute"
-      class="form-control inline cron-interval-input gl-form-input"
+      class="form-control cron-interval-input gl-form-input gl-inline-block"
       type="text"
       required="true"
       @input="onCustomInput"
     />
-    <p class="gl-mt-1 gl-mb-0 gl-text-secondary">
+    <p class="gl-mb-0 gl-mt-1 gl-text-subtle">
       {{ $options.i18n.learnCronSyntax }}
-      <gl-link :href="cronSyntaxUrl" target="_blank">
+      <gl-link :href="cronSyntaxUrl" target="_blank" variant="inline">
         {{ $options.i18n.cronSyntaxLink }}
       </gl-link>
     </p>

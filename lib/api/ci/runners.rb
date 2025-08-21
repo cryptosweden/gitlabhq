@@ -21,7 +21,7 @@ module API
           optional :type, type: String, values: ::Ci::Runner::AVAILABLE_TYPES, desc: 'The type of runners to return'
           optional :paused, type: Boolean,
             desc: 'Whether to include only runners that are accepting or ignoring new jobs'
-          optional :status, type: String, values: ::Ci::Runner::AVAILABLE_STATUSES,
+          optional :status, type: String, values: ::Ci::Runner::AVAILABLE_STATUSES_INCL_DEPRECATED,
             desc: 'The status of runners to return'
           optional :tag_list, type: Array[String], coerce_with: ::API::Validations::Types::CommaSeparatedToArray.coerce,
             desc: 'A list of runner tags', documentation: { example: "['macos', 'shell']" }
@@ -48,7 +48,7 @@ module API
 
         def apply_filter(runners, params)
           runners = filter_runners(runners, params[:type], allowed_scopes: ::Ci::Runner::AVAILABLE_TYPES)
-          runners = filter_runners(runners, params[:status], allowed_scopes: ::Ci::Runner::AVAILABLE_STATUSES)
+          runners = filter_runners(runners, params[:status], allowed_scopes: ::Ci::Runner::AVAILABLE_STATUSES_INCL_DEPRECATED)
           runners = filter_runners(runners, params[:paused] ? 'paused' : 'active', allowed_scopes: %w[paused active]) if params.include?(:paused)
           runners = runners.with_version_prefix(params[:version_prefix]) if params[:version_prefix]
           runners = runners.tagged_with(params[:tag_list]) if params[:tag_list]
@@ -63,8 +63,6 @@ module API
         end
 
         def authenticate_show_runner!(runner)
-          return if runner.instance_type? || current_user.can_read_all_resources?
-
           forbidden!("No access granted") unless can?(current_user, :read_runner, runner)
         end
 
@@ -77,7 +75,7 @@ module API
         def authenticate_delete_runner!(runner)
           return if current_user.can_admin_all_resources?
 
-          forbidden!("Runner associated with more than one project") if runner.runner_projects.count > 1
+          forbidden!("Runner associated with more than one project") if runner.belongs_to_more_than_one_project?
           forbidden!("No access granted") unless can?(current_user, :delete_runner, runner)
         end
 
@@ -90,6 +88,15 @@ module API
           forbidden!("No access granted") unless can?(current_user, :assign_runner, runner)
         end
 
+        def authenticate_disable_runner!(runner_project)
+          not_found!('Runner') unless runner_project
+
+          return if current_user.can_admin_all_resources?
+
+          forbidden!("Runner is locked") if runner_project.runner.locked?
+          forbidden!("No access granted") unless can?(current_user, :unassign_runner, runner_project)
+        end
+
         def authenticate_list_runners_jobs!(runner)
           return if current_user.can_read_all_resources?
 
@@ -98,9 +105,10 @@ module API
 
         def preload_job_associations(jobs)
           jobs.preload( # rubocop: disable CodeReuse/ActiveRecord -- this preload is tightly related to the endpoint
+            :ci_stage,
             :user,
             { pipeline: { project: [:route, { namespace: :route }] } },
-            { project: [:route, { namespace: :route }] }
+            { project: [:route, { namespace: :route }, :ci_cd_settings] }
           )
         end
       end
@@ -111,7 +119,7 @@ module API
 
       resource :runners do
         desc 'Get runners available for user' do
-          summary 'List owned runners'
+          summary 'List available runners'
           success Entities::Ci::Runner
           failure [[400, 'Scope contains invalid value'], [401, 'Unauthorized']]
           tags %w[runners]
@@ -121,17 +129,17 @@ module API
           use :filter_params
         end
         get do
-          runners = current_user.ci_owned_runners
-          runners = filter_runners(runners, params[:scope], allowed_scopes: ::Ci::Runner::AVAILABLE_STATUSES)
+          runners = current_user.ci_available_runners.with_api_entity_associations
+          runners = filter_runners(runners, params[:scope], allowed_scopes: ::Ci::Runner::AVAILABLE_STATUSES_INCL_DEPRECATED)
           runners = apply_filter(runners, params)
 
-          present paginate(runners), with: Entities::Ci::Runner
+          present paginate(runners), with: Entities::Ci::Runner, current_user: current_user
         end
 
         desc 'Get all runners - shared and project' do
           summary 'List all runners'
           detail 'Get a list of all runners in the GitLab instance (shared and project). ' \
-                 'Access is restricted to users with administrator access.'
+                 'Access is restricted to users with either administrator access or auditor access.'
           success Entities::Ci::Runner
           failure [[400, 'Scope contains invalid value'], [401, 'Unauthorized']]
           tags %w[runners]
@@ -141,13 +149,13 @@ module API
           use :filter_params
         end
         get 'all' do
-          authenticated_as_admin!
+          authenticated_with_can_read_all_resources!
 
-          runners = ::Ci::Runner.all
+          runners = ::Ci::Runner.all.with_api_entity_associations
           runners = filter_runners(runners, params[:scope])
           runners = apply_filter(runners, params)
 
-          present paginate(runners), with: Entities::Ci::Runner
+          present paginate(runners), with: Entities::Ci::Runner, current_user: current_user
         end
 
         desc "Get runner's details" do
@@ -164,6 +172,20 @@ module API
           authenticate_show_runner!(runner)
 
           present runner, with: Entities::Ci::RunnerDetails, current_user: current_user
+        end
+
+        desc "Get a list of all runner's managers" do
+          success Entities::Ci::RunnerManager
+          failure [[403, 'Forbidden']]
+        end
+        params do
+          requires :id, type: Integer, desc: 'The ID of a runner'
+        end
+        get ':id/managers' do
+          runner = get_runner(params[:id])
+          authenticate_show_runner!(runner)
+
+          present runner.runner_managers, with: Entities::Ci::RunnerManager
         end
 
         desc "Update runner's details" do
@@ -183,10 +205,9 @@ module API
           optional :access_level, type: String, values: ::Ci::Runner.access_levels.keys,
             desc: 'The access level of the runner'
           optional :maximum_timeout, type: Integer,
-            desc: 'Maximum timeout that limits the amount of time (in seconds) ' \
-                  'that runners can run jobs'
+            desc: 'Maximum timeout that limits the amount of time (in seconds) that runners can run jobs'
           optional :maintenance_note, type: String,
-            desc: %q(Free-form maintenance notes for the runner (1024 characters))
+            desc: 'Free-form maintenance notes for the runner (1024 characters)'
           at_least_one_of :description, :active, :paused, :tag_list, :run_untagged, :locked, :access_level, :maximum_timeout, :maintenance_note
           mutually_exclusive :active, :paused
         end
@@ -194,7 +215,7 @@ module API
           runner = get_runner(params.delete(:id))
           authenticate_update_runner!(runner)
           params[:active] = !params.delete(:paused) if params.include?(:paused)
-          update_service = ::Ci::Runners::UpdateRunnerService.new(runner)
+          update_service = ::Ci::Runners::UpdateRunnerService.new(current_user, runner)
 
           if update_service.execute(declared_params(include_missing: false)).success?
             present runner, with: Entities::Ci::RunnerDetails, current_user: current_user
@@ -207,8 +228,8 @@ module API
           summary 'Delete a runner'
           success Entities::Ci::Runner
           failure [[401, 'Unauthorized'], [403, 'No access granted'],
-                   [403, 'Runner associated with more than one project'], [404, 'Runner not found'],
-                   [412, 'Precondition Failed']]
+            [403, 'Runner associated with more than one project'], [404, 'Runner not found'],
+            [412, 'Precondition Failed']]
           tags %w[runners]
         end
         params do
@@ -268,7 +289,8 @@ module API
           runner = get_runner(params[:id])
           authenticate_update_runner!(runner)
 
-          runner.reset_token!
+          ::Ci::Runners::ResetAuthenticationTokenService.new(runner: runner, current_user: current_user).execute!
+
           present runner.token_with_expiration, with: Entities::Ci::ResetTokenResult
         end
       end
@@ -279,7 +301,7 @@ module API
           desc: 'The ID or URL-encoded path of the project owned by the authenticated user'
       end
       resource :projects, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
-        before { authorize! :read_project_runners, user_project }
+        before { authorize! :read_runners, user_project }
 
         desc 'Get runners available for project' do
           summary "List project's runners"
@@ -294,73 +316,69 @@ module API
           use :filter_params
         end
         get ':id/runners' do
-          runners = ::Ci::Runner.owned_or_instance_wide(user_project.id)
+          runners = ::Ci::Runner.owned_or_instance_wide(user_project.id).with_api_entity_associations
           # scope is deprecated (for project runners), however api documentation still supports it.
           # Not including them in `apply_filter` method as it's not supported for group runners
           runners = filter_runners(runners, params[:scope])
           runners = apply_filter(runners, params)
 
-          present paginate(runners), with: Entities::Ci::Runner
+          present paginate(runners), with: Entities::Ci::Runner, current_user: current_user
         end
 
-        desc 'Enable a runner in project' do
-          detail "Enable an available project runner in the project."
+        desc 'Assign a runner to project' do
+          detail "Assign an available project runner to the project."
           success Entities::Ci::Runner
           failure [[400, 'Bad Request'],
-                   [403, 'No access granted'], [403, 'Runner is a group runner'], [403, 'Runner is locked'],
-                   [404, 'Runner not found']]
+            [403, 'No access granted'], [403, 'Runner is a group runner'], [403, 'Runner is locked'],
+            [404, 'Runner not found']]
           tags %w[runners projects]
         end
         params do
           requires :runner_id, type: Integer, desc: 'The ID of a runner'
         end
         post ':id/runners' do
-          authorize! :create_runner, user_project # Ensure the user is allowed to create a runner on the target project
+          authorize! :create_runners, user_project # Ensure the user is allowed to create a runner on the target project
 
           runner = get_runner(params[:runner_id])
           authenticate_enable_runner!(runner)
 
           result = ::Ci::Runners::AssignRunnerService.new(runner, user_project, current_user).execute
           if result.success?
-            present runner, with: Entities::Ci::Runner
+            present runner, with: Entities::Ci::Runner, current_user: current_user
           else
             render_api_error_with_reason!(:bad_request, result.message, result.reason)
           end
         end
 
-        desc "Disable project's runner" do
-          summary "Disable a project runner from the project"
-          detail "It works only if the project isn't the only project associated with the specified runner. " \
+        desc "Unassign a runner from project" do
+          summary "Unassign a project runner from the project"
+          detail "It is not possible to unassign a runner from the owner project. " \
                  "If so, an error is returned. Use the call to delete a runner instead."
           success Entities::Ci::Runner
           failure [[400, 'Bad Request'],
-                   [403, 'Only one project associated with the runner. Please remove the runner instead'],
-                   [404, 'Runner not found'], [412, 'Precondition Failed']]
+            [403, 'You cannot unassign a runner from the owner project. Delete the runner instead'],
+            [404, 'Runner not found'], [412, 'Precondition Failed']]
           tags %w[runners projects]
         end
         params do
           requires :runner_id, type: Integer, desc: 'The ID of a runner'
         end
-        # rubocop: disable CodeReuse/ActiveRecord
         delete ':id/runners/:runner_id' do
-          authorize! :admin_project_runners, user_project
+          runner_project = user_project.runner_projects.find_by_runner_id(params[:runner_id])
+          authenticate_disable_runner!(runner_project)
 
-          runner_project = user_project.runner_projects.find_by(runner_id: params[:runner_id])
-          not_found!('Runner') unless runner_project
-
-          runner = runner_project.runner
-          forbidden!("Only one project associated with the runner. Please remove the runner instead") if runner.runner_projects.count == 1
-
-          destroy_conditionally!(runner_project)
+          destroy_conditionally!(runner_project) do
+            response = ::Ci::Runners::UnassignRunnerService.new(runner_project, current_user).execute
+            forbidden!(response.message) if response.error?
+          end
         end
-        # rubocop: enable CodeReuse/ActiveRecord
       end
 
       params do
         requires :id, type: String, desc: 'The ID of a group'
       end
       resource :groups, requirements: API::NAMESPACE_OR_PROJECT_REQUIREMENTS do
-        before { authorize! :read_group_runners, user_group }
+        before { authorize! :read_runners, user_group }
 
         desc 'Get runners available for group' do
           summary "List group's runners"
@@ -374,10 +392,10 @@ module API
           use :filter_params
         end
         get ':id/runners' do
-          runners = ::Ci::Runner.group_or_instance_wide(user_group)
+          runners = ::Ci::Runner.group_or_instance_wide(user_group).with_api_entity_associations
           runners = apply_filter(runners, params)
 
-          present paginate(runners), with: Entities::Ci::Runner
+          present paginate(runners), with: Entities::Ci::Runner, current_user: current_user
         end
       end
 

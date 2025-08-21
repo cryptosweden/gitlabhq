@@ -1,6 +1,7 @@
 import { mount, shallowMount } from '@vue/test-utils';
 import MockAdapter from 'axios-mock-adapter';
 import JobItem from '~/ci/pipeline_details/graph/components/job_item.vue';
+import JobGroupDropdown from '~/ci/pipeline_details/graph/components/job_group_dropdown.vue';
 import StageColumnComponent from '~/ci/pipeline_details/graph/components/stage_column_component.vue';
 import ActionComponent from '~/ci/common/private/job_action_component.vue';
 import { confirmAction } from '~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal';
@@ -49,8 +50,12 @@ describe('stage column component', () => {
   const findStageColumnTitle = () => wrapper.find('[data-testid="stage-column-title"]');
   const findStageColumnGroup = () => wrapper.find('[data-testid="stage-column-group"]');
   const findAllStageColumnGroups = () => wrapper.findAll('[data-testid="stage-column-group"]');
+  const findAllStageColumnFailedTitle = () => wrapper.find('[data-testid="failed-jobs-title"]');
+  const findAllStageColumnFailedGroups = () =>
+    wrapper.findAll('[data-testid="stage-column-group-failed"]');
   const findJobItem = () => wrapper.findComponent(JobItem);
   const findActionComponent = () => wrapper.findComponent(ActionComponent);
+  const findJobGroupDropdown = () => wrapper.findComponent(JobGroupDropdown);
 
   const createComponent = ({ method = shallowMount, props = {} } = {}) => {
     wrapper = method(StageColumnComponent, {
@@ -75,7 +80,7 @@ describe('stage column component', () => {
     });
 
     it('should render the provided groups', () => {
-      expect(findAllStageColumnGroups().length).toBe(mockGroups.length);
+      expect(findAllStageColumnGroups()).toHaveLength(mockGroups.length);
     });
 
     it('should emit updateMeasurements event on mount', () => {
@@ -90,9 +95,10 @@ describe('stage column component', () => {
         props: {
           groups: [
             {
-              title: 'Fish',
-              size: 1,
               jobs: [mockJob],
+              name: 'test',
+              size: 1,
+              title: 'Fish',
             },
           ],
         },
@@ -102,6 +108,39 @@ describe('stage column component', () => {
 
     it('emits refreshPipelineGraph', () => {
       expect(wrapper.emitted().refreshPipelineGraph).toHaveLength(1);
+    });
+  });
+
+  describe('when has failed jobs', () => {
+    beforeEach(() => {
+      createComponent({
+        method: shallowMount,
+        props: {
+          groups: [
+            {
+              jobs: [mockJob],
+              name: 'test2',
+              size: 1,
+              title: 'Bird',
+              status: {
+                group: 'failed',
+              },
+            },
+            {
+              jobs: [mockJob],
+              name: 'test',
+              size: 1,
+              title: 'Fish',
+            },
+          ],
+        },
+      });
+    });
+
+    it('shows failed jobs grouped', () => {
+      expect(findAllStageColumnFailedGroups()).toHaveLength(1);
+      expect(findAllStageColumnFailedTitle().text()).toEqual('Failed jobs');
+      expect(findAllStageColumnGroups()).toHaveLength(1);
     });
   });
 
@@ -295,6 +334,87 @@ describe('stage column component', () => {
 
     it('does not render action button', () => {
       expect(findActionComponent().exists()).toBe(false);
+    });
+  });
+
+  describe('with matrix', () => {
+    beforeEach(() => {
+      createComponent({
+        method: mount,
+        props: {
+          groups: [
+            {
+              id: 'gid://gitlab/Ci::Group/3719-build+job',
+              status: {
+                __typename: 'DetailedStatus',
+                label: 'passed',
+                group: 'success',
+                icon: 'status_success',
+                text: 'Passed',
+              },
+              name: 'build job',
+              size: 3,
+              jobs: [
+                {
+                  id: 'gid://gitlab/Ci::Build/13149',
+                  name: 'build job',
+                  kind: 'BUILD',
+                  needs: [],
+                  previousStageJobsOrNeeds: [],
+                  status: {
+                    icon: 'status_success',
+                    tooltip: 'passed',
+                    hasDetails: true,
+                    detailsPath: '/root/parallel-matrix-use-case/-/jobs/13149',
+                    group: 'success',
+                    label: 'passed',
+                    text: 'Passed',
+                    action: {
+                      id: 'Ci::BuildPresenter-success-13149',
+                      buttonTitle: 'Run this job again',
+                      confirmationMessage: null,
+                      icon: 'retry',
+                      path: '/root/parallel-matrix-use-case/-/jobs/13149/retry',
+                      title: 'Run again',
+                    },
+                  },
+                },
+                {
+                  id: 'gid://gitlab/Ci::Build/13151',
+                  name: 'build job [eu-region]',
+                  kind: 'BUILD',
+                  needs: [],
+                  previousStageJobsOrNeeds: [],
+                  status: {
+                    icon: 'status_success',
+                    tooltip: 'passed',
+                    hasDetails: true,
+                    detailsPath: '/root/parallel-matrix-use-case/-/jobs/13151',
+                    group: 'success',
+                    label: 'passed',
+                    text: 'Passed',
+                    action: {
+                      id: 'Ci::BuildPresenter-success-13151',
+                      buttonTitle: 'Run this job again',
+                      confirmationMessage: null,
+                      icon: 'retry',
+                      path: '/root/parallel-matrix-use-case/-/jobs/13151/retry',
+                      title: 'Run again',
+                    },
+                  },
+                },
+              ],
+              stageName: 'test',
+            },
+          ],
+          title: 'test',
+          hasTriggeredBy: false,
+        },
+      });
+    });
+
+    it('renders stage jobs', () => {
+      expect(findJobGroupDropdown().exists()).toBe(true);
     });
   });
 });

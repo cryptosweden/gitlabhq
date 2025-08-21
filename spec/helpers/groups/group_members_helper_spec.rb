@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe Groups::GroupMembersHelper do
+RSpec.describe Groups::GroupMembersHelper, feature_category: :groups_and_projects do
   include MembersPresentation
 
   let_it_be(:group) { create(:group) }
@@ -15,6 +15,9 @@ RSpec.describe Groups::GroupMembersHelper do
     let(:members) { create_list(:group_member, 2, group: shared_group, created_by: current_user) }
     let(:invited) { create_list(:group_member, 2, :invited, group: shared_group, created_by: current_user) }
     let!(:access_requests) { create_list(:group_member, 2, :access_request, group: shared_group, created_by: current_user) }
+    let(:available_roles) do
+      Gitlab::Access.options_with_owner.map { |name, access_level| { title: name, value: "static-#{access_level}" } }
+    end
 
     let(:members_collection) { members }
 
@@ -33,7 +36,14 @@ RSpec.describe Groups::GroupMembersHelper do
         banned: [],
         include_relations: [:inherited, :direct],
         search: nil,
-        pending_members: []
+        pending_members_count: nil,
+        placeholder_users: {
+          pagination: {
+            total_items: 3,
+            awaiting_reassignment_items: 2,
+            reassigned_items: 1
+          }
+        }
       )
     end
 
@@ -54,7 +64,10 @@ RSpec.describe Groups::GroupMembersHelper do
         can_manage_access_requests: be_in([true, false]),
         group_name: shared_group.name,
         group_path: shared_group.full_path,
-        can_approve_access_requests: true
+        can_approve_access_requests: true,
+        available_roles: available_roles,
+        allow_inactive_placeholder_reassignment: 'false',
+        allow_bypass_placeholder_confirmation: nil
       }
 
       expect(subject).to include(expected)
@@ -110,7 +123,8 @@ RSpec.describe Groups::GroupMembersHelper do
             banned: [],
             include_relations: include_relations,
             search: nil,
-            pending_members: []
+            pending_members_count: nil,
+            placeholder_users: {}
           )
         end
 
@@ -159,11 +173,78 @@ RSpec.describe Groups::GroupMembersHelper do
         expect(subject[:user][:pagination].as_json).to include(expected)
       end
     end
+
+    context 'when placeholder users data is available' do
+      it 'returns placeholder information' do
+        expect(subject[:placeholder]).to eq(
+          pagination: {
+            total_items: 3,
+            awaiting_reassignment_items: 2,
+            reassigned_items: 1
+          }
+        )
+      end
+    end
+
+    context 'when allow_admin_bypass for current_user is false' do
+      before do
+        expect_next_instance_of(Import::UserMapping::AdminBypassAuthorizer, current_user) do |authorizer|
+          allow(authorizer).to receive(:allowed?).and_return(false)
+        end
+      end
+
+      it 'returns "allow_inactive_placeholder_reassignment" as "false"' do
+        expect(subject[:allow_inactive_placeholder_reassignment]).to eq('false')
+      end
+
+      it 'returns "allow_bypass_placeholder_confirmation" as "false"' do
+        expect(subject[:allow_bypass_placeholder_confirmation]).to be_nil
+      end
+    end
+
+    context 'when allow_admin_bypass for current_user is true' do
+      before do
+        expect_next_instance_of(Import::UserMapping::AdminBypassAuthorizer, current_user) do |authorizer|
+          allow(authorizer).to receive(:allowed?).and_return(true)
+        end
+      end
+
+      it 'returns "allow_inactive_placeholder_reassignment" as "true"' do
+        expect(subject[:allow_inactive_placeholder_reassignment]).to eq('true')
+      end
+
+      it 'returns "allow_bypass_placeholder_confirmation" as "admin"' do
+        expect(subject[:allow_bypass_placeholder_confirmation]).to eq('admin')
+      end
+    end
+
+    context 'when allow_group_owner_enterprise_bypass is true' do
+      before do
+        allow(helper).to receive(:allow_group_owner_enterprise_bypass?).and_return(true)
+      end
+
+      it 'returns "allow_bypass_placeholder_confirmation" as "group_owner"' do
+        expect(subject[:allow_bypass_placeholder_confirmation]).to eq('group_owner')
+      end
+    end
   end
 
   describe '#group_member_header_subtext' do
+    let(:current_user) { create(:user) }
+
+    before do
+      allow(helper).to receive(:current_user).and_return(current_user)
+      allow(helper).to receive(:can?).with(current_user, :invite_group_members, group).and_return(true)
+    end
+
     it 'contains expected text with group name' do
       expect(helper.group_member_header_subtext(group)).to match("You're viewing members of .*#{group.name}")
+    end
+  end
+
+  describe '#allow_group_owner_enterprise_bypass?' do
+    it 'returns false' do
+      expect(helper.allow_group_owner_enterprise_bypass?(group)).to be(false)
     end
   end
 end

@@ -28,42 +28,6 @@ RSpec.describe 'User page', feature_category: :user_profile do
   end
 
   context 'with public profile' do
-    context 'with `profile_tabs_vue` feature flag disabled' do
-      before do
-        stub_feature_flags(profile_tabs_vue: false)
-      end
-
-      it 'shows all the tabs' do
-        subject
-
-        page.within '.nav-links' do
-          expect(page).to have_link('Overview')
-          expect(page).to have_link('Activity')
-          expect(page).to have_link('Groups')
-          expect(page).to have_link('Contributed projects')
-          expect(page).to have_link('Personal projects')
-          expect(page).to have_link('Snippets')
-          expect(page).to have_link('Followers')
-          expect(page).to have_link('Following')
-        end
-      end
-    end
-
-    it 'shows all the tabs', :js do
-      subject
-
-      page.within '[role="tablist"]' do
-        expect(page).to have_link('Overview')
-        expect(page).to have_link('Activity')
-        expect(page).to have_link('Groups')
-        expect(page).to have_link('Contributed projects')
-        expect(page).to have_link('Personal projects')
-        expect(page).to have_link('Snippets')
-        expect(page).to have_link('Followers')
-        expect(page).to have_link('Following')
-      end
-    end
-
     it 'does not show private profile message' do
       subject
 
@@ -72,7 +36,7 @@ RSpec.describe 'User page', feature_category: :user_profile do
 
     context 'work information' do
       it 'shows job title and organization details' do
-        user.update!(organization: 'GitLab - work info test', job_title: 'Frontend Engineer')
+        user.update!(user_detail_organization: 'GitLab - work info test', job_title: 'Frontend Engineer')
 
         subject
 
@@ -80,7 +44,7 @@ RSpec.describe 'User page', feature_category: :user_profile do
       end
 
       it 'shows job title' do
-        user.update!(organization: nil, job_title: 'Frontend Engineer - work info test')
+        user.update!(user_detail_organization: nil, job_title: 'Frontend Engineer - work info test')
 
         subject
 
@@ -88,7 +52,7 @@ RSpec.describe 'User page', feature_category: :user_profile do
       end
 
       it 'shows organization details' do
-        user.update!(organization: 'GitLab - work info test', job_title: '')
+        user.update!(user_detail_organization: 'GitLab - work info test', job_title: '')
 
         subject
 
@@ -149,9 +113,11 @@ RSpec.describe 'User page', feature_category: :user_profile do
       end
 
       context 'when timezone is invalid' do
-        let_it_be(:user) { create(:user, timezone: 'Foo/Bar') }
+        let_it_be(:user) { build(:user, timezone: 'Foo/Bar') }
 
         it 'shows local time using the configured default timezone (UTC in this case)' do
+          user.save!(validate: false)
+
           subject
 
           within local_time_selector do
@@ -194,10 +160,8 @@ RSpec.describe 'User page', feature_category: :user_profile do
         end
       end
 
-      it_behaves_like 'follower links with count badges'
-
       context 'with profile_tabs_vue feature flag disabled' do
-        before_all do
+        before do
           stub_feature_flags(profile_tabs_vue: false)
         end
 
@@ -225,55 +189,19 @@ RSpec.describe 'User page', feature_category: :user_profile do
   context 'with private profile' do
     let_it_be(:user) { create(:user, private_profile: true) }
 
-    it 'shows no tab' do
+    it 'shows no page content container', :aggregate_failures do
       subject
 
       expect(page).to have_css("div.profile-header")
-      expect(page).not_to have_css("ul.nav-links")
+      expect(page).not_to have_css("#js-legacy-tabs-container")
     end
 
     it 'shows private profile message' do
       subject
 
       expect(page).to have_content("This user has a private profile")
-    end
-
-    context 'with `profile_tabs_vue` feature flag disabled' do
-      before do
-        stub_feature_flags(profile_tabs_vue: false)
-      end
-
-      it 'shows own tabs' do
-        sign_in(user)
-        subject
-
-        page.within '.nav-links' do
-          expect(page).to have_link('Overview')
-          expect(page).to have_link('Activity')
-          expect(page).to have_link('Groups')
-          expect(page).to have_link('Contributed projects')
-          expect(page).to have_link('Personal projects')
-          expect(page).to have_link('Snippets')
-          expect(page).to have_link('Followers')
-          expect(page).to have_link('Following')
-        end
-      end
-    end
-
-    it 'shows own tabs', :js do
-      sign_in(user)
-      subject
-
-      page.within '[role="tablist"]' do
-        expect(page).to have_link('Overview')
-        expect(page).to have_link('Activity')
-        expect(page).to have_link('Groups')
-        expect(page).to have_link('Contributed projects')
-        expect(page).to have_link('Personal projects')
-        expect(page).to have_link('Snippets')
-        expect(page).to have_link('Followers')
-        expect(page).to have_link('Following')
-      end
+      expect(page).not_to have_content("Info")
+      expect(page).not_to have_content("Member since")
     end
   end
 
@@ -282,7 +210,7 @@ RSpec.describe 'User page', feature_category: :user_profile do
       create(
         :user,
         state: :blocked,
-        organization: 'GitLab - work info test',
+        user_detail_organization: 'GitLab - work info test',
         job_title: 'Frontend Engineer',
         pronunciation: 'pruh-nuhn-see-ay-shn',
         bio: 'My personal bio'
@@ -295,9 +223,9 @@ RSpec.describe 'User page', feature_category: :user_profile do
       visit_profile
     end
 
-    it 'shows no tab' do
+    it 'shows no content container' do
       expect(page).not_to have_css("div.profile-header")
-      expect(page).not_to have_css("ul.nav-links")
+      expect(page).not_to have_css("#js-legacy-tabs-container")
     end
 
     it 'shows no sidebar' do
@@ -332,7 +260,7 @@ RSpec.describe 'User page', feature_category: :user_profile do
       create(
         :user,
         :unconfirmed,
-        organization: 'GitLab - work info test',
+        user_detail_organization: 'GitLab - work info test',
         job_title: 'Frontend Engineer',
         pronunciation: 'pruh-nuhn-see-ay-shn',
         bio: 'My personal bio'
@@ -350,9 +278,9 @@ RSpec.describe 'User page', feature_category: :user_profile do
         expect(page).to have_css('[data-testid="user-profile-header"]', text: 'Unconfirmed user')
       end
 
-      it 'shows no tab' do
+      it 'shows no content container' do
         expect(page).to have_css('[data-testid="user-profile-header"]')
-        expect(page).not_to have_css("ul.nav-links")
+        expect(page).not_to have_css("#js-legacy-tabs-container")
       end
 
       it 'shows no additional fields' do
@@ -460,31 +388,8 @@ RSpec.describe 'User page', feature_category: :user_profile do
     it_behaves_like 'page meta description', 'Lorem ipsum dolor sit amet'
   end
 
-  context 'with a bot user' do
-    let_it_be(:user) { create(:user, user_type: :security_bot) }
-
-    before do
-      stub_feature_flags(profile_tabs_vue: false)
-    end
-
-    it 'only shows Overview and Activity tabs' do
-      subject
-
-      page.within '.nav-links' do
-        expect(page).to have_link('Overview')
-        expect(page).to have_link('Activity')
-        expect(page).to have_link('Groups')
-        expect(page).to have_link('Contributed projects')
-        expect(page).to have_link('Personal projects')
-        expect(page).to have_link('Snippets')
-        expect(page).to have_link('Followers')
-        expect(page).to have_link('Following')
-      end
-    end
-  end
-
   context 'structured markup' do
-    let_it_be(:user) { create(:user, website_url: 'https://gitlab.com', organization: 'GitLab', job_title: 'Frontend Engineer', email: 'public@example.com', public_email: 'public@example.com', location: 'Country', created_at: Time.zone.now, updated_at: Time.zone.now) }
+    let_it_be(:user) { create(:user, website_url: 'https://gitlab.com', user_detail_organization: 'GitLab', job_title: 'Frontend Engineer', email: 'public@example.com', public_email: 'public@example.com', location: 'Country', created_at: Time.zone.now, updated_at: Time.zone.now) }
 
     it 'shows Person structured markup' do
       subject

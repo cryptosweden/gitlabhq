@@ -8,7 +8,7 @@ module Database
 
     sidekiq_options retry: false
     feature_category :cell
-    data_consistency :always # rubocop:disable SidekiqLoadBalancing/WorkerDataConsistency
+    data_consistency :always
     idempotent!
 
     version 1
@@ -59,7 +59,8 @@ module Database
         database_name: database_name,
         with_retries: !connection.transaction_open?,
         logger: nil,
-        dry_run: false
+        dry_run: false,
+        force: true
       )
     end
   end

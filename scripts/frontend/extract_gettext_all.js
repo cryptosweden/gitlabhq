@@ -1,4 +1,4 @@
-const argumentsParser = require('commander');
+const { program } = require('commander');
 
 const { GettextExtractor, JsExtractors } = require('gettext-extractor');
 const {
@@ -6,14 +6,26 @@ const {
   decorateExtractorWithHelpers,
 } = require('gettext-extractor-vue');
 const vue2TemplateCompiler = require('vue-template-compiler');
-const ensureSingleLine = require('../../app/assets/javascripts/locale/ensure_single_line.cjs');
 
-const args = argumentsParser
+program
   .option('-f, --file <file>', 'Extract message from one single file')
   .option('-a, --all', 'Extract message from all js/vue files')
   .parse(process.argv);
 
+const args = program.opts();
+
 const extractor = decorateExtractorWithHelpers(new GettextExtractor());
+
+function ensureSingleLine(str) {
+  // This guard makes the function significantly faster
+  if (str.includes('\n') || str.includes('\r')) {
+    return str
+      .split(/\s*[\r\n]+\s*/)
+      .filter((s) => s !== '')
+      .join(' ');
+  }
+  return str;
+}
 
 extractor.addMessageTransformFunction(ensureSingleLine);
 
@@ -78,6 +90,6 @@ async function main() {
 
 main().catch((error) => {
   console.warn(error.message);
-  args.outputHelp();
+  program.outputHelp();
   process.exit(1);
 });

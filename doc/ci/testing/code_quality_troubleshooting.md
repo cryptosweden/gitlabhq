@@ -1,14 +1,16 @@
 ---
-stage: Secure
+stage: Application Security Testing
 group: Static Analysis
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting Code Quality
 ---
 
-# Troubleshooting Code Quality
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 When working with Code Quality, you might encounter the following issues.
 
@@ -16,7 +18,7 @@ When working with Code Quality, you might encounter the following issues.
 
 You are probably using a private runner with the Docker-in-Docker socket-binding configuration.
 You should configure Code Quality checks to run on your worker as documented in
-[Improve Code Quality performance with private runners](../../ci/testing/code_quality.md#improve-code-quality-performance-with-private-runners).
+[Use private runners](code_quality_codeclimate_scanning.md#use-private-runners).
 
 ## Changing the default configuration has no effect
 
@@ -39,13 +41,20 @@ Missing report on the target branch can be due to:
 - Newly added Code Quality job in your `.gitlab-ci.yml`.
 - Your pipeline is not set to run the Code Quality job on your target branch.
 - Commits are made to the default branch that do not run the Code Quality job.
-- The [`artifacts:expire_in`](../yaml/index.md#artifactsexpire_in) CI/CD setting can cause the Code Quality artifacts to expire faster than desired.
+- The [`artifacts:expire_in`](../yaml/_index.md#artifactsexpire_in) CI/CD setting can cause the Code Quality artifacts to expire faster than desired.
 
 Verify the presence of report on the base commit by obtaining the `base_sha` using the [merge request API](../../api/merge_requests.md#get-single-mr) and use the [pipelines API with the `sha` attribute](../../api/pipelines.md#list-project-pipelines) to check if pipelines ran.
 
+## No Code Quality symbol in the changes view
+
+If no symbol is displayed in the [changes view](code_quality.md#merge-request-changes-view), ensure that the `location.path` in the code quality report:
+
+- Is using a relative path to the file containing the code quality violation.
+- Is not prefixed with `./`. For example, the `path` should be `somedir/file1.rb` instead of `./somedir/file1.rb`.
+
 ## Only a single Code Quality report is displayed, but more are defined
 
-Code Quality automatically [combines multiple reports](../../ci/testing/code_quality.md#integrate-multiple-tools).
+Code Quality automatically [combines multiple reports](code_quality.md#scan-code-for-quality-violations).
 
 In GitLab 15.6 and earlier, Code Quality used only the artifact from the latest created job (with the largest job ID). Code Quality artifacts from earlier jobs were ignored.
 
@@ -106,21 +115,15 @@ code_quality:
     TIMEOUT_SECONDS: 3600
 ```
 
-## Using Code Quality with Kubernetes CI executor
+## Using Code Quality with a Kubernetes or OpenShift runner
 
-Code Quality requires a Docker in Docker setup to work. The Kubernetes executor already [has support for this](https://docs.gitlab.com/runner/executors/kubernetes/index.html#using-dockerdind).
-
-To ensure Code Quality jobs can run on a Kubernetes executor:
-
-- If you're using TLS to communicate with the Docker daemon, the executor [must be running in privileged mode](https://docs.gitlab.com/runner/executors/kubernetes/index.html#other-configtoml-settings). Additionally, the certificate directory must be [specified as a volume mount](../docker/using_docker_build.md#docker-in-docker-with-tls-enabled-in-kubernetes).
-- It is possible that the DinD service doesn't start up fully before the Code Quality job starts. This is a limitation documented in
-[Troubleshooting the Kubernetes executor](https://docs.gitlab.com/runner/executors/kubernetes/troubleshooting.html#docker-cannot-connect-to-the-docker-daemon-at-tcpdocker2375-is-the-docker-daemon-running).
+CodeClimate-based scanning has special requirements.
+You may need to [Configure Kubernetes or OpenShift runners for CodeClimate-based scanning](code_quality_codeclimate_scanning.md#configure-kubernetes-or-openshift-runners) before scans work properly.
 
 ## Error: `x509: certificate signed by unknown authority`
 
 If you set the `CODE_QUALITY_IMAGE` to an image that is hosted in a Docker registry which uses a TLS
-certificate that is not trusted, such as a self-signed certificate, you can see errors like the one
-below:
+certificate that is not trusted, such as a self-signed certificate, you might see the following error:
 
 ```shell
 $ docker pull --quiet "$CODE_QUALITY_IMAGE"
@@ -157,7 +160,7 @@ Example:
 ### Kubernetes
 
 If you have access to GitLab Runner configuration and the Kubernetes cluster,
-you can [mount a ConfigMap](https://docs.gitlab.com/runner/executors/kubernetes/index.html#configmap-volume).
+you can [mount a ConfigMap](https://docs.gitlab.com/runner/executors/kubernetes/#configmap-volume).
 
 Replace `gitlab.example.com` with the actual domain of the registry.
 
@@ -190,7 +193,7 @@ To gain insight into the errors, you can execute a GraphQL query using the follo
 1. Go to the pipeline details page.
 1. Append `.json` to the URL.
 1. Copy the `iid` of the pipeline.
-1. Go to the [interactive GraphQL explorer](../../api/graphql/index.md#interactive-graphql-explorer).
+1. Go to the [interactive GraphQL explorer](../../api/graphql/_index.md#interactive-graphql-explorer).
 1. Run the following query:
 
    ```graphql
@@ -217,3 +220,15 @@ To gain insight into the errors, you can execute a GraphQL query using the follo
      }
    }
    ```
+
+## No report artifact is created
+
+With certain Runner configurations, the Code Quality scanning job may not have access to your source code.
+If this happens, the `gl-code-quality-report.json` artifact won't be created.
+
+To resolve this issue, either:
+
+- Use the [documented Runner configuration for Docker-in-Docker](../docker/using_docker_build.md#use-docker-in-docker), which uses privileged mode instead of Docker socket binding.
+- Apply the [community workaround in issue 32027](https://gitlab.com/gitlab-org/gitlab/-/issues/32027#note_1318822628) if you wish to continue using Docker socket binding.
+
+For more details, see [Change Runner configuration](code_quality_codeclimate_scanning.md#change-runner-configuration).

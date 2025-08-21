@@ -2,22 +2,21 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Create an Azure AKS cluster
 ---
 
-# Create an Azure AKS cluster
-
 You can create a cluster on Azure Kubernetes Service (AKS) through
-[Infrastructure as Code (IaC)](../../index.md). This process uses the Azure and
+[Infrastructure as Code (IaC)](../../_index.md). This process uses the Azure and
 Kubernetes Terraform providers to create AKS clusters. You connect the clusters to GitLab
 by using the GitLab agent for Kubernetes.
 
-**Prerequisites:**
+**Before you begin**:
 
 - A Microsoft Azure account, with a set of configured
   [security credentials](https://learn.microsoft.com/en-us/cli/azure/authenticate-azure-cli).
 - [A runner](https://docs.gitlab.com/runner/install/) you can use to run the GitLab CI/CD pipeline.
 
-**Steps:**
+**Steps**:
 
 1. [Import the example project](#import-the-example-project).
 1. [Register the agent for Kubernetes](#register-the-agent).
@@ -34,7 +33,7 @@ Start by [importing the example project by URL](../../../project/import/repo_by_
 
 To import the project:
 
-1. On the left sidebar, at the top, select **Create new** (**{plus}**) and **New project/repository**.
+1. On the left sidebar, at the top, select **Create new** ({{< icon name="plus" >}}) and **New project/repository**.
 1. Select **Import project**.
 1. Select **Repository by URL**.
 1. For the **Git repository URL**, enter `https://gitlab.com/gitlab-org/ci-cd/deploy-stage/environments-group/examples/gitlab-terraform-aks.git`.
@@ -59,7 +58,7 @@ To create a GitLab agent for Kubernetes:
 
 Use CI/CD environment variables to configure your project.
 
-**Required configuration:**
+**Required configuration**:
 
 1. On the left sidebar, select **Settings > CI/CD**.
 1. Expand **Variables**.
@@ -69,7 +68,7 @@ Use CI/CD environment variables to configure your project.
 1. Set the variable `TF_VAR_agent_token` to the agent token displayed in the previous task.
 1. Set the variable `TF_VAR_kas_address` to the agent server address displayed in the previous task.
 
-**Optional configuration:**
+**Optional configuration**:
 
 The file [`variables.tf`](https://gitlab.com/gitlab-org/ci-cd/deploy-stage/environments-group/examples/gitlab-terraform-aks/-/blob/main/variables.tf)
 contains other variables that you can override according to your needs:
@@ -79,7 +78,7 @@ contains other variables that you can override according to your needs:
 - `TF_VAR_kubernetes_version`: Set the version of Kubernetes.
 - `TF_VAR_create_resource_group`: Allow to enable or disable the creation of a new resource group. (Default set to true).
 - `TF_VAR_resource_group_name`: Set the name of resource group.
-- `TF_VAR_agent_namespace`: Set the Kubernetes namespace for the GitLab agent.
+- `TF_VAR_agent_namespace`: Set the Kubernetes namespace for the GitLab agent for Kubernetes.
 
 See the [Azure Terraform provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs) and the [Kubernetes Terraform provider](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs) documentation for further resource options.
 
@@ -88,7 +87,7 @@ See the [Azure Terraform provider](https://registry.terraform.io/providers/hashi
 After configuring your project, manually trigger the provisioning of your cluster. In GitLab:
 
 1. On the left sidebar, select **Build > Pipelines**.
-1. Next to **Play** (**{play}**), select the dropdown list icon (**{chevron-lg-down}**).
+1. Next to **Play** ({{< icon name="play" >}}), select the dropdown list icon ({{< icon name="chevron-lg-down" >}}).
 1. Select **Deploy** to manually trigger the deployment job.
 
 When the pipeline finishes successfully, you can view the new cluster:
@@ -103,7 +102,7 @@ After you provision the cluster, it is connected to GitLab and is ready for depl
 1. On the left sidebar, select **Operate > Kubernetes clusters**.
 1. In the list, view the **Connection status** column.
 
-For more information about the capabilities of the connection, see [the GitLab agent for Kubernetes documentation](../index.md).
+For more information about the capabilities of the connection, see [the GitLab agent for Kubernetes documentation](../_index.md).
 
 ## Remove the cluster
 
@@ -129,4 +128,4 @@ To remove all resources:
    ```
 
 1. On the left sidebar, select **Build > Pipelines** and select the most recent pipeline.
-1. For the `destroy` job, select **Play** (**{play}**).
+1. For the `destroy` job, select **Play** ({{< icon name="play" >}}).

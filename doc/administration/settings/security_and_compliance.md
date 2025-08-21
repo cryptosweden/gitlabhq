@@ -1,23 +1,27 @@
 ---
-stage: Secure
+stage: Application Security Testing
 group: Composition Analysis
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+gitlab_dedicated: yes
+title: Security and compliance Admin area settings
 ---
 
-# Security and Compliance Admin Area settings
+{{< details >}}
 
-DETAILS:
-**Tier:** Ultimate
-**Offering:** Self-managed
+- Tier: Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
 
-The settings for package metadata synchronization are located in the [Admin Area](index.md).
+{{< /details >}}
+
+The settings for package metadata synchronization are located in the [**Admin** area](_index.md).
 
 ## Choose package registry metadata to sync
 
-To choose the packages you want to synchronize with the GitLab Package Metadata Database for [License Compliance](../../user/compliance/license_scanning_of_cyclonedx_files/index.md) and [Continuous Vulnerability Scanning](../../user/application_security/continuous_vulnerability_scanning/index.md):
+To choose the packages you want to synchronize with the GitLab Package Metadata Database for [License Compliance](../../user/compliance/license_scanning_of_cyclonedx_files/_index.md) and [Continuous Vulnerability Scanning](../../user/application_security/continuous_vulnerability_scanning/_index.md):
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Settings > Security and Compliance**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Settings > Security and compliance**.
+1. Expand **License Compliance**.
 1. In **Package registry metadata to sync**, select or clear checkboxes for the
    package registries that you want to sync.
 1. Select **Save changes**.

@@ -9,8 +9,6 @@ import { isPositiveInteger } from '~/lib/utils/number_utils';
 import { __ } from '~/locale';
 import searchCrmContactsQuery from '../queries/search_crm_contacts.query.graphql';
 
-import { OPTIONS_NONE_ANY } from '../constants';
-
 import BaseToken from './base_token.vue';
 
 export default {
@@ -40,7 +38,7 @@ export default {
   },
   computed: {
     defaultContacts() {
-      return this.config.defaultContacts || OPTIONS_NONE_ANY;
+      return this.config.defaultContacts;
     },
     namespace() {
       return this.config.isProject ? WORKSPACE_PROJECT : WORKSPACE_GROUP;
@@ -124,7 +122,7 @@ export default {
       >
         <div>
           <div>{{ getContactName(contact) }}</div>
-          <div class="gl-font-sm">{{ contact.email }}</div>
+          <div class="gl-text-sm">{{ contact.email }}</div>
         </div>
       </gl-filtered-search-suggestion>
     </template>

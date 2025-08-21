@@ -3,11 +3,12 @@
 module Projects
   class RefreshBuildArtifactsSizeStatisticsWorker
     include ApplicationWorker
+    include CronjobChildWorker
     include LimitedCapacity::Worker
 
     data_consistency :always
 
-    feature_category :build_artifacts
+    feature_category :job_artifacts
 
     idempotent!
 

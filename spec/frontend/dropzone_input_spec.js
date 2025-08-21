@@ -61,6 +61,9 @@ describe('dropzone_input', () => {
       form = $('#new_milestone');
       form.data('uploads-path', TEST_UPLOAD_PATH);
       dropzoneInput(form);
+
+      // needed for the underlying insertText to work
+      document.execCommand = jest.fn(() => false);
     });
 
     afterEach(() => {
@@ -175,6 +178,45 @@ describe('dropzone_input', () => {
         axiosMock.onPost().reply(HTTP_STATUS_OK, { link: { markdown: '![test.png]' } });
       });
     });
+
+    it('preserves undo history', async () => {
+      let execCommandMock;
+      const fileName = 'undo-file.png';
+
+      await new Promise((resolve) => {
+        let counter = 0;
+        execCommandMock = jest.fn(() => {
+          // The counter is added as execCommand is called twice during paste:
+          // 1. With {{undo-file.png}} while the file is being uploaded
+          // 2. With ![undo-file.png] after the upload is finished
+          counter += 1;
+          if (counter >= 2) {
+            resolve();
+            return true;
+          }
+          return true;
+        });
+        document.execCommand = execCommandMock;
+
+        const axiosMock = new MockAdapter(axios);
+        axiosMock.onPost().reply(HTTP_STATUS_OK, { link: { markdown: `![${fileName}]` } });
+        triggerPasteEvent({
+          types: ['Files'],
+          files: [new File([new Blob()], fileName, { type: 'image/png' })],
+          items: [
+            {
+              kind: 'file',
+              type: 'image/png',
+              getAsFile: () => new Blob(),
+            },
+          ],
+        });
+      });
+
+      expect($('textarea').val()).toEqual('');
+      expect(execCommandMock.mock.calls).toHaveLength(2);
+      expect(execCommandMock.mock.calls[1][2]).toEqual(`![${fileName}]`);
+    });
   });
 
   describe('shows error message', () => {
@@ -232,14 +274,14 @@ describe('dropzone_input', () => {
 
       it('passes attach file button as `clickable` to dropzone', () => {
         dropzoneInput(form);
-        expect($.fn.dropzone.mock.calls[0][0]).toMatchObject({ clickable: attachFileButton });
+        expect($.fn.dropzone.mock.calls[0][0].clickable).toEqual(attachFileButton);
       });
     });
 
     describe('if attach file button does not exist', () => {
       it('passes attach file button as `clickable`, if it exists', () => {
         dropzoneInput(form);
-        expect($.fn.dropzone.mock.calls[0][0]).toMatchObject({ clickable: true });
+        expect($.fn.dropzone.mock.calls[0][0].clickable).toEqual(true);
       });
     });
   });

@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strings"
 
+	redis "github.com/redis/go-redis/v9"
 	"github.com/sebest/xff"
 	"github.com/sirupsen/logrus"
 
@@ -59,14 +60,15 @@ type upstream struct {
 	enableGeoProxyFeature bool
 	mu                    sync.RWMutex
 	watchKeyHandler       builds.WatchKeyHandler
+	rdb                   *redis.Client
 }
 
 // NewUpstream creates a new HTTP handler for handling upstream requests based on the provided configuration.
-func NewUpstream(cfg config.Config, accessLogger *logrus.Logger, watchKeyHandler builds.WatchKeyHandler) http.Handler {
-	return newUpstream(cfg, accessLogger, configureRoutes, watchKeyHandler)
+func NewUpstream(cfg config.Config, accessLogger *logrus.Logger, watchKeyHandler builds.WatchKeyHandler, rdb *redis.Client) http.Handler {
+	return newUpstream(cfg, accessLogger, configureRoutes, watchKeyHandler, rdb)
 }
 
-func newUpstream(cfg config.Config, accessLogger *logrus.Logger, routesCallback func(*upstream), watchKeyHandler builds.WatchKeyHandler) http.Handler {
+func newUpstream(cfg config.Config, accessLogger *logrus.Logger, routesCallback func(*upstream), watchKeyHandler builds.WatchKeyHandler, rdb *redis.Client) http.Handler {
 	up := upstream{
 		Config:       cfg,
 		accessLogger: accessLogger,
@@ -74,6 +76,7 @@ func newUpstream(cfg config.Config, accessLogger *logrus.Logger, routesCallback 
 		enableGeoProxyFeature: os.Getenv("GEO_SECONDARY_PROXY") != "0",
 		geoProxyBackend:       &url.URL{},
 		watchKeyHandler:       watchKeyHandler,
+		rdb:                   rdb,
 	}
 	if up.geoProxyPollSleep == nil {
 		up.geoProxyPollSleep = time.Sleep
@@ -275,8 +278,8 @@ func (u *upstream) updateGeoProxyFieldsFromData(geoProxyData *apipkg.GeoProxyDat
 		proxypkg.WithCustomHeaders(geoProxyWorkhorseHeaders),
 		proxypkg.WithForcedTargetHostHeader(),
 	)
-	u.geoProxyCableRoute = u.wsRoute(`^/-/cable\z`, geoProxyUpstream)
-	u.geoProxyRoute = u.route("", "", geoProxyUpstream, withGeoProxy())
+	u.geoProxyCableRoute = u.wsRoute(newRoute(`^/-/cable\z`, "geo_action_cable", railsBackend), geoProxyUpstream)
+	u.geoProxyRoute = u.route("", newRoute("", "proxy", geoPrimaryBackend), geoProxyUpstream, withGeoProxy())
 }
 
 func httpError(w http.ResponseWriter, r *http.Request, error string, code int) {

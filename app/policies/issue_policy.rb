@@ -1,21 +1,29 @@
 # frozen_string_literal: true
 
 class IssuePolicy < IssuablePolicy
-  # This class duplicates the same check of Issue#readable_by? for performance reasons
-  # Make sure to sync this class checks with issue.rb to avoid security problems.
-  # Check commit 002ad215818450d2cbbc5fa065850a953dc7ada8 for more information.
-
-  include CrudPolicyHelpers
-
-  desc "User can read confidential issues"
-  condition(:can_read_confidential) do
-    @user && (@user.admin? || can?(:reporter_access) || assignee_or_author?) # rubocop:disable Cop/UserAdmin
+  # In FOSS there is no license.
+  # This method is overridden in EE
+  def epics_license_available?
+    false
   end
 
-  desc "Project belongs to a group, crm is enabled and user can read contacts in the root group"
-  condition(:can_read_crm_contacts, scope: :subject) do
+  # Not available in FOSS.
+  # This method is Overridden in EE
+  def project_work_item_epics_available?
+    false
+  end
+
+  # rubocop:disable Cop/UserAdmin -- specifically check the admin attribute
+  desc "User can read confidential issues"
+  condition(:can_read_confidential) do
+    @user && (@user.admin? || planner_or_reporter_access? || assignee_or_author?)
+  end
+  # rubocop:enable Cop/UserAdmin
+
+  desc "Project belongs to a group, crm is enabled and user can read contacts in source group"
+  condition(:can_read_crm_contacts) do
     subject_container&.crm_enabled? &&
-      (@user&.can?(:read_crm_contact, subject_container.root_ancestor) || @user&.support_bot?)
+      (@user&.can?(:read_crm_contact, subject_container.crm_group) || @user&.support_bot?)
   end
 
   desc "Issue is confidential"
@@ -35,17 +43,35 @@ class IssuePolicy < IssuablePolicy
     if group_issue?
       subject_container.has_project_with_service_desk_enabled?
     else
-      subject_container.service_desk_enabled?
+      ::ServiceDesk.enabled?(subject_container)
+    end
+  end
+
+  # this is temporarily needed until we rollout implementation of move and clone for all work item types
+  condition(:supports_move_and_clone, scope: :subject) do
+    @subject.supports_move_and_clone?
+  end
+
+  condition(:work_item_type_available, scope: :subject) do
+    if group_issue?
+      # For now all work item types at group-level require the epics licensed feature
+      epics_license_available?
+    elsif @subject.epic_work_item?
+      project_work_item_epics_available?
+    else
+      true
     end
   end
 
   rule { group_issue & can?(:read_group) }.policy do
     enable :create_note
+    enable :award_emoji
   end
 
   rule { ~notes_widget_enabled }.policy do
     prevent :create_note
     prevent :read_note
+    prevent :admin_note
     prevent :read_internal_note
     prevent :set_note_created_at
     prevent :mark_note_as_internal
@@ -56,14 +82,28 @@ class IssuePolicy < IssuablePolicy
   end
 
   rule { confidential & ~can_read_confidential }.policy do
-    prevent(*create_read_update_admin_destroy(:issue))
-    prevent(*create_read_update_admin_destroy(:work_item))
+    prevent :read_issue
+    prevent :create_issue
+    prevent :update_issue
+    prevent :admin_issue
+    prevent :destroy_issue
+    prevent :read_work_item
+    prevent :create_work_item
+    prevent :update_work_item
+    prevent :admin_work_item
+    prevent :destroy_work_item
     prevent :read_issue_iid
   end
 
   rule { hidden & ~admin }.policy do
     prevent :read_issue
   end
+
+  rule { can?(:read_issue) & notes_widget_enabled }.policy do
+    enable :read_note
+  end
+
+  rule { can?(:maintainer_access) }.enable :admin_note
 
   rule { ~can?(:read_issue) }.policy do
     prevent :create_note
@@ -94,7 +134,7 @@ class IssuePolicy < IssuablePolicy
   end
 
   # guest members need to be able to set issue metadata per https://gitlab.com/gitlab-org/gitlab/-/issues/300100
-  rule { ~persisted & is_project_member & can?(:guest_access) }.policy do
+  rule { ~persisted & can?(:set_new_issue_metadata) }.policy do
     enable :set_issue_metadata
   end
 
@@ -124,8 +164,28 @@ class IssuePolicy < IssuablePolicy
     enable :set_issue_crm_contacts
   end
 
-  rule { can?(:reporter_access) }.policy do
+  rule { planner_or_reporter_access }.policy do
     enable :mark_note_as_internal
+  end
+
+  rule { can?(:admin_issue) & supports_move_and_clone }.policy do
+    enable :move_issue
+    enable :clone_issue
+  end
+
+  rule { is_incident & ~can?(:reporter_access) }.policy do
+    prevent :admin_issue
+    prevent :update_issue
+  end
+
+  rule { is_incident & ~can?(:owner_access) }.policy do
+    prevent :destroy_issue
+  end
+
+  # IMPORTANT: keep the prevention rules as last rules defined in the policy, as these are based on
+  # all abilities defined up to this point.
+  rule { ~work_item_type_available }.policy do
+    prevent(*::IssuePolicy.ability_map.map.keys)
   end
 end
 

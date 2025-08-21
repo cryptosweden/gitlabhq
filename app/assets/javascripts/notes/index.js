@@ -4,6 +4,8 @@ import { apolloProvider } from '~/graphql_shared/issuable_client';
 import { convertToGraphQLId } from '~/graphql_shared/utils';
 import { parseBoolean } from '~/lib/utils/common_utils';
 import { getLocationHash } from '~/lib/utils/url_utility';
+import { pinia } from '~/pinia/instance';
+import { useNotes } from '~/notes/store/legacy_notes';
 import NotesApp from './components/notes_app.vue';
 import { store } from './stores';
 import { getNotesFilterData } from './utils/get_notes_filter_data';
@@ -41,6 +43,8 @@ export default ({ editorAiActions = [] } = {}) => {
 
   const notesData = JSON.parse(notesDataset.notesData);
 
+  useNotes().syncWith({ store });
+
   store.dispatch('setNotesData', notesData);
   store.dispatch('setNoteableData', noteableData);
   store.dispatch('setUserData', currentUserData);
@@ -55,13 +59,14 @@ export default ({ editorAiActions = [] } = {}) => {
       NotesApp,
     },
     store,
+    pinia,
     apolloProvider,
     provide: {
       showTimelineViewToggle,
       reportAbusePath: notesDataset.reportAbusePath,
       newCommentTemplatePaths: JSON.parse(notesDataset.newCommentTemplatePaths),
       resourceGlobalId: convertToGraphQLId(noteableData.noteableType, noteableData.id),
-      editorAiActions: editorAiActions.map((factory) => factory(noteableData)),
+      legacyEditorAiActions: editorAiActions.map((factory) => factory(noteableData)),
       newCustomEmojiPath: notesDataset.newCustomEmojiPath,
     },
     data() {

@@ -2,7 +2,7 @@
 
 # This file was prefixed with zz_ because we want to load it the last!
 # See: https://gitlab.com/gitlab-org/gitlab-foss/issues/55611
-if Gitlab::Metrics.enabled? && Gitlab::Runtime.application?
+if Gitlab::Metrics.prometheus_metrics_enabled? && Gitlab::Runtime.application?
   require 'pathname'
   require 'connection_pool'
 
@@ -29,15 +29,7 @@ if Gitlab::Metrics.enabled? && Gitlab::Runtime.application?
     config.middleware.use(Gitlab::Metrics::ElasticsearchRackMiddleware)
   end
 
-  if Gitlab::Runtime.puma?
-    Gitlab::Metrics::RequestsRackMiddleware.initialize_metrics
-    Gitlab::Metrics::GlobalSearchSlis.initialize_slis!
-  elsif Gitlab::Runtime.sidekiq?
-    Gitlab::Metrics::GlobalSearchIndexingSlis.initialize_slis! if Gitlab.ee?
-    Gitlab::Metrics::LooseForeignKeysSlis.initialize_slis!
-    Gitlab::Metrics::Llm.initialize_slis! if Gitlab.ee?
-    Gitlab::Metrics::Lfs.initialize_slis!
-  end
+  Gitlab::Metrics.initialize_slis!
 
   GC::Profiler.enable
 

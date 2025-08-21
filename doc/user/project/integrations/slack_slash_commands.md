@@ -1,18 +1,24 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Slack slash commands
+description: "Configure Slack slash commands for GitLab Self-Managed instances."
 ---
 
-# Slack slash commands
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
 
-NOTE:
-This feature is only configurable on self-managed GitLab instances.
+{{< /details >}}
+
+{{< alert type="note" >}}
+
+This feature is only configurable on GitLab Self-Managed.
 For GitLab.com, use the [GitLab for Slack app](gitlab_slack_application.md) instead.
+
+{{< /alert >}}
 
 You can use [slash commands](gitlab_slack_application.md#slash-commands) to run common GitLab operations,
 like creating an issue, from a [Slack](https://slack.com/) chat environment.

@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Constraints naming conventions
 ---
-
-# Constraints naming conventions
 
 The most common option is to let Rails pick the name for database constraints and indexes or let
 PostgreSQL use the defaults (when applicable). However, when defining custom names in Rails, or

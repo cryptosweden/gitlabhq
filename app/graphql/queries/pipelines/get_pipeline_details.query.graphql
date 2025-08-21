@@ -23,9 +23,12 @@ fragment LinkedPipelineData on Pipeline {
   userPermissions {
     updatePipeline
   }
+  # @graphql-eslint/eslint-plugin@4.0.0 reports missing IDs in `FragmentDefinition`. For now, we are
+  # ignoring the newly uncovered error on this fragment. Please consider addressing the violation
+  # if you are modifying this file and it turns out selecting the ID makes sense here.
+  # eslint-disable-next-line @graphql-eslint/require-selections
   status: detailedStatus {
     __typename
-    id
     group
     label
     icon
@@ -53,7 +56,6 @@ query getPipelineDetails($projectPath: ID!, $iid: ID!) {
       __typename
       id
       iid
-      complete
       usesNeeds
       userPermissions {
         updatePipeline
@@ -61,10 +63,13 @@ query getPipelineDetails($projectPath: ID!, $iid: ID!) {
       downstream {
         __typename
         nodes {
+          # eslint-disable-next-line @graphql-eslint/require-selections -- for detailedStatus.id
           ...LinkedPipelineData
+          name
         }
       }
       upstream {
+        # eslint-disable-next-line @graphql-eslint/require-selections -- for detailedStatus.id
         ...LinkedPipelineData
       }
       stages {
@@ -73,9 +78,9 @@ query getPipelineDetails($projectPath: ID!, $iid: ID!) {
           __typename
           id
           name
+          # eslint-disable-next-line @graphql-eslint/require-selections
           status: detailedStatus {
             __typename
-            id
             action {
               __typename
               id
@@ -90,9 +95,9 @@ query getPipelineDetails($projectPath: ID!, $iid: ID!) {
             nodes {
               __typename
               id
+              # eslint-disable-next-line @graphql-eslint/require-selections
               status: detailedStatus {
                 __typename
-                id
                 label
                 group
                 icon
@@ -107,7 +112,6 @@ query getPipelineDetails($projectPath: ID!, $iid: ID!) {
                   id
                   name
                   kind
-                  scheduledAt
                   needs {
                     __typename
                     nodes {
@@ -122,13 +126,14 @@ query getPipelineDetails($projectPath: ID!, $iid: ID!) {
                       ...CiNeeds
                     }
                   }
+                  # eslint-disable-next-line @graphql-eslint/require-selections
                   status: detailedStatus {
                     __typename
-                    id
                     icon
                     tooltip
                     hasDetails
                     detailsPath
+                    deploymentDetailsPath
                     group
                     label
                     text

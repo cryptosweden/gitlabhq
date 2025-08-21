@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: JavaScript style guide
 ---
-
-# JavaScript style guide
 
 We use [the Airbnb JavaScript Style Guide](https://github.com/airbnb/javascript) and its accompanying
 linter to manage most of our JavaScript style guidelines.
@@ -12,8 +11,11 @@ linter to manage most of our JavaScript style guidelines.
 In addition to the style guidelines set by Airbnb, we also have a few specific rules
 listed below.
 
-NOTE:
+{{< alert type="note" >}}
+
 You can run ESLint locally by running `yarn run lint:eslint:all` or `yarn run lint:eslint $PATH_TO_FILE`.
+
+{{< /alert >}}
 
 ## Avoid `forEach`
 
@@ -101,7 +103,11 @@ class a {
 
 When converting strings to integers, `Number` is semantic and can be more readable. Both are allowable, but `Number` has a slight maintainability advantage.
 
-**WARNING:** `parseInt` **must** include the [radix argument](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/parseInt).
+{{< alert type="warning" >}}
+
+`parseInt` **must** include the [radix argument](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/parseInt).
+
+{{< /alert >}}
 
 ```javascript
 // bad (missing radix argument)
@@ -122,8 +128,11 @@ things.map(parseInt);
 things.map(Number);
 ```
 
-NOTE:
-If the String could represent a non-integer (i.e., it includes a decimal), **do not** use `parseInt`. Consider `Number` or `parseFloat` instead.
+{{< alert type="note" >}}
+
+If the String could represent a non-integer (a number that includes a decimal), **do not** use `parseInt`. Consider `Number` or `parseFloat` instead.
+
+{{< /alert >}}
 
 ## CSS Selectors - Use `js-` prefix
 
@@ -363,5 +372,5 @@ onError(error) {
 ```
 
 Note that this prefixing must not be used for API responses. Instead follow the
-[REST API](../../../api/rest/index.md#data-validation-and-error-reporting),
+[REST API](../../../api/rest/troubleshooting.md#status-code-400),
 or [GraphQL guides](../../api_graphql_styleguide.md#error-handling) on how to consume error objects.

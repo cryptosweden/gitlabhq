@@ -1,13 +1,16 @@
 <script>
-import { GlAvatar, GlButton } from '@gitlab/ui';
+import { GlAvatarLabeled, GlButton, GlTooltipDirective } from '@gitlab/ui';
 import { sprintf, __ } from '~/locale';
 
 export default {
   name: 'GroupItem',
   components: {
-    GlAvatar,
+    GlAvatarLabeled,
     GlButton,
     HiddenGroupsItem: () => import('ee_component/approvals/components/hidden_groups_item.vue'),
+  },
+  directives: {
+    GlTooltip: GlTooltipDirective,
   },
   props: {
     data: {
@@ -41,28 +44,28 @@ export default {
 </script>
 
 <template>
-  <span class="gl-display-flex gl-align-items-center gl-gap-3">
-    <hidden-groups-item v-if="isHiddenGroups" class="gl-flex-grow-1" />
-    <div v-else class="gl-display-flex gl-align-items-center gl-gap-2 gl-flex-grow-1">
-      <gl-avatar
-        :alt="fullName"
-        :entity-name="fullName"
-        :size="32"
-        :src="avatarUrl"
-        fallback-on-error
-      />
-      <span class="gl-display-flex gl-flex-direction-column">
-        <span class="gl-font-bold">{{ fullName }}</span>
-        <span class="gl-text-gray-600">@{{ name }}</span>
-      </span>
-    </div>
+  <div class="gl-flex gl-items-center gl-gap-3">
+    <hidden-groups-item v-if="isHiddenGroups" class="gl-grow" />
+    <gl-avatar-labeled
+      v-else
+      class="gl-grow gl-break-all"
+      :entity-name="fullName"
+      :label="fullName"
+      :sub-label="`@${name}`"
+      :size="32"
+      shape="rect"
+      :src="avatarUrl"
+      fallback-on-error
+    />
 
     <gl-button
       v-if="canDelete"
+      v-gl-tooltip="deleteButtonLabel"
       icon="remove"
       :aria-label="deleteButtonLabel"
       category="tertiary"
+      data-testid="delete-group-btn"
       @click="$emit('delete', data.id)"
     />
-  </span>
+  </div>
 </template>

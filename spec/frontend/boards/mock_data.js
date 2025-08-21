@@ -296,9 +296,22 @@ export const rawIssue = {
   weight: null,
   blocked: false,
   blockedByCount: 0,
+  blockingCount: 0,
   iteration: null,
   healthStatus: null,
+  status: null,
   type: 'ISSUE',
+  linkedWorkItems: {
+    __typename: 'LinkedWorkItemTypeConnection',
+    nodes: [
+      {
+        linkId: 'gid://gitlab/WorkItems::RelatedWorkItemLink/103',
+        linkType: 'blocks',
+        workItemState: 'OPEN',
+        __typename: 'LinkedWorkItemType',
+      },
+    ],
+  },
   __typename: 'Issue',
 };
 
@@ -337,11 +350,24 @@ export const mockIssue = {
   milestone: null,
   weight: null,
   blocked: false,
-  blockedByCount: 0,
+  blockedByCount: 1,
+  blockingCount: 0,
   iteration: null,
   healthStatus: null,
+  status: null,
   type: 'ISSUE',
   __typename: 'Issue',
+  linkedWorkItems: {
+    __typename: 'LinkedWorkItemTypeConnection',
+    nodes: [
+      {
+        linkId: 'gid://gitlab/WorkItems::RelatedWorkItemLink/103',
+        linkType: 'blocks',
+        workItemState: 'OPEN',
+        __typename: 'LinkedWorkItemType',
+      },
+    ],
+  },
 };
 
 export const mockEpic = {
@@ -383,6 +409,10 @@ export const mockEpic = {
     openedIssues: 0,
     __typename: 'EpicDescendantWeights',
   },
+  linkedWorkItems: {
+    __typename: 'LinkedWorkItemTypeConnection',
+    nodes: [],
+  },
 };
 
 export const mockIssue2 = {
@@ -399,6 +429,10 @@ export const mockIssue2 = {
   epic: {
     id: 'gid://gitlab/Epic/40',
   },
+  linkedWorkItems: {
+    __typename: 'LinkedWorkItemTypeConnection',
+    nodes: [],
+  },
 };
 
 export const mockIssue3 = {
@@ -412,6 +446,10 @@ export const mockIssue3 = {
   confidential: false,
   path: '/gitlab-org/gitlab-test/-/issues/28',
   epic: null,
+  linkedWorkItems: {
+    __typename: 'LinkedWorkItemTypeConnection',
+    nodes: [],
+  },
 };
 
 export const mockIssue4 = {
@@ -425,6 +463,10 @@ export const mockIssue4 = {
   confidential: false,
   path: '/gitlab-org/gitlab-test/-/issues/28',
   epic: null,
+  linkedWorkItems: {
+    __typename: 'LinkedWorkItemTypeConnection',
+    nodes: [],
+  },
 };
 
 export const mockIssue5 = {
@@ -438,6 +480,10 @@ export const mockIssue5 = {
   confidential: false,
   path: '/gitlab-org/gitlab-test/-/issues/40',
   epic: null,
+  linkedWorkItems: {
+    __typename: 'LinkedWorkItemTypeConnection',
+    nodes: [],
+  },
 };
 
 export const mockIssue6 = {
@@ -451,6 +497,10 @@ export const mockIssue6 = {
   confidential: false,
   path: '/gitlab-org/gitlab-test/-/issues/41',
   epic: null,
+  linkedWorkItems: {
+    __typename: 'LinkedWorkItemTypeConnection',
+    nodes: [],
+  },
 };
 
 export const mockIssue7 = {
@@ -464,6 +514,10 @@ export const mockIssue7 = {
   confidential: false,
   path: '/gitlab-org/gitlab-test/-/issues/42',
   epic: null,
+  linkedWorkItems: {
+    __typename: 'LinkedWorkItemTypeConnection',
+    nodes: [],
+  },
 };
 
 export const mockIssues = [mockIssue, mockIssue2];
@@ -490,6 +544,9 @@ export const mockList = {
   loading: false,
   issuesCount: 1,
   maxIssueCount: 0,
+  maxIssueWeight: 0,
+  limitMetric: 'issue_count',
+  status: null,
   metadata: {
     epicsCount: 1,
   },
@@ -537,6 +594,35 @@ export const mockLabelList = {
   loading: false,
   issuesCount: 0,
   maxIssueCount: 0,
+  maxIssueWeight: 0,
+  status: null,
+  limitMetric: 'issue_count',
+  __typename: 'BoardList',
+};
+
+export const mockStatusList = {
+  id: 'gid://gitlab/List/5',
+  title: 'In Progress',
+  position: 0,
+  listType: 'status',
+  collapsed: false,
+  label: null,
+  assignee: null,
+  milestone: null,
+  iteration: null,
+  loading: false,
+  issuesCount: 0,
+  maxIssueCount: 0,
+  maxIssueWeight: 0,
+  status: {
+    id: 'gid://gitlab/WorkItems::Statuses::SystemDefined::Status/2',
+    name: 'In progress',
+    iconName: 'status-running',
+    color: '#1f75cb',
+    position: 0,
+    __typename: 'WorkItemStatus',
+  },
+  limitMetric: 'issue_count',
   __typename: 'BoardList',
 };
 
@@ -553,6 +639,7 @@ export const mockMilestoneList = {
     title: 'Backlog',
   },
   loading: false,
+  status: null,
   issuesCount: 0,
 };
 
@@ -651,6 +738,15 @@ export const mockBlockingIssue4 = {
   __typename: 'Issue',
 };
 
+export const mockBlockingIssue5 = {
+  id: 'gid://gitlab/Issue/521',
+  iid: '7',
+  title: 'blocking issue title 7',
+  reference: 'gitlab-org/test-subgroup/my-project-1#7',
+  webUrl: 'http://gdk.test:3000/gitlab-org/test-subgroup/my-project-1/-/issues/7',
+  __typename: 'Issue',
+};
+
 export const mockBlockingIssuablesResponse1 = {
   data: {
     issuable: {
@@ -707,6 +803,19 @@ export const mockBlockingIssuablesResponse3 = {
   },
 };
 
+export const mockBlockingIssuablesResponse4 = {
+  data: {
+    issuable: {
+      __typename: 'Issue',
+      id: 'gid://gitlab/Issue/527',
+      blockingIssuables: {
+        __typename: 'IssueConnection',
+        nodes: [mockBlockingIssue5],
+      },
+    },
+  },
+};
+
 export const mockBlockedIssue1 = {
   id: '527',
   blockedByCount: 1,
@@ -738,7 +847,7 @@ export const mockEmojiToken = {
   title: TOKEN_TITLE_MY_REACTION,
   unique: true,
   token: EmojiToken,
-  fetchEmojis: expect.any(Function),
+  fetchEmojis: typeof expect !== 'undefined' ? expect.any(Function) : () => {},
 };
 
 export const mockConfidentialToken = {
@@ -819,7 +928,7 @@ export const mockTokens = (fetchLabels, isSignedIn) => [
     title: TOKEN_TITLE_RELEASE,
     icon: 'rocket',
     token: ReleaseToken,
-    fetchReleases: expect.any(Function),
+    fetchReleases: typeof expect !== 'undefined' ? expect.any(Function) : () => {},
   },
 ];
 

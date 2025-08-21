@@ -1,10 +1,9 @@
 ---
-stage: Manage
-group: Import and Integrate
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Create
+group: Import
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: GraphQL Pro
 ---
-
-# GraphQL Pro
 
 GraphQL has become a key technology in GitLab and is implemented using the
 [GraphQL Ruby gem](https://graphql-ruby.org). As such, we've purchased a subscription to

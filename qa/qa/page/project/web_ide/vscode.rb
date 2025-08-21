@@ -6,6 +6,8 @@ module QA
     module Project
       module WebIDE
         class VSCode < Page::Base
+          COMMIT_SUCCESS_MESSAGE = 'Your changes have been committed successfully.'
+
           view 'app/views/shared/_broadcast_message.html.haml' do
             element 'broadcast-notification-container'
             element 'close-button'
@@ -56,6 +58,22 @@ module QA
             find_element('input[type="file"]', visible: false).send_keys(file)
           end
 
+          def search_command_palette(text)
+            mod = page.driver.browser.capabilities.platform_name.include?("mac") ? :command : :control
+            send_keys([mod, :shift, 'p'])
+            within_vscode_editor do
+              enter_text_for_input(text)
+            end
+          end
+
+          def has_opened_file?(file_name)
+            within_vscode_editor do
+              within_element('.monaco-scrollable-element > .tabs-container') do
+                has_element?("div[data-resource-name='#{file_name}'][aria-selected='true']")
+              end
+            end
+          end
+
           def has_commit_pending_tab?(wait: Capybara.default_max_wait_time)
             has_element?('.scm-viewlet-label', wait: wait)
           end
@@ -84,7 +102,7 @@ module QA
           end
 
           def click_commit_button
-            click_element('div[aria-label="Commit to \'main\'"]')
+            click_element('div[aria-label^="Commit and push to"]')
           end
 
           def has_notification_box?
@@ -103,9 +121,9 @@ module QA
             has_element?('input[aria-label="input"]')
           end
 
-          def has_committed_successfully?
+          def commit_shows_message?(expected_message)
             within_vscode_editor do
-              has_text?('Success! Your changes have been committed.')
+              has_text?(expected_message)
             end
           end
 
@@ -151,8 +169,9 @@ module QA
             end
           end
 
-          # Used for stablility, due to feature_caching of vscode_web_ide
-          def wait_for_ide_to_load
+          # Used for stability
+          # @param file_name [string] wait for file to be loaded (optional)
+          def wait_for_ide_to_load(file_name = nil)
             page.driver.browser.switch_to.window(page.driver.browser.window_handles.last)
             # On test environments we have a broadcast message that can cover the buttons
             if has_element?('broadcast-notification-container', wait: 5)
@@ -166,12 +185,8 @@ module QA
               message: 'Waiting for VSCode file explorer') do
               has_file_explorer?
             end
-          end
 
-          def wait_for_file_to_load(filename)
-            Support::Waiter.wait_until(message: "Waiting for #{filename} to load in VSCode file explorer") do
-              has_file?(filename)
-            end
+            wait_for_file_to_load(file_name) if file_name
           end
 
           def create_new_folder(folder_name)
@@ -188,9 +203,9 @@ module QA
             Support::Waiter.wait_until { !has_text?("Loading GitLab Web IDE...", wait: 1) }
           end
 
-          def commit_and_push_to_existing_branch(file_name)
+          def commit_and_push_to_existing_branch(file_name, message: COMMIT_SUCCESS_MESSAGE)
             commit_toggle(file_name)
-            push_to_existing_branch
+            push_to_existing_branch(message: message)
             Support::Waiter.wait_until { !has_text?("Loading GitLab Web IDE...", wait: 1) }
           end
 
@@ -210,11 +225,16 @@ module QA
             end
           end
 
-          def push_to_existing_branch
+          def commit_blocked_by_secret_detection(file_name)
+            commit_and_push_to_existing_branch(file_name,
+              message: 'The secret detection scan encountered one or more findings.')
+          end
+
+          def push_to_existing_branch(message: COMMIT_SUCCESS_MESSAGE)
             within_vscode_editor do
               click_continue_with_existing_branch
             end
-            raise "failed to push_to_existing_branch" unless has_committed_successfully?
+            raise "failed to push_to_existing_branch" unless commit_shows_message?(message)
           end
 
           def push_to_new_branch
@@ -224,13 +244,15 @@ module QA
               # Typing enter to 'New branch name' popup to take the default branch name
               send_keys(:enter)
             end
-            raise "failed to push_to_new_branch" unless has_committed_successfully?
+
+            return if commit_shows_message?(COMMIT_SUCCESS_MESSAGE)
+
+            raise "failed to push_to_new_branch"
           end
 
           def create_merge_request
             within_vscode_editor do
-              within_element('.notification-toast-container') do
-                has_element?('div[title="GitLab Web IDE Extension (Extension)"]')
+              within_element('.notification-toast-container:last-of-type') do
                 click_monaco_button('Create MR')
               end
             end
@@ -240,28 +262,48 @@ module QA
             within_vscode_editor do
               # VSCode eagerly removes the input[type='file'] from click on Upload.
               # We need to execute a script on the iframe to stub out the iframes body.removeChild to add it back in.
-              page.execute_script("document.body.removeChild = function(){};")
+              page.execute_script(
+                <<~JAVASCRIPT
+                window.__gl_old_remove = HTMLInputElement.prototype.remove;
+                HTMLInputElement.prototype.remove = function(){};
+                JAVASCRIPT
+              )
 
-              # under some conditions the page may not be fully loaded and the right click
-              # context menu can get closed prior to hitting 'upload' leading to failures
-              Support::Retrier.retry_until(retry_on_exception: true, message: "Uploading a file in vscode") do
-                right_click_file_explorer
-                click_upload_menu_item
-                enter_file_input(file_path)
+              begin
+                # under some conditions the page may not be fully loaded and the right click
+                # context menu can get closed prior to hitting 'upload' leading to failures
+                Support::Retrier.retry_until(retry_on_exception: true, message: "Uploading a file in vscode") do
+                  right_click_file_explorer
+                  click_upload_menu_item
+                  enter_file_input(file_path)
+                end
+              ensure
+                page.execute_script(
+                  <<~JAVASCRIPT
+                  HTMLInputElement.prototype.remove = window.__gl_old_remove;
+                  JAVASCRIPT
+                )
               end
             end
           end
 
           def add_prompt_into_a_file(file_name, prompt_data, wait_for_code_suggestions: true)
+            add_text_to_a_file(file_name, prompt_data) do
+              wait_until_code_suggestions_enabled if wait_for_code_suggestions
+            end
+          end
+
+          def add_text_to_a_file(file_name, file_text)
             within_vscode_editor do
               open_file_from_explorer(file_name)
               click_inside_editor_frame
               within_file_editor do
-                wait_until_code_suggestions_enabled if wait_for_code_suggestions
+                yield if block_given?
+
                 send_keys(:enter, :enter)
 
-                # Send keys one at a time to allow suggestions request to be triggered
-                prompt_data.each_char { |c| send_keys(c) }
+                # Send keys one at a time to simulate typing
+                file_text.each_char { |c| send_keys(c) }
               end
             end
           end
@@ -270,11 +312,10 @@ module QA
             within_vscode_editor do
               within_file_editor do
                 wait_until(reload: false, max_duration: 30, message: 'Waiting for Code Suggestion to start loading') do
-                  has_code_suggestions_status?('loading')
+                  code_suggestion_loading?
                 end
 
-                # Wait for code suggestion to finish loading
-                wait_until_code_suggestions_enabled
+                wait_until_code_suggestion_loaded
               end
             end
           end
@@ -310,6 +351,12 @@ module QA
           end
 
           private
+
+          def wait_for_file_to_load(filename)
+            Support::Waiter.wait_until(message: "Waiting for #{filename} to load in VSCode file explorer") do
+              has_file?(filename)
+            end
+          end
 
           def click_monaco_button(label)
             click_element('.monaco-button', text: label)
@@ -351,6 +398,10 @@ module QA
             page.document.has_css?(code_suggestions_icon_selector(status))
           end
 
+          def code_suggestion_loading?
+            page.document.has_css?('.glyph-margin-widgets .codicon', wait: 0)
+          end
+
           def has_code_suggestions_error?
             !page.document.has_no_css?(code_suggestions_icon_selector('error'))
           end
@@ -369,6 +420,15 @@ module QA
             wait_until(reload: false, max_duration: 30, skip_finished_loading_check_on_refresh: true,
               message: 'Wait for Code Suggestions extension to be enabled') do
               has_code_suggestions_status_without_error?('enabled')
+            end
+          end
+
+          def wait_until_code_suggestion_loaded
+            wait_until(reload: false, max_duration: 30, skip_finished_loading_check_on_refresh: true,
+              message: 'Wait for Code Suggestion to finish loading') do
+              raise code_suggestions_error if has_code_suggestions_error?
+
+              !code_suggestion_loading?
             end
           end
         end

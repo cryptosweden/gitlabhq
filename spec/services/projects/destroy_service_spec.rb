@@ -20,6 +20,14 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
 
   shared_examples 'deleting the project' do
     it 'deletes the project', :sidekiq_inline do
+      allow(Gitlab::AppLogger).to receive(:info)
+      expect(Gitlab::AppLogger).to receive(:info).with(
+        class: 'Projects::DestroyService',
+        message: "Project \"#{project.full_path}\" was deleted",
+        project_id: project.id,
+        full_path: project.full_path
+      )
+
       destroy_project(project, user, {})
 
       expect(Project.unscoped.all).not_to include(project)
@@ -82,6 +90,44 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
 
       it_behaves_like 'deleting the project'
 
+      context 'when project repository feature is disabled' do
+        before do
+          project.project_feature.update!(
+            repository_access_level: ProjectFeature::DISABLED,
+            builds_access_level: ProjectFeature::DISABLED,
+            merge_requests_access_level: ProjectFeature::DISABLED
+          )
+        end
+
+        context 'with different pipeline sources' do
+          before do
+            # We're creating many pipelines
+            allow(Gitlab::QueryLimiting).to receive(:threshold).and_return(479)
+
+            external_pull_request = create(:external_pull_request, project: project)
+            create(:ci_pipeline, project: project, source: :external_pull_request_event, external_pull_request: external_pull_request)
+
+            create(:ci_pipeline, project: project)
+              .update_attribute(:source, :unknown) # Skip validation to create pipeline with unknown source
+
+            # `unknown` & `external_pull_request_event` types are created above
+            Enums::Ci::Pipeline.sources.except(:unknown, :external_pull_request_event).each_key do |source|
+              create(:ci_pipeline, project: project, source: source)
+            end
+          end
+
+          it_behaves_like 'deleting the project'
+
+          it 'deletes all the pipelines associated with the project' do
+            project_id = project.id
+
+            destroy_project(project, user)
+
+            expect(Ci::Pipeline.where(project_id: project_id)).not_to exist
+          end
+        end
+      end
+
       context 'when project is undergoing refresh' do
         let!(:build_artifacts_size_refresh) { create(:project_build_artifacts_size_refresh, :pending, project: project) }
 
@@ -139,6 +185,20 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
     end
   end
 
+  context 'when the deleting user does not have access' do
+    before do
+      project.update!(pending_delete: true)
+    end
+
+    it 'unsets the pending_delete on project' do
+      expect(destroy_project(project, create(:user))).to be(false)
+
+      project.reload
+
+      expect(project.pending_delete).to be_falsey
+    end
+  end
+
   context "deleting a project with merge requests" do
     let!(:merge_request) { create(:merge_request, source_project: project) }
 
@@ -154,6 +214,40 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
         records_count = model.where(merge_request_diff_id: merge_request_diffs.first.id).count
 
         expect { destroy_project(project, user, {}) }.to change { model.count }.by(-records_count)
+      end
+    end
+
+    it 'deletes MergeRequest::CommitsMetadata records associated to project' do
+      another_project = create(:project, :repository)
+      create(:merge_request, source_project: another_project)
+
+      records_count = MergeRequest::CommitsMetadata.where(project_id: project.id).count
+
+      expect(records_count).not_to eq(0)
+
+      expect { destroy_project(project, user, {}) }
+        .to change { MergeRequest::CommitsMetadata.count }
+        .by(-records_count)
+
+      expect(MergeRequest::CommitsMetadata.count).not_to eq(0)
+    end
+
+    context 'when there are no MergeRequest::CommitsMetadata records associated to project' do
+      it 'does not delete MergeRequest::CommitsMetadata records' do
+        another_project = create(:project, :repository)
+
+        expect { destroy_project(another_project, user, {}) }
+          .not_to change { MergeRequest::CommitsMetadata.count }
+      end
+    end
+
+    context 'when merge_request_diff_commits_dedup is disabled' do
+      before do
+        stub_feature_flags(merge_request_diff_commits_dedup: false)
+      end
+
+      it 'does not delete MergeRequest::CommitsMetadata records' do
+        expect { destroy_project(project, user, {}) }.not_to change { MergeRequest::CommitsMetadata.count }
       end
     end
   end
@@ -201,7 +295,7 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
 
   context 'with running pipelines' do
     let!(:pipelines)               { create_list(:ci_pipeline, 3, :running, project: project) }
-    let(:destroy_pipeline_service) { double('DestroyPipelineService', execute: nil) }
+    let(:destroy_pipeline_service) { double('DestroyPipelineService', unsafe_execute: nil) }
 
     it 'bulks-fails with AbortPipelineService and then executes DestroyPipelineService for each pipelines' do
       allow(::Ci::DestroyPipelineService).to receive(:new).and_return(destroy_pipeline_service)
@@ -211,7 +305,7 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
         .with(project.all_pipelines, :project_deleted)
 
       pipelines.each do |pipeline|
-        expect(destroy_pipeline_service).to receive(:execute).with(pipeline)
+        expect(destroy_pipeline_service).to receive(:unsafe_execute).with(pipeline)
       end
 
       destroy_project(project, user, {})
@@ -271,7 +365,7 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
     before do
       allow(project.repository).to receive(:before_delete).and_raise(::Gitlab::Git::CommandError)
       allow(Gitlab::GitLogger).to receive(:warn).with(
-        class: Repositories::DestroyService.name,
+        class: ::Repositories::DestroyService.name,
         container_id: project.id,
         disk_path: project.disk_path,
         message: 'Gitlab::Git::CommandError').and_call_original
@@ -453,6 +547,61 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
         destroy_project(project, user)
       end
     end
+
+    describe 'tag protection rules handling' do
+      let_it_be_with_refind(:project) { create(:project, :repository, namespace: user.namespace) }
+
+      subject { destroy_project(project, user) }
+
+      context 'when there are tag protection rules' do
+        before_all do
+          create(:container_registry_protection_tag_rule,
+            project: project,
+            tag_name_pattern: 'xyz',
+            minimum_access_level_for_delete: Gitlab::Access::ADMIN
+          )
+
+          project.add_owner(user)
+          project.container_repositories << create(:container_repository)
+        end
+
+        context 'when there are registry tags' do
+          before do
+            stub_container_registry_tags(repository: project.full_path, tags: ['tag'])
+            allow_any_instance_of(described_class)
+              .to receive(:remove_legacy_registry_tags).and_return(true)
+          end
+
+          context 'when the current user is an admin', :enable_admin_mode do
+            let(:user) { build_stubbed(:admin) }
+
+            it { is_expected.to be true }
+          end
+
+          context 'when the current user role meets the minimum access level for delete' do
+            before_all do
+              project.container_registry_protection_tag_rules.first.update!(
+                minimum_access_level_for_delete: Gitlab::Access::OWNER
+              )
+            end
+
+            it { is_expected.to be true }
+          end
+
+          context 'when the current user role does not meet the minimum access level for delete' do
+            it { is_expected.to be false }
+          end
+        end
+
+        context 'when there are no registry tags' do
+          it { is_expected.to be true }
+        end
+      end
+
+      context 'when there are no tag protection rules' do
+        it { is_expected.to be true }
+      end
+    end
   end
 
   context 'for a forked project with LFS objects' do
@@ -526,7 +675,7 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
       # 3. Design repository
 
       it 'Repositories::DestroyService is called for existing repos' do
-        expect_next_instances_of(Repositories::DestroyService, 3) do |instance|
+        expect_next_instances_of(::Repositories::DestroyService, 3) do |instance|
           expect(instance).to receive(:execute).and_return(status: :success)
         end
 
@@ -536,7 +685,7 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
       context 'when the removal has errors' do
         using RSpec::Parameterized::TableSyntax
 
-        let(:mock_error) { instance_double(Repositories::DestroyService, execute: { message: 'foo', status: :error }) }
+        let(:mock_error) { instance_double(::Repositories::DestroyService, execute: { message: 'foo', status: :error }) }
         let(:project_repository) { project.repository }
         let(:wiki_repository) { project.wiki.repository }
         let(:design_repository) { project.design_repository }
@@ -549,8 +698,8 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
 
         with_them do
           before do
-            allow(Repositories::DestroyService).to receive(:new).with(anything).and_call_original
-            allow(Repositories::DestroyService).to receive(:new).with(repo).and_return(mock_error)
+            allow(::Repositories::DestroyService).to receive(:new).with(anything).and_call_original
+            allow(::Repositories::DestroyService).to receive(:new).with(repo).and_return(mock_error)
           end
 
           it 'raises correct error' do
@@ -645,6 +794,12 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
     end
   end
 
+  it 'builds the project webhook payload' do
+    expect(Gitlab::HookData::ProjectBuilder).to receive(:new).with(project).and_call_original
+
+    destroy_project(project, user)
+  end
+
   context 'when project has project bots' do
     let!(:project_bot) { create(:user, :project_bot, maintainer_of: project) }
 
@@ -703,7 +858,7 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
     end
   end
 
-  context 'associations destoyed in batches' do
+  context 'associations destroyed in batches' do
     let!(:merge_request) { create(:merge_request, source_project: project) }
     let!(:issue) { create(:issue, project: project) }
     let!(:label) { create(:label, project: project) }
@@ -724,6 +879,192 @@ RSpec.describe Projects::DestroyService, :aggregate_failures, :event_store_publi
       ].flatten
 
       expect(query_recorder.log).to include(*expected_queries)
+    end
+
+    context 'fails to destroy an association' do
+      let!(:pipeline) { create(:ci_pipeline, project: project) }
+      let!(:pipeline_artifact) { create(:ci_pipeline_artifact, pipeline: pipeline) }
+
+      before do
+        destroy_pipeline_double = instance_double('::Ci::DestroyPipelineService')
+
+        allow(::Ci::DestroyPipelineService)
+          .to receive(:new)
+          .and_return(destroy_pipeline_double)
+
+        allow(destroy_pipeline_double).to receive(:unsafe_execute)
+      end
+
+      it 'raises a clear error message about the failed deletion' do
+        expect(destroy_project(project, user)).to be_falsey
+        expect(project.delete_error).to eq 'Cannot delete record because dependent pipeline artifacts exist'
+      end
+    end
+  end
+
+  describe '#delete_commit_statuses' do
+    let(:service) { described_class.new(project, user, {}) }
+    let(:batch_size) { described_class::BATCH_SIZE }
+
+    context 'when there are no commit statuses' do
+      it 'does not delete anything and logs zero count' do
+        expect(Gitlab::AppLogger).to receive(:info).with(
+          class: described_class.name,
+          project_id: project.id,
+          message: 'leftover commit statuses',
+          orphaned_commit_status_count: 0
+        )
+
+        expect { service.send(:delete_commit_statuses) }.not_to change(::CommitStatus, :count)
+      end
+    end
+
+    context 'when there are fewer commit statuses than the batch size' do
+      before do
+        create_list(:commit_status, 2, project: project)
+      end
+
+      it 'deletes all statuses in a single batch and logs the count' do
+        expect(Gitlab::AppLogger).to receive(:info).with(
+          class: described_class.name,
+          project_id: project.id,
+          message: 'leftover commit statuses',
+          orphaned_commit_status_count: 2
+        )
+
+        expect { service.send(:delete_commit_statuses) }
+          .to change { CommitStatus.for_project(project).count }.from(2).to(0)
+      end
+    end
+
+    context 'when there are more commit statuses than the batch size' do
+      before do
+        stub_const("#{described_class}::BATCH_SIZE", 2)
+        create_list(:commit_status, 3, project: project)
+      end
+
+      it 'deletes statuses in multiple batches and logs the total count' do
+        expect(Gitlab::AppLogger).to receive(:info).with(
+          class: described_class.name,
+          project_id: project.id,
+          message: 'leftover commit statuses',
+          orphaned_commit_status_count: 3
+        )
+
+        expect { service.send(:delete_commit_statuses) }
+          .to change { CommitStatus.for_project(project).count }.from(3).to(0)
+      end
+    end
+  end
+
+  describe '#delete_environments' do
+    let(:service) { described_class.new(project, user, {}) }
+    let(:batch_size) { described_class::BATCH_SIZE }
+
+    context 'when there are no environments' do
+      it 'does not delete anything and logs zero count' do
+        expect(Gitlab::AppLogger).to receive(:info).with(
+          class: described_class.name,
+          project_id: project.id,
+          message: 'Deleting environments completed',
+          deleted_environment_count: 0
+        )
+
+        expect { service.send(:delete_environments) }.not_to change(Environment, :count)
+      end
+    end
+
+    context 'when there are fewer environments than the batch size' do
+      before do
+        create_list(:environment, 2, project: project)
+      end
+
+      it 'deletes all environments in a single batch and logs the count' do
+        expect(Gitlab::AppLogger).to receive(:info).with(
+          class: described_class.name,
+          project_id: project.id,
+          message: 'Deleting environments completed',
+          deleted_environment_count: 2
+        )
+
+        expect { service.send(:delete_environments) }
+          .to change { Environment.for_project(project).count }.from(2).to(0)
+      end
+    end
+
+    context 'when there are more environments than the batch size' do
+      before do
+        stub_const("#{described_class}::BATCH_SIZE", 2)
+        create_list(:environment, 3, project: project)
+      end
+
+      it 'deletes environments in multiple batches and logs the total count' do
+        expect(Gitlab::AppLogger).to receive(:info).with(
+          class: described_class.name,
+          project_id: project.id,
+          message: 'Deleting environments completed',
+          deleted_environment_count: 3
+        )
+
+        expect { service.send(:delete_environments) }
+          .to change { Environment.for_project(project).count }.from(3).to(0)
+      end
+    end
+  end
+
+  describe '#destroy_orphaned_ci_job_artifacts!' do
+    let(:service) { described_class.new(project, user) }
+
+    context 'when there are no orphaned job artifacts' do
+      let(:no_job_artifacts) { Ci::JobArtifact.none }
+
+      before do
+        allow(Ci::JobArtifact).to receive(:for_project).with(project).and_return(no_job_artifacts)
+      end
+
+      it 'returns early without performing any destroy operations' do
+        expect(no_job_artifacts).not_to receive(:begin_fast_destroy)
+        expect(no_job_artifacts).not_to receive(:finalize_fast_destroy)
+
+        service.send(:destroy_orphaned_ci_job_artifacts!)
+      end
+    end
+
+    context 'when there are orphaned job artifacts' do
+      let(:job) { create(:ci_build, project: project) }
+      let(:orphaned_job_artifact) { create(:ci_job_artifact, job: job, project: project) }
+
+      before do
+        orphaned_job_artifact.connection.transaction do
+          orphaned_job_artifact.connection.execute(<<~SQL)
+            SET session_replication_role = 'replica';
+          SQL
+
+          orphaned_job_artifact.update_column(:job_id, non_existing_record_id)
+
+          orphaned_job_artifact.connection.execute(<<~SQL)
+            SET session_replication_role = 'origin';
+          SQL
+        end
+      end
+
+      it 'destroys orphaned artifacts' do
+        expect { destroy_project(project, user) }.to change { Ci::JobArtifact.count }.by(-1)
+
+        expect(Ci::JobArtifact.exists?(orphaned_job_artifact.id)).to be_falsey
+      end
+
+      it 'logs that the artifacts have been destroyed' do
+        allow(Gitlab::AppLogger).to receive(:info) # Logged during artifact deletion
+
+        expect(Gitlab::AppLogger).to receive(:info).with(
+          class: described_class.name,
+          project_id: project.id,
+          message: 'Orphaned CI job artifacts deleted'
+        )
+
+        service.send(:destroy_orphaned_ci_job_artifacts!)
+      end
     end
   end
 

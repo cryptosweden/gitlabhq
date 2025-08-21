@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Plan', :smoke, :health_check, product_group: :project_management do
+  RSpec.describe 'Plan', :smoke, :health_check, feature_category: :team_planning do
     describe 'Issue creation' do
       let(:project) do
         Resource::Project.fabricate_via_api_unless_fips! do |project|
@@ -9,10 +9,6 @@ module QA
           project.personal_namespace = Runtime::User.username
           project.description = nil
         end
-      end
-
-      let(:closed_issue) do
-        Resource::Issue.fabricate_via_api_unless_fips! { |issue| issue.project = project }
       end
 
       before do
@@ -24,12 +20,12 @@ module QA
         :mobile,
         testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347989'
       ) do
-        issue = Resource::Issue.fabricate_via_browser_ui! { |issue| issue.project = project }
+        resource, index_page_type = create_new_issue
 
-        Page::Project::Menu.perform(&:go_to_issues)
+        Page::Project::Menu.perform(&:go_to_work_items)
 
-        Page::Project::Issue::Index.perform do |index|
-          expect(index).to have_issue(issue)
+        index_page_type.perform do |index|
+          expect(index).to have_issue(resource)
         end
       end
 
@@ -38,22 +34,39 @@ module QA
         :mobile,
         testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347967'
       ) do
-        closed_issue.visit!
+        resource, index_page_type, show_page_type = create_new_issue
+        resource.visit!
 
-        Page::Project::Issue::Show.perform do |issue_page|
+        show_page_type.perform do |issue_page|
           issue_page.click_close_issue_button
 
           expect(issue_page).to have_reopen_issue_button
         end
 
-        Page::Project::Menu.perform(&:go_to_issues)
+        Page::Project::Menu.perform(&:go_to_work_items)
 
-        Page::Project::Issue::Index.perform do |index|
-          expect(index).not_to have_issue(closed_issue)
+        index_page_type.perform do |index|
+          expect(index).not_to have_issue(resource)
 
           index.click_closed_issues_tab
 
-          expect(index).to have_issue(closed_issue)
+          expect(index).to have_issue(resource)
+        end
+      end
+
+      # See https://gitlab.com/gitlab-org/gitlab/-/issues/526755
+      it(
+        'creates an issue and updates the description',
+        testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/533855'
+      ) do
+        resource, _, show_page_type = create_new_issue
+        updated_description = "Updated issue description"
+
+        resource.visit!
+        show_page_type.perform do |show|
+          show.edit_description(updated_description)
+
+          expect(show).to have_description(updated_description)
         end
       end
 
@@ -61,24 +74,34 @@ module QA
         let(:png_file_name) { 'testfile.png' }
         let(:file_to_attach) { Runtime::Path.fixture('designs', png_file_name) }
 
-        before do
-          Resource::Issue.fabricate_via_api_unless_fips! { |issue| issue.project = project }.visit!
-        end
-
-        # The following example is excluded from running in `review-qa-smoke` job
-        # as it proved to be flaky when running against Review App
-        # See https://gitlab.com/gitlab-com/www-gitlab-com/-/issues/11568#note_621999351
         it(
           'comments on an issue with an attachment',
-          testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347946',
-          except: { job: 'review-qa-*' }
+          testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347946'
         ) do
-          Page::Project::Issue::Show.perform do |show|
+          resource, _, show_page_type = create_new_issue
+          resource.visit!
+          show_page_type.perform do |show|
             show.comment('See attached image for scale', attachment: file_to_attach)
 
             expect(show.noteable_note_item.find("img[src$='#{png_file_name}']")).to be_visible
           end
         end
+      end
+
+      def create_new_issue
+        project.visit!
+        Page::Project::Menu.perform(&:go_to_new_issue)
+        work_item_view_enabled = Page::Project::Issue::Show.perform(&:work_item_enabled?)
+        index_page_type = Page::Project::Issue::Index
+        show_page_type = Page::Project::WorkItem::Show
+
+        resource = if work_item_view_enabled
+                     Resource::WorkItem.fabricate_via_browser_ui! { |work_item| work_item.project = project }
+                   else
+                     Resource::Issue.fabricate_via_browser_ui! { |issue| issue.project = project }
+                   end
+
+        [resource, index_page_type, show_page_type]
       end
     end
   end

@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Axios
 ---
-
-# Axios
 
 In older parts of our codebase using the REST API, we used [Axios](https://github.com/axios/axios) to communicate with the server, but you should not use Axios in new applications. Instead rely on `apollo-client` to query the GraphQL API. For more details, see [our GraphQL documentation](graphql.md).
 

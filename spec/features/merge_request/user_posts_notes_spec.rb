@@ -12,7 +12,7 @@ RSpec.describe 'Merge request > User posts notes', :js, feature_category: :code_
   end
 
   let!(:note) do
-    create(:note_on_merge_request, :with_attachment, noteable: merge_request, project: project)
+    create(:note_on_merge_request, noteable: merge_request, project: project)
   end
 
   before do
@@ -175,7 +175,7 @@ RSpec.describe 'Merge request > User posts notes', :js, feature_category: :code_
       it 'allows using markdown buttons after saving a note and then trying to edit it again' do
         page.within('.current-note-edit-form') do
           fill_in 'note[note]', with: 'This is the new content'
-          find('.btn-confirm').click
+          find_by_testid('reply-comment-button').click
         end
 
         find('.note').hover
@@ -193,7 +193,7 @@ RSpec.describe 'Merge request > User posts notes', :js, feature_category: :code_
       it 'appends the edited at time to the note' do
         page.within('.current-note-edit-form') do
           fill_in 'note[note]', with: 'Some new content'
-          find('.btn-confirm').click
+          find_by_testid('reply-comment-button').click
         end
 
         page.within("#note_#{note.id}") do
@@ -201,29 +201,6 @@ RSpec.describe 'Merge request > User posts notes', :js, feature_category: :code_
           expect(find('.note_edited_ago').text)
             .to match(/just now/)
         end
-      end
-    end
-
-    describe 'deleting attachment on legacy diff note' do
-      before do
-        find('.note').hover
-
-        find('.js-note-edit').click
-      end
-
-      # TODO: https://gitlab.com/gitlab-org/gitlab-foss/issues/48034
-      xit 'shows the delete link' do
-        page.within('.note-attachment') do
-          is_expected.to have_css('.js-note-attachment-delete')
-        end
-      end
-
-      # TODO: https://gitlab.com/gitlab-org/gitlab-foss/issues/48034
-      xit 'removes the attachment div and resets the edit form' do
-        accept_confirm { find('.js-note-attachment-delete').click }
-        is_expected.not_to have_css('.note-attachment')
-        is_expected.not_to have_css('.current-note-edit-form')
-        wait_for_requests
       end
     end
   end

@@ -1,5 +1,5 @@
 import Vue from 'vue';
-import { GlAlert, GlButton, GlLoadingIcon, GlSprintf } from '@gitlab/ui';
+import { GlAlert, GlButton, GlLoadingIcon, GlSprintf, GlToast } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import VueApollo from 'vue-apollo';
 import createMockApollo from 'helpers/mock_apollo_helper';
@@ -23,10 +23,9 @@ import {
   EDITOR_APP_STATUS_LOADING,
 } from '~/ci/pipeline_editor/constants';
 import getBlobContent from '~/ci/pipeline_editor/graphql/queries/blob_content.query.graphql';
-import getCiConfigData from '~/ci/pipeline_editor/graphql/queries/ci_config.query.graphql';
+import ciLintMutation from '~/ci/pipeline_editor/graphql/mutations/ci_lint.mutation.graphql';
 import getTemplate from '~/ci/pipeline_editor/graphql/queries/get_starter_template.query.graphql';
 import getLatestCommitShaQuery from '~/ci/pipeline_editor/graphql/queries/latest_commit_sha.query.graphql';
-import getPipelineQuery from '~/ci/pipeline_editor/graphql/queries/pipeline.query.graphql';
 import getCurrentBranch from '~/ci/pipeline_editor/graphql/queries/client/current_branch.query.graphql';
 import getAppStatus from '~/ci/pipeline_editor/graphql/queries/client/app_status.query.graphql';
 
@@ -35,12 +34,11 @@ import PipelineEditorHome from '~/ci/pipeline_editor/pipeline_editor_home.vue';
 
 import {
   mockCiConfigPath,
-  mockCiConfigQueryResponse,
+  mockCiLintMutationResponse,
   mockBlobContentQueryResponse,
   mockBlobContentQueryResponseNoCiFile,
   mockCiYml,
   mockCiTemplateQueryResponse,
-  mockCommitSha,
   mockCommitShaResults,
   mockDefaultBranch,
   mockEmptyCommitShaResults,
@@ -62,15 +60,17 @@ const defaultProvide = {
   usesExternalConfig: false,
 };
 
+Vue.use(GlToast);
+
 describe('Pipeline editor app component', () => {
   let wrapper;
 
   let mockApollo;
   let mockBlobContentData;
-  let mockCiConfigData;
+  let mockCiLintData;
   let mockGetTemplate;
   let mockLatestCommitShaQuery;
-  let mockPipelineQuery;
+  const showToastMock = jest.fn();
 
   const createComponent = ({ options = {}, provide = {}, stubs = {} } = {}) => {
     wrapper = shallowMount(PipelineEditorApp, {
@@ -89,10 +89,9 @@ describe('Pipeline editor app component', () => {
 
     const handlers = [
       [getBlobContent, mockBlobContentData],
-      [getCiConfigData, mockCiConfigData],
+      [ciLintMutation, mockCiLintData],
       [getTemplate, mockGetTemplate],
       [getLatestCommitShaQuery, mockLatestCommitShaQuery],
-      [getPipelineQuery, mockPipelineQuery],
     ];
 
     mockApollo = createMockApollo(handlers, resolvers);
@@ -123,7 +122,11 @@ describe('Pipeline editor app component', () => {
     });
 
     const options = {
-      mocks: {},
+      mocks: {
+        $toast: {
+          show: showToastMock,
+        },
+      },
       apolloProvider: mockApollo,
     };
 
@@ -141,10 +144,9 @@ describe('Pipeline editor app component', () => {
 
   beforeEach(() => {
     mockBlobContentData = jest.fn();
-    mockCiConfigData = jest.fn();
+    mockCiLintData = jest.fn();
     mockGetTemplate = jest.fn();
     mockLatestCommitShaQuery = jest.fn();
-    mockPipelineQuery = jest.fn();
   });
 
   describe('loading state', () => {
@@ -187,8 +189,8 @@ describe('Pipeline editor app component', () => {
         expect(mockBlobContentData).toHaveBeenCalled();
       });
 
-      it('does not call ciConfigData', () => {
-        expect(mockCiConfigData).not.toHaveBeenCalled();
+      it('does not call ciLint mutation', () => {
+        expect(mockCiLintData).not.toHaveBeenCalled();
       });
     });
 
@@ -199,8 +201,8 @@ describe('Pipeline editor app component', () => {
         await createComponentWithApollo();
       });
 
-      it('calls ciConfigData', () => {
-        expect(mockCiConfigData).toHaveBeenCalled();
+      it('calls ciLint mutation', () => {
+        expect(mockCiLintData).toHaveBeenCalled();
       });
     });
   });
@@ -208,7 +210,7 @@ describe('Pipeline editor app component', () => {
   describe('when queries are called', () => {
     beforeEach(() => {
       mockBlobContentData.mockResolvedValue(mockBlobContentQueryResponse);
-      mockCiConfigData.mockResolvedValue(mockCiConfigQueryResponse);
+      mockCiLintData.mockResolvedValue(mockCiLintMutationResponse);
       mockLatestCommitShaQuery.mockResolvedValue(mockCommitShaResults);
     });
 
@@ -241,15 +243,15 @@ describe('Pipeline editor app component', () => {
         expect(findAlert().exists()).toBe(false);
       });
 
-      it('ci config query is called with correct variables', () => {
-        expect(mockCiConfigData).toHaveBeenCalledWith({
+      it('ci lint mutation is called with correct variables', () => {
+        expect(mockCiLintData).toHaveBeenCalledWith({
           content: mockCiYml,
           projectPath: mockProjectFullPath,
-          sha: mockCommitSha,
+          ref: mockDefaultBranch,
         });
       });
 
-      it('calls once and does not  start poll for the commit sha', () => {
+      it('calls once and does not start poll for the commit sha', () => {
         expect(mockLatestCommitShaQuery).toHaveBeenCalledTimes(1);
       });
     });
@@ -317,7 +319,7 @@ describe('Pipeline editor app component', () => {
 
     describe('when the lint query returns a 500 error', () => {
       beforeEach(async () => {
-        mockCiConfigData.mockRejectedValueOnce(new Error(HTTP_STATUS_INTERNAL_SERVER_ERROR));
+        mockCiLintData.mockRejectedValueOnce(new Error(HTTP_STATUS_INTERNAL_SERVER_ERROR));
         await createComponentWithApollo({
           stubs: { PipelineEditorHome, PipelineEditorHeader, ValidationSegment },
         });
@@ -349,8 +351,8 @@ describe('Pipeline editor app component', () => {
           findEditorHome().vm.$emit('commit', { type: COMMIT_SUCCESS });
         });
 
-        it('shows a confirmation message', () => {
-          expect(findAlert().text()).toBe(updateSuccessMessage);
+        it('shows a toast message for successful commit type', () => {
+          expect(showToastMock).toHaveBeenCalledWith(updateSuccessMessage);
         });
 
         it('scrolls to the top of the page to bring attention to the confirmation message', () => {
@@ -382,8 +384,24 @@ describe('Pipeline editor app component', () => {
         });
       });
 
+      describe('and the commit mutation succeeds with unknown success commit type', () => {
+        const defaultSuccessMessage = 'Your action succeeded.';
+
+        beforeEach(async () => {
+          await createComponentWithApollo({ stubs: { PipelineEditorMessages } });
+
+          findEditorHome().vm.$emit('commit', { type: 'unknown' });
+        });
+
+        it('shows a toast message for unknown successful commit type', () => {
+          expect(showToastMock).toHaveBeenCalledWith(defaultSuccessMessage);
+        });
+      });
+
       describe('when the commit succeeds with a redirect', () => {
         const newBranch = 'new-branch';
+        const updateSuccessWithRedirectMessage =
+          'Your changes have been successfully committed. Now redirecting to the new merge request page.';
 
         beforeEach(async () => {
           await createComponentWithApollo({ stubs: { PipelineEditorMessages } });
@@ -392,6 +410,10 @@ describe('Pipeline editor app component', () => {
             type: COMMIT_SUCCESS_WITH_REDIRECT,
             params: { sourceBranch: newBranch, targetBranch: mockDefaultBranch },
           });
+        });
+
+        it('shows a toast message for successful commit with redirect type', () => {
+          expect(showToastMock).toHaveBeenCalledWith(updateSuccessWithRedirectMessage);
         });
 
         it('redirects to the merge request page with source and target branches', () => {
@@ -457,7 +479,7 @@ describe('Pipeline editor app component', () => {
   describe('when refetching content', () => {
     beforeEach(() => {
       mockBlobContentData.mockResolvedValue(mockBlobContentQueryResponse);
-      mockCiConfigData.mockResolvedValue(mockCiConfigQueryResponse);
+      mockCiLintData.mockResolvedValue(mockCiLintMutationResponse);
       mockLatestCommitShaQuery.mockResolvedValue(mockCommitShaResults);
     });
 
@@ -492,7 +514,7 @@ describe('Pipeline editor app component', () => {
 
     beforeEach(() => {
       mockBlobContentData.mockResolvedValue(mockBlobContentQueryResponse);
-      mockCiConfigData.mockResolvedValue(mockCiConfigQueryResponse);
+      mockCiLintData.mockResolvedValue(mockCiLintMutationResponse);
       mockLatestCommitShaQuery.mockResolvedValue(mockCommitShaResults);
       mockGetTemplate.mockResolvedValue(mockCiTemplateQueryResponse);
       setWindowLocation('?template=Android');
@@ -523,7 +545,7 @@ describe('Pipeline editor app component', () => {
     beforeEach(() => {
       setWindowLocation('?add_new_config_file=true');
 
-      mockCiConfigData.mockResolvedValue(mockCiConfigQueryResponse);
+      mockCiLintData.mockResolvedValue(mockCiLintMutationResponse);
     });
 
     afterEach(() => {

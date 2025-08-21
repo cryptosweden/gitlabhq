@@ -22,7 +22,7 @@ export const EVENT_DETAILS = {
     body: s__('ClusterAgents|Agent %{strongStart}connected%{strongEnd}'),
     titleIcon: {
       name: 'status-success',
-      class: 'gl-text-green-500',
+      class: 'gl-text-success',
     },
   },
   agent_disconnected: {
@@ -31,7 +31,7 @@ export const EVENT_DETAILS = {
     body: s__('ClusterAgents|Agent %{strongStart}disconnected%{strongEnd}'),
     titleIcon: {
       name: 'severity-critical',
-      class: 'gl-text-red-800',
+      class: 'gl-text-danger',
     },
   },
 };
@@ -45,16 +45,16 @@ export const EVENT_ACTIONS_CLICK = 'click_button';
 
 export const TOKEN_NAME_LIMIT = 255;
 
-export const REVOKE_TOKEN_MODAL_ID = 'revoke-token-%{tokenName}';
+export const REVOKE_TOKEN_MODAL_ID = 'revoke-token-%{tokenId}';
 
 export const INTEGRATION_STATUS_VALID_TOKEN = {
   icon: 'status-success',
-  iconClass: 'gl-text-green-500',
+  iconClass: 'gl-text-success',
   text: s__('ClusterAgents|Valid access token'),
 };
 export const INTEGRATION_STATUS_NO_TOKEN = {
   icon: 'status-alert',
-  iconClass: 'gl-text-red-500',
+  iconClass: 'gl-text-danger',
   text: s__('ClusterAgents|No agent access token'),
 };
 

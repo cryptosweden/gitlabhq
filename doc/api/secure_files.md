@@ -1,25 +1,24 @@
 ---
-stage: Verify
+stage: Software Supply Chain Security
 group: Pipeline Security
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Project-level Secure Files API
 ---
 
-# Project-level Secure Files API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/350748) in GitLab 15.7. Feature flag `ci_secure_files` removed.
+{{< /details >}}
 
-This feature is part of [Mobile DevOps](../ci/mobile_devops.md) developed by [GitLab Incubation Engineering](https://handbook.gitlab.com/handbook/engineering/development/incubation/).
-The feature is still in development, but you can:
+{{< history >}}
 
-- [Request a feature](https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/feedback/-/issues/new?issuable_template=feature_request).
-- [Report a bug](https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/feedback/-/issues/new?issuable_template=report_bug).
-- [Share feedback](https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/feedback/-/issues/new?issuable_template=general_feedback).
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/350748) in GitLab 15.7. Feature flag `ci_secure_files` removed.
 
-You can securely store up to 100 files for use in CI/CD pipelines as secure files. These files are stored securely outside of your project's repository and are not version controlled. It is safe to store sensitive information in these files. Secure files support both plain text and binary file types but must be 5 MB or less.
+{{< /history >}}
+
+Use this API to manage [secure files](../ci/secure_files/_index.md) for a project.
 
 ## List project secure files
 
@@ -33,12 +32,13 @@ Supported attributes:
 
 | Attribute    | Type           | Required | Description |
 |--------------|----------------|----------|-------------|
-| `project_id` | integer/string | Yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `project_id` | integer/string | Yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/secure_files"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/secure_files"
 ```
 
 Example response:
@@ -95,12 +95,13 @@ Supported attributes:
 | Attribute    | Type           | Required | Description |
 |--------------|----------------|----------|-------------|
 | `id`         | integer        | Yes      | The ID of a secure file. |
-| `project_id` | integer/string | Yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `project_id` | integer/string | Yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/secure_files/1"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/secure_files/1"
 ```
 
 Example response:
@@ -131,13 +132,16 @@ Supported attributes:
 |-----------------|----------------|----------|-------------|
 | `file`          | file           | Yes      | The file being uploaded (5 MB limit). |
 | `name`          | string         | Yes      | The name of the file being uploaded. The filename must be unique in the project. |
-| `project_id`    | integer/string | Yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `project_id`    | integer/string | Yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 
 Example request:
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
-     "https://gitlab.example.com/api/v4/projects/1/secure_files"  --form "name=myfile.jks" --form "file=@/path/to/file/myfile.jks"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/secure_files" \
+  --form "name=myfile.jks" \
+  --form "file=@/path/to/file/myfile.jks"
 ```
 
 Example response:
@@ -167,12 +171,15 @@ Supported attributes:
 | Attribute    | Type           | Required | Description |
 |--------------|----------------|----------|-------------|
 | `id`         | integer        | Yes      | The ID of a secure file. |
-| `project_id` | integer/string | Yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `project_id` | integer/string | Yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 
 Example request:
 
 ```shell
-curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" https://gitlab.example.com/api/v4/projects/1/secure_files/1/download --output myfile.jks
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/secure_files/1/download" \
+  --output myfile.jks
 ```
 
 ## Remove secure file
@@ -188,10 +195,12 @@ Supported attributes:
 | Attribute    | Type           | Required | Description |
 |--------------|----------------|----------|-------------|
 | `id`         | integer        | Yes      | The ID of a secure file. |
-| `project_id` | integer/string | Yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `project_id` | integer/string | Yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 
 Example request:
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/secure_files/1"
+curl --request DELETE \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/secure_files/1"
 ```

@@ -4,17 +4,20 @@ module WorkItems
   class WidgetDefinition < ApplicationRecord
     self.table_name = 'work_item_widget_definitions'
 
-    belongs_to :namespace, optional: true
     belongs_to :work_item_type, class_name: 'WorkItems::Type', inverse_of: :widget_definitions
 
     validates :name, presence: true
-    validates :name, uniqueness: { case_sensitive: false, scope: [:namespace_id, :work_item_type_id] }
+    validates :name, custom_uniqueness: { unique_sql: 'TRIM(BOTH FROM lower(?))', scope: :work_item_type_id }
     validates :name, length: { maximum: 255 }
 
-    scope :enabled, -> { where(disabled: false) }
-    scope :global, -> { where(namespace: nil) }
+    validates :widget_options, if: :weight?,
+      json_schema: { filename: 'work_item_weight_widget_options', hash_conversion: true }
+    validates :widget_options, absence: true, unless: :weight?
 
-    enum widget_type: {
+    scope :enabled, -> { where(disabled: false) }
+    scope :by_enabled_widget_type, ->(widget_type) { enabled.where(widget_type: widget_type) }
+
+    enum :widget_type, {
       assignees: 0,
       description: 1,
       hierarchy: 2,
@@ -26,7 +29,7 @@ module WorkItems
       weight: 8, # EE-only
       iteration: 9, # EE-only
       progress: 10, # EE-only
-      status: 11, # EE-only
+      verification_status: 11, # EE-only
       requirement_legacy: 12, # EE-only
       test_reports: 13, # EE-only
       notifications: 14,
@@ -34,15 +37,23 @@ module WorkItems
       award_emoji: 16,
       linked_items: 17,
       color: 18, # EE-only
-      rolledup_dates: 19, # EE-only
       participants: 20,
       time_tracking: 21,
       designs: 22,
-      development: 23
+      development: 23,
+      crm_contacts: 24,
+      email_participants: 25,
+      status: 26, # EE-only
+      linked_resources: 27,
+      custom_fields: 28, # EE-only
+      error_tracking: 29,
+      vulnerabilities: 30 # EE-only
     }
 
+    attribute :widget_options, ::Gitlab::Database::Type::IndifferentJsonb.new
+
     def self.available_widgets
-      global.enabled.filter_map(&:widget_class).uniq
+      enabled.filter_map(&:widget_class).uniq
     end
 
     def self.widget_classes
@@ -59,6 +70,10 @@ module WorkItems
       WorkItems::Widgets.const_get(widget_type.camelize, false)
     rescue NameError
       nil
+    end
+
+    def build_widget(work_item)
+      widget_class.new(work_item, widget_definition: self)
     end
   end
 end

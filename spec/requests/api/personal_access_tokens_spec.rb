@@ -57,6 +57,26 @@ RSpec.describe API::PersonalAccessTokens, :aggregate_failures, feature_category:
           expect(json_response.first['user_id']).to eq(token.user.id)
           expect(json_response.last['id']).to eq(token_impersonated.id)
         end
+
+        context 'validations for user_id parameter' do
+          let_it_be(:user) { create(:user) }
+          let_it_be(:admin_token) { create(:personal_access_token, :admin_mode, user: current_user) }
+          let_it_be(:user_token) { create(:personal_access_token, user: user) }
+
+          it 'returns 404 if user_id is provided but does not exist' do
+            get api(path, current_user, admin_mode: true), params: { user_id: non_existing_record_id }
+
+            expect(response).to have_gitlab_http_status(:not_found)
+            expect(json_response['message']).to eq("404 Not Found")
+          end
+
+          it 'returns 404 if user_id is explicitly blank' do
+            get api(path, current_user, admin_mode: true), params: { user_id: '' }
+
+            expect(response).to have_gitlab_http_status(:not_found)
+            expect(json_response['message']).to eq("404 Not Found")
+          end
+        end
       end
 
       context 'filter with revoked parameter' do
@@ -160,14 +180,44 @@ RSpec.describe API::PersonalAccessTokens, :aggregate_failures, feature_category:
         end
       end
 
+      context 'filter with expires parameter' do
+        let_it_be(:token1) { create(:personal_access_token, expires_at: Date.new(2022, 01, 01)) }
+
+        context 'test expires_before' do
+          where(:expires_at, :status, :result_count, :result) do
+            '2022-01-02'          | :ok          | 1 | lazy { [token1.id] }
+            '2022-01-01'          | :ok          | 0 | lazy { [] }
+            '2022-01-01T12:30:24' | :ok          | 0 | lazy { [] }
+            'asdf'                | :bad_request | 1 | { "error" => "expires_before is invalid" }
+          end
+
+          with_them do
+            it_behaves_like 'response as expected', expires_before: params[:expires_at]
+          end
+        end
+
+        context 'test expires_after' do
+          where(:expires_at, :status, :result_count, :result) do
+            '2022-01-03'            | :ok          | 1 | lazy { [current_users_token.id] }
+            '2022-01-01'            | :ok          | 2 | lazy { [token1.id, current_users_token.id] }
+            '2022-01-01T12:30:26'   | :ok          | 2 | lazy { [token1.id, current_users_token.id] }
+            (DateTime.now + 1).to_s | :ok          | 1 | lazy { [current_users_token.id] }
+            'asdf'                  | :bad_request | 1 | { "error" => "expires_after is invalid" }
+          end
+
+          with_them do
+            it_behaves_like 'response as expected', expires_after: params[:expires_at]
+          end
+        end
+      end
+
       context 'filter with search parameter' do
         let_it_be(:token1) { create(:personal_access_token, name: 'test_1') }
         let_it_be(:token2) { create(:personal_access_token, name: 'test_2') }
-        let_it_be(:token3) { create(:personal_access_token, name: '') }
 
         where(:pattern, :status, :result_count, :result) do
           'test'   | :ok | 2 | lazy { [token1.id, token2.id] }
-          ''       | :ok | 4 | lazy { [token1.id, token2.id, token3.id, current_users_token.id] }
+          ''       | :ok | 3 | lazy { [token1.id, token2.id, current_users_token.id] }
           'test_1' | :ok | 1 | lazy { [token1.id] }
           'asdf'   | :ok | 0 | lazy { [] }
         end
@@ -214,7 +264,7 @@ RSpec.describe API::PersonalAccessTokens, :aggregate_failures, feature_category:
 
             expect(response).to have_gitlab_http_status(status)
 
-            expect(json_response.map { |pat| pat['id'] }).to include(*result) if status == :ok
+            expect(json_response.map { |pat| pat['id'] }).to include(*result) if status == :ok && !result.empty?
           end
         end
       end
@@ -237,7 +287,7 @@ RSpec.describe API::PersonalAccessTokens, :aggregate_failures, feature_category:
 
             expect(response).to have_gitlab_http_status(status)
 
-            expect(json_response.map { |pat| pat['id'] }).to include(*result) if status == :ok
+            expect(json_response.map { |pat| pat['id'] }).to include(*result) if status == :ok && !result.empty?
           end
         end
       end
@@ -254,6 +304,18 @@ RSpec.describe API::PersonalAccessTokens, :aggregate_failures, feature_category:
         expect(json_response.count).to eq(1)
         expect(json_response.map { |r| r['id'] }.uniq).to contain_exactly(current_users_token.id)
         expect(json_response.map { |r| r['user_id'] }.uniq).to contain_exactly(current_user.id)
+      end
+
+      context 'when a token is recently used from an IP' do
+        let(:request_ip_address) { '192.168.1.2' }
+
+        it 'returns IPs' do
+          get api("/personal_access_tokens/#{current_users_token.id}", personal_access_token: current_users_token),
+            headers: { 'REMOTE_ADDR' => request_ip_address }
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['last_used_ips']).to match_array([request_ip_address])
+        end
       end
 
       context 'filtered with user_id parameter' do
@@ -361,7 +423,6 @@ RSpec.describe API::PersonalAccessTokens, :aggregate_failures, feature_category:
       context 'filter with search parameter' do
         let_it_be(:token1) { create(:personal_access_token, name: 'test_1', user: current_user) }
         let_it_be(:token2) { create(:personal_access_token, name: 'test_1') }
-        let_it_be(:token3) { create(:personal_access_token, name: '') }
 
         where(:pattern, :status, :result_count, :result) do
           'test'   | :ok | 1 | lazy { [token1.id] }
@@ -428,6 +489,26 @@ RSpec.describe API::PersonalAccessTokens, :aggregate_failures, feature_category:
         expect(json_response['id']).to eq(user_token.id)
       end
 
+      context 'when a token is recently used from an IP' do
+        let(:request_ip_address) { '192.168.1.2' }
+
+        it 'returns IPs' do
+          get api(user_token_path, personal_access_token: user_token), headers: { 'REMOTE_ADDR' => request_ip_address }
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['last_used_ips']).to match_array([request_ip_address])
+        end
+      end
+
+      context 'when there is not an ip recently used' do
+        it 'does not return an ip' do
+          get api(user_token_path, current_user)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['last_used_ips']).to be_empty
+        end
+      end
+
       it 'fails to return other users PAT by id' do
         get api(other_users_path, current_user)
 
@@ -470,6 +551,22 @@ RSpec.describe API::PersonalAccessTokens, :aggregate_failures, feature_category:
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['token']).not_to eq(token.token)
         expect(json_response['expires_at']).to eq(expiry_date.to_s)
+      end
+    end
+
+    context 'when require_token_expiry is false' do
+      before do
+        stub_application_setting(require_personal_access_token_expiry: false)
+      end
+
+      context 'when expiry is not defined' do
+        it "rotates user's own token with no expiration", :freeze_time do
+          post(api(path, token.user))
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(json_response['token']).not_to eq(token.token)
+          expect(json_response['expires_at']).to be_nil
+        end
       end
     end
 

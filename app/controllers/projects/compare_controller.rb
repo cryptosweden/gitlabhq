@@ -7,6 +7,7 @@ class Projects::CompareController < Projects::ApplicationController
   include DiffHelper
   include RendersCommits
   include CompareHelper
+  include RapidDiffs::Resource
 
   # Authorize
   before_action :require_non_empty_project
@@ -34,7 +35,30 @@ class Projects::CompareController < Projects::ApplicationController
   def show
     apply_diff_view_cookie!
 
-    render locals: { pagination_params: params.permit(:page) }
+    if rapid_diffs_enabled?
+      @js_action_name = 'rapid_diffs'
+      @rapid_diffs_presenter = ::RapidDiffs::ComparePresenter.new(
+        compare,
+        diff_view,
+        diff_options,
+        compare_params
+      )
+      return render action: :rapid_diffs
+    end
+
+    respond_to do |format|
+      format.html do
+        render locals: { pagination_params: params.permit(:page) }
+      end
+
+      format.patch do
+        compare ? send_git_patch(source_project.repository, compare.diff_refs) : render_404
+      end
+
+      format.diff do
+        compare ? send_git_diff(source_project.repository, compare.diff_refs) : render_404
+      end
+    end
   end
 
   def diff_for_path
@@ -44,17 +68,14 @@ class Projects::CompareController < Projects::ApplicationController
   end
 
   def create
-    from_to_vars = {
-      from: compare_params[:from].presence,
-      to: compare_params[:to].presence,
-      from_project_id: compare_params[:from_project_id].presence,
-      straight: compare_params[:straight].presence
-    }
+    from_to_vars = build_from_to_vars
 
     if from_to_vars[:from].blank? || from_to_vars[:to].blank?
       flash[:alert] = "You must select a Source and a Target revision"
 
       redirect_to project_compare_index_path(source_project, from_to_vars)
+    elsif compare_params[:straight] == "true"
+      redirect_to project_compare_with_two_dots_path(source_project, from_to_vars)
     else
       redirect_to project_compare_path(source_project, from_to_vars)
     end
@@ -76,6 +97,14 @@ class Projects::CompareController < Projects::ApplicationController
   end
 
   private
+
+  def build_from_to_vars
+    {
+      from: compare_params[:from].presence,
+      to: compare_params[:to].presence,
+      from_project_id: compare_params[:from_project_id].presence
+    }
+  end
 
   def validate_refs!
     invalid = [head_ref, start_ref].filter { |ref| !valid_ref?(ref) }
@@ -146,14 +175,25 @@ class Projects::CompareController < Projects::ApplicationController
   end
 
   def define_diffs
+    return if rapid_diffs_enabled?
+
     @diffs = compare.present? ? compare.diffs(diff_options) : []
   end
 
   def define_environment
     if compare
-      environment_params = source_project.repository.branch_exists?(head_ref) ? { ref: head_ref } : { commit: compare.commit }
+      environment_params = if source_project.repository.branch_exists?(head_ref)
+                             { ref: head_ref }
+                           else
+                             { commit: compare.commit }
+                           end
+
       environment_params[:find_latest] = true
-      @environment = ::Environments::EnvironmentsByDeploymentsFinder.new(source_project, current_user, environment_params).execute.last
+      @environment = ::Environments::EnvironmentsByDeploymentsFinder.new(
+        source_project,
+        current_user,
+        environment_params
+      ).execute.last
     end
   end
 
@@ -169,6 +209,21 @@ class Projects::CompareController < Projects::ApplicationController
   # rubocop: enable CodeReuse/ActiveRecord
 
   def compare_params
-    @compare_params ||= params.permit(:from, :to, :from_project_id, :straight)
+    @compare_params ||= params.permit(:from, :to, :from_project_id, :straight, :to_project_id)
+  end
+
+  def diffs_resource(options = {})
+    compare&.diffs(diff_options.merge(options))
+  end
+
+  def rapid_diffs_force_disabled?
+    ::Feature.enabled?(:rapid_diffs_debug, current_user, type: :ops) &&
+      params.permit(:rapid_diffs_disabled)[:rapid_diffs_disabled] == 'true'
+  end
+
+  def rapid_diffs_enabled?
+    ::Feature.enabled?(:rapid_diffs_on_compare_show, current_user, type: :beta) &&
+      !rapid_diffs_force_disabled? &&
+      params.permit(:format)[:format].blank?
   end
 end

@@ -2,19 +2,26 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Deploy tokens API
 ---
 
-# Deploy Tokens API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+Use this API to interact with [deploy tokens](../user/project/deploy_tokens/_index.md).
 
 ## List all deploy tokens
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+{{< details >}}
+
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Get a list of all deploy tokens across the GitLab instance. This endpoint requires administrator access.
 
@@ -31,7 +38,8 @@ Parameters:
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/deploy_tokens"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/deploy_tokens"
 ```
 
 Example response:
@@ -70,13 +78,14 @@ Parameters:
 
 | Attribute      | Type           | Required               | Description |
 |:---------------|:---------------|:-----------------------|:------------|
-| `id`           | integer/string | Yes | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `id`           | integer/string | Yes | ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `active`       | boolean        | No | Limit by active status. |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deploy_tokens"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/deploy_tokens"
 ```
 
 Example response:
@@ -110,13 +119,14 @@ Parameters:
 
 | Attribute  | Type           | Required               | Description |
 | ---------- | -------------- | ---------------------- | ----------- |
-| `id`       | integer/string | Yes | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`       | integer/string | Yes | ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `token_id` | integer        | Yes | ID of the deploy token |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/deploy_tokens/1"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/deploy_tokens/1"
 ```
 
 Example response:
@@ -148,18 +158,20 @@ Parameters:
 
 | Attribute    | Type             | Required               | Description |
 | ------------ | ---------------- | ---------------------- | ----------- |
-| `id`         | integer/string   | Yes | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`         | integer/string   | Yes | ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `name`       | string           | Yes | New deploy token's name |
-| `scopes`     | array of strings | Yes | Indicates the deploy token scopes. Must be at least one of `read_repository`, `read_registry`, `write_registry`, `read_package_registry`, or `write_package_registry`. |
+| `scopes`     | array of strings | Yes | Indicates the deploy token scopes. Must be at least one of `read_repository`, `read_registry`, `write_registry`, `read_package_registry`, `write_package_registry`, `read_virtual_registry`, or `write_virtual_registry`. |
 | `expires_at` | datetime         | No | Expiration date for the deploy token. Does not expire if no value is provided. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
 | `username`   | string           | No | Username for deploy token. Default is `gitlab+deploy-token-{n}` |
 
 Example request:
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" --header "Content-Type: application/json" \
-     --data '{"name": "My deploy token", "expires_at": "2021-01-01", "username": "custom-user", "scopes": ["read_repository"]}' \
-     "https://gitlab.example.com/api/v4/projects/5/deploy_tokens/"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --header "Content-Type: application/json" \
+  --data '{"name": "My deploy token", "expires_at": "2021-01-01", "username": "custom-user", "scopes": ["read_repository"]}' \
+  --url "https://gitlab.example.com/api/v4/projects/5/deploy_tokens/"
 ```
 
 Example response:
@@ -191,14 +203,15 @@ Parameters:
 
 | Attribute  | Type           | Required               | Description |
 | ---------- | -------------- | ---------------------- | ----------- |
-| `id`       | integer/string | Yes | ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`       | integer/string | Yes | ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `token_id` | integer        | Yes | ID of the deploy token |
 
 Example request:
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" \
-    "https://gitlab.example.com/api/v4/projects/5/deploy_tokens/13"
+curl --request DELETE \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/5/deploy_tokens/13"
 ```
 
 ## Group deploy tokens
@@ -218,13 +231,14 @@ Parameters:
 
 | Attribute      | Type           | Required               | Description |
 |:---------------|:---------------|:-----------------------|:------------|
-| `id`           | integer/string | Yes | ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding). |
+| `id`           | integer/string | Yes | ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths). |
 | `active`       | boolean        | No | Limit by active status. |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/1/deploy_tokens"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url"https://gitlab.example.com/api/v4/groups/1/deploy_tokens"
 ```
 
 Example response:
@@ -258,13 +272,14 @@ Parameters:
 
 | Attribute   | Type           | Required               | Description |
 | ----------- | -------------- | ---------------------- | ----------- |
-| `id`        | integer/string | Yes | ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`        | integer/string | Yes | ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths) |
 | `token_id`  | integer        | Yes | ID of the deploy token |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/1/deploy_tokens/1"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/1/deploy_tokens/1"
 ```
 
 Example response:
@@ -296,7 +311,7 @@ Parameters:
 
 | Attribute    | Type | Required  | Description |
 | ------------ | ---- | --------- | ----------- |
-| `id`         | integer/string   | Yes | ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`         | integer/string   | Yes | ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths) |
 | `name`       | string           | Yes | New deploy token's name |
 | `scopes`     | array of strings | Yes | Indicates the deploy token scopes. Must be at least one of `read_repository`, `read_registry`, `write_registry`, `read_package_registry`, or `write_package_registry`. |
 | `expires_at` | datetime         | No | Expiration date for the deploy token. Does not expire if no value is provided. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`) |
@@ -305,9 +320,11 @@ Parameters:
 Example request:
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" --header "Content-Type: application/json" \
-     --data '{"name": "My deploy token", "expires_at": "2021-01-01", "username": "custom-user", "scopes": ["read_repository"]}' \
-     "https://gitlab.example.com/api/v4/groups/5/deploy_tokens/"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --header "Content-Type: application/json" \
+  --data '{"name": "My deploy token", "expires_at": "2021-01-01", "username": "custom-user", "scopes": ["read_repository"]}' \
+  --url "https://gitlab.example.com/api/v4/groups/5/deploy_tokens/"
 ```
 
 Example response:
@@ -339,11 +356,13 @@ Parameters:
 
 | Attribute   | Type           | Required               | Description |
 | ----------- | -------------- | ---------------------- | ----------- |
-| `id`        | integer/string | Yes | ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`        | integer/string | Yes | ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths) |
 | `token_id`  | integer        | Yes | ID of the deploy token |
 
 Example request:
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/5/deploy_tokens/13"
+curl --request DELETE \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/5/deploy_tokens/13"
 ```

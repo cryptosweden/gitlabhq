@@ -1,26 +1,27 @@
 <script>
-import { GlIcon } from '@gitlab/ui';
-import { WORK_ITEM_ROUTE_NAME } from '../../../constants';
+import { GlButton } from '@gitlab/ui';
+import { ROUTES } from '../../../constants';
 
 export default {
   components: {
-    GlIcon,
+    GlButton,
   },
-  WORK_ITEM_ROUTE_NAME,
+  ROUTES,
 };
 </script>
 
 <template>
   <div class="gl-border-l">
-    <router-link
+    <gl-button
+      :aria-label="s__('DesignManagement|Go back to designs')"
+      data-testid="close-design"
+      class="gl-mx-3"
+      icon="close"
+      category="tertiary"
       :to="{
-        name: $options.WORK_ITEM_ROUTE_NAME,
+        name: $options.ROUTES.workItem,
         query: $route.query,
       }"
-      :aria-label="s__('DesignManagement|Go back to designs')"
-      class="btn btn-icon gl-px-3 gl-mx-3 gl-border-0"
-    >
-      <gl-icon name="close" />
-    </router-link>
+    />
   </div>
 </template>

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Gpg::InvalidGpgSignatureUpdater do
+RSpec.describe Gitlab::Gpg::InvalidGpgSignatureUpdater, :sidekiq_inline do
   describe '#run' do
     let(:signature) do
       {
@@ -19,7 +19,8 @@ RSpec.describe Gitlab::Gpg::InvalidGpgSignatureUpdater do
         :raw_commit,
         signature: signature,
         sha: commit_sha,
-        committer_email: committer_email
+        committer_email: committer_email,
+        author_email: committer_email
       )
 
       allow(raw_commit).to receive :save!
@@ -51,7 +52,7 @@ RSpec.describe Gitlab::Gpg::InvalidGpgSignatureUpdater do
           verification_status: 'verified'
       end
 
-      it 'assigns the gpg key to the signature when the missing gpg key is added', :sidekiq_might_not_need_inline do
+      it 'assigns the gpg key to the signature when the missing gpg key is added' do
         # InvalidGpgSignatureUpdater is called by the after_create hook
         gpg_key = create :gpg_key,
           key: GpgHelpers::User1.public_key,
@@ -90,11 +91,11 @@ RSpec.describe Gitlab::Gpg::InvalidGpgSignatureUpdater do
           project: project,
           commit_sha: commit_sha,
           gpg_key: nil,
-          gpg_key_primary_keyid: GpgHelpers::User1.primary_keyid,
+          gpg_key_primary_keyid: GpgHelpers::User1.fingerprint,
           verification_status: 'unknown_key'
       end
 
-      it 'updates the signature to being valid when the missing gpg key is added', :sidekiq_might_not_need_inline do
+      it 'updates the signature to being valid when the missing gpg key is added' do
         # InvalidGpgSignatureUpdater is called by the after_create hook
         gpg_key = create :gpg_key,
           key: GpgHelpers::User1.public_key,
@@ -119,7 +120,7 @@ RSpec.describe Gitlab::Gpg::InvalidGpgSignatureUpdater do
           project: project,
           commit_sha: commit_sha,
           gpg_key: nil,
-          gpg_key_primary_keyid: GpgHelpers::User1.primary_keyid,
+          gpg_key_primary_keyid: GpgHelpers::User1.fingerprint,
           verification_status: 'unknown_key'
         )
       end
@@ -141,7 +142,7 @@ RSpec.describe Gitlab::Gpg::InvalidGpgSignatureUpdater do
           verification_status: 'unknown_key'
       end
 
-      it 'updates the signature to being valid when the user updates the email address', :sidekiq_might_not_need_inline do
+      it 'updates the signature to being valid when the user updates the email address' do
         gpg_key = create :gpg_key,
           key: GpgHelpers::User1.public_key,
           user: user
@@ -162,7 +163,7 @@ RSpec.describe Gitlab::Gpg::InvalidGpgSignatureUpdater do
         )
       end
 
-      it 'keeps the signature at being invalid when the changed email address is still unrelated', :sidekiq_might_not_need_inline do
+      it 'keeps the signature at being invalid when the changed email address is still unrelated' do
         gpg_key = create :gpg_key,
           key: GpgHelpers::User1.public_key,
           user: user
@@ -208,7 +209,7 @@ RSpec.describe Gitlab::Gpg::InvalidGpgSignatureUpdater do
           verification_status: 'unknown_key'
       end
 
-      it 'updates the signature to being valid when the missing gpg key is added', :sidekiq_might_not_need_inline do
+      it 'updates the signature to being valid when the missing gpg key is added' do
         # InvalidGpgSignatureUpdater is called by the after_create hook
         gpg_key = create(:gpg_key, key: GpgHelpers::User3.public_key, user: user)
         subkey = gpg_key.subkeys.last

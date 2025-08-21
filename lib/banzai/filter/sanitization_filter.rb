@@ -8,6 +8,7 @@ module Banzai
     class SanitizationFilter < Banzai::Filter::BaseSanitizationFilter
       # Styles used by Markdown for table alignment
       TABLE_ALIGNMENT_PATTERN = /text-align: (?<alignment>center|left|right)/
+      ALLOWED_IDIFF_CLASSES = %w[idiff left right deletion addition].freeze
 
       def customize_allowlist(allowlist)
         allowlist[:allow_comments] = context[:allow_comments]
@@ -17,6 +18,9 @@ module Banzai
         allowlist[:attributes]['th'] = %w[style]
         allowlist[:attributes]['td'] = %w[style]
         allowlist[:css] = { properties: ['text-align'] }
+
+        # Allow json table attributes
+        allowlist[:attributes]['table'] = %w[data-table-fields data-table-filter data-table-markdown]
 
         # Allow the 'data-sourcepos' from CommonMark on all elements
         allowlist[:attributes][:all].push('data-sourcepos')
@@ -32,9 +36,13 @@ module Banzai
         allowlist[:attributes]['li'] = %w[id]
         allowlist[:transformers].push(self.class.remove_id_attributes)
 
-        # Remove any `class` property not required for `a`
+        # Remove any `class` property not required for these elements
         allowlist[:attributes]['a'].push('class')
-        allowlist[:transformers].push(self.class.remove_unsafe_link_class)
+        allowlist[:attributes]['div'] = %w[class]
+        allowlist[:attributes]['p'] = %w[class]
+        allowlist[:attributes]['span'].push('class')
+        allowlist[:attributes]['code'].push('class')
+        allowlist[:transformers].push(self.class.remove_unsafe_classes)
 
         # Allow section elements with data-footnotes attribute
         allowlist[:elements].push('section')
@@ -46,7 +54,7 @@ module Banzai
 
       class << self
         def remove_unsafe_table_style
-          lambda do |env|
+          ->(env) do
             node = env[:node]
 
             return unless node.name == 'th' || node.name == 'td'
@@ -60,25 +68,55 @@ module Banzai
           end
         end
 
-        def remove_unsafe_link_class
-          lambda do |env|
+        def remove_unsafe_classes
+          ->(env) do
             node = env[:node]
 
-            return unless node.name == 'a'
             return unless node.has_attribute?('class')
 
-            node.remove_attribute('class') if remove_link_class?(node)
+            case node.name
+            when 'a'
+              node.remove_attribute('class') if remove_link_class?(node)
+            when 'div'
+              node.remove_attribute('class') if remove_div_class?(node)
+            when 'p'
+              node.remove_attribute('class') if remove_p_class?(node)
+            when 'span'
+              node.remove_attribute('class') if remove_span_class?(node)
+            when 'code'
+              node.remove_attribute('class') if remove_code_class?(node)
+            end
           end
         end
 
         def remove_link_class?(node)
-          return if node['class'] == 'anchor'
+          node['class'] != 'anchor'
+        end
 
-          true
+        def remove_div_class?(node)
+          node['class'] != 'markdown-alert markdown-alert-note' &&
+            node['class'] != 'markdown-alert markdown-alert-tip' &&
+            node['class'] != 'markdown-alert markdown-alert-important' &&
+            node['class'] != 'markdown-alert markdown-alert-warning' &&
+            node['class'] != 'markdown-alert markdown-alert-caution'
+        end
+
+        def remove_p_class?(node)
+          node['class'] != 'markdown-alert-title'
+        end
+
+        def remove_span_class?(node)
+          return true unless node['class'].include?('idiff')
+
+          (node['class'].split - ALLOWED_IDIFF_CLASSES).present?
+        end
+
+        def remove_code_class?(node)
+          node['class'] != 'idiff'
         end
 
         def remove_id_attributes
-          lambda do |env|
+          ->(env) do
             node = env[:node]
 
             return unless node.name == 'a' || node.name == 'li'

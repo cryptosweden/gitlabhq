@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: GitLab utilities
 ---
-
-# GitLab utilities
 
 We have developed a number of utilities to help ease development:
 
@@ -12,7 +11,7 @@ We have developed a number of utilities to help ease development:
 
 Refer to [`merge_hash.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/utils/merge_hash.rb):
 
-- Deep merges an array of hashes:
+- Deep merges an array of elements which can be hashes, arrays, or other objects:
 
   ```ruby
   Gitlab::Utils::MergeHash.merge(
@@ -284,6 +283,10 @@ end
 ## `ReactiveCaching`
 
 Read the documentation on [`ReactiveCaching`](reactive_caching.md).
+
+## `TokenAuthenticatable`
+
+Read the documentation on [`TokenAuthenticatable`](token_authenticatable.md).
 
 ## `CircuitBreaker`
 

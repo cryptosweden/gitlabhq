@@ -1,6 +1,6 @@
 <script>
 import { GlBadge, GlCollapsibleListbox, GlTooltipDirective } from '@gitlab/ui';
-import { GlBreakpointInstance as bp } from '@gitlab/ui/dist/utils';
+import { GlBreakpointInstance as bp } from '@gitlab/ui/src/utils';
 // eslint-disable-next-line no-restricted-imports
 import { mapActions } from 'vuex';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
@@ -44,7 +44,7 @@ export default {
       busy: false,
       isDesktop: false,
       memberRoleId: this.member.accessLevel.memberRoleId ?? null,
-      selectedRole: initialSelectedRole(accessLevelOptions.flatten, this.member),
+      selectedRole: initialSelectedRole(accessLevelOptions.flatten, this.member)?.value,
     };
   },
   computed: {
@@ -135,8 +135,8 @@ export default {
           {{ item.text }}
         </div>
         <div
-          v-if="item.description"
-          class="gl-text-gray-700 gl-font-sm gl-pt-1 gl-line-clamp-2 gl-whitespace-normal"
+          v-if="item.memberRoleId && item.description"
+          class="gl-line-clamp-2 gl-whitespace-normal gl-pt-1 gl-text-sm gl-text-subtle"
         >
           {{ item.description }}
         </div>

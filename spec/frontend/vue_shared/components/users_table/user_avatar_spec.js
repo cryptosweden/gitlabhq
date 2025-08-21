@@ -72,6 +72,7 @@ describe('AdminUserAvatar component', () => {
       findAllBadges().wrappers.forEach((badge, idx) => {
         expect(badge.text()).toBe(user.badges[idx].text);
         expect(badge.props('variant')).toBe(user.badges[idx].variant);
+        expect(badge.props('icon')).toBe(user.badges[idx].icon || null);
       });
     });
 
@@ -134,6 +135,21 @@ describe('AdminUserAvatar component', () => {
 
       expect(avatar.props('subLabel')).toBe(`@${user.username}`);
       expect(avatar.props('subLabelLink')).toBe('');
+    });
+  });
+
+  describe('when user id is a graphql id', () => {
+    const id = '123';
+
+    beforeEach(() => {
+      initComponent({ user: { ...user, id: `gid://gitlab/User/${id}` } });
+    });
+
+    it('converts the gid to normal id and renders the popover', () => {
+      expect(findUserLink().attributes()).toMatchObject({
+        'data-user-id': id,
+        'data-username': user.username,
+      });
     });
   });
 });

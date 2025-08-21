@@ -9,26 +9,23 @@ class GroupsController < Groups::ApplicationController
   include RecordUserLastActivity
   include SendFileUpload
   include FiltersEvents
-  include Recaptcha::Adapters::ControllerMethods
   extend ::Gitlab::Utils::Override
 
   respond_to :html
 
   prepend_before_action(only: [:show, :issues]) { authenticate_sessionless_user!(:rss) }
   prepend_before_action(only: [:issues_calendar]) { authenticate_sessionless_user!(:ics) }
-  prepend_before_action :check_captcha, only: :create, if: -> { captcha_enabled? }
 
   before_action :authenticate_user!, only: [:new, :create]
   before_action :group, except: [:index, :new, :create]
 
   # Authorize
-  before_action :authorize_admin_group!, only: [:update, :projects, :transfer, :export, :download_export]
+  before_action :authorize_admin_group!, only: [:update, :transfer, :export, :download_export]
   before_action :authorize_view_edit_page!, only: :edit
-  before_action :authorize_remove_group!, only: :destroy
+  before_action :authorize_remove_group!, only: [:destroy, :restore]
   before_action :authorize_create_group!, only: [:new]
-  before_action :load_recaptcha, only: [:new], if: -> { captcha_required? }
 
-  before_action :group_projects, only: [:projects, :activity, :issues, :merge_requests]
+  before_action :group_projects, only: [:activity, :issues, :merge_requests]
   before_action :event_filter, only: [:activity]
 
   before_action :user_actions, only: [:show]
@@ -36,22 +33,15 @@ class GroupsController < Groups::ApplicationController
   before_action :check_export_rate_limit!, only: [:export, :download_export]
 
   before_action only: :issues do
-    push_frontend_feature_flag(:frontend_caching, group)
     push_force_frontend_feature_flag(:work_items, group.work_items_feature_flag_enabled?)
     push_force_frontend_feature_flag(:work_items_beta, group.work_items_beta_feature_flag_enabled?)
     push_force_frontend_feature_flag(:work_items_alpha, group.work_items_alpha_feature_flag_enabled?)
-    push_frontend_feature_flag(:issues_grid_view)
-    push_frontend_feature_flag(:group_multi_select_tokens, group)
-    push_frontend_feature_flag(:namespace_level_work_items, group)
+    push_frontend_feature_flag(:issues_list_create_modal, group)
+    push_frontend_feature_flag(:issues_list_drawer, group)
+    push_frontend_feature_flag(:work_item_status_feature_flag, group&.root_ancestor)
   end
 
-  before_action only: :merge_requests do
-    push_frontend_feature_flag(:mr_approved_filter, type: :ops)
-  end
-
-  helper_method :captcha_required?
-
-  skip_cross_project_access_check :index, :new, :create, :edit, :update, :destroy, :projects
+  skip_cross_project_access_check :index, :new, :create, :edit, :update, :destroy
   # When loading show as an atom feed, we render events that could leak cross
   # project information
   skip_cross_project_access_check :show, if: -> { request.format.html? }
@@ -60,18 +50,19 @@ class GroupsController < Groups::ApplicationController
 
   feature_category :groups_and_projects, [
     :index, :new, :create, :show, :edit, :update,
-    :destroy, :details, :transfer, :activity, :projects
+    :destroy, :details, :transfer, :activity, :restore
   ]
   feature_category :team_planning, [:issues, :issues_calendar, :preview_markdown]
-  feature_category :code_review_workflow, [:merge_requests, :unfoldered_environment_names]
+  feature_category :code_review_workflow, [:merge_requests]
   feature_category :importers, [:export, :download_export]
+  feature_category :continuous_delivery, [:unfoldered_environment_names]
   urgency :low, [:export, :download_export]
 
   urgency :high, [:unfoldered_environment_names]
 
   urgency :low, [:issues, :issues_calendar, :preview_markdown]
   # TODO: Set #show to higher urgency after resolving https://gitlab.com/gitlab-org/gitlab/-/issues/334795
-  urgency :low, [:merge_requests, :show, :create, :new, :update, :projects, :destroy, :edit, :activity]
+  urgency :low, [:merge_requests, :show, :create, :new, :update, :destroy, :edit, :activity]
 
   def index
     redirect_to(current_user ? dashboard_groups_path : explore_groups_path)
@@ -86,7 +77,7 @@ class GroupsController < Groups::ApplicationController
   def create
     response = Groups::CreateService.new(
       current_user,
-      group_params.merge(organization_id: Current.organization_id)
+      group_params.merge(organization_id: Current.organization.id)
     ).execute
     @group = response[:group]
 
@@ -94,9 +85,15 @@ class GroupsController < Groups::ApplicationController
       successful_creation_hooks
 
       notice = if @group.chat_team.present?
-                 format(_("Group %{group_name} and its Mattermost team were successfully created."), group_name: @group.name)
+                 format(
+                   _("Group %{group_name} and its Mattermost team were successfully created."),
+                   group_name: @group.name
+                 )
                else
-                 format(_("Group %{group_name} was successfully created."), group_name: @group.name)
+                 format(
+                   _("Group %{group_name} was successfully created."),
+                   group_name: @group.name
+                 )
                end
 
       redirect_to @group, notice: notice
@@ -148,15 +145,18 @@ class GroupsController < Groups::ApplicationController
     @badge_api_endpoint = expose_path(api_v4_groups_badges_path(id: @group.id))
   end
 
-  def projects
-    @projects = @group.projects.with_statistics.page(params[:page])
-  end
+  def merge_requests; end
 
   def update
     if Groups::UpdateService.new(@group, current_user, group_params).execute
-      notice = "Group '#{@group.name}' was successfully updated."
 
-      redirect_to edit_group_origin_location, notice: notice
+      if @group.namespace_settings.errors.present?
+        flash[:alert] = group.namespace_settings.errors.full_messages.to_sentence
+      else
+        flash[:notice] = "Group '#{@group.name}' was successfully updated."
+      end
+
+      redirect_to edit_group_origin_location
     else
       @group.reset
       render action: "edit"
@@ -172,11 +172,53 @@ class GroupsController < Groups::ApplicationController
   end
 
   def destroy
-    Groups::DestroyService.new(@group, current_user).async_execute
+    if group.self_deletion_scheduled? &&
+        ::Gitlab::Utils.to_boolean(params.permit(:permanently_remove)[:permanently_remove])
+      return destroy_immediately
+    end
 
-    flash[:toast] = format(_("Group '%{group_name}' is being deleted."), group_name: @group.full_name)
+    result = ::Groups::MarkForDeletionService.new(group, current_user).execute
 
-    redirect_to root_path, status: :found
+    if result.success?
+      respond_to do |format|
+        format.html do
+          redirect_to group_path(group), status: :found
+        end
+
+        format.json do
+          render json: {
+            message: format(
+              _("'%{group_name}' has been scheduled for deletion and will be deleted on %{date}."),
+              group_name: group.name,
+              date: helpers.permanent_deletion_date_formatted(group)
+            )
+          }
+        end
+      end
+    else
+      respond_to do |format|
+        format.html do
+          redirect_to edit_group_path(group), status: :found, alert: result.message
+        end
+
+        format.json do
+          render json: { message: result.message }, status: :unprocessable_entity
+        end
+      end
+    end
+  end
+
+  def restore
+    return render_404 unless group.self_deletion_scheduled?
+
+    result = ::Groups::RestoreService.new(group, current_user).execute
+
+    if result.success?
+      redirect_to edit_group_path(group),
+        notice: format(_("Group '%{group_name}' has been successfully restored."), group_name: group.full_name)
+    else
+      redirect_to(edit_group_path(group), alert: result.message)
+    end
   end
 
   # rubocop: disable CodeReuse/ActiveRecord
@@ -202,19 +244,23 @@ class GroupsController < Groups::ApplicationController
     )
 
     if export_service.async_execute
-      redirect_to edit_group_path(@group), notice: _('Group export started. A download link will be sent by email and made available on this page.')
+      redirect_to edit_group_path(@group),
+        notice: _('Group export started. A download link will be sent by email and made available on this page.')
     else
       redirect_to edit_group_path(@group), alert: _('Group export could not be started.')
     end
   end
 
   def download_export
-    if @group.export_file_exists?
-      if @group.export_archive_exists?
-        send_upload(@group.export_file, attachment: @group.export_file.filename)
+    if @group.export_file_exists?(current_user)
+      if @group.export_archive_exists?(current_user)
+        export_file = @group.export_file(current_user)
+        send_upload(export_file, attachment: export_file.filename)
       else
         redirect_to edit_group_path(@group),
-          alert: _('The file containing the export is not available yet; it may still be transferring. Please try again later.')
+          alert: _(
+            'The file containing the export is not available yet; it may still be transferring. Please try again later.'
+          )
       end
     else
       redirect_to edit_group_path(@group),
@@ -275,7 +321,7 @@ class GroupsController < Groups::ApplicationController
   def determine_layout
     if [:new, :create].include?(action_name.to_sym)
       'dashboard'
-    elsif [:edit, :update, :projects].include?(action_name.to_sym)
+    elsif [:edit, :update].include?(action_name.to_sym)
       'group_settings'
     else
       'group'
@@ -315,7 +361,7 @@ class GroupsController < Groups::ApplicationController
   end
 
   def check_export_rate_limit!
-    prefixed_action = "group_#{params[:action]}".to_sym
+    prefixed_action = :"group_#{params[:action]}"
 
     scope = params[:action] == :download_export ? @group : nil
 
@@ -324,36 +370,8 @@ class GroupsController < Groups::ApplicationController
 
   private
 
-  def load_recaptcha
-    Gitlab::Recaptcha.load_configurations!
-  end
-
-  def check_captcha
-    return if group_params[:parent_id].present? # Only require for top-level groups
-
-    load_recaptcha
-
-    return if verify_recaptcha
-
-    flash[:alert] = _('There was an error with the reCAPTCHA. Please solve the reCAPTCHA again.')
-    flash.delete :recaptcha_error
-    @group = Group.new(group_params)
-    add_gon_variables
-    render action: 'new'
-  end
-
   def successful_creation_hooks
-    update_user_role_and_setup_for_company
-  end
-
-  def update_user_role_and_setup_for_company
-    user_params = params.fetch(:user, {}).permit(:role)
-
-    if !@group.setup_for_company.nil? && current_user.setup_for_company.nil?
-      user_params[:setup_for_company] = @group.setup_for_company
-    end
-
-    Users::UpdateService.new(current_user, user_params.merge(user: current_user)).execute if user_params.present?
+    # overwritten in EE
   end
 
   def groups
@@ -370,12 +388,20 @@ class GroupsController < Groups::ApplicationController
     %w[details show index].include?(action_name)
   end
 
-  def captcha_enabled?
-    helpers.recaptcha_enabled? && Feature.enabled?(:recaptcha_on_top_level_group_creation, type: :ops)
-  end
+  def destroy_immediately
+    Groups::DestroyService.new(@group, current_user).async_execute
+    message = format(_("Group '%{group_name}' is being deleted."), group_name: @group.full_name)
 
-  def captcha_required?
-    captcha_enabled? && !params[:parent_id]
+    respond_to do |format|
+      format.html do
+        flash[:toast] = message
+        redirect_to root_path, status: :found
+      end
+
+      format.json do
+        render json: { message: message }
+      end
+    end
   end
 end
 

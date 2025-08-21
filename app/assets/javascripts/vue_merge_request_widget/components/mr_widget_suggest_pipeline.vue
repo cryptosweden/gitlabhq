@@ -53,6 +53,7 @@ export default {
     },
   },
   computed: {
+    // eslint-disable-next-line vue/no-unused-properties -- `tracking` is used in the `Tracking` mixin.
     tracking() {
       return {
         label: SP_TRACK_LABEL,
@@ -90,7 +91,7 @@ export default {
     </template>
     <div class="row">
       <div
-        class="col-md-5 order-md-last col-12 gl-mt-5 md:!-gl-mt-2 gl-md-pt-2 svg-content svg-225"
+        class="col-md-5 order-md-last col-12 svg-content svg-225 gl-mt-5 md:!-gl-mt-2 md:gl-pt-2"
       >
         <img data-testid="pipeline-image" :src="pipelineSvgPath" />
       </div>

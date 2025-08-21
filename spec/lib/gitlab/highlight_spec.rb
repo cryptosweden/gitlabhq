@@ -46,11 +46,18 @@ RSpec.describe Gitlab::Highlight do
       expect(result).to eq(%(<span id="LC1" class="line" lang="plaintext">plain text contents</span>))
     end
 
+    it 'avoids attributes when used on diff' do
+      expected = %[<span class="line" data-lang="common_lisp"><span class="p">(</span><span class="nb">make-pathname</span> <span class="ss">:defaults</span> <span class="nv">name</span></span>
+<span class="line" data-lang="common_lisp"><span class="ss">:type</span> <span class="s">"assem"</span><span class="p">)</span></span>]
+
+      expect(described_class.highlight(file_name, content, used_on: :diff)).to eq(expected)
+    end
+
     context 'when content is too long to be highlighted' do
       let(:result) { described_class.highlight(file_name, content) } # content is 44 bytes
 
       before do
-        stub_config(extra: { 'maximum_text_highlight_size_kilobytes' => 0.0001 } ) # 1.024 bytes
+        stub_config(extra: { 'maximum_text_highlight_size_kilobytes' => 0.0001 }) # 1.024 bytes
       end
 
       it 'returns plain version for long content' do
@@ -124,11 +131,26 @@ RSpec.describe Gitlab::Highlight do
     context 'timeout' do
       subject(:highlight) { described_class.new('file.rb', 'begin', language: 'ruby').highlight('Content') }
 
-      it 'falls back to plaintext on timeout' do
-        allow(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception)
-        expect(Gitlab::RenderTimeout).to receive(:timeout).and_raise(Timeout::Error)
+      before do
+        allow(Gitlab::RenderTimeout).to receive(:timeout).and_raise(Timeout::Error)
+        allow(Gitlab::ErrorTracking).to receive(:log_exception)
+      end
 
+      it 'falls back to plaintext on timeout' do
         expect(Rouge::Lexers::PlainText).to receive(:lex).and_call_original
+
+        highlight
+      end
+
+      it 'logs a warning with timeout message' do
+        expect(Gitlab::ErrorTracking).to receive(:log_exception).with(
+          instance_of(Timeout::Error),
+          {
+            message: 'Syntax highlighting timeout.',
+            lexer_tag: 'ruby',
+            text_length: 7
+          }
+        )
 
         highlight
       end
@@ -137,7 +159,7 @@ RSpec.describe Gitlab::Highlight do
     it 'increments usage counter', :prometheus do
       described_class.highlight(file_name, content)
 
-      gitlab_highlight_usage_counter = Gitlab::Metrics.registry.get(:gitlab_highlight_usage)
+      gitlab_highlight_usage_counter = Gitlab::Metrics.client.get(:gitlab_highlight_usage)
 
       expect(gitlab_highlight_usage_counter.get(used_on: :blob)).to eq(1)
       expect(gitlab_highlight_usage_counter.get(used_on: :diff)).to eq(0)
@@ -147,7 +169,7 @@ RSpec.describe Gitlab::Highlight do
       it 'increments usage counter', :prometheus do
         described_class.highlight(file_name, content, used_on: :diff)
 
-        gitlab_highlight_usage_counter = Gitlab::Metrics.registry.get(:gitlab_highlight_usage)
+        gitlab_highlight_usage_counter = Gitlab::Metrics.client.get(:gitlab_highlight_usage)
 
         expect(gitlab_highlight_usage_counter.get(used_on: :diff)).to eq(1)
         expect(gitlab_highlight_usage_counter.get(used_on: :blob)).to eq(0)

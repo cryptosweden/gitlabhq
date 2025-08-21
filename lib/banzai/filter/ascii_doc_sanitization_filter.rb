@@ -7,7 +7,7 @@ module Banzai
     # Extends Banzai::Filter::BaseSanitizationFilter with specific rules.
     class AsciiDocSanitizationFilter < Banzai::Filter::BaseSanitizationFilter
       # Anchor link prefixed by "user-content-" pattern
-      PREFIXED_ID_PATTERN = /\A#{Gitlab::Asciidoc::DEFAULT_ADOC_ATTRS['idprefix']}(:?[[:alnum:]]|-|_)+\z/
+      PREFIXED_ID_PATTERN = /\A#{Banzai::Filter::AsciidocFilter::DEFAULT_ADOC_ATTRS['idprefix']}(:?[[:alnum:]]|-|_)+\z/
       SECTION_HEADINGS = %w[h2 h3 h4 h5 h6].freeze
 
       # Footnote link patterns
@@ -29,7 +29,7 @@ module Banzai
 
       ELEMENT_CLASSES_ALLOWLIST = {
         span: %w[big small underline overline line-through].freeze,
-        div: ALIGNMENT_BUILTINS_CLASSES + %w[openblock exampleblock sidebarblock admonitionblock].freeze,
+        div: ALIGNMENT_BUILTINS_CLASSES + %w[openblock exampleblock sidebarblock admonitionblock toc].freeze,
         td: ['icon'].freeze,
         i: ADMONITION_CLASSES + CALLOUT_CLASSES + CHECKLIST_CLASSES,
         ul: LIST_CLASSES,
@@ -71,16 +71,16 @@ module Banzai
 
       class << self
         def remove_disallowed_ids
-          lambda do |env|
+          ->(env) do
             node = env[:node]
 
             return unless node.name == 'a' || node.name == 'div' || SECTION_HEADINGS.any?(node.name)
             return unless node.has_attribute?('id')
 
-            return if node['id'] =~ PREFIXED_ID_PATTERN
+            return if PREFIXED_ID_PATTERN.match?(node['id'])
 
             if (pattern = FOOTNOTE_LINK_ID_PATTERNS[node.name.to_sym])
-              return if node['id'] =~ pattern
+              return if node['id']&.match?(pattern)
             end
 
             node.remove_attribute('id')
@@ -88,7 +88,7 @@ module Banzai
         end
 
         def remove_element_classes
-          lambda do |env|
+          ->(env) do
             node = env[:node]
 
             return unless (classes_allowlist = ELEMENT_CLASSES_ALLOWLIST[node.name.to_sym])

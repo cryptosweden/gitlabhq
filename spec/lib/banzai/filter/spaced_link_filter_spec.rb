@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::SpacedLinkFilter, feature_category: :team_planning do
+RSpec.describe Banzai::Filter::SpacedLinkFilter, feature_category: :markdown do
   include FilterSpecHelper
 
   let(:link)  { '[example](page slug)' }
@@ -64,7 +64,7 @@ RSpec.describe Banzai::Filter::SpacedLinkFilter, feature_category: :team_plannin
   end
 
   it 'does not process malicious input' do
-    Timeout.timeout(10) do
+    Timeout.timeout(BANZAI_FILTER_TIMEOUT_MAX) do
       doc = filter('[ (](' * 60_000)
 
       found_links = doc.css('a')
@@ -93,9 +93,10 @@ RSpec.describe Banzai::Filter::SpacedLinkFilter, feature_category: :team_plannin
     expect(found_images[0]['alt']).to eq 'example'
   end
 
-  described_class::IGNORE_PARENTS.each do |elem|
-    it "ignores valid links contained inside '#{elem}' element" do
-      exp = act = "<#{elem}>See #{link}</#{elem}>"
+  described_class::IGNORE_PARENTS.each do |xpath|
+    it "ignores valid links contained inside '#{xpath}' element" do
+      match = xpath.match(/(?<element>\w+)(?:\[@(?<attribute>.*)\])?/)
+      exp = act = "<#{match[:element]}#{" #{match[:attribute]}" if match[:attribute]}>See #{link}</#{match[:element]}>"
 
       expect(filter(act).to_html).to eq exp
     end

@@ -1,5 +1,5 @@
 import { GlBadge } from '@gitlab/ui';
-import { shallowMount } from '@vue/test-utils';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import BlobHeaderFilepath from '~/blob/components/blob_header_filepath.vue';
 import { numberToHumanSize } from '~/lib/utils/number_utils';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
@@ -12,10 +12,11 @@ jest.mock('~/lib/utils/number_utils', () => ({
 describe('Blob Header Filepath', () => {
   let wrapper;
 
-  function createComponent(blobProps = {}, options = {}) {
-    wrapper = shallowMount(BlobHeaderFilepath, {
+  function createComponent(blobProps = {}, options = {}, propsData = {}) {
+    wrapper = shallowMountExtended(BlobHeaderFilepath, {
       propsData: {
         blob: { ...MockBlob, ...blobProps },
+        ...propsData,
       },
       ...options,
     });
@@ -24,11 +25,6 @@ describe('Blob Header Filepath', () => {
   const findBadge = () => wrapper.findComponent(GlBadge);
 
   describe('rendering', () => {
-    it('matches the snapshot', () => {
-      createComponent();
-      expect(wrapper.element).toMatchSnapshot();
-    });
-
     it('renders regular name', () => {
       createComponent();
       expect(wrapper.find('.js-blob-header-filepath').text().trim()).toBe(MockBlob.path);
@@ -40,17 +36,33 @@ describe('Blob Header Filepath', () => {
       expect(wrapper.find('.js-blob-header-filepath').exists()).toBe(false);
     });
 
-    it('renders copy-to-clipboard icon that copies path of the Blob', () => {
-      createComponent();
-      const btn = wrapper.findComponent(ClipboardButton);
-      expect(btn.exists()).toBe(true);
-      expect(btn.vm.text).toBe(MockBlob.path);
+    describe('copy-to-clipboard icon button', () => {
+      it.each`
+        description                                      | flagValue
+        ${'renders button that copies path of the blob'} | ${false}
+        ${'does not render button'}                      | ${true}
+      `('when flag is $flagValue, $description', ({ flagValue }) => {
+        createComponent(
+          {},
+          { provide: { glFeatures: { directoryCodeDropdownUpdates: flagValue } } },
+        );
+        const btn = wrapper.findComponent(ClipboardButton);
+        expect(btn.exists()).toBe(!flagValue);
+        if (!flagValue) {
+          expect(btn.vm.text).toBe(MockBlob.path);
+        }
+      });
     });
 
     it('renders filesize in a human-friendly format', () => {
       createComponent();
       expect(numberToHumanSize).toHaveBeenCalled();
       expect(wrapper.vm.blobSize).toBe('a lot');
+    });
+
+    it('should not show blob size', () => {
+      createComponent({}, {}, { showBlobSize: false });
+      expect(wrapper.find('small').exists()).toBe(false);
     });
 
     it('renders LFS badge if LFS if enabled', () => {

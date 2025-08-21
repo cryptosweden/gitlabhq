@@ -97,6 +97,16 @@ RSpec.describe PgFullTextSearchable, feature_category: :global_search do
       expect(model_class.pg_full_text_search('title english')).to contain_exactly(english, japanese)
     end
 
+    it 'eliminates duplicates' do
+      recorder = ActiveRecord::QueryRecorder.new do
+        expect(model_class.pg_full_text_search('title title title english english title')).to contain_exactly(english, japanese)
+      end
+      query = recorder.data.each_value.first[:occurrences][0]
+
+      # Ensure the query doesn't include duplicates for searched words
+      expect(query).to include("to_tsquery('english', '''title'':* & ''english'':*')")
+    end
+
     it 'searches specified columns only' do
       matching_object = model_class.create!(project: project, namespace: project.project_namespace, title: 'english', description: 'some description')
       matching_object.update_search_data!

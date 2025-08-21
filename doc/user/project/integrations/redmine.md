@@ -1,20 +1,22 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Plan
+group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Redmine
 ---
 
-# Redmine
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Prerequisites:
 
-- You must disable [GitLab internal issue tracking](../issues/index.md) in the project. For more information about the steps and consequences of disabling
-  GitLab issues, see [Change project visibility](../../../user/public_access.md#change-project-visibility), and also
-  [Configure project features and permissions](../settings/index.md#configure-project-features-and-permissions).
+- You must disable [GitLab internal issue tracking](../issues/_index.md) in the project. For more information about the steps and consequences of disabling
+  GitLab issues, see [Change project visibility](../../public_access.md#change-project-visibility), and also
+  [Configure project features and permissions](../settings/_index.md#configure-project-features-and-permissions).
 
 You can use [Redmine](https://www.redmine.org/) as an external issue tracker.
 To enable the Redmine integration in a project:
@@ -31,7 +33,7 @@ To enable the Redmine integration in a project:
    - **New issue URL**: The URL to use to create a new issue in the Redmine project linked to
      this GitLab project.
      <!-- The line below was originally added in January 2018: https://gitlab.com/gitlab-org/gitlab/-/commit/778b231f3a5dd42ebe195d4719a26bf675093350 -->
-     **This URL is not used and removal is planned in a future release.**
+     **This URL is not used and removal is planned in a future release**.
      For more information, see [issue 327503](https://gitlab.com/gitlab-org/gitlab/-/issues/327503).
 
 1. Optional. Select **Test settings**.

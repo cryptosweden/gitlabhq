@@ -7,14 +7,14 @@ module Gitlab
         class Uploads < Task
           def self.id = 'uploads'
 
-          def human_name = _('uploads')
+          def human_name = 'Uploads'
 
           def destination_path = 'uploads.tar.gz'
 
           private
 
-          def target
-            ::Backup::Targets::Files.new(nil, storage_path, options: options, excludes: ['tmp'])
+          def local
+            Gitlab::Backup::Cli::Targets::Files.new(context, storage_path, excludes: ['tmp'])
           end
 
           def storage_path = context.upload_path

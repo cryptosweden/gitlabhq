@@ -1,10 +1,15 @@
+@use "sass:map";
+@import './page_bundles/notes/diff_comments';
+@import './page_bundles/notes/image_comments';
+
 $diff-file-header: 41px;
 
 // Common
 .diff-file {
   margin-bottom: $gl-padding;
 
-  table.code tr:last-of-type td:last-of-type {
+  .code.md-suggestion-diff {
+    border-bottom-left-radius: $gl-border-radius-base-inner;
     border-bottom-right-radius: $gl-border-radius-base-inner;
   }
 
@@ -16,7 +21,11 @@ $diff-file-header: 41px;
       cursor: auto;
     }
 
-    @media (max-width: map-get($grid-breakpoints, sm)-1) {
+    &:has(.gl-new-dropdown-toggle[aria-expanded="true"]) {
+   z-index: $zindex-dropdown-menu;
+  }
+
+    @media (max-width: map.get($grid-breakpoints, sm)-1) {
       .file-header-content {
         width: 0;
         flex: 1;
@@ -27,24 +36,13 @@ $diff-file-header: 41px;
       }
     }
 
-    @media (min-width: map-get($grid-breakpoints, md)) {
+    @media (min-width: map.get($grid-breakpoints, md)) {
       position: sticky;
       top: calc(#{$calc-application-header-height} + #{$mr-sticky-header-height} - #{$gl-border-size-1});
       z-index: 120;
 
       +.diff-content .md-header-preview {
         top: calc(#{$calc-application-header-height} + #{$mr-sticky-header-height} + #{$diff-file-header} - #{$gl-border-size-1});
-      }
-
-      &::before {
-        content: '';
-        position: absolute;
-        top: -1px;
-        left: -11px;
-        width: 10px;
-        height: calc(100% + 1px);
-        background: $body-bg;
-        pointer-events: none;
       }
 
       &.is-commit,
@@ -56,7 +54,7 @@ $diff-file-header: 41px;
     }
 
     &:hover {
-      background-color: $gray-50;
+      @apply gl-bg-strong;
     }
 
     svg {
@@ -65,7 +63,7 @@ $diff-file-header: 41px;
     }
   }
 
-  @media (min-width: map-get($grid-breakpoints, md)) {
+  @media (min-width: map.get($grid-breakpoints, md)) {
     &.conflict .file-title,
     &.conflict .file-title-flex-parent {
       top: $calc-application-header-height;
@@ -73,16 +71,10 @@ $diff-file-header: 41px;
   }
 
   .diff-content {
-    background: $white;
-    color: $gl-text-color;
+    @apply gl-bg-default gl-text-default;
 
     .unfold {
       cursor: pointer;
-    }
-
-    .file-mode-changed {
-      padding: 10px;
-      color: $gray-500;
     }
 
     .suppressed-container {
@@ -103,9 +95,13 @@ $diff-file-header: 41px;
   }
 
   .image {
-    background: $gray-50;
+    @apply gl-bg-strong;
     text-align: center;
-    padding: 30px;
+    padding: $gl-padding;
+
+    &:has(> .view) {
+      padding-bottom: $gl-padding-32;
+    }
 
     .wrap {
       display: inline-block;
@@ -113,41 +109,41 @@ $diff-file-header: 41px;
 
     .frame {
       display: inline-block;
-      background-color: $white;
+      @apply gl-bg-default;
       line-height: 0;
 
       img {
-        border: 1px solid $white;
+        border: 1px solid var(--gl-background-color-default);
         background-image: linear-gradient(45deg,
-        $border-color 25%,
+        var(--gl-border-color-default) 25%,
         transparent 25%,
         transparent 75%,
-        $border-color 75%,
-        $border-color 100%),
+        var(--gl-border-color-default) 75%,
+        var(--gl-border-color-default) 100%),
           linear-gradient(45deg,
-        $border-color 25%,
+        var(--gl-border-color-default) 25%,
         transparent 25%,
         transparent 75%,
-        $border-color 75%,
-        $border-color 100%);
+        var(--gl-border-color-default) 75%,
+        var(--gl-border-color-default) 100%);
         background-size: 10px 10px;
         background-position: 0 0, 5px 5px;
         max-width: 100%;
       }
 
       &.deleted {
-        border: 1px solid $deleted;
+        border: 1px solid var(--gl-status-danger-icon-color);
       }
 
       &.added {
-        border: 1px solid $added;
+        border: 1px solid var(--gl-status-success-icon-color);
       }
     }
 
     .image-info {
       font-size: 12px;
       margin: 5px 0 0;
-      color: $diff-image-info-color;
+      @apply gl-text-subtle;
     }
 
     .view.swipe {
@@ -304,7 +300,7 @@ $diff-file-header: 41px;
   .view-modes {
     padding: 10px;
     text-align: center;
-    background: $gray-50;
+    @apply gl-bg-strong;
 
     ul,
     li {
@@ -315,8 +311,7 @@ $diff-file-header: 41px;
     }
 
     li {
-      color: $diff-view-modes-color;
-      border-left: 1px solid $diff-view-modes-border;
+      @apply gl-text-subtle gl-border-l;
       padding: 0 12px 0 16px;
       cursor: pointer;
 
@@ -330,7 +325,7 @@ $diff-file-header: 41px;
 
       &.active {
         cursor: default;
-        color: $gl-text-color;
+        @apply gl-text-default;
 
         &:hover {
           text-decoration: none;
@@ -345,13 +340,11 @@ $diff-file-header: 41px;
 
   .diff-file-container {
     .frame.deleted {
-      border: 1px solid $deleted;
-      background-color: inherit;
+      border: 1px solid var(--gl-status-danger-icon-color);
     }
 
     .frame.added {
-      border: 1px solid $added;
-      background-color: inherit;
+      border: 1px solid var(--gl-status-success-icon-color);
     }
 
     .swipe.view,
@@ -405,13 +398,8 @@ $diff-file-header: 41px;
 }
 
 .code .diff-grid-row.line_holder.diff-tr .diff-td.commented:not(.hll) {
-  --highlight-border-color: #{$blue-300};
-  background-color: $blue-50;
-
-  .gl-dark & {
-    --highlight-border-color: #{$blue-600};
-    background-color: $blue-900;
-  }
+  --highlight-border-color: #{$gl-color-blue-300};
+  background-color: $gl-color-blue-50;
 }
 
 .diff-table.code,
@@ -423,21 +411,18 @@ table.code {
   margin: 0;
   padding: 0;
   table-layout: fixed;
-  border-radius: 0 0 $gl-border-radius-base $gl-border-radius-base;
+  border-radius: 0 0 $gl-border-radius-large $gl-border-radius-large;
 
   .diff-td.highlight-top {
-    box-shadow: 0 -1px var(--highlight-border-color, $blue-300);
-    z-index: 1;
+    box-shadow: inset 0 -1px var(--highlight-border-color, $blue-300);
   }
 
   .diff-td.highlight-bottom {
-    box-shadow: 0 1px var(--highlight-border-color, $blue-300);
-    z-index: 1;
+    box-shadow: inset 0 1px var(--highlight-border-color, $blue-300);
   }
 
   .diff-td.highlight-top.highlight-bottom {
-    box-shadow: 0 -1px var(--highlight-border-color, $blue-300), 0 1px var(--highlight-border-color, $blue-300);
-    z-index: 2;
+    box-shadow: inset 0 -1px var(--highlight-border-color, $blue-300), inset 0 1px var(--highlight-border-color, $blue-300);
   }
 
   .diff-tr.line_holder .diff-td,
@@ -445,19 +430,10 @@ table.code {
     line-height: $code-line-height;
     font-size: $code-font-size;
     vertical-align: top;
+    word-wrap: break-word;
 
     span {
       white-space: break-spaces;
-
-      &.context-cell {
-        display: inline-block;
-        width: 100%;
-        height: 100%;
-      }
-
-      &.line {
-        word-wrap: break-word;
-      }
     }
 
     &.diff-line-num {
@@ -478,6 +454,7 @@ table.code {
         transition: none;
         float: left;
         width: 100%;
+        height: 100%;
         font-weight: $gl-font-weight-normal;
 
         &[disabled] {
@@ -490,9 +467,24 @@ table.code {
         }
       }
 
-      &:not(.js-unfold-bottom) a::before {
-        content: attr(data-linenumber);
+      &:not(.js-unfold-bottom) a {
+        position: relative;
+
+        &::before {
+          // do not position this element absolutely, otherwise empty lines will collapse
+          content: attr(data-linenumber);
+        }
+
+        &::after {
+          content: "";
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          left: -5px;
+          right: -10px;
+        }
       }
+
     }
 
     &.line_content {
@@ -609,6 +601,7 @@ table.code {
 }
 
 .diff-wrap-lines .line_content {
+  font-size: $code-font-size-fixed;
   white-space: pre-wrap;
 }
 
@@ -654,12 +647,6 @@ table.code {
   }
 }
 
-.files {
-  .diff-file:not(.is-virtual-scrolling):last-child {
-    margin-bottom: 0;
-  }
-}
-
 .diff-comments-more-count,
 .diff-notes-collapse,
 .inline-findings-collapse {
@@ -698,8 +685,7 @@ table.code {
 }
 
 .note-container {
-  background-color: $gray-10;
-  border-top: 1px solid $gray-50;
+  @apply gl-bg-subtle gl-border-t gl-border-t-subtle;
 
   // double jagged line divider
   .discussion-notes + .discussion-notes::before,
@@ -709,27 +695,27 @@ table.code {
     display: block;
     width: 100%;
     height: 10px;
-    background-color: $white;
+    @apply gl-bg-subtle;
     background-image: linear-gradient(45deg,
     transparent,
     transparent 73%,
     $diff-jagged-border-gradient-color 75%,
-    $white 80%),
+    $diff-jagged-bg-color 80%),
       linear-gradient(225deg,
     transparent,
     transparent 73%,
     $diff-jagged-border-gradient-color 75%,
-    $white 80%),
+    $diff-jagged-bg-color 80%),
       linear-gradient(135deg,
     transparent,
     transparent 73%,
     $diff-jagged-border-gradient-color 75%,
-    $white 80%),
+    $diff-jagged-bg-color 80%),
       linear-gradient(-45deg,
     transparent,
     transparent 73%,
     $diff-jagged-border-gradient-color 75%,
-    $white 80%);
+    $diff-jagged-bg-color 80%);
     background-position: 5px 5px, 0 5px, 0 5px, 5px 5px;
     background-size: 10px 10px;
     background-repeat: repeat;
@@ -759,8 +745,10 @@ table.code {
 
 .diff-file .note-container > .new-note,
 .note-container .discussion-notes.diff-discussions {
-  margin-left: 100px;
-  border-left: 1px solid $gray-50;
+  .discussion-reply-holder {
+    padding-top: $gl-padding-12;
+    margin-bottom: -1px;
+  }
 }
 
 .notes.active {
@@ -777,69 +765,6 @@ table.code {
   cursor: auto;
 }
 
-.frame.click-to-comment,
-.btn-transparent.image-diff-overlay-add-comment {
-  position: relative;
-  cursor: url('illustrations/image_comment_light_cursor.svg') $image-comment-cursor-left-offset $image-comment-cursor-top-offset,
-    auto;
-
-  // Retina cursor
-  cursor: image-set(url('illustrations/image_comment_light_cursor.svg') 1x,
-  url('illustrations/image_comment_light_cursor@2x.svg') 2x) $image-comment-cursor-left-offset $image-comment-cursor-top-offset,
-    auto;
-
-  .comment-indicator {
-    position: absolute;
-    padding: 0;
-    width: (2px * $image-comment-cursor-left-offset);
-    height: (2px * $image-comment-cursor-top-offset);
-    color: $blue-400;
-    // center the indicator to match the top left click region
-    margin-top: (-1px * $image-comment-cursor-top-offset) + 2;
-    margin-left: (-1px * $image-comment-cursor-left-offset) + 1;
-
-    svg {
-      width: 100%;
-      height: 100%;
-    }
-
-    &:focus {
-      outline: none;
-    }
-  }
-}
-
-.frame .image-comment-badge,
-.frame .comment-indicator {
-  // Center align badges on the frame
-  transform: translate(-50%, -50%);
-}
-
-.image-comment-badge {
-  position: absolute;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  background: none;
-  border: 0;
-
-  > svg {
-    width: 100%;
-    height: 100%;
-  }
-}
-
-.image-diff-avatar-link,
-.user-avatar-link {
-  position: relative;
-
-  .badge.badge-pill,
-  .image-comment-badge {
-    top: 25px;
-    right: 8px;
-  }
-}
-
 .discussion-notes {
   min-height: 35px;
   background-color: transparent;
@@ -854,7 +779,7 @@ table.code {
   }
 
   &.collapsed {
-    background-color: $white;
+    @apply gl-bg-default;
 
     .diff-notes-expand {
       display: initial;
@@ -871,10 +796,10 @@ table.code {
   ul.notes {
     li.toggle-replies-widget,
     .discussion-reply-holder {
-      margin-left: 2.5rem;
+      margin-left: $note-spacing-left;
 
-      .reply-author-avatar {
-        height: 1.5rem;
+      &[aria-expanded="false"] {
+        @apply gl-border-b gl-border-b-section;
       }
     }
   }
@@ -888,18 +813,7 @@ table.code {
   margin: 0 $gl-padding $gl-padding;
 
   .notes {
-    border-radius: $gl-border-radius-base;
-  }
-}
-
-.image-diff-overlay,
-.image-diff-overlay-add-comment {
-  top: 0;
-  left: 0;
-
-  &:active,
-  &:focus {
-    outline: 0;
+    @apply gl-rounded-lg;
   }
 }
 
@@ -915,7 +829,7 @@ table.code {
   }
 }
 
-@media (max-width: map-get($grid-breakpoints, lg)-1) {
+@media (max-width: map.get($grid-breakpoints, lg)-1) {
   .diffs .files {
     flex-direction: column;
   }
@@ -955,11 +869,20 @@ table.code {
   }
 }
 
-.diff-file.pinned-file .file-title {
-  background-color: $blue-50;
-  border-color: $blue-200;
+.diff-file.linked-file {
+  border-color: var(--blue-200);
+
+  .file-title {
+    @apply gl-bg-feedback-info;
+  }
 }
 
-.diff-file.pinned-file .diff-content {
-  border-color: $blue-200;
+// This is not inside page_bundles because then it won't receive a proper color value for the dark theme
+.diff-file-row.is-active.is-linked {
+  @apply gl-bg-feedback-info;
+}
+
+.collapsed-file-warning {
+  color: var(--diff-warning-text-color);
+  background-color: var(--diff-warning-background-color);
 }

@@ -1,10 +1,9 @@
 ---
-stage: Govern
-group: Anti-Abuse
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Software Supply Chain Security
+group: Authorization
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Web UI spam protection and CAPTCHA support
 ---
-
-# Web UI spam protection and CAPTCHA support
 
 The approach for adding spam protection and CAPTCHA support to a new UI area of the GitLab application
 depends upon how the existing code is implemented.
@@ -47,7 +46,7 @@ component. You can find all the relevant frontend code under `app/assets/javascr
 However, even though the actual handling of the request interception and
 modal is transparent, without any mandatory changes to the involved JavaScript or Vue components
 for the form or page, changes in request or error handling may be required. Changes are needed
-because the existing behavior may not work correctly: for example, if a failed or cancelled
+because the existing behavior may not work correctly: for example, if a failed or canceled
 CAPTCHA display interrupts the standard request flow or UI updates.
 Careful exploratory testing of all scenarios is important to uncover any potential
 problems.

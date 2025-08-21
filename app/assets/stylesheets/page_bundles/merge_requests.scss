@@ -1,8 +1,5 @@
+@use "sass:map";
 @import 'mixins_and_variables_and_functions';
-
-.compare-versions-container {
-  min-width: 0;
-}
 
 .diff-comment-avatar-holders {
   position: absolute;
@@ -33,7 +30,6 @@
     .diff-comments-more-count {
       padding-left: 2px;
       padding-right: 2px;
-      width: auto;
     }
   }
 }
@@ -48,7 +44,6 @@
   border-color: var(--white, $white);
   cursor: pointer;
   transition: all 0.1s ease-out;
-  @include code-icon-size();
 
   @for $i from 1 through 4 {
     &:nth-child(#{$i}) {
@@ -65,7 +60,6 @@
   padding-left: 0;
   padding-right: 0;
   overflow: hidden;
-  @include code-icon-size();
 }
 
 .diff-file-changes {
@@ -132,6 +126,11 @@
   .vue-recycle-scroller__item-wrapper {
     overflow: visible;
   }
+
+  .diff-file-is-active {
+    outline: 1px solid var(--gl-focus-ring-outer-color);
+    outline-offset: 2px;
+  }
 }
 
 .diff-grid {
@@ -144,10 +143,6 @@
   .diff-grid-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
-
-    &.diff-grid-row-full {
-      grid-template-columns: 1fr;
-    }
   }
 
   .diff-grid-left,
@@ -171,12 +166,21 @@
     grid-template-columns: 1fr 1fr;
   }
 
+  .diff-grid-comments.diff-grid-comments-full-width {
+    grid-template-columns: 1fr;
+
+    .diff-td {
+      border-right: 0;
+      border-bottom: 0;
+    }
+  }
+
   .diff-grid-drafts {
     display: grid;
     grid-template-columns: 1fr 1fr;
 
     .content + .content {
-      @include gl-border-t;
+      @apply gl-border-t;
     }
 
     .notes-content {
@@ -221,11 +225,7 @@
 
 .diff-tr {
   .timeline-discussion-body {
-    clear: left;
-
-    .note-body {
-      padding: 0 $gl-padding-8 $gl-padding-8 $gl-padding-32;
-    }
+    padding: 0 0 $gl-padding-4 $gl-padding-32;
   }
 
   .timeline-entry img.avatar {
@@ -244,53 +244,84 @@
   }
 }
 
-.diff-tree-list {
-  // This 11px value should match the additional value found in
-  //      /assets/stylesheets/framework/diffs.scss
-  // for the $mr-file-header-top SCSS variable within the
-  //      .file-title,
-  //      .file-title-flex-parent {
-  // rule.
-  // If they don't match, the file tree and the diff files stick
-  // to the top at different heights, which is a bad-looking defect
-  $diff-file-header-top: 11px;
+// This 11px value should match the additional value found in
+//      /assets/stylesheets/framework/diffs.scss
+// for the $mr-file-header-top SCSS variable within the
+//      .file-title,
+//      .file-title-flex-parent {
+// rule.
+// If they don't match, the file tree and the diff files stick
+// to the top at different heights, which is a bad-looking defect
+$diff-file-header-top: 11px;
 
+.diffs.tab-pane .files {
+  @include media-breakpoint-up(md) {
+    // ensure consistent page height when selected file is loading
+    // https://gitlab.com/gitlab-org/gitlab/-/issues/426250
+    // also required for file browser to consume all available height
+    min-height: calc(100vh - (#{$calc-application-header-height} + #{$mr-sticky-header-height} + #{$diff-file-header-top} + #{$content-wrapper-padding}));
+  }
+}
+
+.diff-tree-list {
+  --file-row-height: 32px;
+  --file-tree-min-height: 300px;
+  // can't use rems here because they won't compute to pixels when using `getComputedStyle(el).getPropertyValue()`
+  --file-tree-bottom-padding: 16px;
   position: sticky;
   top: calc(#{$calc-application-header-height} + #{$mr-sticky-header-height} + #{$diff-file-header-top});
-  // height calc is fully delegated to the tree_list_height.vue component
+  // height calc is fully delegated to the file_browser_height.vue component
   height: 100%;
-  min-height: 300px;
+  min-height: var(--file-tree-min-height);
 
   .drag-handle {
     bottom: 16px;
   }
 }
 
-.tree-list-holder {
-  --file-row-height: 32px;
-  height: 100%;
-
-  .file-row {
-    margin-left: 0;
-    margin-right: 0;
-  }
+.diff-tree-list-floating {
+  z-index: 9;
 }
 
-.tree-list-scroll {
-  max-height: 100%;
-  padding-bottom: $grid-size;
-  overflow-y: scroll;
-  overflow-x: auto;
+.diff-tree-list-floating-wrapper {
+  position: relative;
+  height: 100%;
+}
+
+.diff-tree-list-floating .diff-tree-list-floating-wrapper {
+  position: fixed;
+  background-color: var(--gl-background-color-default);
+  box-shadow: $gl-spacing-scale-4 0 var(--gl-background-color-default);
+}
+
+.diff-tree-list-resizer {
+  $drag-handle-width: 4px;
+  right: calc(($gl-spacing-scale-4 + $drag-handle-width / 2) * -1) !important;
+}
+
+.diff-tree-list-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+}
+
+.tree-list-holder {
+  height: 100%;
+}
+
+.tree-list-holder .file-row {
+  width: calc(100% - #{$gl-spacing-scale-1} * 2);
+  margin: 0 0 0 $gl-spacing-scale-1;
+  border: 0;
+  min-width: 0;
+  background: transparent;
 }
 
 .tree-list-gutter {
   height: $grid-size;
-}
-
-.tree-list-clear-icon {
-  right: 10px;
-  left: auto;
-  line-height: 0;
 }
 
 .file-row-header {
@@ -299,9 +330,10 @@
   height: var(--file-row-height);
 }
 
-@media (max-width: map-get($grid-breakpoints, lg)-1) {
+@media (max-width: map.get($grid-breakpoints, lg)-1) {
   .diffs .files {
     .diff-tree-list {
+      --tree-list-max-height: calc(var(--file-row-height) * 8);
       position: relative;
       // height is fully handled on the javascript side in narrow view
       min-height: 0;
@@ -329,15 +361,11 @@
   @include media-breakpoint-down(sm) {
     align-items: initial;
     flex-direction: column;
-
-    .dropdown .mini-pipeline-graph-dropdown-menu.dropdown-menu {
-      transform: initial;
-    }
   }
 
   .coverage {
     font-size: 12px;
-    color: var(--gray-500, $gray-500);
+    @apply gl-text-subtle;
     line-height: initial;
   }
 }
@@ -346,24 +374,7 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-
-  @include media-breakpoint-up(xs) {
-    flex-wrap: nowrap;
-    white-space: nowrap;
-  }
-
-  @container mr-widget-extension (max-width: 600px) {
-    flex-direction: column;
-    align-items: flex-start;
-
-    .deployment-info {
-      margin-bottom: $gl-padding-8;
-    }
-
-    .gl-button {
-      margin-left: 0;
-    }
-  }
+  justify-content: space-between;
 
   > *:not(:last-child) {
     margin-right: 0.3em;
@@ -374,19 +385,9 @@
   }
 
   .deployment-info {
-    flex: 1;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    min-width: 100px;
-
-    display: grid;
+    white-space: nowrap;display: grid;
     grid-template-columns: max-content minmax(0, max-content) max-content;
     grid-gap: $gl-spacing-scale-2;
-
-    @include media-breakpoint-up(xs) {
-      min-width: 0;
-      max-width: 100%;
-    }
   }
 
   .dropdown-menu {
@@ -405,12 +406,20 @@
   }
 
   &:not(:last-child) {
-    border-bottom: 1px solid var(--border-color, $border-color);
+    @apply gl-border-b gl-border-b-section;
   }
 }
 
+.diff-file-row {
+  transition: color 0.2s ease-in-out;
+}
+
 .diff-file-row.is-active {
-  background-color: var(--gray-50, $gray-50);
+  @apply gl-bg-strong;
+}
+
+.diff-file-row.is-loading {
+  @apply gl-text-disabled;
 }
 
 .mr-info-list {
@@ -458,32 +467,33 @@
 }
 
 .mr-section-container {
-  border: 1px solid var(--border-color, $border-color);
-  border-radius: $gl-border-radius-base;
-  background: var(--white, $white);
+  @apply gl-bg-section gl-border gl-border-section gl-rounded-lg;
 
   &:not(:first-child) {
     @apply gl-mt-5;
   }
 
-  &:empty {
+  &:empty,
+  &:has(.reports-widgets-container:empty) {
     display: none;
   }
 
+  // stylelint-disable-next-line gitlab/no-gl-class
   .gl-skeleton-loader {
     display: block;
   }
 
   > .mr-widget-section {
-    &:first-child {
-      border-top-left-radius: $gl-border-radius-base-inner;
-      border-top-right-radius: $gl-border-radius-base-inner;
+    &:first-child,
+    .widget-merge-status {
+      border-top-left-radius: $gl-border-radius-lg-inner;
+      border-top-right-radius: $gl-border-radius-lg-inner;
     }
 
     > :last-child,
     .deploy-heading:last-child {
-      border-bottom-left-radius: $gl-border-radius-base-inner;
-      border-bottom-right-radius: $gl-border-radius-base-inner;
+      border-bottom-left-radius: $gl-border-radius-lg-inner;
+      border-bottom-right-radius: $gl-border-radius-lg-inner;
     }
   }
 
@@ -493,14 +503,10 @@
 }
 
 .mr-state-widget {
-  color: var(--gl-text-color, $gl-text-color);
+  color: var(--gl-text-color-default);
 
   .commit-message-edit {
-    border-radius: $gl-border-radius-base;
-  }
-
-  .mr-widget-alert-container + .mr-widget-section {
-    border-top: 0;
+    @apply gl-rounded-base;
   }
 
   .commits-list {
@@ -537,15 +543,8 @@
     font-size: $gl-font-size;
   }
 
-  .accept-merge-holder {
-    .accept-action {
-      display: inline-block;
-      float: left;
-    }
-  }
-
   .ci-widget {
-    color: var(--gl-text-color, $gl-text-color);
+    color: var(--gl-text-color-default);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -563,10 +562,6 @@
 
   .mr-widget-icon {
     font-size: 22px;
-  }
-
-  .mr-loading-icon {
-    margin: 3px 0;
   }
 
   .normal {
@@ -589,7 +584,7 @@
   }
 
   .label-branch {
-    @include gl-font-monospace;
+    @apply gl-font-monospace;
     overflow: hidden;
     word-break: break-all;
   }
@@ -640,26 +635,13 @@
       margin: 0 0 0 10px;
     }
 
-    .state-label {
-      font-weight: $gl-font-weight-bold;
-      padding-right: 10px;
-    }
-
     .danger {
-      color: var(--red-500, $red-500);
+      @apply gl-text-danger;
     }
 
     .dropdown-menu {
       li a {
         padding: 5px;
-      }
-
-      .merge-opt-icon {
-        line-height: 1.5;
-      }
-
-      .merge-opt-title {
-        margin-left: 8px;
       }
     }
 
@@ -685,50 +667,14 @@
       }
     }
 
-    &.mr-widget-empty-state {
-      line-height: 20px;
-      padding: $gl-padding;
-
-      .artwork {
-
-        @include media-breakpoint-down(md) {
-          margin-bottom: $gl-padding;
-        }
-      }
-
-      .text {
-        p {
-          margin-top: $gl-padding;
-        }
-
-        .highlight {
-          margin: 0 0 $gl-padding;
-          font-weight: $gl-font-weight-bold;
-        }
-      }
-    }
-
     &.mr-pipeline-suggest {
-      border-radius: $gl-border-radius-base;
+      @apply gl-rounded-base;
       line-height: 20px;
-      border: 1px solid var(--border-color, $border-color);
+      border: 1px solid var(--gl-border-color-default);
 
       .circle-icon-container {
-        color: var(--gray-100, $gray-100);
+        color: var(--gl-border-color-default);
       }
-    }
-  }
-
-  .ci-coverage {
-    float: right;
-  }
-
-  .stop-env-container {
-    color: var(--gl-text-color, $gl-text-color);
-    float: right;
-
-    a {
-      color: var(--gl-text-color, $gl-text-color);
     }
   }
 }
@@ -747,7 +693,7 @@
 }
 
 .mr-widget-border-top {
-  border-top: 1px solid var(--border-color, $border-color);
+  border-top: 1px solid var(--gl-border-color-default);
 
   &:last-child {
     .report-block-container {
@@ -758,8 +704,7 @@
 }
 
 .mr-widget-extension {
-  border-top: 1px solid var(--border-color, $border-color);
-  background-color: var(--gray-10, $gray-10);
+  @apply gl-bg-subtle gl-border-t gl-border-t-section;
   container-name: mr-widget-extension;
   container-type: inline-size;
   // Adds a fix for the view app dropdown not showing up
@@ -768,7 +713,7 @@
   z-index: 1;
 
   &.clickable:hover {
-    background-color: var(--gray-50, $gray-50);
+    @apply gl-bg-strong;
     cursor: pointer;
   }
 }
@@ -808,7 +753,7 @@
 }
 
 .mr-version-controls {
-  color: var(--gl-text-color, $gl-text-color);
+  color: var(--gl-text-color-default);
 
   .mr-version-menus-container {
     display: flex;
@@ -817,6 +762,7 @@
     z-index: 199;
     white-space: nowrap;
 
+    // stylelint-disable-next-line gitlab/no-gl-class
     .gl-dropdown-toggle {
       width: auto;
       max-width: 170px;
@@ -838,10 +784,12 @@
     top: 1px;
     margin: 0 $gl-spacing-scale-1;
 
+    // stylelint-disable-next-line gitlab/no-gl-class
     .dropdown-toggle.gl-button {
       padding: $gl-spacing-scale-2 2px $gl-spacing-scale-2 $gl-spacing-scale-2;
       font-weight: $gl-font-weight-bold;
 
+      // stylelint-disable-next-line gitlab/no-gl-class
       .gl-button-icon {
         margin-left: $gl-spacing-scale-1;
       }
@@ -849,7 +797,7 @@
   }
 
   .dropdown-title {
-    color: var(--gl-text-color, $gl-text-color);
+    color: var(--gl-text-color-strong);
   }
 }
 
@@ -859,13 +807,15 @@
 
 .merge-request-overview {
   @include media-breakpoint-up(lg) {
+    $mr-overview-gap-width: 2rem;
     display: grid;
-    grid-template-columns: calc(97% - #{$right-sidebar-width}) auto;
-    grid-gap: 3%;
+    grid-template-columns: calc(100% - #{$right-sidebar-width} - #{$mr-overview-gap-width}) auto;
+    column-gap: $mr-overview-gap-width;
   }
 }
 
-.container-fluid:not(.container-limited) {
+.container-fluid:not(.container-limited),
+.container-fluid.rd-page-container {
   .detail-page-header,
   .detail-page-description,
   .merge-request-tabs-container {
@@ -887,30 +837,13 @@
   }
 }
 
-.submit-review-dropdown .gl-new-dropdown-panel {
-  max-width: none;
-}
-
-.submit-review-dropdown-form {
-  width: calc(100vw - 20px);
-  max-width: 680px;
-}
-
-.submit-review-dropdown-animated {
-  animation: review-btn-animate 300ms ease-in;
-}
-
 @include keyframes(review-btn-animate) {
-  0% {
+  0%, 100% {
     transform: scale(1);
   }
 
   75% {
     transform: scale(1.2);
-  }
-
-  100% {
-    transform: scale(1);
   }
 }
 
@@ -931,8 +864,7 @@
 }
 
 .mr-ready-merge-related-links a,
-.mr-widget-merge-details a,
-.mr-widget-author {
+.mr-widget-merge-details a {
   text-decoration: underline;
 
   &:hover,
@@ -941,117 +873,31 @@
   }
 }
 
-.merge-request-sticky-header {
-  z-index: $top-bar-z-index;
-  height: $mr-sticky-header-height;
-}
-
 .merge-request-notification-toggle {
+  // stylelint-disable-next-line gitlab/no-gl-class
   .gl-toggle {
     margin-left: auto;
   }
 
+  // stylelint-disable-next-line gitlab/no-gl-class
   .gl-toggle-label {
     font-weight: $gl-font-weight-normal;
   }
 }
 
-.mr-widget-status-icon-level-1::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  opacity: 0.3;
-  border-radius: $gl-border-radius-full;
-  border-style: solid;
-  border-width: $gl-border-size-4;
-}
-
-.mr-widget-status-icon-level-1::after {
-  content: '';
-  position: absolute;
-  border-radius: $gl-border-radius-full;
-  border-style: solid;
-  border-width: $gl-border-size-4;
-  left: $gl-spacing-scale-2;
-  right: $gl-spacing-scale-2;
-  top: $gl-spacing-scale-2;
-  bottom: $gl-spacing-scale-2;
-}
-
 .memory-graph-container {
-  background: var(--white, $white);
-  border: 1px solid var(--gray-100, $gray-100);
+  @apply gl-bg-default gl-border;
 }
 
-.review-bar-component {
-  position: fixed;
-  bottom: $calc-application-footer-height;
-  left: 0;
-  z-index: $zindex-dropdown-menu;
-  display: flex;
-  align-items: center;
-  width: 100%;
-  height: var(--mr-review-bar-height);
-  padding-left: $super-sidebar-width;
-  padding-right: $right-sidebar-collapsed-width;
-  background: var(--white, $white);
-  border-top: 1px solid var(--border-color, $border-color);
-  transition: padding $gl-transition-duration-medium;
-
-  @media (max-width: map-get($grid-breakpoints, sm)-1) {
-    padding-left: 0;
-    padding-right: 0;
-  }
-
-  .submit-review-dropdown {
-    margin-left: $grid-size;
-
-    .md-header {
-      top: -$gl-spacing-scale-2;
-    }
-  }
+.pending-review-item:not(:last-child)::before {
+  @include vertical-line(20px, 10px);
+  height: 100%;
+  @apply gl-bg-strong;
 }
 
-.review-bar-content {
-  max-width: $limited-layout-width;
-  padding: 0 $container-margin;
-  width: 100%;
-  margin: 0 auto;
-}
-
-.review-preview-item-header {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  margin-bottom: 4px;
-
-  > .bold {
-    display: flex;
-    min-width: 0;
-    line-height: 16px;
-  }
-}
-
-.review-preview-item-footer {
-  display: flex;
-  align-items: center;
-  margin-top: 4px;
-}
-
-.review-preview-item-content {
-  width: 100%;
-
-  p {
-    display: block;
-    width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    margin-bottom: 0;
-  }
+.review-comment-icon {
+  min-width: 22px;
+  height: 22px;
 }
 
 .commits ol:not(:last-of-type) {
@@ -1075,6 +921,7 @@
     vertical-align: middle;
   }
 
+  // stylelint-disable-next-line gitlab/no-gl-class
   .gl-skeleton-loader {
     max-width: 334px;
   }
@@ -1083,12 +930,18 @@
 .diff-file-discussions-wrapper {
   width: 100%;
 
+  .timeline-entry.note-discussion {
+    > .timeline-entry-inner {
+      border-bottom: 0 !important;
+    }
+  }
+
   .diff-discussions:not(:first-child) >.notes {
     padding-top: 0;
   }
 
   .note-discussion {
-    border-bottom: 1px solid var(--gray-100, $gray-100) !important;
+    @apply gl-border-b #{!important};
   }
 
   .discussion-collapsible {
@@ -1098,6 +951,10 @@
     border-bottom-width: 0;
     border-top-left-radius: 0;
     border-top-right-radius: 0;
+
+    .notes {
+      @apply gl-bg-subtle;
+    }
   }
 }
 

@@ -1,14 +1,16 @@
 ---
-stage: Systems
+stage: Tenant Scale
 group: Geo
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Disaster recovery for planned failover
 ---
 
-# Disaster recovery for planned failover
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 The primary use-case of Disaster Recovery is to ensure business continuity in
 the event of unplanned outage, but it can be used in conjunction with a planned
@@ -22,24 +24,99 @@ length of this window is determined by your replication capacity - when the
 data loss.
 
 This document assumes you already have a fully configured, working Geo setup.
-Read this document and the [Disaster Recovery](index.md) failover
+Read this document and the [Disaster Recovery](_index.md) failover
 documentation in full before proceeding. Planned failover is a major operation,
 and if performed incorrectly, there is a high risk of data loss. Consider
 rehearsing the procedure until you are comfortable with the necessary steps and
 have a high degree of confidence in being able to perform them accurately.
 
+## Recommendations for failover
+
+Following these recommendations will help ensure a smooth failover process
+and minimize the risk of data loss or extended downtime.
+
+### Resolve sync and verification failures
+
+If there are **Failed** or **Queued** items during [preflight checks](#preflight-checks) (either manual validation
+or when running `gitlab-ctl promotion-preflight-checks`), the failover is blocked until these are either:
+
+- **Resolved**: Successfully synced (by hand-copying to secondary if necessary) and verified.
+- **Documented as acceptable**: With clear justification such as:
+  - Manual checksum comparison passed for these specific failures.
+  - Repositories are deprecated and can be excluded.
+  - Items are non-critical and will be copied post-failover.
+
+For help diagnosing sync and verification failures, see
+[Troubleshooting Geo synchronization and verification errors](../replication/troubleshooting/synchronization_verification.md).
+
+### Plan for data integrity resolution
+
+**Allow 4-6 weeks** before failover completion to resolve data integrity issues
+that are commonly surfaced after setting up Geo replication for the first time,
+such as orphaned database records or inconsistent file references.
+See [Troubleshooting common Geo errors](../replication/troubleshooting/common.md) for guidance.
+
+Start addressing sync issues early to avoid tough decisions during the maintenance window:
+
+1. **4-6 weeks before:** Identify and begin resolving outstanding sync problems
+1. **1 week before:** Target resolution or documentation of all remaining sync problems
+1. **1-2 days before:** Resolve any new failures
+1. **Hours before:** Last check for any new failures
+
+**Go/no-go decision**: Have clear criteria for when to abort the failover due to unresolved sync errors.
+
+### Test backup timing in Geo environments
+
+{{< alert type="warning" >}}
+
+Backups from Geo replica databases may be canceled if WAL transactions are in flight.
+
+{{< /alert >}}
+
+Test backup procedures ahead of time and consider:
+
+- Taking backups directly from the primary (may impact performance).
+- Using a dedicated read replica disconnected from replication.
+- Scheduling during low-activity periods.
+
+### Prepare comprehensive fallback procedures
+
+{{< alert type="warning" >}}
+
+Plan the rollback decision points before promotion completes, as falling back afterwards may result in data loss.
+
+{{< /alert >}}
+
+Document specific steps to revert to the original primary, including:
+
+- Decision criteria for when to abort the failover
+- DNS reversion procedures
+- Process to re-enable the original primary (see [Bring a demoted primary site back online](bring_primary_back.md))
+- User communication plan
+
+### Develop a failover runbook in a staging environment
+
+Practicing and documenting a highly-manual task in full detail ensures success.
+
+1. Provision a production-like environment if you don't already have one.
+1. Smoke test. For example, add groups, add projects, add a Runner, use Git push, add images to an issue.
+1. Failover to secondary site.
+1. Smoke test. Look for problems.
+1. As you go, write down every action taken, the actor, expected results, links to resources.
+1. Repeat as needed to refine the runbook and scripts.
+
 ## Not all data is automatically replicated
 
-If you are using any GitLab features that Geo [doesn't support](../replication/datatypes.md#limitations-on-replicationverification),
+If you are using any GitLab features that Geo doesn't support,
 you must make separate provisions to ensure that the **secondary** site has an
 up-to-date copy of any data associated with that feature. This may extend the
-required scheduled maintenance period significantly.
+required scheduled maintenance period significantly. A list of features supported by Geo can be found in the [replicated data types table](../replication/datatypes.md#replicated-data-types).
 
 A common strategy for keeping this period as short as possible for data stored
 in files is to use `rsync` to transfer the data. An initial `rsync` can be
 performed ahead of the maintenance window; subsequent `rsync`s (including a
 final transfer inside the maintenance window) then transfers only the
-*changes* between the **primary** site and the **secondary** sites.
+changes between the **primary** site and the **secondary** sites.
 
 Git repository-centric strategies for using `rsync` effectively can be found in the
 [moving repositories](../../operations/moving_repositories.md) documentation; these strategies can
@@ -59,12 +136,12 @@ site you are about to failover to:
 rsync --archive --perms --delete root@<geo-primary>:/var/opt/gitlab/gitlab-rails/shared/registry/. /var/opt/gitlab/gitlab-rails/shared/registry
 ```
 
-Alternatively, you can [back up](../../../administration/backup_restore/index.md#back-up-gitlab)
+Alternatively, you can [back up](../../backup_restore/_index.md#back-up-gitlab)
 the container registry on the primary site and restore it onto the secondary
 site:
 
 1. On your primary site, back up only the registry and
-   [exclude specific directories from the backup](../../../administration/backup_restore/backup_gitlab.md#excluding-specific-data-from-the-backup):
+   [exclude specific directories from the backup](../../backup_restore/backup_gitlab.md#excluding-specific-data-from-the-backup):
 
    ```shell
    # Create a backup in the /var/opt/gitlab/backups folder
@@ -74,22 +151,97 @@ site:
 1. Copy the backup tarball generated from your primary site to the `/var/opt/gitlab/backups` folder
    on your secondary site.
 
-1. On your secondary site, restore the registry following the [Restore GitLab](../../../administration/backup_restore/index.md#restore-gitlab)
+1. On your secondary site, restore the registry following the [Restore GitLab](../../backup_restore/_index.md#restore-gitlab)
    documentation.
+
+### Recover data for advanced search
+
+Advanced search is powered by Elasticsearch or OpenSearch.
+The data for advanced search is not automatically replicated to secondary sites.
+
+To recover data for advanced search on the newly promoted primary site:
+
+{{< tabs >}}
+
+{{< tab title="GitLab 17.2 and later" >}}
+
+1. Disable search with Elasticsearch:
+
+   ```shell
+   sudo gitlab-rake gitlab:elastic:disable_search_with_elasticsearch
+   ```
+
+1. [Reindex the entire instance](../../../integration/advanced_search/elasticsearch.md#index-the-instance).
+1. [Check indexing status](../../../integration/advanced_search/elasticsearch.md#check-indexing-status).
+1. [Monitor the status of background jobs](../../../integration/advanced_search/elasticsearch.md#monitor-the-status-of-background-jobs).
+1. Enable search with Elasticsearch:
+
+   ```shell
+   sudo gitlab-rake gitlab:elastic:enable_search_with_elasticsearch
+   ```
+
+{{< /tab >}}
+
+{{< tab title="GitLab 17.1 and earlier" >}}
+
+1. Disable search with Elasticsearch:
+
+   ```shell
+   sudo gitlab-rake gitlab:elastic:disable_search_with_elasticsearch
+   ```
+
+1. Pause indexing and wait five minutes for ongoing tasks to complete:
+
+   ```shell
+   sudo gitlab-rake gitlab:elastic:pause_indexing
+   ```
+
+1. Reindex the instance from scratch:
+
+   ```shell
+   sudo gitlab-rake gitlab:elastic:index
+   ```
+
+1. Resume indexing:
+
+   ```shell
+   sudo gitlab-rake gitlab:elastic:resume_indexing
+   ```
+
+1. [Check indexing status](../../../integration/advanced_search/elasticsearch.md#check-indexing-status).
+1. [Monitor the status of background jobs](../../../integration/advanced_search/elasticsearch.md#monitor-the-status-of-background-jobs).
+1. Enable search with Elasticsearch:
+
+   ```shell
+   sudo gitlab-rake gitlab:elastic:enable_search_with_elasticsearch
+   ```
+
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ## Preflight checks
 
-Run this command to list out all preflight checks and automatically check if replication and verification are complete before scheduling a planned failover to ensure the process goes smoothly:
+Before scheduling your planned failover, verify the following preflight checks manually to ensure the
+process goes smoothly. Each step is described in more detail below.
+
+During the actual failover process, after the primary is down, run this command to perform
+final validation checks before promoting the secondary:
 
 ```shell
 gitlab-ctl promotion-preflight-checks
 ```
 
-Each step is described in more detail below.
+The `gitlab-ctl promotion-preflight-checks` command is part of the failover process and requires the
+primary site to be down. It cannot be used as a pre-maintenance validation tool while the primary is
+still running. When you run this command, a prompt asks you if the primary site is down. If you answer
+`No`, this error is shown: `ERROR: primary node must be down`.
+
+For pre-maintenance validation while the primary is still operational, use the manual checks below.
 
 ### DNS TTL
 
-If you plan to [update the primary domain DNS record](index.md#step-4-optional-updating-the-primary-domain-dns-record),
+If you plan to [update the primary domain DNS record](_index.md#step-4-optional-updating-the-primary-domain-dns-record),
 you may wish to maintain a low TTL to ensure fast propagation of DNS changes.
 
 ### Object storage
@@ -104,7 +256,7 @@ In GitLab 15.1, you can optionally allow GitLab to manage replication of Object 
 
 ### Review the configuration of each **secondary** site
 
-Database settings are automatically replicated to the **secondary**  site, but the
+Database settings are automatically replicated to the **secondary** site, but the
 `/etc/gitlab/gitlab.rb` file must be set up manually, and differs between
 sites. If features such as Mattermost, OAuth or LDAP integration are enabled
 on the **primary** site but not the **secondary** site, they are lost during failover.
@@ -131,7 +283,7 @@ identical on all nodes. Check this by running the following on all nodes and
 comparing the output:
 
 ```shell
-sudo sha256sum /etc/ssh/ssh_host* /etc/gitlab/gitlab-secrets.json
+sudo sha256sum /etc/ssh/sshhost /etc/gitlab/gitlab-secrets.json
 ```
 
 If any files differ, [manually replicate GitLab secrets](../replication/configuration.md#step-1-manually-replicate-secret-gitlab-values) and [replicate SSH host keys](../replication/configuration.md#step-2-manually-replicate-the-primary-sites-ssh-host-keys)
@@ -151,21 +303,18 @@ ensure these processes are close to 100% as possible during active use.
 
 On the **secondary** site:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Geo > Sites**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Geo** > **Sites**.
    Replicated objects (shown in green) should be close to 100%,
    and there should be no failures (shown in red). If a large proportion of
    objects aren't yet replicated (shown in gray), consider giving the site more
    time to complete
 
-   ![Replication status](../replication/img/geo_dashboard_v14_0.png)
+   ![Geo admin dashboard showing the synchronization status of a secondary site](img/geo_dashboard_v14_0.png)
 
 If any objects are failing to replicate, this should be investigated before
 scheduling the maintenance window. Following a planned failover, anything that
 failed to replicate is **lost**.
-
-You can use the [Geo status API](../../../api/geo_nodes.md#retrieve-project-sync-or-verification-failures-that-occurred-on-the-current-node) to review failed objects and
-the reasons for failure.
 
 A common cause of replication failures is the data being missing on the
 **primary** site - you can resolve these failures by restoring the data from backup,
@@ -179,7 +328,7 @@ This [content was moved to another location](background_verification.md).
 
 On the **primary** site:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Messages**.
 1. Add a message notifying users on the maintenance window.
    You can check under **Geo > Sites** to estimate how long it
@@ -203,9 +352,9 @@ If a runner is repeatedly unable to connect to a GitLab instance, it stops tryin
 To ensure that all data is replicated to a secondary site, updates (write requests) need to
 be disabled on the **primary** site:
 
-1. Enable [maintenance mode](../../maintenance_mode/index.md) on the **primary** site.
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Monitoring > Background Jobs**.
+1. Enable [maintenance mode](../../maintenance_mode/_index.md) on the **primary** site.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Monitoring** > **Background jobs**.
 1. On the Sidekiq dashboard, select **Cron**.
 1. Select `Disable All` to disable non-Geo periodic background jobs.
 1. Select `Enable` for the following cronjobs:
@@ -223,8 +372,8 @@ be disabled on the **primary** site:
 1. If you are manually replicating any data not managed by Geo, trigger the
    final replication process now.
 1. On the **primary** site:
-   1. On the left sidebar, at the bottom, select **Admin Area**.
-   1. On the left sidebar, select **Monitoring > Background Jobs**.
+   1. On the left sidebar, at the bottom, select **Admin**.
+   1. On the left sidebar, select **Monitoring > Background jobs**.
    1. On the Sidekiq dashboard, select **Queues**, and wait for all queues except
       those with `geo` in the name to drop to 0.
       These queues contain work that has been submitted by your users; failing over
@@ -238,8 +387,8 @@ be disabled on the **primary** site:
       - The Geo log cursor is up to date (0 events behind).
 
 1. On the **secondary** site:
-   1. On the left sidebar, at the bottom, select **Admin Area**.
-   1. On the left sidebar, select **Monitoring > Background Jobs**.
+   1. On the left sidebar, at the bottom, select **Admin**.
+   1. On the left sidebar, select **Monitoring > Background jobs**.
    1. On the Sidekiq dashboard, select **Queues**, and wait for all the `geo`
       queues to drop to 0 queued and 0 running jobs.
    1. [Run an integrity check](../../raketasks/check.md) to verify the integrity
@@ -250,7 +399,7 @@ At this point, your **secondary** site contains an up-to-date copy of everything
 
 ## Promote the **secondary** site
 
-After the replication is finished, [promote the **secondary** site to a **primary** site](index.md). This process causes a brief outage on the **secondary** site, and users may need to sign in again. If you follow the steps correctly, the old primary Geo site should still be disabled and user traffic should go to the newly-promoted site instead.
+After the replication is finished, [promote the **secondary** site to a **primary** site](_index.md). This process causes a brief outage on the **secondary** site, and users may need to sign in again. If you follow the steps correctly, the old primary Geo site should still be disabled and user traffic should go to the newly-promoted site instead.
 
 When the promotion is completed, the maintenance window is over, and your new **primary** site now
 begins to diverge from the old one. If problems do arise at this point, failing

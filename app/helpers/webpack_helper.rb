@@ -39,13 +39,14 @@ module WebpackHelper
     raise unless Gitlab.dev_or_test_env?
   end
 
-  def webpack_controller_bundle_tags
+  def webpack_controller_bundle_tags(custom_action_name = nil)
     chunks = []
 
-    action = case controller.action_name
+    action_name = custom_action_name || controller.action_name
+    action = case action_name
              when 'create' then 'new'
              when 'update' then 'edit'
-             else controller.action_name
+             else action_name
              end
 
     route = [*controller.controller_path.split('/'), action].compact
@@ -60,9 +61,7 @@ module WebpackHelper
       route.pop
     end
 
-    if chunks.empty?
-      chunks = webpack_entrypoint_paths("default", extension: 'js')
-    end
+    chunks = webpack_entrypoint_paths("default", extension: 'js') if chunks.empty?
 
     javascript_include_tag(*chunks)
   end
@@ -71,14 +70,10 @@ module WebpackHelper
     return "" unless source.present?
 
     paths = Gitlab::Webpack::Manifest.entrypoint_paths(source)
-    if extension
-      paths.select! { |p| p.ends_with? ".#{extension}" }
-    end
+    paths.select! { |p| p.ends_with? ".#{extension}" } if extension
 
     force_host = webpack_public_host
-    if force_host
-      paths.map! { |p| "#{force_host}#{p}" }
-    end
+    paths.map! { |p| "#{force_host}#{p}" } if force_host
 
     if exclude_duplicates
       @used_paths ||= []

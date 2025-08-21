@@ -13,6 +13,13 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
   let(:opts) { {} }
   let(:current_user) { developer }
 
+  before_all do
+    # Ensure support bot user is created so creation doesn't count towards query limit
+    # and we don't try to obtain an exclusive lease within a transaction.
+    # See https://gitlab.com/gitlab-org/gitlab/-/issues/509629
+    Users::Internal.support_bot_id
+  end
+
   describe '#execute' do
     let(:service) do
       described_class.new(
@@ -66,28 +73,61 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
           lock_version
           updated_at
           updated_by_id
+        ],
+        widgets: %w[
+          description_widget
         ]
 
-      context 'when work item type is not the default Issue' do
-        before do
-          task_type = WorkItems::Type.default_by_type(:task)
-          work_item.update_columns(work_item_type_id: task_type.id)
-        end
-
-        it 'does not apply the quick action' do
-          expect do
-            update_work_item
-          end.to change(work_item, :description).to('/shrug')
-        end
+      it_behaves_like 'issuable record that supports quick actions' do
+        let(:opts) { params }
+        let(:current_user) { user }
+        let(:work_item) { create(:work_item, project: project, description: "some random description") }
+        let(:issuable) { update_work_item[:work_item] }
       end
 
-      context 'when work item type is the default Issue' do
-        let(:issue) { create(:work_item, description: '') }
+      it_behaves_like 'issuable record that supports quick actions', with_widgets: true do
+        let(:opts) { params }
+        let(:current_user) { user }
+        let(:work_item) { create(:work_item, project: project, description: "some random description") }
+        let(:issuable) { update_work_item[:work_item] }
+      end
 
-        it 'applies the quick action' do
-          expect do
-            update_work_item
-          end.to change(work_item, :description).to(' ¯\＿(ツ)＿/¯')
+      it_behaves_like 'issuable record does not run quick actions when not editing description' do
+        let(:label) { create(:label, project: project) }
+        let(:assignee) { create(:user, maintainer_of: project) }
+        let(:work_item) { create(:work_item, project: project, description: old_description) }
+        let(:opts) { params }
+        let(:updated_issuable) { update_work_item[:work_item] }
+      end
+
+      it_behaves_like 'issuable record does not run quick actions when not editing description', with_widgets: true do
+        let(:label) { create(:label, project: project) }
+        let(:assignee) { create(:user, maintainer_of: project) }
+        let(:work_item) { create(:work_item, project: project, description: old_description) }
+        let(:opts) { params }
+        let(:updated_issuable) { update_work_item[:work_item] }
+      end
+
+      context 'when work item labels, assignees & milestone widgets are disabled' do
+        before do
+          widget_definitions = WorkItems::Type.default_by_type(:issue).widget_definitions
+          widget_definitions.find_by_widget_type(:labels).update!(disabled: true)
+          widget_definitions.find_by_widget_type(:assignees).update!(disabled: true)
+          widget_definitions.find_by_widget_type(:milestone).update!(disabled: true)
+        end
+
+        it_behaves_like 'issuable record that does not supports quick actions' do
+          let(:opts) { params }
+          let(:current_user) { user }
+          let(:work_item) { create(:work_item, project: project, description: "some random description") }
+          let(:issuable) { update_work_item[:work_item] }
+        end
+
+        it_behaves_like 'issuable record that does not supports quick actions', with_widgets: true do
+          let(:opts) { params }
+          let(:current_user) { user }
+          let(:work_item) { create(:work_item, project: project, description: "some random description") }
+          let(:issuable) { update_work_item[:work_item] }
         end
       end
     end
@@ -136,6 +176,9 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
           lock_version
           updated_at
           updated_by_id
+        ],
+        widgets: %w[
+          description_widget
         ]
 
       it 'does not trigger issuable_title_updated graphql subscription' do
@@ -172,7 +215,7 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
       end
     end
 
-    context 'when decription is changed' do
+    context 'when description is changed' do
       let(:opts) { { description: 'description changed' } }
 
       include_examples 'publish WorkItems::WorkItemUpdatedEvent event',
@@ -184,6 +227,9 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
           lock_version
           updated_at
           updated_by_id
+        ],
+        widgets: %w[
+          description_widget
         ]
 
       it 'triggers GraphQL description updated subscription' do
@@ -197,7 +243,7 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
       end
     end
 
-    context 'when decription is not changed' do
+    context 'when description is not changed' do
       let(:opts) { { title: 'title changed' } }
 
       it 'does not trigger GraphQL description updated subscription' do
@@ -217,7 +263,11 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
           expect do
             update_work_item
             work_item.reload
-          end.to change(work_item, :state).from('opened').to('closed')
+          end.to change { work_item.state }.from('opened').to('closed')
+        end
+
+        it_behaves_like 'update service that triggers GraphQL work_item_updated subscription' do
+          subject(:execute_service) { update_work_item }
         end
       end
 
@@ -234,7 +284,11 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
           expect do
             update_work_item
             work_item.reload
-          end.to change(work_item, :state).from('closed').to('opened')
+          end.to change { work_item.state }.from('closed').to('opened')
+        end
+
+        it_behaves_like 'update service that triggers GraphQL work_item_updated subscription' do
+          subject(:execute_service) { update_work_item }
         end
       end
     end
@@ -260,14 +314,14 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
 
       let(:supported_widgets) do
         [
-          { klass: WorkItems::Callbacks::Description, callback: :after_initialize },
-          { klass: WorkItems::Widgets::HierarchyService::UpdateService, callback: :before_update_in_transaction, params: { parent: parent } }
+          { klass: Issuable::Callbacks::Description, callback: :after_initialize },
+          { klass: WorkItems::Callbacks::Hierarchy, callback: :after_update }
         ]
       end
     end
 
     context 'when updating widgets' do
-      let(:widget_service_class) { WorkItems::Callbacks::Description }
+      let(:widget_service_class) { Issuable::Callbacks::Description }
       let(:widget_params) { { description_widget: { description: 'changed' } } }
 
       context 'when widget service is not present' do
@@ -276,7 +330,7 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
         end
 
         it 'ignores widget param' do
-          expect { update_work_item }.not_to change(work_item, :description)
+          expect { update_work_item }.not_to change { work_item.description }
         end
       end
 
@@ -290,7 +344,7 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
         end
 
         it 'ignores widget param' do
-          expect { update_work_item }.not_to change(work_item, :description)
+          expect { update_work_item }.not_to change { work_item.description }
         end
       end
 
@@ -322,7 +376,7 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
         context 'with mentions', :mailer, :sidekiq_might_not_need_inline do
           shared_examples 'creates the todo and sends email' do |attribute|
             it 'creates a todo and sends email' do
-              expect { perform_enqueued_jobs { update_work_item } }.to change(Todo, :count).by(1)
+              expect { perform_enqueued_jobs { update_work_item } }.to change { Todo.count }.by(1)
               expect(work_item.reload.attributes[attribute.to_s]).to eq("mention #{guest.to_reference}")
               should_email(guest)
             end
@@ -346,16 +400,6 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
 
           it 'returns validation errors' do
             expect(update_work_item[:message]).to contain_exactly("Title can't be blank")
-          end
-
-          it 'does not execute after-update widgets', :aggregate_failures do
-            expect(service).to receive(:update).and_call_original
-            expect(service).not_to receive(:execute_widgets).with(callback: :update, widget_params: widget_params)
-
-            expect do
-              update_work_item
-              work_item.reload
-            end.not_to change(work_item, :description)
           end
         end
       end
@@ -381,12 +425,40 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
           let(:widget_params) { { start_and_due_date_widget: { due_date: updated_date } } }
 
           it_behaves_like 'update service that triggers graphql dates updated subscription'
+
+          it 'updates the dates as expected' do
+            expect { update_work_item }
+              .to change { work_item.dates_source&.due_date }
+          end
+
+          context 'when work item validation fails' do
+            let(:opts) { { title: '' } }
+
+            it 'does not change the dates_source' do
+              expect { update_work_item }
+                .not_to change { work_item.dates_source&.due_date }
+            end
+          end
         end
 
         context 'when start_date is updated' do
           let(:widget_params) { { start_and_due_date_widget: { start_date: updated_date } } }
 
           it_behaves_like 'update service that triggers graphql dates updated subscription'
+
+          it 'updates the dates as expected' do
+            expect { update_work_item }
+              .to change { work_item&.dates_source&.start_date }
+          end
+
+          context 'when work item validation fails' do
+            let(:opts) { { title: '' } }
+
+            it 'does not change the dates_source' do
+              expect { update_work_item }
+                .not_to change { work_item&.dates_source&.start_date }
+            end
+          end
         end
 
         context 'when no date param is updated' do
@@ -406,29 +478,31 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
 
         let(:widget_params) { { hierarchy_widget: { children: [child_work_item] } } }
 
-        include_examples 'publish WorkItems::WorkItemUpdatedEvent event',
-          attributes: %w[
-            title
-            title_html
-            lock_version
-            updated_at
-            updated_by_id
-          ],
-          widgets: %w[
-            hierarchy_widget
-          ]
+        context 'when quarantined shared example', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/485044' do
+          include_examples 'publish WorkItems::WorkItemUpdatedEvent event',
+            attributes: %w[
+              title
+              title_html
+              lock_version
+              updated_at
+              updated_by_id
+            ],
+            widgets: %w[
+              hierarchy_widget
+            ]
+        end
 
         it 'updates the children of the work item' do
           expect do
             update_work_item
             work_item.reload
-          end.to change(WorkItems::ParentLink, :count).by(1)
+          end.to change { WorkItems::ParentLink.count }.by(1)
 
           expect(work_item.work_item_children).to include(child_work_item)
         end
 
         it_behaves_like 'update service that triggers GraphQL work_item_updated subscription' do
-          let(:trigger_call_counter) { 2 }
+          let(:trigger_call_counter) { 3 }
 
           subject(:execute_service) { update_work_item }
         end
@@ -458,14 +532,6 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
 
           it 'returns validation errors' do
             expect(update_work_item[:message]).to contain_exactly("Title can't be blank")
-          end
-
-          it 'does not execute after-update widgets', :aggregate_failures do
-            expect(service).to receive(:update).and_call_original
-            expect(service).not_to receive(:execute_widgets).with(callback: :before_update_in_transaction, widget_params: widget_params)
-            expect(work_item.work_item_children).not_to include(child_work_item)
-
-            update_work_item
           end
         end
       end
@@ -547,7 +613,7 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
               update_work_item
               user_todo.reload
               other_todo.reload
-            end.to change(user_todo, :state).from('pending').to('done').and not_change { other_todo.state }
+            end.to change { user_todo.state }.from('pending').to('done').and not_change { other_todo.state }
           end
 
           it_behaves_like 'update service that triggers GraphQL work_item_updated subscription' do
@@ -562,7 +628,7 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
             expect do
               update_work_item
               work_item.reload
-            end.to change(Todo, :count).by(1)
+            end.to change { Todo.count }.by(1)
           end
         end
       end
@@ -576,17 +642,21 @@ RSpec.describe WorkItems::UpdateService, feature_category: :team_planning do
           expect do
             update_work_item
             work_item.reload
-          end.to change(work_item, :assignees).from([developer]).to([assignee]).and change(work_item, :updated_at)
+          end.to change { work_item.assignees }.from([developer]).to([assignee]).and change { work_item.updated_at }
         end
 
-        it_behaves_like 'publish WorkItems::WorkItemUpdatedEvent event',
-          attributes: %w[
-            updated_at
-            updated_by_id
-          ],
-          widgets: %w[
-            assignees_widget
-          ]
+        context 'when quarantined shared example', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/485027' do
+          it_behaves_like 'publish WorkItems::WorkItemUpdatedEvent event',
+            attributes:
+            %w[
+              updated_at
+              updated_by_id
+            ],
+            widgets:
+            %w[
+              assignees_widget
+            ]
+        end
 
         context 'when work item validation fails' do
           let(:opts) { { title: '' } }

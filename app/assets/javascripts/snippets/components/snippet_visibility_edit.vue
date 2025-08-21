@@ -1,5 +1,5 @@
 <script>
-import { GlIcon, GlFormGroup, GlFormRadio, GlFormRadioGroup, GlLink } from '@gitlab/ui';
+import { GlIcon, GlFormGroup, GlFormRadio, GlFormRadioGroup } from '@gitlab/ui';
 import { SNIPPET_LEVELS_RESTRICTED, SNIPPET_LEVELS_DISABLED } from '~/snippets/constants';
 import { defaultSnippetVisibilityLevels } from '../utils/blob';
 
@@ -9,15 +9,9 @@ export default {
     GlFormGroup,
     GlFormRadio,
     GlFormRadioGroup,
-    GlLink,
   },
   inject: ['visibilityLevels', 'multipleLevelsRestricted'],
   props: {
-    helpLink: {
-      type: String,
-      default: '',
-      required: false,
-    },
     isProjectSnippet: {
       type: Boolean,
       required: false,
@@ -41,9 +35,6 @@ export default {
   <div class="form-group">
     <label>
       {{ __('Visibility level') }}
-      <gl-link v-if="helpLink" :href="helpLink" target="_blank"
-        ><gl-icon :size="12" name="question-o"
-      /></gl-link>
     </label>
     <gl-form-group id="visibility-level-setting" class="gl-mb-0">
       <gl-form-radio-group :checked="value" stacked v-bind="$attrs" v-on="$listeners">
@@ -56,7 +47,7 @@ export default {
           <div class="gl-flex gl-items-center">
             <gl-icon :size="16" :name="option.icon" />
             <span
-              class="gl-font-semibold gl-ml-2 js-visibility-option"
+              class="js-visibility-option gl-ml-2 gl-font-semibold"
               data-testid="visibility-content"
               :data-qa-visibility="option.label"
               >{{ option.label }}</span
@@ -71,7 +62,7 @@ export default {
       </gl-form-radio-group>
     </gl-form-group>
 
-    <div class="gl-text-secondary" data-testid="restricted-levels-info">
+    <div class="gl-text-subtle" data-testid="restricted-levels-info">
       <template v-if="!defaultVisibilityLevels.length">{{
         $options.SNIPPET_LEVELS_DISABLED
       }}</template>

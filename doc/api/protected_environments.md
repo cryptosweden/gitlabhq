@@ -2,13 +2,23 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Protected environments API
 ---
 
-# Protected environments API
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+Use this API to interact with [protected environments](../ci/environments/protected_environments.md).
+
+{{< alert type="note" >}}
+
+For group-level protected environments, see [group-level protected environments API](group_protected_environments.md)
+
+{{< /alert >}}
 
 ## Valid access levels
 
@@ -41,10 +51,11 @@ GET /projects/:id/protected_environments
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/protected_environments/"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/5/protected_environments/"
 ```
 
 Example response:
@@ -78,11 +89,12 @@ GET /projects/:id/protected_environments/:name
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `name` | string | yes | The name of the protected environment |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/protected_environments/production"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/5/protected_environments/production"
 ```
 
 Example response:
@@ -114,7 +126,7 @@ POST /projects/:id/protected_environments
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`                            | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`                            | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `name`                          | string         | yes | The name of the environment. |
 | `deploy_access_levels`          | array          | yes | Array of access levels allowed to deploy, with each described by a hash. |
 | `approval_rules`                | array          | no  | Array of access levels allowed to approve, with each described by a hash. See [Multiple approval rules](../ci/environments/deployment_approvals.md#add-multiple-approval-rules). |
@@ -123,13 +135,14 @@ Elements in the `deploy_access_levels` and `approval_rules` array should be one 
 `access_level`, and take the form `{user_id: integer}`, `{group_id: integer}` or
 `{access_level: integer}`. Optionally, you can specify the `group_inheritance_type` on each as one of the [valid group inheritance types](#group-inheritance-types).
 
-Each user must have access to the project and each group must [have this project shared](../user/project/members/share_project_with_groups.md).
+Each user must have access to the project and each group must [have this project shared](../user/project/members/sharing_projects_groups.md).
 
 ```shell
-curl --header 'Content-Type: application/json' --request POST \
+curl --header 'Content-Type: application/json' \
+     --request POST \
      --data '{"name": "production", "deploy_access_levels": [{"group_id": 9899826}], "approval_rules": [{"group_id": 134}, {"group_id": 135, "required_approvals": 2}]}' \
      --header "PRIVATE-TOKEN: <your_access_token>" \
-     "https://gitlab.example.com/api/v4/projects/22034114/protected_environments"
+     --url "https://gitlab.example.com/api/v4/projects/22034114/protected_environments"
 ```
 
 Example response:
@@ -173,7 +186,11 @@ Example response:
 
 ## Update a protected environment
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/351854) in GitLab 15.4.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/351854) in GitLab 15.4.
+
+{{< /history >}}
 
 Updates a single environment.
 
@@ -183,7 +200,7 @@ PUT /projects/:id/protected_environments/:name
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`                            | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`                            | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `name`                          | string         | yes | The name of the environment. |
 | `deploy_access_levels`          | array          | no  | Array of access levels allowed to deploy, with each described by a hash. |
 | `approval_rules`                | array          | no  | Array of access levels allowed to approve, with each described by a hash. See [Multiple approval rules](../ci/environments/deployment_approvals.md#add-multiple-approval-rules) for more information. |
@@ -195,7 +212,7 @@ Elements in the `deploy_access_levels` and `approval_rules` array should be one 
 To update:
 
 - **`user_id`**: Ensure the updated user has access to the project. You must also pass the `id` of either a `deploy_access_level` or `approval_rule` in the respective hash.
-- **`group_id`**: Ensure the updated group [have this project shared](../user/project/members/share_project_with_groups.md). You must also pass the `id` of either a `deploy_access_level` or `approval_rule` in the respective hash.
+- **`group_id`**: Ensure the updated group [have this project shared](../user/project/members/sharing_projects_groups.md). You must also pass the `id` of either a `deploy_access_level` or `approval_rule` in the respective hash.
 
 To delete:
 
@@ -204,10 +221,11 @@ To delete:
 ### Example: Create a `deploy_access_level` record
 
 ```shell
-curl --header 'Content-Type: application/json' --request PUT \
+curl --header 'Content-Type: application/json' \
+     --request PUT \
      --data '{"deploy_access_levels": [{"group_id": 9899829, access_level: 40}]' \
      --header "PRIVATE-TOKEN: <your_access_token>" \
-     "https://gitlab.example.com/api/v4/projects/22034114/protected_environments/production"
+     --url "https://gitlab.example.com/api/v4/projects/22034114/protected_environments/production"
 ```
 
 Example response:
@@ -232,9 +250,11 @@ Example response:
 ### Example: Update a `deploy_access_level` record
 
 ```shell
-curl --header 'Content-Type: application/json' --request PUT \
+curl --header 'Content-Type: application/json' \
+     --request PUT \
      --data '{"deploy_access_levels": [{"id": 12, "group_id": 22034120}]}' \
-     --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/22034114/protected_environments/production"
+     --header "PRIVATE-TOKEN: <your_access_token>" \
+     --url "https://gitlab.example.com/api/v4/projects/22034114/protected_environments/production"
 ```
 
 ```json
@@ -257,9 +277,11 @@ curl --header 'Content-Type: application/json' --request PUT \
 ### Example: Delete a `deploy_access_level` record
 
 ```shell
-curl --header 'Content-Type: application/json' --request PUT \
+curl --header 'Content-Type: application/json' \
+     --request PUT \
      --data '{"deploy_access_levels": [{"id": 12, "_destroy": true}]}' \
-     --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/22034114/protected_environments/production"
+     --header "PRIVATE-TOKEN: <your_access_token>" \
+     --url "https://gitlab.example.com/api/v4/projects/22034114/protected_environments/production"
 ```
 
 Example response:
@@ -275,10 +297,11 @@ Example response:
 ### Example: Create an `approval_rule` record
 
 ```shell
-curl --header 'Content-Type: application/json' --request PUT \
+curl --header 'Content-Type: application/json' \
+     --request PUT \
      --data '{"approval_rules": [{"group_id": 134, "required_approvals": 1}]}' \
      --header "PRIVATE-TOKEN: <your_access_token>" \
-     "https://gitlab.example.com/api/v4/projects/22034114/protected_environments/production"
+     --url "https://gitlab.example.com/api/v4/projects/22034114/protected_environments/production"
 ```
 
 Example response:
@@ -303,9 +326,11 @@ Example response:
 ### Example: Update an `approval_rule` record
 
 ```shell
-curl --header 'Content-Type: application/json' --request PUT \
+curl --header 'Content-Type: application/json' \
+     --request PUT \
      --data '{"approval_rules": [{"id": 38, "group_id": 135, "required_approvals": 2}]}' \
-     --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/22034114/protected_environments/production"
+     --header "PRIVATE-TOKEN: <your_access_token>" \
+     --url "https://gitlab.example.com/api/v4/projects/22034114/protected_environments/production"
 ```
 
 ```json
@@ -328,9 +353,11 @@ curl --header 'Content-Type: application/json' --request PUT \
 ### Example: Delete an `approval_rule` record
 
 ```shell
-curl --header 'Content-Type: application/json' --request PUT \
+curl --header 'Content-Type: application/json' \
+     --request PUT \
      --data '{"approval_rules": [{"id": 38, "_destroy": true}]}' \
-     --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/22034114/protected_environments/production"
+     --header "PRIVATE-TOKEN: <your_access_token>" \
+     --url "https://gitlab.example.com/api/v4/projects/22034114/protected_environments/production"
 ```
 
 Example response:
@@ -352,9 +379,11 @@ DELETE /projects/:id/protected_environments/:name
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `name` | string | yes | The name of the protected environment. |
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/protected_environments/staging"
+curl --request DELETE \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/5/protected_environments/staging"
 ```

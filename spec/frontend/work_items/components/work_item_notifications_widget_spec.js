@@ -2,8 +2,6 @@ import { GlButton, GlIcon } from '@gitlab/ui';
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 
-import projectWorkItemTypesQueryResponse from 'test_fixtures/graphql/work_items/project_work_item_types.query.graphql.json';
-
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
@@ -12,9 +10,13 @@ import { isLoggedIn } from '~/lib/utils/common_utils';
 import toast from '~/vue_shared/plugins/global_toast';
 import WorkItemNotificationsWidget from '~/work_items/components/work_item_notifications_widget.vue';
 import updateWorkItemNotificationsMutation from '~/work_items/graphql/update_work_item_notifications.mutation.graphql';
-import projectWorkItemTypesQuery from '~/work_items/graphql/project_work_item_types.query.graphql';
-
-import { updateWorkItemNotificationsMutationResponse } from '../mock_data';
+import namespaceWorkItemTypesQuery from '~/work_items/graphql/namespace_work_item_types.query.graphql';
+import getWorkItemNotificationsByIdQuery from '~/work_items/graphql/get_work_item_notifications_by_id.query.graphql';
+import {
+  namespaceWorkItemTypesQueryResponse,
+  workItemNotificationsResponse,
+  updateWorkItemNotificationsMutationResponse,
+} from '../mock_data';
 
 jest.mock('~/lib/utils/common_utils');
 jest.mock('~/vue_shared/plugins/global_toast');
@@ -32,7 +34,13 @@ describe('WorkItemActions component', () => {
     hide: jest.fn(),
   };
 
-  const typesQuerySuccessHandler = jest.fn().mockResolvedValue(projectWorkItemTypesQueryResponse);
+  const typesQuerySuccessHandler = jest.fn().mockResolvedValue(namespaceWorkItemTypesQueryResponse);
+  const notificationOffQueryHandler = jest
+    .fn()
+    .mockResolvedValue(workItemNotificationsResponse(false));
+  const notificationOnQueryHandler = jest
+    .fn()
+    .mockResolvedValue(workItemNotificationsResponse(true));
   const toggleNotificationsOffHandler = jest
     .fn()
     .mockResolvedValue(updateWorkItemNotificationsMutationResponse(false));
@@ -45,33 +53,28 @@ describe('WorkItemActions component', () => {
 
   const createComponent = ({
     canUpdate = true,
-    subscribedToNotifications = false,
     notificationsMutationHandler,
     workItemType = 'Task',
     workItemReference = mockWorkItemReference,
+    notificationsQueryHandler = notificationOnQueryHandler,
   } = {}) => {
     wrapper = shallowMountExtended(WorkItemNotificationsWidget, {
       isLoggedIn: isLoggedIn(),
       apolloProvider: createMockApollo([
-        [projectWorkItemTypesQuery, typesQuerySuccessHandler],
+        [namespaceWorkItemTypesQuery, typesQuerySuccessHandler],
+        [getWorkItemNotificationsByIdQuery, notificationsQueryHandler],
         [updateWorkItemNotificationsMutation, notificationsMutationHandler],
       ]),
       propsData: {
         fullPath: 'gitlab-org/gitlab-test',
         workItemId: 'gid://gitlab/WorkItem/1',
         canUpdate,
-        subscribedToNotifications,
         workItemType,
         workItemReference,
-      },
-      provide: {
-        isGroup: false,
-        glFeatures: { workItemsBeta: true, workItemsAlpha: true },
       },
       mocks: {
         $toast,
       },
-      stubs: {},
     });
   };
 
@@ -85,28 +88,35 @@ describe('WorkItemActions component', () => {
     expect(findNotificationsButton().exists()).toBe(true);
   });
 
+  it('does not render button if user is not logged in', () => {
+    isLoggedIn.mockReturnValue(false);
+    createComponent();
+
+    expect(findNotificationsButton().exists()).toBe(false);
+  });
+
   describe('notifications action', () => {
     beforeEach(() => {
       createComponent();
-      isLoggedIn.mockReturnValue(true);
     });
 
     it.each`
-      scenario                   | subscribedToNotifications | notificationsMutationHandler     | subscribed | toastMessage
-      ${'notifications are off'} | ${false}                  | ${toggleNotificationsOnHandler}  | ${true}    | ${'Notifications turned on.'}
-      ${'notifications are on'}  | ${true}                   | ${toggleNotificationsOffHandler} | ${false}   | ${'Notifications turned off.'}
+      scenario        | notificationsQueryHandler      | notificationsMutationHandler     | subscribed | toastMessage
+      ${'turned off'} | ${notificationOnQueryHandler}  | ${toggleNotificationsOffHandler} | ${false}   | ${'Notifications turned off.'}
+      ${'turned on'}  | ${notificationOffQueryHandler} | ${toggleNotificationsOnHandler}  | ${true}    | ${'Notifications turned on.'}
     `(
-      'calls mutation and displays toast when notification button is clicked while $scenario',
+      'calls mutation and displays toast when notification toggle is $scenario',
       async ({
-        subscribedToNotifications,
         notificationsMutationHandler,
         subscribed,
         toastMessage,
+        notificationsQueryHandler,
       }) => {
         createComponent({
           notificationsMutationHandler,
-          subscribedToNotifications,
+          notificationsQueryHandler,
         });
+        await waitForPromises();
 
         findNotificationsButton().vm.$emit('click');
         await waitForPromises();
@@ -122,18 +132,35 @@ describe('WorkItemActions component', () => {
     );
 
     it.each`
-      scenario                   | subscribedToNotifications | icon
-      ${'notifications are off'} | ${false}                  | ${'notifications-off'}
-      ${'notifications are on'}  | ${true}                   | ${'notifications'}
-    `('uses the correct icon when $scenario', ({ subscribedToNotifications, icon }) => {
-      createComponent({ subscribedToNotifications });
+      scenario                   | icon                   | notificationsQueryHandler
+      ${'notifications are off'} | ${'notifications-off'} | ${notificationOffQueryHandler}
+      ${'notifications are on'}  | ${'notifications'}     | ${notificationOnQueryHandler}
+    `('uses the correct icon when $scenario', async ({ notificationsQueryHandler, icon }) => {
+      createComponent({ notificationsQueryHandler });
+      await waitForPromises();
+
       expect(findNotificationsButton().findComponent(GlIcon).props('name')).toBe(icon);
     });
+
+    it.each`
+      scenario                   | dataSubscribed | notificationsQueryHandler
+      ${'notifications are off'} | ${'false'}     | ${notificationOffQueryHandler}
+      ${'notifications are on'}  | ${'true'}      | ${notificationOnQueryHandler}
+    `(
+      'has the correct data-subscribed attribute when $scenario',
+      async ({ notificationsQueryHandler, dataSubscribed }) => {
+        createComponent({ notificationsQueryHandler });
+        await waitForPromises();
+
+        expect(findNotificationsButton().attributes('data-subscribed')).toBe(dataSubscribed);
+      },
+    );
 
     it('emits error when the update notification mutation fails', async () => {
       createComponent({
         notificationsMutationHandler: toggleNotificationsFailureHandler,
       });
+      await waitForPromises();
 
       findNotificationsButton().vm.$emit('click');
       await waitForPromises();

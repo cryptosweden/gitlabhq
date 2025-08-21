@@ -3,11 +3,13 @@
 require 'spec_helper'
 
 RSpec.describe ProjectsFinder, feature_category: :groups_and_projects do
+  using RSpec::Parameterized::TableSyntax
+
   include AdminModeHelper
 
   describe '#execute' do
-    let_it_be(:user) { create(:user) }
     let_it_be(:group) { create(:group, :public) }
+    let_it_be(:user) { create(:user, :with_namespace, organizations: [group.organization]) }
 
     let_it_be(:private_project) do
       create(:project, :private, name: 'A', path: 'A')
@@ -23,12 +25,6 @@ RSpec.describe ProjectsFinder, feature_category: :groups_and_projects do
 
     let_it_be(:shared_project) do
       create(:project, :private, name: 'D', path: 'D')
-    end
-
-    let_it_be(:banned_user_project) do
-      create(:project, :public, name: 'Project created by a banned user', creator: create(:user, :banned)).tap do |p|
-        create(:project_authorization, :owner, user: p.creator, project: p)
-      end
     end
 
     let(:params) { {} }
@@ -180,7 +176,12 @@ RSpec.describe ProjectsFinder, feature_category: :groups_and_projects do
           end
 
           context 'when updated_after equals updated_before', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/408387' do
-            let(:params) { { updated_after: internal_project.updated_at, updated_before: internal_project.updated_at } }
+            let_it_be(:updated_at) { internal_project.updated_at }
+            let(:params) { { updated_after: updated_at, updated_before: updated_at } }
+
+            before do
+              internal_project.update_columns(updated_at: updated_at)
+            end
 
             it 'allows an exact match' do
               expect(subject).to contain_exactly(internal_project)
@@ -195,6 +196,37 @@ RSpec.describe ProjectsFinder, feature_category: :groups_and_projects do
             end
           end
         end
+      end
+
+      describe 'filter by aimed for deletion' do
+        let_it_be(:params) { { aimed_for_deletion: true } }
+        let_it_be(:aimed_for_deletion_project) { create(:project, :public, marked_for_deletion_at: 2.days.ago, pending_delete: false) }
+        let_it_be(:pending_deletion_project) { create(:project, :public, marked_for_deletion_at: 1.month.ago, pending_delete: true) }
+
+        let_it_be(:group_aimed_for_deletion) { create(:group_with_deletion_schedule) }
+        let_it_be(:group_aimed_for_deletion_project) { create(:project, :public, group: group_aimed_for_deletion) }
+
+        it { is_expected.to contain_exactly(aimed_for_deletion_project, group_aimed_for_deletion_project) }
+      end
+
+      describe 'filter by not aimed for deletion' do
+        let_it_be(:params) { { not_aimed_for_deletion: true } }
+        let_it_be(:aimed_for_deletion_project) { create(:project, :public, marked_for_deletion_at: 2.days.ago, pending_delete: false) }
+        let_it_be(:pending_deletion_project) { create(:project, :public, marked_for_deletion_at: 1.month.ago, pending_delete: true) }
+
+        let_it_be(:group_aimed_for_deletion) { create(:group_with_deletion_schedule) }
+        let_it_be(:group_aimed_for_deletion_project) { create(:project, :public, group: group_aimed_for_deletion) }
+
+        it { is_expected.to contain_exactly(public_project, internal_project) }
+      end
+
+      describe 'filter by marked for deletion' do
+        let_it_be(:marked_for_deletion_on) { Date.parse('2024-01-01') }
+        let_it_be(:params) { { marked_for_deletion_on: marked_for_deletion_on } }
+        let_it_be(:project1) { create(:project, :public, marked_for_deletion_at: marked_for_deletion_on) }
+        let_it_be(:project2) { create(:project, :public, marked_for_deletion_at: Date.current) }
+
+        it { is_expected.to contain_exactly(project1) }
       end
 
       describe 'filter by tags (deprecated)' do
@@ -242,8 +274,8 @@ RSpec.describe ProjectsFinder, feature_category: :groups_and_projects do
       end
 
       describe 'filter by topic_id' do
-        let_it_be(:topic1) { create(:topic) }
-        let_it_be(:topic2) { create(:topic) }
+        let_it_be(:topic1) { create(:topic, organization_id: public_project.organization_id) }
+        let_it_be(:topic2) { create(:topic, organization_id: public_project.organization_id) }
 
         before do
           public_project.reload
@@ -294,7 +326,7 @@ RSpec.describe ProjectsFinder, feature_category: :groups_and_projects do
           end
 
           it 'does not perform search' do
-            is_expected.to eq([public_project_2, public_project])
+            is_expected.to match_array([public_project, public_project_2])
           end
         end
 
@@ -344,8 +376,33 @@ RSpec.describe ProjectsFinder, feature_category: :groups_and_projects do
         it { is_expected.to eq([public_project, internal_project]) }
       end
 
+      describe 'filter by active' do
+        let_it_be(:active_projects) { [public_project, internal_project] }
+        let_it_be(:archived_project) { create(:project, :archived, :public) }
+        let_it_be(:for_deletion_project) { create(:project, :public, marked_for_deletion_at: Date.current) }
+
+        let_it_be(:archived_group_project) { create(:project, :public, group: create(:group, :archived)) }
+        let_it_be(:for_deletion_group_project) do
+          create(:project, :public, group: create(:group_with_deletion_schedule))
+        end
+
+        where :test_params, :expected_projects do
+          {}                | [ref(:active_projects), ref(:archived_project), ref(:for_deletion_project), ref(:archived_group_project), ref(:for_deletion_group_project)]
+          { active: nil  }  | [ref(:active_projects), ref(:archived_project), ref(:for_deletion_project), ref(:archived_group_project), ref(:for_deletion_group_project)]
+          { active: true }  | [ref(:active_projects)]
+          { active: false } | [ref(:archived_project), ref(:for_deletion_project), ref(:archived_group_project), ref(:for_deletion_group_project)]
+        end
+
+        with_them do
+          let(:params) { test_params }
+
+          it { is_expected.to match_array(expected_projects.flatten) }
+        end
+      end
+
       describe 'filter by archived' do
-        let!(:archived_project) { create(:project, :public, :archived, name: 'E', path: 'E') }
+        let_it_be(:archived_project) { create(:project, :public, :archived, name: 'E', path: 'E') }
+        let_it_be(:archived_group_project) { create(:project, :public, group: create(:group, :archived), name: 'C', path: 'C') }
 
         context 'non_archived=true' do
           let(:params) { { non_archived: true } }
@@ -356,19 +413,25 @@ RSpec.describe ProjectsFinder, feature_category: :groups_and_projects do
         context 'non_archived=false' do
           let(:params) { { non_archived: false } }
 
-          it { is_expected.to match_array([public_project, internal_project, archived_project]) }
+          it { is_expected.to match_array([public_project, internal_project, archived_project, archived_group_project]) }
         end
 
         describe 'filter by archived only' do
           let(:params) { { archived: 'only' } }
 
-          it { is_expected.to eq([archived_project]) }
+          it { is_expected.to match_array([archived_project, archived_group_project]) }
         end
 
         describe 'filter by archived for backward compatibility' do
           let(:params) { { archived: false } }
 
           it { is_expected.to match_array([public_project, internal_project]) }
+        end
+
+        describe 'filter by archived is present and is nil' do
+          let(:params) { { archived: nil } }
+
+          it { is_expected.to match_array([public_project, internal_project, archived_project, archived_group_project]) }
         end
       end
 
@@ -473,13 +536,21 @@ RSpec.describe ProjectsFinder, feature_category: :groups_and_projects do
         it { is_expected.to match_array([project]) }
       end
 
-      describe 'filter by language' do
+      describe 'filtering by programming language' do
         let_it_be(:ruby) { create(:programming_language, name: 'Ruby') }
         let_it_be(:repository_language) { create(:repository_language, project: internal_project, programming_language: ruby) }
 
-        let(:params) { { language: ruby.id } }
+        context 'when language ID is provided' do
+          let(:params) { { language: ruby.id } }
 
-        it { is_expected.to match_array([internal_project]) }
+          it { is_expected.to match_array([internal_project]) }
+        end
+
+        context 'when language name is provided' do
+          let(:params) { { language_name: 'ruby' } }
+
+          it { is_expected.to match_array([internal_project]) }
+        end
       end
 
       describe 'filter by organization' do
@@ -493,6 +564,41 @@ RSpec.describe ProjectsFinder, feature_category: :groups_and_projects do
         end
 
         it { is_expected.to match_array([organization_project]) }
+      end
+
+      context 'filter by namespace_path' do
+        context 'when project is in group' do
+          let_it_be(:group) { create(:group, owners: [user]) }
+          let_it_be(:project) { create(:project, group: group, owners: [user]) }
+
+          context 'when `namespace_path` matches group path' do
+            let(:params) { { namespace_path: group.full_path } }
+
+            it { is_expected.to contain_exactly(project) }
+          end
+
+          context 'when `namespace_path` does not match' do
+            let(:params) { { namespace_path: 'non_existent_path' } }
+
+            it { is_expected.to be_empty }
+          end
+        end
+
+        context 'when project is owned by user' do
+          let_it_be(:project) { create(:project, namespace: user.namespace, owners: [user]) }
+
+          context 'when `namespace_path` matches user namespace' do
+            let(:params) { { namespace_path: user.namespace.full_path } }
+
+            it { is_expected.to contain_exactly(project) }
+          end
+
+          context 'when `namespace_path` does not match' do
+            let(:params) { { namespace_path: 'non_existent_path' } }
+
+            it { is_expected.to be_empty }
+          end
+        end
       end
 
       describe 'when with_issues_enabled is true' do
@@ -546,27 +652,18 @@ RSpec.describe ProjectsFinder, feature_category: :groups_and_projects do
               public_project,
               internal_project,
               private_project,
-              shared_project,
-              banned_user_project
+              shared_project
             ])
           end
         end
 
         context 'with admin mode disabled' do
           it { is_expected.to match_array([public_project, internal_project]) }
-
-          context 'when hide_projects_of_banned_users FF is disabled' do
-            before do
-              stub_feature_flags(hide_projects_of_banned_users: false)
-            end
-
-            it { is_expected.to match_array([public_project, internal_project, banned_user_project]) }
-          end
         end
       end
     end
 
-    describe 'without CTE flag enabled', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/408387' do
+    describe 'with CTE flag disabled', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/408387' do
       let(:use_cte) { false }
 
       it_behaves_like 'ProjectFinder#execute examples'

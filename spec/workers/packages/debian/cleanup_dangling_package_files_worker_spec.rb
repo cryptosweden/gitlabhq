@@ -2,8 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Packages::Debian::CleanupDanglingPackageFilesWorker, type: :worker,
-  feature_category: :package_registry do
+RSpec.describe Packages::Debian::CleanupDanglingPackageFilesWorker, type: :worker, feature_category: :package_registry do
+  it_behaves_like 'worker with data consistency', described_class, data_consistency: :sticky
+
+  it 'has :until_executed deduplicate strategy' do
+    expect(described_class.get_deduplicate_strategy).to eq(:until_executed)
+  end
+
   describe '#perform' do
     let_it_be_with_reload(:distribution) { create(:debian_project_distribution, :with_file, codename: 'unstable') }
     let_it_be(:incoming) { create(:debian_incoming, project: distribution.project) }
@@ -75,9 +80,10 @@ RSpec.describe Packages::Debian::CleanupDanglingPackageFilesWorker, type: :worke
 
           # Using subject inside this block will process the job multiple times
           expect { subject }
-            .to not_change { distribution.project.package_files.count }
-            .and change { distribution.project.package_files.pending_destruction.count }.from(0).to(1)
-            .and not_change { distribution.project.packages.count }
+            .to not_change { ::Packages::PackageFile.for_projects(distribution.project).count }
+            .and change { ::Packages::PackageFile.for_projects(distribution.project).pending_destruction.count }
+              .from(0).to(1)
+            .and not_change { ::Packages::Debian::Package.for_projects(distribution.project).count }
         end
       end
     end

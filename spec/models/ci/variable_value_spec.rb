@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::VariableValue, feature_category: :secrets_management do
+RSpec.describe Ci::VariableValue, feature_category: :ci_variables do
   let_it_be(:expected_value) { 'Secret value' }
 
   subject(:service) { described_class.new(variable) }
@@ -35,24 +35,6 @@ RSpec.describe Ci::VariableValue, feature_category: :secrets_management do
 
         it_behaves_like 'hidden variable'
       end
-
-      context 'when feature flag `ci_hidden_variables` is disabled' do
-        before do
-          stub_feature_flags(ci_hidden_variables: false)
-        end
-
-        context 'and it is not hidden' do
-          let(:is_hidden) { false }
-
-          it_behaves_like 'not hidden variable'
-        end
-
-        context 'and it is hidden' do
-          let(:is_hidden) { true }
-
-          it_behaves_like 'not hidden variable'
-        end
-      end
     end
 
     context 'when variable is a group variable' do
@@ -69,24 +51,6 @@ RSpec.describe Ci::VariableValue, feature_category: :secrets_management do
         let(:is_hidden) { true }
 
         it_behaves_like 'hidden variable'
-      end
-
-      context 'when feature flag `ci_hidden_variables` is disabled' do
-        before do
-          stub_feature_flags(ci_hidden_variables: false)
-        end
-
-        context 'and it is not hidden' do
-          let(:is_hidden) { false }
-
-          it_behaves_like 'not hidden variable'
-        end
-
-        context 'and it is hidden' do
-          let(:is_hidden) { true }
-
-          it_behaves_like 'not hidden variable'
-        end
       end
     end
   end

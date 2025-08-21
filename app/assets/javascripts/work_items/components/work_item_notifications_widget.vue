@@ -4,11 +4,13 @@ import { GlButton, GlIcon, GlTooltipDirective } from '@gitlab/ui';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
 
 import { __, s__ } from '~/locale';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import toast from '~/vue_shared/plugins/global_toast';
 import { isLoggedIn } from '~/lib/utils/common_utils';
 
+import getWorkItemNotificationsByIdQuery from '../graphql/get_work_item_notifications_by_id.query.graphql';
 import updateWorkItemNotificationsMutation from '../graphql/update_work_item_notifications.mutation.graphql';
+
+import { WIDGET_TYPE_NOTIFICATIONS } from '../constants';
 
 const ICON_ON = 'notifications';
 const ICON_OFF = 'notifications-off';
@@ -27,44 +29,53 @@ export default {
   directives: {
     GlTooltip: GlTooltipDirective,
   },
-  mixins: [glFeatureFlagMixin()],
-  isLoggedIn: isLoggedIn(),
-  inject: ['isGroup'],
   props: {
-    fullPath: {
-      type: String,
-      required: true,
-    },
     workItemId: {
       type: String,
       required: false,
       default: null,
     },
-    canUpdate: {
-      type: Boolean,
-      required: false,
-      default: false,
-    },
-    subscribedToNotifications: {
-      type: Boolean,
-      required: false,
-      default: false,
-    },
   },
   data() {
     return {
-      isLockDiscussionUpdating: false,
-      emailsDisabled: false,
+      workItemNotificationsSubscribed: false,
     };
+  },
+  apollo: {
+    workItemNotificationsSubscribed: {
+      query: () => {
+        return getWorkItemNotificationsByIdQuery;
+      },
+      variables() {
+        return {
+          id: this.workItemId,
+        };
+      },
+      skip() {
+        return !this.workItemId;
+      },
+      update(data) {
+        return Boolean(
+          data?.workItem?.widgets?.find((widget) => widget.type === WIDGET_TYPE_NOTIFICATIONS)
+            ?.subscribed,
+        );
+      },
+      error(error) {
+        Sentry.captureException(error);
+      },
+    },
   },
   computed: {
     notificationTooltip() {
-      return this.subscribedToNotifications
+      return this.workItemNotificationsSubscribed
         ? this.$options.i18n.labelOn
         : this.$options.i18n.labelOff;
     },
     notificationIcon() {
-      return this.subscribedToNotifications ? ICON_ON : ICON_OFF;
+      return this.workItemNotificationsSubscribed ? ICON_ON : ICON_OFF;
+    },
+    isLoggedIn() {
+      return isLoggedIn();
     },
   },
   methods: {
@@ -76,6 +87,22 @@ export default {
             input: {
               id: this.workItemId,
               subscribed,
+            },
+          },
+          optimisticResponse: {
+            workItemSubscribe: {
+              errors: [],
+              workItem: {
+                __typename: 'WorkItem',
+                id: this.workItemId,
+                widgets: [
+                  {
+                    type: WIDGET_TYPE_NOTIFICATIONS,
+                    subscribed,
+                    __typename: 'WorkItemWidgetNotifications',
+                  },
+                ],
+              },
             },
           },
         })
@@ -100,18 +127,20 @@ export default {
 
 <template>
   <gl-button
+    v-if="isLoggedIn"
     ref="tooltip"
     v-gl-tooltip.hover
     category="secondary"
     data-testid="subscribe-button"
+    :data-subscribed="workItemNotificationsSubscribed ? 'true' : 'false'"
     :title="notificationTooltip"
     class="btn-icon"
-    @click="toggleNotifications(!subscribedToNotifications)"
+    @click="toggleNotifications(!workItemNotificationsSubscribed)"
   >
     <gl-icon
       :name="notificationIcon"
       :size="16"
-      :class="{ '!gl-fill-blue-500': subscribedToNotifications }"
+      :class="{ '!gl-text-status-info': workItemNotificationsSubscribed }"
     />
   </gl-button>
 </template>

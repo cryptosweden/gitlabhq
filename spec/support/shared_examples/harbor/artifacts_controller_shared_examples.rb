@@ -71,13 +71,13 @@ RSpec.shared_examples 'a harbor artifacts controller' do |args|
 
   before do
     stub_request(:get,
-      "https://demo.goharbor.io/api/v2.0/projects/testproject/repositories/test/artifacts"\
-      "?page=1&page_size=10&with_tag=true")
-    .with(
-      headers: {
-      Authorization: 'Basic aGFyYm9ydXNlcm5hbWU6aGFyYm9ycGFzc3dvcmQ=',
-      'Content-Type': 'application/json'
-    }).to_return(status: 200, body: mock_artifacts.to_json, headers: { "x-total-count": 2 })
+      "https://demo.goharbor.io/api/v2.0/projects/testproject/repositories/test/artifacts" \
+        "?page=1&page_size=10&with_tag=true")
+      .with(
+        headers: {
+          Authorization: 'Basic aGFyYm9ydXNlcm5hbWU6aGFyYm9ycGFzc3dvcmQ=',
+          'Content-Type': 'application/json'
+        }).to_return(status: 200, body: mock_artifacts.to_json, headers: { "x-total-count": 2 })
     container.add_reporter(user)
     sign_in(user)
   end
@@ -128,6 +128,22 @@ RSpec.shared_examples 'a harbor artifacts controller' do |args|
         end
 
         it_behaves_like 'responds with 200 status with json'
+      end
+
+      context 'with artifacts that have no tags' do
+        let(:mock_artifacts) { [super()[0].merge(tags: nil)] }
+
+        subject do
+          get harbor_artifact_url(container, repository_id), headers: json_header
+        end
+
+        it_behaves_like 'responds with 200 status with json'
+
+        it 'returns empty tags array' do
+          subject
+
+          expect(Gitlab::Json.parse(response.body).first['tags']).to be_empty
+        end
       end
     end
 

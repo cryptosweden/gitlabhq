@@ -2,7 +2,7 @@
 
 module Groups
   module GroupLinks
-    class CreateService < ::Groups::BaseService
+    class CreateService < ::Groups::GroupLinks::BaseService
       include GroupLinkable
 
       def initialize(group, shared_with_group, user, params)
@@ -22,16 +22,32 @@ module Groups
       end
 
       def build_link
+        remove_unallowed_params
+
         @link = GroupGroupLink.new(
           shared_group: group,
           shared_with_group: shared_with_group,
           group_access: params[:shared_group_access],
-          expires_at: params[:expires_at]
+          expires_at: params[:expires_at],
+          member_role_id: params[:member_role_id]
         )
       end
 
       def setup_authorizations
-        shared_with_group.refresh_members_authorized_projects(direct_members_only: true)
+        if Feature.enabled?(
+          :project_authorizations_update_in_background_for_group_shares,
+          shared_with_group.root_ancestor
+        )
+          AuthorizedProjectUpdate::EnqueueGroupMembersRefreshAuthorizedProjectsWorker.perform_async(
+            shared_with_group.id,
+            { 'priority' => priority_for_refresh, 'direct_members_only' => true }
+          )
+        else
+          shared_with_group.refresh_members_authorized_projects(
+            priority: priority_for_refresh,
+            direct_members_only: true
+          )
+        end
       end
     end
   end

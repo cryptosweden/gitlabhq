@@ -18,6 +18,10 @@ module Resolvers
       argument :search, GraphQL::Types::String,
         required: false,
         description: 'Search by group name or path.'
+      argument :sort,
+        Types::Namespaces::GroupSortEnum,
+        required: false,
+        description: 'Sort groups by given criteria.'
 
       before_connection_authorization do |nodes, current_user|
         Preloaders::GroupPolicyPreloader.new(nodes, current_user).execute
@@ -26,6 +30,7 @@ module Resolvers
       private
 
       def resolve_groups(**args)
+        args = { **args, organization: context[:current_organization] }
         ::Groups::UserGroupsFinder.new(current_user, object, args).execute
       end
     end

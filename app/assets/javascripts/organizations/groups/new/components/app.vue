@@ -24,8 +24,8 @@ export default {
     ),
     successMessage: __('Group %{group_name} was successfully created.'),
   },
-  groupsHelpPagePath: helpPagePath('user/group/index'),
-  subgroupsHelpPagePath: helpPagePath('user/group/subgroups/index'),
+  groupsHelpPagePath: helpPagePath('user/group/_index'),
+  subgroupsHelpPagePath: helpPagePath('user/group/subgroups/_index'),
   components: {
     GlLink,
     GlSprintf,
@@ -90,7 +90,7 @@ export default {
 
 <template>
   <div class="gl-py-6">
-    <h1 class="gl-mt-0 gl-font-size-h-display">{{ $options.i18n.pageTitle }}</h1>
+    <h1 class="gl-mt-0 gl-text-size-h-display">{{ $options.i18n.pageTitle }}</h1>
     <p>
       <gl-sprintf :message="$options.i18n.description1">
         <template #link="{ content }">

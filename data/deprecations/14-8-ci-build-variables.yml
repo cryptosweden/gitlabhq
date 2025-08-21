@@ -4,7 +4,7 @@
   breaking_change: true
   reporter: dhershkovitch
   body: |
-    The predefined CI/CD variables that start with `CI_BUILD_*` were deprecated in GitLab 9.0, and will be removed in GitLab 16.0. If you still use these variables, be sure to change to the replacement [predefined variables](https://docs.gitlab.com/ee/ci/variables/predefined_variables.html) which are functionally identical:
+    The predefined CI/CD variables that start with `CI_BUILD_*` were deprecated in GitLab 9.0, and will be removed in GitLab 16.0. If you still use these variables, be sure to change to the replacement [predefined variables](https://docs.gitlab.com/ci/variables/predefined_variables/) which are functionally identical:
 
     | Removed variable      | Replacement variable    |
     | --------------------- |------------------------ |
@@ -24,6 +24,6 @@
   stage: Verify
   tiers: [Free, Premium, Ultimate]
   issue_url: https://gitlab.com/gitlab-org/gitlab/-/issues/352957
-  documentation_url: https://docs.gitlab.com/ee/ci/variables/predefined_variables.html
+  documentation_url: https://docs.gitlab.com/ci/variables/predefined_variables/
   image_url:  # (optional) This is a link to a thumbnail image depicting the feature
   video_url:  # (optional) Use the youtube thumbnail URL with the structure of https://img.youtube.com/vi/UNIQUEID/hqdefault.jpg

@@ -30,25 +30,32 @@ module Gitlab
 
         return unless project&.pages_deployed?
 
-        ::Pages::VirtualDomain.new(projects: [project])
+        ::Pages::VirtualDomain.new(projects: [project], namespace: project.namespace)
       end
 
       def by_namespace_domain(name)
-        namespace = Namespace.top_most.by_path(name)
+        namespace = Namespace.top_level.by_path(name)
 
         return if namespace.blank?
 
         ::Pages::VirtualDomain.new(
           trim_prefix: namespace.full_path,
-          projects: namespace.all_projects_with_pages)
+          projects: namespace.all_projects_with_pages,
+          namespace: namespace
+        )
       end
 
       def by_custom_domain(host)
         domain = PagesDomain.find_by_domain_case_insensitive(host)
 
+        return unless domain&.enabled?
         return unless domain&.pages_deployed?
 
-        ::Pages::VirtualDomain.new(projects: [domain.project], domain: domain)
+        ::Pages::VirtualDomain.new(
+          projects: [domain.project],
+          domain: domain,
+          namespace: domain.project.namespace
+        )
       end
     end
   end

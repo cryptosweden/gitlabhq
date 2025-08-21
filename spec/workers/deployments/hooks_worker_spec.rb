@@ -25,7 +25,9 @@ RSpec.describe Deployments::HooksWorker, feature_category: :continuous_delivery 
       project = deployment.project
       service = create(:integrations_slack, project: project, deployment_events: true)
 
-      expect(Integrations::ExecuteWorker).to receive(:perform_async).with(service.id, an_instance_of(Hash))
+      expect(Integrations::ExecuteWorker)
+        .to receive(:perform_async)
+        .with(service.id, an_instance_of(ActiveSupport::HashWithIndifferentAccess))
 
       worker.perform(deployment_id: deployment.id, status_changed_at: Time.current)
     end
@@ -53,7 +55,13 @@ RSpec.describe Deployments::HooksWorker, feature_category: :continuous_delivery 
 
       status_changed_at = Time.current
 
-      expect_next_instance_of(WebHookService, web_hook, hash_including(status_changed_at: status_changed_at), "deployment_hooks") do |service|
+      expect_next_instance_of(
+        WebHookService,
+        web_hook,
+        hash_including(status_changed_at: status_changed_at),
+        "deployment_hooks",
+        idempotency_key: anything
+      ) do |service|
         expect(service).to receive(:async_execute)
       end
 

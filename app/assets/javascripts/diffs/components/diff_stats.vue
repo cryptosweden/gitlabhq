@@ -1,11 +1,11 @@
 <script>
-import { GlIcon } from '@gitlab/ui';
+import { GlIcon, GlSprintf } from '@gitlab/ui';
 import { isNumber } from 'lodash';
 import { n__ } from '~/locale';
 import { isNotDiffable, stats } from '../utils/diff_file';
 
 export default {
-  components: { GlIcon },
+  components: { GlIcon, GlSprintf },
   props: {
     diffFile: {
       type: Object,
@@ -20,21 +20,26 @@ export default {
       type: Number,
       required: true,
     },
-    diffFilesCountText: {
-      type: String,
+    diffsCount: {
+      type: [String, Number],
       required: false,
       default: null,
+    },
+    hideOnNarrowScreen: {
+      type: Boolean,
+      required: false,
+      default: true,
     },
   },
   computed: {
     diffFilesLength() {
-      return parseInt(this.diffFilesCountText, 10);
+      return parseInt(this.diffsCount, 10);
     },
     filesText() {
-      return n__('file', 'files', this.diffFilesLength);
+      return n__('%{count} file', '%{count} files', this.diffFilesLength);
     },
     isCompareVersionsHeader() {
-      return Boolean(this.diffFilesCountText);
+      return Boolean(this.diffsCount);
     },
     hasDiffFiles() {
       return isNumber(this.diffFilesLength) && this.diffFilesLength >= 0;
@@ -45,6 +50,18 @@ export default {
     fileStats() {
       return stats(this.diffFile);
     },
+    statsLabel() {
+      const counters = [];
+      if (this.addedLines > 0)
+        counters.push(
+          n__('RapidDiffs|Added %d line.', 'RapidDiffs|Added %d lines.', this.addedLines),
+        );
+      if (this.removedLines > 0)
+        counters.push(
+          n__('RapidDiffs|Removed %d line.', 'RapidDiffs|Removed %d lines.', this.removedLines),
+        );
+      return counters.join(' ');
+    },
   },
 };
 </script>
@@ -53,8 +70,10 @@ export default {
   <div
     class="diff-stats"
     :class="{
-      'is-compare-versions-header gl-hidden lg:gl-inline-flex': isCompareVersionsHeader,
-      'gl-hidden sm:!gl-inline-flex': !isCompareVersionsHeader,
+      'is-compare-versions-header gl-hidden lg:gl-inline-flex':
+        isCompareVersionsHeader && hideOnNarrowScreen,
+      'gl-hidden sm:!gl-inline-flex': !isCompareVersionsHeader && hideOnNarrowScreen,
+      'gl-inline-flex': !hideOnNarrowScreen,
     }"
   >
     <div v-if="notDiffable" :class="fileStats.classes">
@@ -62,22 +81,28 @@ export default {
     </div>
     <div v-else class="diff-stats-contents">
       <div v-if="hasDiffFiles" class="diff-stats-group">
-        <gl-icon name="doc-code" class="diff-stats-icon gl-text-gray-500" />
-        <span class="gl-text-gray-500 bold">{{ diffFilesCountText }} {{ filesText }}</span>
+        <gl-icon name="doc-code" class="diff-stats-icon" variant="subtle" />
+        <span class="gl-font-bold gl-text-subtle">
+          <gl-sprintf :message="filesText">
+            <template #count>{{ diffsCount }}</template>
+          </gl-sprintf>
+        </span>
       </div>
-      <div
-        class="diff-stats-group gl-text-green-600 gl-display-flex gl-align-items-center"
-        :class="{ bold: isCompareVersionsHeader }"
-      >
-        <span>+</span>
-        <span data-testid="js-file-addition-line">{{ addedLines }}</span>
-      </div>
-      <div
-        class="diff-stats-group gl-text-red-500 gl-display-flex gl-align-items-center"
-        :class="{ bold: isCompareVersionsHeader }"
-      >
-        <span>−</span>
-        <span data-testid="js-file-deletion-line">{{ removedLines }}</span>
+      <div class="gl-flex" :aria-label="statsLabel">
+        <div
+          class="diff-stats-group gl-flex gl-items-center gl-text-success"
+          :class="{ 'gl-font-bold': isCompareVersionsHeader }"
+        >
+          <span>+</span>
+          <span data-testid="js-file-addition-line">{{ addedLines }}</span>
+        </div>
+        <div
+          class="diff-stats-group gl-flex gl-items-center gl-text-danger"
+          :class="{ 'gl-font-bold': isCompareVersionsHeader }"
+        >
+          <span>−</span>
+          <span data-testid="js-file-deletion-line">{{ removedLines }}</span>
+        </div>
       </div>
     </div>
   </div>

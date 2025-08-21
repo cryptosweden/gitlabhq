@@ -1,14 +1,17 @@
 ---
-stage: Secure
+stage: Application Security Testing
 group: Composition Analysis
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: Learn how to generate and export a Software Bill of Materials (SBOM) in CycloneDX format for your project dependencies and save it as a CI/CD artifact.
+title: 'Tutorial: Export dependency list in SBOM format'
 ---
 
-# Tutorial: Export dependency list in SBOM format
+{{< details >}}
 
-DETAILS:
-**Tier:** Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Dependency Scanning output can be exported to the CycloneDX JSON format.
 
@@ -75,7 +78,7 @@ Set up Dependency Scanning. For detailed instructions, follow [the Dependency Sc
    export_sbom
    ```
 
-   The above script works in the following steps:
+   This `export.sh` script works in the following steps:
 
    1. Create a CycloneDX SBOM export for the current pipeline.
    1. Check the status of that export, and stop when it's ready.
@@ -85,17 +88,18 @@ Set up Dependency Scanning. For detailed instructions, follow [the Dependency Sc
 
    ```yaml
    export-merged-sbom:
+     image: alpine
      before_script:
        - apk add --update jq curl
      stage: .post
      script:
        - |
-         curl --header "Authorization: Bearer $PRIVATE_TOKEN"
-         --output export.sh --url "https://gitlab.com/api/v4/snippets/<SNIPPET_ID>/raw"
+         curl --header "Authorization: Bearer $PRIVATE_TOKEN" --output export.sh --url "https://gitlab.com/api/v4/snippets/<SNIPPET_ID>/raw"
        - /bin/sh export.sh
      artifacts:
        paths:
          - "gl-sbom-merged-*.cdx.json"
+
    ```
 
 1. Go to **Build > Pipelines** and confirm that the latest pipeline completed successfully.

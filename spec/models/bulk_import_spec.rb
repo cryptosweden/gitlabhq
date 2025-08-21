@@ -3,6 +3,8 @@
 require 'spec_helper'
 
 RSpec.describe BulkImport, type: :model, feature_category: :importers do
+  using RSpec::Parameterized::TableSyntax
+
   let_it_be(:created_bulk_import) { create(:bulk_import, :created, updated_at: 2.hours.ago) }
   let_it_be(:started_bulk_import) { create(:bulk_import, :started, updated_at: 3.hours.ago) }
   let_it_be(:finished_bulk_import) { create(:bulk_import, :finished, updated_at: 1.hour.ago) }
@@ -12,6 +14,7 @@ RSpec.describe BulkImport, type: :model, feature_category: :importers do
 
   describe 'associations' do
     it { is_expected.to belong_to(:user).required }
+    it { is_expected.to belong_to(:organization) }
     it { is_expected.to have_one(:configuration) }
     it { is_expected.to have_many(:entities) }
   end
@@ -42,6 +45,14 @@ RSpec.describe BulkImport, type: :model, feature_category: :importers do
           stale_started_bulk_import,
           stale_created_bulk_import
         ])
+      end
+    end
+
+    describe '.with_configuration' do
+      it 'includes configuration association' do
+        imports = described_class.with_configuration
+
+        expect(imports.first.association_cached?(:configuration)).to be(true)
       end
     end
   end
@@ -146,13 +157,13 @@ RSpec.describe BulkImport, type: :model, feature_category: :importers do
   end
 
   describe 'completion notification trigger' do
-    RSpec::Matchers.define :notify_owner_of_completion do
+    RSpec::Matchers.define :send_completion_notification do
       def supports_block_expectations?
         true
       end
 
       match(notify_expectation_failures: true) do |proc|
-        expect(Notify).to receive(:bulk_import_complete).with(user.id, import.id).and_call_original
+        expect(Notify).to receive(:bulk_import_complete).with(import.user.id, import.id).and_call_original
 
         proc.call
         true
@@ -166,44 +177,182 @@ RSpec.describe BulkImport, type: :model, feature_category: :importers do
       end
     end
 
-    subject(:import) do
-      create(:bulk_import, :started, entities: [
-        create(
-          :bulk_import_entity,
-          group: create(:group, owners: user)
-        )
-      ])
-    end
+    subject(:import) { create(:bulk_import, :started) }
 
-    let(:user) { create(:user) }
     let(:non_triggering_events) do
       import.status_paths.events - %i[finish cleanup_stale fail_op]
     end
 
-    it { expect { import.finish! }.to notify_owner_of_completion }
-    it { expect { import.fail_op! }.to notify_owner_of_completion }
-    it { expect { import.cleanup_stale! }.to notify_owner_of_completion }
+    it { expect { import.finish! }.to send_completion_notification }
+    it { expect { import.fail_op! }.to send_completion_notification }
+    it { expect { import.cleanup_stale! }.to send_completion_notification }
 
     it "does not email after non-completing events" do
       non_triggering_events.each do |event|
-        expect { import.send(:"#{event}!") }.not_to notify_owner_of_completion
+        expect { import.send(:"#{event}!") }.not_to send_completion_notification
       end
     end
   end
 
-  describe '#parent_group_entity' do
-    subject(:import) do
-      create(:bulk_import, :started, entities: [
-        root_node,
-        create(:bulk_import_entity, parent: root_node),
-        create(:bulk_import_entity, parent: root_node)
-      ])
+  describe '#destination_group_roots' do
+    let_it_be(:import) { create(:bulk_import, :started) }
+
+    let_it_be(:project_namespace) { create(:group) }
+    let_it_be(:project) { create(:project, namespace: project_namespace) }
+    let_it_be(:root_project_entity) do
+      create(:bulk_import_entity, :project_entity, project: project, bulk_import: import)
     end
 
-    let_it_be(:root_node) { create(:bulk_import_entity) }
+    let_it_be(:top_level_group) { create(:group) }
+    let_it_be(:root_group_entity) do
+      create(:bulk_import_entity, :group_entity, group: top_level_group, bulk_import: import)
+    end
 
-    it 'returns the topmost group note of the import entity tree' do
-      expect(import.parent_group_entity).to eq(root_node)
+    let_it_be(:child_group_entity) do
+      create(:bulk_import_entity, parent: root_group_entity, bulk_import: import)
+    end
+
+    it 'returns the topmost group nodes of the import entity tree' do
+      expect(import.destination_group_roots).to match_array([project_namespace, top_level_group])
+    end
+  end
+
+  describe '#source_url' do
+    it 'returns migration source url via configuration' do
+      import = create(:bulk_import, :with_configuration)
+
+      expect(import.source_url).to eq(import.configuration.url)
+    end
+
+    context 'when configuration is missing' do
+      it 'returns nil' do
+        import = create(:bulk_import)
+
+        expect(import.source_url).to be_nil
+      end
+    end
+  end
+
+  describe '#source_equals_destination?' do
+    subject(:bulk_import) do
+      build_stubbed(:bulk_import,
+        configuration: build_stubbed(:bulk_import_configuration, url: source_url)
+      )
+    end
+
+    before do
+      allow(Settings.gitlab).to receive(:host).and_return('gitlab.example')
+    end
+
+    where(:source_url, :value) do
+      'https://gitlab.example' | true
+      'https://gitlab.example:443' | true
+      'https://gitlab.example/' | true
+      'https://gitlab.example/dir' | true
+      'http://gitlab.example' | true
+      'https://gitlab.example2' | false
+      'https://subdomain.example' | false
+      'https://subdomain.gitlab.example' | false
+      'http://192.168.1.1' | false
+    end
+
+    with_them do
+      it { expect(bulk_import.source_equals_destination?).to eq(value) }
+    end
+  end
+
+  describe '#namespaces_with_unassigned_placeholders' do
+    let_it_be(:group) { create(:group) }
+    let_it_be(:entity) do
+      create(:bulk_import_entity, :group_entity, bulk_import: finished_bulk_import, group: group)
+    end
+
+    before do
+      create_list(:import_source_user, 5, :completed, namespace: group)
+    end
+
+    context 'when all placeholders have been assigned' do
+      it { expect(finished_bulk_import.namespaces_with_unassigned_placeholders).to be_empty }
+    end
+
+    context 'when some placeholders have not been assigned' do
+      before do
+        create(:import_source_user, :pending_reassignment, namespace: group)
+      end
+
+      it { expect(finished_bulk_import.namespaces_with_unassigned_placeholders).to include(group) }
+    end
+  end
+
+  describe '#schedule_configuration_purge' do
+    subject(:schedule_purge) { bulk_import.schedule_configuration_purge }
+
+    context 'when configuration exists' do
+      let_it_be(:bulk_import) { create(:bulk_import, :with_configuration) }
+      let(:configuration_id) { bulk_import.configuration.id }
+      let(:delay) { 24.hours }
+
+      before do
+        allow(bulk_import).to receive(:run_after_commit).and_yield
+        stub_const('BulkImport::PURGE_CONFIGURATION_DELAY', delay)
+      end
+
+      it 'schedules purge worker with default delay' do
+        expect(Import::BulkImports::ConfigurationPurgeWorker).to receive(:perform_in).with(delay, configuration_id)
+
+        schedule_purge
+      end
+    end
+
+    context 'when configuration does not exist' do
+      let_it_be(:bulk_import) { create(:bulk_import) }
+
+      it 'does not schedule any job' do
+        expect(Import::BulkImports::ConfigurationPurgeWorker).not_to receive(:perform_in)
+
+        schedule_purge
+      end
+    end
+  end
+
+  describe 'state-machine transitions for configuration purging' do
+    RSpec::Matchers.define :schedule_configuration_purge do
+      def supports_block_expectations?
+        true
+      end
+
+      match(notify_expectation_failures: true) do |proc|
+        expect_next_instance_of(described_class) do |instance|
+          expect(instance).to receive(:schedule_configuration_purge).and_call_original
+        end
+
+        proc.call
+        true
+      end
+
+      match_when_negated(notify_expectation_failures: true) do |proc|
+        expect_next_instance_of(described_class) do |instance|
+          expect(instance).not_to receive(:schedule_configuration_purge)
+        end
+
+        proc.call
+        true
+      end
+    end
+
+    context "when bulk import transitions to a completed state" do
+      subject(:import) { create(:bulk_import, :started, :with_configuration) }
+
+      it { expect { import.finish! }.to schedule_configuration_purge }
+      it { expect { import.fail_op! }.to schedule_configuration_purge }
+      it { expect { import.cleanup_stale! }.to schedule_configuration_purge }
+      it { expect { import.cancel }.to schedule_configuration_purge }
+    end
+
+    context "when bulk import transitions to a non-completed state" do
+      subject(:import) { create(:bulk_import, :created, :with_configuration) }
+
+      it { expect { import.start }.not_to schedule_configuration_purge }
     end
   end
 end

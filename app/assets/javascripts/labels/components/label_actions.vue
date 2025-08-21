@@ -84,8 +84,8 @@ export default {
       items.push({
         text: this.$options.i18n.delete,
         action: this.onDelete,
+        variant: 'danger',
         extraAttrs: {
-          class: 'gl-text-red-500!',
           'data-testid': `delete-label-action`,
         },
       });
@@ -130,7 +130,8 @@ export default {
 <template>
   <gl-disclosure-dropdown
     v-gl-tooltip="tooltipTitle"
-    :aria-label="$options.i18n.labelActionsDropdown"
+    :toggle-text="$options.i18n.labelActionsDropdown"
+    text-sr-only
     toggle-class="btn-sm"
     class="gl-ml-3"
     icon="ellipsis_v"

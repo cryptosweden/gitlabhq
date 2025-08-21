@@ -14,11 +14,11 @@ module Gitlab
           end
 
           def action_title
-            'Retry'
+            s_('Job|Run again')
           end
 
           def action_button_title
-            _('Retry this job')
+            s_('Job|Run this job again')
           end
 
           def action_path

@@ -7,7 +7,8 @@ module Gitlab
       # support all features and methods of ingestable email addresses like
       # incoming_email and service_desk_email.
       module CustomEmail
-        REPLY_ADDRESS_KEY_REGEXP = /\+([0-9a-f]{32})@/
+        EMAIL_REGEXP_WITH_ANCHORS = /\A(?>[a-zA-Z0-9]+|[\-._]+){1,255}@[\w\-.]{1,255}\.{1}[a-zA-Z]{2,63}\z/
+        REPLY_ADDRESS_KEY_REGEXP = /\+(?<full_reply_key>#{::SentNotification::FULL_REPLY_KEY_REGEX})@/
 
         class << self
           def reply_address(issue, reply_key)
@@ -25,21 +26,35 @@ module Gitlab
             match_data = REPLY_ADDRESS_KEY_REGEXP.match(email)
             return unless match_data
 
-            key = match_data[1]
+            key = match_data[:full_reply_key]
 
             settings = find_service_desk_setting_from_reply_address(email, key)
             # We intentionally don't check whether custom email is enabled
             # so we don't lose emails that are addressed to a disabled custom email address
-            return unless settings
+            return unless settings.present?
 
             key
+          end
+
+          # Checks whether the given email is a custom email and returns
+          # the project's mail key.
+          def key_from_settings(email)
+            return unless email.present?
+
+            # Normalize custom email to also include verification emails.
+            potential_custom_email = email.sub(ServiceDeskSetting::CUSTOM_EMAIL_VERIFICATION_SUBADDRESS, '')
+
+            settings = ServiceDeskSetting.find_by_custom_email(potential_custom_email)
+            return unless settings.present?
+
+            ::ServiceDesk::Emails.new(settings.project).default_subaddress_part
           end
 
           private
 
           def find_service_desk_setting_from_reply_address(email, key)
             potential_custom_email = email.sub("+#{key}", '')
-            return unless Gitlab::Utils::Email::EMAIL_REGEXP_WITH_ANCHORS.match?(potential_custom_email)
+            return unless EMAIL_REGEXP_WITH_ANCHORS.match?(potential_custom_email)
 
             ServiceDeskSetting.find_by_custom_email(potential_custom_email)
           end

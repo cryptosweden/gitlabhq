@@ -3,13 +3,20 @@ import Vue from 'vue';
 // eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
 import VueApollo from 'vue-apollo';
-import createDefaultClient from '~/lib/graphql';
 import { parseDataAttributes } from '~/members/utils';
+import { parseBoolean } from '~/lib/utils/common_utils';
 import { TABS } from 'ee_else_ce/members/tabs_metadata';
 import MembersTabs from './components/members_tabs.vue';
 import membersStore from './store';
+import { graphqlClient } from './graphql_client';
+import { CONTEXT_TYPE } from './constants';
 
-export const initMembersApp = (el, options) => {
+/**
+ * @param {HTMLElement} el
+ * @param {string} context as defined in CONTEXT_TYPE in ./constants.js
+ * @param {Object} options
+ */
+export const initMembersApp = (el, context, options) => {
   if (!el) {
     return () => {};
   }
@@ -27,9 +34,15 @@ export const initMembersApp = (el, options) => {
     exportCsvPath,
     groupName,
     groupPath,
+    projectPath,
     manageMemberRolesPath,
     canApproveAccessRequests,
     namespaceUserLimit,
+    availableRoles,
+    reassignmentCsvPath,
+    restrictReassignmentToEnterprise,
+    allowInactivePlaceholderReassignment,
+    allowBypassPlaceholderConfirmation,
     ...vuexStoreAttributes
   } = parseDataAttributes(el);
 
@@ -50,12 +63,17 @@ export const initMembersApp = (el, options) => {
 
   const store = new Vuex.Store({ modules });
 
+  const isGroup = context === CONTEXT_TYPE.GROUP;
+  const isProject = context === CONTEXT_TYPE.PROJECT;
+
   return new Vue({
     el,
     name: 'MembersRoot',
     components: { MembersTabs },
     store,
-    apolloProvider: new VueApollo({ defaultClient: createDefaultClient() }),
+    apolloProvider: new VueApollo({
+      defaultClient: graphqlClient,
+    }),
     provide: {
       currentUserId: gon.current_user_id || null,
       sourceId,
@@ -67,9 +85,20 @@ export const initMembersApp = (el, options) => {
       manageMemberRolesPath,
       canApproveAccessRequests,
       namespaceUserLimit,
+      availableRoles,
+      context,
+      reassignmentCsvPath,
+      restrictReassignmentToEnterprise,
+      allowInactivePlaceholderReassignment: parseBoolean(allowInactivePlaceholderReassignment),
+      allowBypassPlaceholderConfirmation,
       group: {
+        id: isGroup ? sourceId : null,
         name: groupName,
         path: groupPath,
+      },
+      project: {
+        id: isProject ? sourceId : null,
+        path: projectPath,
       },
     },
     render: (createElement) => createElement('members-tabs'),

@@ -25,15 +25,31 @@ RSpec.describe Gitlab::Workhorse, feature_category: :shared do
     let(:format) { 'zip' }
     let(:storage_path) { Gitlab.config.gitlab.repository_downloads_path }
     let(:path) { 'some/path' }
+    let(:include_lfs_blobs) { true }
+    let(:exclude_paths) { [] }
     let(:metadata) { repository.archive_metadata(ref, storage_path, format, append_sha: nil, path: path) }
     let(:cache_disabled) { false }
 
     subject do
-      described_class.send_git_archive(repository, ref: ref, format: format, append_sha: nil, path: path)
+      described_class.send_git_archive(repository, ref: ref, format: format, append_sha: nil, path: path, include_lfs_blobs: include_lfs_blobs, exclude_paths: exclude_paths)
     end
 
     before do
       allow(described_class).to receive(:git_archive_cache_disabled?).and_return(cache_disabled)
+    end
+
+    def expected_archive_request(repository, metadata, path, include_lfs_blobs, exclude_paths)
+      Base64.encode64(
+        Gitaly::GetArchiveRequest.new(
+          repository: repository.gitaly_repository,
+          commit_id: metadata['CommitId'],
+          prefix: metadata['ArchivePrefix'],
+          format: Gitaly::GetArchiveRequest::Format::ZIP,
+          path: path,
+          include_lfs_blobs: include_lfs_blobs,
+          exclude: exclude_paths
+        ).to_proto
+      )
     end
 
     it 'sets the header correctly' do
@@ -48,17 +64,42 @@ RSpec.describe Gitlab::Workhorse, feature_category: :shared do
           token: Gitlab::GitalyClient.token(project.repository_storage)
         },
         'ArchivePath' => metadata['ArchivePath'],
-        'GetArchiveRequest' => Base64.encode64(
-          Gitaly::GetArchiveRequest.new(
-            repository: repository.gitaly_repository,
-            commit_id: metadata['CommitId'],
-            prefix: metadata['ArchivePrefix'],
-            format: Gitaly::GetArchiveRequest::Format::ZIP,
-            path: path,
-            include_lfs_blobs: true
-          ).to_proto
-        )
+        'GetArchiveRequest' => expected_archive_request(repository, metadata, path, include_lfs_blobs, exclude_paths),
+        'StoragePath' => storage_path,
+        'UseArchiveCleaner' => true
       }.deep_stringify_keys)
+    end
+
+    context 'when Workhorse archive cleaner is disabled' do
+      before do
+        stub_env('WORKHORSE_ARCHIVE_CACHE_CLEANER_DISABLED', '1')
+      end
+
+      it 'sets UseArchiveCleaner to false' do
+        _, _, params = decode_workhorse_header(subject)
+
+        expect(params).to include('UseArchiveCleaner' => false)
+      end
+    end
+
+    context 'when include_lfs_blobs is disabled' do
+      let(:include_lfs_blobs) { false }
+
+      it 'sets the GetArchiveRequest header correctly' do
+        _, _, params = decode_workhorse_header(subject)
+
+        expect(params).to include({ 'GetArchiveRequest' => expected_archive_request(repository, metadata, path, include_lfs_blobs, exclude_paths) })
+      end
+    end
+
+    context 'when exclude_paths is present' do
+      let(:exclude_paths) { %w[migrations test] }
+
+      it 'sets the GetArchiveRequest header correctly' do
+        _, _, params = decode_workhorse_header(subject)
+
+        expect(params).to include({ 'GetArchiveRequest' => expected_archive_request(repository, metadata, path, include_lfs_blobs, exclude_paths) })
+      end
     end
 
     context 'when archive caching is disabled' do
@@ -235,15 +276,17 @@ RSpec.describe Gitlab::Workhorse, feature_category: :shared do
         GL_USERNAME: user.username,
         GL_REPOSITORY: "project-#{project.id}",
         ShowAllRefs: false,
-        NeedAudit: false
+        NeedAudit: false,
+        ProjectID: project.id,
+        RootNamespaceID: project.root_namespace.id
       }
     end
 
     let(:call_metadata) do
       features.merge({
-                       'user_id' => params[:GL_ID],
-                       'username' => params[:GL_USERNAME]
-                     })
+        'user_id' => params[:GL_ID],
+        'username' => params[:GL_USERNAME]
+      })
     end
 
     subject { described_class.git_http_ok(repository, Gitlab::GlRepository::PROJECT, user, action) }
@@ -263,6 +306,10 @@ RSpec.describe Gitlab::Workhorse, feature_category: :shared do
       subject { described_class.git_http_ok(repository, Gitlab::GlRepository::WIKI, user, action) }
 
       it { expect(subject).to include(params) }
+
+      it 'does not include Project and RootNamespace data' do
+        expect(subject).not_to include(:ProjectID, :RootNamespaceID)
+      end
     end
 
     it 'includes a Repository param' do
@@ -488,13 +535,24 @@ RSpec.describe Gitlab::Workhorse, feature_category: :shared do
 
   describe '.send_url' do
     let(:url) { 'http://example.com' }
+    let(:allow_localhost) { true }
+    let(:ssrf_filter) { false }
+    let(:allowed_endpoints) { [] }
     let(:expected_params) do
       {
         'URL' => url,
         'AllowRedirects' => false,
+        'AllowLocalhost' => allow_localhost,
+        'AllowedEndpoints' => allowed_endpoints.map(&:to_s),
+        'SSRFFilter' => ssrf_filter,
         'Header' => {},
+        'ResponseHeaders' => {},
         'Body' => '',
-        'Method' => 'GET'
+        'Method' => 'GET',
+        'RestrictForwardedResponseHeaders' => {
+          'Enabled' => false,
+          'AllowList' => []
+        }
       }
     end
 
@@ -508,22 +566,24 @@ RSpec.describe Gitlab::Workhorse, feature_category: :shared do
       expect(params).to eq(expected_params)
     end
 
-    context 'when body, headers and method are specified' do
+    context 'when body, headers, response headers and method are specified' do
       let(:body) { 'body' }
       let(:headers) { { Authorization: ['Bearer token'] } }
+      let(:response_headers) { { 'CustomHeader' => 'test' } }
       let(:method) { 'POST' }
 
       let(:expected_params) do
         super().merge(
           'Body' => body,
           'Header' => headers,
+          'ResponseHeaders' => { 'CustomHeader' => ['test'] },
           'Method' => method
         ).deep_stringify_keys
       end
 
-      it 'sets the header correctly' do
+      it 'sets everything correctly' do
         key, command, params = decode_workhorse_header(
-          described_class.send_url(url, body: body, headers: headers, method: method)
+          described_class.send_url(url, body: body, headers: headers, response_headers: response_headers, method: method)
         )
 
         expect(key).to eq("Gitlab-Workhorse-Send-Data")
@@ -557,6 +617,62 @@ RSpec.describe Gitlab::Workhorse, feature_category: :shared do
         expect(params).to eq(expected_params)
       end
     end
+
+    context 'when `ssrf_filter` parameter is set' do
+      let(:ssrf_filter) { true }
+
+      it 'sets the header correctly' do
+        key, command, params = decode_workhorse_header(described_class.send_url(url, ssrf_filter: ssrf_filter))
+
+        expect(key).to eq('Gitlab-Workhorse-Send-Data')
+        expect(command).to eq('send-url')
+        expect(params).to eq(expected_params)
+      end
+    end
+
+    context 'when `allowed_endpoints` paramter is set' do
+      let(:allowed_endpoints) { [URI('http://172.16.123.1:9000')] }
+
+      it 'sets the header correctly' do
+        key, command, params = decode_workhorse_header(described_class.send_url(url, allowed_endpoints: allowed_endpoints))
+
+        expect(key).to eq('Gitlab-Workhorse-Send-Data')
+        expect(command).to eq('send-url')
+        expect(params).to eq(expected_params)
+      end
+    end
+
+    context 'when local requests are not allowed' do
+      let(:allow_localhost) { false }
+
+      it 'sets the header correctly' do
+        key, command, params = decode_workhorse_header(described_class.send_url(url, allow_localhost: allow_localhost))
+
+        expect(key).to eq('Gitlab-Workhorse-Send-Data')
+        expect(command).to eq('send-url')
+        expect(params).to eq(expected_params)
+      end
+    end
+
+    context 'when `restrict_forwarded_repsonse_headers` is set' do
+      let(:expected_params) do
+        super().merge('RestrictForwardedResponseHeaders' => {
+          'Enabled' => true,
+          'AllowList' => ['x-optional-header']
+        })
+      end
+
+      it 'sets the header correctly' do
+        key, command, params = decode_workhorse_header(described_class.send_url(
+          url,
+          restrict_forwarded_response_headers: { enabled: true, allow_list: ['x-optional-header'] }
+        ))
+
+        expect(key).to eq('Gitlab-Workhorse-Send-Data')
+        expect(command).to eq('send-url')
+        expect(params).to eq(expected_params)
+      end
+    end
   end
 
   describe '.send_scaled_image' do
@@ -585,20 +701,35 @@ RSpec.describe Gitlab::Workhorse, feature_category: :shared do
     let(:upload_method) { nil }
     let(:upload_url) { nil }
     let(:upload_headers) { {} }
-    let(:upload_config) { { method: upload_method, headers: upload_headers, url: upload_url }.compact_blank! }
+    let(:authorized_upload_response) { {} }
+    let(:upload_config) { { method: upload_method, headers: upload_headers, url: upload_url, authorized_upload_response: authorized_upload_response }.compact_blank! }
+    let(:ssrf_filter) { false }
+    let(:allow_localhost) { true }
+    let(:allowed_endpoints) { [] }
+    let(:restrict_forwarded_response_headers) { {} }
+    let(:expected_restrict_forwarded_response_headers) { { 'Enabled' => false, 'AllowList' => [] } }
 
-    subject { described_class.send_dependency(headers, url, upload_config: upload_config) }
+    subject do
+      described_class.send_dependency(
+        headers, url, upload_config:, ssrf_filter:, allow_localhost:, allowed_endpoints:, restrict_forwarded_response_headers:
+      )
+    end
 
     shared_examples 'setting the header correctly' do |ensure_upload_config_field: nil|
       it 'sets the header correctly' do
         key, command, params = decode_workhorse_header(subject)
         expected_params = {
+          'AllowLocalhost' => allow_localhost,
           'Headers' => headers.transform_values { |v| Array.wrap(v) },
+          'SSRFFilter' => ssrf_filter,
+          'AllowedEndpoints' => allowed_endpoints.map(&:to_s),
           'Url' => url,
+          'RestrictForwardedResponseHeaders' => expected_restrict_forwarded_response_headers,
           'UploadConfig' => {
             'Method' => upload_method,
             'Url' => upload_url,
-            'Headers' => upload_headers.transform_values { |v| Array.wrap(v) }
+            'Headers' => upload_headers.transform_values { |v| Array.wrap(v) },
+            'AuthorizedUploadResponse' => authorized_upload_response
           }.compact_blank!
         }
         expected_params.compact_blank!
@@ -629,6 +760,42 @@ RSpec.describe Gitlab::Workhorse, feature_category: :shared do
       let(:upload_headers) { { 'Private-Token' => '1234567890' } }
 
       it_behaves_like 'setting the header correctly', ensure_upload_config_field: 'Headers'
+    end
+
+    context 'with authorized upload response set' do
+      let(:authorized_upload_response) { { 'TempPath' => '/dev/null' } }
+
+      it_behaves_like 'setting the header correctly', ensure_upload_config_field: 'AuthorizedUploadResponse'
+    end
+
+    context 'when `ssrf_filter` parameter is set' do
+      let(:ssrf_filter) { true }
+
+      it_behaves_like 'setting the header correctly'
+    end
+
+    context 'when `allowed_endpoints` parameter is set' do
+      let(:allowed_endpoints) { [URI('http://172.16.123.1:9000')] }
+
+      it_behaves_like 'setting the header correctly'
+    end
+
+    context 'when local requests are not allowed' do
+      let(:allow_localhost) { false }
+
+      it_behaves_like 'setting the header correctly'
+    end
+
+    context 'when `restrict_forwarded_response_headers` parameter is set' do
+      let(:restrict_forwarded_response_headers) { { enabled: true, allow_list: ['x-optional-header'] } }
+      let(:expected_restrict_forwarded_response_headers) do
+        super().merge(
+          'Enabled' => true,
+          'AllowList' => ['x-optional-header']
+        )
+      end
+
+      it_behaves_like 'setting the header correctly'
     end
   end
 

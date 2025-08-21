@@ -13,37 +13,37 @@ module RuboCop
         #
         # @example
         #
-        # Context:
+        #   Context:
         #
-        #   Factory.define do
-        #     factory :project, class: 'Project'
-        #       # EXAMPLE below
+        #     Factory.define do
+        #       factory :project, class: 'Project'
+        #         # EXAMPLE below
+        #       end
         #     end
+        #
+        #   # bad
+        #   creator { create(:user) }
+        #   creator { create(:user, :admin) }
+        #   creator { build(:user) }
+        #   creator { FactoryBot.build(:user) }
+        #   creator { ::FactoryBot.build(:user) }
+        #   add_attribute(:creator) { build(:user) }
+        #
+        #   # good
+        #   creator { association(:user) }
+        #   creator { association(:user, :admin) }
+        #   add_attribute(:creator) { association(:user) }
+        #
+        #   # Accepted
+        #   after(:build) do |instance|
+        #     instance.creator = create(:user)
         #   end
         #
-        # # bad
-        # creator { create(:user) }
-        # creator { create(:user, :admin) }
-        # creator { build(:user) }
-        # creator { FactoryBot.build(:user) }
-        # creator { ::FactoryBot.build(:user) }
-        # add_attribute(:creator) { build(:user) }
+        #   initialize_with do
+        #     create(:project)
+        #   end
         #
-        # # good
-        # creator { association(:user) }
-        # creator { association(:user, :admin) }
-        # add_attribute(:creator) { association(:user) }
-        #
-        # # Accepted
-        # after(:build) do |instance|
-        #   instance.creator = create(:user)
-        # end
-        #
-        # initialize_with do
-        #   create(:project)
-        # end
-        #
-        # creator_id { create(:user).id }
+        #   creator_id { create(:user).id }
         #
         class InlineAssociation < RuboCop::Cop::Base
           extend RuboCop::Cop::AutoCorrector
@@ -53,6 +53,7 @@ module RuboCop
 
           REPLACEMENT = 'association'
 
+          # @!method create_or_build(node)
           def_node_matcher :create_or_build, <<~PATTERN
             (
               send
@@ -63,6 +64,7 @@ module RuboCop
             )
           PATTERN
 
+          # @!method association_definition(node)
           def_node_matcher :association_definition, <<~PATTERN
             (block
               {
@@ -73,6 +75,7 @@ module RuboCop
             )
           PATTERN
 
+          # @!method chained_call?(node)
           def_node_matcher :chained_call?, <<~PATTERN
             (send _ _)
           PATTERN
@@ -90,7 +93,7 @@ module RuboCop
               receiver = "#{receiver.source}." if receiver
               expression = "#{receiver}#{type}"
               replacement = node.source.sub(expression, REPLACEMENT)
-              corrector.replace(node.source_range, replacement)
+              corrector.replace(node, replacement)
             end
           end
 
@@ -99,7 +102,7 @@ module RuboCop
           def inside_assocation_definition?(node)
             node.each_ancestor(:block).any? do |parent|
               name = association_definition(parent)
-              name && !SKIP_NAMES.include?(name) # rubocop:disable Rails/NegateInclude
+              name && !SKIP_NAMES.include?(name)
             end
           end
         end

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group show page', feature_category: :groups_and_projects do
+RSpec.describe 'Group show page', :with_current_organization, feature_category: :groups_and_projects do
   include Features::InviteMembersModalHelpers
 
   let_it_be(:user) { create(:user) }
@@ -91,18 +91,43 @@ RSpec.describe 'Group show page', feature_category: :groups_and_projects do
         before do
           group.add_owner(user)
           sign_in(user)
-          visit path
         end
 
-        it 'shows `Create new subgroup` link' do
+        subject(:page_content) do
+          visit path
+          page
+        end
+
+        it 'shows `Create subgroup` link' do
           link = new_group_path(parent_id: group.id, anchor: 'create-group-pane')
 
-          expect(page).to have_link(s_('GroupsEmptyState|Create new subgroup'), href: link)
+          expect(page_content).to have_link(s_('GroupsEmptyState|Create subgroup'), href: link)
         end
 
-        it 'shows `Create new project` link' do
-          expect(page)
-            .to have_link(s_('GroupsEmptyState|Create new project'), href: new_project_path(namespace_id: group.id))
+        context 'when current Organization does not have scoped paths' do
+          before do
+            allow(current_organization).to receive(:scoped_paths?).and_return(false)
+          end
+
+          it 'shows `Create project` link' do
+            expect(page_content)
+              .to have_link(s_('GroupsEmptyState|Create project'), href: new_project_path(namespace_id: group.id))
+          end
+        end
+
+        context 'when current Organization has scoped paths' do
+          before do
+            allow(current_organization).to receive(:scoped_paths?).and_return(true)
+          end
+
+          it 'shows `Create project` link' do
+            expected_path = new_organization_project_path(
+              namespace_id: group.id,
+              organization_path: current_organization.path
+            )
+            expect(page_content)
+              .to have_link(s_('GroupsEmptyState|Create project'), href: expected_path)
+          end
         end
       end
     end
@@ -120,7 +145,7 @@ RSpec.describe 'Group show page', feature_category: :groups_and_projects do
 
           wait_for_requests
 
-          within_testid("group-overview-item-#{public_project.id}") do
+          within_testid("groups-list-item-#{public_project.id}") do
             click_button _('Less restrictive visibility')
           end
 
@@ -169,8 +194,42 @@ RSpec.describe 'Group show page', feature_category: :groups_and_projects do
                      'or project in this group. Please contact an owner of this group to create a ' \
                      'new subgroup or project.')
 
-        expect(page).to have_content(s_('GroupsEmptyState|No subgroups or projects.'))
+        expect(page).to have_content(s_('GroupsEmptyState|There are no subgroups or projects in this group'))
         expect(page).to have_content(content)
+      end
+    end
+
+    describe 'tab frontend routing' do
+      context 'when route is not prefixed with group' do
+        before do
+          group.add_developer(user)
+          sign_in(user)
+          visit group_path(group)
+        end
+
+        it 'still allows for tab navigation and reloading', :js do
+          click_link _('Shared projects')
+          wait_for_requests
+          page.refresh
+
+          expect(page).to have_link('Shared projects')
+        end
+      end
+
+      context 'when route is prefixed with group' do
+        before do
+          group.add_developer(user)
+          sign_in(user)
+          visit group_canonical_path(group)
+        end
+
+        it 'still allows for tab navigation and reloading', :js do
+          click_link _('Shared projects')
+          wait_for_requests
+          page.refresh
+
+          expect(page).to have_link('Shared projects')
+        end
       end
     end
   end

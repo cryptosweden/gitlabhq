@@ -1,25 +1,24 @@
 <script>
 import { GlTokenSelector, GlAlert } from '@gitlab/ui';
-import { debounce } from 'lodash';
-import { getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { debounce, escape } from 'lodash';
+
 import { isNumeric } from '~/lib/utils/number_utils';
 import { DEFAULT_DEBOUNCE_AND_THROTTLE_MS } from '~/lib/utils/constants';
+import { s__, sprintf } from '~/locale';
 import SafeHtml from '~/vue_shared/directives/safe_html';
-import { isSafeURL } from '~/lib/utils/url_utility';
-
+import { isValidURL } from '~/lib/utils/url_utility';
 import { highlighter } from 'ee_else_ce/gfm_auto_complete';
+import workItemAncestorsQuery from '../../graphql/work_item_ancestors.query.graphql';
 
 import groupWorkItemsQuery from '../../graphql/group_work_items.query.graphql';
 import projectWorkItemsQuery from '../../graphql/project_work_items.query.graphql';
 import workItemsByReferencesQuery from '../../graphql/work_items_by_references.query.graphql';
 import {
-  WORK_ITEMS_TYPE_MAP,
-  I18N_WORK_ITEM_SEARCH_INPUT_PLACEHOLDER,
   I18N_WORK_ITEM_SEARCH_ERROR,
-  I18N_WORK_ITEM_NO_MATCHES_FOUND,
-  sprintfWorkItem,
+  NAME_TO_ENUM_MAP,
+  NAME_TO_TEXT_LOWERCASE_MAP,
 } from '../../constants';
-import { isReference } from '../../utils';
+import { formatAncestors, isReference } from '../../utils';
 
 export default {
   components: {
@@ -27,7 +26,6 @@ export default {
     GlAlert,
   },
   directives: { SafeHtml },
-  inject: ['isGroup'],
   props: {
     value: {
       type: Array,
@@ -37,6 +35,11 @@ export default {
     fullPath: {
       type: String,
       required: true,
+    },
+    isGroup: {
+      type: Boolean,
+      required: false,
+      default: false,
     },
     childrenType: {
       type: String,
@@ -71,12 +74,14 @@ export default {
       },
       update(data) {
         return [
-          ...this.filterItems(data.workspace.workItemsByIid?.nodes),
-          ...this.filterItems(data.workspace.workItems?.nodes),
+          ...this.filterItems(data.workspace?.workItemsByIid?.nodes || []),
+          ...this.filterItems(data.workspace?.workItems?.nodes || []),
         ];
       },
       error() {
-        this.error = sprintfWorkItem(I18N_WORK_ITEM_SEARCH_ERROR, this.childrenTypeName);
+        this.error = sprintf(I18N_WORK_ITEM_SEARCH_ERROR, {
+          workItemType: NAME_TO_TEXT_LOWERCASE_MAP[this.childrenType],
+        });
       },
     },
     workItemsByReference: {
@@ -91,21 +96,40 @@ export default {
         return !this.isSearchingByReference;
       },
       update(data) {
-        return data.workItemsByReference.nodes;
+        return this.filterItems(data.workItemsByReference.nodes);
       },
       error() {
-        this.error = sprintfWorkItem(I18N_WORK_ITEM_SEARCH_ERROR, this.childrenTypeName);
+        this.error = sprintf(I18N_WORK_ITEM_SEARCH_ERROR, {
+          workItemType: NAME_TO_TEXT_LOWERCASE_MAP[this.childrenType],
+        });
+      },
+    },
+    ancestorIds: {
+      query: workItemAncestorsQuery,
+      variables() {
+        return {
+          id: this.parentWorkItemId,
+        };
+      },
+      update(data) {
+        return formatAncestors(data.workItem).flatMap((ancestor) => [ancestor.id]);
+      },
+      skip() {
+        return !this.parentWorkItemId;
       },
     },
   },
   data() {
     return {
+      ancestorIds: [],
       workspaceWorkItems: [],
+      workItemsByReference: [],
       searchTerm: '',
       searchStarted: false,
       error: '',
       textInputAttrs: {
-        class: 'gl-min-w-fit-content!',
+        class: '!gl-min-w-fit',
+        'aria-label': s__("WorkItem|Search existing items or enter an item's URL or reference ID"),
       },
     };
   },
@@ -114,7 +138,7 @@ export default {
       return this.isSearchingByReference ? this.workItemsByReference : this.workspaceWorkItems;
     },
     isSearchingByReference() {
-      return isReference(this.searchTerm) || isSafeURL(this.searchTerm);
+      return isReference(this.searchTerm) || isValidURL(this.searchTerm);
     },
     workItemsToAdd: {
       get() {
@@ -130,29 +154,32 @@ export default {
         this.$apollo.queries.workItemsByReference.loading
       );
     },
-    childrenTypeName() {
-      return WORK_ITEMS_TYPE_MAP[this.childrenType]?.name;
-    },
     tokenSelectorContainerClass() {
       return !this.areWorkItemsToAddValid ? '!gl-shadow-inner-1-red-500' : '';
     },
     queryVariables() {
-      return {
+      const variables = {
         fullPath: this.fullPath,
         searchTerm: this.searchTerm,
-        types: this.childrenType ? [this.childrenType] : [],
+        types: this.childrenType ? [NAME_TO_ENUM_MAP[this.childrenType]] : [],
         in: this.searchTerm ? 'TITLE' : undefined,
         iid: isNumeric(this.searchTerm) ? this.searchTerm : null,
         searchByIid: isNumeric(this.searchTerm),
         searchByText: true,
       };
+
+      if (this.isGroup) {
+        variables.includeAncestors = true;
+        variables.includeDescendants = true;
+      }
+
+      return variables;
     },
   },
   created() {
     this.debouncedSearchKeyUpdate = debounce(this.setSearchKey, DEFAULT_DEBOUNCE_AND_THROTTLE_MS);
   },
   methods: {
-    getIdFromGraphQLId,
     async setSearchKey(value) {
       this.searchTerm = value;
     },
@@ -179,27 +206,30 @@ export default {
       });
     },
     formatResults(input) {
+      const escapedInput = escape(input);
+
       if (!this.searchTerm) {
-        return input;
+        return escapedInput;
       }
 
-      return highlighter(`<span class="gl-text-black-normal">${input}</span>`, this.searchTerm);
+      return highlighter(`<span class="gl-text-default">${escapedInput}</span>`, this.searchTerm);
     },
     unsetError() {
       this.error = '';
     },
     filterItems(items) {
       return (
-        items?.filter(
-          (wi) => !this.childrenIds.includes(wi.id) && this.parentWorkItemId !== wi.id,
-        ) || []
+        items?.filter((wi) => {
+          return (
+            !this.childrenIds.includes(wi.id) &&
+            this.parentWorkItemId !== wi.id &&
+            !this.ancestorIds.includes(wi.id)
+          );
+        }) || []
       );
     },
   },
-  i18n: {
-    noMatchesFoundMessage: I18N_WORK_ITEM_NO_MATCHES_FOUND,
-    addInputPlaceholder: I18N_WORK_ITEM_SEARCH_INPUT_PLACEHOLDER,
-  },
+  safeHtmlConfig: { ADD_TAGS: ['strong', 'span'] },
 };
 </script>
 <template>
@@ -212,8 +242,8 @@ export default {
       v-model="workItemsToAdd"
       :dropdown-items="availableWorkItems"
       :loading="isLoading"
-      :placeholder="$options.i18n.addInputPlaceholder"
-      menu-class="gl-dropdown-menu-wide dropdown-reduced-height gl-min-h-7!"
+      :placeholder="s__('WorkItem|Search existing items or enter an item\'s URL or reference ID')"
+      menu-class="gl-dropdown-menu-wide dropdown-reduced-height !gl-min-h-7"
       :container-class="tokenSelectorContainerClass"
       data-testid="work-item-token-select-input"
       :text-input-attrs="textInputAttrs"
@@ -227,17 +257,20 @@ export default {
     >
       <template #token-content="{ token }"> {{ token.iid }} {{ token.title }} </template>
       <template #dropdown-item-content="{ dropdownItem }">
-        <div class="gl-display-flex">
+        <div class="gl-flex">
           <div
-            v-safe-html="formatResults(dropdownItem.iid)"
-            class="gl-text-secondary gl-font-sm gl-mr-4"
+            v-safe-html:[$options.safeHtmlConfig]="formatResults(dropdownItem.iid)"
+            class="gl-mr-4 gl-text-sm gl-text-subtle"
           ></div>
-          <div v-safe-html="formatResults(dropdownItem.title)" class="gl-text-truncate"></div>
+          <div
+            v-safe-html:[$options.safeHtmlConfig]="formatResults(dropdownItem.title)"
+            class="gl-truncate"
+          ></div>
         </div>
       </template>
       <template #no-results-content>
         <span data-testid="no-match-found-namespace-message">{{
-          $options.i18n.noMatchesFoundMessage
+          s__('WorkItem|No matches found')
         }}</span>
       </template>
     </gl-token-selector>

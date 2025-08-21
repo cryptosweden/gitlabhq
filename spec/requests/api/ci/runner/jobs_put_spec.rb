@@ -7,12 +7,9 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state, feature_catego
   include RedisHelpers
   include WorkhorseHelpers
 
-  let(:registration_token) { 'abcdefg123456' }
-
   before do
-    stub_feature_flags(ci_enable_live_trace: true)
+    stub_application_setting(ci_job_live_trace_enabled: true)
     stub_gitlab_calls
-    stub_application_setting(runners_registration_token: registration_token)
     allow_any_instance_of(::Ci::Runner).to receive(:cache_attributes)
   end
 
@@ -21,7 +18,7 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state, feature_catego
     let_it_be(:project) { create(:project, namespace: group, shared_runners_enabled: false) }
     let_it_be(:pipeline) { create(:ci_pipeline, project: project, ref: 'master') }
     let_it_be(:runner) { create(:ci_runner, :project, projects: [project]) }
-    let_it_be(:runner_manager) { create(:ci_runner_machine, runner: runner) }
+    let_it_be_with_reload(:runner_manager) { create(:ci_runner_machine, runner: runner) }
     let_it_be(:user) { create(:user) }
 
     describe 'PUT /api/v4/jobs/:id' do
@@ -63,6 +60,18 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state, feature_catego
           expect(job).to be_unknown_failure
           expect(response.header).to have_key('Job-Status')
           expect(response.header).not_to have_key('X-GitLab-Trace-Update-Interval')
+        end
+
+        describe 'composite identity', :request_store, :sidekiq_inline do
+          it 'is propagated to downstream Sidekiq workers' do
+            expect(::Gitlab::Auth::Identity).to receive(:link_from_job).and_call_original
+            expect(::Gitlab::Auth::Identity).to receive(:sidekiq_restore!).at_least(:once).and_call_original
+            expect(::PipelineProcessWorker).to receive(:perform_async).and_call_original
+
+            update_job(state: 'failed')
+
+            expect(response).to have_gitlab_http_status(:ok)
+          end
         end
 
         context 'when runner sends an unrecognized field in a payload' do
@@ -150,6 +159,11 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state, feature_catego
         end
 
         context 'when unmigrated live trace chunks exist' do
+          let(:job) do
+            create(:ci_build, :pending, :trace_live, pipeline: pipeline, project: project, user: user,
+              runner_id: runner.id, runner_manager: runner_manager)
+          end
+
           context 'when checksum is present' do
             context 'when live trace chunk is still live' do
               it 'responds with 202' do
@@ -248,7 +262,9 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state, feature_catego
 
       context 'when job is canceling' do
         before do
-          job.set_cancel_gracefully
+          attributes = attributes_for(:ci_runner_machine, :cancel_gracefully_feature).slice(:runtime_features)
+          runner_manager.update!(attributes)
+
           job.cancel!
         end
 

@@ -1,10 +1,9 @@
 ---
 stage: Create
 group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Internal allowed API
 ---
-
-# Internal allowed API
 
 The `internal/allowed` endpoint assesses whether a user has permission to perform
 certain operations on the Git repository. It performs multiple checks, such as:
@@ -38,7 +37,6 @@ A key part of the `internal/allowed` flow is the call to
 - `EE::Gitlab::Checks::PushRules::CommitCheck`
 - `EE::Gitlab::Checks::PushRules::TagCheck`
 - `EE::Gitlab::Checks::PushRules::BranchCheck`
-- `EE::Gitlab::Checks::PushRules::FileSizeCheck`
 
 ## Recursion
 
@@ -88,14 +86,17 @@ same manner as the standard repositories, and is more prone to the refs issue.
 
 ### Parallel push checks
 
-FLAG:
-On self-managed GitLab, by default this feature is not available. To make it available,
-an administrator can [enable the feature flag](../../administration/feature_flags.md) named `parallel_push_checks`.
+{{< alert type="flag" >}}
+
+On GitLab Self-Managed, by default this feature is not available. To make it available,
+an administrator can [enable the feature flag](../../administration/feature_flags/_index.md) named `parallel_push_checks`.
 On GitLab.com, by default this feature is not available. To make it available
 per project, ask GitLab.com administrator to
-[enable the feature flag](../../administration/feature_flags.md) named `parallel_push_checks`.
+[enable the feature flag](../../administration/feature_flags/_index.md) named `parallel_push_checks`.
 You should not use this feature for production environments. On GitLab Dedicated, this feature is
 not available.
+
+{{< /alert >}}
 
 This experimental feature flag enables the endpoint to run multiple RPCs simultaneously,
 reducing the overall time taken by roughly half. This time savings is achieved through
@@ -105,5 +106,5 @@ Without it, those projects routinely time out requests to the endpoint. When thi
 feature was deployed to all of GitLab.com, some pushes failed, presumably due to
 exhausting resources like database connection pools.
 
-We recommend you enable this feature flag only if you are experiencing timeouts, and
+You should enable this feature flag only if you are experiencing timeouts, and
 only enable it for that specific project.

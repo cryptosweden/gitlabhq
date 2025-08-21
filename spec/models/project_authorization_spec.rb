@@ -148,6 +148,33 @@ RSpec.describe ProjectAuthorization, feature_category: :groups_and_projects do
         ].map(&:attributes))
       end
     end
+
+    describe '.for_user' do
+      let_it_be(:user_1) { create(:user) }
+      let_it_be(:user_2) { create(:user) }
+
+      let_it_be(:project_1) { create(:project) }
+      let_it_be(:project_2) { create(:project) }
+
+      let_it_be(:project_auth_1) { create(:project_authorization, user: user_1, project: project_1) }
+      let_it_be(:project_auth_2) { create(:project_authorization, user: user_1, project: project_2) }
+      let_it_be(:project_auth_3) { create(:project_authorization, user: user_2, project: project_1) }
+      let_it_be(:project_auth_4) { create(:project_authorization, user: user_2, project: project_2) }
+
+      subject(:for_user) { described_class.for_user(user_1) }
+
+      it 'returns all records for the user' do
+        expect(for_user).to match_array([project_auth_1, project_auth_2])
+      end
+    end
+
+    describe '.count_by_user_id' do
+      subject(:count_by_user_id) { described_class.count_by_user_id }
+
+      it 'returns the number of records grouped by user' do
+        expect(count_by_user_id).to eq({ user.id => 1 })
+      end
+    end
   end
 
   describe '.insert_all' do
@@ -175,6 +202,44 @@ RSpec.describe ProjectAuthorization, feature_category: :groups_and_projects do
     it_behaves_like 'cleanup by a loose foreign key' do
       let_it_be(:parent) { create(:user) }
       let_it_be(:model) { create(:project_authorization, user: parent) }
+    end
+  end
+
+  describe '.find_or_create_authorization_for' do
+    let_it_be(:project) { create(:project) }
+    let_it_be(:user) { create(:user) }
+    let_it_be(:user_id) { user.id }
+    let_it_be(:project_id) { project.id }
+    let(:access_level) { Gitlab::Access::OWNER }
+
+    subject(:create_project_authorization_record) do
+      described_class.find_or_create_authorization_for(user_id, project_id, access_level)
+    end
+
+    context 'when record already exists' do
+      before_all do
+        create(:project_authorization, :owner, project: project, user: user)
+      end
+
+      it 'returns existing record' do
+        expect { create_project_authorization_record }.not_to change { described_class.count }
+      end
+
+      context 'with race condition handling of already existing record' do
+        it 'performs the upsert without error' do
+          expect(described_class).to receive(:find_by).and_return(nil)
+
+          expect { create_project_authorization_record }.not_to change { described_class.count }
+        end
+      end
+    end
+
+    context 'when no existing record exists' do
+      it 'creates a new record with default access_level' do
+        expect { create_project_authorization_record }.to change { described_class.count }.by(1)
+        expect(user.project_authorizations)
+          .to contain_exactly(have_attributes(access_level: access_level, is_unique: true))
+      end
     end
   end
 end

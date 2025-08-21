@@ -20,6 +20,7 @@ ActiveSupport::Inflector.inflections do |inflect|
     dependency_proxy_blob_registry
     design_management_repository_registry
     dependency_proxy_manifest_registry
+    duo_enterprise
     duo_pro
     event_log
     file_registry
@@ -41,6 +42,8 @@ ActiveSupport::Inflector.inflections do |inflect|
     terraform_state_version_registry
     vulnerabilities_feedback
     vulnerability_feedback
+    wiki_page_meta
+    WikiPage::Meta
   ]
   inflect.acronym 'CDN'
   inflect.acronym 'EE'

@@ -5,16 +5,18 @@ module AuthorizedProjectUpdate
     include ApplicationWorker
 
     sidekiq_options retry: 3
-    feature_category :system_access
+    feature_category :permissions
     urgency :low
-    data_consistency :always
+    worker_resource_boundary :cpu
+    data_consistency :delayed
     queue_namespace :authorized_project_update
 
     idempotent!
     deduplicate :until_executing, including_scheduled: true
 
     def perform(user_id)
-      use_replica_if_available do
+      sessions = [::ApplicationRecord, ::Ci::ApplicationRecord]
+      ::Gitlab::Database::LoadBalancing::SessionMap.use_replica_if_available(sessions) do
         user = User.find_by_id(user_id)
 
         if user && project_authorizations_needs_refresh?(user)
@@ -24,14 +26,6 @@ module AuthorizedProjectUpdate
     end
 
     private
-
-    # We use this approach instead of specifying `data_consistency :delayed` because these jobs
-    # are enqueued in large numbers, and using `data_consistency :delayed`
-    # does not allow us to deduplicate these jobs.
-    # https://gitlab.com/gitlab-org/gitlab/-/issues/325291
-    def use_replica_if_available(&block)
-      ::Gitlab::Database::LoadBalancing::Session.current.use_replicas_for_read_queries(&block)
-    end
 
     def project_authorizations_needs_refresh?(user)
       AuthorizedProjectUpdate::FindRecordsDueForRefreshService.new(user).needs_refresh?

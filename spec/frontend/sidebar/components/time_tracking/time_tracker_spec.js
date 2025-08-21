@@ -1,7 +1,6 @@
 import { mount } from '@vue/test-utils';
 
 import { nextTick } from 'vue';
-import { stubTransition } from 'helpers/stub_transition';
 import { createMockDirective } from 'helpers/vue_mock_directive';
 import TimeTracker from '~/sidebar/components/time_tracking/time_tracker.vue';
 import SidebarEventHub from '~/sidebar/event_hub';
@@ -33,9 +32,6 @@ describe('Issuable Time Tracker', () => {
     return mount(TimeTracker, {
       propsData: { ...defaultProps, ...props },
       directives: { GlTooltip: createMockDirective('gl-tooltip') },
-      stubs: {
-        transition: stubTransition(),
-      },
       provide: {
         issuableType,
       },
@@ -120,11 +116,11 @@ describe('Issuable Time Tracker', () => {
 
       describe('Remaining meter', () => {
         it('should display the remaining meter with the correct width', () => {
-          expect(findTimeRemainingProgress().vm.$attrs.value).toBe(5);
+          expect(findTimeRemainingProgress().props('value')).toBe(5);
         });
 
         it('should display the remaining meter with the correct background color when within estimate', () => {
-          expect(findTimeRemainingProgress().vm.$attrs.variant).toBe('primary');
+          expect(findTimeRemainingProgress().props('variant')).toBe('primary');
         });
 
         it('should display the remaining meter with the correct background color when over estimate', () => {
@@ -138,7 +134,7 @@ describe('Issuable Time Tracker', () => {
             },
           });
 
-          expect(findTimeRemainingProgress().vm.$attrs.variant).toBe('danger');
+          expect(findTimeRemainingProgress().props('variant')).toBe('danger');
         });
       });
     });

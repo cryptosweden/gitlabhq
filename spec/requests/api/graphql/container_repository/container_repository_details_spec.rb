@@ -42,7 +42,7 @@ RSpec.describe 'container repository details', feature_category: :container_regi
   let(:user) { project.first_owner }
   let(:tags) { %w[latest tag1 tag2 tag3 tag4 tag5] }
   let(:container_repository_global_id) { container_repository.to_global_id.to_s }
-  let(:container_repository_details_response) { graphql_data.dig('containerRepository') }
+  let(:container_repository_details_response) { graphql_data['containerRepository'] }
 
   before do
     stub_container_registry_config(enabled: true)
@@ -55,7 +55,7 @@ RSpec.describe 'container repository details', feature_category: :container_regi
     it 'returns an error' do
       subject
 
-      expect(graphql_errors.first.dig('message')).to match(/invalid value/)
+      expect(graphql_errors.first['message']).to match(/invalid value/)
     end
   end
 
@@ -114,7 +114,7 @@ RSpec.describe 'container repository details', feature_category: :container_regi
             expect(tags_response.size).to eq(repository_tags.size)
             expect(container_repository_details_response.dig('userPermissions', 'destroyContainerRepository')).to eq(destroy_container_repository)
           else
-            expect(container_repository_details_response).to eq(nil)
+            expect(container_repository_details_response).to be_nil
           end
         end
       end
@@ -130,8 +130,6 @@ RSpec.describe 'container repository details', feature_category: :container_regi
       expect(container_repository_details_response).to match_schema('graphql/container_repository_details')
     end
   end
-
-  it_behaves_like 'returning proper responses with different permissions', raw_tags: -> { tags }
 
   context 'with a giant size tag' do
     let(:tags) { %w[latest] }
@@ -217,6 +215,10 @@ RSpec.describe 'container repository details', feature_category: :container_regi
       GQL
     end
 
+    before do
+      stub_container_registry_gitlab_api_support(supported: false)
+    end
+
     it 'sorts the tags', :aggregate_failures do
       subject
 
@@ -269,7 +271,7 @@ RSpec.describe 'container repository details', feature_category: :container_regi
   end
 
   context 'size field' do
-    let(:size_response) { container_repository_details_response.dig('size') }
+    let(:size_response) { container_repository_details_response['size'] }
     let(:variables) do
       { id: container_repository_global_id }
     end
@@ -300,23 +302,23 @@ RSpec.describe 'container repository details', feature_category: :container_regi
 
         subject
 
-        expect_graphql_errors_to_include("Can't connect to the Container Registry. If this error persists, please review the troubleshooting documentation.")
+        expect_graphql_errors_to_include("Can't connect to the container registry. If this error persists, please review the troubleshooting documentation.")
       end
     end
 
-    context 'with not supporting the gitlab api' do
+    context 'when the GitLab API is not supported' do
       it 'returns nil' do
         stub_container_registry_gitlab_api_support(supported: false)
 
         subject
 
-        expect(size_response).to eq(nil)
+        expect(size_response).to be_nil
       end
     end
   end
 
   context 'lastPublishedAt field' do
-    let(:last_published_at_response) { container_repository_details_response.dig('lastPublishedAt') }
+    let(:last_published_at_response) { container_repository_details_response['lastPublishedAt'] }
     let(:variables) do
       { id: container_repository_global_id }
     end
@@ -331,55 +333,45 @@ RSpec.describe 'container repository details', feature_category: :container_regi
       GQL
     end
 
-    context 'on Gitlab.com', :saas do
-      it 'returns the last_published_at' do
-        stub_container_registry_gitlab_api_support(supported: true) do |client|
-          stub_container_registry_gitlab_api_repository_details(
-            client,
-            path: container_repository.path,
-            sizing: :self,
-            last_published_at: '2024-04-30T06:07:36.225Z'
-          )
-        end
+    it 'returns the last_published_at' do
+      stub_container_registry_gitlab_api_support(supported: true) do |client|
+        stub_container_registry_gitlab_api_repository_details(
+          client,
+          path: container_repository.path,
+          sizing: :self,
+          last_published_at: '2024-04-30T06:07:36.225Z'
+        )
+      end
+
+      subject
+
+      expect(last_published_at_response).to eq('2024-04-30T06:07:36+00:00')
+    end
+
+    context 'when the GitLab API is not supported' do
+      it 'returns nil' do
+        stub_container_registry_gitlab_api_support(supported: false)
 
         subject
 
-        expect(last_published_at_response).to eq('2024-04-30T06:07:36+00:00')
-      end
-
-      context 'with not supporting the gitlab api' do
-        it 'returns nil' do
-          stub_container_registry_gitlab_api_support(supported: false)
-
-          subject
-
-          expect(last_published_at_response).to eq(nil)
-        end
-      end
-
-      context 'with a network error' do
-        it 'returns an error' do
-          stub_container_registry_gitlab_api_network_error
-
-          subject
-
-          expect_graphql_errors_to_include("Can't connect to the Container Registry. If this error persists, please review the troubleshooting documentation.")
-        end
+        expect(last_published_at_response).to be_nil
       end
     end
 
-    context 'when not on Gitlab.com' do
-      it 'returns nil' do
+    context 'with a network error' do
+      it 'returns an error' do
+        stub_container_registry_gitlab_api_network_error
+
         subject
 
-        expect(last_published_at_response).to eq(nil)
+        expect_graphql_errors_to_include("Can't connect to the container registry. If this error persists, please review the troubleshooting documentation.")
       end
     end
   end
 
   context 'with tags with a manifest containing nil fields' do
     let(:tags_response) { container_repository_details_response.dig('tags', 'nodes') }
-    let(:errors) { container_repository_details_response.dig('errors') }
+    let(:errors) { container_repository_details_response['errors'] }
 
     %i[digest revision short_revision total_size created_at].each do |nilable_field|
       it "returns a list of tags with a nil #{nilable_field}" do
@@ -388,20 +380,28 @@ RSpec.describe 'container repository details', feature_category: :container_regi
         subject
 
         expect(tags_response.size).to eq(tags.size)
-        expect(graphql_errors).to eq(nil)
+        expect(graphql_errors).to be_nil
       end
     end
   end
 
   it_behaves_like 'handling graphql network errors with the container registry'
 
-  context 'when list tags API is enabled', :saas do
+  context 'when the Gitlab API is not supported' do
+    before do
+      stub_container_registry_gitlab_api_support(supported: false)
+    end
+
+    it_behaves_like 'returning proper responses with different permissions', raw_tags: -> { tags }
+  end
+
+  context 'when the Gitlab API is supported' do
     before do
       stub_container_registry_config(enabled: true)
-      allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(true)
-
       allow_next_instances_of(ContainerRegistry::GitlabApiClient, nil) do |client|
+        allow(client).to receive(:supports_gitlab_api?).and_return(true)
         allow(client).to receive(:tags).and_return(response_body)
+        stub_container_registry_gitlab_api_repository_details(client, path: container_repository.path, sizing: :self)
       end
     end
 
@@ -428,15 +428,13 @@ RSpec.describe 'container repository details', feature_category: :container_regi
       }
     end
 
-    context 'quarantine', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/439529' do
-      it_behaves_like 'a working graphql query' do # OK
-        before do
-          subject
-        end
+    it_behaves_like 'a working graphql query' do
+      before do
+        subject
+      end
 
-        it 'matches the JSON schema' do
-          expect(container_repository_details_response).to match_schema('graphql/container_repository_details')
-        end
+      it 'matches the JSON schema' do
+        expect(container_repository_details_response).to match_schema('graphql/container_repository_details')
       end
     end
 
@@ -573,7 +571,7 @@ RSpec.describe 'container repository details', feature_category: :container_regi
     end
 
     let(:reference) { 'latest' }
-    let(:manifest_response) { container_repository_details_response.dig('manifest') }
+    let(:manifest_response) { container_repository_details_response['manifest'] }
     let(:variables) do
       { id: container_repository_global_id, n: reference }
     end
@@ -633,13 +631,13 @@ RSpec.describe 'container repository details', feature_category: :container_regi
 
         subject
 
-        expect_graphql_errors_to_include("Can't connect to the Container Registry. If this error persists, please review the troubleshooting documentation.")
+        expect_graphql_errors_to_include("Can't connect to the container registry. If this error persists, please review the troubleshooting documentation.")
       end
     end
   end
 
   context 'migration_state field' do
-    let(:migration_state_response) { container_repository_details_response.dig('migrationState') }
+    let(:migration_state_response) { container_repository_details_response['migrationState'] }
     let(:variables) do
       { id: container_repository_global_id }
     end
@@ -658,6 +656,117 @@ RSpec.describe 'container repository details', feature_category: :container_regi
       subject
 
       expect(migration_state_response).to eq('')
+    end
+  end
+
+  context 'protection field' do
+    let(:raw_tags_response) { [{ name: 'latest', digest: 'sha256:123' }] }
+    let(:response_body) { { response_body: ::Gitlab::Json.parse(raw_tags_response.to_json) } }
+
+    let(:query) do
+      <<~GQL
+        query($id: ContainerRepositoryID!) {
+          containerRepository(id: $id) {
+            tags(first: 5) {
+              nodes {
+                protection {
+                  minimumAccessLevelForPush
+                  minimumAccessLevelForDelete
+                }
+              }
+            }
+          }
+        }
+      GQL
+    end
+
+    let(:tag_permissions_response) do
+      container_repository_details_response.dig('tags', 'nodes')[0]['protection']
+    end
+
+    before_all do
+      create(
+        :container_registry_protection_tag_rule,
+        project: project,
+        tag_name_pattern: 'latest',
+        minimum_access_level_for_push: 'maintainer',
+        minimum_access_level_for_delete: 'owner'
+      )
+
+      create(
+        :container_registry_protection_tag_rule,
+        project: project,
+        tag_name_pattern: '.*',
+        minimum_access_level_for_push: 'owner',
+        minimum_access_level_for_delete: 'maintainer'
+      )
+
+      create(
+        :container_registry_protection_tag_rule,
+        project: project,
+        tag_name_pattern: 'non-matching-pattern',
+        minimum_access_level_for_push: 'admin',
+        minimum_access_level_for_delete: 'admin'
+      )
+    end
+
+    it 'returns the maximum access fields from the matching protection rules' do
+      subject
+
+      expect(tag_permissions_response).to eq(
+        {
+          'minimumAccessLevelForPush' => 'OWNER',
+          'minimumAccessLevelForDelete' => 'OWNER'
+        }
+      )
+    end
+  end
+
+  context 'for tags destroyContainerRepositoryTag field' do
+    let(:tags) { %w[latest alpha] }
+    let(:fields) do
+      <<~GQL
+        tags {
+          nodes {
+            userPermissions {
+              destroyContainerRepositoryTag
+            }
+          }
+        }
+      GQL
+    end
+
+    let(:query) do
+      graphql_query_for(
+        'containerRepository',
+        { id: container_repository_global_id },
+        fields
+      )
+    end
+
+    before_all do
+      create(
+        :container_registry_protection_tag_rule,
+        project: project,
+        tag_name_pattern: '.*',
+        minimum_access_level_for_push: 'owner',
+        minimum_access_level_for_delete: 'maintainer'
+      )
+    end
+
+    it 'avoids N+1 database queries', :use_sql_query_cache do
+      first_user = create(:user, developer_of: project)
+      second_user = create(:user, developer_of: project)
+
+      control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+        post_graphql(query, current_user: first_user, variables: variables)
+      end
+
+      tags.push('beta', 'release')
+
+      expect do
+        post_graphql(query, current_user: second_user, variables: variables) # use a different user to avoid a false positive from authentication queries
+      end.to issue_same_number_of_queries_as(control)
     end
   end
 end

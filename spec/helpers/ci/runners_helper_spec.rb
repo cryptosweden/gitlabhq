@@ -3,7 +3,9 @@
 require 'spec_helper'
 
 RSpec.describe Ci::RunnersHelper, feature_category: :fleet_visibility do
-  let_it_be(:user) { create(:user) }
+  let_it_be(:admin_user) { create(:user, :admin) }
+  let_it_be(:non_admin_user) { create(:user) }
+  let_it_be(:user) { non_admin_user }
 
   before do
     allow(helper).to receive(:current_user).and_return(user)
@@ -46,10 +48,67 @@ RSpec.describe Ci::RunnersHelper, feature_category: :fleet_visibility do
     end
   end
 
-  describe '#admin_runners_data_attributes' do
-    subject { helper.admin_runners_data_attributes }
+  describe '#admin_runners_app_data', :enable_admin_mode do
+    let_it_be(:user) { admin_user }
 
-    it_behaves_like 'admin_runners_data_attributes contains data'
+    subject(:data) { helper.admin_runners_app_data }
+
+    it 'returns correct data' do
+      expect(data).to include(
+        runner_install_help_page: 'https://docs.gitlab.com/runner/install/',
+        new_runner_path: '/admin/runners/new',
+        allow_registration_token: 'true',
+        registration_token: Gitlab::CurrentSettings.runners_registration_token,
+        online_contact_timeout_secs: 7200,
+        stale_timeout_secs: 604800,
+        tag_suggestions_path: '/admin/runners/tag_list.json',
+        can_admin_runners: 'true'
+      )
+    end
+
+    context 'when current user is not an admin' do
+      let_it_be(:user) { non_admin_user }
+
+      it 'returns the correct data' do
+        expect(data).to include(
+          registration_token: nil,
+          can_admin_runners: 'false'
+        )
+      end
+    end
+  end
+
+  describe '#admin_runners_fleet_dashboard_data', :enable_admin_mode do
+    let_it_be(:user) { admin_user }
+
+    subject(:data) { helper.admin_runners_fleet_dashboard_data }
+
+    it 'returns correct data' do
+      expect(data).to include(
+        admin_runners_path: '/admin/runners',
+        new_runner_path: '/admin/runners/new',
+        clickhouse_ci_analytics_available: 'false',
+        can_admin_runners: 'true'
+      )
+    end
+
+    context 'when ClickHouse is configured' do
+      before do
+        allow(Gitlab::ClickHouse).to receive(:configured?).and_return(true)
+      end
+
+      it 'returns the correct data' do
+        expect(data).to include(clickhouse_ci_analytics_available: 'true')
+      end
+    end
+
+    context 'when current user is not an admin' do
+      let_it_be(:user) { non_admin_user }
+
+      it 'returns the correct data' do
+        expect(data).to include(can_admin_runners: 'false')
+      end
+    end
   end
 
   describe '#group_shared_runners_settings_data' do
@@ -159,6 +218,73 @@ RSpec.describe Ci::RunnersHelper, feature_category: :fleet_visibility do
 
       it 'returns empty registration token' do
         expect(helper.group_runners_data_attributes(group)).not_to include(registration_token: group.runners_token)
+      end
+    end
+  end
+
+  describe '#project_runners_settings_data' do
+    let_it_be(:group) { create(:group) }
+    let_it_be(:project) { create(:project, group: group) }
+
+    subject(:result) { helper.project_runners_settings_data(project) }
+
+    before do
+      allow(helper).to receive(:can?).and_call_original
+    end
+
+    context 'when the user has all permissions' do
+      before do
+        allow(helper).to receive(:can?).with(user, :create_runners, project).and_return(true)
+        allow(helper).to receive(:can?).with(user, :create_runners, project.group).and_return(true)
+        allow(helper).to receive(:can?).with(user, :register_group_runners, project.group).and_return(true)
+        allow(helper).to receive(:can?).with(user, :read_runners_registration_token, project).and_return(true)
+        allow(helper).to receive(:can?).with(user, :admin_group, project.group).and_return(true)
+        allow(project.namespace).to receive(:allow_runner_registration_token?).and_return(true)
+      end
+
+      it 'returns project data to render runners settings' do
+        expect(result).to include(
+          can_create_runner: 'true',
+          allow_registration_token: 'true',
+          registration_token: project.runners_token,
+          project_full_path: project.full_path,
+          new_project_runner_path: new_project_runner_path(project),
+          can_create_runner_for_group: 'true',
+          group_runners_path: group_runners_path(project.group),
+          instance_runners_enabled: 'true',
+          instance_runners_disabled_and_unoverridable: 'false',
+          instance_runners_update_path: toggle_shared_runners_project_runners_path(project),
+          instance_runners_group_settings_path: group_settings_ci_cd_path(project.group, anchor: 'runners-settings'),
+          group_name: project.group.name
+        )
+      end
+    end
+
+    context 'when user cannot manage runners' do
+      before do
+        allow(helper).to receive(:can?).with(user, :create_runners, project).and_return(false)
+        allow(helper).to receive(:can?).with(user, :create_runners, project.group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :register_group_runners, project.group).and_return(false)
+        allow(helper).to receive(:can?).with(user, :read_runners_registration_token, project).and_return(false)
+        allow(helper).to receive(:can?).with(user, :admin_group, project.group).and_return(false)
+        allow(project.namespace).to receive(:allow_runner_registration_token?).and_return(false)
+      end
+
+      it 'returns appropriate permissions' do
+        expect(result).to include(
+          can_create_runner: 'false',
+          allow_registration_token: 'false',
+          registration_token: nil,
+          project_full_path: project.full_path,
+          new_project_runner_path: new_project_runner_path(project),
+          can_create_runner_for_group: 'false',
+          group_runners_path: group_runners_path(project.group),
+          instance_runners_enabled: 'true',
+          instance_runners_disabled_and_unoverridable: 'false',
+          instance_runners_update_path: toggle_shared_runners_project_runners_path(project),
+          instance_runners_group_settings_path: nil,
+          group_name: nil
+        )
       end
     end
   end

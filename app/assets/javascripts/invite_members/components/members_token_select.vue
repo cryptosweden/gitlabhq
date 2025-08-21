@@ -2,14 +2,12 @@
 import { GlTokenSelector, GlAvatar, GlAvatarLabeled, GlIcon, GlSprintf } from '@gitlab/ui';
 import { debounce, isEmpty } from 'lodash';
 import { __ } from '~/locale';
-import { getUsers } from '~/rest_api';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
-import { memberName } from '../utils/member_utils';
+import { memberName, searchUsers } from '../utils/member_utils';
 import {
   SEARCH_DELAY,
-  USERS_FILTER_ALL,
-  USERS_FILTER_SAML_PROVIDER_ID,
   VALID_TOKEN_BACKGROUND,
+  WARNING_TOKEN_BACKGROUND,
   INVALID_TOKEN_BACKGROUND,
 } from '../constants';
 
@@ -21,6 +19,7 @@ export default {
     GlIcon,
     GlSprintf,
   },
+  inject: ['searchUrl'],
   props: {
     placeholder: {
       type: String,
@@ -36,15 +35,10 @@ export default {
       required: false,
       default: false,
     },
-    usersFilter: {
-      type: String,
+    usersWithWarning: {
+      type: Object,
       required: false,
-      default: USERS_FILTER_ALL,
-    },
-    filterId: {
-      type: Number,
-      required: false,
-      default: null,
+      default: () => ({}),
     },
     invalidMembers: {
       type: Object,
@@ -77,17 +71,8 @@ export default {
       }
       return '';
     },
-    queryOptions() {
-      if (this.usersFilter === USERS_FILTER_SAML_PROVIDER_ID) {
-        return {
-          saml_provider_id: this.filterId,
-          ...this.$options.defaultQueryOptions,
-        };
-      }
-      return this.$options.defaultQueryOptions;
-    },
-    hasInvalidMembers() {
-      return !isEmpty(this.invalidMembers);
+    hasErrorOrWarning() {
+      return !isEmpty(this.invalidMembers) || !isEmpty(this.usersWithWarning);
     },
     textInputAttrs() {
       return {
@@ -101,10 +86,10 @@ export default {
     // tied to the specific `selectedToken` such that if the token is removed and re-added, this
     // state is reset.
     // See https://gitlab.com/gitlab-org/gitlab/-/merge_requests/90076#note_1027165312
-    hasInvalidMembers: {
-      handler(updatedInvalidMembers) {
-        // Only update tokens if we receive invalid members
-        if (!updatedInvalidMembers) {
+    hasErrorOrWarning: {
+      handler(newValue) {
+        // Only update tokens if we receive users with error or warning
+        if (!newValue) {
           return;
         }
 
@@ -113,6 +98,7 @@ export default {
     },
   },
   methods: {
+    memberName,
     handleTextInput(inputQuery) {
       this.originalInput = inputQuery;
       this.query = inputQuery.trim();
@@ -126,7 +112,7 @@ export default {
       }));
     },
     retrieveUsersRequest() {
-      return getUsers(this.query, this.queryOptions);
+      return searchUsers(this.searchUrl, this.query);
     },
     retrieveUsers: debounce(async function debouncedRetrieveUsers() {
       try {
@@ -148,10 +134,15 @@ export default {
         return INVALID_TOKEN_BACKGROUND;
       }
 
+      if (this.hasWarning(token)) {
+        return WARNING_TOKEN_BACKGROUND;
+      }
+
       // assume success for this token
       return VALID_TOKEN_BACKGROUND;
     },
-    handleInput() {
+    handleInput(tokens) {
+      this.selectedTokens = tokens;
       this.$emit('input', this.selectedTokens);
     },
     handleFocus() {
@@ -174,11 +165,13 @@ export default {
         this.$refs.tokenSelector.handleEnter();
       }
     },
+    hasWarning(token) {
+      return Object.prototype.hasOwnProperty.call(this.usersWithWarning, memberName(token));
+    },
     hasError(token) {
-      return Object.keys(this.invalidMembers).includes(memberName(token));
+      return Object.prototype.hasOwnProperty.call(this.invalidMembers, memberName(token));
     },
   },
-  defaultQueryOptions: { without_project_bots: true, active: true },
   i18n: {
     inviteTextMessage: __('Invite "%{email}" by email'),
   },
@@ -188,7 +181,7 @@ export default {
 <template>
   <gl-token-selector
     ref="tokenSelector"
-    v-model="selectedTokens"
+    :selected-tokens="selectedTokens"
     :state="exceptionState"
     :dropdown-items="users"
     :loading="loading"
@@ -210,10 +203,18 @@ export default {
         class="gl-mr-2"
         :data-testid="`error-icon-${token.id}`"
       />
+      <gl-icon
+        v-else-if="hasWarning(token)"
+        name="warning"
+        :size="16"
+        class="gl-mr-2"
+        :data-testid="`warning-icon-${token.id}`"
+      />
       <gl-avatar
         v-else-if="token.avatar_url"
         :src="token.avatar_url"
         :size="16"
+        :alt="memberName(token)"
         data-testid="token-avatar"
       />
       {{ token.name }}

@@ -139,6 +139,21 @@ RSpec.shared_examples 'model with repository' do
     it { expect(container.repo_exists?).to be(true) }
   end
 
+  describe '#ref_exists?' do
+    let(:ref_path) { 'refs/heads/master' }
+    let(:non_existent_ref_path) { 'refs/heads/foo' }
+
+    before do
+      allow_next_instance_of(Gitlab::GitalyClient::RefService) do |ref_service|
+        allow(ref_service).to receive(:ref_exists?).with(ref_path).and_return(true)
+        allow(ref_service).to receive(:ref_exists?).with(non_existent_ref_path).and_return(false)
+      end
+    end
+
+    it { expect(container.ref_exists?(ref_path)).to be(true) }
+    it { expect(container.ref_exists?(non_existent_ref_path)).to be(false) }
+  end
+
   describe '#root_ref' do
     let(:root_ref) { container.repository.root_ref }
 
@@ -162,7 +177,7 @@ RSpec.shared_examples 'model with repository' do
   end
 
   describe '#after_repository_change_head' do
-    let(:event) { instance_double('Repositories::DefaultBranchChangedEvent') }
+    let(:event) { instance_double('::Repositories::DefaultBranchChangedEvent') }
     let(:event_data) { { container_id: stubbed_container.id, container_type: stubbed_container.class.name } }
 
     it 'calls #reload_default_branch' do
@@ -172,7 +187,7 @@ RSpec.shared_examples 'model with repository' do
     end
 
     it 'publishes an Repositories::DefaultBranchChangedEvent event' do
-      allow(Repositories::DefaultBranchChangedEvent)
+      allow(::Repositories::DefaultBranchChangedEvent)
         .to receive(:new)
         .with(data: event_data)
         .and_return(event)

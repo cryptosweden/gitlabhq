@@ -2,22 +2,24 @@
 stage: Verify
 group: Pipeline Execution
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Scheduled pipelines
 ---
 
-# Scheduled pipelines
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-Use scheduled pipelines to run GitLab CI/CD [pipelines](index.md) at regular intervals.
+{{< /details >}}
+
+Use scheduled pipelines to run GitLab CI/CD [pipelines](_index.md) at regular intervals.
 
 ## Prerequisites
 
 For a scheduled pipeline to run:
 
 - The schedule owner must have the Developer role. For pipelines on protected branches,
-  the schedule owner must be [allowed to merge](../../user/project/protected_branches.md#add-protection-to-existing-branches)
+  the schedule owner must be [allowed to merge](../../user/project/repository/branches/protected.md#protect-a-branch)
   to the branch.
 - The `.gitlab-ci.yml` file must have valid syntax.
 
@@ -25,19 +27,28 @@ Otherwise, the pipeline is not created. No error message is displayed.
 
 ## Add a pipeline schedule
 
+{{< history >}}
+
+- **Inputs** option [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/525504) in GitLab 17.11.
+
+{{< /history >}}
+
 To add a pipeline schedule:
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Build > Pipeline schedules**.
 1. Select **New schedule** and fill in the form.
    - **Interval Pattern**: Select one of the preconfigured intervals, or enter a custom
-     interval in [cron notation](../../topics/cron/index.md). You can use any cron value,
+     interval in [cron notation](../../topics/cron/_index.md). You can use any cron value,
      but scheduled pipelines cannot run more frequently than the instance's
-     [maximum scheduled pipeline frequency](../../administration/cicd.md#change-maximum-scheduled-pipeline-frequency).
+     [maximum scheduled pipeline frequency](../../administration/cicd/_index.md#change-maximum-scheduled-pipeline-frequency).
    - **Target branch or tag**: Select the branch or tag for the pipeline.
-   - **Variables**: Add any number of [CI/CD variables](../variables/index.md) to the schedule.
+   - **Inputs**: Set values for any [inputs](../inputs/_index.md) defined in your pipeline's `spec:inputs` section.
+     These input values are used every time the scheduled pipeline runs. A schedule can have a maximum of 20 inputs.
+   - **Variables**: Add any number of [CI/CD variables](../variables/_index.md) to the schedule.
      These variables are available only when the scheduled pipeline runs,
-     and not in any other pipeline run.
+     and not in any other pipeline run. Inputs are recommended for pipeline configuration instead of variables
+     because they offer improved security and flexibility.
 
 If the project already has the [maximum number of pipeline schedules](../../administration/instance_limits.md#number-of-pipeline-schedules),
 you must delete unused schedules before you can add another.
@@ -48,9 +59,9 @@ The owner of a pipeline schedule can edit it:
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Build > Pipeline schedules**.
-1. Next to the schedule, select **Edit** (**{pencil}**) and fill in the form.
+1. Next to the schedule, select **Edit** ({{< icon name="pencil" >}}) and fill in the form.
 
-The user must have the Developer role or above for the project. If the user is
+The user must have at least the Developer role for the project. If the user is
 not the owner of the schedule, they must first [take ownership](#take-ownership)
 of the schedule.
 
@@ -62,7 +73,7 @@ the next scheduled time:
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Build > Pipeline schedules**.
 1. On the right of the list, for
-   the pipeline you want to run, select **Run** (**{play}**).
+   the pipeline you want to run, select **Run** ({{< icon name="play" >}}).
 
 You can manually run scheduled pipelines once per minute.
 
@@ -92,16 +103,54 @@ You need at least the Maintainer role to take ownership of a pipeline created by
 
 ## Troubleshooting
 
-### Short refs are expanded to Full refs
+When working with pipeline schedules, you might encounter the following issues.
 
-This behavior is normal and it introduced in order to enforce explicit resources.
-The API still accepts both `short` (e.g. `main`) and `full` (e.g. `refs/heads/main` or `refs/tags/main`) refs and expands any `short`
-ref provided, to a `full` ref.
+### Short refs are expanded to full refs
 
-### Ambiguous Refs
+When you provide a short `ref` to the API, it is automatically expanded to a full `ref`.
+This behavior is intended and ensures explicit resource identification.
 
-When a ref is being expanded, there can be cases where the full ref can't be automatically inferred.
-Such cases can be:
+The API accepts both short refs (such as `main`) and full refs (such as `refs/heads/main` or `refs/tags/main`).
 
-- A `short` ref is provided (e.g. `main`) but **both** a branch and a tag exist with the provided `short` ref name
-- A `short` ref is provided, but **neither** a branch or tag with the provided `short` ref name exist
+### Ambiguous refs
+
+In some cases, the API can't automatically expand a short `ref` to a full `ref`. This can happen when:
+
+- You provide a short `ref` (such as `main`), but both a branch and a tag exist with that name.
+- You provide a short `ref`, but no branch or tag with that name exists.
+
+To resolve this issue, provide the full `ref` to ensure the correct resource is identified.
+
+### View and optimize pipeline schedules
+
+To prevent [excessive load](pipeline_efficiency.md) caused by too many pipelines starting simultaneously,
+you can review and optimize your pipeline schedules.
+
+To get an overview of all existing schedules and identify opportunities to distribute them more evenly:
+
+1. Run this command to extract and format schedule data:
+
+   ```shell
+   outfile=/tmp/gitlab_ci_schedules.tsv
+   sudo gitlab-psql --command "
+    COPY (SELECT
+        ci_pipeline_schedules.cron,
+        projects.path   AS project,
+        users.email
+    FROM ci_pipeline_schedules
+    JOIN projects ON projects.id = ci_pipeline_schedules.project_id
+    JOIN users    ON users.id    = ci_pipeline_schedules.owner_id
+    ) TO '$outfile' CSV HEADER DELIMITER E'\t' ;"
+   sort  "$outfile" | uniq -c | sort -n
+   ```
+
+1. Review the output to identify popular `cron` patterns.
+   For example, you might see many schedules set to run at the start of each hour (`0 * * * *`).
+1. Adjust the schedules to create a staggered [`cron` pattern](../../topics/cron/_index.md#cron-syntax), especially for large repositories.
+   For example, instead of multiple schedules running at the start of each hour, distribute them throughout the hour (`5 * * * *`, `15 * * * *`, `25 * * * *`).
+
+### Scheduled pipeline suddenly becomes inactive
+
+If a scheduled pipeline status changes to `Inactive` unexpectedly, it might be because
+the owner of the schedule was blocked or removed. [Take ownership](#take-ownership)
+of the schedule to modify and activate it.

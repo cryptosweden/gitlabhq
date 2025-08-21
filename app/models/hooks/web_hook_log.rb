@@ -7,18 +7,19 @@ class WebHookLog < ApplicationRecord
   include PartitionedTable
 
   OVERSIZE_REQUEST_DATA = { 'oversize' => true }.freeze
+  MAX_RECENT_DAYS = 7
 
   attr_accessor :interpolated_url
 
   self.primary_key = :id
-
-  partitioned_by :created_at, strategy: :monthly, retain_for: 3.months
+  self.table_name = :web_hook_logs_daily
+  partitioned_by :created_at, strategy: :daily, retain_for: 14.days
 
   belongs_to :web_hook
 
-  serialize :request_headers, Hash # rubocop:disable Cop/ActiveRecordSerialize
-  serialize :request_data, Hash # rubocop:disable Cop/ActiveRecordSerialize
-  serialize :response_headers, Hash # rubocop:disable Cop/ActiveRecordSerialize
+  serialize :request_headers, type: Hash # rubocop:disable Cop/ActiveRecordSerialize
+  serialize :request_data, type: Hash # rubocop:disable Cop/ActiveRecordSerialize
+  serialize :response_headers, type: Hash # rubocop:disable Cop/ActiveRecordSerialize
 
   validates :web_hook, presence: true
 
@@ -26,8 +27,15 @@ class WebHookLog < ApplicationRecord
   before_save :redact_user_emails
   before_save :set_url_hash, if: -> { interpolated_url.present? }
 
-  def self.recent
-    where(created_at: 2.days.ago.beginning_of_day..Time.zone.now)
+  scope :by_status_code, ->(status_code) { where(response_status: status_code) }
+
+  def self.recent(number_of_days = 2)
+    if number_of_days > MAX_RECENT_DAYS
+      raise ArgumentError,
+        "`recent` scope can only provide up to #{MAX_RECENT_DAYS} days of log records"
+    end
+
+    where(created_at: number_of_days.days.ago.beginning_of_day..Time.zone.now)
       .order(created_at: :desc)
   end
 
@@ -51,10 +59,13 @@ class WebHookLog < ApplicationRecord
   end
 
   def request_headers
-    super unless web_hook.token?
-    super if self[:request_headers]['X-Gitlab-Token'] == _('[REDACTED]')
+    return super unless self[:request_headers]['X-Gitlab-Token']
 
     self[:request_headers].merge('X-Gitlab-Token' => _('[REDACTED]'))
+  end
+
+  def idempotency_key
+    self[:request_headers]['Idempotency-Key']
   end
 
   def url_current?

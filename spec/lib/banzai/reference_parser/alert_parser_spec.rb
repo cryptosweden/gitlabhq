@@ -2,16 +2,15 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::ReferenceParser::AlertParser, feature_category: :team_planning do
+RSpec.describe Banzai::ReferenceParser::AlertParser, feature_category: :markdown do
   include ReferenceParserHelpers
 
   let(:project) { create(:project, :public) }
   let(:user) { create(:user) }
   let(:alert) { create(:alert_management_alert, project: project) }
+  let(:link) { empty_html_link }
 
   subject { described_class.new(Banzai::RenderContext.new(project, user)) }
-
-  let(:link) { empty_html_link }
 
   describe '#nodes_visible_to_user' do
     context 'when the link has a data-issue attribute' do

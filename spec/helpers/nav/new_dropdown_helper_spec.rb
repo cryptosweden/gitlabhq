@@ -12,7 +12,7 @@ RSpec.describe Nav::NewDropdownHelper, feature_category: :navigation do
     let(:with_can_create_group) { false }
     let(:with_can_create_snippet) { false }
     let(:with_can_create_organization) { false }
-    let(:title) { 'Create new...' }
+    let(:title) { 'Create new…' }
 
     subject(:view_model) do
       helper.new_dropdown_view_model(project: current_project, group: current_group)
@@ -50,7 +50,7 @@ RSpec.describe Nav::NewDropdownHelper, feature_category: :navigation do
     end
 
     it 'has title' do
-      expect(view_model[:title]).to eq('Create new...')
+      expect(view_model[:title]).to eq('Create new…')
     end
 
     context 'when current_user is nil (anonymous)' do
@@ -166,17 +166,17 @@ RSpec.describe Nav::NewDropdownHelper, feature_category: :navigation do
           end
 
           it 'does not have new organization menu item' do
-            expect(view_model[:menu_sections]).to match_array([])
+            expect(view_model[:menu_sections]).to be_empty
           end
         end
 
-        context 'when allow_organization_creation feature flag is disabled' do
+        context 'when organization_switching feature flag is disabled' do
           before do
-            stub_feature_flags(allow_organization_creation: false)
+            stub_feature_flags(organization_switching: false)
           end
 
           it 'does not have new organization menu item' do
-            expect(view_model[:menu_sections]).to match_array([])
+            expect(view_model[:menu_sections]).to be_empty
           end
         end
       end
@@ -252,9 +252,8 @@ RSpec.describe Nav::NewDropdownHelper, feature_category: :navigation do
         end
       end
 
-      context 'when can invite members' do
+      context 'with invite members' do
         let(:with_can_admin_in_group) { true }
-        let(:with_invite_members_experiment) { true }
         let(:expected_title) { 'In this group' }
         let(:expected_href) { "/groups/#{group.full_path}/-/group_members" }
 
@@ -269,13 +268,11 @@ RSpec.describe Nav::NewDropdownHelper, feature_category: :navigation do
       let(:with_show_new_issue_link) { false }
       let(:with_merge_project) { nil }
       let(:with_can_create_snippet_in_project) { false }
-      let(:with_can_admin_project_member) { false }
 
       before do
         allow(helper).to receive(:show_new_issue_link?).with(project) { with_show_new_issue_link }
         allow(helper).to receive(:merge_request_source_project_for_project).with(project) { with_merge_project }
         allow(helper).to receive(:can?).with(user, :create_snippet, project) { with_can_create_snippet_in_project }
-        allow(helper).to receive(:can_admin_project_member?) { with_can_admin_project_member }
       end
 
       it 'has base results' do
@@ -295,18 +292,44 @@ RSpec.describe Nav::NewDropdownHelper, feature_category: :navigation do
             expected_menu_section(
               title: 'In this project',
               menu_item: ::Gitlab::Nav::TopNavMenuItem.build(
-                id: 'new_issue',
-                title: 'New issue',
-                href: "/#{project.path_with_namespace}/-/issues/new",
+                id: 'new_work_item',
+                title: 'New work item',
+                component: 'create_new_work_item_modal',
                 data: {
-                  track_action: 'click_link_new_issue',
+                  track_action: 'click_link_new_work_item',
                   track_label: 'plus_menu_dropdown',
                   track_property: 'navigation_top',
-                  testid: 'new_issue_link'
+                  testid: 'new_work_item_button'
                 }
               )
             )
           )
+        end
+
+        context 'when work_item_planning_view is disabled' do
+          before do
+            stub_feature_flags(work_item_planning_view: false)
+          end
+
+          it 'shows new issue menu item' do
+            expect(view_model[:menu_sections]).to eq(
+              expected_menu_section(
+                title: 'In this project',
+                menu_item: ::Gitlab::Nav::TopNavMenuItem.build(
+                  id: 'new_issue',
+                  title: 'New issue',
+                  href: "/#{project.path_with_namespace}/-/issues/new",
+                  component: 'create_new_work_item_modal',
+                  data: {
+                    track_action: 'click_link_new_issue',
+                    track_label: 'plus_menu_dropdown',
+                    testid: 'new_issue_link',
+                    track_property: 'navigation_top'
+                  }
+                )
+              )
+            )
+          end
         end
       end
 
@@ -354,11 +377,13 @@ RSpec.describe Nav::NewDropdownHelper, feature_category: :navigation do
         end
       end
 
-      context 'when invite members experiment' do
-        let(:with_invite_members_experiment) { true }
-        let(:with_can_admin_project_member) { true }
+      context 'with invite members' do
         let(:expected_title) { 'In this project' }
         let(:expected_href) { "/#{project.path_with_namespace}/-/project_members" }
+
+        before do
+          allow(helper).to receive(:can?).with(user, :invite_member, project).and_return(true)
+        end
 
         it_behaves_like 'invite member item', 'projects/invite_members_top_nav_link'
       end
@@ -379,14 +404,14 @@ RSpec.describe Nav::NewDropdownHelper, feature_category: :navigation do
         project_section = expected_menu_section(
           title: 'In this project',
           menu_item: ::Gitlab::Nav::TopNavMenuItem.build(
-            id: 'new_issue',
-            title: 'New issue',
-            href: "/#{project.path_with_namespace}/-/issues/new",
+            id: 'new_work_item',
+            title: 'New work item',
+            component: 'create_new_work_item_modal',
             data: {
-              track_action: 'click_link_new_issue',
+              track_action: 'click_link_new_work_item',
               track_label: 'plus_menu_dropdown',
               track_property: 'navigation_top',
-              testid: 'new_issue_link'
+              testid: 'new_work_item_button'
             }
           )
         )
@@ -396,6 +421,36 @@ RSpec.describe Nav::NewDropdownHelper, feature_category: :navigation do
         }
 
         expect(view_model).to eq(results)
+      end
+
+      context 'when work_item_planning_view is disabled' do
+        before do
+          stub_feature_flags(work_item_planning_view: false)
+        end
+
+        it 'gives precedence to project over group' do
+          project_section = expected_menu_section(
+            title: 'In this project',
+            menu_item: ::Gitlab::Nav::TopNavMenuItem.build(
+              id: 'new_issue',
+              title: 'New issue',
+              href: "/#{project.path_with_namespace}/-/issues/new",
+              component: 'create_new_work_item_modal',
+              data: {
+                track_action: 'click_link_new_issue',
+                track_label: 'plus_menu_dropdown',
+                testid: 'new_issue_link',
+                track_property: 'navigation_top'
+              }
+            )
+          )
+          results = {
+            title: title,
+            menu_sections: project_section
+          }
+
+          expect(view_model).to eq(results)
+        end
       end
     end
 

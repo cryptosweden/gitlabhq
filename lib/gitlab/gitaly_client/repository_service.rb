@@ -65,6 +65,18 @@ module Gitlab
         response.size
       end
 
+      def migrate_reference_backend(to_reftable: false)
+        target = if to_reftable
+                   Gitaly::MigrateReferenceBackendRequest::ReferenceBackend::REFERENCE_BACKEND_REFTABLE
+                 else
+                   Gitaly::MigrateReferenceBackendRequest::ReferenceBackend::REFERENCE_BACKEND_FILES
+                 end
+
+        request = Gitaly::MigrateReferenceBackendRequest.new(repository: @gitaly_repo, target_reference_backend: target)
+
+        gitaly_client_call(@storage, :repository_service, :migrate_reference_backend, request, timeout: GitalyClient.medium_timeout)
+      end
+
       def info_attributes
         request = Gitaly::GetInfoAttributesRequest.new(repository: @gitaly_repo)
 
@@ -77,14 +89,13 @@ module Gitlab
       # rubocop: disable Metrics/ParameterLists
       # The `remote` parameter is going away soonish anyway, at which point the
       # Rubocop warning can be enabled again.
-      def fetch_remote(url, refmap:, ssh_auth:, forced:, no_tags:, timeout:, prune: true, check_tags_changed: false, http_authorization_header: "", resolved_address: "")
+      def fetch_remote(url, refmap:, ssh_auth:, forced:, no_tags:, timeout:, prune: true, http_authorization_header: "", resolved_address: "")
         request = Gitaly::FetchRemoteRequest.new(
           repository: @gitaly_repo,
           force: forced,
           no_tags: no_tags,
           timeout: timeout,
           no_prune: !prune,
-          check_tags_changed: check_tags_changed,
           remote_params: Gitaly::Remote.new(
             url: url,
             mirror_refmaps: Array.wrap(refmap).map(&:to_s),
@@ -206,30 +217,12 @@ module Gitlab
         )
       end
 
-      def backup_custom_hooks(save_path)
-        gitaly_fetch_stream_to_file(
-          save_path,
-          :backup_custom_hooks,
-          Gitaly::BackupCustomHooksRequest,
-          GitalyClient.default_timeout
-        )
-      end
-
       def create_from_bundle(bundle_path)
         gitaly_repo_stream_request(
           bundle_path,
           :create_repository_from_bundle,
           Gitaly::CreateRepositoryFromBundleRequest,
           GitalyClient.long_timeout
-        )
-      end
-
-      def restore_custom_hooks(custom_hooks_path)
-        gitaly_repo_stream_request(
-          custom_hooks_path,
-          :restore_custom_hooks,
-          Gitaly::RestoreCustomHooksRequest,
-          GitalyClient.default_timeout
         )
       end
 

@@ -2,6 +2,7 @@ import { parallelLineKey, showDraftOnSide } from '../../../utils';
 
 export const draftsCount = (state) => state.drafts.length;
 
+// eslint-disable-next-line max-params
 export const getNotesData = (state, getters, rootState, rootGetters) => rootGetters.getNotesData;
 
 export const hasDrafts = (state) => state.drafts.length > 0;
@@ -80,8 +81,5 @@ export const draftsForLine =
 
 export const draftsForFile = (state) => (diffFileSha) =>
   state.drafts.filter((draft) => draft.file_hash === diffFileSha);
-
-export const isPublishingDraft = (state) => (draftId) =>
-  state.currentlyPublishingDrafts.indexOf(draftId) !== -1;
 
 export const sortedDrafts = (state) => [...state.drafts].sort((a, b) => a.id > b.id);

@@ -1,25 +1,34 @@
 ---
-stage: Secure
+stage: Application Security Testing
 group: Static Analysis
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: Customize SAST analyzer rules in GitLab by disabling, overriding, or replacing predefined rules.
+title: Customize rulesets
 ---
 
-# Customize rulesets
+{{< details >}}
 
-DETAILS:
-**Tier:** Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Enabled](https://gitlab.com/gitlab-org/security-products/analyzers/ruleset/-/merge_requests/18) support for specifying ambiguous passthrough refs in GitLab 16.2.
+{{< /details >}}
+
+{{< history >}}
+
+- [Enabled](https://gitlab.com/gitlab-org/security-products/analyzers/ruleset/-/merge_requests/18) support for specifying ambiguous passthrough refs in GitLab 16.2.
+
+{{< /history >}}
 
 You can customize the behavior of our SAST analyzers by [defining a ruleset configuration file](#create-the-configuration-file) in the
 repository being scanned. There are two kinds of customization:
 
 - Modifying the behavior of **predefined rules**. This includes:
   - [Disabling predefined rules](#disable-predefined-rules). Available for all analyzers.
-  - [Overriding predefined rules](#override-predefined-rules). Available for all analyzers.
-- Replacing predefined rules by [synthesizing a custom configuration](#synthesize-a-custom-configuration)
+  - [Overriding metadata of predefined rules](#override-metadata-of-predefined-rules). Available for all analyzers.
+- Replacing predefined rules by [building a custom configuration](#build-a-custom-configuration)
   using **passthroughs**. Available only for the [Semgrep-based analyzer](https://gitlab.com/gitlab-org/security-products/analyzers/semgrep).
+
+GitLab Advanced SAST supports only modifying the behavior of **predefined rules**, not replacing predefined rules.
 
 ## Disable predefined rules
 
@@ -27,29 +36,28 @@ You can disable predefined rules for any SAST analyzer.
 
 When you disable a rule:
 
-- Most analyzers still scan for the vulnerability. The results are removed as a processing step after the scan completes, and they don't appear in the [`gl-sast-report.json` artifact](index.md#output).
-- Findings for the disabled rule no longer appear in the [pipeline security tab](../index.md#pipeline-security-tab).
-- Existing findings for the disabled rule on the default branch are marked as [`No longer detected`](../vulnerability_report/index.md#activity-filter) in the [vulnerability report](../index.md#vulnerability-report).
+- All SAST analyzers that support custom rulesets still scan for the vulnerability. The results are removed as a processing step after the scan completes, and they don't appear in the [`gl-sast-report.json` artifact](_index.md#download-a-sast-report). GitLab Advanced SAST differs by excluding disabled rules from the initial scan.
+- Findings for the disabled rule no longer appear in the [pipeline security tab](../detect/security_scanning_results.md).
+- Existing findings for the disabled rule on the default branch are marked as [`No longer detected`](../vulnerability_report/_index.md#activity-filter) in the [vulnerability report](../vulnerability_report/_index.md).
 
 The Semgrep-based analyzer handles disabled rules differently:
 
-- To improve performance, the Semgrep-based analyzer doesn't scan for disabled rules at all.
-- If you disable a rule in the Semgrep-based analyzer, existing vulnerability findings for that rule are [automatically resolved](index.md#automatic-vulnerability-resolution) after you merge the `sast-ruleset.toml` file to the default branch.
+- If you disable a rule in the Semgrep-based analyzer, existing vulnerability findings for that rule are [automatically resolved](_index.md#automatic-vulnerability-resolution) after you merge the `sast-ruleset.toml` file to the default branch.
 
 See the [Schema](#schema) and [Examples](#examples) sections for information on how
 to configure this behavior.
 
-## Override predefined rules
+## Override metadata of predefined rules
 
-Certain attributes of predefined rules can be overridden for any SAST analyzer. This
+You can override certain attributes of predefined rules for any SAST analyzer. This
 can be useful when adapting SAST to your existing workflow or tools. For example, you
 might want to override the severity of a vulnerability based on organizational policy,
-or choose a different message to display in the Vulnerability Report.
+or choose a different message to display in the vulnerability report.
 
 See the [Schema](#schema) and [Examples](#examples) sections for information on how
 to configure this behavior.
 
-## Synthesize a custom configuration
+## Build a custom configuration
 
 You can replace the [GitLab-maintained ruleset](rules.md) for the [Semgrep-based analyzer](https://gitlab.com/gitlab-org/security-products/analyzers/semgrep) with your own rules.
 
@@ -74,9 +82,13 @@ To create the ruleset configuration file:
 
 ## Specify a remote configuration file
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/393452) in 16.1.
+{{< history >}}
 
-You can set a [CI/CD variable](../../../ci/variables/index.md) to use a ruleset configuration file that's stored outside of the current repository.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/393452) in 16.1.
+
+{{< /history >}}
+
+You can set a [CI/CD variable](../../../ci/variables/_index.md) to use a ruleset configuration file that's stored outside of the current repository.
 This can help you apply the same rules across multiple projects.
 
 The `SAST_RULESET_GIT_REFERENCE` variable uses a format similar to
@@ -87,10 +99,13 @@ optional authentication, and optional Git SHA. The variable uses the following f
 [<AUTH_USER>[:<AUTH_PASSWORD>]@]<PROJECT_PATH>[@<GIT_SHA>]
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 If a project has a `.gitlab/sast-ruleset.toml` file committed, that local configuration takes precedence and the file from `SAST_RULESET_GIT_REFERENCE` isn't used.
 
-The following example [enables SAST](index.md#configure-sast-in-your-cicd-yaml) and uses a shared ruleset customization file.
+{{< /alert >}}
+
+The following example [enables SAST](_index.md#configure-sast-in-your-cicd-yaml) and uses a shared ruleset customization file.
 In this example, the file is committed on the default branch of `example-ruleset-project` at the path `.gitlab/sast-ruleset.toml`.
 
 ```yaml
@@ -108,20 +123,20 @@ See [specify a private remote configuration example](#specify-a-private-remote-c
 If remote configuration file doesn't seem to be applying customizations correctly, the causes can be:
 
 1. Your repository has a local `.gitlab/sast-ruleset.toml` file.
-    - A local file is used if it's present, even if a remote configuration is set as a variable.
-    - A change to this logic is considered in [issue 414732](https://gitlab.com/gitlab-org/gitlab/-/issues/414732).
+   - By default, a local file is used if it's present, even if a remote configuration is set as a variable.
+   - You can set the [SECURE_ENABLE_LOCAL_CONFIGURATION CI/CD variable](../../../ci/variables/_index.md) to `false` to ignore the local configuration file.
 1. There is a problem with authentication.
-    - To check whether this is the cause of the problem, try referencing a configuration file from a repository location that doesn't require authentication.
+   - To check whether this is the cause of the problem, try referencing a configuration file from a repository location that doesn't require authentication.
 
 ## Schema
 
 ### The top-level section
 
-The top-level section contains one or more _configuration sections_, defined as [TOML tables](https://toml.io/en/v1.0.0#table).
+The top-level section contains one or more configuration sections, defined as [TOML tables](https://toml.io/en/v1.0.0#table).
 
 | Setting | Description |
 | --------| ----------- |
-| `[$analyzer]` | Declares a configuration section for an analyzer. The name follows the snake-case names defined in the list of [SAST analyzers](analyzers.md#sast-analyzers). |
+| `[$analyzer]` | Declares a configuration section for an analyzer. The name follows the names defined in the list of [SAST analyzers](analyzers.md#official-analyzers). |
 
 Configuration example:
 
@@ -130,7 +145,7 @@ Configuration example:
 ...
 ```
 
-Avoid creating configuration sections that modify existing rules _and_ synthesize a custom ruleset, as
+Avoid creating configuration sections that modify existing rules and build a custom ruleset, as
 the latter replaces predefined rules completely.
 
 ### The `[$analyzer]` configuration section
@@ -143,14 +158,17 @@ differ based on the kind of configuration you're making.
 | `[[$analyzer.ruleset]]` | Predefined rules | Defines modifications to an existing rule. |
 | `interpolate` | All | If set to `true`, you can use `$VAR` in the configuration to evaluate environment variables. Use this feature with caution, so you don't leak secrets or tokens. (Default: `false`) |
 | `description` | Passthroughs | Description of the custom ruleset. |
-| `targetdir`   | Passthroughs | The directory where the final configuration should be persisted. If empty, a directory with a random name is created. The directory can contain up to 100 MB of files. |
+| `targetdir`   | Passthroughs | The directory where the final configuration should be persisted. If empty, a directory with a random name is created. The directory can contain up to 100 MB of files. In case the SAST job is running with non-root user privileges, ensure that the active user has read and write permissions for this directory. |
 | `validate`    | Passthroughs | If set to `true`, the content of each passthrough is validated. The validation works for `yaml`, `xml`, `json` and `toml` content. The proper validator is identified based on the extension used in the `target` parameter of the `[[$analyzer.passthrough]]` section. (Default: `false`) |
 | `timeout`     | Passthroughs | The maximum time to spend to evaluate the passthrough chain, before timing out. The timeout cannot exceed 300 seconds. (Default: 60) |
 
 #### `interpolate`
 
-WARNING:
+{{< alert type="warning" >}}
+
 To reduce the risk of leaking secrets, use this feature with caution.
+
+{{< /alert >}}
 
 The example below shows a configuration that uses the `$GITURL` environment variable to access a
 private repository. The variable contains a username and token (for example `https://user:token@url`), so
@@ -198,7 +216,7 @@ rule that you wish to modify.
 | `value` | The value of the identifier used by the predefined rule. |
 
 You can look up the correct values for `type` and `value` by viewing the
-[`gl-sast-report.json`](index.md#output) produced by the analyzer.
+[`gl-sast-report.json`](_index.md#download-a-sast-report) produced by the analyzer.
 You can download this file as a job artifact from the analyzer's CI job.
 
 For example, the snippet below shows a finding from a `semgrep` rule with three
@@ -260,9 +278,12 @@ The `[$analyzer.ruleset.override]` section allows you to override attributes of 
 | `name` | The name of the rule. |
 | `severity` | The severity of the rule. Valid options are: `Critical`, `High`, `Medium`, `Low`, `Unknown`, `Info`) |
 
-NOTE:
+{{< alert type="note" >}}
+
 While `message` is populated by the analyzers, it has been [deprecated](https://gitlab.com/gitlab-org/security-products/analyzers/report/-/blob/1d86d5f2e61dc38c775fb0490ee27a45eee4b8b3/vulnerability.go#L22)
 in favor of `name` and `description`.
+
+{{< /alert >}}
 
 Configuration example:
 
@@ -277,10 +298,13 @@ Configuration example:
 
 ### The `[[$analyzer.passthrough]]` section
 
-NOTE:
+{{< alert type="note" >}}
+
 Passthrough configurations are available for the [Semgrep-based analyzer](https://gitlab.com/gitlab-org/security-products/analyzers/semgrep) only.
 
-The `[[$analyzer.passthrough]]` section allows you to synthesize a custom configuration for an analyzer. You
+{{< /alert >}}
+
+The `[[$analyzer.passthrough]]` section allows you to build a custom configuration for an analyzer. You
 can define up to 20 of these sections per analyzer. Passthroughs are composed into a _passthrough chain_
 that evaluates into a complete configuration that replaces the predefined rules of the analyzer.
 
@@ -310,14 +334,50 @@ The size of the configuration generated by a single passthrough is limited to 10
 | `git`  | Pull the configuration from a remote Git repository. |
 | `url`  | Fetch the configuration using HTTP. |
 
-WARNING:
+{{< alert type="warning" >}}
+
 When using the `raw` passthrough with a YAML snippet, it's recommended to format all indentation
 in the `sast-ruleset.toml` file as spaces. The YAML specification mandates spaces over tabs, and the
 analyzer fails to parse your custom ruleset unless the indentation is represented accordingly.
 
+{{< /alert >}}
+
 ## Examples
 
-### Disable predefined rules of SAST analyzers
+### Disable predefined GitLab Advanced SAST rules
+
+You can disable GitLab Advanced SAST rules or edit their metadata.
+The following example disables rules based on different criteria:
+
+- A CWE identifier, which identifies an entire class of vulnerabilities.
+- An GitLab Advanced SAST rule ID, which identifies a specific detection strategy used in GitLab Advanced SAST.
+- An associated Semgrep rule ID, which is included in GitLab Advanced SAST findings for compatibility. This additional metadata allows findings to be automatically transitioned when both analyzers create similar findings in the same location.
+
+These identifiers are shown in the [vulnerability details](../vulnerabilities/_index.md) of each vulnerability.
+You can also see each identifier and its associated `type` in the [downloadable SAST report artifact](_index.md#download-a-sast-report).
+
+```toml
+[gitlab-advanced-sast]
+  [[gitlab-advanced-sast.ruleset]]
+    disable = true
+    [gitlab-advanced-sast.ruleset.identifier]
+      type = "cwe"
+      value = "89"
+
+  [[gitlab-advanced-sast.ruleset]]
+    disable = true
+    [gitlab-advanced-sast.ruleset.identifier]
+      type = "gitlab-advanced-sast_id"
+      value = "java-spring-csrf-unrestricted-requestmapping-atomic"
+
+  [[gitlab-advanced-sast.ruleset]]
+    disable = true
+    [gitlab-advanced-sast.ruleset.identifier]
+      type = "semgrep_id"
+      value = "java_cookie_rule-CookieHTTPOnly"
+```
+
+### Disable predefined rules of other SAST analyzers
 
 With the following custom ruleset configuration, the following rules are omitted from the report:
 
@@ -354,7 +414,7 @@ With the following custom ruleset configuration, the following rules are omitted
       value = "memcpy"
 ```
 
-### Override predefined rules of SAST analyzers
+### Override predefined rule metadata
 
 With the following custom ruleset configuration, vulnerabilities found with
 `semgrep` with a type `CWE` and a value `322` have their severity overridden to `Critical`.
@@ -369,7 +429,7 @@ With the following custom ruleset configuration, vulnerabilities found with
       severity = "Critical"
 ```
 
-### Synthesize a custom configuration using a file passthrough for `semgrep`
+### Build a custom configuration using a file passthrough for `semgrep`
 
 With the following custom ruleset configuration, the predefined ruleset
 of the `semgrep` analyzer is replaced with a custom ruleset contained in
@@ -397,7 +457,7 @@ rules:
     value = "my-semgrep-rules.yml"
 ```
 
-### Synthesize a custom configuration using a passthrough chain for `semgrep`
+### Build a custom configuration using a passthrough chain for `semgrep`
 
 With the following custom ruleset configuration, the predefined ruleset
 of the `semgrep` analyzer is replaced with a custom ruleset produced by
@@ -477,7 +537,7 @@ With the following custom ruleset configuration, two `raw` passthroughs
 are used to iteratively assemble the `/sgrules/my-rules.yml` file, which
 is then provided to Semgrep as the ruleset. Each passthrough appends a
 single rule to the ruleset. The first passthrough is responsible for
-initialising the top-level `rules` object, according to the
+initializing the top-level `rules` object, according to the
 [Semgrep rule syntax](https://semgrep.dev/docs/writing-rules/rule-syntax).
 
 ```toml
@@ -556,7 +616,7 @@ rules:
 
 ### Specify a private remote configuration
 
-The following example [enables SAST](index.md#configure-sast-in-your-cicd-yaml) and uses a shared ruleset customization file. The file is:
+The following example [enables SAST](_index.md#configure-sast-in-your-cicd-yaml) and uses a shared ruleset customization file. The file is:
 
 - Downloaded from a private project that requires authentication, by using a [Group Access Token](../../group/settings/group_access_tokens.md) securely stored within a CI variable.
 - Checked out at a specific Git commit SHA instead of the default branch.

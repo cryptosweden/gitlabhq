@@ -16,8 +16,8 @@ RSpec.describe DeployKeyPresenter do
       let(:deploy_key) { build(:deploy_key, key: 'a') }
 
       it 'returns the custom error message' do
-        expect(subject).to eq('Deploy Key must be a <a target="_blank" rel="noopener noreferrer" ' \
-          'href="/help/user/ssh#supported-ssh-key-types">supported SSH public key.</a>')
+        expect(subject).to eq('Deploy key must be a <a target="_blank" rel="noopener noreferrer" ' \
+          'href="/help/user/ssh.md#supported-ssh-key-types">supported SSH public key.</a>')
       end
     end
   end

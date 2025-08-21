@@ -1,11 +1,11 @@
 <script>
 // NOTE! For the first iteration, we are simply copying the implementation of Assignees
 // It will soon be overhauled in Issue https://gitlab.com/gitlab-org/gitlab/-/issues/233736
-import { GlIcon } from '@gitlab/ui';
-import { __, sprintf } from '~/locale';
+import { GlAvatar, GlIcon } from '@gitlab/ui';
 
 export default {
   components: {
+    GlAvatar,
     GlIcon,
   },
   props: {
@@ -19,9 +19,6 @@ export default {
     },
   },
   computed: {
-    reviewerAlt() {
-      return sprintf(__("%{userName}'s avatar"), { userName: this.user.name });
-    },
     avatarUrl() {
       return this.user.avatarUrl || this.user.avatar_url || gon.default_avatar_url;
     },
@@ -33,18 +30,12 @@ export default {
 </script>
 
 <template>
-  <span class="position-relative">
-    <img
-      :alt="reviewerAlt"
-      :src="avatarUrl"
-      :width="imgSize"
-      :class="`s${imgSize}`"
-      class="avatar avatar-inline m-0"
-    />
+  <span class="gl-relative">
+    <gl-avatar :label="user.name" :src="avatarUrl" :size="imgSize" aria-hidden="true" />
     <gl-icon
       v-if="hasMergeIcon"
+      :aria-label="__('Cannot merge')"
       name="warning-solid"
-      aria-hidden="true"
       class="merge-icon reviewer-merge-icon"
     />
   </span>

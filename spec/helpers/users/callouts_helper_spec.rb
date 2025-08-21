@@ -3,6 +3,7 @@
 require "spec_helper"
 
 RSpec.describe Users::CalloutsHelper, feature_category: :navigation do
+  include StubVersion
   let_it_be(:user, refind: true) { create(:user) }
 
   before do
@@ -112,6 +113,36 @@ RSpec.describe Users::CalloutsHelper, feature_category: :navigation do
     end
   end
 
+  describe '.show_openssl_callout?', :do_not_mock_admin_mode_setting do
+    let_it_be(:admin) { create(:user, :admin) }
+
+    subject { helper.show_openssl_callout? }
+
+    using RSpec::Parameterized::TableSyntax
+
+    where(:version, :current_user, :user_dismissed, :controller_path, :expected_result) do
+      '17.1.0'  | ref(:admin) | false | 'admin'       | true
+      '17.1.0'  | ref(:admin) | false | 'admin/users' | true
+      '17.6.99' | ref(:admin) | false | 'admin'       | true
+      '17.0.0'  | ref(:admin) | false | 'admin'       | false
+      '17.7.0'  | ref(:admin) | false | 'admin'       | false
+      '17.1.0'  | ref(:user)  | false | 'admin'       | false
+      '17.1.0'  | ref(:admin) | true  | 'admin'       | false
+      '17.1.0'  | ref(:admin) | false | 'admin-'      | false
+    end
+
+    with_them do
+      before do
+        stub_version(version, 'abcdefg')
+        allow(helper).to receive(:current_user).and_return(current_user)
+        allow(helper).to receive(:user_dismissed?).with(described_class::OPENSSL_CALLOUT) { user_dismissed }
+        allow(helper.controller).to receive(:controller_path).and_return(controller_path)
+      end
+
+      it { is_expected.to be expected_result }
+    end
+  end
+
   describe '.show_unfinished_tag_cleanup_callout?' do
     subject { helper.show_unfinished_tag_cleanup_callout? }
 
@@ -160,6 +191,26 @@ RSpec.describe Users::CalloutsHelper, feature_category: :navigation do
         allow(helper).to receive(:current_user).and_return(admin)
         allow(helper).to receive(:user_dismissed?).with(described_class::SECURITY_NEWSLETTER_CALLOUT) { false }
       end
+
+      it { is_expected.to be true }
+    end
+  end
+
+  describe '.show_branch_rules_tip?' do
+    subject { helper.show_branch_rules_tip? }
+
+    before do
+      allow(helper).to receive(:user_dismissed?).with(described_class::BRANCH_RULES_TIP_CALLOUT) { dismissed }
+    end
+
+    context 'when user has dismissed callout' do
+      let(:dismissed) { true }
+
+      it { is_expected.to be false }
+    end
+
+    context 'when user has not dismissed callout' do
+      let(:dismissed) { false }
 
       it { is_expected.to be true }
     end
@@ -231,6 +282,84 @@ RSpec.describe Users::CalloutsHelper, feature_category: :navigation do
       let(:dismissed) { true }
 
       it { is_expected.to be false }
+    end
+  end
+
+  describe '.show_new_mr_dashboard_banner?' do
+    subject { helper.show_new_mr_dashboard_banner? }
+
+    before do
+      allow(helper).to receive(:user_dismissed?).with(described_class::NEW_MR_DASHBOARD_BANNER) { dismissed }
+    end
+
+    context 'when user has not dismissed' do
+      let(:dismissed) { false }
+
+      it { is_expected.to be true }
+    end
+
+    context 'when user dismissed' do
+      let(:dismissed) { true }
+
+      it { is_expected.to be false }
+    end
+  end
+
+  describe '.render_product_usage_data_collection_changes', :do_not_mock_admin_mode_setting do
+    let_it_be(:admin) { create(:user, :admin) }
+
+    subject(:render_callout) { helper.render_product_usage_data_collection_changes(current_user) }
+
+    context 'when current_user is nil' do
+      let(:current_user) { nil }
+
+      it 'does not render the callout' do
+        expect(helper).not_to receive(:render)
+        render_callout
+      end
+    end
+
+    context 'when current_user is not an admin' do
+      let(:current_user) { user }
+
+      before do
+        allow(user).to receive(:can_admin_all_resources?).and_return(false)
+      end
+
+      it 'does not render the callout' do
+        expect(helper).not_to receive(:render)
+        render_callout
+      end
+    end
+
+    context 'when current_user is admin but has dismissed the callout' do
+      let(:current_user) { admin }
+
+      before do
+        allow(admin).to receive(:can_admin_all_resources?).and_return(true)
+        allow(helper).to receive(:user_dismissed?)
+          .with(described_class::PRODUCT_USAGE_DATA_COLLECTION_CHANGES).and_return(true)
+      end
+
+      it 'does not render the callout' do
+        expect(helper).not_to receive(:render)
+        render_callout
+      end
+    end
+
+    context 'when current_user is admin and has not dismissed the callout' do
+      let(:current_user) { admin }
+
+      before do
+        allow(admin).to receive(:can_admin_all_resources?).and_return(true)
+        allow(helper).to receive(:user_dismissed?)
+          .with(described_class::PRODUCT_USAGE_DATA_COLLECTION_CHANGES).and_return(false)
+      end
+
+      it 'renders the callout' do
+        expect(helper).to receive(:render).with('shared/product_usage_data_collection_changes_callout')
+        render_callout
+      end
     end
   end
 end

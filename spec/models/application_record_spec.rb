@@ -6,7 +6,7 @@ RSpec.describe ApplicationRecord do
   describe '#id_in' do
     let(:records) { create_list(:user, 3) }
 
-    it 'returns records of the ids' do
+    it 'returns records of the ids', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/448906' do
       expect(User.id_in(records.last(2).map(&:id))).to eq(records.last(2))
     end
   end
@@ -47,6 +47,13 @@ RSpec.describe ApplicationRecord do
         expect(Suggestion).to receive(:create).and_raise(ActiveRecord::RecordNotUnique)
 
         expect(Suggestion.safe_find_or_create_by(suggestion_attributes)).to eq(existing_suggestion)
+      end
+
+      it 'logs an exception if RecordNotUnique triggered but no result returned' do
+        expect(Suggestion).to receive(:find_by).twice.and_return(nil)
+        expect(Suggestion).to receive(:create).and_raise(ActiveRecord::RecordNotUnique)
+        expect(Gitlab::ErrorTracking).to receive(:track_exception).and_call_original
+        expect(Suggestion.safe_find_or_create_by(suggestion_attributes)).to be_nil
       end
 
       it 'passes a block to find_or_create_by' do
@@ -207,7 +214,8 @@ RSpec.describe ApplicationRecord do
       let(:session) { Gitlab::Database::LoadBalancing::Session.new }
 
       before do
-        allow(::Gitlab::Database::LoadBalancing::Session).to receive(:current).and_return(session)
+        allow(::Gitlab::Database::LoadBalancing::SessionMap)
+          .to receive(:current).with(described_class.load_balancer).and_return(session)
         allow(session).to receive(:fallback_to_replicas_for_ambiguous_queries).and_yield
       end
 
@@ -324,7 +332,6 @@ RSpec.describe ApplicationRecord do
     context 'with an ignored column' do
       let(:test_model) do
         Class.new(ApplicationRecord) do
-          include IgnorableColumns
           self.table_name = :_test_tests
 
           ignore_columns :ignore_me, remove_after: '2100-01-01', remove_with: '99.12'

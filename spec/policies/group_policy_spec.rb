@@ -14,6 +14,8 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     specify do
       expect_allowed(*public_permissions)
       expect_disallowed(:upload_file)
+      expect_disallowed(*(guest_permissions - public_permissions))
+      expect_disallowed(*(planner_permissions - guest_permissions))
       expect_disallowed(*reporter_permissions)
       expect_disallowed(*developer_permissions)
       expect_disallowed(*maintainer_permissions)
@@ -28,7 +30,9 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
 
     specify do
       expect_allowed(*public_permissions)
-      expect_disallowed(:upload_file)
+      expect_allowed(:upload_file)
+      expect_disallowed(*(guest_permissions - public_permissions))
+      expect_disallowed(*(planner_permissions - guest_permissions))
       expect_disallowed(*reporter_permissions)
       expect_disallowed(*developer_permissions)
       expect_disallowed(*maintainer_permissions)
@@ -47,6 +51,8 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
 
     specify do
       expect_disallowed(*public_permissions)
+      expect_disallowed(*guest_permissions)
+      expect_disallowed(*planner_permissions)
       expect_disallowed(*reporter_permissions)
       expect_disallowed(*owner_permissions)
     end
@@ -62,6 +68,8 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
 
     specify do
       expect_disallowed(*public_permissions)
+      expect_disallowed(*guest_permissions)
+      expect_disallowed(*planner_permissions)
       expect_disallowed(*reporter_permissions)
       expect_disallowed(*owner_permissions)
     end
@@ -87,6 +95,10 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
 
   shared_examples 'deploy token does not get confused with user' do
     before do
+      # We force the id of the deploy token and the user to be the same,
+      # which requires deleting the joining record as we cannot update
+      # the id while foreign keys reference it.
+      deploy_token.project_deploy_tokens.delete_all(:delete_all)
       deploy_token.update!(id: user_id)
     end
 
@@ -96,6 +108,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     specify do
       expect_disallowed(*public_permissions)
       expect_disallowed(*guest_permissions)
+      expect_disallowed(*planner_permissions)
       expect_disallowed(*reporter_permissions)
       expect_disallowed(*developer_permissions)
       expect_disallowed(*maintainer_permissions)
@@ -109,6 +122,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     specify do
       expect_allowed(*public_permissions)
       expect_allowed(*guest_permissions)
+      expect_disallowed(*(planner_permissions - guest_permissions))
       expect_disallowed(*reporter_permissions)
       expect_disallowed(*developer_permissions)
       expect_disallowed(*maintainer_permissions)
@@ -120,12 +134,31 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     end
   end
 
+  context 'planners' do
+    let(:current_user) { planner }
+
+    specify do
+      expect_allowed(*public_permissions)
+      expect_allowed(*guest_permissions)
+      expect_allowed(*planner_permissions)
+      expect_disallowed(*(reporter_permissions - planner_permissions))
+      expect_disallowed(*developer_permissions)
+      expect_disallowed(*maintainer_permissions)
+      expect_disallowed(*owner_permissions)
+    end
+
+    it_behaves_like 'deploy token does not get confused with user' do
+      let(:user_id) { planner.id }
+    end
+  end
+
   context 'reporter' do
     let(:current_user) { reporter }
 
     specify do
       expect_allowed(*public_permissions)
       expect_allowed(*guest_permissions)
+      expect_allowed(*planner_permissions)
       expect_allowed(*reporter_permissions)
       expect_disallowed(*developer_permissions)
       expect_disallowed(*maintainer_permissions)
@@ -143,6 +176,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     specify do
       expect_allowed(*public_permissions)
       expect_allowed(*guest_permissions)
+      expect_allowed(*planner_permissions)
       expect_allowed(*reporter_permissions)
       expect_allowed(*developer_permissions)
       expect_disallowed(*maintainer_permissions)
@@ -165,6 +199,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       it 'allows permissions from lower roles' do
         expect_allowed(*public_permissions)
         expect_allowed(*guest_permissions)
+        expect_allowed(*planner_permissions)
         expect_allowed(*reporter_permissions)
         expect_allowed(*developer_permissions)
       end
@@ -179,6 +214,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       it 'allows every maintainer permission' do
         expect_allowed(*public_permissions)
         expect_allowed(*guest_permissions)
+        expect_allowed(*planner_permissions)
         expect_allowed(*reporter_permissions)
         expect_allowed(*developer_permissions)
         expect_allowed(*maintainer_permissions)
@@ -197,6 +233,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     specify do
       expect_allowed(*public_permissions)
       expect_allowed(*guest_permissions)
+      expect_allowed(*planner_permissions)
       expect_allowed(*reporter_permissions)
       expect_allowed(*developer_permissions)
       expect_allowed(*maintainer_permissions)
@@ -214,6 +251,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     specify do
       expect_disallowed(*public_permissions)
       expect_disallowed(*guest_permissions)
+      expect_disallowed(*planner_permissions)
       expect_disallowed(*reporter_permissions)
       expect_disallowed(*developer_permissions)
       expect_disallowed(*maintainer_permissions)
@@ -224,6 +262,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       specify do
         expect_allowed(*public_permissions)
         expect_allowed(*guest_permissions)
+        expect_allowed(*planner_permissions)
         expect_allowed(*reporter_permissions)
         expect_allowed(*developer_permissions)
         expect_allowed(*maintainer_permissions)
@@ -247,6 +286,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     specify do
       expect_allowed(*public_permissions)
       expect_allowed(*guest_permissions)
+      expect_allowed(*planner_permissions)
       expect_allowed(*reporter_permissions)
       expect_allowed(*developer_permissions)
       expect_allowed(*maintainer_permissions)
@@ -274,6 +314,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     it :aggregate_failures do
       expect_allowed(:read_resource_access_tokens, :destroy_resource_access_tokens)
       expect_disallowed(*guest_permissions)
+      expect_disallowed(*planner_permissions)
       expect_disallowed(*reporter_permissions)
       expect_disallowed(*developer_permissions)
       expect_disallowed(*maintainer_permissions)
@@ -290,6 +331,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       it :aggregate_failures do
         expect_disallowed(:read_resource_access_tokens, :destroy_resource_access_tokens)
         expect_disallowed(*guest_permissions)
+        expect_disallowed(*planner_permissions)
         expect_disallowed(*reporter_permissions)
         expect_disallowed(*developer_permissions)
         expect_disallowed(*maintainer_permissions)
@@ -323,6 +365,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       specify do
         expect_disallowed(*public_permissions)
         expect_disallowed(*guest_permissions)
+        expect_disallowed(*planner_permissions)
         expect_disallowed(*reporter_permissions)
         expect_disallowed(*developer_permissions)
         expect_disallowed(*maintainer_permissions)
@@ -336,7 +379,22 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       specify do
         expect_allowed(*public_permissions)
         expect_allowed(*guest_permissions)
+        expect_disallowed(*(planner_permissions - guest_permissions))
         expect_disallowed(*reporter_permissions)
+        expect_disallowed(*developer_permissions)
+        expect_disallowed(*maintainer_permissions)
+        expect_disallowed(*owner_permissions)
+      end
+    end
+
+    context 'planners' do
+      let(:current_user) { planner }
+
+      specify do
+        expect_allowed(*public_permissions)
+        expect_allowed(*guest_permissions)
+        expect_allowed(*planner_permissions)
+        expect_disallowed(*(reporter_permissions - planner_permissions))
         expect_disallowed(*developer_permissions)
         expect_disallowed(*maintainer_permissions)
         expect_disallowed(*owner_permissions)
@@ -349,6 +407,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       specify do
         expect_allowed(*public_permissions)
         expect_allowed(*guest_permissions)
+        expect_allowed(*planner_permissions)
         expect_allowed(*reporter_permissions)
         expect_disallowed(*developer_permissions)
         expect_disallowed(*maintainer_permissions)
@@ -362,6 +421,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       specify do
         expect_allowed(*public_permissions)
         expect_allowed(*guest_permissions)
+        expect_allowed(*planner_permissions)
         expect_allowed(*reporter_permissions)
         expect_allowed(*developer_permissions)
         expect_disallowed(*maintainer_permissions)
@@ -375,6 +435,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       specify do
         expect_allowed(*public_permissions)
         expect_allowed(*guest_permissions)
+        expect_allowed(*planner_permissions)
         expect_allowed(*reporter_permissions)
         expect_allowed(*developer_permissions)
       end
@@ -391,6 +452,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       specify do
         expect_allowed(*public_permissions)
         expect_allowed(*guest_permissions)
+        expect_allowed(*planner_permissions)
         expect_allowed(*reporter_permissions)
         expect_allowed(*developer_permissions)
         expect_allowed(*maintainer_permissions)
@@ -493,6 +555,152 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     end
   end
 
+  describe 'archive_group' do
+    context 'when archive_group allowed for owner and admin' do
+      context 'with owner' do
+        let(:current_user) { owner }
+
+        it { is_expected.to be_allowed(:archive_group) }
+      end
+
+      context 'with admin', :enable_admin_mode do
+        let(:current_user) { admin }
+
+        it { is_expected.to be_allowed(:archive_group) }
+      end
+    end
+
+    context 'when archive_group disallowed for non-owner roles' do
+      where(role: %w[maintainer reporter developer guest])
+      with_them do
+        let(:current_user) { public_send role }
+
+        it { is_expected.to be_disallowed(:archive_group) }
+      end
+    end
+
+    context 'when archive_group is disabled' do
+      before do
+        stub_feature_flags(archive_group: false)
+      end
+
+      let(:current_user) { owner }
+
+      it { is_expected.to be_disallowed(:archive_group) }
+    end
+  end
+
+  describe 'group archiving abilities' do
+    let(:group) { create(:group, :public) }
+    let(:policy) { described_class.new(current_user, group) }
+    let(:current_user) { owner }
+
+    let(:archived_abilities) do
+      %i[
+        admin_build
+        admin_group_member
+        admin_issue
+        admin_issue_board
+        admin_issue_board_list
+        admin_label
+        admin_milestone
+        admin_pipeline
+        admin_work_item
+        create_package
+        create_projects
+        create_runners
+        create_subgroup
+        edit_billing
+        import_projects
+        remove_group
+        reopen_issue
+        transfer_projects
+        update_issue
+      ]
+    end
+
+    let(:destroy_abilities) do
+      %i[
+        destroy_issue
+        destroy_user_achievement
+        destroy_package
+        destroy_upload
+      ]
+    end
+
+    shared_examples 'prevents archived abilities' do
+      it 'prevents abilities defined in ARCHIVED_ABILITIES' do
+        archived_abilities.each do |ability|
+          expect(policy).not_to be_allowed(ability)
+        end
+      end
+    end
+
+    shared_examples 'prevents destroy actions' do
+      it 'prevents destroy actions on archived features' do
+        destroy_abilities.each do |feature|
+          expect(policy).not_to be_allowed(feature)
+        end
+      end
+    end
+
+    shared_examples 'allows destroy actions' do
+      it 'allows destroy actions on archived features' do
+        destroy_abilities.each do |feature|
+          expect(policy).to be_allowed(feature) if policy.respond_to?(:"#{feature}")
+        end
+      end
+    end
+
+    shared_examples 'archived but not marked for deletion' do
+      it_behaves_like 'prevents archived abilities'
+      it_behaves_like 'prevents destroy actions'
+    end
+
+    shared_examples 'archived and marked for deletion' do
+      it_behaves_like 'prevents archived abilities'
+      it_behaves_like 'allows destroy actions'
+    end
+
+    context 'when group is archived but not marked for deletion' do
+      before do
+        group.archive
+      end
+
+      it_behaves_like 'archived but not marked for deletion'
+    end
+
+    context 'when group is archived and marked for deletion' do
+      before do
+        group.archive
+        group.namespace_details.update!(deleted_at: Time.current)
+      end
+
+      it_behaves_like 'archived and marked for deletion'
+    end
+
+    context 'when group ancestor is archived' do
+      let(:group) { create(:group, :nested) }
+
+      before do
+        group.parent.archive
+      end
+
+      it_behaves_like 'archived but not marked for deletion'
+    end
+
+    context 'when group ancestor is marked for deletion' do
+      let(:group) { create(:group, :nested) }
+
+      before do
+        group.parent.archive
+        group.parent.namespace_details.update!(deleted_at: Time.current)
+      end
+
+      it_behaves_like 'archived and marked for deletion'
+    end
+  end
+
   context 'transfer_projects' do
     shared_examples_for 'allowed to transfer projects' do
       before do
@@ -518,11 +726,15 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       end
 
       it_behaves_like 'not allowed to transfer projects' do
+        let(:project_creation_level) { ::Gitlab::Access::OWNER_PROJECT_ACCESS }
+      end
+
+      it_behaves_like 'not allowed to transfer projects' do
         let(:project_creation_level) { ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS }
       end
 
       it_behaves_like 'not allowed to transfer projects' do
-        let(:project_creation_level) { ::Gitlab::Access::DEVELOPER_MAINTAINER_PROJECT_ACCESS }
+        let(:project_creation_level) { ::Gitlab::Access::DEVELOPER_PROJECT_ACCESS }
       end
     end
 
@@ -534,11 +746,15 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       end
 
       it_behaves_like 'not allowed to transfer projects' do
+        let(:project_creation_level) { ::Gitlab::Access::OWNER_PROJECT_ACCESS }
+      end
+
+      it_behaves_like 'not allowed to transfer projects' do
         let(:project_creation_level) { ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS }
       end
 
       it_behaves_like 'not allowed to transfer projects' do
-        let(:project_creation_level) { ::Gitlab::Access::DEVELOPER_MAINTAINER_PROJECT_ACCESS }
+        let(:project_creation_level) { ::Gitlab::Access::DEVELOPER_PROJECT_ACCESS }
       end
     end
 
@@ -549,12 +765,16 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
         let(:project_creation_level) { ::Gitlab::Access::NO_ONE_PROJECT_ACCESS }
       end
 
+      it_behaves_like 'not allowed to transfer projects' do
+        let(:project_creation_level) { ::Gitlab::Access::OWNER_PROJECT_ACCESS }
+      end
+
       it_behaves_like 'allowed to transfer projects' do
         let(:project_creation_level) { ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS }
       end
 
       it_behaves_like 'allowed to transfer projects' do
-        let(:project_creation_level) { ::Gitlab::Access::DEVELOPER_MAINTAINER_PROJECT_ACCESS }
+        let(:project_creation_level) { ::Gitlab::Access::DEVELOPER_PROJECT_ACCESS }
       end
     end
 
@@ -566,133 +786,67 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       end
 
       it_behaves_like 'allowed to transfer projects' do
+        let(:project_creation_level) { ::Gitlab::Access::OWNER_PROJECT_ACCESS }
+      end
+
+      it_behaves_like 'allowed to transfer projects' do
         let(:project_creation_level) { ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS }
       end
 
       it_behaves_like 'allowed to transfer projects' do
-        let(:project_creation_level) { ::Gitlab::Access::DEVELOPER_MAINTAINER_PROJECT_ACCESS }
+        let(:project_creation_level) { ::Gitlab::Access::DEVELOPER_PROJECT_ACCESS }
       end
     end
   end
 
   context 'create_projects' do
-    context 'when group has no project creation level set' do
-      before do
-        group.update!(project_creation_level: nil)
+    context 'without visibility levels restricted' do
+      where(:project_creation_level, :current_user, :create_projects_allowed?) do
+        nil                                                    | lazy { planner }    | false
+        nil                                                    | lazy { reporter }   | false
+        nil                                                    | lazy { developer }  | true
+        nil                                                    | lazy { maintainer } | true
+        nil                                                    | lazy { owner }      | true
+        nil                                                    | lazy { admin }      | true
+        ::Gitlab::Access::NO_ONE_PROJECT_ACCESS                | lazy { planner }    | false
+        ::Gitlab::Access::NO_ONE_PROJECT_ACCESS                | lazy { reporter }   | false
+        ::Gitlab::Access::NO_ONE_PROJECT_ACCESS                | lazy { developer }  | false
+        ::Gitlab::Access::NO_ONE_PROJECT_ACCESS                | lazy { maintainer } | false
+        ::Gitlab::Access::NO_ONE_PROJECT_ACCESS                | lazy { owner }      | false
+        ::Gitlab::Access::NO_ONE_PROJECT_ACCESS                | lazy { admin }      | false
+        ::Gitlab::Access::OWNER_PROJECT_ACCESS                 | lazy { planner }    | false
+        ::Gitlab::Access::OWNER_PROJECT_ACCESS                 | lazy { reporter }   | false
+        ::Gitlab::Access::OWNER_PROJECT_ACCESS                 | lazy { developer }  | false
+        ::Gitlab::Access::OWNER_PROJECT_ACCESS                 | lazy { maintainer } | false
+        ::Gitlab::Access::OWNER_PROJECT_ACCESS                 | lazy { owner }      | true
+        ::Gitlab::Access::OWNER_PROJECT_ACCESS                 | lazy { admin }      | true
+        ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS            | lazy { planner }    | false
+        ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS            | lazy { reporter }   | false
+        ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS            | lazy { developer }  | false
+        ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS            | lazy { maintainer } | true
+        ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS            | lazy { owner }      | true
+        ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS            | lazy { admin }      | true
+        ::Gitlab::Access::DEVELOPER_PROJECT_ACCESS             | lazy { planner }    | false
+        ::Gitlab::Access::DEVELOPER_PROJECT_ACCESS             | lazy { reporter }   | false
+        ::Gitlab::Access::DEVELOPER_PROJECT_ACCESS             | lazy { developer }  | true
+        ::Gitlab::Access::DEVELOPER_PROJECT_ACCESS             | lazy { maintainer } | true
+        ::Gitlab::Access::DEVELOPER_PROJECT_ACCESS             | lazy { owner }      | true
+        ::Gitlab::Access::DEVELOPER_PROJECT_ACCESS             | lazy { admin }      | true
+        ::Gitlab::Access::ADMINISTRATOR_PROJECT_ACCESS         | lazy { planner }    | false
+        ::Gitlab::Access::ADMINISTRATOR_PROJECT_ACCESS         | lazy { reporter }   | false
+        ::Gitlab::Access::ADMINISTRATOR_PROJECT_ACCESS         | lazy { developer }  | false
+        ::Gitlab::Access::ADMINISTRATOR_PROJECT_ACCESS         | lazy { maintainer } | false
+        ::Gitlab::Access::ADMINISTRATOR_PROJECT_ACCESS         | lazy { owner }      | false
+        ::Gitlab::Access::ADMINISTRATOR_PROJECT_ACCESS         | lazy { admin }      | true
       end
 
-      context 'reporter' do
-        let(:current_user) { reporter }
+      with_them do
+        before do
+          group.update!(project_creation_level: project_creation_level)
+          enable_admin_mode!(current_user) if current_user.admin?
+        end
 
-        it { is_expected.to be_disallowed(:create_projects) }
-      end
-
-      context 'developer' do
-        let(:current_user) { developer }
-
-        it { is_expected.to be_allowed(:create_projects) }
-      end
-
-      context 'maintainer' do
-        let(:current_user) { maintainer }
-
-        it { is_expected.to be_allowed(:create_projects) }
-      end
-
-      context 'owner' do
-        let(:current_user) { owner }
-
-        it { is_expected.to be_allowed(:create_projects) }
-      end
-    end
-
-    context 'when group has project creation level set to no one' do
-      before do
-        group.update!(project_creation_level: ::Gitlab::Access::NO_ONE_PROJECT_ACCESS)
-      end
-
-      context 'reporter' do
-        let(:current_user) { reporter }
-
-        it { is_expected.to be_disallowed(:create_projects) }
-      end
-
-      context 'developer' do
-        let(:current_user) { developer }
-
-        it { is_expected.to be_disallowed(:create_projects) }
-      end
-
-      context 'maintainer' do
-        let(:current_user) { maintainer }
-
-        it { is_expected.to be_disallowed(:create_projects) }
-      end
-
-      context 'owner' do
-        let(:current_user) { owner }
-
-        it { is_expected.to be_disallowed(:create_projects) }
-      end
-    end
-
-    context 'when group has project creation level set to maintainer only' do
-      before do
-        group.update!(project_creation_level: ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS)
-      end
-
-      context 'reporter' do
-        let(:current_user) { reporter }
-
-        it { is_expected.to be_disallowed(:create_projects) }
-      end
-
-      context 'developer' do
-        let(:current_user) { developer }
-
-        it { is_expected.to be_disallowed(:create_projects) }
-      end
-
-      context 'maintainer' do
-        let(:current_user) { maintainer }
-
-        it { is_expected.to be_allowed(:create_projects) }
-      end
-
-      context 'owner' do
-        let(:current_user) { owner }
-
-        it { is_expected.to be_allowed(:create_projects) }
-      end
-    end
-
-    context 'when group has project creation level set to developers + maintainer' do
-      before do
-        group.update!(project_creation_level: ::Gitlab::Access::DEVELOPER_MAINTAINER_PROJECT_ACCESS)
-      end
-
-      context 'reporter' do
-        let(:current_user) { reporter }
-
-        it { is_expected.to be_disallowed(:create_projects) }
-      end
-
-      context 'developer' do
-        let(:current_user) { developer }
-
-        it { is_expected.to be_allowed(:create_projects) }
-      end
-
-      context 'maintainer' do
-        let(:current_user) { maintainer }
-
-        it { is_expected.to be_allowed(:create_projects) }
-      end
-
-      context 'owner' do
-        let(:current_user) { owner }
-
-        it { is_expected.to be_allowed(:create_projects) }
+        it { is_expected.to(create_projects_allowed? ? be_allowed(:create_projects) : be_disallowed(:create_projects)) }
       end
     end
 
@@ -759,6 +913,12 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     context 'when group has no project creation level set' do
       let(:project_creation_level) { nil }
 
+      context 'planner' do
+        let(:current_user) { planner }
+
+        it { is_expected.to be_disallowed(:import_projects) }
+      end
+
       context 'reporter' do
         let(:current_user) { reporter }
 
@@ -787,6 +947,12 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     context 'when group has project creation level set to no one' do
       let(:project_creation_level) { ::Gitlab::Access::NO_ONE_PROJECT_ACCESS }
 
+      context 'planner' do
+        let(:current_user) { planner }
+
+        it { is_expected.to be_disallowed(:import_projects) }
+      end
+
       context 'reporter' do
         let(:current_user) { reporter }
 
@@ -812,8 +978,48 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       end
     end
 
-    context 'when group has project creation level set to maintainer only' do
+    context 'when group has project creation level set to owner' do
+      let(:project_creation_level) { ::Gitlab::Access::OWNER_PROJECT_ACCESS }
+
+      context 'planner' do
+        let(:current_user) { planner }
+
+        it { is_expected.to be_disallowed(:import_projects) }
+      end
+
+      context 'reporter' do
+        let(:current_user) { reporter }
+
+        it { is_expected.to be_disallowed(:import_projects) }
+      end
+
+      context 'developer' do
+        let(:current_user) { developer }
+
+        it { is_expected.to be_disallowed(:import_projects) }
+      end
+
+      context 'maintainer' do
+        let(:current_user) { maintainer }
+
+        it { is_expected.to be_allowed(:import_projects) }
+      end
+
+      context 'owner' do
+        let(:current_user) { owner }
+
+        it { is_expected.to be_allowed(:import_projects) }
+      end
+    end
+
+    context 'when group has project creation level set to maintainer' do
       let(:project_creation_level) { ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS }
+
+      context 'planner' do
+        let(:current_user) { planner }
+
+        it { is_expected.to be_disallowed(:import_projects) }
+      end
 
       context 'reporter' do
         let(:current_user) { reporter }
@@ -841,7 +1047,13 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     end
 
     context 'when group has project creation level set to developers + maintainer' do
-      let(:project_creation_level) { ::Gitlab::Access::DEVELOPER_MAINTAINER_PROJECT_ACCESS }
+      let(:project_creation_level) { ::Gitlab::Access::DEVELOPER_PROJECT_ACCESS }
+
+      context 'planner' do
+        let(:current_user) { planner }
+
+        it { is_expected.to be_disallowed(:import_projects) }
+      end
 
       context 'reporter' do
         let(:current_user) { reporter }
@@ -875,6 +1087,12 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
         group.update!(subgroup_creation_level: ::Gitlab::Access::OWNER_SUBGROUP_ACCESS)
       end
 
+      context 'planner' do
+        let(:current_user) { planner }
+
+        it { is_expected.to be_disallowed(:create_subgroup) }
+      end
+
       context 'reporter' do
         let(:current_user) { reporter }
 
@@ -903,6 +1121,12 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     context 'when group has subgroup creation level set to maintainer' do
       before do
         group.update!(subgroup_creation_level: ::Gitlab::Access::MAINTAINER_SUBGROUP_ACCESS)
+      end
+
+      context 'planner' do
+        let(:current_user) { planner }
+
+        it { is_expected.to be_disallowed(:create_subgroup) }
       end
 
       context 'reporter' do
@@ -959,7 +1183,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       end
     end
 
-    %w[guest reporter developer maintainer owner].each do |role|
+    %w[guest planner reporter developer maintainer owner].each do |role|
       context role do
         let(:current_user) { send(role) }
 
@@ -1057,6 +1281,12 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       it { is_expected.to be_disallowed(:create_jira_connect_subscription) }
     end
 
+    context 'with planner' do
+      let(:current_user) { planner }
+
+      it { is_expected.to be_disallowed(:create_jira_connect_subscription) }
+    end
+
     context 'with guest' do
       let(:current_user) { guest }
 
@@ -1107,10 +1337,32 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       it { is_expected.to be_allowed(:read_package) }
     end
 
+    context 'with planner' do
+      let(:current_user) { planner }
+
+      it { is_expected.to be_allowed(:read_package) }
+
+      context 'when allow_guest_plus_roles_to_pull_packages is disabled' do
+        before do
+          stub_feature_flags(allow_guest_plus_roles_to_pull_packages: false)
+        end
+
+        it { is_expected.to be_disallowed(:read_package) }
+      end
+    end
+
     context 'with guest' do
       let(:current_user) { guest }
 
-      it { is_expected.to be_disallowed(:read_package) }
+      it { is_expected.to be_allowed(:read_package) }
+
+      context 'when allow_guest_plus_roles_to_pull_packages is disabled' do
+        before do
+          stub_feature_flags(allow_guest_plus_roles_to_pull_packages: false)
+        end
+
+        it { is_expected.to be_disallowed(:read_package) }
+      end
     end
 
     context 'with non member' do
@@ -1126,7 +1378,6 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     end
   end
 
-  # This block can be removed when packages_dependency_proxy_pass_token_to_policy is rolled out
   describe 'dependency proxy' do
     shared_examples 'disallows all dependency proxy access' do
       it { is_expected.to be_disallowed(:read_dependency_proxy) }
@@ -1180,45 +1431,6 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
         end
       end
 
-      context 'deploy token user' do
-        let!(:group_deploy_token) do
-          create(:group_deploy_token, group: group, deploy_token: deploy_token)
-        end
-
-        subject { described_class.new(deploy_token, group) }
-
-        context 'with insufficient scopes' do
-          let_it_be(:deploy_token) { create(:deploy_token, :group) }
-
-          it_behaves_like 'disallows all dependency proxy access'
-        end
-
-        context 'with sufficient scopes' do
-          let_it_be(:deploy_token) { create(:deploy_token, :group, :dependency_proxy_scopes) }
-
-          it_behaves_like 'allows dependency proxy read access but not admin'
-        end
-      end
-
-      context 'group access token user' do
-        let_it_be(:bot_user) { create(:user, :project_bot) }
-        let_it_be(:token) { create(:personal_access_token, user: bot_user, scopes: [Gitlab::Auth::READ_API_SCOPE]) }
-
-        subject { described_class.new(bot_user, group) }
-
-        context 'not a member of the group' do
-          it_behaves_like 'disallows all dependency proxy access'
-        end
-
-        context 'a member of the group' do
-          before do
-            group.add_guest(bot_user)
-          end
-
-          it_behaves_like 'allows dependency proxy read access but not admin'
-        end
-      end
-
       context 'placeholder user' do
         let_it_be(:placeholder_user) { create(:user, user_type: :placeholder, developer_of: group) }
 
@@ -1227,8 +1439,16 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
         it_behaves_like 'disallows all dependency proxy access'
       end
 
+      context 'import user' do
+        let_it_be(:import_user) { create(:user, user_type: :import_user, developer_of: group) }
+
+        subject { described_class.new(import_user, group) }
+
+        it_behaves_like 'disallows all dependency proxy access'
+      end
+
       context 'all other user types' do
-        User::USER_TYPES.except(:human, :project_bot, :placeholder).each_value do |user_type|
+        User::USER_TYPES.except(:human, :project_bot, :admin_bot, :placeholder, :import_user).each_value do |user_type|
           context "with user_type #{user_type}" do
             before do
               current_user.update!(user_type: user_type)
@@ -1253,14 +1473,10 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
 
   context 'package registry' do
     context 'deploy token user' do
-      let!(:group_deploy_token) do
-        create(:group_deploy_token, group: group, deploy_token: deploy_token)
-      end
-
       subject { described_class.new(deploy_token, group) }
 
       context 'with read_package_registry scope' do
-        let(:deploy_token) { create(:deploy_token, :group, read_package_registry: true) }
+        let(:deploy_token) { create(:deploy_token, :group, read_package_registry: true, groups: [group]) }
 
         it { is_expected.to be_allowed(:read_package) }
         it { is_expected.to be_allowed(:read_group) }
@@ -1268,7 +1484,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       end
 
       context 'with write_package_registry scope' do
-        let(:deploy_token) { create(:deploy_token, :group, write_package_registry: true) }
+        let(:deploy_token) { create(:deploy_token, :group, write_package_registry: true, groups: [group]) }
 
         it { is_expected.to be_allowed(:create_package) }
         it { is_expected.to be_allowed(:read_package) }
@@ -1285,7 +1501,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     let_it_be(:current_user) { Users::Internal.support_bot }
 
     before do
-      allow(Gitlab::ServiceDesk).to receive(:supported?).and_return(true)
+      allow(::ServiceDesk).to receive(:supported?).and_return(true)
     end
 
     it { expect_disallowed(:read_label) }
@@ -1342,7 +1558,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     end
   end
 
-  describe 'update_runners_registration_token' do
+  describe 'runner registration token settings' do
     let(:allow_runner_registration_token) { true }
 
     before do
@@ -1353,16 +1569,19 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       let(:current_user) { admin }
 
       context 'when admin mode is enabled', :enable_admin_mode do
+        it { is_expected.to be_allowed(:read_runners_registration_token) }
         it { is_expected.to be_allowed(:update_runners_registration_token) }
 
         context 'with registration tokens disabled' do
           let(:allow_runner_registration_token) { false }
 
+          it { is_expected.to be_disallowed(:read_runners_registration_token) }
           it { is_expected.to be_disallowed(:update_runners_registration_token) }
         end
       end
 
       context 'when admin mode is disabled' do
+        it { is_expected.to be_disallowed(:read_runners_registration_token) }
         it { is_expected.to be_disallowed(:update_runners_registration_token) }
       end
     end
@@ -1370,11 +1589,13 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     context 'with owner' do
       let(:current_user) { owner }
 
+      it { is_expected.to be_allowed(:read_runners_registration_token) }
       it { is_expected.to be_allowed(:update_runners_registration_token) }
 
       context 'with registration tokens disabled' do
         let(:allow_runner_registration_token) { false }
 
+        it { is_expected.to be_disallowed(:read_runners_registration_token) }
         it { is_expected.to be_disallowed(:update_runners_registration_token) }
       end
     end
@@ -1382,31 +1603,63 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     context 'with maintainer' do
       let(:current_user) { maintainer }
 
+      it { is_expected.to be_disallowed(:read_runners_registration_token) }
       it { is_expected.to be_disallowed(:update_runners_registration_token) }
     end
 
     context 'with reporter' do
       let(:current_user) { reporter }
 
+      it { is_expected.to be_disallowed(:read_runners_registration_token) }
+      it { is_expected.to be_disallowed(:update_runners_registration_token) }
+    end
+
+    context 'with planner' do
+      let(:current_user) { planner }
+
+      it { is_expected.to be_disallowed(:read_runners_registration_token) }
       it { is_expected.to be_disallowed(:update_runners_registration_token) }
     end
 
     context 'with guest' do
       let(:current_user) { guest }
 
+      it { is_expected.to be_disallowed(:read_runners_registration_token) }
       it { is_expected.to be_disallowed(:update_runners_registration_token) }
     end
 
     context 'with non member' do
       let(:current_user) { create(:user) }
 
+      it { is_expected.to be_disallowed(:read_runners_registration_token) }
       it { is_expected.to be_disallowed(:update_runners_registration_token) }
     end
 
     context 'with anonymous' do
       let(:current_user) { nil }
 
+      it { is_expected.to be_disallowed(:read_runners_registration_token) }
       it { is_expected.to be_disallowed(:update_runners_registration_token) }
+    end
+  end
+
+  describe 'invite_group_members ability' do
+    context 'admin' do
+      let(:current_user) { admin }
+
+      context 'when admin mode is enabled', :enable_admin_mode do
+        it { is_expected.to be_allowed(:invite_group_members) }
+      end
+
+      context 'when admin mode is disabled' do
+        it { is_expected.to be_disallowed(:invite_group_members) }
+      end
+    end
+
+    context 'group owner' do
+      let(:current_user) { owner }
+
+      it { is_expected.to be_allowed(:invite_group_members) }
     end
   end
 
@@ -1521,6 +1774,12 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       it { is_expected.to be_disallowed(:register_group_runners) }
     end
 
+    context 'with planner' do
+      let(:current_user) { planner }
+
+      it { is_expected.to be_disallowed(:register_group_runners) }
+    end
+
     context 'with guest' do
       let(:current_user) { guest }
 
@@ -1540,7 +1799,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     end
   end
 
-  describe 'create_runner' do
+  describe 'create_runners' do
     shared_examples 'disallowed when group runner registration disabled' do
       context 'with group runner registration disabled' do
         before do
@@ -1551,13 +1810,13 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
         context 'with specific group runner registration enabled' do
           let(:runner_registration_enabled) { true }
 
-          it { is_expected.to be_disallowed(:create_runner) }
+          it { is_expected.to be_disallowed(:create_runners) }
         end
 
         context 'with specific group runner registration disabled' do
           let(:runner_registration_enabled) { false }
 
-          it { is_expected.to be_disallowed(:create_runner) }
+          it { is_expected.to be_disallowed(:create_runners) }
         end
       end
     end
@@ -1566,14 +1825,14 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       let(:current_user) { admin }
 
       context 'when admin mode is enabled', :enable_admin_mode do
-        it { is_expected.to be_allowed(:create_runner) }
+        it { is_expected.to be_allowed(:create_runners) }
 
         context 'with specific group runner registration disabled' do
           before do
             group.runner_registration_enabled = false
           end
 
-          it { is_expected.to be_allowed(:create_runner) }
+          it { is_expected.to be_allowed(:create_runners) }
         end
 
         context 'with group runner registration disabled' do
@@ -1585,26 +1844,26 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
           context 'with specific group runner registration enabled' do
             let(:runner_registration_enabled) { true }
 
-            it { is_expected.to be_allowed(:create_runner) }
+            it { is_expected.to be_allowed(:create_runners) }
           end
 
           context 'with specific group runner registration disabled' do
             let(:runner_registration_enabled) { false }
 
-            it { is_expected.to be_allowed(:create_runner) }
+            it { is_expected.to be_allowed(:create_runners) }
           end
         end
       end
 
       context 'when admin mode is disabled' do
-        it { is_expected.to be_disallowed(:create_runner) }
+        it { is_expected.to be_disallowed(:create_runners) }
       end
     end
 
     context 'with owner' do
       let(:current_user) { owner }
 
-      it { is_expected.to be_allowed(:create_runner) }
+      it { is_expected.to be_allowed(:create_runners) }
 
       it_behaves_like 'disallowed when group runner registration disabled'
     end
@@ -1612,31 +1871,37 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     context 'with maintainer' do
       let(:current_user) { maintainer }
 
-      it { is_expected.to be_disallowed(:create_runner) }
+      it { is_expected.to be_disallowed(:create_runners) }
     end
 
     context 'with reporter' do
       let(:current_user) { reporter }
 
-      it { is_expected.to be_disallowed(:create_runner) }
+      it { is_expected.to be_disallowed(:create_runners) }
+    end
+
+    context 'with planner' do
+      let(:current_user) { planner }
+
+      it { is_expected.to be_disallowed(:create_runners) }
     end
 
     context 'with guest' do
       let(:current_user) { guest }
 
-      it { is_expected.to be_disallowed(:create_runner) }
+      it { is_expected.to be_disallowed(:create_runners) }
     end
 
     context 'with developer' do
       let(:current_user) { developer }
 
-      it { is_expected.to be_disallowed(:create_runner) }
+      it { is_expected.to be_disallowed(:create_runners) }
     end
 
     context 'with anonymous' do
       let(:current_user) { nil }
 
-      it { is_expected.to be_disallowed(:create_runner) }
+      it { is_expected.to be_disallowed(:create_runners) }
     end
   end
 
@@ -1645,54 +1910,60 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
       let(:current_user) { admin }
 
       context 'when admin mode is enabled', :enable_admin_mode do
-        specify { is_expected.to be_allowed(:read_group_all_available_runners) }
+        it { is_expected.to be_allowed(:read_group_all_available_runners) }
       end
 
       context 'when admin mode is disabled' do
-        specify { is_expected.to be_disallowed(:read_group_all_available_runners) }
+        it { is_expected.to be_disallowed(:read_group_all_available_runners) }
       end
     end
 
     context 'with owner' do
       let(:current_user) { owner }
 
-      specify { is_expected.to be_allowed(:read_group_all_available_runners) }
+      it { is_expected.to be_allowed(:read_group_all_available_runners) }
     end
 
     context 'with maintainer' do
       let(:current_user) { maintainer }
 
-      specify { is_expected.to be_allowed(:read_group_all_available_runners) }
+      it { is_expected.to be_allowed(:read_group_all_available_runners) }
     end
 
     context 'with developer' do
       let(:current_user) { developer }
 
-      specify { is_expected.to be_allowed(:read_group_all_available_runners) }
+      it { is_expected.to be_allowed(:read_group_all_available_runners) }
     end
 
     context 'with reporter' do
       let(:current_user) { reporter }
 
-      specify { is_expected.to be_disallowed(:read_group_all_available_runners) }
+      it { is_expected.to be_disallowed(:read_group_all_available_runners) }
+    end
+
+    context 'with planner' do
+      let(:current_user) { planner }
+
+      it { is_expected.to be_disallowed(:read_group_all_available_runners) }
     end
 
     context 'with guest' do
       let(:current_user) { guest }
 
-      specify { is_expected.to be_disallowed(:read_group_all_available_runners) }
+      it { is_expected.to be_disallowed(:read_group_all_available_runners) }
     end
 
     context 'with non member' do
       let(:current_user) { create(:user) }
 
-      specify { is_expected.to be_disallowed(:read_group_all_available_runners) }
+      it { is_expected.to be_disallowed(:read_group_all_available_runners) }
     end
 
     context 'with anonymous' do
       let(:current_user) { nil }
 
-      specify { is_expected.to be_disallowed(:read_group_all_available_runners) }
+      it { is_expected.to be_disallowed(:read_group_all_available_runners) }
     end
   end
 
@@ -1746,6 +2017,7 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
         :maintainer | nil   | false
         :developer  | nil   | false
         :reporter   | nil   | false
+        :planner    | nil   | false
         :guest      | nil   | false
       end
 
@@ -1764,38 +2036,38 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
   describe 'achievements' do
     let(:current_user) { owner }
 
-    specify { is_expected.to be_allowed(:read_achievement) }
-    specify { is_expected.to be_allowed(:admin_achievement) }
-    specify { is_expected.to be_allowed(:award_achievement) }
-    specify { is_expected.to be_allowed(:destroy_user_achievement) }
+    it { is_expected.to be_allowed(:read_achievement) }
+    it { is_expected.to be_allowed(:admin_achievement) }
+    it { is_expected.to be_allowed(:award_achievement) }
+    it { is_expected.to be_allowed(:destroy_user_achievement) }
 
     context 'with feature flag disabled' do
       before do
         stub_feature_flags(achievements: false)
       end
 
-      specify { is_expected.to be_disallowed(:read_achievement) }
-      specify { is_expected.to be_disallowed(:admin_achievement) }
-      specify { is_expected.to be_disallowed(:award_achievement) }
-      specify { is_expected.to be_disallowed(:destroy_user_achievement) }
+      it { is_expected.to be_disallowed(:read_achievement) }
+      it { is_expected.to be_disallowed(:admin_achievement) }
+      it { is_expected.to be_disallowed(:award_achievement) }
+      it { is_expected.to be_disallowed(:destroy_user_achievement) }
     end
 
     context 'when current user is not a group member' do
       let(:current_user) { non_group_member }
 
-      specify { is_expected.to be_disallowed(:read_achievement) }
+      it { is_expected.to be_disallowed(:read_achievement) }
 
       context 'when the group is public' do
         let_it_be(:group) { create(:group, :public) }
 
-        specify { is_expected.to be_allowed(:read_achievement) }
+        it { is_expected.to be_allowed(:read_achievement) }
       end
     end
 
     context 'when current user is not an owner' do
       let(:current_user) { maintainer }
 
-      specify { is_expected.to be_disallowed(:destroy_user_achievement) }
+      it { is_expected.to be_disallowed(:destroy_user_achievement) }
     end
   end
 
@@ -1803,13 +2075,105 @@ RSpec.describe GroupPolicy, feature_category: :system_access do
     context 'with maintainer' do
       let(:current_user) { maintainer }
 
-      specify { is_expected.to be_disallowed(:admin_package) }
+      it { is_expected.to be_disallowed(:admin_package) }
     end
 
     context 'with owner' do
       let(:current_user) { owner }
 
-      specify { is_expected.to be_allowed(:admin_package) }
+      it { is_expected.to be_allowed(:admin_package) }
+    end
+  end
+
+  describe 'set_new_issue_metadata and set_new_work_item_metadata abilities' do
+    %w[guest planner reporter developer maintainer owner].each do |role|
+      context "when user is #{role}" do
+        let(:current_user) { send(role) }
+
+        it 'allows setting metadata for new issues and work items' do
+          expect_allowed :set_new_issue_metadata, :set_new_work_item_metadata
+        end
+      end
+    end
+
+    context 'when user is not a group member' do
+      let(:current_user) { non_group_member }
+
+      it 'disallows setting metadata for new issues and work items' do
+        expect_disallowed :set_new_issue_metadata, :set_new_work_item_metadata
+      end
+    end
+
+    context 'when user is admin' do
+      let(:current_user) { admin }
+
+      context 'when admin mode enabled', :enable_admin_mode do
+        it 'allows setting metadata for new issues and work items' do
+          expect_allowed :set_new_issue_metadata, :set_new_work_item_metadata
+        end
+      end
+
+      context 'when admin mode disabled' do
+        it 'disallows setting metadata for new issues and work items' do
+          expect_disallowed :set_new_issue_metadata, :set_new_work_item_metadata
+        end
+      end
+    end
+
+    context 'when current user is nil' do
+      let(:current_user) { nil }
+
+      it 'disallows setting metadata for new issues and work items' do
+        expect_disallowed :set_new_issue_metadata, :set_new_work_item_metadata
+      end
+    end
+  end
+
+  describe 'view_edit_page permission' do
+    subject(:policy) { described_class.new(current_user, group) }
+
+    context 'when user has remove_group permission' do
+      let(:current_user) { owner }
+
+      it { is_expected.to be_allowed(:view_edit_page) }
+    end
+
+    context 'when user has archive_group permission' do
+      let(:current_user) { owner }
+
+      it { is_expected.to be_allowed(:view_edit_page) }
+
+      context 'when archive_group feature flag is disabled' do
+        before do
+          stub_feature_flags(archive_group: false)
+        end
+
+        it { is_expected.to be_allowed(:view_edit_page) }
+      end
+    end
+
+    context 'when user does not have archive_group permissions' do
+      let(:current_user) { maintainer }
+
+      it { is_expected.to be_disallowed(:view_edit_page) }
+    end
+
+    context 'with archived group' do
+      before do
+        group.namespace_settings.update!(archived: true)
+      end
+
+      context 'when user is owner' do
+        let(:current_user) { owner }
+
+        it { is_expected.to be_allowed(:view_edit_page) }
+      end
+
+      context 'when user is maintainer' do
+        let(:current_user) { maintainer }
+
+        it { is_expected.to be_disallowed(:view_edit_page) }
+      end
     end
   end
 end

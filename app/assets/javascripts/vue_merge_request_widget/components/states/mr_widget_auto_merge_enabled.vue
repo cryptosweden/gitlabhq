@@ -3,9 +3,8 @@ import { GlSkeletonLoader, GlSprintf } from '@gitlab/ui';
 import autoMergeMixin from 'ee_else_ce/vue_merge_request_widget/mixins/auto_merge';
 import autoMergeEnabledQuery from 'ee_else_ce/vue_merge_request_widget/queries/states/auto_merge_enabled.query.graphql';
 import { createAlert } from '~/alert';
-import { getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { fetchPolicies } from '~/lib/graphql';
 import { __ } from '~/locale';
-import { AUTO_MERGE_STRATEGIES } from '../../constants';
 import eventHub from '../../event_hub';
 import mergeRequestQueryVariablesMixin from '../../mixins/merge_request_query_variables';
 import MrWidgetAuthor from '../mr_widget_author.vue';
@@ -16,10 +15,11 @@ export default {
   apollo: {
     state: {
       query: autoMergeEnabledQuery,
+      fetchPolicy: fetchPolicies.NETWORK_ONLY,
       variables() {
         return this.mergeRequestQueryVariables;
       },
-      update: (data) => data.project?.mergeRequest,
+      update: (data) => data.project,
     },
   },
   components: {
@@ -41,28 +41,13 @@ export default {
   },
   data() {
     return {
-      state: {},
+      state: null,
       isCancellingAutoMerge: false,
-      isRemovingSourceBranch: false,
     };
   },
   computed: {
     loading() {
-      return this.$apollo.queries.state.loading && Object.keys(this.state).length === 0;
-    },
-    stateRemoveSourceBranch() {
-      if (!this.state.shouldRemoveSourceBranch) return false;
-
-      return this.state.shouldRemoveSourceBranch || this.state.forceRemoveSourceBranch;
-    },
-    canRemoveSourceBranch() {
-      const { currentUserId } = this.mr;
-      const mergeUserId = getIdFromGraphQLId(this.state.mergeUser?.id);
-      const canRemoveSourceBranch = this.state.userPermissions.removeSourceBranch;
-
-      return (
-        !this.stateRemoveSourceBranch && canRemoveSourceBranch && mergeUserId === currentUserId
-      );
+      return this.$apollo.queries.state.loading || !this.state;
     },
     actions() {
       const actions = [];
@@ -100,32 +85,6 @@ export default {
           });
         });
     },
-    removeSourceBranch() {
-      const options = {
-        sha: this.mr.sha,
-        auto_merge_strategy: this.state.autoMergeStrategy,
-        should_remove_source_branch: true,
-      };
-
-      this.isRemovingSourceBranch = true;
-      this.service
-        .merge(options)
-        .then((res) => res.data)
-        .then((data) => {
-          if (AUTO_MERGE_STRATEGIES.includes(data.status)) {
-            eventHub.$emit('MRWidgetUpdateRequested');
-          }
-        })
-        .then(() => {
-          this.$apollo.queries.state.refetch();
-        })
-        .catch(() => {
-          this.isRemovingSourceBranch = false;
-          createAlert({
-            message: __('Something went wrong. Please try again.'),
-          });
-        });
-    },
   },
 };
 </script>
@@ -139,10 +98,13 @@ export default {
       </gl-skeleton-loader>
     </template>
     <template v-if="!loading">
-      <h4 class="gl-mr-3 gl-flex-grow-1" data-testid="statusText">
+      <h4 class="gl-mr-3 gl-grow" data-testid="statusText">
         <gl-sprintf :message="statusText" data-testid="statusText">
           <template #merge_author>
-            <mr-widget-author v-if="state.mergeUser" :author="state.mergeUser" />
+            <mr-widget-author
+              v-if="state.mergeRequest.mergeUser"
+              :author="state.mergeRequest.mergeUser"
+            />
           </template>
         </gl-sprintf>
       </h4>

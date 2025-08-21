@@ -2,21 +2,24 @@
 stage: Package
 group: Package Registry
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+gitlab_dedicated: yes
+title: Package registry rate limits
 ---
 
-# Package registry rate limits
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
 
-With the [GitLab package registry](../../user/packages/package_registry/index.md),
+{{< /details >}}
+
+With the [GitLab package registry](../../user/packages/package_registry/_index.md),
 you can use GitLab as a private or public registry for a variety of common package managers. You can
 publish and share packages, which others can consume as a dependency in downstream projects through
 the [Packages API](../../api/packages.md).
 
 If downstream projects frequently download such dependencies, many requests are made through the
-Packages API. You may therefore reach enforced [user and IP rate limits](../settings/user_and_ip_rate_limits.md).
+Packages API. You may therefore reach enforced [user and IP rate limits](user_and_ip_rate_limits.md).
 To address this issue, you can define specific rate limits for the Packages API:
 
 - [Unauthenticated requests (per IP)](#enable-unauthenticated-request-rate-limit-for-packages-api).
@@ -33,7 +36,7 @@ no difference in functionality compared to the general user and IP rate limits.
 
 To enable the unauthenticated request rate limit:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Network**.
 1. Expand **Package registry rate limits**.
 1. Select **Enable unauthenticated request rate limit**.
@@ -47,7 +50,7 @@ To enable the unauthenticated request rate limit:
 
 To enable the authenticated API request rate limit:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Network**
 1. Expand **Package registry rate limits**.
 1. Select **Enable authenticated API request rate limit**.

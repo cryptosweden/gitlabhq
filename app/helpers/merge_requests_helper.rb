@@ -80,7 +80,9 @@ module MergeRequestsHelper
   end
 
   def merge_request_button_hidden?(merge_request, closed)
-    merge_request.closed? == closed || (merge_request.merged? == closed && !merge_request.closed?) || merge_request.closed_or_merged_without_fork?
+    merge_request.closed? == closed ||
+      (merge_request.merged? == closed && !merge_request.closed?) ||
+      merge_request.closed_or_merged_without_fork?
   end
 
   def merge_request_version_path(project, merge_request, merge_request_diff, start_sha = nil)
@@ -113,6 +115,8 @@ module MergeRequestsHelper
             method(:pipelines_project_merge_request_path)
           when :diffs
             method(:diffs_project_merge_request_path)
+          when :reports
+            method(:reports_project_merge_request_path)
           else
             raise "Cannot create tab #{tab}."
           end
@@ -147,26 +151,16 @@ module MergeRequestsHelper
     end
   end
 
-  def user_merge_requests_counts
-    @user_merge_requests_counts ||= begin
-      assigned_count = assigned_issuables_count(:merge_requests)
-      review_requested_count = review_requested_merge_requests_count
-      total_count = assigned_count + review_requested_count
-
-      {
-        assigned: assigned_count,
-        review_requested: review_requested_count,
-        total: total_count
-      }
-    end
-  end
-
   def reviewers_label(merge_request, include_value: true)
     reviewers = merge_request.reviewers
 
     if include_value
       sanitized_list = sanitize_name(reviewers.map(&:name).to_sentence)
-      ns_('NotificationEmail|Reviewer: %{users}', 'NotificationEmail|Reviewers: %{users}', reviewers.count) % { users: sanitized_list }
+      ns_(
+        'NotificationEmail|Reviewer: %{users}',
+        'NotificationEmail|Reviewers: %{users}',
+        reviewers.count
+      ) % { users: sanitized_list }
     else
       ns_('NotificationEmail|Reviewer', 'NotificationEmail|Reviewers', reviewers.count)
     end
@@ -176,6 +170,10 @@ module MergeRequestsHelper
     Feature.enabled?(:notifications_todos_buttons, current_user)
   end
 
+  def can_use_description_composer(_user, _merge_request)
+    false
+  end
+
   def diffs_tab_pane_data(project, merge_request, params)
     {
       "is-locked": merge_request.discussion_locked?,
@@ -183,8 +181,13 @@ module MergeRequestsHelper
       endpoint_metadata: @endpoint_metadata_url,
       endpoint_batch: diffs_batch_project_json_merge_request_path(project, merge_request, 'json', params),
       endpoint_coverage: @coverage_path,
-      endpoint_diff_for_path: diff_for_path_namespace_project_merge_request_path(format: 'json', id: merge_request.iid, namespace_id: project.namespace.to_param, project_id: project.path),
-      help_page_path: help_page_path('user/project/merge_requests/reviews/suggestions'),
+      endpoint_diff_for_path: diff_for_path_namespace_project_merge_request_path(
+        format: 'json',
+        id: merge_request.iid,
+        namespace_id: project.namespace.to_param,
+        project_id: project.path
+      ),
+      help_page_path: help_page_path('user/project/merge_requests/reviews/suggestions.md'),
       current_user_data: @current_user_data,
       update_current_user_path: @update_current_user_path,
       project_path: project_path(merge_request.project),
@@ -201,7 +204,7 @@ module MergeRequestsHelper
       new_comment_template_paths: new_comment_template_paths(project.group, project).to_json,
       iid: merge_request.iid,
       per_page: DIFF_BATCH_ENDPOINT_PER_PAGE,
-      pinned_file_url: @pinned_file_url
+      linked_file_url: @linked_file_url
     }
   end
 
@@ -212,13 +215,14 @@ module MergeRequestsHelper
   def how_merge_modal_data(merge_request)
     {
       is_fork: merge_request.for_fork?.to_s,
-      can_merge: merge_request.can_be_merged_by?(current_user).to_s,
       source_branch: merge_request.source_branch,
       source_project_path: merge_request.source_project&.path,
       source_project_full_path: merge_request.source_project&.full_path,
       source_project_default_url: merge_request.source_project && default_url_to_repo(merge_request.source_project),
-      target_branch: merge_request.target_branch,
-      reviewing_docs_path: help_page_path('user/project/merge_requests/merge_request_troubleshooting', anchor: "check-out-merge-requests-locally-through-the-head-ref")
+      reviewing_docs_path: help_page_path(
+        'user/project/merge_requests/merge_request_troubleshooting.md',
+        anchor: "check-out-merge-requests-locally-through-the-head-ref"
+      )
     }
   end
 
@@ -229,44 +233,120 @@ module MergeRequestsHelper
     }
   end
 
-  def project_merge_requests_list_data(project, current_user)
+  def default_merge_request_sort
+    return params[:sort] if params[:sort]
+
+    case params[:state]
+    when 'merged', 'closed' then sort_value_recently_updated
+    end
+  end
+
+  def common_merge_request_list_data(current_user)
     {
-      full_path: project.full_path,
-      has_any_merge_requests: project_merge_requests(project).exists?.to_s,
-      initial_sort: current_user&.user_preference&.issues_sort,
+      autocomplete_award_emojis_path: autocomplete_award_emojis_path,
+      initial_sort: default_merge_request_sort || current_user&.user_preference&.merge_requests_sort,
       is_public_visibility_restricted:
         Gitlab::CurrentSettings.restricted_visibility_levels&.include?(Gitlab::VisibilityLevel::PUBLIC).to_s,
       is_signed_in: current_user.present?.to_s,
-      new_merge_request_path: can?(current_user, :create_merge_request_in, project) && project_new_merge_request_path(project),
       show_export_button: "true",
       issuable_type: :merge_request,
-      issuable_count: issuables_count_for_state(:merge_request, params[:state]),
       email: current_user.present? ? current_user.notification_email_or_default : nil,
-      export_csv_path: export_csv_project_merge_requests_path(project, request.query_parameters),
-      rss_url: url_for(safe_params.merge(rss_url_options))
+      rss_url: url_for(safe_params.merge(rss_url_options)),
+      emails_help_page_path: help_page_path('development/emails.md', anchor: 'email-namespace'),
+      quick_actions_help_path: help_page_path('user/project/quick_actions.md'),
+      markdown_help_path: help_page_path('user/markdown.md')
     }
   end
 
-  def project_merge_requests_list_more_actions_data(project, current_user)
-    {
-      is_signed_in: current_user.present?.to_s,
-      issuable_type: :merge_request,
-      issuable_count: issuables_count_for_state(:merge_request, params[:state]),
-      email: current_user.present? ? current_user.notification_email_or_default : nil,
-      export_csv_path: export_csv_project_merge_requests_path(project, request.query_parameters),
-      rss_url: url_for(safe_params.merge(rss_url_options))
-    }
+  def project_merge_requests_list_data(project, current_user)
+    merge_project = merge_request_source_project_for_project(project)
+
+    common_merge_request_list_data(current_user).merge({
+      namespace_id: project.id,
+      full_path: project.full_path,
+      has_any_merge_requests: project_merge_requests(project).exists?.to_s,
+      new_merge_request_path: merge_project && project_new_merge_request_path(merge_project),
+      export_csv_path: export_csv_project_merge_requests_path(project),
+      releases_endpoint: project_releases_path(project, format: :json),
+      can_bulk_update: can?(current_user, :admin_merge_request, project).to_s,
+      environment_names_path: unfoldered_environment_names_project_path(project, :json),
+      default_branch: project.default_branch,
+      initial_email: can?(current_user, :create_merge_request_in, project) &&
+        project.new_issuable_address(current_user, 'merge_request')
+    })
+  end
+
+  def group_merge_requests_list_data(group, current_user)
+    common_merge_request_list_data(current_user).merge({
+      namespace_id: group.id,
+      full_path: group.full_path,
+      show_new_resource_dropdown: (current_user.presence && any_projects?(@projects)).to_s,
+      has_any_merge_requests: group_merge_requests(group).exists?.to_s,
+      releases_endpoint: group_releases_path(group, format: :json),
+      can_bulk_update: (can?(current_user, :admin_merge_request, group) &&
+        group.licensed_feature_available?(:group_bulk_edit)).to_s,
+      environment_names_path: unfoldered_environment_names_group_path(group, :json)
+    })
   end
 
   def identity_verification_alert_data(_)
     { identity_verification_required: 'false' }
   end
 
-  private
-
-  def review_requested_merge_requests_count
-    current_user.review_requested_open_merge_requests_count
+  def merge_request_dashboard_enabled?(current_user)
+    current_user.merge_request_dashboard_enabled?
   end
+
+  def sticky_header_data(project, merge_request)
+    data = {
+      iid: merge_request.iid,
+      defaultBranchName: project.default_branch,
+      projectPath: project.full_path,
+      sourceProjectPath: merge_request.source_project_path,
+      title: markdown_field(merge_request, :title),
+      isFluidLayout: fluid_layout.to_s,
+      blocksMerge: project.only_allow_merge_if_all_discussions_are_resolved?.to_s,
+      imported: merge_request.imported?.to_s,
+      isDraft: merge_request.draft.to_s,
+      tabs: [
+        [
+          'show',
+          _('Overview'),
+          project_merge_request_path(project, merge_request),
+          merge_request.related_notes.user.count
+        ],
+        ['commits', _('Commits'), commits_project_merge_request_path(project, merge_request), @commits_count],
+        ['diffs', _('Changes'), diffs_project_merge_request_path(project, merge_request), @diffs_count]
+      ]
+    }
+
+    if project.builds_enabled?
+      data[:tabs].insert(
+        2,
+        [
+          'pipelines',
+          _('Pipelines'),
+          pipelines_project_merge_request_path(project, merge_request),
+          @number_of_pipelines
+        ]
+      )
+    end
+
+    data
+  end
+
+  def show_mr_dashboard_banner?
+    request.query_string.present? &&
+      merge_request_dashboard_enabled?(current_user) &&
+      current_page?(merge_requests_search_dashboard_path) &&
+      show_new_mr_dashboard_banner?
+  end
+
+  def merge_request_squash_option?(merge_request)
+    merge_request.persisted? ? merge_request.squash : merge_request.squash_enabled_by_default?
+  end
+
+  private
 
   def default_suggestion_commit_message(project)
     project.suggestion_commit_message.presence || Gitlab::Suggestions::CommitMessage::DEFAULT_SUGGESTION_COMMIT_MESSAGE
@@ -283,13 +363,20 @@ module MergeRequestsHelper
                 end
 
     branch = if merge_request.for_fork?
-               ERB::Util.html_escape(_('%{fork_icon} %{source_project_path}:%{source_branch}')) % { fork_icon: fork_icon.html_safe, source_project_path: merge_request.source_project_path, source_branch: merge_request.source_branch }
+               ERB::Util.html_escape(_('%{fork_icon} %{source_project_path}:%{source_branch}')) % {
+                 fork_icon: fork_icon.html_safe,
+                 source_project_path: merge_request.source_project_path,
+                 source_branch: merge_request.source_branch
+               }
              else
                merge_request.source_branch
              end
 
     branch_title = if merge_request.for_fork?
-                     ERB::Util.html_escape(_('%{source_project_path}:%{source_branch}')) % { source_project_path: merge_request.source_project_path, source_branch: merge_request.source_branch }
+                     ERB::Util.html_escape(_('%{source_project_path}:%{source_branch}')) % {
+                       source_project_path: merge_request.source_project_path,
+                       source_branch: merge_request.source_branch
+                     }
                    else
                      merge_request.source_branch
                    end
@@ -300,42 +387,65 @@ module MergeRequestsHelper
                     ''
                   end
 
-    link_to branch, branch_path, title: branch_title, class: 'ref-container gl-display-inline-block gl-text-truncate gl-max-w-26 gl-ml-2'
+    link_to branch,
+      branch_path,
+      title: branch_title,
+      class: 'ref-container gl-inline-block gl-truncate gl-max-w-26 gl-ml-2 gl-shrink-0'
   end
 
-  def merge_request_header(project, merge_request)
-    link_to_author = link_to_member(project, merge_request.author, size: 24, extra_class: 'gl-font-bold gl-mr-2', avatar: false)
+  def merge_request_header(merge_request)
+    link_to_author = link_to_member(merge_request.author, size: 24, extra_class: 'gl-font-bold gl-mr-2', avatar: false)
+    target_branch_class = "ref-container gl-inline-block gl-truncate gl-max-w-26 gl-shrink-0"
     copy_action_description = _('Copy branch name')
     copy_action_shortcut = 'b'
-    copy_button_title = "#{copy_action_description} <kbd class='flat ml-1' aria-hidden=true>#{copy_action_shortcut}</kbd>"
-    copy_button = clipboard_button(text: merge_request.source_branch, title: copy_button_title, aria_keyshortcuts: copy_action_shortcut, aria_label: copy_action_description, class: '!gl-hidden md:!gl-inline-block gl-mx-1 js-source-branch-copy')
+    copy_button_title = "#{copy_action_description} <kbd class='flat ml-1' " \
+      "aria-hidden=true>#{copy_action_shortcut}</kbd>"
 
-    target_branch = link_to merge_request.target_branch, project_tree_path(merge_request.target_project, merge_request.target_branch), title: merge_request.target_branch, class: 'ref-container gl-display-inline-block gl-text-truncate gl-max-w-26 gl-mx-2'
+    target_branch_class = if @project.default_branch != merge_request.target_branch
+                            "#{target_branch_class} gl-ml-2"
+                          else
+                            "#{target_branch_class} gl-mx-2"
+                          end
 
-    _('%{author} requested to merge %{source_branch} %{copy_button} into %{target_branch} %{created_at}').html_safe % { author: link_to_author.html_safe, source_branch: merge_request_source_branch(merge_request).html_safe, copy_button: copy_button.html_safe, target_branch: target_branch.html_safe, created_at: time_ago_with_tooltip(merge_request.created_at, html_class: 'gl-display-inline-block').html_safe }
-  end
+    copy_button = clipboard_button(
+      text: merge_request.source_branch,
+      title: copy_button_title,
+      aria_keyshortcuts: copy_action_shortcut,
+      aria_label: copy_action_description,
+      class: '!gl-hidden md:!gl-inline-block gl-mx-1 js-source-branch-copy'
+    )
 
-  def sticky_header_data(project, merge_request)
-    data = {
-      iid: merge_request.iid,
-      projectPath: project.full_path,
-      sourceProjectPath: merge_request.source_project_path,
-      title: markdown_field(merge_request, :title),
-      isFluidLayout: fluid_layout.to_s,
-      blocksMerge: project.only_allow_merge_if_all_discussions_are_resolved?.to_s,
-      imported: merge_request.imported?.to_s,
-      tabs: [
-        ['show', _('Overview'), project_merge_request_path(project, merge_request), merge_request.related_notes.user.count],
-        ['commits', _('Commits'), commits_project_merge_request_path(project, merge_request), @commits_count],
-        ['diffs', _('Changes'), diffs_project_merge_request_path(project, merge_request), @diffs_count]
-      ]
+    target_copy_button = clipboard_button(
+      text: merge_request.target_branch,
+      title: copy_action_description,
+      aria_label: copy_action_description,
+      class: '!gl-hidden md:!gl-inline-block gl-mx-1'
+    )
+
+    target_branch = link_to merge_request.target_branch,
+      project_tree_path(merge_request.target_project, merge_request.target_branch),
+      title: merge_request.target_branch,
+      class: target_branch_class
+
+    copy_button_data = {
+      author: link_to_author.html_safe,
+      source_branch: merge_request_source_branch(merge_request).html_safe,
+      copy_button: copy_button.html_safe,
+      target_branch: target_branch.html_safe,
+      target_copy_button: " ",
+      created_at: time_ago_with_tooltip(merge_request.created_at, html_class: 'gl-inline-block').html_safe,
+      author_container_start: '<div class="merge-request-author-container">'.html_safe,
+      author_container_end: '</div>'.html_safe
     }
 
-    if project.builds_enabled?
-      data[:tabs].insert(2, ['pipelines', _('Pipelines'), pipelines_project_merge_request_path(project, merge_request), @number_of_pipelines])
+    if @project.default_branch != merge_request.target_branch
+      copy_button_data[:target_copy_button] = target_copy_button.html_safe
     end
 
-    data
+    safe_format(_(
+      '%{author_container_start}%{author}requested to merge %{author_container_end}%{source_branch} %{copy_button} ' \
+        'into %{target_branch} %{target_copy_button} %{created_at}'
+    ), copy_button_data)
   end
 
   def hidden_merge_request_icon(merge_request)
@@ -352,82 +462,239 @@ module MergeRequestsHelper
     { new_comment_template_paths: new_comment_template_paths(@project.group, @project).to_json }
   end
 
-  def merge_request_dashboard_enabled?(current_user)
-    current_user.merge_request_dashboard_enabled?
-  end
-
-  def merge_request_dashboard_data
+  def merge_request_dashboard_role_based_data
     {
-      lists: [
+      tabs: [
         {
-          title: _('Open'),
-          query: 'assignedMergeRequests',
-          variables: {
-            reviewerWildcardId: 'NONE'
-          }
+          title: s_('MergeRequestsTab|Active'),
+          key: '',
+          lists: [
+            [
+              {
+                id: 'reviews',
+                title: _('Reviewer (Active)'),
+                helpContent: _('Merge requests awaiting your review.'),
+                query: 'reviewRequestedMergeRequests',
+                variables: {
+                  reviewStates: %w[UNREVIEWED REVIEW_STARTED UNAPPROVED],
+                  perPage: 10
+                }
+              },
+              {
+                id: 'reviews_inactive',
+                title: _('Reviewer (Inactive)'),
+                hideCount: true,
+                helpContent: _("Merge requests you've reviewed."),
+                query: 'reviewRequestedMergeRequests',
+                variables: {
+                  reviewStates: %w[APPROVED REQUESTED_CHANGES REVIEWED],
+                  perPage: 10
+                }
+              },
+              {
+                id: 'assigned',
+                title: _('Your merge requests (Active)'),
+                helpContent: _(
+                  "Your merge requests that need reviewers assigned, " \
+                    "or has feedback to address."
+                ),
+                query: 'authorOrAssigneeMergeRequests',
+                variables: {
+                  or: {
+                    reviewerWildcard: "NONE",
+                    onlyReviewerUsername: duo_code_review_bot.username,
+                    reviewStates: %w[REVIEWED REQUESTED_CHANGES]
+                  },
+                  perPage: 10
+                }
+              },
+              {
+                id: 'assigned_inactive',
+                title: _('Your merge requests (Inactive)'),
+                hideCount: true,
+                helpContent: _(
+                  "Your merge requests awaiting approvals, " \
+                    "or has been approved by all assigned reviewers."
+                ),
+                query: 'authorOrAssigneeMergeRequests',
+                variables: {
+                  reviewStates: %w[APPROVED UNAPPROVED UNREVIEWED REVIEW_STARTED],
+                  not: {
+                    reviewStates: %w[REQUESTED_CHANGES REVIEWED]
+                  },
+                  ignoredReviewerUsername: duo_code_review_bot.username,
+                  perPage: 10
+                }
+              }
+            ]
+          ]
         },
         {
-          title: _('Reviews requested'),
-          query: 'reviewRequestedMergeRequests',
-          variables: {
-            reviewState: 'UNREVIEWED'
-          }
-        },
-        {
-          title: _('Returned to you'),
-          query: 'assignedMergeRequests',
-          variables: {
-            reviewStates: %w[REQUESTED_CHANGES REVIEWED]
-          }
-        },
-        {
-          title: _('Waiting for reviewers'),
-          query: 'assignedMergeRequests',
-          variables: {
-            reviewStates: %w[UNREVIEWED UNAPPROVED]
-          }
-        },
-        {
-          title: _('Yours approved'),
-          query: 'assignedMergeRequests',
-          variables: {
-            reviewState: 'APPROVED'
-          }
-        },
-        {
-          title: _('Reviewed'),
-          query: 'reviewRequestedMergeRequests',
-          variables: {
-            reviewStates: %w[REQUESTED_CHANGES REVIEWED]
-          }
-        },
-        {
-          title: _('Reviews approved'),
-          query: 'reviewRequestedMergeRequests',
-          variables: {
-            reviewState: 'APPROVED'
-          }
-        },
-        {
-          title: _('Merged as assignee (1 week ago)'),
-          query: 'assignedMergeRequests',
-          variables: {
-            state: 'merged',
-            mergedAfter: 1.week.ago.to_time.iso8601
-          }
-        },
-        {
-          title: _('Merged as reviewer (1 week ago)'),
-          query: 'reviewRequestedMergeRequests',
-          variables: {
-            state: 'merged',
-            mergedAfter: 1.week.ago.to_time.iso8601
-          }
+          title: s_('MergeRequestsTab|Merged'),
+          key: 'merged',
+          lists: [
+            [
+              {
+                id: 'merged_recently_reviews',
+                title: _('Reviews'),
+                helpContent: _('Your review requests that have been merged.'),
+                query: 'reviewRequestedMergeRequests',
+                variables: {
+                  state: 'merged',
+                  mergedAfter: 2.weeks.ago.to_time.iso8601,
+                  sort: 'MERGED_AT_DESC'
+                }
+              },
+              {
+                id: 'merged_recently_assigned',
+                title: _('Assigned'),
+                helpContent: _('Your merge requests that have been merged.'),
+                query: 'authorOrAssigneeMergeRequests',
+                variables: {
+                  state: 'merged',
+                  mergedAfter: 2.weeks.ago.to_time.iso8601,
+                  sort: 'MERGED_AT_DESC'
+                }
+              }
+            ]
+          ]
         }
-
       ]
     }
   end
+
+  def merge_request_dashboard_data
+    return merge_request_dashboard_role_based_data if current_user.user_preference.role_based?
+
+    {
+      tabs: [
+        {
+          title: s_('MergeRequestsTab|Active'),
+          key: '',
+          lists: [
+            [
+              {
+                id: 'returned_to_you',
+                title: _('Returned to you'),
+                helpContent: _('Reviewers left feedback, or requested changes from you, on these merge requests.'),
+                query: 'authorOrAssigneeMergeRequests',
+                variables: {
+                  reviewStates: %w[REVIEWED REQUESTED_CHANGES],
+                  ignoredReviewerUsername: duo_code_review_bot.username
+                }
+              },
+              {
+                id: 'reviews_requested',
+                title: _('Review requested'),
+                helpContent: _('These merge requests need a review from you.'),
+                query: 'reviewRequestedMergeRequests',
+                variables: {
+                  reviewStates: %w[UNAPPROVED UNREVIEWED REVIEW_STARTED]
+                }
+              },
+              {
+                id: 'assigned_to_you',
+                title: _('Your merge requests'),
+                helpContent: _("Merge requests you authored or are assigned to, without reviewers."),
+                query: 'authorOrAssigneeMergeRequests',
+                variables: {
+                  or: {
+                    reviewerWildcard: 'NONE',
+                    onlyReviewerUsername: duo_code_review_bot.username
+                  }
+                }
+              }
+            ],
+            [
+              {
+                id: 'waiting_for_assignee',
+                title: _('Waiting for author or assignee'),
+                hideCount: true,
+                helpContent: _(
+                  "Your reviews you've requested changes for " \
+                    "or commented on."
+                ),
+                query: 'reviewRequestedMergeRequests',
+                variables: {
+                  reviewStates: %w[REVIEWED REQUESTED_CHANGES]
+                }
+              },
+              {
+                id: 'waiting_for_approvals',
+                title: _('Waiting for approvals'),
+                hideCount: true,
+                helpContent: _('Your merge requests that are waiting for approvals.'),
+                query: 'authorOrAssigneeMergeRequests',
+                variables: {
+                  ignoredReviewerUsername: duo_code_review_bot.username,
+                  reviewStates: %w[UNREVIEWED UNAPPROVED REVIEW_STARTED],
+                  not: {
+                    reviewStates: %w[REQUESTED_CHANGES REVIEWED]
+                  }
+                }
+              },
+              {
+                id: 'approved_by_you',
+                title: _('Approved by you'),
+                hideCount: true,
+                helpContent: _("You've reviewed and approved these merge requests."),
+                query: 'reviewRequestedMergeRequests',
+                variables: {
+                  reviewState: 'APPROVED'
+                }
+              },
+              {
+                id: 'approved_by_others',
+                title: _('Approved by others'),
+                hideCount: true,
+                helpContent: _('Your merge requests with approvals by all assigned reviewers.'),
+                query: 'authorOrAssigneeMergeRequests',
+                variables: {
+                  ignoredReviewerUsername: duo_code_review_bot.username,
+                  reviewState: 'APPROVED',
+                  not: {
+                    reviewStates: %w[REQUESTED_CHANGES REVIEWED UNREVIEWED REVIEW_STARTED UNAPPROVED]
+                  }
+                }
+              }
+            ]
+          ]
+        },
+        {
+          title: s_('MergeRequestsTab|Merged'),
+          key: 'merged',
+          lists: [
+            [{
+              id: 'merged_recently',
+              title: _('Merged recently'),
+              helpContent: _('These merge requests merged after %{date}. You were an assignee or a reviewer.') % {
+                date: l(2.weeks.ago.to_date, format: :long)
+              },
+              query: 'assigneeOrReviewerMergeRequests',
+              variables: {
+                state: 'merged',
+                mergedAfter: 2.weeks.ago.to_time.iso8601,
+                sort: 'MERGED_AT_DESC'
+              }
+            }]
+          ]
+        }
+      ]
+    }
+  end
+
+  def dashboard_list_title(list_id)
+    merge_request_dashboard_data[:tabs]
+      .flat_map { |tab| tab[:lists] }
+      .flatten
+      .find { |list| list[:id] == list_id }
+      &.dig(:title) || ''
+  end
+
+  def duo_code_review_bot
+    ::Users::Internal.duo_code_review_bot
+  end
+  strong_memoize_attr :duo_code_review_bot
 end
 
 MergeRequestsHelper.prepend_mod_with('MergeRequestsHelper')

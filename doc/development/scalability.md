@@ -1,17 +1,16 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: GitLab scalability
 ---
-
-# GitLab scalability
 
 This section describes the current architecture of GitLab as it relates to
 scalability and reliability.
 
 ## Reference Architecture Overview
 
-![Reference Architecture Diagram](img/reference_architecture.png)
+![Reference Architecture Diagram](img/reference_architecture_v12_8.png)
 
 _[diagram source - GitLab employees only](https://docs.google.com/drawings/d/1RTGtuoUrE0bDT-9smoHbFruhEMI4Ys6uNrufe5IA-VI/edit)_
 
@@ -62,7 +61,7 @@ There are two ways to deal with this:
 
 Partitioning is a built-in PostgreSQL feature and requires minimal changes
 in the application. However, it
-[requires PostgreSQL 11](https://www.2ndquadrant.com/en/blog/partitioning-evolution-postgresql-11/).
+[requires PostgreSQL 11](https://www.enterprisedb.com/blog/postgresql-11-partitioning-evolution-postgres-96-11).
 
 For example, a natural way to partition is to
 [partition tables by dates](https://gitlab.com/groups/gitlab-org/-/epics/2023). For example,
@@ -197,7 +196,7 @@ separate Redis clusters helps for two reasons:
 - Each has different persistence requirements.
 - Load isolation.
 
-For example, the cache instance can behave like an least-recently used
+For example, the cache instance can behave like a least-recently used
 (LRU) cache by setting the `maxmemory` configuration option. That option
 should not be set for the queues or persistent clusters because data
 would be evicted from memory at random times. This would cause jobs to
@@ -283,12 +282,12 @@ From the Sidekiq logs, it's possible to see which jobs run the most
 frequently and/or take the longest. For example, these Kibana
 visualizations show the jobs that consume the most total time:
 
-![Most time-consuming Sidekiq jobs](img/sidekiq_most_time_consuming_jobs.png)
+![Most time-consuming Sidekiq jobs](img/sidekiq_most_time_consuming_jobs_v12_8.png)
 
 _[visualization source - GitLab employees only](https://log.gitlab.net/goto/2c036582dfc3219eeaa49a76eab2564b)_
 
 This shows the jobs that had the longest durations:
 
-![Longest running Sidekiq jobs](img/sidekiq_longest_running_jobs.png)
+![Longest running Sidekiq jobs](img/sidekiq_longest_running_jobs_v12_8.png)
 
 _[visualization source - GitLab employees only](https://log.gitlab.net/goto/494f6c8afb61d98c4ff264520d184416)_

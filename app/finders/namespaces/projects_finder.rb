@@ -15,6 +15,10 @@
 #     ids: int[]
 #     with_issues_enabled: boolean
 #     with_merge_requests_enabled: boolean
+#     not_aimed_for_deletion: boolean
+#     include_sibling_projects: boolean
+#     with_namespace_domain_pages: boolean
+#     archived_only: boolean
 #
 module Namespaces
   class ProjectsFinder
@@ -27,10 +31,16 @@ module Namespaces
     def execute
       return Project.none if namespace.nil?
 
+      container = if params[:include_sibling_projects] && namespace.is_a?(ProjectNamespace)
+                    namespace.group
+                  else
+                    namespace
+                  end
+
       collection = if params[:include_subgroups].present?
-                     namespace.all_projects.with_route
+                     container.all_projects.with_route
                    else
-                     namespace.projects.with_route
+                     container.projects.with_route
                    end
 
       collection = collection.not_aimed_for_deletion if params[:not_aimed_for_deletion].present?
@@ -58,6 +68,8 @@ module Namespaces
     end
 
     def by_archived(items)
+      return items.archived if Gitlab::Utils.to_boolean(params[:archived_only], default: false)
+
       return items if Gitlab::Utils.to_boolean(params[:include_archived], default: true)
 
       items.non_archived
@@ -71,6 +83,7 @@ module Namespaces
 
     def by_feature_availability(items)
       items = items.with_issues_available_for_user(current_user) if params[:with_issues_enabled].present?
+      items = items.with_namespace_domain_pages if params[:with_namespace_domain_pages].present?
       if params[:with_merge_requests_enabled].present?
         items = items.with_merge_requests_available_for_user(current_user)
       end
@@ -78,12 +91,14 @@ module Namespaces
       items
     end
 
-    def sort(items)
-      return items.projects_order_id_desc unless params[:sort]
+    def should_sort_by_similarity?
+      params[:search].present? && (params[:sort].nil? || params[:sort].to_s == 'similarity')
+    end
 
-      if params[:sort] == :similarity && params[:search].present?
-        return items.sorted_by_similarity_desc(params[:search])
-      end
+    def sort(items)
+      return items.sorted_by_similarity_desc(params[:search]) if should_sort_by_similarity?
+
+      return items.projects_order_id_desc unless params[:sort]
 
       items.sort_by_attribute(params[:sort])
     end

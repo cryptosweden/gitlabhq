@@ -4,7 +4,7 @@ import {
   createMemoryHistory,
   createWebHistory,
   createWebHashHistory,
-} from 'vue-router-vue3';
+} from '@gitlab/vue-router-vue3';
 
 const mode = (value, options) => {
   if (!value) return null;
@@ -36,7 +36,7 @@ const toNewCatchAllPath = (path, { isRoot } = {}) => {
 
 const transformRoutes = (value, _routerOptions, transformOptions = { isRoot: true }) => {
   if (!value) return null;
-  const newRoutes = value.map(function handleRoutes(route) {
+  const newRoutes = value.map((route) => {
     const newRoute = {
       ...route,
       path: toNewCatchAllPath(route.path, transformOptions),
@@ -91,6 +91,16 @@ const transformOptions = (options = {}) => {
 };
 
 const installed = new WeakMap();
+
+export const getMatchedComponents = (instance, path) => {
+  if (instance.getMatchedComponents) {
+    return instance.getMatchedComponents(path);
+  }
+
+  const route = path ? instance.resolve(path) : instance.currentRoute.value;
+
+  return route.matched.flatMap((record) => Object.values(record.components));
+};
 
 export default class VueRouterCompat {
   constructor(options) {

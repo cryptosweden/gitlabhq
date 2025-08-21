@@ -31,7 +31,7 @@ RSpec.describe Gitlab::ImportExport::Project::ExportTask, :silence_stdout, featu
     around do |example|
       example.run
     ensure
-      File.delete(file_path) if File.exist?(file_path)
+      FileUtils.rm_f(file_path)
     end
 
     include_context 'rake task object storage shared context'
@@ -63,7 +63,7 @@ RSpec.describe Gitlab::ImportExport::Project::ExportTask, :silence_stdout, featu
     let(:file_path) { '/invalid_file_path/test_project_export.tar.gz' }
 
     it 'logs an error' do
-      expect { subject }.to output(/Invalid file path: #{file_path}. Please provide correct file path/ ).to_stdout
+      expect { subject }.to output(/Invalid file path: #{file_path}. Please provide correct file path/).to_stdout
     end
 
     it 'returns false' do
@@ -73,8 +73,8 @@ RSpec.describe Gitlab::ImportExport::Project::ExportTask, :silence_stdout, featu
 
   context 'when after export strategy fails' do
     before do
-      allow_next_instance_of(Gitlab::ImportExport::AfterExportStrategies::MoveFileStrategy) do |after_export_strategy|
-        allow(after_export_strategy).to receive(:strategy_execute).and_raise(Gitlab::ImportExport::AfterExportStrategies::BaseAfterExportStrategy::StrategyError)
+      allow_next_instance_of(Import::AfterExportStrategies::MoveFileStrategy) do |after_export_strategy|
+        allow(after_export_strategy).to receive(:strategy_execute).and_raise(Import::AfterExportStrategies::BaseAfterExportStrategy::StrategyError)
       end
     end
 

@@ -12,7 +12,7 @@ export const initAdminOrganizationsIndex = () => {
   const {
     dataset: { appData },
   } = el;
-  const { newOrganizationUrl, organizationsEmptyStateSvgPath } = convertObjectPropsToCamelCase(
+  const { newOrganizationUrl, canCreateOrganization } = convertObjectPropsToCamelCase(
     JSON.parse(appData),
   );
 
@@ -26,7 +26,7 @@ export const initAdminOrganizationsIndex = () => {
     apolloProvider,
     provide: {
       newOrganizationUrl,
-      organizationsEmptyStateSvgPath,
+      canCreateOrganization,
     },
     render(createElement) {
       return createElement(App);

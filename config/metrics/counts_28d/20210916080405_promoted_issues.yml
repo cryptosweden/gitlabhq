@@ -12,10 +12,7 @@ time_frame: 28d
 data_source: database
 data_category: optional
 performance_indicator_type: []
-distribution:
-- ce
-- ee
-tier:
+tiers:
 - free
 - premium
 - ultimate

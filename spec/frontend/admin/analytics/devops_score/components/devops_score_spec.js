@@ -1,5 +1,5 @@
 import { GlTableLite, GlBadge, GlEmptyState } from '@gitlab/ui';
-import { GlSingleStat } from '@gitlab/ui/dist/charts';
+import { GlSingleStat } from '@gitlab/ui/src/charts';
 import { mount } from '@vue/test-utils';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import DevopsScore from '~/analytics/devops_reports/components/devops_score.vue';
@@ -45,14 +45,14 @@ describe('DevopsScore', () => {
 
       it('displays the correct message', () => {
         expect(findEmptyState().text().replace(/\s+/g, ' ')).toBe(
-          'Data is still calculating... It may be several days before you see feature usage data. See example DevOps Score page in our documentation.',
+          'Data is still calculating… It may be several days before you see feature usage data. See example DevOps Score page in our documentation.',
         );
       });
 
       it('contains a link to the feature documentation', () => {
         expect(findDocsLink().exists()).toBe(true);
         expect(findDocsLink().attributes('href')).toBe(
-          '/help/administration/analytics/dev_ops_reports',
+          '/help/administration/analytics/devops_adoption',
         );
       });
     });

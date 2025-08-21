@@ -4,7 +4,6 @@ import EMPTY_DISCUSSION_URL from '@gitlab/svgs/dist/illustrations/empty-state/em
 import { isLoggedIn } from '~/lib/utils/common_utils';
 
 import { s__, n__ } from '~/locale';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import DesignDisclosure from '~/vue_shared/components/design_management/design_disclosure.vue';
 import { ACTIVE_DISCUSSION_SOURCE_TYPES } from '../constants';
 import updateActiveDiscussionMutation from '../graphql/mutations/update_active_discussion.mutation.graphql';
@@ -24,7 +23,6 @@ export default {
     DescriptionForm,
     DesignDisclosure,
   },
-  mixins: [glFeatureFlagsMixin()],
   inject: {
     projectPath: {
       default: '',
@@ -158,13 +156,13 @@ export default {
           :design="design"
           :design-variables="designVariables"
           :markdown-preview-path="markdownPreviewPath"
-          class="gl-my-5 gl-border-b"
+          class="gl-border-b gl-my-5"
         />
         <div v-if="isLoading" class="gl-my-5">
           <gl-skeleton-loader />
         </div>
         <template v-else>
-          <h3 data-testid="unresolved-discussion-count" class="!gl-leading-20 gl-font-lg gl-my-5">
+          <h3 data-testid="unresolved-discussion-count" class="gl-my-5 gl-text-lg !gl-leading-20">
             {{ unresolvedDiscussionsCount }}
           </h3>
           <gl-empty-state
@@ -208,7 +206,7 @@ export default {
             <gl-accordion-item
               v-model="isResolvedDiscussionsExpanded"
               :title="resolvedDiscussionsTitle"
-              header-class="gl-mb-5!"
+              header-class="!gl-mb-5"
             >
               <design-discussion
                 v-for="discussion in resolvedDiscussions"

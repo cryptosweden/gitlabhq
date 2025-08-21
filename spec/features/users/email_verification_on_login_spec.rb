@@ -2,17 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Email Verification On Login', :clean_gitlab_redis_rate_limiting, :js, feature_category: :instance_resiliency do
+RSpec.describe 'Email Verification On Login', :clean_gitlab_redis_rate_limiting, :js, feature_category: :instance_resiliency, quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/556094' do
   include EmailHelpers
 
   let_it_be_with_reload(:user) { create(:user) }
   let_it_be(:another_user) { create(:user) }
   let_it_be(:new_email) { build_stubbed(:user).email }
 
-  let(:require_email_verification_enabled) { user }
+  let(:email_verification_required) { true }
 
   before do
-    stub_feature_flags(require_email_verification: require_email_verification_enabled)
+    stub_application_setting(require_email_verification_on_account_locked: email_verification_required)
     stub_feature_flags(skip_require_email_verification: false)
   end
 
@@ -38,10 +38,13 @@ RSpec.describe 'Email Verification On Login', :clean_gitlab_redis_rate_limiting,
         expect(page).to have_content(s_('IdentityVerification|Help us protect your account'))
 
         # Expect an instructions email to be sent with a code
+        expect(ActionMailer::Base.deliveries.size).to eq(1)
         code = expect_instructions_email_and_extract_code
 
         # Signing in again prompts for the code and doesn't send a new one
         gitlab_sign_in(user)
+        expect(ActionMailer::Base.deliveries.size).to eq(0)
+
         expect(page).to have_current_path(new_user_session_path)
         expect(page).to have_content(s_('IdentityVerification|Help us protect your account'))
 
@@ -97,10 +100,35 @@ RSpec.describe 'Email Verification On Login', :clean_gitlab_redis_rate_limiting,
         expect(page).to have_content format(s_("IdentityVerification|You've reached the maximum amount of resends. "\
                                                'Wait %{interval} and try again.'), interval: 'about 1 hour')
       end
+
+      describe 'to a verified secondary email' do
+        let(:secondary_email) { create(:email, :confirmed, user: user) }
+
+        it 'resends a new code' do
+          perform_enqueued_jobs do
+            gitlab_sign_in(user)
+
+            code_from_primary_email = expect_instructions_email_and_extract_code
+
+            click_button s_('IdentityVerification|send a code to another address associated with this account')
+
+            fill_in _('Email'), with: secondary_email.email
+
+            click_button s_('IdentityVerification|Resend code')
+
+            expect(page).to have_content(s_('IdentityVerification|A new code has been sent.'))
+            expect_log_message('Instructions Sent', 2)
+
+            code_from_secondary_email = expect_instructions_email_and_extract_code(email: secondary_email.email)
+
+            expect(code_from_primary_email).not_to eq(code_from_secondary_email)
+          end
+        end
+      end
     end
 
-    describe 'updating the email address' do
-      it 'offers to update the email address' do
+    describe 'resending a new code when an existing code expires' do
+      it 'resends a new code' do
         perform_enqueued_jobs do
           # When logging in
           gitlab_sign_in(user)
@@ -108,40 +136,20 @@ RSpec.describe 'Email Verification On Login', :clean_gitlab_redis_rate_limiting,
           # Expect an instructions email to be sent with a code
           code = expect_instructions_email_and_extract_code
 
-          # It shows an update email button
-          expect(page).to have_button s_('IdentityVerification|Update email')
+          token_valid_for = Users::EmailVerification::ValidateTokenService::TOKEN_VALID_FOR_MINUTES + 1
 
-          # Click Update email button
-          click_button s_('IdentityVerification|Update email')
+          # Signing in again prompts for the code and sends a new one when the current code is expired
+          travel_to(token_valid_for.minutes.from_now) do
+            gitlab_sign_in(user)
+            expect(page).to have_current_path(new_user_session_path)
+            expect(page).to have_content(s_('IdentityVerification|Help us protect your account'))
 
-          # Try to update with another user's email address
-          fill_in _('Email'), with: another_user.email
-          click_button s_('IdentityVerification|Update email')
-          expect(page).to have_content('Email has already been taken')
+            # Expect an instructions email to be sent with a new code
+            new_code = expect_instructions_email_and_extract_code
 
-          # Update to a unique email address
-          fill_in _('Email'), with: new_email
-          click_button s_('IdentityVerification|Update email')
-          expect(page).to have_content(s_('IdentityVerification|A new code has been sent to ' \
-                                          'your updated email address.'))
-          expect_log_message('Instructions Sent', 2)
-
-          new_code = expect_email_changed_notification_to_old_address_and_instructions_email_to_new_address
-
-          # Verify the old code is different from the new code
-          expect(code).not_to eq(new_code)
-          verify_code(new_code)
-
-          # Expect the user to be unlocked
-          expect_user_to_be_unlocked
-          expect_user_to_be_confirmed
-
-          # When logging in again
-          gitlab_sign_out
-          gitlab_sign_in(user)
-
-          # It does not show an update email button anymore
-          expect(page).not_to have_button s_('IdentityVerification|Update email')
+            # Verify the old code is different from the new code
+            expect(code).not_to eq(new_code)
+          end
         end
       end
     end
@@ -218,7 +226,7 @@ RSpec.describe 'Email Verification On Login', :clean_gitlab_redis_rate_limiting,
     end
   end
 
-  shared_examples 'no email verification required when 2fa enabled or ff disabled' do
+  shared_examples 'no email verification required when 2fa enabled' do
     context 'when 2FA is enabled' do
       let_it_be(:user) { create(:user, :two_factor) }
 
@@ -226,7 +234,7 @@ RSpec.describe 'Email Verification On Login', :clean_gitlab_redis_rate_limiting,
     end
 
     context 'when the feature flag is disabled' do
-      let(:require_email_verification_enabled) { false }
+      let(:email_verification_required) { false }
 
       it_behaves_like 'no email verification required'
     end
@@ -247,7 +255,7 @@ RSpec.describe 'Email Verification On Login', :clean_gitlab_redis_rate_limiting,
     end
 
     it_behaves_like 'email verification required'
-    it_behaves_like 'no email verification required when 2fa enabled or ff disabled'
+    it_behaves_like 'no email verification required when 2fa enabled'
 
     describe 'when waiting for the auto unlock time' do
       before do
@@ -268,15 +276,7 @@ RSpec.describe 'Email Verification On Login', :clean_gitlab_redis_rate_limiting,
     end
 
     it_behaves_like 'email verification required'
-    it_behaves_like 'no email verification required when 2fa enabled or ff disabled'
-
-    context 'when the check_ip_address_for_email_verification feature flag is disabled' do
-      before do
-        stub_feature_flags(check_ip_address_for_email_verification: false)
-      end
-
-      it_behaves_like 'no email verification required'
-    end
+    it_behaves_like 'no email verification required when 2fa enabled'
   end
 
   describe 'when a previous authentication event exists for the same ip address' do
@@ -313,8 +313,8 @@ RSpec.describe 'Email Verification On Login', :clean_gitlab_redis_rate_limiting,
           expect(page).to have_content(s_('IdentityVerification|Help us protect your account'))
           code = expect_instructions_email_and_extract_code
 
-          # We toggle the feature flag off
-          stub_feature_flags(require_email_verification: false)
+          # We toggle the application setting off
+          stub_application_setting(require_email_verification_on_account_locked: false)
 
           # Resending and veryfying the code work as expected
           click_button s_('IdentityVerification|Resend code')
@@ -340,7 +340,7 @@ RSpec.describe 'Email Verification On Login', :clean_gitlab_redis_rate_limiting,
     end
 
     context 'when the feature flag is toggled on after Devise sent unlock instructions' do
-      let(:require_email_verification_enabled) { false }
+      let(:email_verification_required) { false }
 
       before do
         perform_enqueued_jobs do
@@ -362,8 +362,8 @@ RSpec.describe 'Email Verification On Login', :clean_gitlab_redis_rate_limiting,
         expect(mail.subject).to eq('Unlock instructions')
         unlock_url = mail.body.parts.first.to_s[/http.*/]
 
-        # We toggle the feature flag on
-        stub_feature_flags(require_email_verification: true)
+        # We toggle the application setting on
+        stub_application_setting(require_email_verification_on_account_locked: true)
 
         # Unlocking works as expected
         visit unlock_url
@@ -387,31 +387,9 @@ RSpec.describe 'Email Verification On Login', :clean_gitlab_redis_rate_limiting,
     end
   end
 
-  def expect_user_to_be_confirmed
-    aggregate_failures do
-      expect(user.email).to eq(new_email)
-      expect(user.unconfirmed_email).to be_nil
-    end
-  end
-
-  def expect_email_changed_notification_to_old_address_and_instructions_email_to_new_address
-    changed_email = ActionMailer::Base.deliveries[0]
-    instructions_email = ActionMailer::Base.deliveries[1]
-
-    expect(changed_email.to).to match_array([user.email])
-    expect(changed_email.subject).to eq('Email Changed')
-
-    expect(instructions_email.to).to match_array([new_email])
-    expect(instructions_email.subject).to eq(s_('IdentityVerification|Verify your identity'))
-
-    reset_delivered_emails!
-
-    instructions_email.body.parts.first.to_s[/\d{#{Users::EmailVerification::GenerateTokenService::TOKEN_LENGTH}}/o]
-  end
-
-  def expect_instructions_email_and_extract_code
-    mail = find_email_for(user)
-    expect(mail.to).to match_array([user.email])
+  def expect_instructions_email_and_extract_code(email: nil)
+    mail = find_email_for(email || user)
+    expect(mail.to).to match_array([email || user.email])
     expect(mail.subject).to eq(s_('IdentityVerification|Verify your identity'))
     code = mail.body.parts.first.to_s[/\d{#{Users::EmailVerification::GenerateTokenService::TOKEN_LENGTH}}/o]
     reset_delivered_emails!

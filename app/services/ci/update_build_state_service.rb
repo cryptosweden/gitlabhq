@@ -142,7 +142,7 @@ module Ci
     end
 
     def build_state
-      params.dig(:state).to_s
+      params[:state].to_s
     end
 
     def has_checksum?
@@ -154,7 +154,7 @@ module Ci
     end
 
     def trace_checksum
-      params.dig(:output, :checksum) || params.dig(:checksum)
+      params.dig(:output, :checksum) || params[:checksum]
     end
 
     def trace_bytesize
@@ -183,7 +183,7 @@ module Ci
     end
 
     def failure_reason
-      reason = params.dig(:failure_reason)
+      reason = params[:failure_reason]
 
       return unless reason
 
@@ -217,7 +217,7 @@ module Ci
     end
 
     def chunks_migration_enabled?
-      ::Feature.enabled?(:ci_enable_live_trace, build.project)
+      Gitlab::CurrentSettings.ci_job_live_trace_enabled?
     end
 
     def log_invalid_chunks?

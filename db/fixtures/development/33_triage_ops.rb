@@ -44,23 +44,40 @@ class Gitlab::Seeder::TriageOps
   LABELS
 
   OTHER_LABELS = <<~LABELS.split("\n")
-    ep::contributor tooling
-    ep::meta
-    ep::metrics
-    ep::pipeline
-    ep::review-apps
-    ep::triage
+    Community contribution
+    documentation
+    dx::contributor tooling
+    dx::infrastructure
+    dx::meta
+    dx::metrics
+    dx::pipeline
+    dx::review-apps
+    dx::triage
     master-broken::caching
     master-broken::ci-config
     master-broken::dependency-upgrade
+    master-broken::external-dependency-unavailable
+    master-broken::failed-to-pull-image
     master-broken::flaky-test
     master-broken::fork-repo-test-gap
+    master-broken::gitaly
+    master-broken::gitlab-com-overloaded
     master-broken::infrastructure
+    master-broken::infrastructure::failed-to-pull-image
+    master-broken::gitlab-com-overloaded
+    master-broken::infrastructure::runner-disk-full
+    master-broken::job-timeout
+    master-broken::multi-version-db-upgrade
     master-broken::need-merge-train
     master-broken::pipeline-skipped-before-merge
+    master-broken::runner-disk-full
+    master-broken::state leak
     master-broken::test-selection-gap
     master-broken::undetermined
     pipeline::expedited
+    pipeline::tier-1
+    pipeline::tier-2
+    pipeline::tier-3
     pipeline:mr-approved
     pipeline:run-all-jest
     pipeline:run-all-rspec
@@ -72,9 +89,14 @@ class Gitlab::Seeder::TriageOps
     pipeline:run-single-db
     pipeline:skip-undercoverage
     pipeline:update-cache
-    documentation
-    Community contribution
+    pipeline:run-as-if-foss-once
   LABELS
+
+  attr_reader :organization
+
+  def initialize(organization:)
+    @organization = organization
+  end
 
   def seed!
     puts "Updating settings to allow web hooks to localhost"
@@ -93,7 +115,6 @@ class Gitlab::Seeder::TriageOps
 
         puts "Ensuring required projects"
         ensure_project('gitlab-org/gitlab')
-        ensure_project('gitlab-org/security/gitlab')
 
         puts "Ensuring required bot user"
         ensure_bot_user
@@ -129,7 +150,7 @@ class Gitlab::Seeder::TriageOps
       scopes: ['api'],
       name: "API Token #{Time.zone.now}"
     }
-    response = PersonalAccessTokens::CreateService.new(current_user: bot, target_user: bot, params: params).execute
+    response = PersonalAccessTokens::CreateService.new(current_user: bot, target_user: bot, organization_id: bot.namespace.organization_id, params: params).execute
 
     unless response.success?
       raise "Can't create Triage Bot access token: #{response.message}"
@@ -146,9 +167,10 @@ class Gitlab::Seeder::TriageOps
       name: 'Triage Bot',
       email: 'triagebot@example.com',
       confirmed_at: DateTime.now,
-      password: SecureRandom.hex.slice(0, 16)
+      password: SecureRandom.hex.slice(0, 16),
+      user_type: :project_bot
     ) do |user|
-      user.assign_personal_namespace(Organizations::Organization.default_organization)
+      user.assign_personal_namespace(@organization)
     end
   end
 
@@ -197,7 +219,8 @@ class Gitlab::Seeder::TriageOps
     group = Group.new(
       name: group_path.titleize,
       path: group_path,
-      parent: parent
+      parent: parent,
+      organization_id: @organization.id
     )
     group.description = FFaker::Lorem.sentence
     group.save!
@@ -224,7 +247,8 @@ class Gitlab::Seeder::TriageOps
       path: project_path,
       description: FFaker::Lorem.sentence,
       visibility_level: Gitlab::VisibilityLevel::PRIVATE,
-      skip_disk_validation: true
+      skip_disk_validation: true,
+      organization_id: @organization.id
     }
 
     project = ::Projects::CreateService.new(User.first, params).execute
@@ -237,7 +261,10 @@ end
 
 if ENV['SEED_TRIAGE_OPS']
   Gitlab::Seeder.quiet do
-    Gitlab::Seeder::TriageOps.new.seed!
+    organization = User.admins.first.organizations.first
+
+    seeder = Gitlab::Seeder::TriageOps.new(organization: organization)
+    seeder.seed!
   end
 else
   puts "Skipped. Use the `SEED_TRIAGE_OPS` environment variable to enable seeding data for triage ops project."

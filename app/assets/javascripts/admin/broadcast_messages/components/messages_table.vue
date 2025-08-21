@@ -2,7 +2,7 @@
 import { GlBroadcastMessage, GlButton, GlTableLite, GlModal, GlModalDirective } from '@gitlab/ui';
 import SafeHtml from '~/vue_shared/directives/safe_html';
 import { __, s__ } from '~/locale';
-import { formatDate } from '~/lib/utils/datetime/date_format_utility';
+import { localeDateFormat } from '~/lib/utils/datetime/locale_dateformat';
 
 const DEFAULT_TD_CLASSES = '!gl-align-baseline';
 
@@ -89,7 +89,7 @@ export default {
   ],
   methods: {
     formatDate(dateString) {
-      return formatDate(new Date(dateString));
+      return localeDateFormat.asDateTimeFull.format(new Date(dateString));
     },
   },
 };
@@ -99,12 +99,12 @@ export default {
     :items="messages"
     :fields="$options.fields"
     :tbody-tr-attr="{ 'data-testid': 'message-row' }"
-    class="-gl-mt-1 -gl-mb-2"
+    class="-gl-mb-2 -gl-mt-1"
     stacked="md"
   >
     <template #cell(preview)="{ item: { message, theme, broadcast_type, dismissable } }">
       <gl-broadcast-message :theme="theme" :type="broadcast_type" :dismissible="dismissable">
-        {{ message }}
+        <span v-safe-html="message"></span>
       </gl-broadcast-message>
     </template>
 

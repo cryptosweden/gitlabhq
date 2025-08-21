@@ -42,10 +42,10 @@ RSpec.describe MergeRequestsHelper, feature_category: :code_review_workflow do
       let(:project) { create(:project) }
       let(:forked_project) { fork_project(project) }
       let(:merge_request) { create(:merge_request, source_project: forked_project, target_project: project) }
-      subject { format_mr_branch_names(merge_request) }
-
       let(:source_title) { "#{forked_project.full_path}:#{merge_request.source_branch}" }
       let(:target_title) { "#{project.full_path}:#{merge_request.target_branch}" }
+
+      subject { format_mr_branch_names(merge_request) }
 
       it { is_expected.to eq([source_title, target_title]) }
     end
@@ -101,9 +101,7 @@ RSpec.describe MergeRequestsHelper, feature_category: :code_review_workflow do
     with_them do
       subject { merge_path_description(mr, with_arrow: with_arrow) }
 
-      it {
-        is_expected.to eq(result)
-      }
+      it { is_expected.to eq(result) }
     end
   end
 
@@ -119,29 +117,6 @@ RSpec.describe MergeRequestsHelper, feature_category: :code_review_workflow do
       it 'removes the data-toggle attributes' do
         is_expected.not_to match(/data-toggle="tabvue"/)
       end
-    end
-  end
-
-  describe '#user_merge_requests_counts' do
-    let(:user) do
-      double(
-        assigned_open_merge_requests_count: 1,
-        review_requested_open_merge_requests_count: 2
-      )
-    end
-
-    subject { helper.user_merge_requests_counts }
-
-    before do
-      allow(helper).to receive(:current_user).and_return(user)
-    end
-
-    it "returns assigned, review requested and total merge request counts" do
-      expect(subject).to eq(
-        assigned: user.assigned_open_merge_requests_count,
-        review_requested: user.review_requested_open_merge_requests_count,
-        total: user.assigned_open_merge_requests_count + user.review_requested_open_merge_requests_count
-      )
     end
   end
 
@@ -236,13 +211,14 @@ RSpec.describe MergeRequestsHelper, feature_category: :code_review_workflow do
 
   describe '#sticky_header_data' do
     let_it_be(:project) { create(:project) }
-    let(:merge_request) do
+    let_it_be(:draft_merge_request) { create(:merge_request, :opened, :draft_merge_request) }
+    let(:imported_merge_request) do
       create(:merge_request, source_project: project, target_project: project, imported_from: imported_from)
     end
 
-    subject { sticky_header_data(project, merge_request) }
-
     context 'when the merge request is not imported' do
+      subject { sticky_header_data(project, imported_merge_request) }
+
       let(:imported_from) { :none }
 
       it 'returns data with imported set as false' do
@@ -251,10 +227,20 @@ RSpec.describe MergeRequestsHelper, feature_category: :code_review_workflow do
     end
 
     context 'when the merge request is imported' do
+      subject { sticky_header_data(project, imported_merge_request) }
+
       let(:imported_from) { :gitlab_migration }
 
       it 'returns data with imported set as true' do
         expect(subject[:imported]).to eq('true')
+      end
+    end
+
+    context 'when the merge request isDraft' do
+      subject { sticky_header_data(project, draft_merge_request) }
+
+      it 'returns data with is_draft set as true' do
+        expect(subject[:isDraft]).to eq('true')
       end
     end
   end
@@ -326,6 +312,8 @@ RSpec.describe MergeRequestsHelper, feature_category: :code_review_workflow do
       allow(helper).to receive(:current_user).and_return(current_user)
       allow(helper).to receive(:can?).with(current_user, :create_merge_request_in, project).and_return(true)
       allow(helper).to receive(:can?).with(current_user, :admin_merge_request, project).and_return(true)
+      allow(helper).to receive(:can?).with(current_user, :create_merge_request_from, project).and_return(true)
+      allow(helper).to receive(:can?).with(current_user, :create_merge_request_in, project).and_return(true)
       allow(helper).to receive(:issuables_count_for_state).and_return(5)
       allow(helper).to receive(:url_for).and_return("/rss-url")
       allow(helper).to receive(:export_csv_project_merge_requests_path).and_return('/csv-url')
@@ -333,6 +321,7 @@ RSpec.describe MergeRequestsHelper, feature_category: :code_review_workflow do
 
     it 'returns the correct data' do
       expected_data = {
+        autocomplete_award_emojis_path: autocomplete_award_emojis_path,
         full_path: project.full_path,
         is_public_visibility_restricted: 'false',
         is_signed_in: 'true',
@@ -341,40 +330,16 @@ RSpec.describe MergeRequestsHelper, feature_category: :code_review_workflow do
         new_merge_request_path: project_new_merge_request_path(project),
         show_export_button: 'true',
         issuable_type: :merge_request,
-        issuable_count: 5,
         email: current_user.notification_email_or_default,
         export_csv_path: '/csv-url',
-        rss_url: '/rss-url'
+        rss_url: '/rss-url',
+        releases_endpoint: project_releases_path(project, format: :json),
+        can_bulk_update: 'true',
+        environment_names_path: unfoldered_environment_names_project_path(project, format: :json),
+        default_branch: project.default_branch
       }
 
-      expect(subject).to eq(expected_data)
-    end
-  end
-
-  describe '#project_merge_requests_list_more_actions_data' do
-    let(:project) { create(:project) }
-
-    subject { helper.project_merge_requests_list_more_actions_data(project, current_user) }
-
-    before do
-      allow(helper).to receive(:project).and_return(project)
-      allow(helper).to receive(:current_user).and_return(current_user)
-      allow(helper).to receive(:issuables_count_for_state).and_return(5)
-      allow(helper).to receive(:url_for).and_return("/rss-url")
-      allow(helper).to receive(:export_csv_project_merge_requests_path).and_return('/csv-url')
-    end
-
-    it 'returns the correct data' do
-      expected_data = {
-        is_signed_in: 'true',
-        issuable_type: :merge_request,
-        issuable_count: 5,
-        email: current_user.notification_email_or_default,
-        export_csv_path: '/csv-url',
-        rss_url: '/rss-url'
-      }
-
-      expect(subject).to eq(expected_data)
+      expect(subject).to include(expected_data)
     end
   end
 
@@ -392,6 +357,122 @@ RSpec.describe MergeRequestsHelper, feature_category: :code_review_workflow do
       expected_data = { identity_verification_required: 'false' }
 
       expect(subject).to include(expected_data)
+    end
+  end
+
+  describe '#show_mr_dashboard_banner?' do
+    include ApplicationHelper
+
+    using RSpec::Parameterized::TableSyntax
+
+    where(:query_string, :feature_flag_enabled, :search_page, :user_dismissed, :should_show) do
+      { assignee_user: 'test' } | true  | true  | false | true
+      { assignee_user: 'test' } | false | true  | false | false
+      { assignee_user: 'test' } | false | false | false | false
+      { assignee_user: 'test' } | false | false | true  | false
+      nil                       | false | false | false | false
+    end
+
+    with_them do
+      before do
+        stub_feature_flags(merge_request_dashboard: feature_flag_enabled)
+        allow(helper).to receive(:current_user).and_return(current_user)
+        allow(helper).to receive(:user_dismissed?)
+          .with(Users::CalloutsHelper::NEW_MR_DASHBOARD_BANNER).and_return(user_dismissed)
+        allow(helper).to receive(:request).and_return(double(query_string: query_string))
+        allow(helper).to receive(:current_page?)
+          .with(Gitlab::Routing.url_helpers.merge_requests_search_dashboard_path).and_return(search_page)
+      end
+
+      it do
+        expect(helper.show_mr_dashboard_banner?).to eq(should_show)
+      end
+    end
+  end
+
+  describe '#group_merge_requests_list_data' do
+    let(:group) { create(:group) }
+
+    subject { helper.group_merge_requests_list_data(group, current_user) }
+
+    before do
+      helper.instance_variable_set(:@projects, [])
+
+      allow(helper).to receive(:project).and_return(group)
+      allow(helper).to receive(:current_user).and_return(current_user)
+      allow(helper).to receive(:issuables_count_for_state).and_return(5)
+      allow(helper).to receive(:url_for).and_return("/rss-url")
+    end
+
+    it 'returns the correct data' do
+      expected_data = {
+        namespace_id: group.id,
+        full_path: group.full_path,
+        show_new_resource_dropdown: "false",
+        autocomplete_award_emojis_path: autocomplete_award_emojis_path,
+        has_any_merge_requests: "false",
+        initial_sort: nil,
+        is_public_visibility_restricted: 'false',
+        is_signed_in: 'true',
+        issuable_type: :merge_request,
+        email: current_user.notification_email_or_default,
+        rss_url: "/rss-url",
+        releases_endpoint: group_releases_path(group, format: :json),
+        can_bulk_update: "false",
+        environment_names_path: unfoldered_environment_names_group_path(group, :json)
+      }
+
+      expect(subject).to include(expected_data)
+    end
+  end
+
+  describe '#merge_request_squash_option?' do
+    using RSpec::Parameterized::TableSyntax
+
+    let(:merge_request) { build_stubbed(:merge_request) }
+
+    subject { helper.merge_request_squash_option?(merge_request) }
+
+    where(
+      :persisted, :squash, :squash_enabled_by_default, :expected
+    ) do
+      true  | true  | true  | true
+      true  | true  | false | true
+      true  | false | true  | false
+      true  | false | false | false
+      false | false | false | false
+      false | true  | false | false
+      false | false | true  | true
+      false | true  | true  | true
+    end
+
+    with_them do
+      before do
+        allow(merge_request).to receive_messages(
+          persisted?: persisted, squash: squash, squash_enabled_by_default?: squash_enabled_by_default
+        )
+      end
+
+      it { is_expected.to eq(expected) }
+    end
+  end
+
+  describe '#merge_request_dashboard_role_based_data' do
+    subject(:data) { merge_request_dashboard_role_based_data }
+
+    before do
+      allow(helper).to receive(:current_user).and_return(current_user)
+    end
+
+    it do
+      expect(data.dig(:tabs, 0, :lists, 0, 2, :variables)).to include(
+        or: {
+          reviewerWildcard: "NONE",
+          onlyReviewerUsername: "GitLabDuo",
+          reviewStates: %w[REVIEWED REQUESTED_CHANGES]
+        },
+        perPage: 10
+      )
     end
   end
 end

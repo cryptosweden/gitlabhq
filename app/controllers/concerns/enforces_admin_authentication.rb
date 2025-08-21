@@ -11,10 +11,17 @@ module EnforcesAdminAuthentication
 
   included do
     before_action :authenticate_admin!
+
+    def self.authorize!(ability, only:)
+      actions = Array(only)
+
+      skip_before_action :authenticate_admin!, only: actions
+      before_action -> { authorize_ability!(ability) }, only: actions
+    end
   end
 
   def authenticate_admin!
-    return render_404 unless current_user.admin?
+    return render_404 unless user_is_admin?
     return unless Gitlab::CurrentSettings.admin_mode
 
     unless current_user_mode.admin_mode?
@@ -26,5 +33,17 @@ module EnforcesAdminAuthentication
 
   def storable_location?
     request.path != new_admin_session_path
+  end
+
+  private
+
+  def user_is_admin?
+    current_user.admin?
+  end
+
+  def authorize_ability!(ability)
+    return authenticate_admin! if current_user.admin?
+
+    render_404 unless current_user.can?(ability)
   end
 end

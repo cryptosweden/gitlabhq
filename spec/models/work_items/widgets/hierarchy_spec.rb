@@ -28,6 +28,22 @@ RSpec.describe WorkItems::Widgets::Hierarchy, feature_category: :team_planning d
     it { is_expected.to eq(parent_link.work_item_parent) }
   end
 
+  describe '#has_parent?' do
+    subject { described_class.new(task.reload).has_parent? }
+
+    context 'when parent is present' do
+      specify do
+        create(:parent_link, work_item: task, work_item_parent: work_item_parent)
+
+        is_expected.to eq(true)
+      end
+    end
+
+    context 'when parent is not present' do
+      it { is_expected.to eq(false) }
+    end
+  end
+
   describe '#children' do
     let_it_be_with_reload(:parent_link1) { create(:parent_link, work_item_parent: work_item_parent, work_item: task) }
     let_it_be_with_reload(:parent_link2) { create(:parent_link, work_item_parent: work_item_parent) }
@@ -69,6 +85,122 @@ RSpec.describe WorkItems::Widgets::Hierarchy, feature_category: :team_planning d
         it 'orders by relative_position and by created_at' do
           is_expected.to eq(parent_links_ordered.map(&:work_item))
         end
+      end
+
+      context 'when filtered by state' do
+        let_it_be(:open_child) { create(:work_item, :task, state: :opened, project: project) }
+        let_it_be(:closed_child) { create(:work_item, :task, state: :closed, project: project) }
+
+        let_it_be_with_reload(:link_to_open_child) do
+          create(:parent_link, work_item_parent: work_item_parent, work_item: open_child)
+        end
+
+        let_it_be_with_reload(:link_to_closed_child) do
+          create(:parent_link, work_item_parent: work_item_parent, work_item: closed_child)
+        end
+
+        it 'returns only opened items' do
+          result = described_class.new(work_item_parent).children(state: :opened)
+
+          expect(result).to include(open_child)
+          expect(result).not_to include(closed_child)
+        end
+
+        it 'returns only closed items' do
+          result = described_class.new(work_item_parent).children(state: :closed)
+
+          expect(result).to include(closed_child)
+          expect(result).not_to include(open_child)
+        end
+
+        it 'returns all items' do
+          result = described_class.new(work_item_parent).children
+
+          expect(result).to include(
+            open_child,
+            closed_child
+          )
+        end
+      end
+    end
+  end
+
+  describe '#rolled_up_counts_by_type' do
+    let_it_be(:work_item) { create(:work_item, :epic, namespace: group) }
+    let_it_be(:sub_epic) { create(:work_item, :epic, :closed, namespace: group) }
+    let_it_be(:sub_sub_epic) { create(:work_item, :epic, namespace: group) }
+    let_it_be(:sub_epic_2) { create(:work_item, :epic, namespace: group) }
+    let_it_be(:sub_issue) { create(:work_item, :issue, :closed, project: project) }
+    let_it_be(:sub_issue_2) { create(:work_item, :issue, project: project) }
+    let_it_be(:sub_task) { create(:work_item, :task, project: project) }
+
+    subject { described_class.new(work_item).rolled_up_counts_by_type }
+
+    before_all do
+      create(:parent_link, work_item_parent: work_item, work_item: sub_epic)
+      create(:parent_link, work_item_parent: sub_epic, work_item: sub_sub_epic)
+      create(:parent_link, work_item_parent: sub_epic, work_item: sub_issue)
+      create(:parent_link, work_item_parent: sub_issue, work_item: sub_task)
+      create(:parent_link, work_item_parent: work_item, work_item: sub_epic_2)
+      create(:parent_link, work_item_parent: sub_epic_2, work_item: sub_issue_2)
+    end
+
+    it 'returns rolled up dates by work item type and state' do
+      is_expected.to contain_exactly(
+        {
+          work_item_type: WorkItems::Type.default_by_type(:epic),
+          counts_by_state: { all: 3, opened: 2, closed: 1 }
+        },
+        {
+          work_item_type: WorkItems::Type.default_by_type(:issue),
+          counts_by_state: { all: 2, opened: 1, closed: 1 }
+        },
+        {
+          work_item_type: WorkItems::Type.default_by_type(:task),
+          counts_by_state: { all: 1, opened: 1, closed: 0 }
+        }
+      )
+    end
+  end
+
+  describe '#depth_limit_reached_by_type' do
+    let_it_be(:work_item) { create(:work_item, :epic) }
+    let_it_be(:hierarchy) { described_class.new(work_item) }
+    let_it_be(:descendant_type1) { create(:work_item_type, :epic) }
+    let_it_be(:descendant_type2) { create(:work_item_type, :issue) }
+
+    before do
+      allow(work_item.work_item_type).to receive(:descendant_types).and_return([descendant_type1, descendant_type2])
+    end
+
+    it 'returns an array of hashes with work_item_type and depth_limit_reached' do
+      allow(work_item).to receive(:max_depth_reached?).with(descendant_type1).and_return(true)
+      allow(work_item).to receive(:max_depth_reached?).with(descendant_type2).and_return(false)
+
+      result = hierarchy.depth_limit_reached_by_type
+
+      expect(result).to contain_exactly(
+        { work_item_type: descendant_type1, depth_limit_reached: true },
+        { work_item_type: descendant_type2, depth_limit_reached: false }
+      )
+    end
+
+    it 'calls max_depth_reached? for each descendant type' do
+      expect(work_item).to receive(:max_depth_reached?).with(descendant_type1).once
+      expect(work_item).to receive(:max_depth_reached?).with(descendant_type2).once
+
+      hierarchy.depth_limit_reached_by_type
+    end
+
+    context 'when there are no descendant types' do
+      before do
+        allow(work_item.work_item_type).to receive(:descendant_types).and_return([])
+      end
+
+      it 'returns an empty array' do
+        result = hierarchy.depth_limit_reached_by_type
+
+        expect(result).to eq([])
       end
     end
   end

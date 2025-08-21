@@ -1,16 +1,23 @@
 ---
-stage: Manage
-group: Import and Integrate
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Create
+group: Import
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Principles of Importer Design
 ---
-
-# Principles of Importer Design
 
 ## Security
 
 - Uploaded files must be validated. Examples:
   - [`BulkImports::FileDownloadService`](https://gitlab.com/gitlab-org/gitlab/-/blob/cd4a880cbb2bc56b3a55f14c1d8370f4385319db/app/services/bulk_imports/file_download_service.rb#L38-46)
   - [`ImportExport::CommandLineUtil`](https://gitlab.com/gitlab-org/gitlab/blob/139690b3aeac69675119ce70f17f70bc1753de48/lib/gitlab/import_export/command_line_util.rb#L134)
+- Importers must not add third-party Ruby gems that make HTTP calls.
+  Importers use the same
+  [Ruby gem policy as for integrations](../integrations/_index.md#no-ruby-gems-that-make-http-calls), for more information about Ruby gem use for importers see that page.
+- All HTTP calls must use `Import::Clients::HTTP`, which:
+  - Ensures that [network settings](../../security/webhooks.md) are enforced for HTTP calls.
+  - Has additional [security hardening](../../security/webhooks.md#enforce-dns-rebinding-attack-protection) features.
+  - Is our single source of truth for making secure HTTP calls.
+  - Ensure all response sizes are validated.
 
 ## Logging
 
@@ -31,7 +38,7 @@ info: Any user with at least the Maintainer role can merge updates to this conte
 - Workers that loop over collections should be equipped with a progress pointer that allows them to pick up where they left off if interrupted.
   - [Example using ID tracking](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/134229)
   - [Example using page counter](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/139775)
-- Write-heavy workers should implement [`defer_on_database_health_signal`](../sidekiq/index.md#deferring-sidekiq-workers) to avoid saturating the database. However, at the time of writing, a [known issue](https://gitlab.com/gitlab-org/gitlab/-/issues/429871#note_1738917399) prevents us from using this.
+- Write-heavy workers should implement [`defer_on_database_health_signal`](../sidekiq/_index.md#deferring-sidekiq-workers) to avoid saturating the database. However, at the time of writing, a [known issue](https://gitlab.com/gitlab-org/gitlab/-/issues/429871#note_1738917399) prevents us from using this.
 - We should enforce limits on worker concurrency to avoid saturating resources. You can find an example of this in the Bitbucket [`ParallelScheduling` class](https://gitlab.com/gitlab-org/gitlab/blob/3254590fd2105fcd995f0ccb5e0b3e214c9a59c6/lib/gitlab/bitbucket_import/parallel_scheduling.rb#L76).
 - Importers should be tested at scale on a staging environment, especially when implementing new functionality or enabling a feature flag.
 

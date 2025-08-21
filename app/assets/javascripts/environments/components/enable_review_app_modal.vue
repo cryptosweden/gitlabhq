@@ -47,17 +47,12 @@ export default {
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"`;
     },
   },
-  methods: {
-    commaOrPeriod(index, length) {
-      return index + 1 === length ? '.' : ',';
-    },
-  },
   i18n,
-  configuringReviewAppsPath: helpPagePath('ci/review_apps/index.md', {
-    anchor: 'configuring-review-apps',
+  configuringReviewAppsPath: helpPagePath('ci/review_apps/_index.md', {
+    anchor: 'configure-review-apps',
   }),
-  reviewAppsExamplesPath: helpPagePath('ci/review_apps/index.md', {
-    anchor: 'review-apps-examples',
+  reviewAppsExamplesPath: helpPagePath('ci/review_apps/_index.md', {
+    anchor: 'example-implementations',
   }),
 };
 </script>
@@ -82,7 +77,7 @@ export default {
           <gl-icon
             ref="informationIcon"
             name="information-o"
-            class="gl-text-blue-600 gl-hover-cursor-pointer"
+            class="gl-text-blue-600 hover:gl-cursor-pointer"
           />
           <gl-popover
             :target="() => $refs.informationIcon.$el"
@@ -105,7 +100,7 @@ export default {
               </gl-sprintf>
             </li>
             <li class="gl-list-none">
-              <div class="gl-display-flex align-items-start">
+              <div class="align-items-start gl-flex">
                 <pre
                   :id="modalInfoCopyId"
                   class="gl-w-full"

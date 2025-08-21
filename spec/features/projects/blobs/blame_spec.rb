@@ -32,6 +32,18 @@ RSpec.describe 'File blame', :js, feature_category: :source_code_management do
     end
   end
 
+  it 'displays a find file button that opens the global search modal' do
+    visit_blob_blame(path)
+
+    within_testid 'blob-content-holder' do
+      expect(page).to have_button _('Find file')
+
+      click_button 'Find file'
+    end
+
+    expect(page).to have_css('.global-search-modal')
+  end
+
   it 'displays the blame page without pagination' do
     visit_blob_blame(path)
 
@@ -57,7 +69,7 @@ RSpec.describe 'File blame', :js, feature_category: :source_code_management do
 
         expect(page).to have_css('#L1')
         expect(page).not_to have_css('#L3')
-        expect(find('.page-link.active')).to have_text('1')
+        expect(find('[data-testid="kaminari-pagination-item"].active')).to have_text('1')
       end
     end
 
@@ -65,14 +77,14 @@ RSpec.describe 'File blame', :js, feature_category: :source_code_management do
       before do
         visit_blob_blame(path)
 
-        find('.js-next-button').click
+        find_by_testid('kaminari-pagination-next').click
       end
 
       it 'displays next two lines of the file with pagination' do
         within_testid 'blob-content-holder' do
           expect(page).not_to have_css('#L1')
           expect(page).to have_css('#L3')
-          expect(find('.page-link.active')).to have_text('2')
+          expect(find('[data-testid="kaminari-pagination-item"].active')).to have_text('2')
         end
       end
 
@@ -80,7 +92,7 @@ RSpec.describe 'File blame', :js, feature_category: :source_code_management do
         within_testid 'blob-content-holder' do
           find('.version-link').click
 
-          expect(find('.page-link.active')).to have_text('2')
+          expect(find('[data-testid="kaminari-pagination-item"].active')).to have_text('2')
         end
       end
     end
@@ -112,23 +124,7 @@ RSpec.describe 'File blame', :js, feature_category: :source_code_management do
       it 'shows loading text', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/410499' do
         visit_blob_blame(path)
         click_link _('Show full blame')
-        expect(page).to have_text('Loading full blame...')
-      end
-    end
-
-    context 'when feature flag disabled' do
-      before do
-        stub_feature_flags(blame_page_pagination: false)
-      end
-
-      it 'displays the blame page without pagination' do
-        visit_blob_blame(path)
-
-        within_testid 'blob-content-holder' do
-          expect(page).to have_css('.blame-commit')
-          expect(page).not_to have_css('.gl-pagination')
-          expect(page).not_to have_link _('Show full blame')
-        end
+        expect(page).to have_text('Loading full blame…')
       end
     end
   end
@@ -149,7 +145,7 @@ RSpec.describe 'File blame', :js, feature_category: :source_code_management do
 
         expect(page).to have_css('#L1')
         expect(page).not_to have_css('#L201')
-        expect(find('.page-link.active')).to have_text('1')
+        expect(find('[data-testid="kaminari-pagination-item"].active')).to have_text('1')
       end
     end
 
@@ -160,11 +156,11 @@ RSpec.describe 'File blame', :js, feature_category: :source_code_management do
 
       it 'displays next two hundred lines of the file with pagination' do
         within_testid 'blob-content-holder' do
-          find('.js-next-button').click
+          find_by_testid('kaminari-pagination-next').click
 
           expect(page).not_to have_css('#L1')
           expect(page).to have_css('#L201')
-          expect(find('.page-link.active')).to have_text('2')
+          expect(find('[data-testid="kaminari-pagination-item"].active')).to have_text('2')
         end
       end
     end

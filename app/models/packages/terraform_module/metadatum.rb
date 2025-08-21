@@ -3,25 +3,24 @@
 module Packages
   module TerraformModule
     class Metadatum < ApplicationRecord
+      include Gitlab::Utils::StrongMemoize
+      include SemanticVersionable
+
       self.primary_key = :package_id
 
       MAX_FIELDS_SIZE = 10.megabytes
 
-      belongs_to :package, -> { where(package_type: :terraform_module) }, inverse_of: :terraform_module_metadatum
+      belongs_to :package, class_name: 'Packages::TerraformModule::Package', inverse_of: :terraform_module_metadatum
       belongs_to :project
 
-      validates :package, :project, :fields, presence: true
-      validates :fields, json_schema: { filename: 'terraform_module_metadata', detail_errors: true }
-      validate :terraform_module_package_type
+      attribute :fields, default: -> { {} }
+
+      validates :package, :project, presence: true
+      validates :fields, json_schema: { filename: 'terraform_module_metadata', detail_errors: true },
+        if: -> { fields.present? }
       validate :ensure_fields_size
 
       private
-
-      def terraform_module_package_type
-        return if package&.terraform_module?
-
-        errors.add(:base, _('Package type must be Terraform Module'))
-      end
 
       def ensure_fields_size
         return if fields.to_s.size <= MAX_FIELDS_SIZE

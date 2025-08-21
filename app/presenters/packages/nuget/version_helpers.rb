@@ -32,8 +32,8 @@ module Packages
 
       def compare_core_parts(a_core_parts, b_core_parts)
         while a_core_parts.any? || b_core_parts.any?
-          a_part = a_core_parts.shift&.to_i || 0
-          b_part = b_core_parts.shift&.to_i || 0
+          a_part = a_core_parts.shift.to_i
+          b_part = b_core_parts.shift.to_i
           return a_part <=> b_part if a_part != b_part
         end
       end
@@ -68,7 +68,8 @@ module Packages
 
       def select_numeric_before_alphanumeric(a_num, a_pre_part, b_num, b_pre_part)
         return -1 if a_num != b_num && numeric?(a_pre_part) && !numeric?(b_pre_part)
-        return 1 if a_num != b_num && !numeric?(a_pre_part) && numeric?(b_pre_part)
+
+        1 if a_num != b_num && !numeric?(a_pre_part) && numeric?(b_pre_part)
       end
 
       def numeric?(pre_part)
@@ -81,7 +82,8 @@ module Packages
 
       def pick_non_nil(var_a, var_b)
         return -1 if var_a && !var_b
-        return 1 if !var_a && var_b
+
+        1 if !var_a && var_b
       end
     end
   end

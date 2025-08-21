@@ -90,7 +90,7 @@ class BuildDetailsEntity < Ci::JobEntity
     raw_project_job_path(project, build)
   end
 
-  expose :trigger, if: ->(*) { build.trigger_request } do
+  expose :trigger, if: ->(*) { build.pipeline.trigger_id } do
     expose :trigger_short_token, as: :short_token
 
     expose :trigger_variables, as: :variables, using: TriggerVariableEntity
@@ -138,7 +138,7 @@ class BuildDetailsEntity < Ci::JobEntity
   def callout_message
     return super unless build.failure_reason.to_sym == :missing_dependency_failure
 
-    docs_url = "https://docs.gitlab.com/ee/ci/yaml/index.html#dependencies"
+    docs_url = "https://docs.gitlab.com/ee/ci/yaml/#dependencies"
     troubleshooting_url = "https://docs.gitlab.com/ee/ci/jobs/job_artifacts_troubleshooting.html#error-message-this-job-could-not-start-because-it-could-not-retrieve-the-needed-artifacts"
 
     [

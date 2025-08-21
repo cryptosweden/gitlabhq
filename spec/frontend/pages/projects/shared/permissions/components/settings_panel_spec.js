@@ -1,10 +1,12 @@
-import { GlSprintf, GlToggle, GlFormCheckbox } from '@gitlab/ui';
-import { shallowMount, mount } from '@vue/test-utils';
+import { GlCard, GlSprintf, GlToggle, GlFormCheckbox } from '@gitlab/ui';
+import { shallowMountExtended, mountExtended } from 'helpers/vue_test_utils_helper';
 import ProjectFeatureSetting from '~/pages/projects/shared/permissions/components/project_feature_setting.vue';
 import CiCatalogSettings from '~/pages/projects/shared/permissions/components/ci_catalog_settings.vue';
 import settingsPanel from '~/pages/projects/shared/permissions/components/settings_panel.vue';
 import {
   featureAccessLevel,
+  featureAccessLevelEveryone,
+  featureAccessLevelMembers,
   visibilityLevelDescriptions,
 } from '~/pages/projects/shared/permissions/constants';
 import {
@@ -18,21 +20,31 @@ const defaultProps = {
   currentSettings: {
     visibilityLevel: 10,
     requestAccessEnabled: true,
-    issuesAccessLevel: 20,
-    repositoryAccessLevel: 20,
-    forkingAccessLevel: 20,
-    mergeRequestsAccessLevel: 20,
-    buildsAccessLevel: 20,
-    wikiAccessLevel: 20,
-    snippetsAccessLevel: 20,
-    pagesAccessLevel: 10,
-    analyticsAccessLevel: 20,
-    containerRegistryAccessLevel: 20,
+    issuesAccessLevel: featureAccessLevel.EVERYONE,
+    repositoryAccessLevel: featureAccessLevel.EVERYONE,
+    forkingAccessLevel: featureAccessLevel.EVERYONE,
+    mergeRequestsAccessLevel: featureAccessLevel.EVERYONE,
+    buildsAccessLevel: featureAccessLevel.EVERYONE,
+    wikiAccessLevel: featureAccessLevel.EVERYONE,
+    snippetsAccessLevel: featureAccessLevel.EVERYONE,
+    pagesAccessLevel: featureAccessLevel.PROJECT_MEMBERS,
+    analyticsAccessLevel: featureAccessLevel.EVERYONE,
+    containerRegistryAccessLevel: featureAccessLevel.EVERYONE,
+    requirementsAccessLevel: featureAccessLevel.EVERYONE,
+    securityAndComplianceAccessLevel: featureAccessLevel.EVERYONE,
+    modelExperimentsAccessLevel: featureAccessLevel.EVERYONE,
+    modelRegistryAccessLevel: featureAccessLevel.EVERYONE,
+    monitorAccessLevel: featureAccessLevel.EVERYONE,
+    environmentsAccessLevel: featureAccessLevel.EVERYONE,
+    featureFlagsAccessLevel: featureAccessLevel.EVERYONE,
+    infrastructureAccessLevel: featureAccessLevel.EVERYONE,
+    releasesAccessLevel: featureAccessLevel.EVERYONE,
     lfsEnabled: true,
     emailsEnabled: true,
     packagesEnabled: true,
     showDefaultAwardEmojis: true,
     warnAboutPotentiallyUnwantedCharacters: true,
+    extendedPratExpiryWebhooksExecute: false,
   },
   isGitlabCom: true,
   canAddCatalogResource: false,
@@ -41,7 +53,7 @@ const defaultProps = {
   allowedVisibilityOptions: [0, 10, 20],
   visibilityHelpPath: '/help/public_access/public_access',
   registryAvailable: false,
-  registryHelpPath: '/help/user/packages/container_registry/index',
+  registryHelpPath: '/help/user/packages/container_registry/_index',
   lfsAvailable: true,
   lfsHelpPath: '/help/topics/git/lfs/index',
   lfsObjectsExist: false,
@@ -51,11 +63,12 @@ const defaultProps = {
   pagesAccessControlForced: false,
   pagesHelpPath: '/help/user/project/pages/introduction#gitlab-pages-access-control',
   packagesAvailable: false,
-  packagesHelpPath: '/help/user/packages/index',
+  packagesHelpPath: '/help/user/packages/_index',
   requestCveAvailable: true,
   confirmationPhrase: 'my-fake-project',
   showVisibilityConfirmModal: false,
   membersPagePath: '/my-fake-project/-/project_members',
+  policySettingsAvailable: false,
 };
 
 const FEATURE_ACCESS_LEVEL_ANONYMOUS = 30;
@@ -64,8 +77,14 @@ describe('Settings Panel', () => {
   let wrapper;
 
   const mountComponent = (
-    { currentSettings = {}, glFeatures = {}, stubs = {}, ...customProps } = {},
-    mountFn = shallowMount,
+    {
+      currentSettings = {},
+      glFeatures = {},
+      cascadingSettingsData = {},
+      stubs = { GlCard },
+      ...customProps
+    } = {},
+    mountFn = shallowMountExtended,
   ) => {
     const propsData = {
       ...defaultProps,
@@ -77,6 +96,7 @@ describe('Settings Panel', () => {
       propsData,
       provide: {
         glFeatures,
+        cascadingSettingsData,
       },
       stubs,
     });
@@ -108,8 +128,7 @@ describe('Settings Panel', () => {
     findContainerRegistrySettings().findComponent(GlSprintf);
   const findContainerRegistryAccessLevelInput = () =>
     wrapper.find('[name="project[project_feature_attributes][container_registry_access_level]"]');
-  const findPackageAccessLevel = () =>
-    wrapper.find('[data-testid="package-registry-access-level"]');
+  const findPackageAccessLevel = () => wrapper.findByTestId('package-registry-access-level');
   const findPackageRegistryEnabledInput = () => wrapper.find('[name="package_registry_enabled"]');
   const findPackageRegistryAccessLevelHiddenInput = () =>
     wrapper.find(
@@ -130,6 +149,10 @@ describe('Settings Panel', () => {
     wrapper.find(
       'input[name="project[project_setting_attributes][warn_about_potentially_unwanted_characters]"]',
     );
+  const findExtendedPratExpiryWebhooksExecute = () =>
+    wrapper.find(
+      'input[name="project[project_setting_attributes][extended_prat_expiry_webhooks_execute]"]',
+    );
   const findConfirmDangerButton = () => wrapper.findComponent(ConfirmDanger);
   const findEnvironmentsSettings = () => wrapper.findComponent({ ref: 'environments-settings' });
   const findFeatureFlagsSettings = () => wrapper.findComponent({ ref: 'feature-flags-settings' });
@@ -140,6 +163,13 @@ describe('Settings Panel', () => {
   const findModelExperimentsSettings = () =>
     wrapper.findComponent({ ref: 'model-experiments-settings' });
   const findModelRegistrySettings = () => wrapper.findComponent({ ref: 'model-registry-settings' });
+  const findPipelineExecutionPolicySettings = () =>
+    wrapper.findByTestId('pipeline-execution-policy-settings');
+  const findProjectFeatureInputByAttribute = (attributeName) =>
+    wrapper.find(`[name="project[project_feature_attributes][${attributeName}]"]`);
+
+  const setProjectVisibilityLevel = (level) =>
+    findProjectVisibilityLevelInput().vm.$emit('input', level);
 
   describe('Project Visibility', () => {
     it('should set the project visibility help path', () => {
@@ -186,9 +216,9 @@ describe('Settings Panel', () => {
     );
 
     it('should set the visibility level description based upon the selected visibility level', () => {
-      wrapper = mountComponent({ stubs: { GlSprintf } });
+      wrapper = mountComponent({ stubs: { GlSprintf, GlCard } });
 
-      findProjectVisibilityLevelInput().setValue(VISIBILITY_LEVEL_INTERNAL_INTEGER);
+      setProjectVisibilityLevel(VISIBILITY_LEVEL_INTERNAL_INTEGER);
 
       expect(findProjectVisibilitySettings().text()).toContain(
         visibilityLevelDescriptions[VISIBILITY_LEVEL_INTERNAL_INTEGER],
@@ -218,7 +248,7 @@ describe('Settings Panel', () => {
 
       expect(findConfirmDangerButton().exists()).toBe(false);
 
-      await findProjectVisibilityLevelInput().setValue(VISIBILITY_LEVEL_PRIVATE_INTEGER);
+      await setProjectVisibilityLevel(VISIBILITY_LEVEL_PRIVATE_INTEGER);
 
       expect(findConfirmDangerButton().exists()).toBe(false);
     });
@@ -234,7 +264,7 @@ describe('Settings Panel', () => {
       it('will render the confirmation dialog if the visibility is reduced', async () => {
         expect(findConfirmDangerButton().exists()).toBe(false);
 
-        await findProjectVisibilityLevelInput().setValue(VISIBILITY_LEVEL_PRIVATE_INTEGER);
+        await setProjectVisibilityLevel(VISIBILITY_LEVEL_PRIVATE_INTEGER);
 
         expect(findConfirmDangerButton().exists()).toBe(true);
       });
@@ -242,7 +272,7 @@ describe('Settings Panel', () => {
       it('emits the `confirm` event when the reduce visibility warning is confirmed', async () => {
         expect(wrapper.emitted('confirm')).toBeUndefined();
 
-        await findProjectVisibilityLevelInput().setValue(VISIBILITY_LEVEL_PRIVATE_INTEGER);
+        await setProjectVisibilityLevel(VISIBILITY_LEVEL_PRIVATE_INTEGER);
         await findConfirmDangerButton().vm.$emit('confirm');
 
         expect(wrapper.emitted('confirm')).toHaveLength(1);
@@ -277,8 +307,29 @@ describe('Settings Panel', () => {
       });
 
       expect(findRepositoryFeatureProjectRow().props('helpText')).toBe(
-        'View and edit files in this project. When set to **Everyone With Access** non-project members have only read access.',
+        'View and edit files in this project. When set to %{em_start}Everyone With Access%{em_end} non-project members have only read access.',
       );
+    });
+
+    describe('when repositoryAccessLevel changed', () => {
+      beforeEach(() => {
+        wrapper = mountComponent({
+          currentSettings: {
+            repositoryAccessLevel: featureAccessLevel.EVERYONE,
+            mergeRequestAccessLevel: featureAccessLevel.EVERYONE,
+            buildsAccessLevel: featureAccessLevel.EVERYONE,
+          },
+        });
+      });
+
+      it('minimize value of repository features settings', async () => {
+        const newAccessLevel = featureAccessLevel.PROJECT_MEMBERS;
+
+        await findRepositoryFeatureSetting().vm.$emit('change', newAccessLevel);
+
+        expect(findMergeRequestsAccessLevelInput().props('value')).toBe(newAccessLevel);
+        expect(findBuildsAccessLevelInput().props('value')).toBe(newAccessLevel);
+      });
     });
   });
 
@@ -450,7 +501,7 @@ describe('Settings Panel', () => {
 
     it('should not change lfsEnabled when disabling the repository', async () => {
       // mount over shallowMount, because we are aiming to test rendered state of toggle
-      wrapper = mountComponent({ currentSettings: { lfsEnabled: true } }, mount);
+      wrapper = mountComponent({ currentSettings: { lfsEnabled: true } }, mountExtended);
 
       const repositoryFeatureToggleButton = findRepositoryFeatureSetting().find('button');
       const lfsFeatureToggleButton = findLFSFeatureToggle().find('button');
@@ -477,7 +528,10 @@ describe('Settings Panel', () => {
       'with (lfsObjectsExist = $lfsObjectsExist, lfsEnabled = $lfsEnabled)',
       ({ lfsObjectsExist, lfsEnabled, isShown }) => {
         beforeEach(() => {
-          wrapper = mountComponent({ lfsObjectsExist, currentSettings: { lfsEnabled } }, mount);
+          wrapper = mountComponent(
+            { lfsObjectsExist, currentSettings: { lfsEnabled } },
+            mountExtended,
+          );
         });
 
         if (isShown) {
@@ -609,7 +663,7 @@ describe('Settings Panel', () => {
           },
         });
 
-        await findProjectVisibilityLevelInput().setValue(newProjectVisibilityLevel);
+        await findProjectVisibilityLevelInput().vm.$emit('input', newProjectVisibilityLevel);
 
         expect(wrapper.vm.packageRegistryAccessLevel).toBe(expectedAccessLevel);
       },
@@ -619,12 +673,12 @@ describe('Settings Panel', () => {
   describe('Pages', () => {
     it.each`
       visibilityLevel                      | pagesAccessControlForced | output
-      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${true}                  | ${[[VISIBILITY_LEVEL_INTERNAL_INTEGER, 'Only Project Members'], [VISIBILITY_LEVEL_PUBLIC_INTEGER, 'Everyone With Access']]}
-      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${false}                 | ${[[VISIBILITY_LEVEL_INTERNAL_INTEGER, 'Only Project Members'], [VISIBILITY_LEVEL_PUBLIC_INTEGER, 'Everyone With Access'], [30, 'Everyone']]}
-      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${true}                  | ${[[VISIBILITY_LEVEL_INTERNAL_INTEGER, 'Only Project Members'], [VISIBILITY_LEVEL_PUBLIC_INTEGER, 'Everyone With Access']]}
-      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${false}                 | ${[[VISIBILITY_LEVEL_INTERNAL_INTEGER, 'Only Project Members'], [VISIBILITY_LEVEL_PUBLIC_INTEGER, 'Everyone With Access'], [30, 'Everyone']]}
-      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${true}                  | ${[[VISIBILITY_LEVEL_INTERNAL_INTEGER, 'Only Project Members'], [VISIBILITY_LEVEL_PUBLIC_INTEGER, 'Everyone With Access']]}
-      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${false}                 | ${[[VISIBILITY_LEVEL_INTERNAL_INTEGER, 'Only Project Members'], [VISIBILITY_LEVEL_PUBLIC_INTEGER, 'Everyone With Access'], [30, 'Everyone']]}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${true}                  | ${[featureAccessLevelMembers, featureAccessLevelEveryone]}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${false}                 | ${[featureAccessLevelMembers, featureAccessLevelEveryone, { value: FEATURE_ACCESS_LEVEL_ANONYMOUS, label: 'Everyone' }]}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${true}                  | ${[featureAccessLevelMembers, featureAccessLevelEveryone]}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${false}                 | ${[featureAccessLevelMembers, featureAccessLevelEveryone, { value: FEATURE_ACCESS_LEVEL_ANONYMOUS, label: 'Everyone' }]}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${true}                  | ${[featureAccessLevelMembers, featureAccessLevelEveryone]}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${false}                 | ${[featureAccessLevelMembers, featureAccessLevelEveryone, { value: FEATURE_ACCESS_LEVEL_ANONYMOUS, label: 'Everyone' }]}
     `(
       'renders correct options when pagesAccessControlForced is $pagesAccessControlForced and visibilityLevel is $visibilityLevel',
       async ({ visibilityLevel, pagesAccessControlForced, output }) => {
@@ -713,7 +767,7 @@ describe('Settings Panel', () => {
           canDisableEmails: true,
           canSetDiffPreviewInEmail: true,
         },
-        mount,
+        mountExtended,
       );
 
       // It seems like we need the "interactivity" to ensure that the disabled
@@ -734,7 +788,7 @@ describe('Settings Panel', () => {
           canSetDiffPreviewInEmail: true,
           emailsEnabled: true,
         },
-        mount,
+        mountExtended,
       );
       const originalHiddenInputValue = findShowDiffPreviewSetting()
         .find('input[type="hidden"]')
@@ -762,6 +816,24 @@ describe('Settings Panel', () => {
       wrapper = mountComponent();
 
       expect(findWarnAboutPuc().exists()).toBe(true);
+    });
+  });
+
+  describe('Setting to allow webhook execution for extended intervals', () => {
+    it('should have a "Extended Project Access Tokens Expiry Webhook execution" input when feature is enabled', () => {
+      wrapper = mountComponent({
+        glFeatures: { extendedExpiryWebhookExecutionSetting: true },
+      });
+
+      expect(findExtendedPratExpiryWebhooksExecute().exists()).toBe(true);
+    });
+
+    it('should not have a "Extended Project Access Tokens Expiry Webhook execution" input when feature is disabled', () => {
+      wrapper = mountComponent({
+        glFeatures: { extendedExpiryWebhookExecutionSetting: false },
+      });
+
+      expect(findExtendedPratExpiryWebhooksExecute().exists()).toBe(false);
     });
   });
 
@@ -802,10 +874,8 @@ describe('Settings Panel', () => {
     });
   });
   describe('Monitor', () => {
-    const expectedAccessLevel = [
-      [10, 'Only Project Members'],
-      [20, 'Everyone With Access'],
-    ];
+    const expectedAccessLevel = [featureAccessLevelMembers, featureAccessLevelEveryone];
+
     it('shows Monitor toggle instead of Operations toggle', () => {
       wrapper = mountComponent({});
 
@@ -828,5 +898,121 @@ describe('Settings Panel', () => {
 
       expect(findModelRegistrySettings().exists()).toBe(true);
     });
+  });
+
+  describe('Pipeline execution policies', () => {
+    it('does not show the pipeline execution policy settings by default', () => {
+      wrapper = mountComponent();
+
+      expect(findPipelineExecutionPolicySettings().exists()).toBe(false);
+    });
+
+    it('shows pipeline execution policies toggle when policies are available', () => {
+      wrapper = mountComponent({
+        policySettingsAvailable: true,
+      });
+
+      expect(findPipelineExecutionPolicySettings().exists()).toBe(true);
+    });
+
+    it('disables the checkbox when the setting is locked', () => {
+      wrapper = mountComponent(
+        {
+          policySettingsAvailable: true,
+          sppRepositoryPipelineAccessLocked: true,
+        },
+        mountExtended,
+      );
+
+      expect(
+        findPipelineExecutionPolicySettings()
+          .findComponent(GlFormCheckbox)
+          .find('input')
+          .attributes('disabled'),
+      ).toBe('disabled');
+    });
+
+    it('updates the hidden value when toggled', async () => {
+      wrapper = mountComponent(
+        {
+          policySettingsAvailable: true,
+          currentSettings: { sppRepositoryPipelineAccess: true },
+        },
+        mountExtended,
+      );
+      const originalHiddenInputValue = findPipelineExecutionPolicySettings()
+        .find('input[type="hidden"]')
+        .attributes('value');
+
+      await findPipelineExecutionPolicySettings()
+        .findComponent(GlFormCheckbox)
+        .find('input')
+        .setChecked(false);
+
+      expect(
+        findPipelineExecutionPolicySettings().find('input[type="hidden"]').attributes('value'),
+      ).not.toEqual(originalHiddenInputValue);
+    });
+  });
+
+  describe.each`
+    attributeName                             | initialValue
+    ${'issues_access_level'}                  | ${defaultProps.currentSettings.issuesAccessLevel}
+    ${'repository_access_level'}              | ${defaultProps.currentSettings.repositoryAccessLevel}
+    ${'merge_requests_access_level'}          | ${defaultProps.currentSettings.mergeRequestsAccessLevel}
+    ${'forking_access_level'}                 | ${defaultProps.currentSettings.forkingAccessLevel}
+    ${'builds_access_level'}                  | ${defaultProps.currentSettings.buildsAccessLevel}
+    ${'container_registry_access_level'}      | ${defaultProps.currentSettings.containerRegistryAccessLevel}
+    ${'analytics_access_level'}               | ${defaultProps.currentSettings.analyticsAccessLevel}
+    ${'requirements_access_level'}            | ${defaultProps.currentSettings.requirementsAccessLevel}
+    ${'security_and_compliance_access_level'} | ${defaultProps.currentSettings.securityAndComplianceAccessLevel}
+    ${'wiki_access_level'}                    | ${defaultProps.currentSettings.wikiAccessLevel}
+    ${'snippets_access_level'}                | ${defaultProps.currentSettings.snippetsAccessLevel}
+    ${'model_experiments_access_level'}       | ${defaultProps.currentSettings.modelExperimentsAccessLevel}
+    ${'model_registry_access_level'}          | ${defaultProps.currentSettings.modelRegistryAccessLevel}
+    ${'monitor_access_level'}                 | ${defaultProps.currentSettings.monitorAccessLevel}
+    ${'environments_access_level'}            | ${defaultProps.currentSettings.environmentsAccessLevel}
+    ${'feature_flags_access_level'}           | ${defaultProps.currentSettings.featureFlagsAccessLevel}
+    ${'infrastructure_access_level'}          | ${defaultProps.currentSettings.infrastructureAccessLevel}
+    ${'releases_access_level'}                | ${defaultProps.currentSettings.releasesAccessLevel}
+  `('$attributeName setting', ({ attributeName, initialValue }) => {
+    const findProjectFeatureInput = () => findProjectFeatureInputByAttribute(attributeName);
+
+    it('renders component with correct props', () => {
+      wrapper = mountComponent({ registryAvailable: true, requirementsAvailable: true });
+
+      expect(findProjectFeatureInput().props()).toMatchObject({
+        value: initialValue,
+        disabledSelectInput: false,
+        options: [featureAccessLevelMembers, featureAccessLevelEveryone],
+      });
+    });
+
+    describe.each`
+      initialVisibility                    | newVisibility
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${VISIBILITY_LEVEL_INTERNAL_INTEGER}
+      ${VISIBILITY_LEVEL_PUBLIC_INTEGER}   | ${VISIBILITY_LEVEL_PRIVATE_INTEGER}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${VISIBILITY_LEVEL_INTERNAL_INTEGER}
+      ${VISIBILITY_LEVEL_PRIVATE_INTEGER}  | ${VISIBILITY_LEVEL_PUBLIC_INTEGER}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${VISIBILITY_LEVEL_PRIVATE_INTEGER}
+      ${VISIBILITY_LEVEL_INTERNAL_INTEGER} | ${VISIBILITY_LEVEL_PUBLIC_INTEGER}
+    `(
+      'when project visibility changed from $initialVisibility to $newVisibility',
+      ({ initialVisibility, newVisibility }) => {
+        beforeEach(() => {
+          wrapper = mountComponent({
+            visibilityLevel: initialVisibility,
+            registryAvailable: true,
+            requirementsAvailable: true,
+          });
+
+          setProjectVisibilityLevel(newVisibility);
+        });
+
+        it('does not change the feature access level', () => {
+          expect(findProjectFeatureInput().props('value')).toBe(initialValue);
+        });
+      },
+    );
   });
 });

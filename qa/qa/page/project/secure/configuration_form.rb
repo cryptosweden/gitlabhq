@@ -59,11 +59,11 @@ module QA
           end
 
           def has_true_secret_detection_status?
-            has_element?('feature-status', feature: 'pre_receive_secret_detection_true_status')
+            has_element?('feature-status', feature: 'secret_push_protection_true_status')
           end
 
           def has_false_secret_detection_status?
-            has_element?('feature-status', feature: 'pre_receive_secret_detection_false_status')
+            has_element?('feature-status', feature: 'secret_push_protection_false_status')
           end
 
           def has_auto_devops_container?
@@ -88,7 +88,15 @@ module QA
             card = find_security_testing_card('Secret push protection')
             within(card) do
               # The GitLabUI toggle uses a Close Icon button
-              click_element('close-icon')
+              click_element('close-xs-icon')
+            end
+          end
+
+          def enable_reg_scan
+            card = find_security_testing_card('Container Scanning For Registry')
+            within(card) do
+              # The GitLabUI toggle uses a Close Icon button
+              click_element('close-xs-icon')
             end
           end
 

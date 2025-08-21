@@ -1,11 +1,12 @@
 <script>
-import { GlAlert, GlButton, GlIcon, GlFormCheckbox, GlTooltipDirective } from '@gitlab/ui';
+import { GlAlert, GlButton, GlFormCheckbox, GlTooltipDirective } from '@gitlab/ui';
 import $ from 'jquery';
-// eslint-disable-next-line no-restricted-imports
-import { mapActions, mapGetters, mapState } from 'vuex';
+import { mapActions, mapState } from 'pinia';
+import { parseBoolean } from '~/lib/utils/common_utils';
 import { createAlert } from '~/alert';
+import { updateDraft, clearDraft, getDraft } from '~/lib/utils/autosave';
 import { STATUS_CLOSED, STATUS_MERGED, STATUS_OPEN, STATUS_REOPENED } from '~/issues/constants';
-import { containsSensitiveToken, confirmSensitiveAction } from '~/lib/utils/secret_detection';
+import { detectAndConfirmSensitiveTokens } from '~/lib/utils/secret_detection';
 import {
   capitalizeFirstCharacter,
   convertToCamelCase,
@@ -13,24 +14,24 @@ import {
 } from '~/lib/utils/text_utility';
 import { sprintf } from '~/locale';
 import { InternalEvents } from '~/tracking';
-import { badgeState } from '~/merge_requests/components/merge_request_header.vue';
 import MarkdownEditor from '~/vue_shared/components/markdown/markdown_editor.vue';
 import TimelineEntryItem from '~/vue_shared/components/notes/timeline_entry_item.vue';
+import HelpIcon from '~/vue_shared/components/help_icon/help_icon.vue';
 import { trackSavedUsingEditor } from '~/vue_shared/components/markdown/tracking';
+import glAbilitiesMixin from '~/vue_shared/mixins/gl_abilities_mixin';
 import { fetchUserCounts } from '~/super_sidebar/user_counts_fetch';
-
+import { badgeState } from '~/merge_requests/badge_state';
+import { useNotes } from '~/notes/store/legacy_notes';
 import * as constants from '../constants';
 import eventHub from '../event_hub';
 import { COMMENT_FORM } from '../i18n';
-import { createNoteErrorMessages } from '../utils';
-
+import { createNoteErrorMessages, isSlashCommand } from '../utils';
 import issuableStateMixin from '../mixins/issuable_state';
 import CommentFieldLayout from './comment_field_layout.vue';
 import CommentTypeDropdown from './comment_type_dropdown.vue';
 import DiscussionLockedWidget from './discussion_locked_widget.vue';
 import NoteSignedOutWidget from './note_signed_out_widget.vue';
 
-const ATTACHMENT_REGEXP = /!?\[.*?\]\(\/uploads\/[0-9a-f]{32}\/.*?\)/;
 export default {
   name: 'CommentForm',
   i18n: COMMENT_FORM,
@@ -41,15 +42,19 @@ export default {
     GlAlert,
     GlButton,
     TimelineEntryItem,
-    GlIcon,
+    HelpIcon,
     CommentFieldLayout,
     CommentTypeDropdown,
     GlFormCheckbox,
+    CommentTemperature: () =>
+      import(
+        /* webpackChunkName: 'comment_temperature' */ 'ee_component/ai/components/comment_temperature.vue'
+      ),
   },
   directives: {
     GlTooltip: GlTooltipDirective,
   },
-  mixins: [issuableStateMixin, InternalEvents.mixin()],
+  mixins: [issuableStateMixin, InternalEvents.mixin(), glAbilitiesMixin()],
   props: {
     noteableType: {
       type: String,
@@ -63,6 +68,7 @@ export default {
       errors: [],
       noteIsInternal: false,
       isSubmitting: false,
+      isMeasuringCommentTemperature: false,
       formFieldProps: {
         'aria-label': this.$options.i18n.comment,
         placeholder: this.$options.i18n.bodyPlaceholder,
@@ -74,16 +80,15 @@ export default {
     };
   },
   computed: {
-    ...mapGetters([
+    ...mapState(useNotes, [
+      'isToggleStateButtonLoading',
       'getCurrentUserLastNote',
-      'getUserData',
       'getNoteableData',
-      'getNoteableDataByProp',
       'getNotesData',
+      'getUserData',
       'openState',
       'hasDrafts',
     ]),
-    ...mapState(['isToggleStateButtonLoading']),
     autocompleteDataSources() {
       return gl.GfmAutoComplete?.dataSources;
     },
@@ -92,6 +97,7 @@ export default {
         [constants.ISSUE_NOTEABLE_TYPE]: this.$options.i18n.issue,
         [constants.EPIC_NOTEABLE_TYPE]: this.$options.i18n.epic,
         [constants.MERGE_REQUEST_NOTEABLE_TYPE]: this.$options.i18n.mergeRequest,
+        [constants.INCIDENT_NOTEABLE_TYPE]: this.$options.i18n.incident,
       };
 
       const noteableTypeKey =
@@ -148,9 +154,6 @@ export default {
     markdownPreviewPath() {
       return this.getNoteableData.preview_note_path;
     },
-    author() {
-      return this.getUserData;
-    },
     canToggleIssueState() {
       return (
         this.getNoteableData.current_user.can_update &&
@@ -170,17 +173,16 @@ export default {
     isIssue() {
       return constants.NOTEABLE_TYPE_MAPPING[this.noteableType] === constants.ISSUE_NOTEABLE_TYPE;
     },
-    isEpic() {
-      return constants.NOTEABLE_TYPE_MAPPING[this.noteableType] === constants.EPIC_NOTEABLE_TYPE;
+    isMergeRequest() {
+      return (
+        constants.NOTEABLE_TYPE_MAPPING[this.noteableType] === constants.MERGE_REQUEST_NOTEABLE_TYPE
+      );
     },
     trackingLabel() {
       return slugifyWithUnderscore(`${this.commentButtonTitle} button`);
     },
     disableSubmitButton() {
       return this.note.length === 0 || this.isSubmitting;
-    },
-    containsLink() {
-      return ATTACHMENT_REGEXP.test(this.note);
     },
     autosaveKey() {
       if (this.isLoggedIn) {
@@ -190,10 +192,18 @@ export default {
 
       return null;
     },
-    commentNowButtonTitle() {
-      return this.noteType === constants.COMMENT
-        ? this.$options.i18n.addCommentNow
-        : this.$options.i18n.addThreadNow;
+    autosaveKeyInternalNote() {
+      if (this.isLoggedIn) {
+        return `${this.autosaveKey}/internalNote`;
+      }
+
+      return null;
+    },
+    shouldDisableField() {
+      return this.isSubmitting && !this.isMeasuringCommentTemperature;
+    },
+    shouldMeasureNoteTemperature() {
+      return !isSlashCommand(this.note) && this.glAbilities.measureCommentTemperature;
     },
   },
   watch: {
@@ -208,9 +218,13 @@ export default {
     $(document).on('issuable:change', (e, isClosed) => {
       this.toggleIssueLocalState(isClosed ? STATUS_CLOSED : STATUS_REOPENED);
     });
+
+    if (this.autosaveKeyInternalNote) {
+      this.noteIsInternal = parseBoolean(getDraft(this.autosaveKeyInternalNote));
+    }
   },
   methods: {
-    ...mapActions([
+    ...mapActions(useNotes, [
       'saveNote',
       'removePlaceholderNotes',
       'closeIssuable',
@@ -223,12 +237,17 @@ export default {
     handleSaveDraft() {
       this.handleSave({ isDraft: true });
     },
-    async handleSave({ withIssueAction = false, isDraft = false } = {}) {
+    async handleSave({
+      withIssueAction = false,
+      isDraft = false,
+      shouldMeasureTemperature = true,
+    } = {}) {
       this.errors = [];
 
       if (this.note.length) {
         const noteData = {
           endpoint: isDraft ? this.draftEndpoint : this.endpoint,
+          flashContainer: this.$el,
           data: {
             note: {
               noteable_type: this.noteableType,
@@ -241,21 +260,29 @@ export default {
           isDraft,
         };
 
-        if (this.noteType === constants.DISCUSSION) {
+        if (this.noteType === constants.DISCUSSION || isDraft) {
           noteData.data.note.type = constants.DISCUSSION_NOTE;
         }
 
-        if (containsSensitiveToken(this.note)) {
-          const confirmed = await confirmSensitiveAction();
-          if (!confirmed) {
-            return;
-          }
+        const confirmSubmit = await detectAndConfirmSensitiveTokens({ content: this.note });
+        if (!confirmSubmit) {
+          return;
         }
-
-        this.note = ''; // Empty textarea while being requested. Repopulate in catch
 
         this.isSubmitting = true;
 
+        if (this.shouldMeasureNoteTemperature && shouldMeasureTemperature) {
+          this.saveNoteParams = { isDraft, withIssueAction };
+          this.isMeasuringCommentTemperature = true;
+          this.$refs.commentTemperature.measureCommentTemperature();
+          return;
+        }
+
+        if (!this.shouldMeasureTemperature) {
+          this.isMeasuringCommentTemperature = false;
+        }
+
+        this.note = ''; // Empty textarea while being requested. Repopulate in catch
         if (isDraft) {
           eventHub.$emit('noteFormAddToReview', { name: 'noteFormAddToReview' });
         }
@@ -272,6 +299,8 @@ export default {
             if (withIssueAction) {
               this.toggleIssueState();
             }
+
+            clearDraft(this.autosaveKeyInternalNote);
           })
           .catch(({ response }) => {
             this.handleSaveError(response);
@@ -332,14 +361,18 @@ export default {
         }
       }
     },
-    hasEmailParticipants() {
-      return this.getNoteableData.issue_email_participants?.length;
-    },
     dismissError(index) {
       this.errors.splice(index, 1);
     },
     onInput(value) {
       this.note = value;
+    },
+    // eslint-disable-next-line vue/no-unused-properties -- append() is part of the component's public API.
+    append(value) {
+      this.$refs.markdownEditor.append(value);
+    },
+    setInternalNoteCheckbox() {
+      updateDraft(this.autosaveKeyInternalNote, this.noteIsInternal);
     },
   },
 };
@@ -351,6 +384,7 @@ export default {
     <discussion-locked-widget v-else-if="!canCreateNote" :issuable-type="noteableDisplayName" />
     <ul v-else-if="canCreateNote" class="notes notes-form timeline">
       <timeline-entry-item class="note-form">
+        <div class="flash-container gl-mb-2"></div>
         <gl-alert
           v-for="(error, index) in errors"
           :key="index"
@@ -361,24 +395,28 @@ export default {
           {{ error }}
         </gl-alert>
         <div class="timeline-content timeline-content-form">
-          <form ref="commentForm" class="new-note common-note-form gfm-form js-main-target-form">
+          <form
+            ref="commentForm"
+            class="new-note common-note-form gfm-form js-main-target-form"
+            data-testid="comment-form"
+            @submit.stop.prevent
+          >
             <comment-field-layout
               :with-alert-container="true"
-              :noteable-data="getNoteableData"
               :is-internal-note="noteIsInternal"
-              :noteable-type="noteableType"
-              :contains-link="containsLink"
+              :note="note"
+              :noteable-data="getNoteableData"
             >
               <markdown-editor
                 ref="markdownEditor"
                 :value="note"
                 :render-markdown-path="markdownPreviewPath"
                 :markdown-docs-path="markdownDocsPath"
-                :add-spacing-classes="false"
                 :form-field-props="formFieldProps"
                 :autosave-key="autosaveKey"
-                :disabled="isSubmitting"
+                :disabled="shouldDisableField"
                 :autocomplete-data-sources="autocompleteDataSources"
+                :noteable-type="noteableType"
                 supports-quick-actions
                 @keydown.up="editCurrentUserLastNote()"
                 @keydown.shift.meta.enter="handleSave()"
@@ -388,55 +426,70 @@ export default {
                 @input="onInput"
               />
             </comment-field-layout>
-            <div class="note-form-actions gl-font-size-0">
+            <comment-temperature
+              v-if="glAbilities.measureCommentTemperature"
+              ref="commentTemperature"
+              v-model="note"
+              :item-id="getNoteableData.id"
+              :item-type="noteableType"
+              :user-id="getUserData.id"
+              @save="handleSave({ ...saveNoteParams, shouldMeasureTemperature: false })"
+            />
+            <div class="note-form-actions gl-flex gl-flex-wrap gl-gap-3">
               <gl-form-checkbox
                 v-if="canSetInternalNote"
                 v-model="noteIsInternal"
-                class="gl-mb-2 gl-flex-basis-full"
+                class="gl-basis-full"
                 data-testid="internal-note-checkbox"
+                @input="setInternalNoteCheckbox"
               >
                 {{ $options.i18n.internal }}
-                <gl-icon
+                <help-icon
                   v-gl-tooltip:tooltipcontainer.bottom
-                  name="question-o"
-                  :size="16"
                   :title="$options.i18n.internalVisibility"
-                  class="gl-text-blue-500"
                 />
               </gl-form-checkbox>
               <template v-if="hasDrafts">
-                <comment-type-dropdown
-                  v-model="noteType"
-                  class="gl-mr-3"
-                  data-testid="add-to-review-dropdown"
+                <gl-button
                   :disabled="disableSubmitButton"
-                  :tracking-label="trackingLabel"
-                  is-review-dropdown
-                  :noteable-display-name="noteableDisplayName"
-                  :discussions-require-resolution="discussionsRequireResolution"
+                  data-testid="add-to-review-button"
+                  category="primary"
+                  variant="confirm"
                   @click="handleSaveDraft()"
-                />
+                >
+                  {{ $options.i18n.addToReview }}
+                </gl-button>
                 <gl-button
                   :disabled="disableSubmitButton"
                   data-testid="add-comment-now-button"
                   category="secondary"
-                  class="gl-mr-3"
                   @click.prevent="handleSave()"
-                  >{{ commentNowButtonTitle }}</gl-button
+                  >{{ $options.i18n.addCommentNow }}</gl-button
                 >
               </template>
               <template v-else>
                 <comment-type-dropdown
                   v-model="noteType"
-                  class="gl-mr-3"
                   data-testid="comment-button"
                   :disabled="disableSubmitButton"
                   :tracking-label="trackingLabel"
                   :is-internal-note="noteIsInternal"
                   :noteable-display-name="noteableDisplayName"
                   :discussions-require-resolution="discussionsRequireResolution"
+                  class="!gl-mb-0"
                   @click="handleSave"
                 />
+                <template v-if="isMergeRequest">
+                  <gl-button
+                    :disabled="disableSubmitButton"
+                    data-testid="start-review-button"
+                    category="secondary"
+                    variant="confirm"
+                    @click="handleSaveDraft()"
+                  >
+                    {{ $options.i18n.startReview }}
+                  </gl-button>
+                </template>
               </template>
               <gl-button
                 v-if="canToggleIssueState"

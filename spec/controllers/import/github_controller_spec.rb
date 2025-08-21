@@ -59,7 +59,7 @@ RSpec.describe Import::GithubController, feature_category: :importers do
         get :callback
 
         expect(controller).to redirect_to(new_import_url)
-        expect(flash[:alert]).to eq('Access denied to your GitHub account.')
+        expect(flash[:alert]).to eq('Wrong credentials')
       end
     end
 
@@ -77,7 +77,7 @@ RSpec.describe Import::GithubController, feature_category: :importers do
         get :callback, params: { state: "different-state" }
 
         expect(controller).to redirect_to(new_import_url)
-        expect(flash[:alert]).to eq('Access denied to your GitHub account.')
+        expect(flash[:alert]).to eq('Wrong credentials')
       end
 
       it "updates access token if state param is valid" do
@@ -180,7 +180,7 @@ RSpec.describe Import::GithubController, feature_category: :importers do
 
         expect(session[:"#{provider}_access_token"]).to be_nil
         expect(controller).to redirect_to(new_import_url)
-        expect(flash[:alert]).to eq("Access denied to your #{Gitlab::ImportSources.title(provider.to_s)} account.")
+        expect(flash[:alert]).to eq("Wrong credentials")
       end
     end
 
@@ -191,7 +191,7 @@ RSpec.describe Import::GithubController, feature_category: :importers do
         ActionController::Base.helpers.link_to(
           'Learn More',
           help_page_url(
-            'user/project/import/github', anchor: 'use-a-github-personal-access-token'
+            'user/project/import/github.md', anchor: 'use-a-github-personal-access-token'
           ),
           target: '_blank',
           rel: 'noopener noreferrer'
@@ -336,9 +336,36 @@ RSpec.describe Import::GithubController, feature_category: :importers do
       allow_next_instance_of(Gitlab::GithubImport::ProjectRelationType) do |instance|
         allow(instance).to receive(:for).with("#{provider_username}/vim").and_return('owned')
       end
+
+      allow(::Gitlab::ApplicationRateLimiter).to receive(:throttled?).and_return(false)
     end
 
-    it_behaves_like 'a GitHub-ish import controller: POST create'
+    it_behaves_like 'a GitHub-ish import controller: POST create' do
+      context 'when github importer is not enabled' do
+        before do
+          stub_application_setting(import_sources: [])
+        end
+
+        it 'returns 404' do
+          post :create, params: { target_namespace: user.namespace }, format: :json
+
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+
+      context 'when request exceeds :github_import rate limits' do
+        before do
+          allow(::Gitlab::ApplicationRateLimiter).to receive(:throttled?).with(:github_import, anything).and_return(true)
+        end
+
+        it 'throttles the endpoint' do
+          post :create, params: { target_namespace: user.namespace }, format: :json
+
+          expect(response).to have_gitlab_http_status(:too_many_requests)
+          expect(json_response['errors']).to eq('This endpoint has been requested too many times. Try again later.')
+        end
+      end
+    end
 
     it_behaves_like 'project import rate limiter'
   end
@@ -506,7 +533,7 @@ RSpec.describe Import::GithubController, feature_category: :importers do
 
         post :cancel_all
 
-        expect(json_response).to eq([
+        expect(json_response).to match_array([
           {
             'id' => project.id,
             'status' => 'success'

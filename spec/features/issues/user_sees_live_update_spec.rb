@@ -7,6 +7,7 @@ RSpec.describe 'Issues > User sees live update', :js, feature_category: :team_pl
   let_it_be(:user) { project.creator }
 
   before do
+    stub_feature_flags(work_item_view_for_issues: true)
     sign_in(user)
   end
 
@@ -14,37 +15,38 @@ RSpec.describe 'Issues > User sees live update', :js, feature_category: :team_pl
     it 'updates the title' do
       issue = create(:issue, author: user, assignees: [user], project: project, title: 'new title')
 
+      using_session :other_session do
+        visit project_issue_path(project, issue)
+
+        expect(page).to have_css('h1', text: 'new title')
+      end
+
+      sign_in(user)
       visit project_issue_path(project, issue)
 
-      expect(page).to have_text("new title")
+      click_button 'Edit title and description'
+      fill_in 'Title', with: 'updated title'
+      click_button 'Save changes'
 
-      issue.update!(title: "updated title")
-      wait_for_requests
-
-      expect(page).to have_text("updated title")
+      using_session :other_session do
+        expect(page).to have_css('h1', text: 'updated title')
+      end
     end
   end
 
   describe 'confidential issue#show' do
-    it 'shows confidential sidebar information as confidential and can be turned off' do
+    it 'shows the confidentiality status that can be turned off' do
       issue = create(:issue, :confidential, project: project)
 
       visit project_issue_path(project, issue)
+      wait_for_requests
 
-      expect(page).to have_text('This is a confidential issue. People without permission will never get a notification.')
+      expect(page).to have_css('.gl-badge', text: 'Confidential')
 
-      within '.block.confidentiality' do
-        click_button 'Edit'
-      end
-
-      expect(page).to have_text('You are going to turn off the confidentiality. This means everyone will be able to see and leave a comment on this issue.')
-
-      click_button 'Turn off'
-
-      visit project_issue_path(project, issue)
+      click_button 'More actions', match: :first
+      click_button 'Turn off confidentiality'
 
       expect(page).not_to have_css('.gl-badge', text: 'Confidential')
-      expect(page).not_to have_text('This is a confidential issue. People without permission will never get a notification.')
     end
   end
 end

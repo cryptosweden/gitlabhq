@@ -3,6 +3,7 @@
 module API
   class Discussions < ::API::Base
     include PaginationParams
+
     helpers ::API::Helpers::NotesHelpers
     helpers ::RendersNotes
 
@@ -91,14 +92,14 @@ module API
                   optional :start, type: Hash do
                     optional :line_code, type: String, desc: 'Start line code for multi-line note'
                     optional :type, type: String, desc: 'Start line type for multi-line note'
-                    optional :old_line, type: String, desc: 'Start old_line line number'
-                    optional :new_line, type: String, desc: 'Start new_line line number'
+                    optional :old_line, type: Integer, desc: 'Start old_line line number'
+                    optional :new_line, type: Integer, desc: 'Start new_line line number'
                   end
                   optional :end, type: Hash do
                     optional :line_code, type: String, desc: 'End line code for multi-line note'
                     optional :type, type: String, desc: 'End line type for multi-line note'
-                    optional :old_line, type: String, desc: 'End old_line line number'
-                    optional :new_line, type: String, desc: 'End new_line line number'
+                    optional :old_line, type: Integer, desc: 'End old_line line number'
+                    optional :new_line, type: Integer, desc: 'End new_line line number'
                   end
                 end
               end
@@ -122,13 +123,10 @@ module API
 
           note = create_note(noteable, opts)
 
-          if note.persisted?
+          process_note_creation_result(note) do
             present note.discussion, with: Entities::Discussion
-          else
-            bad_request!("Note #{note.errors.messages}")
           end
         end
-
         desc "Get comments in a single #{notable_name} discussion" do
           success Entities::Discussion
         end
@@ -175,10 +173,8 @@ module API
           }
           note = create_note(noteable, opts)
 
-          if note.persisted?
+          process_note_creation_result(note) do
             present note, with: Entities::Note
-          else
-            bad_request!("Note #{note.errors.messages}")
           end
         end
 
@@ -256,7 +252,7 @@ module API
           .with_discussion_ids(discussion_ids)
           .inc_relations_for_view(noteable)
           .includes(:noteable)
-          .fresh
+          .order_created_at_id_asc
 
         # Without RendersActions#prepare_notes_for_rendering,
         # Note#system_note_visible_for? will attempt to render

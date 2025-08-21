@@ -4,7 +4,8 @@ module API
   module Helpers
     module ImportGithubHelpers
       def client
-        @client ||= Gitlab::GithubImport::Client.new(params[:personal_access_token], host: params[:github_hostname])
+        @client ||= Gitlab::GithubImport::Client.new(params[:personal_access_token], host: params[:github_hostname],
+          per_page: params[:pagination_limit])
       end
 
       def access_params
@@ -18,7 +19,7 @@ module API
       end
 
       def provider_unauthorized
-        error!("Access denied to your #{Gitlab::ImportSources.title(provider.to_s)} account.", 401)
+        error!("Wrong credentials", 401)
       end
 
       def too_many_requests

@@ -11,24 +11,38 @@ module Namespaces
       end
 
       override :self_and_descendant_ids
-      def self_and_descendant_ids
-        return super unless attempt_to_use_cached_data?
+      def self_and_descendant_ids(skope: self.class)
+        column_name = if skope == Namespace
+                        :self_and_descendant_ids
+                      elsif skope == self.class
+                        # Group_ids is a bit misleading because skope can be ProjectNamespace too.
+                        :self_and_descendant_group_ids
+                      end
+
+        return super unless column_name
 
         scope_with_cached_ids(
           super,
-          self.class,
-          Namespaces::Descendants.arel_table[:self_and_descendant_group_ids]
+          skope,
+          Namespaces::Descendants.arel_table[column_name]
         )
       end
 
       override :all_project_ids
       def all_project_ids
-        return super unless attempt_to_use_cached_data?
-
         scope_with_cached_ids(
           all_projects.select(:id),
           Project,
           Namespaces::Descendants.arel_table[:all_project_ids]
+        )
+      end
+
+      override :all_unarchived_project_ids
+      def all_unarchived_project_ids
+        scope_with_cached_ids(
+          all_projects.self_and_ancestors_non_archived.select(:id),
+          Project,
+          Namespaces::Descendants.arel_table[:all_unarchived_project_ids]
         )
       end
 
@@ -62,15 +76,20 @@ module Namespaces
           .select(:id)
       end
 
-      def attempt_to_use_cached_data?
-        Feature.enabled?(:group_hierarchy_optimization, self, type: :beta)
-      end
-
       override :sync_traversal_ids
       def sync_traversal_ids
         super
+        wrap_sync_traversal_ids
+      end
+
+      override :sync_traversal_ids_on_create
+      def sync_traversal_ids_on_create
+        super
+        wrap_sync_traversal_ids
+      end
+
+      def wrap_sync_traversal_ids
         return if is_a?(Namespaces::UserNamespace)
-        return unless Feature.enabled?(:namespace_descendants_cache_expiration, self, type: :gitlab_com_derisk)
 
         ids = [id]
         ids.concat((saved_changes[:parent_id] - [parent_id]).compact) if saved_changes[:parent_id]
@@ -79,7 +98,6 @@ module Namespaces
 
       def invalidate_descendants_cache
         return if is_a?(Namespaces::UserNamespace)
-        return unless Feature.enabled?(:namespace_descendants_cache_expiration, self, type: :gitlab_com_derisk)
 
         Namespaces::Descendants.expire_for([parent_id, id].compact)
       end

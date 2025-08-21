@@ -2,7 +2,10 @@
 import htmlStaticLineHighlighter from 'test_fixtures_static/line_highlighter.html';
 import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import LineHighlighter from '~/blob/line_highlighter';
+import { updateHash } from '~/blob/state';
 import * as utils from '~/lib/utils/common_utils';
+
+jest.mock('~/blob/state');
 
 describe('LineHighlighter', () => {
   const testContext = {};
@@ -157,7 +160,7 @@ describe('LineHighlighter', () => {
           });
 
           expect(document.querySelector('#LC13').classList).toContain(testContext.css);
-          expect(document.querySelectorAll(`.${testContext.css}`).length).toBe(1);
+          expect(document.querySelectorAll(`.${testContext.css}`)).toHaveLength(1);
         });
 
         it('sets the hash', () => {
@@ -177,7 +180,7 @@ describe('LineHighlighter', () => {
             shiftKey: true,
           });
 
-          expect(document.querySelectorAll(`.${testContext.css}`).length).toBe(6);
+          expect(document.querySelectorAll(`.${testContext.css}`)).toHaveLength(6);
           for (let line = 15; line <= 20; line += 1) {
             expect(document.querySelector(`#LC${line}`).classList).toContain(testContext.css);
           }
@@ -189,7 +192,7 @@ describe('LineHighlighter', () => {
             shiftKey: true,
           });
 
-          expect(document.querySelectorAll(`.${testContext.css}`).length).toBe(6);
+          expect(document.querySelectorAll(`.${testContext.css}`)).toHaveLength(6);
           for (let line = 5; line <= 10; line += 1) {
             expect(document.querySelector(`#LC${line}`).classList).toContain(testContext.css);
           }
@@ -211,7 +214,7 @@ describe('LineHighlighter', () => {
             shiftKey: true,
           });
 
-          expect(document.querySelectorAll(`.${testContext.css}`).length).toBe(6);
+          expect(document.querySelectorAll(`.${testContext.css}`)).toHaveLength(6);
           for (let line = 5; line <= 10; line += 1) {
             expect(document.querySelector(`#LC${line}`).classList).toContain(testContext.css);
           }
@@ -222,7 +225,7 @@ describe('LineHighlighter', () => {
             shiftKey: true,
           });
 
-          expect(document.querySelectorAll(`.${testContext.css}`).length).toBe(6);
+          expect(document.querySelectorAll(`.${testContext.css}`)).toHaveLength(6);
           for (let line = 10; line <= 15; line += 1) {
             expect(document.querySelector(`#LC${line}`).classList).toContain(testContext.css);
           }
@@ -282,6 +285,18 @@ describe('LineHighlighter', () => {
       testContext.subject(5, 15);
 
       expect(testContext.spies.__setLocationHash__).toHaveBeenCalledWith('#L5-15');
+    });
+
+    it('calls updateHash with the correct hash for a single line', () => {
+      testContext.subject(5);
+
+      expect(updateHash).toHaveBeenCalledWith('#L5');
+    });
+
+    it('calls updateHash with the correct hash for a range', () => {
+      testContext.subject(5, 15);
+
+      expect(updateHash).toHaveBeenCalledWith('#L5-15');
     });
   });
 });

@@ -4,7 +4,6 @@ module Gitlab
   module Analytics
     module CycleAnalytics
       module Aggregated
-        # rubocop: disable CodeReuse/ActiveRecord
         class BaseQueryBuilder
           include StageQueryHelpers
 
@@ -71,8 +70,7 @@ module Gitlab
             LabelFilter.new(
               stage: stage,
               params: params,
-              project: nil,
-              group: root_ancestor
+              parent: root_ancestor
             ).filter(query)
           end
 
@@ -122,7 +120,6 @@ module Gitlab
             User.by_username(username).first
           end
         end
-        # rubocop: enable CodeReuse/ActiveRecord
       end
     end
   end

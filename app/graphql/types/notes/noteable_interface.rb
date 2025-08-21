@@ -5,9 +5,11 @@ module Types
     module NoteableInterface
       include Types::BaseInterface
 
-      field :notes, resolver: Resolvers::Noteable::NotesResolver, null: false, description: "All notes on this noteable."
-      field :discussions, Types::Notes::DiscussionType.connection_type, null: false, description: "All discussions on this noteable."
-      field :commenters, Types::UserType.connection_type, null: false, description: "All commenters on this noteable."
+      field :notes, resolver: Resolvers::Noteable::NotesResolver, null: false,
+        description: "All notes on this noteable."
+      field :discussions, Types::Notes::DiscussionType.connection_type, null: false,
+        description: "All discussions on the noteable."
+      field :commenters, Types::UserType.connection_type, null: false, description: "All commenters on the noteable."
 
       def self.resolve_type(object, context)
         case object
@@ -21,8 +23,8 @@ module Types
           Types::DesignManagement::DesignType
         when ::AlertManagement::Alert
           Types::AlertManagement::AlertType
-        when AbuseReport
-          Types::AbuseReportType
+        when WikiPage::Meta
+          Types::Wikis::WikiPageType
         else
           raise "Unknown GraphQL type for #{object}"
         end

@@ -51,6 +51,24 @@ RSpec.describe Gitlab::Usage::EventSelectionRule, feature_category: :service_pin
         expect(event_selection_rule.redis_key_for_date)
           .to eq('{event_counters}_example_event-filter:[label:npm,property:deploy_token]')
       end
+
+      context 'with unique identifier' do
+        let(:event_selection_rule) do
+          described_class.new(
+            name: 'example_event',
+            time_framed: false,
+            filter: filter,
+            unique_identifier_name: :user
+          )
+        end
+
+        it 'returns the correct key with filter' do
+          expect(event_selection_rule.redis_key_for_date)
+            .to eq('{hll_counters}_example_event-filter:[label:npm,property:deploy_token]-user')
+
+          expect(event_selection_rule.redis_key_for_date).to match(Gitlab::Redis::HLL::KEY_REGEX)
+        end
+      end
     end
 
     context "when time framed" do
@@ -202,6 +220,53 @@ RSpec.describe Gitlab::Usage::EventSelectionRule, feature_category: :service_pin
       let(:unique_identifier_name) { nil }
 
       it { is_expected.to eq true }
+    end
+  end
+
+  describe '.matches?' do
+    subject do
+      described_class
+        .new(name: 'an_event', time_framed: true, filter: filter, unique_identifier_name: :user)
+        .matches?(additional_properties)
+    end
+
+    context 'with no filter' do
+      let(:filter) { {} }
+      let(:additional_properties) { {} }
+
+      context "with no additional_properties" do
+        let(:additional_properties) { {} }
+
+        it { is_expected.to eq true }
+      end
+
+      context "with additional_properties" do
+        let(:additional_properties) { { label: 'label1' } }
+
+        it { is_expected.to eq true }
+      end
+    end
+
+    context 'with filter' do
+      let(:filter) { { label: 'label1' } }
+
+      context "with matching additional_properties" do
+        let(:additional_properties) { { label: 'label1', proeprty: 'prop1' } }
+
+        it { is_expected.to eq true }
+      end
+
+      context "with not matching additional_properties" do
+        let(:additional_properties) { { proeprty: 'prop1' } }
+
+        it { is_expected.to eq false }
+      end
+
+      context "with no additional_properties" do
+        let(:additional_properties) { {} }
+
+        it { is_expected.to eq false }
+      end
     end
   end
 

@@ -131,6 +131,7 @@ module API
         end
 
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
+        route_setting :authorization, skip_job_token_policies: true
         get 'files/:sha256/*file_identifier' do
           group = find_authorized_group!
           authorize_read_package!(group)
@@ -158,6 +159,7 @@ module API
         # An API entry point but returns an HTML file instead of JSON.
         # PyPi simple API returns a list of packages as a simple HTML file.
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
+        route_setting :authorization, skip_job_token_policies: true
         get 'simple', format: :txt do
           present_simple_index(find_authorized_group!)
         end
@@ -180,6 +182,7 @@ module API
         # An API entry point but returns an HTML file instead of JSON.
         # PyPi simple API returns the package descriptor as a simple HTML file.
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
+        route_setting :authorization, skip_job_token_policies: true
         get 'simple/*package_name', format: :txt do
           present_simple_package(find_authorized_group!)
         end
@@ -208,8 +211,11 @@ module API
         end
 
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
+        route_setting :authorization, job_token_policies: :read_packages,
+          allow_public_access_for_enabled_project_features: :package_registry
         get 'files/:sha256/*file_identifier' do
           project = project!
+          authorize_job_token_policies!(project)
 
           filename = "#{params[:file_identifier]}.#{params[:format]}"
           package = Packages::Pypi::PackageFinder.new(current_user, project, { filename: filename, sha256: params[:sha256] }).execute
@@ -234,8 +240,12 @@ module API
         # An API entry point but returns an HTML file instead of JSON.
         # PyPi simple API returns a list of packages as a simple HTML file.
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
+        route_setting :authorization, job_token_policies: :read_packages,
+          allow_public_access_for_enabled_project_features: :package_registry
         get 'simple', format: :txt do
-          present_simple_index(project!)
+          project = project!
+          authorize_job_token_policies!(project)
+          present_simple_index(project)
         end
 
         desc 'The PyPi Simple Project Package Endpoint' do
@@ -256,8 +266,12 @@ module API
         # An API entry point but returns an HTML file instead of JSON.
         # PyPi simple API returns the package descriptor as a simple HTML file.
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
+        route_setting :authorization, job_token_policies: :read_packages,
+          allow_public_access_for_enabled_project_features: :package_registry
         get 'simple/*package_name', format: :txt do
-          present_simple_package(project!)
+          project = project!
+          authorize_job_token_policies!(project)
+          present_simple_package(project)
         end
 
         desc 'The PyPi Package upload endpoint' do
@@ -290,9 +304,11 @@ module API
         end
 
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
+        route_setting :authorization, job_token_policies: :admin_packages
         post do
           project = project!(action: :read_project)
           authorize_upload!(project)
+          authorize_job_token_policies!(project)
 
           if project.actual_limits.exceeded?(:pypi_max_file_size, params[:content].size)
             bad_request!('File is too large')
@@ -305,6 +321,10 @@ module API
           service_response = ::Packages::Pypi::CreatePackageService
             .new(project, current_user, declared_params.merge(build: current_authenticated_job))
             .execute
+
+          if service_response.error? && service_response.reason == Packages::Pypi::CreatePackageService::ERROR_RESPONSE_PACKAGE_PROTECTED.reason
+            forbidden!(service_response.message)
+          end
 
           bad_request!(service_response.message) if service_response.error?
 
@@ -327,8 +347,10 @@ module API
         end
 
         route_setting :authentication, deploy_token_allowed: true, basic_auth_personal_access_token: true, job_token_allowed: :basic_auth
+        route_setting :authorization, job_token_policies: :admin_packages
         post 'authorize' do
           project = project!(action: :read_project)
+          authorize_job_token_policies!(project)
           authorize_workhorse!(
             subject: project,
             has_length: false,

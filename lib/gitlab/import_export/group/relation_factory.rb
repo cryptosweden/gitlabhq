@@ -23,15 +23,31 @@ module Gitlab
           group_labels
         ].freeze
 
+        RELATIONS_WITH_REWRITABLE_USERNAMES = %i[
+          milestone
+          milestones
+          epic
+          epics
+          release
+          releases
+          note
+          notes
+        ].freeze
+
         private
 
         def setup_models
           case @relation_name
           when :notes then setup_note
           when :'Iterations::Cadence' then setup_iterations_cadence
+          when :events then setup_event
           end
 
           update_group_references
+
+          return unless RELATIONS_WITH_REWRITABLE_USERNAMES.include?(@relation_name) && @rewrite_mentions
+
+          update_username_mentions(@relation_hash)
         end
 
         def invalid_relation?
@@ -51,6 +67,10 @@ module Gitlab
 
         def setup_iterations_cadence
           @relation_hash['automatic'] = false
+        end
+
+        def setup_event
+          @relation_hash = {} if @relation_hash['author_id'].nil?
         end
       end
     end

@@ -13,6 +13,9 @@ RSpec.describe 'Jira referenced paths', type: :request, feature_category: :integ
   let!(:group_project) { create(:project, name: 'group_project', namespace: group) }
   let!(:sub_group_project) { create(:project, name: 'sub_group_project', namespace: sub_group) }
 
+  let(:jira_path) { '/group/group@sub_group@sub_group_project' }
+  let(:redirect_path) { '/group/sub_group/sub_group_project' }
+
   before do
     group.add_owner(user)
 
@@ -35,9 +38,6 @@ RSpec.describe 'Jira referenced paths', type: :request, feature_category: :integ
     end
   end
 
-  let(:jira_path) { '/group/group@sub_group@sub_group_project' }
-  let(:redirect_path) { '/group/sub_group/sub_group_project' }
-
   it_behaves_like 'redirects to jira path'
 
   context 'contains @ before the first /' do
@@ -52,6 +52,13 @@ RSpec.describe 'Jira referenced paths', type: :request, feature_category: :integ
     let(:redirect_path) { '/group/sub_group/sub_group_project/commit/1234567' }
 
     it_behaves_like 'redirects to jira path'
+
+    context 'malicious path with @path' do
+      let(:jira_path) { '/group/@b/commit/1234567' }
+      let(:redirect_path) { '/b/commit/1234567' }
+
+      it_behaves_like 'redirects to jira path'
+    end
   end
 
   context 'including tree path' do
@@ -66,6 +73,13 @@ RSpec.describe 'Jira referenced paths', type: :request, feature_category: :integ
     let(:redirect_path) { '/malicious.server' }
 
     it_behaves_like 'redirects to jira path'
+
+    context 'malicious path with @project' do
+      let(:jira_path) { '/group/@malicious.server/tree/x' }
+      let(:redirect_path) { '/malicious.server/-/tree/x' }
+
+      it_behaves_like 'redirects to jira path'
+    end
   end
 
   context 'regular paths with legacy prefix' do

@@ -16,6 +16,9 @@ module RuboCop
       #   RSpec.describe 'foo' do
       #   end
       #
+      #   RSpec.describe 'foo', product_group: :authentication do
+      #   end
+      #
       #   RSpec.describe 'foo', feature_category: :invalid do
       #     context 'a context', feature_category: :aip do
       #     end
@@ -39,7 +42,10 @@ module RuboCop
 
         DOCUMENT_LINK = 'https://docs.gitlab.com/ee/development/feature_categorization/#rspec-examples'
 
-        # @!method feature_category?(node)
+        PRODUCT_GROUP_MSG = 'Use only `feature_category` instead of `product_group`. ' \
+          'See %{document_link}'
+
+        # @!method feature_category_value(node)
         def_node_matcher :feature_category_value, <<~PATTERN
           (block
             (send #rspec? {#ExampleGroups.all #Examples.all} ...
@@ -49,11 +55,23 @@ module RuboCop
           )
         PATTERN
 
+        # @!method product_group_value(node)
+        def_node_matcher :product_group_value, <<~PATTERN
+          (block
+            (send #rspec? {#ExampleGroups.all #Examples.all} ...
+              (hash <(pair (sym :product_group) $_) ...>)
+            )
+            ...
+          )
+        PATTERN
+
         def on_top_level_example_group(node)
+          check_product_group_usage(node)
           check_feature_category(node, optional: false)
         end
 
         def on_block(node)
+          check_product_group_usage(node)
           check_feature_category(node, optional: true)
         end
 
@@ -63,6 +81,16 @@ module RuboCop
 
         private
 
+        def check_product_group_usage(node)
+          product_group_node = product_group_value(node)
+          return unless product_group_node
+
+          add_offense(
+            product_group_node,
+            message: format(PRODUCT_GROUP_MSG, document_link: DOCUMENT_LINK)
+          )
+        end
+
         def check_feature_category(node, optional:)
           value_node = feature_category_value(node)
           return if optional && !value_node
@@ -71,7 +99,7 @@ module RuboCop
             value_node: value_node,
             document_link: DOCUMENT_LINK
           ) do |message|
-            add_offense(value_node || node, message: message)
+            add_offense(value_node || node.send_node, message: message)
           end
         end
 

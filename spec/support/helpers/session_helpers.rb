@@ -10,8 +10,14 @@ module SessionHelpers
 
     session_id = Rack::Session::SessionId.new(SecureRandom.hex)
 
+    store = ActiveSupport::Cache::RedisCacheStore.new(
+      namespace: Gitlab::Redis::Sessions::SESSION_NAMESPACE,
+      redis: Gitlab::Redis::Sessions,
+      coder: Gitlab::Sessions::CacheStoreCoder
+    )
+    store.write(session_id.private_id, session_data)
+
     Gitlab::Redis::Sessions.with do |redis|
-      redis.set("session:gitlab:#{session_id.private_id}", Marshal.dump(session_data))
       redis.sadd("session:lookup:user:gitlab:#{user_id}", [session_id.private_id]) if user_id
     end
 
@@ -39,6 +45,10 @@ module SessionHelpers
 
   def get_ttl(key)
     Gitlab::Redis::Sessions.with { |redis| redis.ttl(key) }
+  end
+
+  def expire(key, ttl)
+    Gitlab::Redis::Sessions.with { |redis| redis.expire(key, ttl) }
   end
 
   def expire_session

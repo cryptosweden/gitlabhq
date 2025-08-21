@@ -2,7 +2,6 @@
 import { GlFormGroup, GlFormCheckbox, GlFormInput } from '@gitlab/ui';
 // eslint-disable-next-line no-restricted-imports
 import { mapGetters } from 'vuex';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 
 export default {
   name: 'JiraIssuesFields',
@@ -13,7 +12,6 @@ export default {
     JiraIssueCreationVulnerabilities: () =>
       import('ee_component/integrations/edit/components/jira_issue_creation_vulnerabilities.vue'),
   },
-  mixins: [glFeatureFlagsMixin()],
   props: {
     showJiraIssuesIntegration: {
       type: Boolean,
@@ -49,6 +47,11 @@ export default {
       type: String,
       required: false,
       default: null,
+    },
+    initialCustomizeJiraIssueEnabled: {
+      type: Boolean,
+      required: false,
+      default: false,
     },
     isValidated: {
       type: Boolean,
@@ -97,7 +100,7 @@ export default {
       </gl-form-checkbox>
     </template>
 
-    <div v-if="enableJiraIssues" class="gl-pl-6 gl-mt-3">
+    <div v-if="enableJiraIssues" class="gl-mt-3 gl-pl-6">
       <gl-form-group
         v-if="!isIssueCreation"
         :label="s__('JiraService|Jira project keys')"
@@ -126,6 +129,7 @@ export default {
         :initial-is-enabled="initialEnableJiraVulnerabilities"
         :initial-project-key="initialProjectKey"
         :initial-issue-type-id="initialVulnerabilitiesIssuetype"
+        :initial-customize-jira-issue-enabled="initialCustomizeJiraIssueEnabled"
         :is-validated="isValidated"
         :show-full-feature="showJiraVulnerabilitiesIntegration"
         class="gl-mt-6"

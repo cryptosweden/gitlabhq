@@ -3,6 +3,7 @@ import { GlBadge, GlTab, GlTabs, GlLoadingIcon } from '@gitlab/ui';
 import { s__ } from '~/locale';
 import CancelJobs from '~/ci/admin/jobs_table/components/cancel_jobs.vue';
 import { limitedCounterWithDelimiter } from '~/lib/utils/text_utility';
+import { BUILD_KIND } from '../constants';
 
 export default {
   components: {
@@ -35,6 +36,11 @@ export default {
       required: false,
       default: false,
     },
+    filters: {
+      type: Object,
+      required: false,
+      default: () => {},
+    },
   },
   computed: {
     tabs() {
@@ -44,7 +50,7 @@ export default {
           count: limitedCounterWithDelimiter(this.allJobsCount),
           scope: null,
           testId: 'jobs-all-tab',
-          showBadge: true,
+          showBadge: this.filters?.kind === BUILD_KIND,
         },
         {
           text: s__('Jobs|Finished'),
@@ -62,7 +68,7 @@ export default {
 </script>
 
 <template>
-  <div class="gl-display-flex align-items-lg-center">
+  <div class="align-items-lg-center gl-flex">
     <gl-tabs content-class="gl-py-0" class="gl-w-full">
       <gl-tab
         v-for="tab in tabs"
@@ -82,7 +88,7 @@ export default {
         </template>
       </gl-tab>
     </gl-tabs>
-    <div class="gl-flex-grow-1"></div>
+    <div class="gl-grow"></div>
     <cancel-jobs v-if="showCancelAllJobsButton" :url="url" />
   </div>
 </template>

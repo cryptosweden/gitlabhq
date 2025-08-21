@@ -103,6 +103,12 @@ RSpec.describe Keeps::Helpers::Milestones, feature_category: :tooling do
     end
   end
 
+  describe '#next_milestone' do
+    subject { described_class.new.next_milestone }
+
+    it { is_expected.to eq('16.10') }
+  end
+
   describe '#before_cuttoff?' do
     let(:milestone) { '16.9' }
 
@@ -122,6 +128,19 @@ RSpec.describe Keeps::Helpers::Milestones, feature_category: :tooling do
       subject(:before_cuttoff) { described_class.new.before_cuttoff?(milestone: milestone, milestones_ago: 21) }
 
       it { is_expected.to eq(true) }
+    end
+  end
+
+  describe '#upcoming_milestone', time_travel_to: '2024-04-17' do
+    subject(:upcoming_milestones) { described_class.new.upcoming_milestones }
+
+    it 'returns milestones in the future' do
+      expected_milestones = [
+        described_class::Milestone.new(version: '16.11', date: '2024-04-18'),
+        described_class::Milestone.new(version: '17.0', date: '2024-05-16')
+      ]
+
+      expect(upcoming_milestones).to contain_exactly(*expected_milestones)
     end
   end
 end

@@ -1,23 +1,30 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Project relations export API
+description: "Export project relations with the REST API."
 ---
 
-# Project relations export API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - New application setting `bulk_import_enabled` introduced in GitLab 15.8. `bulk_import` feature flag removed.
+{{< /details >}}
+
+{{< history >}}
+
+- New application setting `bulk_import_enabled` introduced in GitLab 15.8. `bulk_import` feature flag removed.
+
+{{< /history >}}
 
 The project relations export API partially exports a project's structure as separate files for each
 top-level
 relation (for example, milestones, issues, and labels).
 
 The project relations export API is primarily used in
-[group migration](../user/group/import/index.md) can't
+[group migration](../user/group/import/_index.md) can't
 be used with the
 [project import and export API](project_import_export.md).
 
@@ -31,11 +38,13 @@ POST /projects/:id/export_relations
 
 | Attribute | Type           | Required | Description                                        |
 |-----------|----------------|----------|----------------------------------------------------|
-| `id`      | integer/string | yes      | ID of the project owned by the authenticated user. |
+| `id`      | integer/string | yes      | ID of the project.                                 |
 | `batched` | boolean        | no       | Whether to export in batches.                      |
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/export_relations"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/export_relations"
 ```
 
 ```json
@@ -54,12 +63,13 @@ GET /projects/:id/export_relations/status
 
 | Attribute  | Type           | Required | Description                                        |
 |------------|----------------|----------|----------------------------------------------------|
-| `id`       | integer/string | yes      | ID of the project owned by the authenticated user. |
+| `id`       | integer/string | yes      | ID of the project.                                 |
 | `relation` | string         | no       | Name of the project top-level relation to view.    |
 
 ```shell
-curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" \
-     "https://gitlab.example.com/api/v4/projects/1/export_relations/status"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/export_relations/status"
 ```
 
 The status can be one of the following:
@@ -108,14 +118,17 @@ GET /projects/:id/export_relations/download
 
 | Attribute      | Type           | Required | Description                                         |
 |----------------|----------------|----------|-----------------------------------------------------|
-| `id`           | integer/string | yes      | ID of the project owned by the authenticated user.  |
+| `id`           | integer/string | yes      | ID of the project.                                  |
 | `relation`     | string         | yes      | Name of the project top-level relation to download. |
 | `batched`      | boolean        | no       | Whether the export is batched.                      |
 | `batch_number` | integer        | no       | Number of export batch to download.                 |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" --remote-header-name \
-     --remote-name "https://gitlab.example.com/api/v4/projects/1/export_relations/download?relation=labels"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --remote-header-name \
+  --remote-name \
+  --url "https://gitlab.example.com/api/v4/projects/1/export_relations/download?relation=labels"
 ```
 
 ```shell

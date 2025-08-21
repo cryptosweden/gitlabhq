@@ -1,14 +1,17 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Plan
+group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Mattermost notifications
+description: "Configure Mattermost notifications to receive notifications from GitLab in Mattermost channels."
 ---
 
-# Mattermost notifications
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Use the Mattermost notifications integration to send notifications for GitLab events
 (for example, `issue created`) to Mattermost. You must configure both [Mattermost](#configure-mattermost-to-receive-gitlab-notifications)
@@ -40,7 +43,11 @@ Display name override is not enabled by default, you need to ask your administra
 
 ## Configure GitLab to send notifications to Mattermost
 
-> - [Changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/106760) in GitLab 15.9 to limit Mattermost channels to 10 per event.
+{{< history >}}
+
+- [Changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/106760) in GitLab 15.9 to limit Mattermost channels to 10 per event.
+
+{{< /history >}}
 
 After the Mattermost instance has an incoming webhook set up, you can set up GitLab
 to send the notifications:
@@ -62,6 +69,6 @@ to send the notifications:
    - **Labels to be notified**: Optional. Labels required for the issue or merge request
      to trigger a notification. Leave blank to notify for all issues and merge requests.
    - **Labels to be notified behavior**: When you use the **Labels to be notified** filter,
-     messages are sent when an issue or merge request contains _any_ of the labels specified
+     messages are sent when an issue or merge request contains any of the labels specified
      in the filter. You can also choose to trigger messages only when the issue or merge request
-     contains _all_ the labels defined in the filter.
+     contains all the labels defined in the filter.

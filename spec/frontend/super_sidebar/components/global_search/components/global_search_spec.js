@@ -1,7 +1,8 @@
 import { GlModal, GlSearchBoxByType } from '@gitlab/ui';
-import Vue from 'vue';
+import Vue, { nextTick } from 'vue';
 // eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
+import { Mousetrap } from '~/lib/mousetrap';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import { createMockDirective } from 'helpers/vue_mock_directive';
 import GlobalSearchModal from '~/super_sidebar/components/global_search/components/global_search.vue';
@@ -15,7 +16,6 @@ import ScrollScrim from '~/super_sidebar/components/scroll_scrim.vue';
 import { useMockInternalEventsTracking } from 'helpers/tracking_internal_events_helper';
 import { useMockLocationHelper } from 'helpers/mock_window_location_helper';
 import {
-  SEARCH_OR_COMMAND_MODE_PLACEHOLDER,
   COMMON_HANDLES,
   COMMAND_HANDLE,
   USER_HANDLE,
@@ -24,11 +24,13 @@ import {
   MODAL_CLOSE_ESC,
   MODAL_CLOSE_BACKGROUND,
   MODAL_CLOSE_HEADERCLOSE,
+  COMMANDS_TOGGLE_KEYBINDING,
 } from '~/super_sidebar/components/global_search/command_palette/constants';
 import {
   SEARCH_INPUT_DESCRIPTION,
   SEARCH_RESULTS_DESCRIPTION,
-  KEY_K,
+  KEY_N,
+  KEY_P,
 } from '~/super_sidebar/components/global_search/constants';
 import { visitUrl } from '~/lib/utils/url_utility';
 import {
@@ -63,12 +65,14 @@ jest.mock('~/search/store/utils.js', () => ({
   injectRegexSearch: jest.fn(() => '/search?search=test'),
 }));
 
-const triggerKeydownEvent = (target, code, metaKey = false) => {
+// eslint-disable-next-line max-params
+const triggerKeydownEvent = (target, code, metaKey = false, ctrlKey = false) => {
   const event = new KeyboardEvent('keydown', {
     bubbles: true,
     cancelable: true,
     code,
     metaKey,
+    ctrlKey,
   });
   target.dispatchEvent(event);
   return event;
@@ -78,7 +82,6 @@ describe('GlobalSearchModal', () => {
   let wrapper;
   let store;
   let handleClosingSpy;
-  let onKeyComboDownSpy;
 
   const actionSpies = {
     setSearch: jest.fn(),
@@ -134,12 +137,6 @@ describe('GlobalSearchModal', () => {
 
   beforeEach(() => {
     handleClosingSpy = jest.spyOn(GlobalSearchModal.methods, 'handleClosing');
-    onKeyComboDownSpy = jest.spyOn(GlobalSearchModal.methods, 'onKeyComboDown');
-  });
-
-  afterEach(() => {
-    handleClosingSpy.mockRestore();
-    onKeyComboDownSpy.mockRestore();
   });
 
   const findGlobalSearchModal = () => wrapper.findComponent(GlModal);
@@ -155,6 +152,8 @@ describe('GlobalSearchModal', () => {
   const findFakeSearchInput = () => wrapper.findComponent(FakeSearchInput);
   const findScrollScrim = () => wrapper.findComponent(ScrollScrim);
   const findCommandPaletteDropdown = () => wrapper.findComponent(CommandsOverviewDropdown);
+  const findCommandPaletteInput = () =>
+    findGlobalSearchInput().find('[data-testid="search-input-field"]');
 
   describe('template', () => {
     beforeEach(() => {
@@ -186,7 +185,7 @@ describe('GlobalSearchModal', () => {
       ${null}        | ${true}     | ${false}   | ${false}
       ${''}          | ${true}     | ${false}   | ${false}
       ${'t'}         | ${false}    | ${false}   | ${true}
-      ${'te'}        | ${false}    | ${false}   | ${true}
+      ${'te'}        | ${false}    | ${true}    | ${true}
       ${'tes'}       | ${false}    | ${true}    | ${true}
       ${MOCK_SEARCH} | ${false}    | ${true}    | ${true}
     `('Global Search Result Items', ({ search, showDefault, showScoped, showAutocomplete }) => {
@@ -213,8 +212,8 @@ describe('GlobalSearchModal', () => {
 
     describe.each`
       username         | search         | loading  | searchOptions                  | expectedDesc
-      ${null}          | ${'gi'}        | ${false} | ${[]}                          | ${GlobalSearchModal.i18n.MIN_SEARCH_TERM}
-      ${MOCK_USERNAME} | ${'gi'}        | ${false} | ${[]}                          | ${GlobalSearchModal.i18n.MIN_SEARCH_TERM}
+      ${null}          | ${'g'}         | ${false} | ${[]}                          | ${GlobalSearchModal.i18n.MIN_SEARCH_TERM}
+      ${MOCK_USERNAME} | ${'g'}         | ${false} | ${[]}                          | ${GlobalSearchModal.i18n.MIN_SEARCH_TERM}
       ${MOCK_USERNAME} | ${''}          | ${false} | ${MOCK_DEFAULT_SEARCH_OPTIONS} | ${`${MOCK_DEFAULT_SEARCH_OPTIONS.length} default results provided. Use the up and down arrow keys to navigate search results list.`}
       ${MOCK_USERNAME} | ${MOCK_SEARCH} | ${true}  | ${MOCK_DEFAULT_SEARCH_OPTIONS} | ${GlobalSearchModal.i18n.SEARCH_RESULTS_LOADING}
       ${MOCK_USERNAME} | ${MOCK_SEARCH} | ${false} | ${MOCK_SCOPED_SEARCH_OPTIONS}  | ${`Results updated. ${MOCK_SCOPED_SEARCH_OPTIONS.length} results available. Use the up and down arrow keys to navigate search results list, or ENTER to submit.`}
@@ -244,7 +243,7 @@ describe('GlobalSearchModal', () => {
       },
     );
 
-    describe('Command palette', () => {
+    describe('when using command palette', () => {
       const possibleHandles = [...COMMON_HANDLES];
 
       describe.each(possibleHandles)('when search handle is "%s"', (handle) => {
@@ -264,9 +263,7 @@ describe('GlobalSearchModal', () => {
         });
 
         it('should provide an alternative placeholder to the search input', () => {
-          expect(findGlobalSearchInput().attributes('placeholder')).toBe(
-            SEARCH_OR_COMMAND_MODE_PLACEHOLDER,
-          );
+          expect(findGlobalSearchInput().attributes('placeholder')).toBe('Type to search…');
         });
       });
 
@@ -280,17 +277,66 @@ describe('GlobalSearchModal', () => {
             },
             stubs: {
               GlModal,
-              GlSearchBoxByType,
+              GlSearchBoxByType: {
+                props: {
+                  value: {
+                    type: String,
+                    default: '',
+                  },
+                },
+                template: `
+                  <div>
+                    <input
+                      :value="value"
+                      ref="input"
+                      v-bind="$attrs"
+                      v-on="$listeners"
+                      data-testid="search-input-field"
+                      @input="$emit('input', $event.target.value)"
+                    />
+                  </div>
+                `,
+              },
             },
+            attachTo: document.body,
           });
 
           findGlobalSearchInput().vm.$emit('click');
         });
 
-        it('should handle command selection', async () => {
-          await findCommandPaletteDropdown().vm.$emit('selected', handle);
+        it('should handle command selection', () => {
+          wrapper.vm.handleCommandSelection(handle);
 
           expect(actionSpies.setCommand).toHaveBeenCalledWith(expect.any(Object), handle);
+        });
+
+        it('should focus search input', async () => {
+          wrapper.vm.handleCommandSelection(handle);
+          await nextTick();
+          expect(document.activeElement).toBe(findCommandPaletteInput().element);
+        });
+      });
+
+      describe('when searching for users in command palette', () => {
+        beforeEach(() => {
+          createComponent({
+            initialState: { search: '', commandChar: '@' },
+            mockGetters: {
+              ...defaultMockGetters,
+              isCommandMode: () => Boolean('@'),
+            },
+            stubs: {
+              GlModal,
+              GlSearchBoxByType,
+            },
+            attachTo: document.body,
+          });
+
+          findGlobalSearchInput().vm.$emit('click');
+        });
+
+        it('shows scoped search', () => {
+          expect(findGlobalSearchScopedItems().exists()).toBe(true);
         });
       });
     });
@@ -436,6 +482,7 @@ describe('GlobalSearchModal', () => {
           stubs: {
             GlModal,
             GlSearchBoxByType,
+            GlobalSearchDefaultItems,
           },
         });
       });
@@ -454,8 +501,9 @@ describe('GlobalSearchModal', () => {
           wrapper.vm.$refs.commandDropdown.close = closeSpy;
 
           await findGlobalSearchModal().vm.$emit('shown');
-          await triggerKeydownEvent(window, KEY_K, true);
-          await triggerKeydownEvent(window, KEY_K, true);
+
+          Mousetrap.trigger(COMMANDS_TOGGLE_KEYBINDING);
+          Mousetrap.trigger(COMMANDS_TOGGLE_KEYBINDING);
 
           expect(openSpy).toHaveBeenCalledTimes(1);
           expect(closeSpy).toHaveBeenCalledTimes(1);
@@ -469,9 +517,9 @@ describe('GlobalSearchModal', () => {
           wrapper.vm.$refs.commandDropdown.close = closeSpy;
 
           await findGlobalSearchModal().vm.$emit('shown');
-          await triggerKeydownEvent(window, KEY_K, true);
+          Mousetrap.trigger(COMMANDS_TOGGLE_KEYBINDING);
           findCommandPaletteDropdown().vm.$emit('hidden');
-          await triggerKeydownEvent(window, KEY_K, true);
+          Mousetrap.trigger(COMMANDS_TOGGLE_KEYBINDING);
 
           expect(openSpy).toHaveBeenCalledTimes(2);
           expect(closeSpy).toHaveBeenCalledTimes(0);
@@ -680,6 +728,50 @@ describe('GlobalSearchModal', () => {
         triggerKeydownEvent(document.activeElement, NUMPAD_ENTER_KEY);
         expect(submitSearchSpy).not.toHaveBeenCalled();
         expect(dispatchEventSpy).toHaveBeenCalled();
+      });
+    });
+
+    describe('when navigating using keyboard shortcuts', () => {
+      beforeEach(async () => {
+        await findGlobalSearchModal().vm.$emit('shown');
+        findSearchInput().element.focus();
+      });
+
+      it('should focus the next item when Ctrl+N is pressed', () => {
+        findSearchInput().trigger('keydown', { code: KEY_N, ctrlKey: true });
+
+        expect(document.activeElement).toBe(wrapper.findByTestId('test-result-1').element);
+      });
+
+      it('should focus the previous item when Ctrl+P is pressed', () => {
+        findSearchInput().trigger('keydown', { code: KEY_N, ctrlKey: true });
+        findSearchInput().trigger('keydown', { code: KEY_N, ctrlKey: true });
+
+        expect(document.activeElement).toBe(wrapper.findByTestId('test-result-2').element);
+
+        findSearchInput().trigger('keydown', { code: KEY_P, ctrlKey: true });
+
+        expect(document.activeElement).toBe(wrapper.findByTestId('test-result-1').element);
+      });
+
+      it('should wrap to the last item when Ctrl+P is pressed at the first item', () => {
+        findSearchInput().trigger('keydown', { code: KEY_P, ctrlKey: true });
+        expect(document.activeElement).toBe(wrapper.findByTestId('test-result-5').element);
+      });
+
+      it('should wrap to the first item when Ctrl+N is pressed at the last item', async () => {
+        // triggers getListItemsAndFocusIndex() to grab the result items
+        findSearchInput().trigger('keydown', { code: '', ctrlKey: true });
+        await nextTick();
+
+        const lastIndex = wrapper.vm.childListItems.length - 1;
+
+        wrapper.vm.focusIndex = lastIndex;
+        wrapper.vm.childListItems[lastIndex].focus();
+
+        findSearchInput().trigger('keydown', { code: KEY_N, ctrlKey: true });
+
+        expect(document.activeElement).toBe(wrapper.findByTestId('test-result-1').element);
       });
     });
   });

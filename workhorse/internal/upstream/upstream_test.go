@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	apipkg "gitlab.com/gitlab-org/gitlab/workhorse/internal/api"
@@ -58,7 +59,8 @@ func TestRouting(t *testing.T) {
 		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			io.WriteString(w, regex)
 		})
-		return u.route("", regex, handler)
+		metadata := routeMetadata{regex, "", ""}
+		return u.route("", metadata, handler)
 	}
 
 	const (
@@ -73,7 +75,7 @@ func TestRouting(t *testing.T) {
 			handle(u, quxbaz),
 			handle(u, main),
 		}
-	}, nil)
+	}, nil, nil)
 	ts := httptest.NewServer(u)
 	defer ts.Close()
 
@@ -157,7 +159,7 @@ func TestGeoProxyFeatureDisabledOnGeoSecondarySite(t *testing.T) {
 
 func TestGeoProxyFeatureEnabledOnGeoSecondarySite(t *testing.T) {
 	testCases := []testCase{
-		{"push from secondary is forwarded", "/-/push_from_secondary/foo/bar.git/info/refs", "Geo primary received request to path /-/push_from_secondary/foo/bar.git/info/refs"},
+		{"request from secondary is forwarded", "/-/from_secondary/foo/bar.git/info/refs", "Geo primary received request to path /-/from_secondary/foo/bar.git/info/refs"},
 		{"LFS files are served locally", "/group/project.git/gitlab-lfs/objects/37446575700829a11278ad3a550f244f45d5ae4fe1552778fa4f041f9eaeecf6", "Local Rails server received request to path /group/project.git/gitlab-lfs/objects/37446575700829a11278ad3a550f244f45d5ae4fe1552778fa4f041f9eaeecf6"},
 		{"jobs request is forwarded", "/api/v4/jobs/request", "Geo primary received request to path /api/v4/jobs/request"},
 		{"health check is served locally", "/-/health", "Local Rails server received request to path /-/health"},
@@ -235,7 +237,7 @@ func TestGeoProxyFeatureEnablingAndDisabling(t *testing.T) {
 	}
 
 	testCasesProxied := []testCase{
-		{"push from secondary is forwarded", "/-/push_from_secondary/foo/bar.git/info/refs", "Geo primary received request to path /-/push_from_secondary/foo/bar.git/info/refs"},
+		{"request from secondary is forwarded", "/-/from_secondary/foo/bar.git/info/refs", "Geo primary received request to path /-/from_secondary/foo/bar.git/info/refs"},
 		{"LFS files are served locally", "/group/project.git/gitlab-lfs/objects/37446575700829a11278ad3a550f244f45d5ae4fe1552778fa4f041f9eaeecf6", "Local Rails server received request to path /group/project.git/gitlab-lfs/objects/37446575700829a11278ad3a550f244f45d5ae4fe1552778fa4f041f9eaeecf6"},
 		{"jobs request is forwarded", "/api/v4/jobs/request", "Geo primary received request to path /api/v4/jobs/request"},
 		{"health check is served locally", "/-/health", "Local Rails server received request to path /-/health"},
@@ -263,8 +265,8 @@ func TestGeoProxyUpdatesExtraDataWhenChanged(t *testing.T) {
 	var expectedGeoProxyExtraData string
 
 	remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "1", r.Header.Get("Gitlab-Workhorse-Geo-Proxy"), "custom proxy header")
-		require.Equal(t, expectedGeoProxyExtraData, r.Header.Get("Gitlab-Workhorse-Geo-Proxy-Extra-Data"), "custom extra data header")
+		assert.Equal(t, "1", r.Header.Get("Gitlab-Workhorse-Geo-Proxy"), "custom proxy header")
+		assert.Equal(t, expectedGeoProxyExtraData, r.Header.Get("Gitlab-Workhorse-Geo-Proxy-Extra-Data"), "custom extra data header")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer remoteServer.Close()
@@ -321,8 +323,8 @@ func TestGeoProxySetsCustomHeader(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
 			remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				require.Equal(t, "1", r.Header.Get("Gitlab-Workhorse-Geo-Proxy"), "custom proxy header")
-				require.Equal(t, tc.extraData, r.Header.Get("Gitlab-Workhorse-Geo-Proxy-Extra-Data"), "custom proxy extra data header")
+				assert.Equal(t, "1", r.Header.Get("Gitlab-Workhorse-Geo-Proxy"), "custom proxy header")
+				assert.Equal(t, tc.extraData, r.Header.Get("Gitlab-Workhorse-Geo-Proxy-Extra-Data"), "custom proxy extra data header")
 				w.WriteHeader(http.StatusOK)
 			}))
 			defer remoteServer.Close()
@@ -495,7 +497,7 @@ func startWorkhorseServer(t *testing.T, railsServerURL string, enableGeoProxyFea
 		configureRoutes(u)
 	}
 	cfg := newUpstreamConfig(railsServerURL)
-	upstreamHandler := newUpstream(*cfg, logrus.StandardLogger(), myConfigureRoutes, nil)
+	upstreamHandler := newUpstream(*cfg, logrus.StandardLogger(), myConfigureRoutes, nil, nil)
 	ws := httptest.NewServer(upstreamHandler)
 
 	t.Cleanup(func() {

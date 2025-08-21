@@ -7,18 +7,17 @@ fragment WorkItemNote on Note {
   bodyHtml
   system
   internal
+  imported
   systemNoteIconName
   createdAt
   lastEditedAt
   url
   authorIsContributor
   maxAccessLevelOfAuthor
+  externalAuthor
   lastEditedBy {
     ...User
     webPath
-  }
-  discussion {
-    id
   }
   author {
     ...User
@@ -31,16 +30,8 @@ fragment WorkItemNote on Note {
   userPermissions {
     adminNote
     awardEmoji
-    readNote
-    createNote
-    resolveNote
-    repositionNote
   }
   systemNoteMetadata {
     id
-    descriptionVersion {
-      id
-      description
-    }
   }
 }

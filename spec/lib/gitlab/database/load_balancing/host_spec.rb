@@ -39,36 +39,42 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host, feature_category: :databas
   end
 
   describe '#disconnect!' do
-    it 'disconnects the pool' do
-      connection = double(:connection, in_use?: false)
-      pool = double(:pool, connections: [connection])
+    shared_examples 'disconnects the pool' do
+      it 'disconnects the pool' do
+        connection = double(:connection, in_use?: false)
+        pool = double(:pool, connections: [connection])
 
-      allow(host)
-        .to receive(:pool)
-        .and_return(pool)
+        allow(host)
+          .to receive(:pool)
+                .and_return(pool)
 
-      expect(host)
-        .not_to receive(:sleep)
+        expect(host)
+          .not_to receive(:sleep)
 
-      expect(host.pool)
-        .to receive(:disconnect!)
+        expect(host.pool)
+          .to receive(disconnect_method)
 
-      host.disconnect!
+        host.disconnect!
+      end
+
+      it 'disconnects the pool when waiting for connections takes too long' do
+        connection = double(:connection, in_use?: true)
+        pool = double(:pool, connections: [connection])
+
+        allow(host)
+          .to receive(:pool)
+                .and_return(pool)
+
+        expect(host.pool)
+          .to receive(disconnect_method)
+
+        host.disconnect!(timeout: 1)
+      end
     end
 
-    it 'disconnects the pool when waiting for connections takes too long' do
-      connection = double(:connection, in_use?: true)
-      pool = double(:pool, connections: [connection])
+    let(:disconnect_method) { :disconnect! }
 
-      allow(host)
-        .to receive(:pool)
-        .and_return(pool)
-
-      expect(host.pool)
-        .to receive(:disconnect!)
-
-      host.disconnect!(timeout: 1)
-    end
+    it_behaves_like 'disconnects the pool'
   end
 
   describe '#release_connection' do
@@ -123,7 +129,7 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host, feature_category: :databas
           .and_return(true)
       end
 
-      it 'refreshes the status' do
+      it 'refreshes the status', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/486721' do
         expect(host).to be_online
       end
 
@@ -315,8 +321,6 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host, feature_category: :databas
     let(:load_balancer_ignore_replication_lag_time) { false }
 
     before do
-      # Enable feature flags in the load balancer. They are enabled in production and relate to behavior in these specs
-      stub_env(Feature::BypassLoadBalancer::FLAG, 'true')
       stub_feature_flags(load_balancer_double_replication_lag_time: load_balancer_double_replication_lag_time)
       stub_feature_flags(load_balancer_ignore_replication_lag_time: load_balancer_ignore_replication_lag_time)
     end
@@ -419,6 +423,74 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host, feature_category: :databas
 
       expect(host.replication_lag_time).to be_nil
     end
+
+    context 'with the flag set' do
+      before do
+        stub_feature_flags(load_balancer_low_statement_timeout: Feature.current_pod)
+      end
+
+      it 'returns quickly if the underlying query takes a long time' do
+        allow(host.connection).to receive(:transaction_open?).and_return(false)
+        allow(host.connection).to receive(:select_all).and_call_original
+        expect(host.connection).to receive(:select_all).with(described_class::REPLICATION_LAG_QUERY) do
+          host.connection.select_all('select pg_sleep(5)')
+        end
+
+        duration = Benchmark.realtime do
+          expect(host.replication_lag_time).to be_nil
+        end
+        # This should ideally be roughly < 0.2, since we're setting a 100ms timeout in
+        # query_and_release_fast_timeout, but sometimes in CI the network is exceptionally slow and this flakes.
+        # Set it to a really large number, but still less than the 5 seconds from pg_sleep(5) to prove that the
+        # statement was cancelled.
+        expect(duration).to be < (4)
+      end
+
+      it 'does not use a low statement timeout if a transaction is already open' do
+        allow(host.connection).to receive(:select_all).and_call_original
+        expect(host.connection).to receive(:select_all).with(described_class::REPLICATION_LAG_QUERY) do
+          host.connection.select_all(<<~SQL)
+              select
+                EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::float as lag,
+                pg_sleep(1)
+          SQL
+        end
+
+        expect(Gitlab::Database::LoadBalancing::Logger)
+          .to receive(:warn).with(hash_including(event: :health_check_in_transaction))
+
+        duration = Benchmark.realtime do
+          # without a low statement timeout the query succeeds and gives the real lag time
+          # 0 lag because this isn't a replica during testing
+          expect(host.replication_lag_time).to eq(0.0)
+        end
+        # We waited at least 1 second for the pg_sleep(1)
+        expect(duration).to be > (1)
+      end
+    end
+
+    context 'with the flag not set' do
+      before do
+        stub_feature_flags(load_balancer_low_statement_timeout: false)
+      end
+
+      it 'waits for the underlying query when it takes a long time' do
+        allow(host.connection).to receive(:select_all).and_call_original
+        expect(host.connection).to receive(:select_all).with(described_class::REPLICATION_LAG_QUERY).once do
+          host.connection.select_all(<<~SQL)
+            SELECT
+              EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::float as lag,
+              pg_sleep(1) as sleep
+          SQL
+        end
+
+        duration = Benchmark.realtime do
+          expect(host.replication_lag_time).not_to be_nil
+        end
+
+        expect(duration).to be > 1
+      end
+    end
   end
 
   describe '#replication_lag_size' do
@@ -506,61 +578,51 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host, feature_category: :databas
   end
 
   describe '#caught_up?' do
-    let(:connection) { double(:connection) }
+    context 'when the connection succeeds' do
+      let(:diff_result) { raise 'specify a diff result' }
 
-    before do
-      allow(connection).to receive(:quote).and_return('foo')
+      before do
+        expect(host.connection).to receive(:select_all)
+                            .with(described_class::CAN_TRACK_LOGICAL_LSN_QUERY)
+                            .and_return([{ 'has_table_privilege' => 't' }])
+        expect(host.connection).to receive(:select_all).with(/pg_wal_lsn_diff/)
+                                              .and_return(diff_result)
+      end
+
+      context 'when a host has caught up' do
+        let(:diff_result) { [{ "diff" => -1 }] }
+
+        it 'returns true' do
+          expect(host.caught_up?('foo')).to be_truthy
+        end
+      end
+
+      context 'when the diff query returns no rows' do
+        let(:diff_result) { [] }
+
+        it 'returns false' do
+          expect(host.caught_up?('foo')).to be_falsey
+        end
+      end
+
+      context 'when the host has not caught up' do
+        let(:diff_result) { [{ "diff" => 123 }] }
+
+        it 'returns false' do
+          expect(host.caught_up?('foo')).to eq(false)
+        end
+      end
     end
 
-    it 'returns true when a host has caught up' do
-      allow(host).to receive(:connection).and_return(connection)
+    context 'when the connection fails to checkout' do
+      it 'returns false' do
+        wrapped_error = wrapped_exception(ActionView::Template::Error, StandardError)
+        allow(host)
+          .to receive(:connection)
+                .and_raise(wrapped_error)
 
-      expect(connection)
-        .to receive(:select_all)
-        .with(described_class::CAN_TRACK_LOGICAL_LSN_QUERY)
-        .and_return([{ 'has_table_privilege' => 't' }])
-
-      expect(connection)
-        .to receive(:select_all)
-        .and_return([{ 'diff' => -1 }])
-
-      expect(host.caught_up?('foo')).to eq(true)
-    end
-
-    it 'returns false when diff query returns nothing' do
-      allow(host).to receive(:connection).and_return(connection)
-
-      expect(connection)
-        .to receive(:select_all)
-        .with(described_class::CAN_TRACK_LOGICAL_LSN_QUERY)
-        .and_return([{ 'has_table_privilege' => 't' }])
-
-      expect(connection).to receive(:select_all).and_return([])
-
-      expect(host.caught_up?('foo')).to eq(false)
-    end
-
-    it 'returns false when a host has not caught up' do
-      allow(host).to receive(:connection).and_return(connection)
-
-      expect(connection)
-        .to receive(:select_all)
-        .with(described_class::CAN_TRACK_LOGICAL_LSN_QUERY)
-        .and_return([{ 'has_table_privilege' => 't' }])
-
-      expect(connection).to receive(:select_all).and_return([{ 'diff' => 123 }])
-
-      expect(host.caught_up?('foo')).to eq(false)
-    end
-
-    it 'returns false when the connection fails' do
-      wrapped_error = wrapped_exception(ActionView::Template::Error, StandardError)
-
-      allow(host)
-        .to receive(:connection)
-        .and_raise(wrapped_error)
-
-      expect(host.caught_up?('foo')).to eq(false)
+        expect(host.caught_up?('foo')).to eq(false)
+      end
     end
   end
 
@@ -585,9 +647,8 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host, feature_category: :databas
 
     it 'returns nil when the database connection fails' do
       wrapped_error = wrapped_exception(ActionView::Template::Error, StandardError)
-
-      allow(host)
-        .to receive(:connection)
+      allow(host.pool)
+        .to receive(:checkout)
               .and_raise(wrapped_error)
 
       expect(host.database_replica_location).to be_nil
@@ -603,8 +664,8 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host, feature_category: :databas
     end
 
     it 'releases the connection after running the query' do
-      expect(host)
-        .to receive(:release_connection)
+      expect(host.pool)
+        .to receive(:checkin)
         .once
 
       host.query_and_release('SELECT 10 AS number')
@@ -613,7 +674,7 @@ RSpec.describe Gitlab::Database::LoadBalancing::Host, feature_category: :databas
     it 'returns an empty Hash in the event of an error' do
       expect(host.connection)
         .to receive(:select_all)
-        .and_raise(RuntimeError, 'kittens')
+              .and_raise(RuntimeError, 'kittens')
 
       expect(host.query_and_release('SELECT 10 AS number')).to eq({})
     end

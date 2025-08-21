@@ -2,9 +2,8 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Release fields
 ---
-
-# Release fields
 
 The following fields are available when you create or edit a release.
 
@@ -51,7 +50,7 @@ A release contains the following types of assets:
 
 GitLab automatically generates `zip`, `tar.gz`, `tar.bz2`, and `tar`
 archived source code from the given Git tag. These assets are read-only,
-and [can be downloaded](../repository/index.md#download-the-code-in-a-repository).
+and [can be downloaded](../repository/_index.md#download-repository-source-code).
 
 ### Links
 
@@ -65,11 +64,15 @@ Each link as an asset has the following attributes:
 | `name`      | The name of the link.                                                                                        | Yes      |
 | `url`       | The URL to download a file.                                                                                  | Yes      |
 | `filepath`  | The redirect link to the `url`. Must start with a slash (`/`). See [this section](#permanent-links-to-release-assets) for more information. | No       |
-| `link_type` | The content kind of what users can download via `url`. See [this section](#link-types) for more information. | No       |
+| `link_type` | The content kind of what users can download with `url`. See [this section](#link-types) for more information. | No       |
 
 #### Permanent links to release assets
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/375489) in GitLab 15.9, links for private releases can be accessed using a Personal Access Token.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/375489) in GitLab 15.9, links for private releases can be accessed using a personal access token.
+
+{{< /history >}}
 
 The assets associated with a release are accessible through a permanent URL.
 GitLab always redirects this URL to the actual asset
@@ -102,7 +105,7 @@ https://gitlab.com/gitlab-org/gitlab-runner/-/releases/v16.9.0-rc2/downloads/bin
 
 The physical location of the asset can change at any time and the direct link remains unchanged.
 
-If the release is private, you need to provide a Personal Access Token with either `api` or `read_api` scopes using
+If the release is private, you need to provide a personal access token with either `api` or `read_api` scopes using
 a `private_token` query parameter or a `HTTP_PRIVATE_TOKEN` header when making the request. For example:
 
 ```shell
@@ -112,7 +115,7 @@ curl --location --output filename --header "PRIVATE-TOKEN: <your_access_token>" 
 
 #### Permanent links to latest release assets
 
-You can use the `filepath` from [permanent links to release assets](#permanent-links-to-release-assets) in combination with a [permanent link to the latest release](index.md#permanent-link-to-latest-release). The `filepath` must start with a slash (`/`).
+You can use the `filepath` from [permanent links to release assets](#permanent-links-to-release-assets) in combination with a [permanent link to the latest release](_index.md#permanent-link-to-latest-release). The `filepath` must start with a slash (`/`).
 
 The format of the URL is:
 
@@ -154,12 +157,12 @@ This field has no effect on the URL and it's only used for visual purposes in th
 
 #### Use a generic package for attaching binaries
 
-You can use [generic packages](../../packages/generic_packages/index.md)
+You can use [generic packages](../../packages/generic_packages/_index.md)
 to store any artifacts from a release or tag pipeline,
 that can also be used for attaching binary files to an individual release entry.
 You basically need to:
 
-1. [Push the artifacts to the Generic package registry](../../packages/generic_packages/index.md#publish-a-package-file).
+1. [Push the artifacts to the Generic package registry](../../packages/generic_packages/_index.md#publish-a-package).
 1. [Attach the package link to the release](#links).
 
 The following example generates release assets, publishes them
@@ -173,7 +176,7 @@ stages:
 
 variables:
   # Package version can only contain numbers (0-9), and dots (.).
-  # Must be in the format of X.Y.Z, i.e. should match /\A\d+\.\d+\.\d+\z/ regular expression.
+  # Must be in the format of X.Y.Z, and should match the /\A\d+\.\d+\.\d+\z/ regular expression.
   # See https://docs.gitlab.com/ee/user/packages/generic_packages/#publish-a-package-file
   PACKAGE_VERSION: "1.2.3"
   DARWIN_AMD64_BINARY: "myawesomerelease-darwin-amd64-${PACKAGE_VERSION}"
@@ -208,14 +211,13 @@ release:
   # Caution, as of 2021-02-02 these assets links require a login, see:
   # https://gitlab.com/gitlab-org/gitlab/-/issues/299384
   stage: release
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  image: registry.gitlab.com/gitlab-org/cli:latest
   rules:
     - if: $CI_COMMIT_TAG
   script:
     - |
-      release-cli create --name "Release $CI_COMMIT_TAG" --tag-name $CI_COMMIT_TAG \
-        --assets-link "{\"name\":\"${DARWIN_AMD64_BINARY}\",\"url\":\"${PACKAGE_REGISTRY_URL}/${DARWIN_AMD64_BINARY}\"}" \
-        --assets-link "{\"name\":\"${LINUX_AMD64_BINARY}\",\"url\":\"${PACKAGE_REGISTRY_URL}/${LINUX_AMD64_BINARY}\"}"
+      glab release create "$CI_COMMIT_TAG" --name "Release $CI_COMMIT_TAG" \
+        --assets-links="[{\"name\":\"${DARWIN_AMD64_BINARY}\",\"url\":\"${PACKAGE_REGISTRY_URL}/${DARWIN_AMD64_BINARY}\"},{\"name\":\"${LINUX_AMD64_BINARY}\",\"url\":\"${PACKAGE_REGISTRY_URL}/${LINUX_AMD64_BINARY}\"}]"
 ```
 
 PowerShell users may need to escape the double quote `"` inside a JSON
@@ -226,22 +228,28 @@ For example:
 ```yaml
 release:
   script:
-    - $env:asset = "{`"name`":`"MyFooAsset`",`"url`":`"https://gitlab.com/upack/artifacts/download/$env:UPACK_GROUP/$env:UPACK_NAME/$($env:GitVersion_SemVer)?contentOnly=zip`"}"
-    - $env:assetjson = $env:asset | ConvertTo-Json
-    - release-cli create --name $CI_COMMIT_TAG --description "Release $CI_COMMIT_TAG" --ref $CI_COMMIT_TAG --tag-name $CI_COMMIT_TAG --assets-link=$env:assetjson
+    - $env:assets = "[{`"name`":`"MyFooAsset`",`"url`":`"https://gitlab.com/upack/artifacts/download/$env:UPACK_GROUP/$env:UPACK_NAME/$($env:GitVersion_SemVer)?contentOnly=zip`"}]"
+    - $env:assetsjson = $env:assets | ConvertTo-Json
+    - glab release create $env:CI_COMMIT_TAG --name "Release $env:CI_COMMIT_TAG" --notes "Release $env:CI_COMMIT_TAG" --ref $env:CI_COMMIT_TAG --assets-links=$env:assetsjson
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 Directly attaching [job artifacts](../../../ci/jobs/job_artifacts.md)
 links to a release is not recommended, because artifacts are ephemeral and
 are used to pass data in the same pipeline. This means there's a risk that
 they could either expire or someone might manually delete them.
 
+{{< /alert >}}
+
 ### Number of new and total features
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com
+{{< details >}}
+
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com
+
+{{< /details >}}
 
 On [GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/releases), you can view the number of new and total features in the project.
 

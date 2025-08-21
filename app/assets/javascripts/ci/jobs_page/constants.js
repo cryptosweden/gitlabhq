@@ -39,6 +39,7 @@ export const DEFAULT_FIELDS = [
   {
     key: 'job',
     label: __('Job'),
+    isRowHeader: true,
     columnClass: 'gl-w-5/20',
   },
   {
@@ -67,3 +68,13 @@ export const DEFAULT_FIELDS = [
 
 export const JOBS_DEFAULT_FIELDS = DEFAULT_FIELDS.filter((field) => field.key !== 'stage');
 export const JOBS_TAB_FIELDS = DEFAULT_FIELDS.filter((field) => field.key !== 'pipeline');
+
+export const JOBS_PER_PAGE = 30;
+export const DEFAULT_PAGINATION = {
+  first: JOBS_PER_PAGE,
+  last: null,
+  before: null,
+  after: null,
+};
+
+export const BUILD_KIND = 'BUILD';

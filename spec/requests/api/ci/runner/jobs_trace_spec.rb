@@ -7,12 +7,9 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_trace_chunks, feature_catego
   include RedisHelpers
   include WorkhorseHelpers
 
-  let(:registration_token) { 'abcdefg123456' }
-
   before do
-    stub_feature_flags(ci_enable_live_trace: true)
+    stub_application_setting(ci_job_live_trace_enabled: true)
     stub_gitlab_calls
-    stub_application_setting(runners_registration_token: registration_token)
     allow_any_instance_of(::Ci::Runner).to receive(:cache_attributes)
   end
 
@@ -159,10 +156,6 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_trace_chunks, feature_catego
           end
 
           context 'when canceling is not supported' do
-            before do
-              stub_feature_flags(ci_canceling_status: false)
-            end
-
             context 'when job is canceled' do
               before do
                 job.cancel
@@ -233,10 +226,6 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_trace_chunks, feature_catego
         end
 
         context 'when canceling is not supported' do
-          before do
-            stub_feature_flags(ci_canceling_status: false)
-          end
-
           it 'receives status in header' do
             job.cancel
             patch_the_trace

@@ -4,7 +4,7 @@ require 'spec_helper'
 
 RSpec.describe Packages::Maven::FindOrCreatePackageService, feature_category: :package_registry do
   let_it_be(:project) { create(:project) }
-  let_it_be(:user) { create(:user) }
+  let_it_be(:user) { create(:user, developer_of: [project]) }
 
   let(:app_name) { 'my-app' }
   let(:path) { "sandbox/test/app/#{app_name}" }
@@ -48,7 +48,7 @@ RSpec.describe Packages::Maven::FindOrCreatePackageService, feature_category: :p
     end
 
     shared_examples 'returning an error' do |with_message: ''|
-      it { expect { subject }.not_to change { project.package_files.count } }
+      it { expect { subject }.not_to change { ::Packages::PackageFile.for_projects(project).count } }
 
       it_behaves_like 'returning an error service response', message: with_message do
         it { expect(subject.payload).to be_empty }
@@ -204,6 +204,58 @@ RSpec.describe Packages::Maven::FindOrCreatePackageService, feature_category: :p
       end
     end
 
+    context 'when package duplicates are allowed' do
+      let_it_be_with_refind(:package_settings) do
+        create(:namespace_package_setting, :group, maven_duplicates_allowed: true)
+      end
+
+      let_it_be_with_refind(:group) { package_settings.namespace }
+      let_it_be_with_refind(:project) { create(:project, group: group) }
+
+      let!(:existing_package) { create(:maven_package, name: path, version: version, project: project) }
+
+      let(:existing_file_name) { file_name }
+      let(:jar_file) { existing_package.package_files.with_file_name_like('%.jar').first }
+
+      before do
+        jar_file.update_column(:file_name, existing_file_name)
+      end
+
+      it_behaves_like 'reuse existing package'
+
+      context 'when the package name matches the exception regex' do
+        before do
+          package_settings.update!(maven_duplicate_exception_regex: existing_package.name)
+        end
+
+        it_behaves_like 'returning an error', with_message: 'Duplicate package is not allowed'
+      end
+
+      context 'when the package version matches the exception regex' do
+        before do
+          package_settings.update!(maven_duplicate_exception_regex: existing_package.version)
+        end
+
+        it_behaves_like 'returning an error', with_message: 'Duplicate package is not allowed'
+      end
+
+      context 'when the exception regex is blank' do
+        before do
+          package_settings.update!(maven_duplicate_exception_regex: '')
+        end
+
+        it_behaves_like 'reuse existing package'
+      end
+
+      context 'when both the package name and version does not match the exception regex' do
+        before do
+          package_settings.update!(maven_duplicate_exception_regex: 'asdf42')
+        end
+
+        it_behaves_like 'reuse existing package'
+      end
+    end
+
     context 'with a very large file name' do
       let(:params) { super().merge(file_name: 'a' * (described_class::MAX_FILE_NAME_LENGTH + 1)) }
 
@@ -214,9 +266,59 @@ RSpec.describe Packages::Maven::FindOrCreatePackageService, feature_category: :p
       let(:params) { super().merge(path: '/') }
 
       it_behaves_like 'returning an error',
-        with_message: "Validation failed: Maven metadatum app group can't be blank, " \
-                      "Maven metadatum app group is invalid, Maven metadatum app name can't be blank, " \
-                      "Maven metadatum app name is invalid, Name can't be blank, Name is invalid"
+        with_message: "Validation failed: Name can't be blank, " \
+                      "Maven metadatum app group can't be blank, Maven metadatum app group is invalid, " \
+                      "Maven metadatum app name can't be blank, Maven metadatum app name is invalid, " \
+                      "Name is invalid"
     end
+
+    context 'with parallel execution' do
+      it 'only creates one package' do
+        expect do
+          with_threads { described_class.new(project, user, params).execute }
+        end.to change { Packages::Maven::Package.count }.by(1)
+      end
+
+      context 'when CreatePackageService responds with a name_taken error' do
+        before do
+          retries = 0
+          allow_next_instance_of(::Packages::Maven::CreatePackageService) do |service|
+            allow(service).to receive(:execute) do
+              if (retries += 1) == 1
+                ServiceResponse.error(message: 'Name has already been taken', reason: :name_taken)
+              else
+                ServiceResponse.success(payload: { package: create(:maven_package) })
+              end
+            end
+          end
+          allow(::Packages::Maven::PackageFinder).to receive(:new).and_call_original
+        end
+
+        it 'retries and calls the finder twice' do
+          execute_service
+
+          expect(::Packages::Maven::PackageFinder).to have_received(:new).twice
+        end
+      end
+    end
+  end
+
+  def with_threads(count: 5, &block)
+    return unless block
+
+    # create a race condition - structure from https://blog.arkency.com/2015/09/testing-race-conditions/
+    wait_for_it = true
+
+    threads = Array.new(count) do
+      Thread.new do
+        # A loop to make threads busy until we `join` them
+        true while wait_for_it
+
+        yield
+      end
+    end
+
+    wait_for_it = false
+    threads.each(&:join)
   end
 end

@@ -1,13 +1,13 @@
 import getStateKey from 'ee_else_ce/vue_merge_request_widget/stores/get_state_key';
 import { STATUS_CLOSED, STATUS_MERGED, STATUS_OPEN } from '~/issues/constants';
-import { formatDate, getTimeago, timeagoLanguageCode } from '~/lib/utils/datetime_utility';
+import { formatDate, getTimeago, newDate, timeagoLanguageCode } from '~/lib/utils/datetime_utility';
 import { machine } from '~/lib/utils/finite_state_machine';
-import { badgeState } from '~/merge_requests/components/merge_request_header.vue';
+import { cleanLeadingSeparator } from '~/lib/utils/url_utility';
+import { badgeState } from '~/merge_requests/badge_state';
 import {
-  MTWPS_MERGE_STRATEGY,
   MT_MERGE_STRATEGY,
   MWCP_MERGE_STRATEGY,
-  MWPS_MERGE_STRATEGY,
+  MTWCP_MERGE_STRATEGY,
   STATE_MACHINE,
   stateToTransitionMap,
 } from '../constants';
@@ -140,6 +140,10 @@ export default class MergeRequestStore {
     this.isPipelineSkipped = this.ciStatus === 'skipped';
     this.pipelineDetailedStatus = pipelineStatus;
     this.isPipelineActive = data.pipeline ? data.pipeline.active : false;
+    this.pipelineIid = data.pipeline?.iid?.toString() || '';
+    this.pipelineProjectPath = data.pipeline?.project_path
+      ? cleanLeadingSeparator(data.pipeline?.project_path)
+      : '';
     this.isPipelineBlocked =
       data.only_allow_merge_if_pipeline_succeeds && pipelineStatus?.group === 'manual';
     this.faviconOverlayPath = data.favicon_overlay_path;
@@ -180,8 +184,6 @@ export default class MergeRequestStore {
 
   setGraphqlData(project) {
     const { mergeRequest } = project;
-    const pipeline = mergeRequest.headPipeline;
-    const pipelines = mergeRequest.pipelines?.nodes;
 
     this.updateStatusState(mergeRequest.state);
 
@@ -191,26 +193,17 @@ export default class MergeRequestStore {
     this.allowMergeOnSkippedPipeline = project.allowMergeOnSkippedPipeline;
 
     this.autoMergeEnabled = mergeRequest.autoMergeEnabled;
-    this.canBeMerged = mergeRequest.mergeStatus === 'can_be_merged';
     this.canMerge = mergeRequest.userPermissions.canMerge;
-    this.ciStatus = pipeline?.status.toLowerCase();
 
-    if (pipeline?.warnings && this.ciStatus === 'success') {
-      this.ciStatus = `${this.ciStatus}-with-warnings`;
-    }
-
-    this.detatchedPipeline = pipelines.length ? pipelines[0].mergeRequestEventType : null;
     this.commitsCount = mergeRequest.commitCount;
     this.branchMissing =
       mergeRequest.detailedMergeStatus !== 'NOT_OPEN' &&
       (!mergeRequest.sourceBranchExists || !mergeRequest.targetBranchExists);
     this.hasConflicts = mergeRequest.conflicts;
-    this.hasMergeableDiscussionsState = mergeRequest.mergeableDiscussionsState === false;
     this.mergeError = mergeRequest.mergeError;
-    this.mergeStatus = mergeRequest.mergeStatus;
+    this.mergeAfter = mergeRequest.mergeAfter;
     this.isPipelineFailed = this.ciStatus === 'failed' || this.ciStatus === 'canceled';
     this.isSHAMismatch = this.sha !== mergeRequest.diffHeadSha;
-    this.shouldBeRebased = mergeRequest.shouldBeRebased;
     this.draft = mergeRequest.draft;
     this.mergeRequestState = mergeRequest.state;
     this.detailedMergeStatus = mergeRequest.detailedMergeStatus;
@@ -291,10 +284,11 @@ export default class MergeRequestStore {
     this.sourceProjectDefaultUrl = data.source_project_default_url;
     this.userCalloutsPath = data.user_callouts_path;
     this.suggestPipelineFeatureId = data.suggest_pipeline_feature_id;
+    this.migrateJenkinsFeatureId = data.migrate_jenkins_feature_id;
     this.isDismissedSuggestPipeline = data.is_dismissed_suggest_pipeline;
+    this.isDismissedJenkinsMigration = data.is_dismissed_jenkins_migration;
     this.securityReportsDocsPath = data.security_reports_docs_path;
     this.securityConfigurationPath = data.security_configuration_path;
-    this.isIntegrationJenkinsDismissed = false;
 
     // code quality
     const blobPath = data.blob_path || {};
@@ -351,23 +345,20 @@ export default class MergeRequestStore {
       return '';
     }
 
-    return format(date, timeagoLanguageCode);
+    return format(newDate(date), timeagoLanguageCode);
   }
 
   static getPreferredAutoMergeStrategy(availableAutoMergeStrategies) {
     if (availableAutoMergeStrategies === undefined) return undefined;
 
-    if (availableAutoMergeStrategies.includes(MTWPS_MERGE_STRATEGY)) {
-      return MTWPS_MERGE_STRATEGY;
-    }
     if (availableAutoMergeStrategies.includes(MT_MERGE_STRATEGY)) {
       return MT_MERGE_STRATEGY;
     }
     if (availableAutoMergeStrategies.includes(MWCP_MERGE_STRATEGY)) {
       return MWCP_MERGE_STRATEGY;
     }
-    if (availableAutoMergeStrategies.includes(MWPS_MERGE_STRATEGY)) {
-      return MWPS_MERGE_STRATEGY;
+    if (availableAutoMergeStrategies.includes(MTWCP_MERGE_STRATEGY)) {
+      return MTWCP_MERGE_STRATEGY;
     }
 
     return undefined;
@@ -382,6 +373,10 @@ export default class MergeRequestStore {
     this.approvals = true;
 
     this.setState();
+  }
+
+  setRemoveSourceBranch(removeSourceBranch) {
+    this.shouldRemoveSourceBranch = removeSourceBranch;
   }
 
   // eslint-disable-next-line class-methods-use-this

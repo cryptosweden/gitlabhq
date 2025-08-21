@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Canonical link', feature_category: :remote_development do
+RSpec.describe 'Canonical link', feature_category: :workspaces do
   include Features::CanonicalLinkHelpers
 
   let_it_be(:user) { create(:user) }
@@ -13,6 +13,11 @@ RSpec.describe 'Canonical link', feature_category: :remote_development do
   let_it_be(:project_request) { project_url(project) }
 
   before do
+    # TODO: When removing the feature flag,
+    # we won't need the tests for the issues listing page, since we'll be using
+    # the work items listing page.
+    stub_feature_flags(work_item_planning_view: false)
+
     sign_in(user)
   end
 

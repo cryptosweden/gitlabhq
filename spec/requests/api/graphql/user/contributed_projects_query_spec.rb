@@ -9,27 +9,56 @@ RSpec.describe 'Getting contributedProjects of the user', feature_category: :gro
   let(:user_params) { { username: user.username } }
   let(:user_fields) { 'contributedProjects { nodes { id } }' }
 
-  let_it_be(:user) { create(:user) }
+  let_it_be(:user) { create(:user, :with_namespace) }
   let_it_be(:current_user) { create(:user) }
 
-  let_it_be(:public_project) { create(:project, :public) }
-  let_it_be(:private_project) { create(:project, :private) }
-  let_it_be(:internal_project) { create(:project, :internal) }
+  let_it_be(:public_project) { create(:project, :public, name: 'foo') }
+  let_it_be(:private_project) { create(:project, :private, name: 'bar') }
+  let_it_be(:internal_project) { create(:project, :internal, name: 'baz') }
+  let_it_be(:personal_project) { create(:project, namespace: user.namespace, name: 'biz') }
 
   let(:path) { %i[user contributed_projects nodes] }
 
   before_all do
     private_project.add_developer(user)
     private_project.add_developer(current_user)
+    personal_project.add_developer(current_user)
 
     travel_to(4.hours.from_now) { create(:push_event, project: private_project, author: user) }
     travel_to(3.hours.from_now) { create(:push_event, project: internal_project, author: user) }
     travel_to(2.hours.from_now) { create(:push_event, project: public_project, author: user) }
+    travel_to(2.hours.from_now) { create(:push_event, project: personal_project, author: user) }
   end
 
   it_behaves_like 'a working graphql query' do
     before do
       post_graphql(query, current_user: current_user)
+    end
+  end
+
+  context 'when all fields are requested' do
+    let(:user_fields) do
+      "contributedProjects { nodes {#{all_graphql_fields_for('Project', max_depth: 1,
+        excluded: ['productAnalyticsState'])} } }"
+    end
+
+    it 'avoids N+1 queries', :use_sql_query_cache, :clean_gitlab_redis_cache do
+      post_graphql(query, current_user: current_user)
+
+      control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+        post_graphql(query, current_user: current_user)
+      end
+
+      new_project = create(:project, :public, name: 'New project', path: 'new-project')
+      new_project.add_developer(user)
+      travel_to(4.hours.from_now) { create(:push_event, project: new_project, author: user) }
+
+      # There is an N+1 query related to custom roles - https://gitlab.com/gitlab-org/gitlab/-/issues/515675
+      # There is an N+1 query for duo_features_enabled cascading setting - https://gitlab.com/gitlab-org/gitlab/-/issues/442164
+      # There is an N+1 query related to pipelines - https://gitlab.com/gitlab-org/gitlab/-/issues/515677
+      expect do
+        post_graphql(query, current_user: current_user)
+      end.not_to exceed_all_query_limit(control).with_threshold(5)
     end
   end
 
@@ -290,6 +319,82 @@ RSpec.describe 'Getting contributedProjects of the user', feature_category: :gro
     end
   end
 
+  describe 'min_access_level' do
+    let_it_be(:project_with_owner_access) { create(:project, :private) }
+
+    let(:user_fields_with_min_access_level) do
+      "contributedProjects(minAccessLevel: #{min_access_level}) { nodes { id } }"
+    end
+
+    let(:query_with_min_access_level) { graphql_query_for(:user, user_params, user_fields_with_min_access_level) }
+
+    before_all do
+      project_with_owner_access.add_owner(user)
+      project_with_owner_access.add_owner(current_user)
+      travel_to(4.hours.from_now) { create(:push_event, project: project_with_owner_access, author: user) }
+    end
+
+    context 'when min_access_level is OWNER' do
+      let(:min_access_level) { :OWNER }
+
+      it 'returns only projects user has owner access to' do
+        post_graphql(query_with_min_access_level, current_user: current_user)
+
+        expect(graphql_data_at(*path))
+          .to contain_exactly(a_graphql_entity_for(project_with_owner_access))
+      end
+    end
+
+    context 'when min_access_level is DEVELOPER' do
+      let(:min_access_level) { :DEVELOPER }
+
+      it 'returns only projects user has developer or higher access to' do
+        post_graphql(query_with_min_access_level, current_user: current_user)
+
+        expect(graphql_data_at(*path))
+          .to contain_exactly(
+            a_graphql_entity_for(project_with_owner_access),
+            a_graphql_entity_for(private_project)
+          )
+      end
+    end
+  end
+
+  describe 'programming_language_name' do
+    let_it_be(:ruby) { create(:programming_language, name: 'Ruby') }
+    let_it_be(:repository_language) do
+      create(:repository_language, project: internal_project, programming_language: ruby, share: 1)
+    end
+
+    let(:query_with_programming_language_name) do
+      graphql_query_for(:user, user_params, 'contributedProjects(programmingLanguageName: "ruby") { nodes { id } }')
+    end
+
+    it 'returns only projects with ruby programming language' do
+      post_graphql(query_with_programming_language_name, current_user: current_user)
+
+      expect(graphql_data_at(*path))
+        .to contain_exactly(
+          a_graphql_entity_for(internal_project)
+        )
+    end
+  end
+
+  describe 'search' do
+    let(:query_with_search) do
+      graphql_query_for(:user, user_params, 'contributedProjects(search: "foo") { nodes { id } }')
+    end
+
+    it 'returns only projects that match search query' do
+      post_graphql(query_with_search, current_user: current_user)
+
+      expect(graphql_data_at(*path))
+        .to contain_exactly(
+          a_graphql_entity_for(public_project)
+        )
+    end
+  end
+
   describe 'accessible' do
     context 'when user profile is public' do
       context 'when a logged in user with membership in the private project' do
@@ -369,6 +474,37 @@ RSpec.describe 'Getting contributedProjects of the user', feature_category: :gro
     end
   end
 
+  context 'when include_personal argument is false' do
+    it 'does not include personal projects' do
+      post_graphql(query, current_user: current_user)
+
+      expect(graphql_data_at(*path))
+      .to contain_exactly(
+        a_graphql_entity_for(private_project),
+        a_graphql_entity_for(internal_project),
+        a_graphql_entity_for(public_project)
+      )
+    end
+  end
+
+  context 'when include_personal argument is true' do
+    let(:query_with_include_personal) do
+      graphql_query_for(:user, user_params, 'contributedProjects(includePersonal: true) { nodes { id } }')
+    end
+
+    it 'includes personal projects' do
+      post_graphql(query_with_include_personal, current_user: current_user)
+
+      expect(graphql_data_at(*path))
+        .to contain_exactly(
+          a_graphql_entity_for(private_project),
+          a_graphql_entity_for(internal_project),
+          a_graphql_entity_for(public_project),
+          a_graphql_entity_for(personal_project)
+        )
+    end
+  end
+
   describe 'sorting and pagination' do
     let(:data_path) { [:user, :contributed_projects] }
 
@@ -402,6 +538,47 @@ RSpec.describe 'Getting contributedProjects of the user', feature_category: :gro
           ]
         end
       end
+    end
+  end
+
+  context 'when requesting user permissions' do
+    let(:user_fields) do
+      <<~QUERY
+        contributedProjects {
+          nodes {
+            id
+            userPermissions {
+              readProject
+              removeProject
+            }
+          }
+        }
+      QUERY
+    end
+
+    it_behaves_like 'a working graphql query that returns data' do
+      before do
+        post_graphql(query, current_user: current_user)
+      end
+
+      it 'returns data', :aggregate_failures do
+        expect(graphql_errors).to be_nil
+
+        expect(graphql_data_at(:user, :contributed_projects, :nodes, 0, :user_permissions)).to eq({
+          'readProject' => true,
+          'removeProject' => false
+        })
+      end
+    end
+
+    it 'batches data', :request_store do
+      queries = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+        post_graphql(query, current_user: current_user)
+      end
+
+      access_check_queries = queries.occurrences_starting_with(/.*FROM "project_authorizations".*/)
+
+      expect(access_check_queries.values.sum).to eq(1)
     end
   end
 end

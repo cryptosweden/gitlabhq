@@ -5,9 +5,9 @@ import { visitUrlWithAlerts, joinPaths } from '~/lib/utils/url_utility';
 import { createAlert } from '~/alert';
 import OrganizationUrlField from '~/organizations/shared/components/organization_url_field.vue';
 import { FORM_FIELD_PATH, FORM_FIELD_PATH_VALIDATORS } from '~/organizations/shared/constants';
+import FormErrorsAlert from '~/organizations/shared/components/errors_alert.vue';
 import { convertToGraphQLId } from '~/graphql_shared/utils';
 import { TYPE_ORGANIZATION } from '~/graphql_shared/constants';
-import FormErrorsAlert from '~/vue_shared/components/form/errors_alert.vue';
 import organizationUpdateMutation from '../graphql/mutations/organization_update.mutation.graphql';
 
 export default {
@@ -16,9 +16,6 @@ export default {
   inject: ['organization'],
   i18n: {
     cardHeaderTitle: s__('Organization|Change organization URL'),
-    cardHeaderDescription: s__(
-      "Organization|Changing an organization's URL can have unintended side effects.",
-    ),
     submitButtonText: s__('Organization|Change organization URL'),
     errorMessage: s__(
       'Organization|An error occurred changing your organization URL. Please try again.',
@@ -44,11 +41,6 @@ export default {
       loading: false,
       errors: [],
     };
-  },
-  computed: {
-    isSubmitButtonDisabled() {
-      return this.formValues.path === this.organization.path;
-    },
   },
   methods: {
     async onSubmit() {
@@ -84,7 +76,6 @@ export default {
         ]);
       } catch (error) {
         createAlert({ message: this.$options.i18n.errorMessage, error, captureError: true });
-      } finally {
         this.loading = false;
       }
     },
@@ -95,16 +86,11 @@ export default {
 <template>
   <div>
     <form-errors-alert v-model="errors" />
-    <gl-card
-      class="gl-new-card gl-mt-0"
-      header-class="gl-new-card-header gl-flex-direction-column"
-      body-class="gl-new-card-body gl-px-5 gl-py-4"
-    >
+    <gl-card class="gl-mt-0">
       <template #header>
-        <div class="gl-new-card-title-wrapper">
-          <h4 class="gl-new-card-title">{{ $options.i18n.cardHeaderTitle }}</h4>
+        <div class="gl-flex gl-grow">
+          <h4 class="gl-m-0 gl-text-base gl-leading-24">{{ $options.i18n.cardHeaderTitle }}</h4>
         </div>
-        <p class="gl-new-card-description">{{ $options.i18n.cardHeaderDescription }}</p>
       </template>
       <gl-form :id="$options.formId">
         <gl-form-fields
@@ -123,15 +109,10 @@ export default {
             />
           </template>
         </gl-form-fields>
-        <div class="gl-display-flex gl-gap-3">
-          <gl-button
-            type="submit"
-            variant="danger"
-            class="js-no-auto-disable"
-            :loading="loading"
-            :disabled="isSubmitButtonDisabled"
-            >{{ $options.i18n.submitButtonText }}</gl-button
-          >
+        <div class="gl-flex gl-gap-3">
+          <gl-button type="submit" variant="danger" class="js-no-auto-disable" :loading="loading">{{
+            $options.i18n.submitButtonText
+          }}</gl-button>
         </div>
       </gl-form>
     </gl-card>

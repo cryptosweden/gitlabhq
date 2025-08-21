@@ -56,7 +56,7 @@ RSpec.describe Suggestions::ApplyService, feature_category: :code_review_workflo
 
     it 'updates suggestion applied and commit_id columns' do
       expect(suggestions.map(&:applied)).to all(be false)
-      expect(suggestions.map(&:commit_id)).to all(be nil)
+      expect(suggestions.map(&:commit_id)).to all(be_nil)
 
       apply(suggestions)
 
@@ -74,25 +74,6 @@ RSpec.describe Suggestions::ApplyService, feature_category: :code_review_workflo
       expect(commit.committer_email).to eq(user.commit_email)
       expect(commit.author_name).to eq(user.name)
       expect(commit.committer_name).to eq(user.name)
-    end
-
-    context 'when web_ui_commit_author_change feature flag is disabled' do
-      before do
-        stub_feature_flags(web_ui_commit_author_change: false)
-      end
-
-      it 'created commit has users email and name' do
-        apply(suggestions)
-
-        commit = project.repository.commit
-        author = suggestions.first.note.author
-
-        expect(user.commit_email).not_to eq(user.email)
-        expect(commit.author_email).to eq(author.commit_email_or_default)
-        expect(commit.committer_email).to eq(user.commit_email)
-        expect(commit.author_name).to eq(author.name)
-        expect(commit.committer_name).to eq(user.name)
-      end
     end
 
     it 'tracks apply suggestion event' do

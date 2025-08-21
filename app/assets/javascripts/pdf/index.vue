@@ -1,10 +1,11 @@
 <!-- eslint-disable vue/multi-word-component-names -->
 <script>
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf';
-
+import { joinPaths } from '~/lib/utils/url_utility';
 import Page from './page/index.vue';
 
-GlobalWorkerOptions.workerSrc = '/assets/webpack/pdfjs/pdf.worker.min.js';
+let pdfjs;
+let getDocument;
+let GlobalWorkerOptions;
 
 export default {
   components: { Page },
@@ -35,13 +36,23 @@ export default {
     if (this.hasPDF) this.load();
   },
   methods: {
-    load() {
+    async loadPDFJS() {
+      // eslint-disable-next-line import/extensions
+      pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      ({ getDocument, GlobalWorkerOptions } = pdfjs);
+      GlobalWorkerOptions.workerSrc = joinPaths(
+        gon.relative_url_root,
+        process.env.PDF_JS_WORKER_PUBLIC_PATH,
+      );
+    },
+    async load() {
+      await this.loadPDFJS();
       this.pages = [];
       return getDocument({
         url: this.document,
-        cMapUrl: '/assets/webpack/pdfjs/cmaps/',
+        cMapUrl: joinPaths(gon.relative_url_root, process.env.PDF_JS_CMAPS_PUBLIC_PATH),
         cMapPacked: true,
-        isEvalSupported: false,
+        isEvalSupported: true,
       })
         .promise.then(this.renderPages)
         .then((pages) => {

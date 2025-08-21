@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-if $LOADED_FEATURES.include?(File.expand_path('fast_spec_helper.rb', __dir__))
-  warn 'Detected fast_spec_helper is loaded first than spec_helper.'
+if defined?(FastSpecHelper)
+  warn 'Detected that fast_spec_helper was already loaded before spec_helper.'
   warn 'If running test files using both spec_helper and fast_spec_helper,'
   warn 'make sure spec_helper is loaded first, or run rspec with `-r spec_helper`.'
   abort 'Aborting...'
@@ -23,7 +23,6 @@ CrystalballEnv.start!
 
 ENV["RAILS_ENV"] = 'test'
 ENV["IN_MEMORY_APPLICATION_SETTINGS"] = 'true'
-ENV["RSPEC_ALLOW_INVALID_URLS"] = 'true'
 
 require_relative '../config/environment'
 
@@ -51,8 +50,6 @@ if rspec_profiling_is_configured && (!ENV.key?('CI') || branch_can_be_profiled)
   require 'rspec_profiling/rspec'
 end
 
-# require rainbow gem String monkeypatch, so we can test SystemChecks
-require 'rainbow/ext/string'
 Rainbow.enabled = false
 
 # Enable zero monkey patching mode before loading any other RSpec code.
@@ -81,7 +78,7 @@ quality_level = Quality::TestLevel.new
 RSpec.configure do |config|
   config.use_transactional_fixtures = true
   config.use_instantiated_fixtures = false
-  config.fixture_path = Rails.root
+  config.fixture_paths = [Rails.root]
 
   config.verbose_retry = true
   config.display_try_failure_messages = true
@@ -89,7 +86,7 @@ RSpec.configure do |config|
   config.infer_spec_type_from_file_location!
 
   # Add :full_backtrace tag to an example if full_backtrace output is desired
-  config.before(:each, full_backtrace: true) do |example|
+  config.before(:each, :full_backtrace) do |example|
     config.full_backtrace = true
   end
 
@@ -106,7 +103,8 @@ RSpec.configure do |config|
     # We fail early if we detect a PG::QueryCanceled error
     #
     # See https://gitlab.com/gitlab-org/gitlab/-/issues/402915
-    if example.exception && example.exception.message.include?('PG::QueryCanceled')
+    exception = example.exception
+    if exception && exception.message.include?('PG::QueryCanceled')
       ENV['RSPEC_BYPASS_SYSTEM_EXIT_PROTECTION'] = 'true'
 
       warn
@@ -122,6 +120,11 @@ RSpec.configure do |config|
       warn "********************************************************************************************"
       warn "********************************************************************************************"
       warn "********************************************************************************************"
+      warn
+      warn exception.message
+      warn Gitlab::ExceptionLogFormatter.find_sql(exception)
+      warn
+      warn exception.backtrace.join("\n")
       warn
 
       exit 3
@@ -142,10 +145,17 @@ RSpec.configure do |config|
     # Admin controller specs get auto admin mode enabled since they are
     # protected by the 'EnforcesAdminAuthentication' concern
     metadata[:enable_admin_mode] = true if %r{(ee)?/spec/controllers/admin/}.match?(location)
+
+    # The worker specs get Sidekiq context
+    metadata[:with_sidekiq_context] = true if %r{(ee)?/spec/workers/}.match?(location)
   end
 
   config.define_derived_metadata(file_path: %r{(ee)?/spec/.+_docs\.rb\z}) do |metadata|
     metadata[:type] = :feature
+  end
+
+  config.define_derived_metadata(file_path: %r{spec/dot_gitlab_ci/ci_configuration_validation/}) do |metadata|
+    metadata[:ci_config_validation] = true
   end
 
   config.include LicenseHelpers
@@ -171,13 +181,14 @@ RSpec.configure do |config|
   config.include WaitHelpers, type: :feature
   config.include WaitForRequests, type: :feature
   config.include Features::DomHelpers, type: :feature
+  config.include TestidHelpers, type: :feature
+  config.include TestidHelpers, type: :component
   config.include Features::HighlightContentHelper, type: :feature
   config.include EmailHelpers, :mailer, type: :mailer
   config.include Warden::Test::Helpers, type: :request
   config.include Gitlab::Routing, type: :routing
   config.include ApiHelpers, :api
   config.include CookieHelper, :js
-  config.include InputHelper, :js
   config.include SelectionHelper, :js
   config.include InspectRequests, :js
   config.include LiveDebugger, :js
@@ -185,11 +196,13 @@ RSpec.configure do |config|
   config.include RedisHelpers
   config.include Rails.application.routes.url_helpers, type: :routing
   config.include Rails.application.routes.url_helpers, type: :component
+  config.include Rails.application.routes.url_helpers, type: :presenter
   config.include PolicyHelpers, type: :policy
   config.include ExpectRequestWithStatus, type: :request
   config.include IdempotentWorkerHelper, type: :worker
   config.include RailsHelpers
   config.include SidekiqMiddleware
+  config.include SidekiqJSONMatcher
   config.include StubActionCableConnection, type: :channel
   config.include StubMemberAccessLevel
   config.include SnowplowHelpers
@@ -205,12 +218,19 @@ RSpec.configure do |config|
   config.include UserWithNamespaceShim
   config.include OrphanFinalArtifactsCleanupHelpers, :orphan_final_artifacts_cleanup
   config.include ClickHouseHelpers, :click_house
+  config.include WorkItems::DataSync::AssociationsHelpers
+  config.include StateMachinesRspec::Matchers
 
   config.include_context 'when rendered has no HTML escapes', type: :view
+  config.include_context 'with STI disabled', type: :model
+  # Validate JSONB columns only in EE to avoid false positives in FOSS.
+  config.include_context 'with JSONB validated columns', type: :model if Gitlab.ee?
 
+  include StubCurrentOrganization
   include StubFeatureFlags
   include StubSnowplow
   include StubMember
+  include VersionCheckHelpers
 
   if ENV['CI'] || ENV['RETRIES']
     # Gradually stop using rspec-retry
@@ -256,10 +276,6 @@ RSpec.configure do |config|
     ::Ci::ApplicationRecord.set_open_transactions_baseline
   end
 
-  config.around do |example|
-    example.run
-  end
-
   config.append_after do
     ApplicationRecord.reset_open_transactions_baseline
     ::Ci::ApplicationRecord.reset_open_transactions_baseline
@@ -272,9 +288,6 @@ RSpec.configure do |config|
       # (ie. ApplicationSetting#auto_devops_enabled)
       stub_feature_flags(force_autodevops_on_by_default: false)
 
-      # The survey popover can block the diffs causing specs to fail
-      stub_feature_flags(mr_experience_survey: false)
-
       # Using FortiAuthenticator as OTP provider is disabled by default in
       # tests, until we introduce it in user settings
       stub_feature_flags(forti_authenticator: false)
@@ -286,14 +299,11 @@ RSpec.configure do |config|
       # These feature flag are by default disabled and used in disaster recovery mode
       stub_feature_flags(ci_queueing_disaster_recovery_disable_fair_scheduling: false)
       stub_feature_flags(ci_queueing_disaster_recovery_disable_quota: false)
+      stub_feature_flags(ci_queuing_disaster_recovery_disable_allowed_plans: false)
 
       # It's disabled in specs because we don't support certain features which
       # cause spec failures.
       stub_feature_flags(gitlab_error_tracking: false)
-
-      # Disable this to avoid the Web IDE modals popping up in tests:
-      # https://gitlab.com/gitlab-org/gitlab/-/issues/385453
-      stub_feature_flags(vscode_web_ide: false)
 
       # Disable `main_branch_over_master` as we migrate
       # from `master` to `main` accross our codebase.
@@ -311,40 +321,48 @@ RSpec.configure do |config|
       stub_feature_flags(disable_anonymous_project_search: false)
       stub_feature_flags(disable_cancel_redundant_pipelines_service: false)
 
-      # Specs should not require email verification by default, this makes the sign-in flow simpler in
-      # most cases. We do test the email verification flow in the appropriate specs.
-      stub_feature_flags(require_email_verification: false)
-
       # Keep-around refs should only be turned off for specific projects/repositories.
       stub_feature_flags(disable_keep_around_refs: false)
-
-      # The Vue version of the merge request list app is missing a lot of information
-      # disabling this for now whilst we work on it across multiple merge requests
-      stub_feature_flags(vue_merge_request_list: false)
-
-      # Work in progress reviewer sidebar that does not have most of the features yet
-      stub_feature_flags(reviewer_assign_drawer: false)
 
       # Disable suspending ClickHouse data ingestion workers
       stub_feature_flags(suspend_click_house_data_ingestion: false)
 
-      # Disable license requirement for duo chat, which is subject to change.
-      # See https://gitlab.com/gitlab-org/gitlab/-/issues/457090
-      stub_feature_flags(duo_chat_requires_licensed_seat: false)
-
-      # Disable license requirement for duo chat (self managed), which is subject to change.
-      # See https://gitlab.com/gitlab-org/gitlab/-/issues/457283
-      stub_feature_flags(duo_chat_requires_licensed_seat_sm: false)
-
       # Experimental merge request dashboard
       stub_feature_flags(merge_request_dashboard: false)
 
-      # We want this this FF disabled by default
-      stub_feature_flags(synced_epic_work_item_editable: false)
+      # This feature flag allows enabling self-hosted features on Staging Ref: https://gitlab.com/gitlab-org/gitlab/-/issues/497784
+      stub_feature_flags(allow_self_hosted_features_for_com: false)
 
-      # Since we are very early in the Vue migration, there isn't much value in testing when the feature flag is enabled
-      # Please see https://gitlab.com/gitlab-org/gitlab/-/issues/466081 for tracking revisiting this.
-      stub_feature_flags(your_work_projects_vue: false)
+      # we need the `cleanup_data_source_work_item_data` disabled by default to prevent deletion of some data
+      stub_feature_flags(cleanup_data_source_work_item_data: false)
+
+      # Since we are very early in development of this feature, it might cause unexpected behaviors when the flag is enabled
+      # Please see https://gitlab.com/groups/gitlab-org/-/epics/17781 for tracking the progress.
+      stub_feature_flags(repository_file_tree_browser: false)
+
+      # Since we are very early in development of this feature, it might cause unexpected behaviors when the flag is enabled
+      # Please see https://gitlab.com/groups/gitlab-org/-/epics/17482 for tracking the progress.
+      stub_feature_flags(project_commits_refactor: false)
+
+      # New issue page can cause tests to fail if they link to issue or issue list page
+      # Default false while we make it compatible
+      stub_feature_flags(work_item_view_for_issues: false)
+
+      # New approval rules cause tests to fail
+      # Default false while we make them compatible
+      stub_feature_flags(v2_approval_rules: false)
+
+      # New personal homepage is still a WIP and not functional.
+      stub_feature_flags(personal_homepage: false)
+
+      # New global topbar is still a WIP and not functional.
+      stub_feature_flags(global_topbar: false)
+
+      # New paneled view is still a WIP and not functional.
+      stub_feature_flags(paneled_view: false)
+
+      # Handle dynamic partitions creation
+      stub_feature_flags(disallow_database_ddl_feature_flags: false)
     else
       unstub_all_feature_flags
     end
@@ -379,7 +397,7 @@ RSpec.configure do |config|
     # See also spec/support/helpers/admin_mode_helpers.rb
     if example.metadata[:enable_admin_mode] && !example.metadata[:do_not_mock_admin_mode]
       allow_any_instance_of(Gitlab::Auth::CurrentUserMode).to receive(:admin_mode?) do |current_user_mode|
-        current_user_mode.send(:user)&.admin?
+        current_user_mode.send(:user)&.can_access_admin_area?
       end
     end
 
@@ -397,11 +415,16 @@ RSpec.configure do |config|
     example.run if config.inclusion_filter[:quarantine] || !ENV['CI']
   end
 
+  config.around(:example, :ci_config_validation) do |example|
+    # Skip tests for ci config validation unless we explicitly focus on them or not in CI
+    example.run if config.inclusion_filter[:ci_config_validation] || !ENV['CI']
+  end
+
   config.around(:example, :request_store) do |example|
     ::Gitlab::SafeRequestStore.ensure_request_store { example.run }
   end
 
-  config.around(:example, :ci_config_feature_flag_correctness) do |example|
+  config.around do |example|
     ::Gitlab::Ci::Config::FeatureFlags.ensure_correct_usage do
       example.run
     end
@@ -437,7 +460,7 @@ RSpec.configure do |config|
 
   config.around do |example|
     with_sidekiq_server_middleware do |chain|
-      Gitlab::SidekiqMiddleware.server_configurator(
+      Gitlab::SidekiqMiddleware::Server.configurator(
         metrics: false, # The metrics don't go anywhere in tests
         arguments_logger: false, # We're not logging the regular messages for inline jobs
         skip_jobs: false # We're not skipping jobs for inline tests
@@ -464,6 +487,9 @@ RSpec.configure do |config|
 
     # Re-enable query limiting in case it was disabled
     Gitlab::QueryLimiting.enable!
+
+    # Reset ActiveSupport::CurrentAttributes models
+    ActiveSupport::CurrentAttributes.reset_all
   end
 
   config.before(:example, :mailer) do
@@ -491,7 +517,7 @@ RSpec.configure do |config|
 
   # Ensures that any Javascript script that tries to make the external VersionCheck API call skips it and returns a response
   config.before(:each, :js) do
-    allow_any_instance_of(VersionCheck).to receive(:response).and_return({ "severity" => "success" })
+    stub_version_check({ "severity" => "success" })
   end
 
   [:migration, :delete].each do |spec_type|
@@ -508,6 +534,8 @@ RSpec.configure do |config|
     STRING
 
     config.around(:each, spec_type) do |example|
+      next example.run if example.metadata[:migration_with_transaction]
+
       self.class.use_transactional_tests = false
 
       if DbCleaner.all_connection_classes.any? { |klass| klass.connection.transaction_open? }
@@ -520,6 +548,31 @@ RSpec.configure do |config|
 
       self.class.use_transactional_tests = true
     end
+  end
+
+  config.before(:context) do
+    # Clear support bot user memoization because it's created
+    # a lot of times in our test suite and ids mighht not match any more.
+    # See https://gitlab.com/gitlab-org/gitlab/-/issues/509629
+    Users::Internal.clear_memoization(:support_bot_id)
+  end
+
+  config.before do
+    # Reconfigures the Cloud Connector data loader to use YamlDataLoader as the default
+    # instead of the DatabaseDataLoader. This is because specs should not rely on
+    # database contents. But this can be overridden to use DatabaseDataLoader by explicitly specifying the
+    # data loader class in the context.
+    Gitlab::CloudConnector::Configuration.data_loader_class = Gitlab::CloudConnector::DataModel::YamlDataLoader
+  end
+
+  # Force markdown editor for all feature tests to avoid issues with rich text editor default
+  # Tests can override this by adding :allow_rich_text_editor_for_new_users tag
+  config.before(:each, type: :feature) do
+    # Skip the override if the test specifically wants rich text editor
+    next if RSpec.current_example.metadata[:allow_rich_text_editor_for_new_users]
+
+    # Set default editor preference for new users in tests to not set (value derived from local storage)
+    allow_any_instance_of(UserPreference).to receive(:text_editor_type).and_return(0) # not_set
   end
 end
 
@@ -577,18 +630,26 @@ RedisClient.register(RedisCommands::Instrumentation)
 module UsersInternalAllowExclusiveLease
   extend ActiveSupport::Concern
 
-  class_methods do
-    def unique_internal(scope, username, email_pattern, &block)
-      # this lets skip transaction checks when Users::Internal bots are created in
-      # let_it_be blocks during test set-up.
-      #
-      # Users::Internal bot creation within examples are still checked since the RSPec.current_scope is :example
-      if ::RSpec.respond_to?(:current_scope) && ::RSpec.current_scope == :before_all
-        Gitlab::ExclusiveLease.skipping_transaction_check { super }
-      else
-        super
-      end
+  def unique_internal(scope, username, email_pattern, &block)
+    # this lets skip transaction checks when Users::Internal bots are created in
+    # let_it_be blocks during test set-up.
+    #
+    # Users::Internal bot creation within examples are still checked since the RSPec.current_scope is :example
+    if ::RSpec.respond_to?(:current_scope) && ::RSpec.current_scope == :before_all
+      Gitlab::ExclusiveLease.skipping_transaction_check { super }
+    else
+      super
     end
+  end
+
+  # TODO: Until https://gitlab.com/gitlab-org/gitlab/-/issues/442780 is resolved we're creating internal users in the
+  # first organization as a temporary workaround. Many specs lack an organization in the database, causing foreign key
+  # constraint violations when creating internal users. We're not seeding organizations before all specs for
+  # performance.
+  def create_unique_internal(scope, username, email_pattern, &creation_block)
+    Organizations::Organization.first || FactoryBot.create(:organization)
+
+    super
   end
 end
 

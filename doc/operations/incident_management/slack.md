@@ -1,23 +1,32 @@
 ---
-stage: Monitor
-group: Respond
+stage: Analytics
+group: Platform Insights
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Incident management for Slack
 ---
 
-# Incident management for Slack
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com
-**Status:** Beta
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com
+- Status: Beta
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/344856) in GitLab 15.7 [with a flag](../../administration/feature_flags.md) named `incident_declare_slash_command`. Disabled by default.
-> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/378072) in GitLab 15.10 in [beta](../../policy/experiment-beta-support.md#beta).
+{{< /details >}}
 
-FLAG:
-On self-managed GitLab, this feature is not available.
-On GitLab.com, this feature is available. On GitLab Dedicated, this feature is not available.
-This feature is not ready for production use.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/344856) in GitLab 15.7 [with a flag](../../administration/feature_flags/_index.md) named `incident_declare_slash_command`. Disabled by default.
+- [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/378072) in GitLab 15.10 in [beta](../../policy/development_stages_support.md#beta).
+
+{{< /history >}}
+
+{{< alert type="flag" >}}
+
+The availability of this feature is controlled by a feature flag.
+For more information, see the history.
+This feature is available for testing, but not ready for production use.
+
+{{< /alert >}}
 
 Many teams receive alerts and collaborate in real time during incidents in Slack.
 Use the GitLab for Slack app to:
@@ -27,7 +36,7 @@ Use the GitLab for Slack app to:
 
 Incident management for Slack is only available for GitLab.com. Some of the functionality
 described might be available for
-[the self-managed Slack app](../../user/project/integrations/slack_slash_commands.md).
+[the GitLab Self-Managed Slack app](../../user/project/integrations/slack_slash_commands.md).
 
 To stay up to date, follow [epic 1211](https://gitlab.com/groups/gitlab-org/-/epics/1211).
 

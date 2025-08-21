@@ -2,23 +2,35 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Cluster management project (deprecated)
 ---
 
-# Cluster management project (deprecated)
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Disabled on self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/353410) in GitLab 15.0.
+{{< /details >}}
 
-WARNING:
+{{< history >}}
+
+- [Disabled on GitLab Self-Managed](https://gitlab.com/gitlab-org/gitlab/-/issues/353410) in GitLab 15.0.
+
+{{< /history >}}
+
+{{< alert type="warning" >}}
+
 The cluster management project was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
-To manage cluster applications, use the [GitLab agent](agent/index.md)
+To manage cluster applications, use the [GitLab agent for Kubernetes](agent/_index.md)
 with the [Cluster Management Project Template](management_project_template.md).
 
-FLAG:
-On self-managed GitLab, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../../administration/feature_flags.md) named `certificate_based_clusters`.
+{{< /alert >}}
+
+{{< alert type="flag" >}}
+
+On GitLab Self-Managed, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../../administration/feature_flags/_index.md) named `certificate_based_clusters`.
+
+{{< /alert >}}
 
 A project can be designated as the management project for a cluster.
 A management project can be used to run deployment jobs with
@@ -59,12 +71,12 @@ To use a cluster management project to manage your cluster:
 To associate a cluster management project with your cluster:
 
 1. Go to the appropriate configuration page. For a:
-   - [Project-level cluster](../project/clusters/index.md), go to your project's
+   - [Project-level cluster](../project/clusters/_index.md), go to your project's
      **Operate > Kubernetes clusters** page.
-   - [Group-level cluster](../group/clusters/index.md), go to your group's **Kubernetes**
+   - [Group-level cluster](../group/clusters/_index.md), go to your group's **Kubernetes**
      page.
-   - [Instance-level cluster](../instance/clusters/index.md):
-     1. On the left sidebar, at the bottom, select **Admin Area**.
+   - [Instance-level cluster](../instance/clusters/_index.md):
+     1. On the left sidebar, at the bottom, select **Admin**.
      1. Select **Kubernetes**.
 1. Expand **Advanced settings**.
 1. From the **Cluster management project** dropdown list, select the cluster management project
@@ -91,7 +103,7 @@ project.
 
 Each scope can only be used by a single cluster for a management project.
 
-For example, let's say the following Kubernetes clusters are associated
+For example, the following Kubernetes clusters are associated
 to a management project:
 
 | Cluster     | Environment scope |

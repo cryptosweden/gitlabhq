@@ -2,7 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::PipelineArtifacts::CoverageReportService, feature_category: :build_artifacts do
+RSpec.describe Ci::PipelineArtifacts::CoverageReportService, feature_category: :pipeline_reports do
+  let!(:merge_request) { create(:merge_request, head_pipeline: pipeline, source_project: project) }
+
   describe '#execute' do
     let_it_be(:project) { create(:project, :repository) }
 
@@ -37,11 +39,11 @@ RSpec.describe Ci::PipelineArtifacts::CoverageReportService, feature_category: :
         it 'logs relevant information' do
           allow(Gitlab::AppLogger).to receive(:info).and_call_original
           expect(Gitlab::AppLogger).to receive(:info).with({
-                                                             project_id: project.id,
-                                                             pipeline_id: pipeline.id,
-                                                             pipeline_artifact_id: kind_of(Numeric),
-                                                             message: kind_of(String)
-                                                           })
+            project_id: project.id,
+            pipeline_id: pipeline.id,
+            pipeline_artifact_id: kind_of(Numeric),
+            message: kind_of(String)
+          })
 
           subject
         end
@@ -49,7 +51,7 @@ RSpec.describe Ci::PipelineArtifacts::CoverageReportService, feature_category: :
     end
 
     context 'when pipeline has coverage report' do
-      let!(:pipeline) { create(:ci_pipeline, :with_coverage_reports, project: project) }
+      let(:pipeline) { create(:ci_pipeline, :with_coverage_reports, project: project) }
 
       it_behaves_like 'creating or updating a pipeline coverage report'
 

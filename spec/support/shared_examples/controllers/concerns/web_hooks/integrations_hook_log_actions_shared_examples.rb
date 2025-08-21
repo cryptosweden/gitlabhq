@@ -29,7 +29,9 @@ RSpec.shared_examples WebHooks::HookLogActions do
       stub_request(:post, web_hook.interpolated_url)
 
       expect_next_found_instance_of(web_hook.class) do |hook|
-        expect(hook).to receive(:execute).and_call_original
+        expect(hook).to receive(:execute).with(web_hook_log.request_data,
+          web_hook_log.trigger, idempotency_key: web_hook_log.idempotency_key
+        ).and_call_original
       end
 
       post retry_path
@@ -50,7 +52,7 @@ RSpec.shared_examples WebHooks::HookLogActions do
       post retry_path, headers: { 'REFERER' => show_path }
 
       expect(response).to redirect_to(show_path)
-      expect(flash[:warning]).to eq(_('The hook URL has changed, and this log entry cannot be retried'))
+      expect(flash[:warning]).to eq(_('The hook URL has changed. This log entry cannot be retried.'))
     end
   end
 end

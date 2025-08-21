@@ -1,20 +1,22 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Contribute code with GDK
 ---
-
-# Contribute code with GDK
 
 Now for the fun part. Let's edit some code.
 
 In this example, I found some UI text I'd like to change.
 In the upper-right corner in GitLab, I selected my avatar and then **Preferences**.
-I want to change `Customize the color of GitLab` to `Customize the color theme of the GitLab UI`:
+I want to change `Syntax highlighting theme` to `Code syntax highlighting theme`:
 
-![UI text](../img/ui_color_theme_before.png)
+{{< alert type="warning" >}}
 
-[View an interactive demo of this section](https://gitlab.navattic.com/uu5a0dc5).
+This tutorial is designed to be a general introduction to contributing to the GitLab project
+and is not an example of a change that should be submitted for review.
+
+{{< /alert >}}
 
 Use your local IDE to make changes to the code in the GDK directory.
 
@@ -24,13 +26,12 @@ Use your local IDE to make changes to the code in the GDK directory.
    git checkout -b ui-updates
    ```
 
-1. Search the `gitlab-development-kit/gitlab` directory for the string `Customize the color of GitLab`.
-
+1. Search the `gitlab-development-kit/gitlab` directory for the string `Syntax highlighting theme`.
    The results show one `.haml` file and several `.po` files.
 
 1. Open the `app/views/profiles/preferences/show.html.haml` file.
-1. Update the string from `Customize the color of GitLab` to
-   `Customize the color theme of the GitLab UI`.
+1. Update the string from `Syntax highlighting theme` to
+   `Code syntax highlighting theme`.
 1. Save the file.
 1. You can check that you were successful:
 
@@ -43,8 +44,6 @@ Use your local IDE to make changes to the code in the GDK directory.
 
 1. Refresh the web browser where you're viewing the GDK.
    The changes should be displayed. Take a screenshot.
-
-   ![UI text - Color Theme](../img/ui_color_theme_after.png)
 
 1. Commit the changes:
 

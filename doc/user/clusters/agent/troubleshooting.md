@@ -2,9 +2,8 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting the GitLab agent for Kubernetes
 ---
-
-# Troubleshooting the GitLab agent for Kubernetes
 
 When you are using the GitLab agent for Kubernetes, you might experience issues you need to troubleshoot.
 
@@ -14,7 +13,7 @@ You can start by viewing the service logs:
 kubectl logs -f -l=app.kubernetes.io/name=gitlab-agent -n gitlab-agent
 ```
 
-If you are a GitLab administrator, you can also view the [GitLab agent server logs](../../../administration/clusters/kas.md#troubleshooting).
+If you are a GitLab administrator, you can also view the [GitLab agent server for Kubernetes logs](../../../administration/clusters/kas.md#troubleshooting).
 
 ## Transport: Error while dialing failed to WebSocket dial
 
@@ -89,13 +88,14 @@ This error occurs when your GitLab instance is using a certificate signed by an 
 certificate authority that is unknown to the agent.
 
 To fix this issue, you can present the CA certificate file to the agent
-by [customizing the Helm installation](install/index.md#customize-the-helm-installation).
-Add `--set-file config.caCert=my-custom-ca.pem` to the `helm install` command. The file should be a valid PEM or DER-encoded certificate.
+by [customizing the Helm installation](install/_index.md#customize-the-helm-installation).
+Add `--set-file config.kasCaCert=my-custom-ca.pem` to the `helm install` command. The file should be a valid PEM or DER-encoded certificate.
 
-When you deploy `agentk` with a set `config.caCert` value, the certificate is added to `configmap` and the certificate file is mounted in `/etc/ssl/certs`.
+When you deploy `agentk` with a set `config.kasCaCert` value, the certificate is added to `configmap` and the certificate file is mounted in `/etc/ssl/certs`.
+
+For example, with the command `kubectl get configmap -lapp=gitlab-agent -o yaml`:
 
 ```yaml
-$ kubectl get configmap -lapp=gitlab-agent -o yaml
 apiVersion: v1
 items:
 - apiVersion: v1
@@ -123,13 +123,13 @@ items:
 kind: List
 ```
 
-You might see a similar error in the [agent server (KAS) logs](../../../administration/logs/index.md#gitlab-agent-server) of your GitLab application server:
+You might see a similar error in the [agent server (KAS) logs](../../../administration/logs/_index.md#gitlab-agent-server-for-kubernetes) of your GitLab application server:
 
 ```json
 {"level":"error","time":"2023-03-07T20:19:48.151Z","msg":"AgentInfo()","grpc_service":"gitlab.agent.agent_configuration.rpc.AgentConfiguration","grpc_method":"GetConfiguration","error":"Get \"https://gitlab.example.com/api/v4/internal/kubernetes/agent_info\": x509: certificate signed by unknown authority"}
 ```
 
-To fix it, [install your internal CA's public certificate](https://docs.gitlab.com/omnibus/settings/ssl/#install-custom-public-certificates) in the `/etc/gitlab/trusted-certs` directory.
+To fix it, [install the public certificate of your internal CA](https://docs.gitlab.com/omnibus/settings/ssl/#install-custom-public-certificates) in the `/etc/gitlab/trusted-certs` directory.
 
 Alternatively, you can configure the agent server (KAS) to read the certificate from a custom directory.
 Add the following configuration to `/etc/gitlab/gitlab.rb`:
@@ -154,6 +154,17 @@ To apply the changes:
    gitlab-ctl restart gitlab-kas
    ```
 
+## Error: `Failed to register agent pod`
+
+The agent pod logs might display the error message `Failed to register agent pod. Please make sure the agent version matches the server version`.
+
+To resolve this issue, ensure that the agent version matches the GitLab version.
+
+If the versions match and the error persists:
+
+1. Make sure `gitlab-kas` is running with `gitlab-ctl status gitlab-kas`.
+1. Check the `gitlab-kas` [logs](../../../administration/logs/_index.md#gitlab-agent-server-for-kubernetes) to make sure the agent is functioning properly.
+
 ## Failed to perform vulnerability scan on workload: jobs.batch already exists
 
 ```json
@@ -166,7 +177,7 @@ To apply the changes:
 }
 ```
 
-The GitLab agent performs vulnerability scans by creating a job to scan each workload. If a scan
+The GitLab agent for Kubernetes performs vulnerability scans by creating a job to scan each workload. If a scan
 is interrupted, these jobs may be left behind and need to be cleaned up before more jobs can
 be run. You can clean up these jobs by running:
 
@@ -184,7 +195,7 @@ When you install the agent, you might encounter an error that states:
 Error: parse error at (gitlab-agent/templates/observability-secret.yaml:1): unclosed action
 ```
 
-This error is typically caused by an incompatible version of Helm. To resolve the issue, ensure that you are using a version of Helm [compatible with your version of Kubernetes](index.md#supported-kubernetes-versions-for-gitlab-features).
+This error is typically caused by an incompatible version of Helm. To resolve the issue, ensure that you are using a version of Helm [compatible with your version of Kubernetes](_index.md#supported-kubernetes-versions-for-gitlab-features).
 
 ## `GitLab Agent Server: Unauthorized` error on Dashboard for Kubernetes
 
@@ -216,3 +227,12 @@ Because `kas` periodically deletes outdated agent versions, you should wait at l
 and GitLab to reconcile.
 
 If the warning persists, update the agent installed on your cluster.
+
+## Kubernetes API proxy response headers are lost or blocked
+
+HTTP response headers might get blocked when sent from the Kubernetes cluster to the user through the Kubernetes API proxy.
+
+This error likely occurs when a response header is not included in the default allowlist for KAS.
+
+For steps on how to resolve this issue, see
+[blocked response headers](../../../administration/clusters/kas.md#error-blocked-kubernetes-api-proxy-response-header).

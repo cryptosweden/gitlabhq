@@ -8,10 +8,18 @@ fragment MergeRequestFragment on MergeRequest {
   state
   title
   updatedAt
+  mergedAt
   upvotes
-  userDiscussionsCount @include(if: $isSignedIn)
-  webUrl
+  resolvedDiscussionsCount @include(if: $isSignedIn)
+  resolvableDiscussionsCount @include(if: $isSignedIn)
+  webPath
+  draft
   assignees @skip(if: $hideUsers) {
+    nodes {
+      ...User
+    }
+  }
+  reviewers @skip(if: $hideUsers) {
     nodes {
       ...User
     }
@@ -43,4 +51,15 @@ fragment MergeRequestFragment on MergeRequest {
       detailsPath
     }
   }
+  conflicts
+  commitCount
+  sourceBranchExists
+  targetBranchExists
+  targetBranch
+  targetBranchPath
+  taskCompletionStatus {
+    completedCount
+    count
+  }
+  hidden
 }

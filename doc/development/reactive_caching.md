@@ -1,12 +1,11 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Using `ReactiveCaching`
 ---
 
-# `ReactiveCaching`
-
-> - This doc refers to [`reactive_caching.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/models/concerns/reactive_caching.rb).
+This doc refers to [`reactive_caching.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/models/concerns/reactive_caching.rb).
 
 The `ReactiveCaching` concern is used for fetching some data in the background and storing it
 in the Rails cache, keeping it up-to-date for as long as it is being requested. If the
@@ -39,7 +38,7 @@ In this example, the first time `#result` is called, it returns `nil`. However,
 it enqueues a background worker to call `#calculate_reactive_cache` and set an
 initial cache lifetime of 10 minutes.
 
-## How it works
+## How ReactiveCaching works
 
 The first time `#with_reactive_cache` is called, a background job is enqueued and
 `with_reactive_cache` returns `nil`. The background job calls `#calculate_reactive_cache`
@@ -305,3 +304,16 @@ self.reactive_cache_hard_limit = 5.megabytes
     along with the parameters passed to `with_reactive_cache`.
   - The custom `reactive_cache_worker_finder` calls `.from_cache` with the parameters
     passed to `with_reactive_cache`.
+
+## Changing the cache keys
+
+Due to [how reactive caching works](#how-reactivecaching-works), changing parameters for the `calculate_reactive_cache` method is like
+changing parameters for a Sidekiq worker.
+So [the same rules](sidekiq/compatibility_across_updates.md#changing-the-arguments-for-a-worker)
+need to be followed.
+
+For example, if a new parameter is added to the `calculate_reactive_cache` method;
+
+1. Add the argument to the `calculate_reactive_cache` method with a default value (Release M).
+1. Add the new argument to all the invocations of the `with_reactive_cache` method (Release M+1).
+1. Remove the default value (Release M+2).

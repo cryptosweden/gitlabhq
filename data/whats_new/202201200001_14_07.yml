@@ -5,7 +5,7 @@
   self-managed: true
   gitlab-com: false
   available_in: [Free, Premium, Ultimate]
-  documentation_link: 'https://docs.gitlab.com/runner/install/index.html#fips-compliant-gitlab-runner'
+  documentation_link: 'https://docs.gitlab.com/runner/install/#fips-compliant-gitlab-runner'
   image_url: https://about.gitlab.com/images/growth/verify.png
   published_at: 2022-01-22
   release: 14.7
@@ -16,7 +16,7 @@
     You can specify an HTTPS endpoint with our new GraphQL API and events are sent to it as webhooks. These messages contain the same information as the Audit Events UI about what type of change happened, when it happened, who was involved, as well as some additional metadata.
 
     After you receive those messages, you can filter based on person, type, or inject that data into another third-party tool. This is a great way to trigger any custom automation you have built if, for example, a new user is created or a key setting is changed. We're excited to see what you use streaming audit events for and would love to hear from you about it! Let us know by commenting on the [epic](https://gitlab.com/groups/gitlab-org/-/epics/5925).
-  stage: Manage
+  stage: Foundations
   self-managed: true
   gitlab-com: true
   available_in: [Ultimate]
@@ -31,7 +31,7 @@
      Previously, group access tokens were limited to self-managed instances only, and could only be generated using the Rails console. Now, you can create group access tokens using the UI and API. You can define token name, expiration date, and scope. You can also revoke an existing group access token.
 
      Thank you [Fabio Huser](https://gitlab.com/fh1ch) for your contribution!
-  stage: Manage
+  stage: Foundations
   self-managed: true
   gitlab-com: true
   available_in: [Free, Premium, Ultimate]

@@ -3,6 +3,7 @@
 module ContainerRegistry
   class Event
     include Gitlab::Utils::StrongMemoize
+    include Gitlab::InternalEventsTracking
 
     ALLOWED_ACTIONS = %w[push delete].freeze
     PUSH_ACTION = 'push'
@@ -49,10 +50,18 @@ module ContainerRegistry
       ::Gitlab::Tracking.event(EVENT_TRACKING_CATEGORY, tracking_action)
 
       if manifest_delete_event?
-        ::Gitlab::UsageDataCounters::ContainerRegistryEventCounter.count("#{EVENT_PREFIX}_delete_manifest")
+        track_internal_event("delete_manifest_from_container_registry", project: project)
       else
         event = usage_data_event_for(tracking_action)
-        ::Gitlab::UsageDataCounters::HLLRedisCounter.track_event(event, values: originator.id) if event
+        return unless event
+
+        event_attributes = if origin_class == DeployToken
+                             { additional_properties: { property: originator.id.to_s } }
+                           elsif origin_class == User
+                             { user: originator }
+                           end
+
+        track_internal_event(event, event_attributes)
       end
     end
 
@@ -169,7 +178,7 @@ module ContainerRegistry
       return unless project
 
       Rails.cache.delete(project.root_ancestor.container_repositories_size_cache_key)
-      ProjectCacheWorker.perform_async(project.id, [], [:container_registry_size])
+      ProjectCacheWorker.perform_async(project.id, [], %w[container_registry_size])
     end
   end
 end

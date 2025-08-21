@@ -2,9 +2,16 @@
 stage: Verify
 group: Pipeline Authoring
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Plan a migration from another tool to GitLab CI/CD
+description: Migrate from Jenkins, GitHub Actions, and others.
 ---
 
-# Plan a migration from another tool to GitLab CI/CD
+{{< details >}}
+
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Before starting a migration from another tool to GitLab CI/CD, you should begin by
 developing a migration plan.
@@ -30,7 +37,7 @@ A few things that organizations have reported as helping:
 - Set and communicate a clear vision of what your migration goals are, which helps
   your users understand why the effort is worth it. The value is clear when
   the work is done, but people need to be aware while it's in progress too.
-- Sponsorship and alignment from the relevant leadership teams helps with the point above.
+- Sponsorship and alignment from the relevant leadership teams helps with the previous point.
 - Spend time educating your users on what's different, and share this guide
   with them.
 - Finding ways to sequence or delay parts of the migration can help a lot. Importantly though,

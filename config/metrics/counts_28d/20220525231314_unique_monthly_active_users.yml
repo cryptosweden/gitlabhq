@@ -11,10 +11,7 @@ time_frame: 28d
 data_source: database
 data_category: optional
 instrumentation_class: UniqueActiveUsersMetric
-distribution:
-- ce
-- ee
-tier:
+tiers:
 - free
 - premium
 - ultimate

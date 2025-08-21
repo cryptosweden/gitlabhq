@@ -14,6 +14,7 @@ module Gitlab
       # Using a case statement here is preferable for readability and maintainability.
       # See discussion in https://gitlab.com/gitlab-org/gitlab/-/issues/217397
       #
+      # rubocop:disable Metrics/AbcSize
       # rubocop:disable Metrics/CyclomaticComplexity
       def build(object, **options)
         # Objects are sometimes wrapped in a BatchLoader instance
@@ -22,6 +23,8 @@ module Gitlab
           board_url(object, **options)
         when ::Ci::Build
           instance.project_job_url(object.project, object, **options)
+        when ::Ci::Pipeline
+          instance.project_pipeline_url(object.project, object, **options)
         when Commit
           commit_url(object, **options)
         when Compare
@@ -38,28 +41,39 @@ module Gitlab
           instance.milestone_url(object, **options)
         when Note
           note_url(object, **options)
+        when AntiAbuse::Reports::Note
+          abuse_report_note_url(object, **options)
         when Release
           instance.release_url(object, **options)
-        when Organizations::Organization
-          instance.organization_url(object, **options)
+        when ::Organizations::Organization
+          instance.root_url(organization_path: object.path, **options)
         when Project
           instance.project_url(object, **options)
         when Snippet
           snippet_url(object, **options)
         when User
           instance.user_url(object, **options)
+        when Namespaces::UserNamespace
+          instance.user_url(object.owner, **options)
+        when Namespaces::ProjectNamespace
+          instance.project_url(object.project, **options)
         when Wiki
           wiki_url(object, **options)
         when WikiPage
           wiki_page_url(object.wiki, object, **options)
+        when WikiPage::Meta
+          wiki_page_url(object.container.wiki, object.canonical_slug, **options)
         when ::DesignManagement::Design
           design_url(object, **options)
         when ::Packages::Package
           package_url(object, **options)
+        when ::Key
+          instance.user_settings_ssh_key_url(object)
         else
           raise NotImplementedError, "No URL builder defined for #{object.inspect}"
         end
       end
+      # rubocop:enable Metrics/AbcSize
       # rubocop:enable Metrics/CyclomaticComplexity
 
       def board_url(board, **options)
@@ -95,7 +109,13 @@ module Gitlab
           instance.gitlab_snippet_url(note.noteable, anchor: dom_id(note), **options)
         elsif note.for_abuse_report?
           instance.admin_abuse_report_url(note.noteable, anchor: dom_id(note), **options)
+        elsif note.for_wiki_page?
+          instance.project_wiki_page_url(note.noteable, anchor: dom_id(note), **options)
         end
+      end
+
+      def abuse_report_note_url(note, **options)
+        instance.admin_abuse_report_url(note.abuse_report, anchor: dom_id(note), **options)
       end
 
       def snippet_url(snippet, **options)
@@ -143,7 +163,7 @@ module Gitlab
       def package_url(package, **options)
         project = package.project
 
-        if package.infrastructure_package?
+        if package.terraform_module?
           return instance.project_infrastructure_registry_url(project, package,
 **options)
         end

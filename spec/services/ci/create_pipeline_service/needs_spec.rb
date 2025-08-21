@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness,
+RSpec.describe Ci::CreatePipelineService,
   feature_category: :pipeline_composition do
   context 'needs' do
     let_it_be(:project) { create(:project, :repository) }
@@ -173,7 +173,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness,
       it { expect(pipeline.builds.any?).to be_falsey }
 
       it 'assigns an error to the pipeline' do
-        expect(pipeline.yaml_errors)
+        expect(pipeline.error_messages[0].content)
           .to eq('jobs:test_a:needs:need artifacts should be a boolean value')
       end
     end
@@ -235,7 +235,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness,
       end
 
       it 'raises error' do
-        expect(pipeline.yaml_errors)
+        expect(pipeline.error_messages[0].content)
           .to eq('jobs:invalid_dag_job:needs config can not be an empty hash')
       end
     end
@@ -257,8 +257,8 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness,
       end
 
       it 'returns error' do
-        expect(pipeline.yaml_errors)
-          .to eq("'test' job needs 'build' job, but 'build' is not in any previous stage")
+        expect(pipeline.error_messages[0].content)
+          .to include("'test' job needs 'build' job, but 'build' does not exist in the pipeline")
       end
 
       context 'when need is optional' do

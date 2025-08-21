@@ -16,11 +16,12 @@ RSpec.describe Projects::UnlinkForkService, :use_clean_rails_memory_store_cachin
     let(:merge_request2) { create(:merge_request, source_project: forked_project, target_project: fork_project(project)) }
     let(:merge_request_in_fork) { create(:merge_request, source_project: forked_project, target_project: forked_project) }
 
-    let(:mr_close_service) { MergeRequests::CloseService.new(project: forked_project, current_user: user) }
+    let(:mr_close_service) { MergeRequests::CloseService.new(project: forked_project, current_user: user, params: { skip_authorization: skip_authorization }) }
+    let(:skip_authorization) { true }
 
     before do
       allow(MergeRequests::CloseService).to receive(:new)
-        .with(project: forked_project, current_user: user)
+        .with(project: forked_project, current_user: user, params: { skip_authorization: skip_authorization })
         .and_return(mr_close_service)
     end
 
@@ -59,7 +60,7 @@ RSpec.describe Projects::UnlinkForkService, :use_clean_rails_memory_store_cachin
   end
 
   it 'refreshes the project statistics of the forked project' do
-    expect(ProjectCacheWorker).to receive(:perform_async).with(forked_project.id, [], [:repository_size])
+    expect(ProjectCacheWorker).to receive(:perform_async).with(forked_project.id, [], %w[repository_size])
 
     subject.execute
   end
@@ -91,11 +92,12 @@ RSpec.describe Projects::UnlinkForkService, :use_clean_rails_memory_store_cachin
       let!(:merge_request2) { create(:merge_request, source_project: project, target_project: fork_project(project)) }
       let!(:merge_request_in_fork) { create(:merge_request, source_project: forked_project, target_project: forked_project) }
 
-      let(:mr_close_service) { MergeRequests::CloseService.new(project: project, current_user: user) }
+      let(:mr_close_service) { MergeRequests::CloseService.new(project: project, current_user: user, params: { skip_authorization: skip_authorization }) }
+      let(:skip_authorization) { true }
 
       before do
         allow(MergeRequests::CloseService).to receive(:new)
-                                                .with(project: project, current_user: user)
+                                                .with(project: project, current_user: user, params: { skip_authorization: skip_authorization })
                                                 .and_return(mr_close_service)
       end
 
@@ -156,11 +158,12 @@ RSpec.describe Projects::UnlinkForkService, :use_clean_rails_memory_store_cachin
         let!(:mr_from_child) { create(:merge_request, source_project: fork_of_fork, target_project: forked_project) }
         let!(:merge_request_in_fork) { create(:merge_request, source_project: forked_project, target_project: forked_project) }
 
-        let(:mr_close_service) { MergeRequests::CloseService.new(project: forked_project, current_user: user) }
+        let(:mr_close_service) { MergeRequests::CloseService.new(project: forked_project, current_user: user, params: { skip_authorization: skip_authorization }) }
+        let(:skip_authorization) { true }
 
         before do
           allow(MergeRequests::CloseService).to receive(:new)
-            .with(project: forked_project, current_user: user)
+            .with(project: forked_project, current_user: user, params: { skip_authorization: skip_authorization })
             .and_return(mr_close_service)
         end
 

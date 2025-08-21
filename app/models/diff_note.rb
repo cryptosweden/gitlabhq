@@ -23,6 +23,8 @@ class DiffNote < Note
   validate :positions_complete
   validate :verify_supported, unless: :importing?
 
+  validate :validate_diff_file_and_line, on: :create, if: :requires_diff_file_validation_during_import?
+
   before_validation :set_line_code, if: :on_text?, unless: :importing?
   after_save :keep_around_commits, unless: -> { importing? || skip_keep_around_commits }
 
@@ -37,10 +39,33 @@ class DiffNote < Note
     DiffDiscussion
   end
 
+  def validate_diff_file_and_line
+    diff_file = diff_file(create_missing_diff_file: false)
+
+    unless diff_file
+      errors.add(:base, :missing_diff_file, message: DIFF_FILE_NOT_FOUND_MESSAGE)
+      return
+    end
+
+    diff_line = diff_file.line_for_position(self.original_position)
+
+    return if diff_line
+
+    errors.add(:base, :missing_diff_line, message: DIFF_LINE_NOT_FOUND_MESSAGE % {
+      file_path: diff_file.file_path,
+      old_line: original_position.old_line,
+      new_line: original_position.new_line
+    })
+  end
+
+  def requires_diff_file_validation_during_import?
+    importing? && should_create_diff_file?
+  end
+
   def create_diff_file
     return unless should_create_diff_file?
 
-    diff_file = fetch_diff_file
+    diff_file = diff_file(create_missing_diff_file: false)
     raise NoteDiffFileCreationError, DIFF_FILE_NOT_FOUND_MESSAGE unless diff_file
 
     diff_line = diff_file.line_for_position(self.original_position)
@@ -53,10 +78,11 @@ class DiffNote < Note
     end
 
     creation_params = diff_file.diff.to_hash
-      .except(:too_large, :generated)
+      .except(:too_large, :generated, :encoded_file_path, :binary)
       .merge(diff: diff_file.diff_hunk(diff_line))
 
     create_note_diff_file(creation_params)
+    clear_memoization(:diff_file)
   end
 
   # Returns the diff file from `position`
@@ -69,11 +95,11 @@ class DiffNote < Note
   end
 
   # Returns the diff file from `original_position`
-  def diff_file
+  def diff_file(create_missing_diff_file: true)
     strong_memoize(:diff_file) do
       next if for_design?
 
-      enqueue_diff_file_creation_job if should_create_diff_file?
+      enqueue_diff_file_creation_job if create_missing_diff_file && should_create_diff_file?
 
       fetch_diff_file
     end
@@ -117,18 +143,15 @@ class DiffNote < Note
     position&.multiline?
   end
 
-  def shas
-    [
-      self.original_position.base_sha,
-      self.original_position.start_sha,
-      self.original_position.head_sha
-    ].tap do |a|
-      if self.position != self.original_position
-        a << self.position.base_sha
-        a << self.position.start_sha
-        a << self.position.head_sha
-      end
-    end
+  def latest_diff_file_path
+    latest_diff_file.file_path
+  end
+
+  def raw_truncated_diff_lines
+    discussion
+      .truncated_diff_lines(highlight: false)
+      .map(&:text)
+      .join("\n")
   end
 
   private
@@ -149,7 +172,7 @@ class DiffNote < Note
   def fetch_diff_file
     return note_diff_file.raw_diff_file if note_diff_file && !note_diff_file.raw_diff_file.has_renderable?
 
-    if created_at_diff?(noteable.diff_refs)
+    if noteable && created_at_diff?(noteable.diff_refs)
       # We're able to use the already persisted diffs (Postgres) if we're
       # presenting a "current version" of the MR discussion diff.
       # So no need to make an extra Gitaly diff request for it.
@@ -173,7 +196,7 @@ class DiffNote < Note
   end
 
   def set_line_code
-    self.line_code = self.position.line_code(repository)
+    self.line_code = self.line_code.presence || self.position.line_code(repository)
   end
 
   def verify_supported
@@ -186,13 +209,5 @@ class DiffNote < Note
     return if self.original_position.complete? && self.position.complete?
 
     errors.add(:position, "is incomplete")
-  end
-
-  def keep_around_commits
-    repository.keep_around(*shas, source: self.class.name)
-  end
-
-  def repository
-    noteable.respond_to?(:repository) ? noteable.repository : project.repository
   end
 end

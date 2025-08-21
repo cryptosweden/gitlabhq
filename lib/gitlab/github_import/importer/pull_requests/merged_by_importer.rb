@@ -5,6 +5,8 @@ module Gitlab
     module Importer
       module PullRequests
         class MergedByImporter
+          include ::Import::PlaceholderReferences::Pusher
+
           # pull_request - An instance of
           #                `Gitlab::GithubImport::Representation::PullRequest`
           # project - An instance of `Project`
@@ -13,21 +15,26 @@ module Gitlab
             @pull_request = pull_request
             @project = project
             @client = client
+            @merged_by = pull_request.merged_by
           end
 
           def execute
             user_finder = GithubImport::UserFinder.new(project, client)
 
-            gitlab_user_id = user_finder.user_id_for(pull_request.merged_by)
+            gitlab_user_id = user_finder.user_id_for(merged_by)
 
             metrics_upsert(gitlab_user_id)
 
-            add_note!
+            if user_mapping_enabled?(project) && !map_to_personal_namespace_owner?(project)
+              push_reference(project, merge_request.metrics, :merged_by_id, merged_by&.id)
+            else
+              add_legacy_note!
+            end
           end
 
           private
 
-          attr_reader :project, :pull_request, :client
+          attr_reader :project, :pull_request, :client, :merged_by
 
           def metrics_upsert(gitlab_user_id)
             MergeRequest::Metrics.upsert({
@@ -40,13 +47,14 @@ module Gitlab
             }, unique_by: :merge_request_id)
           end
 
-          def add_note!
+          def add_legacy_note!
             merge_request.notes.create!(
               importing: true,
               note: missing_author_note,
               author_id: project.creator_id,
               project: project,
-              created_at: pull_request.merged_at
+              created_at: pull_request.merged_at,
+              imported_from: ::Import::SOURCE_GITHUB
             )
           end
 
@@ -60,7 +68,7 @@ module Gitlab
 
           def missing_author_note
             format(s_("GitHubImporter|*Merged by: %{author} at %{timestamp}*"),
-              author: pull_request.merged_by&.login || 'ghost',
+              author: merged_by&.login || 'ghost',
               timestamp: pull_request.merged_at
             )
           end

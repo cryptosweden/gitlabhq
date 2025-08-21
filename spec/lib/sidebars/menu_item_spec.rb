@@ -34,5 +34,46 @@ RSpec.describe Sidebars::MenuItem, feature_category: :navigation do
       expect(subject[:avatar]).to be('/avatar.png')
       expect(subject[:entity_id]).to be(123)
     end
+
+    context 'with pill data' do
+      let(:extra) { { has_pill: true, pill_count: '5', pill_count_field: 'countField' } }
+
+      it 'includes pill count data' do
+        expect(subject[:pill_count]).to eq('5')
+        expect(subject[:pill_count_field]).to eq('countField')
+      end
+    end
+  end
+
+  describe '#render?' do
+    subject(:menu_item) do
+      described_class.new(
+        title: 'Test Item',
+        link: '/test',
+        active_routes: []
+      )
+    end
+
+    context 'when render is not set' do
+      it { is_expected.to be_render }
+    end
+
+    context 'when render is explicitly set' do
+      context 'when set to false' do
+        before do
+          menu_item.render = false
+        end
+
+        it { is_expected.not_to be_render }
+      end
+
+      context 'when set to true' do
+        before do
+          menu_item.render = true
+        end
+
+        it { is_expected.to be_render }
+      end
+    end
   end
 end

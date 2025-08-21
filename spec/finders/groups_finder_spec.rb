@@ -301,12 +301,86 @@ RSpec.describe GroupsFinder, feature_category: :groups_and_projects do
       end
     end
 
+    context 'with group ids' do
+      let_it_be(:group_one) { create(:group, :public, name: 'group_one') }
+      let_it_be(:group_two) { create(:group, :public, name: 'group_two') }
+      let_it_be(:group_three) { create(:group, :public, name: 'group_three') }
+
+      subject { described_class.new(user, { ids: [group_one.id, group_three.id] }).execute }
+
+      it 'returns only the groups listed in the list of ids' do
+        is_expected.to contain_exactly(group_one, group_three)
+      end
+    end
+
+    context 'with top level groups only' do
+      let_it_be(:group_one) { create(:group, :public, name: 'group_one') }
+      let_it_be(:group_two) { create(:group, :public, name: 'group_two', parent: group_one) }
+      let_it_be(:group_three) { create(:group, :public, name: 'group_three', parent: group_one) }
+
+      subject { described_class.new(user, { top_level_only: true }).execute }
+
+      it 'returns only top level groups' do
+        is_expected.to contain_exactly(group_one)
+      end
+    end
+
+    context 'with marked_for_deletion_on' do
+      let_it_be(:deletion_date) { Date.parse('2024-01-01') }
+      let_it_be(:different_date) { Date.parse('2024-02-01') }
+      let_it_be(:group_with_schedule) do
+        create(:group_with_deletion_schedule, marked_for_deletion_on: deletion_date)
+      end
+
+      let_it_be(:group_with_different_date) do
+        create(:group_with_deletion_schedule, marked_for_deletion_on: different_date)
+      end
+
+      it 'filters groups by marked_for_deletion_on' do
+        result = described_class.new(user, { marked_for_deletion_on: deletion_date }).execute
+
+        expect(result).to include(group_with_schedule)
+        expect(result).not_to include(group_with_different_date)
+      end
+
+      it 'does not filter by marked_for_deletion_on when parameter is not provided' do
+        result = described_class.new(user, {}).execute
+
+        expect(result).to include(group_with_schedule)
+        expect(result).to include(group_with_different_date)
+      end
+    end
+
+    context 'with archived' do
+      let_it_be(:non_archived) { create(:group) }
+      let_it_be(:non_archived_subgroup) { create(:group, parent: non_archived) }
+
+      let_it_be(:archived_group) { create(:group, :archived) }
+      let_it_be(:archived_subgroup_with_non_archived_parent) { create(:group, :archived, parent: non_archived) }
+      let_it_be(:non_archived_subgroup_with_archived_parent) { create(:group, parent: archived_group) }
+
+      where(:archived, :result) do
+        nil   | lazy { [non_archived, non_archived_subgroup, archived_group, archived_subgroup_with_non_archived_parent, non_archived_subgroup_with_archived_parent] }
+        false | lazy { [non_archived, non_archived_subgroup] }
+        true  | lazy { [archived_group, archived_subgroup_with_non_archived_parent, non_archived_subgroup_with_archived_parent] }
+      end
+
+      with_them do
+        let(:params) { { archived: archived } }
+
+        subject { described_class.new(nil, params).execute.to_a }
+
+        it { is_expected.to match_array(result) }
+      end
+    end
+
     context 'with organization' do
       let_it_be(:organization_user) { create(:organization_user) }
       let_it_be(:organization) { organization_user.organization }
+      let_it_be(:other_organization) { create(:organization) }
       let_it_be(:user) { organization_user.user }
       let_it_be(:public_group) { create(:group, name: 'public-group', organization: organization) }
-      let_it_be(:outside_organization_group) { create(:group) }
+      let_it_be(:outside_organization_group) { create(:group, organization: other_organization) }
       let_it_be(:private_group) { create(:group, :private, name: 'private-group', organization: organization) }
       let_it_be(:no_access_group_in_org) { create(:group, :private, name: 'no-access', organization: organization) }
 
@@ -409,7 +483,7 @@ RSpec.describe GroupsFinder, feature_category: :groups_and_projects do
           )
         end
 
-        it "returns project's parent group if user is member of project" do
+        it "returns project's ancestor groups if user is member of project" do
           project = create(:project, :private, namespace: private_sub_subgroup)
           project.add_developer(user)
 
@@ -419,7 +493,8 @@ RSpec.describe GroupsFinder, feature_category: :groups_and_projects do
             public_subgroup2,
             internal_sub_subgroup,
             public_sub_subgroup,
-            private_sub_subgroup
+            private_sub_subgroup,
+            private_subgroup2
           )
         end
 
@@ -431,6 +506,32 @@ RSpec.describe GroupsFinder, feature_category: :groups_and_projects do
             private_sub_subgroup,
             private_sub_sub_subgroup
           )
+        end
+      end
+    end
+
+    context 'with active' do
+      let_it_be(:active_group) { create(:group, :public) }
+      let_it_be(:marked_for_deletion_group) { create(:group_with_deletion_schedule, :public) }
+      let_it_be(:archived_group) do
+        create(:group, :public, namespace_settings: create(:namespace_settings, archived: true))
+      end
+
+      subject { described_class.new(nil, params).execute.to_a }
+
+      context 'when true' do
+        let(:params) { { active: true } }
+
+        it 'returns active projects only' do
+          is_expected.to contain_exactly(active_group)
+        end
+      end
+
+      context 'when false' do
+        let(:params) { { active: false } }
+
+        it 'returns inactive projects only' do
+          is_expected.to contain_exactly(archived_group, marked_for_deletion_group)
         end
       end
     end
@@ -454,6 +555,26 @@ RSpec.describe GroupsFinder, feature_category: :groups_and_projects do
         let(:params) { { sort: sort } }
 
         it { is_expected.to eq(sorted_groups) }
+      end
+    end
+
+    describe 'with_statistics' do
+      let_it_be(:group) { create(:group, :public) }
+
+      context 'when true' do
+        it 'loads project statistics' do
+          first_group = described_class.new(user, { all_available: true, with_statistics: true }).execute.first
+
+          expect(first_group.storage_size).to eq(0)
+        end
+      end
+
+      context 'when false' do
+        it 'does not load project statistics' do
+          first_group = described_class.new(user, { all_available: true, with_statistics: false }).execute.first
+
+          expect(first_group).not_to respond_to(:storage_size)
+        end
       end
     end
   end

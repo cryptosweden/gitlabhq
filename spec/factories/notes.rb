@@ -18,7 +18,7 @@ FactoryBot.define do
     factory :note_on_personal_snippet,   traits: [:on_personal_snippet]
     factory :note_on_design,             traits: [:on_design]
     factory :note_on_alert,              traits: [:on_alert]
-    factory :note_on_abuse_report, traits: [:on_abuse_report]
+    factory :note_on_wiki_page,          traits: [:on_wiki_page]
     factory :system_note, traits: [:system]
 
     factory :discussion_note, class: 'DiscussionNote'
@@ -40,9 +40,11 @@ FactoryBot.define do
 
     factory :discussion_note_on_project_snippet, traits: [:on_project_snippet], class: 'DiscussionNote'
 
-    factory :discussion_note_on_abuse_report, traits: [:on_abuse_report], class: 'DiscussionNote'
+    factory :discussion_note_on_wiki_page, traits: [:on_wiki_page], class: 'DiscussionNote'
 
     factory :legacy_diff_note_on_commit, traits: [:on_commit, :legacy_diff_note], class: 'LegacyDiffNote'
+
+    factory :discussion_note_on_work_item, traits: [:on_work_item], class: 'DiscussionNote'
 
     factory :legacy_diff_note_on_merge_request, traits: [:on_merge_request, :legacy_diff_note], class: 'LegacyDiffNote' do
       association :project, :repository
@@ -143,6 +145,10 @@ FactoryBot.define do
       noteable { association(:work_item, :group_level) }
     end
 
+    trait :on_project_level_wiki do
+      noteable { association(:wiki_page_meta, project: project) }
+    end
+
     trait :on_merge_request do
       noteable { association(:merge_request, source_project: project) }
     end
@@ -174,9 +180,8 @@ FactoryBot.define do
       noteable { association(:alert_management_alert, project: project) }
     end
 
-    trait :on_abuse_report do
-      noteable { association(:abuse_report) }
-      project { nil }
+    trait :on_wiki_page do
+      noteable { association(:wiki_page_meta, project: project) }
     end
 
     trait :resolved do
@@ -194,23 +199,11 @@ FactoryBot.define do
     end
 
     trait :downvote do
-      note { "thumbsdown" }
+      note { AwardEmoji::THUMBS_DOWN }
     end
 
     trait :upvote do
-      note { "thumbsup" }
-    end
-
-    trait :with_attachment do
-      attachment { fixture_file_upload("spec/fixtures/dk.png", "image/png") }
-    end
-
-    trait :with_svg_attachment do
-      attachment { fixture_file_upload("spec/fixtures/unsanitized.svg", "image/svg+xml") }
-    end
-
-    trait :with_pdf_attachment do
-      attachment { fixture_file_upload("spec/fixtures/sample.pdf", "application/pdf") }
+      note { AwardEmoji::THUMBS_UP }
     end
 
     trait :confidential do
@@ -236,7 +229,10 @@ FactoryBot.define do
       discussion = discussion.to_discussion if discussion.is_a?(Note)
       next unless discussion
 
-      note.assign_attributes(discussion.reply_attributes.merge(project: discussion.project))
+      parent_attributes = { project: discussion.project, namespace: discussion.namespace }.compact
+      note.assign_attributes(
+        discussion.reply_attributes.merge(parent_attributes)
+      )
     end
   end
 end

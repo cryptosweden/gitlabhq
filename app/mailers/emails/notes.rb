@@ -14,7 +14,7 @@ module Emails
       setup_note_mail(note_id, recipient_id)
 
       @issue = @note.noteable
-      @target_url = project_issue_url(*note_target_url_options)
+      @target_url = Gitlab::UrlBuilder.build(@issue, **note_target_url_query_params)
       mail_answer_note_thread(
         @issue,
         @note,
@@ -59,6 +59,15 @@ module Emails
       mail_answer_note_thread(design, @note, note_thread_options(reason))
     end
 
+    def note_wiki_page_email(recipient_id, note_id, reason = nil)
+      setup_note_mail(note_id, recipient_id)
+
+      @wiki_page = @note.noteable
+      @target_url = Gitlab::UrlBuilder.build(@wiki_page, **note_target_url_query_params)
+
+      mail_answer_note_thread(@wiki_page, @note, note_thread_options(reason))
+    end
+
     private
 
     def note_target_url_options
@@ -85,11 +94,10 @@ module Emails
       @note = note_id.is_a?(Note) ? note_id : Note.find(note_id)
       @project = @note.project
       @group = @note.noteable.try(:group)
+      @group ||= @note.noteable.resource_parent if @note.noteable.try(:resource_parent).is_a?(Group)
       @recipient = User.find(recipient_id)
 
-      if (@project || @group) && @note.persisted?
-        @sent_notification = SentNotification.record_note(@note, recipient_id, reply_key)
-      end
+      @sent_notification = SentNotification.record_note(@note, recipient_id) if (@project || @group) && @note.persisted?
     end
   end
 end

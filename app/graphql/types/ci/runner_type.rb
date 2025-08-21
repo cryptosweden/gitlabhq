@@ -16,25 +16,34 @@ module Types
 
       alias_method :runner, :object
 
+      # NOTE: instance runners are exposed by default to any authenticated user,
+      # remember to protect any sensitive fields
       field :access_level, ::Types::Ci::RunnerAccessLevelEnum, null: false,
         description: 'Access level of the runner.'
       field :active, GraphQL::Types::Boolean, null: false,
-        description: 'Indicates the runner is allowed to receive jobs.',
-        deprecated: { reason: 'Use paused', milestone: '14.8' }
+        description: "Indicates the runner is allowed to receive jobs.",
+        deprecated: {
+          reason: 'Use `paused`. ' \
+            "This field is the inverse of `paused` and has no relationship to the runner's job execution status. " \
+            "For more details, see `jobExecutionStatus`",
+          milestone: '14.8'
+        }
       field :admin_url, GraphQL::Types::String, null: true,
         description: 'Admin URL of the runner. Only available for administrators.'
       field :contacted_at, Types::TimeType, null: true,
-        description: 'Timestamp of last contact from this runner.',
-        method: :contacted_at
+        description: 'Timestamp of last contact from the runner.'
       field :created_at, Types::TimeType, null: true,
-        description: 'Timestamp of creation of this runner.'
+        description: 'Timestamp of creation of the runner.'
       field :created_by, Types::UserType, null: true,
-        description: 'User that created this runner.',
+        description: 'User that created the runner.',
         method: :creator
       field :creation_method, Types::Ci::RunnerCreationMethodEnum, null: true,
         method: :registration_type,
         description: 'Type of runner registration.',
-        alpha: { milestone: '17.0' }
+        experiment: { milestone: '17.0' }
+      field :creation_state, Types::Ci::RunnerCreationStateEnum, null: true,
+        description: 'Runner creation state. Used to determine if a runner has been registered ' \
+          'and has contacted the GitLab instance.'
       field :description, GraphQL::Types::String, null: true,
         description: 'Description of the runner.'
       field :edit_admin_url, GraphQL::Types::String, null: true,
@@ -42,25 +51,24 @@ module Types
       field :ephemeral_authentication_token, GraphQL::Types::String, null: true,
         description: 'Ephemeral authentication token used for runner manager registration. Only available for the creator of the runner for a limited time during registration.',
         authorize: :read_ephemeral_token,
-        alpha: { milestone: '15.9' }
+        experiment: { milestone: '15.9' }
       field :ephemeral_register_url, GraphQL::Types::String, null: true,
         description: 'URL of the registration page of the runner manager. Only available for the creator of the runner for a limited time during registration.',
-        alpha: { milestone: '15.11' }
+        experiment: { milestone: '15.11' }
       field :groups, null: true,
         resolver: ::Resolvers::Ci::RunnerGroupsResolver,
         description: 'Groups the runner is associated with. For group runners only.'
       field :id, ::Types::GlobalIDType[::Ci::Runner], null: false, description: 'ID of the runner.'
       field :job_count, GraphQL::Types::Int, null: true,
         description: "Number of jobs processed by the runner (limited to #{JOB_COUNT_LIMIT}, plus one to " \
-                     "indicate that more items exist).\n`jobCount` is an optimized version of `jobs { count }`, " \
-                     "and can be requested for multiple runners on the same request.",
+          "indicate that more items exist).\n`jobCount` is an optimized version of `jobs { count }`, " \
+          "and can be requested for multiple runners on the same request.",
         resolver: ::Resolvers::Ci::RunnerJobCountResolver
       field :job_execution_status,
         Types::Ci::RunnerJobExecutionStatusEnum,
         null: true,
-        description: 'Job execution status of the runner.',
-        alpha: { milestone: '15.7' }
-      field :jobs, ::Types::Ci::JobType.connection_type, null: true,
+        description: 'Job execution status of the runner.'
+      field :jobs, ::Types::Ci::JobInterface.connection_type, null: true,
         description: 'Jobs assigned to the runner. This field can only be resolved for one runner in any single request.',
         authorize: :read_builds,
         resolver: ::Resolvers::Ci::RunnerJobsResolver
@@ -73,7 +81,7 @@ module Types
         resolver: Resolvers::Ci::RunnerManagersResolver
       field :maximum_timeout, GraphQL::Types::Int, null: true,
         description: 'Maximum timeout (in seconds) for jobs processed by the runner.'
-      field :owner_project, ::Types::ProjectType, null: true,
+      field :owner_project, ::Types::Projects::ProjectInterface, null: true,
         description: 'Project that owns the runner. For project runners only.',
         resolver: ::Resolvers::Ci::RunnerOwnerProjectResolver
       field :paused, GraphQL::Types::Boolean, null: false,
@@ -101,7 +109,7 @@ module Types
         description: 'Tags associated with the runner.'
       field :token_expires_at, Types::TimeType, null: true,
         description: 'Runner token expiration time.',
-        method: :token_expires_at
+        authorize: :read_runner_sensitive_data
 
       markdown_field :maintenance_note_html, null: true
 
@@ -110,11 +118,11 @@ module Types
       end
 
       def admin_url
-        Gitlab::Routing.url_helpers.admin_runner_url(runner) if can_admin_runners?
+        Gitlab::Routing.url_helpers.admin_runner_url(runner) if can_read_all_runners?
       end
 
       def edit_admin_url
-        Gitlab::Routing.url_helpers.edit_admin_runner_url(runner) if can_admin_runners?
+        Gitlab::Routing.url_helpers.edit_admin_runner_url(runner) if can_admin_all_runners?
       end
 
       def ephemeral_register_url
@@ -131,7 +139,7 @@ module Types
       end
 
       def register_admin_url
-        return unless can_admin_runners? && runner.registration_available?
+        return unless can_admin_all_runners? && runner.registration_available?
 
         Gitlab::Routing.url_helpers.register_admin_runner_url(runner)
       end
@@ -155,18 +163,22 @@ module Types
 
       def job_execution_status
         BatchLoader::GraphQL.for(runner.id).batch(key: :running_builds_exist) do |runner_ids, loader|
-          statuses = ::Ci::Runner.id_in(runner_ids).with_running_builds.index_by(&:id)
+          statuses = ::Ci::Runner.id_in(runner_ids).with_executing_builds.index_by(&:id)
 
           runner_ids.each do |runner_id|
-            loader.call(runner_id, statuses[runner_id] ? :running : :idle)
+            loader.call(runner_id, statuses[runner_id] ? :active : :idle)
           end
         end
       end
 
       private
 
-      def can_admin_runners?
+      def can_admin_all_runners?
         context[:current_user]&.can_admin_all_resources?
+      end
+
+      def can_read_all_runners?
+        context[:current_user]&.can?(:read_admin_cicd)
       end
     end
   end

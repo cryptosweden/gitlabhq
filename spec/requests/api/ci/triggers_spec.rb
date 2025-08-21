@@ -3,20 +3,22 @@
 require 'spec_helper'
 
 RSpec.describe API::Ci::Triggers, feature_category: :pipeline_composition do
-  let_it_be(:user) { create(:user) }
+  let_it_be_with_reload(:user) { create(:user) }
   let_it_be(:user2) { create(:user) }
+  let_it_be_with_reload(:project) { create(:project, :repository, creator: user) }
+  let_it_be_with_reload(:project2) { create(:project, :repository) }
+  let_it_be(:trigger_token) { 'secure_token' }
+  let_it_be(:trigger_token_2) { 'secure_token_2' }
+  let_it_be(:maintainer) { create(:project_member, :maintainer, user: user, project: project) }
+  let_it_be(:developer) { create(:project_member, :developer, user: user2, project: project) }
+  let_it_be(:trigger) { create(:ci_trigger, project: project, token: trigger_token, owner: user) }
+  let_it_be(:trigger2) { create(:ci_trigger, project: project, token: trigger_token_2, owner: user2) }
 
-  let!(:trigger_token) { 'secure_token' }
-  let!(:trigger_token_2) { 'secure_token_2' }
-  let!(:project) { create(:project, :repository, creator: user) }
-  let!(:maintainer) { create(:project_member, :maintainer, user: user, project: project) }
-  let!(:developer) { create(:project_member, :developer, user: user2, project: project) }
-  let!(:trigger) { create(:ci_trigger, project: project, token: trigger_token, owner: user) }
-  let!(:trigger2) { create(:ci_trigger, project: project, token: trigger_token_2, owner: user2) }
-  let!(:trigger_request) { create(:ci_trigger_request, trigger: trigger, created_at: '2015-01-01 12:13:14') }
+  before do
+    project.update!(ci_pipeline_variables_minimum_override_role: :maintainer)
+  end
 
   describe 'POST /projects/:project_id/trigger/pipeline' do
-    let!(:project2) { create(:project, :repository) }
     let(:options) do
       {
         token: trigger_token
@@ -124,6 +126,20 @@ RSpec.describe API::Ci::Triggers, feature_category: :pipeline_composition do
       end
     end
 
+    it_behaves_like 'logs inbound authorizations via job token', :created, :not_found do
+      before do
+        allow(::Gitlab::CurrentSettings).to receive(:enforce_ci_inbound_job_token_scope_enabled?).and_return(false)
+      end
+
+      let(:accessed_project) { project }
+      let(:origin_project) { project2 }
+
+      let(:perform_request) do
+        post api("/projects/#{accessed_project.id}/ref/master/trigger/pipeline?token=#{job_token}"),
+          params: { ref: 'master' }
+      end
+    end
+
     describe 'adding arguments to the application context' do
       subject { subject_proc.call }
 
@@ -137,7 +153,6 @@ RSpec.describe API::Ci::Triggers, feature_category: :pipeline_composition do
 
       context 'when triggered from another running job' do
         let!(:trigger) {}
-        let!(:trigger_request) {}
 
         context 'when other job is triggered by a user' do
           let(:trigger_token) { create(:ci_build, :running, project: project, user: user).token }
@@ -168,6 +183,88 @@ RSpec.describe API::Ci::Triggers, feature_category: :pipeline_composition do
         expect(response).to have_gitlab_http_status(:forbidden)
       end
     end
+
+    context 'when using inputs' do
+      let(:inputs) do
+        {
+          deploy_strategy: 'blue-green',
+          job_stage: 'deploy',
+          test_script: ['echo "test"'],
+          parallel_jobs: 3,
+          allow_failure: true,
+          test_rules: [
+            { if: '$CI_PIPELINE_SOURCE == "web"' }
+          ]
+        }
+      end
+
+      before do
+        stub_ci_pipeline_yaml_file(
+          File.read(Rails.root.join('spec/lib/gitlab/ci/config/yaml/fixtures/complex-included-ci.yml'))
+        )
+      end
+
+      shared_examples 'sending request using inputs' do
+        shared_examples 'creating a succesful pipeline' do
+          it 'creates a pipeline using inputs' do
+            expect { post_request }.to change { Ci::Pipeline.count }.by(1)
+
+            expect(response).to have_gitlab_http_status(:created)
+
+            pipeline = Ci::Pipeline.find(json_response['id'])
+
+            expect(pipeline.builds.map { |b| "#{b.name} #{b.allow_failure}" }).to contain_exactly(
+              'my-job-build 1/3 false', 'my-job-build 2/3 false', 'my-job-build 3/3 false',
+              'my-job-test true', 'my-job-deploy false'
+            )
+          end
+        end
+
+        context 'when passing parameters as JSON' do
+          let(:headers) do
+            { 'Content-Type' => 'application/json' }
+          end
+
+          subject(:post_request) do
+            post api("/projects/#{project.id}/ref/master/trigger/pipeline?token=#{token}"),
+              headers: headers,
+              params: { ref: 'refs/heads/other-branch', inputs: inputs }.to_json
+          end
+
+          it_behaves_like 'creating a succesful pipeline'
+        end
+
+        context 'when passing parameters as form data' do
+          let(:headers) do
+            { 'Content-Type' => 'application/x-www-form-urlencoded' }
+          end
+
+          let(:transformed_values) do
+            inputs.transform_values { |value| value.is_a?(String) ? value : value.to_json }
+          end
+
+          subject(:post_request) do
+            post api("/projects/#{project.id}/ref/master/trigger/pipeline?token=#{token}"),
+              headers: headers,
+              params: { ref: 'refs/heads/other-branch', inputs: transformed_values }
+          end
+
+          it_behaves_like 'creating a succesful pipeline'
+        end
+      end
+
+      context 'when triggering a pipeline from a trigger token' do
+        let!(:token) { trigger_token }
+
+        it_behaves_like 'sending request using inputs'
+      end
+
+      context 'when triggered from another running job' do
+        let!(:token) { create(:ci_build, :running, project: project, user: user).token }
+
+        it_behaves_like 'sending request using inputs'
+      end
+    end
   end
 
   describe 'GET /projects/:id/triggers' do
@@ -182,6 +279,18 @@ RSpec.describe API::Ci::Triggers, feature_category: :pipeline_composition do
         expect(json_response.size).to eq 2
         expect(json_response.dig(0, 'token')).to eq trigger_token
         expect(json_response.dig(1, 'token')).to eq trigger_token_2[0..3]
+      end
+
+      context 'for multiple pipelines' do
+        it 'does not generate N+1 queries' do
+          control = ActiveRecord::QueryRecorder.new { get api("/projects/#{project.id}/triggers", user) }
+
+          create(:ci_trigger, project: project, token: 'trigger_token_3', owner: user2)
+
+          control2 = ActiveRecord::QueryRecorder.new { get api("/projects/#{project.id}/triggers", user) }
+          expect(control.log.grep(/"p_ci_pipelines"."created_at"/).count)
+            .to eq(control2.log.grep(/"p_ci_pipelines"."created_at"/).count)
+        end
       end
     end
 
@@ -256,6 +365,67 @@ RSpec.describe API::Ci::Triggers, feature_category: :pipeline_composition do
           end.not_to change { project.triggers.count }
 
           expect(response).to have_gitlab_http_status(:bad_request)
+        end
+      end
+
+      context 'with optional parameters' do
+        it 'creates trigger with expiration' do
+          date = DateTime.now + 20.days
+
+          expect do
+            post api("/projects/#{project.id}/triggers", user),
+              params: { description: 'trigger', expires_at: date.iso8601(3) }
+          end.to change { project.triggers.count }.by(1)
+
+          expect(response).to have_gitlab_http_status(:created)
+          expect(json_response).to include('description' => 'trigger')
+          expect(json_response).to include('expires_at' => date.utc.iso8601(3))
+        end
+      end
+
+      context 'when trigger expiration past limit' do
+        it 'does not create trigger' do
+          date = DateTime.now + 20.years
+
+          expect do
+            post api("/projects/#{project.id}/triggers", user),
+              params: { description: 'trigger', expires_at: date.iso8601(3) }
+          end.not_to change { project.triggers.count }
+
+          expect(response).to have_gitlab_http_status(:bad_request)
+        end
+
+        it 'creates trigger when feature flag turned off' do
+          stub_feature_flags(trigger_token_expiration: false)
+
+          date = DateTime.now + 20.years
+
+          expect do
+            post api("/projects/#{project.id}/triggers", user),
+              params: { description: 'trigger', expires_at: date.iso8601(3) }
+          end.to change { project.triggers.count }.by(1)
+
+          expect(response).to have_gitlab_http_status(:created)
+          expect(json_response).to include('description' => 'trigger')
+          expect(json_response).to include('expires_at' => nil)
+        end
+      end
+
+      context 'when expiration is invalid date string' do
+        [
+          'abc',
+          '01/01/2050',
+          '25/26/27',
+          '2308'
+        ].each do |param|
+          it "rejects #{param}" do
+            expect do
+              post api("/projects/#{project.id}/triggers", user),
+                params: { description: 'trigger', expires_at: param }
+            end.not_to change { project.triggers.count }
+
+            expect(response).to have_gitlab_http_status(:bad_request)
+          end
         end
       end
 

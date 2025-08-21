@@ -2,14 +2,16 @@
 stage: Create
 group: Code Review
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Suggest improvements to the code in a merge request, and commit those improvements to the merge request directly from your browser."
+description: Suggest improvements to the code in a merge request, and commit those improvements to the merge request directly from your browser.
+title: Suggest changes
 ---
 
-# Suggest changes
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Reviewers can suggest code changes with a Markdown syntax in merge request diff threads.
 The merge request author (or other users with the appropriate role) can apply any or
@@ -23,13 +25,13 @@ merge request, authored by the user who suggested the changes.
 1. On the secondary menu, select **Changes**.
 1. Find the lines of code you want to change.
    - To select a single line, hover over the line number and
-     select **Add a comment to this line** (**{comment}**).
-   - To select multiple lines:
-     1. Hover over the line number, and select **Add a comment to this line** (**{comment}**):
+     select **Add a comment to this line** ({{< icon name="comment" >}}).
+   - To select more lines:
+     1. Hover over the line number, and select **Add a comment to this line** ({{< icon name="comment" >}}):
         ![Comment on any diff file line](img/comment_on_any_diff_line_v16_6.png)
      1. Select and drag your selection to include all desired lines. To
         learn more, see [Multi-line suggestions](#multi-line-suggestions).
-1. In the comment toolbar, select **Insert suggestion** (**{doc-code}**). GitLab
+1. In the comment toolbar, select **Insert suggestion** ({{< icon name="doc-code" >}}). GitLab
    inserts a pre-populated code block into your comment, like this:
 
    ````markdown
@@ -42,12 +44,18 @@ merge request, authored by the user who suggested the changes.
 1. To add your comment immediately, select **Add comment now**, or use the keyboard shortcut:
    - macOS: <kbd>Shift</kbd> + <kbd>Command</kbd> + <kbd>Enter</kbd>
    - All other OSes: <kbd>Shift</kbd> + <kbd>Control</kbd> + <kbd>Enter</kbd>
-1. To leave your comment unpublished until you finish a [review](index.md), select
+1. To leave your comment unpublished until you finish a [review](_index.md), select
    **Start a review**, or use the keyboard shortcut:
    - macOS: <kbd>Command</kbd> + <kbd>Enter</kbd>
    - All other OSes: <kbd>Control</kbd> + <kbd>Enter</kbd>
 
 ### Multi-line suggestions
+
+{{< history >}}
+
+- Multi-line suggestions [changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/172981/) in GitLab 17.7 to support rendering when the suggestion contains a code block.
+
+{{< /history >}}
 
 When you review a merge request diff, you can propose changes to multiple lines (up to 200)
 in a single suggestion, by either:
@@ -73,22 +81,25 @@ When applied, the suggestion replaces from 2 lines above to 2 lines below the co
 
 ![Multi-line suggestion preview](img/multi-line-suggestion-preview_v16_6.png)
 
-Suggestions for multiple lines are limited to 100 lines _above_ and 100
-lines _below_ the commented diff line. This allows for up to 200 changed lines per
+GitLab limits multi-line suggestions to 100 lines above and 100
+lines below the commented diff line. This allows for up to 201 changed lines per
 suggestion.
 
-Multiline comments display the comment's line numbers above the body of the comment:
+Multi-line comments display the comment's line numbers above the body of the comment:
 
-![Multiline comment selection displayed above comment](img/multiline-comment-saved.png)
+![Multi-line comment selection displayed above comment](img/multiline-comment-saved_v17_5.png)
 
 #### Using the rich text editor
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/388449) in GitLab 16.1 [with a flag](../../../../administration/feature_flags.md) named `content_editor_on_issues`. Disabled by default.
-> - [Enabled on GitLab.com and self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/375172) in GitLab 16.2.
-> - Feature flag `content_editor_on_issues` removed in GitLab 16.5.
+{{< history >}}
 
-When you insert suggestions, you can use the WYSIWYG
-[rich text editor](../../../rich_text_editor.md) to move
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/388449) in GitLab 16.1 [with a flag](../../../../administration/feature_flags/_index.md) named `content_editor_on_issues`. Disabled by default.
+- [Enabled on GitLab.com and GitLab Self-Managed](https://gitlab.com/gitlab-org/gitlab/-/issues/375172) in GitLab 16.2.
+- Feature flag `content_editor_on_issues` removed in GitLab 16.5.
+
+{{< /history >}}
+
+When you insert suggestions, use the WYSIWYG [rich text editor](../../../rich_text_editor.md) to move
 up and down the source file's line numbers in the UI.
 
 To add or subtract changed lines, next to **From line**, select **+** or **-**.
@@ -99,7 +110,7 @@ To add or subtract changed lines, next to **From line**, select **+** or **-**.
 
 Prerequisites:
 
-- You must be the author of the merge request, or have at least the Developer role in the project.
+- You must be the author of the merge request, or have at least the Developer role for the project.
 
 To apply suggested changes directly from the merge request:
 
@@ -119,22 +130,6 @@ After you apply a suggestion, GitLab:
 - Creates a new commit with the changes.
 - (If the user has the Developer role) Pushes the suggested change directly into
   the codebase in the merge request's branch.
-
-## Nest code blocks in suggestions
-
-To add a suggestion that includes a
-[fenced code block](../../../markdown.md#code-spans-and-blocks), wrap your suggestion
-in four backticks instead of three:
-
-`````markdown
-````suggestion:-0+2
-```shell
-git config --global receive.advertisepushoptions true
-```
-````
-`````
-
-![Output of a comment with a suggestion with a fenced code block](img/suggestion_code_block_output_v16_6.png)
 
 ## Configure the commit message for applied suggestions
 
@@ -187,7 +182,7 @@ For example, to customize the commit message to output
 
 Prerequisites:
 
-- You must have a role in the project that allows you to commit to the source branch.
+- You must have a role for the project that allows you to commit to the source branch.
 
 To reduce the number of commits added to your branch, apply multiple
 suggestions in a single commit.
@@ -198,11 +193,14 @@ suggestions in a single commit.
 1. Optional. To remove a suggestion, select **Remove from batch**.
 1. After you add your desired suggestions, select **Apply suggestions**.
 
-   WARNING:
+   {{< alert type="warning" >}}
+
    If you apply a batch of suggestions containing changes from multiple authors,
    the resulting commit credits you as the author. If you configure your project
    to [prevent approvals from users who add commits](../approvals/settings.md#prevent-approvals-by-users-who-add-commits), you are no longer an eligible
    approver for this merge request.
+
+   {{< /alert >}}
 
 1. Optional. Provide a custom commit message for [batch suggestions](#batch-suggestions)
    to describe your change. If you don't specify one, it uses

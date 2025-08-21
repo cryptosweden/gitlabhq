@@ -21,12 +21,14 @@ module Search
         projects,
         order_by: params[:order_by],
         sort: params[:sort],
-        filters: filters)
+        filters: filters,
+        source: params[:source]
+      )
     end
 
     # rubocop: disable CodeReuse/ActiveRecord
     def projects
-      @projects ||= ProjectsFinder.new(current_user: current_user).execute.preload(:topics, :project_topics, :route)
+      @projects ||= ::ProjectsFinder.new(current_user: current_user).execute.preload(:topics, :project_topics, :route)
     end
 
     def allowed_scopes

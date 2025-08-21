@@ -17,7 +17,6 @@ export default {
     GlDisclosureDropdown,
     GlTooltip,
   },
-  inject: ['tiptapEditor'],
   data() {
     return {
       toggleId: uniqueId('dropdown-toggle-btn-'),
@@ -44,19 +43,9 @@ export default {
       this.maxCols = MIN_COLS;
     },
     insertTable() {
-      this.tiptapEditor
-        .chain()
-        .focus()
-        .insertTable({
-          rows: this.rows,
-          cols: this.cols,
-          withHeaderRow: true,
-        })
-        .run();
-
+      this.$emit('insert-table', { rows: this.rows, cols: this.cols });
       this.resetState();
       this.$refs.dropdown.close();
-
       this.$emit('execute', { contentType: 'table' });
     },
     getButtonLabel(rows, cols) {
@@ -96,7 +85,6 @@ export default {
       no-caret
       :aria-label="__('Insert table')"
       :toggle-text="__('Insert table')"
-      positioning-strategy="fixed"
       class="content-editor-table-dropdown gl-mr-2"
       text-sr-only
       :fluid-width="true"
@@ -109,13 +97,13 @@ export default {
         :aria-colcount="$options.MAX_COLS"
         :aria-rowcount="$options.MAX_ROWS"
       >
-        <div v-for="r of list(maxRows)" :key="r" class="gl-display-flex" role="row">
+        <div v-for="r of list(maxRows)" :key="r" class="gl-flex" role="row">
           <div v-for="c of list(maxCols)" :key="c" role="gridcell">
             <gl-button
               :ref="`table-${r}-${c}`"
-              :class="{ 'active gl-bg-blue-50!': r <= rows && c <= cols }"
+              :class="{ active: r <= rows && c <= cols }"
               :aria-label="getButtonLabel(r, c)"
-              class="table-creator-grid-item gl-display-inline gl-rounded-0! !gl-w-6 gl-h-6! gl-p-0!"
+              class="table-creator-grid-item gl-m-2 !gl-rounded-none !gl-p-0"
               @mouseover="setRowsAndCols(r, c)"
               @focus="setRowsAndCols(r, c)"
               @click="insertTable()"
@@ -124,7 +112,7 @@ export default {
           </div>
         </div>
       </div>
-      <div class="gl-border-t gl-px-4 gl-pt-3 gl-pb-2">
+      <div class="gl-border-t gl-px-4 gl-pb-2 gl-pt-3">
         {{ getButtonLabel(rows, cols) }}
       </div>
     </gl-disclosure-dropdown>

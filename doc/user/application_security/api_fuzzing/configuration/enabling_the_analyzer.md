@@ -1,10 +1,9 @@
 ---
-stage: Secure
+stage: Application Security Testing
 group: Dynamic Analysis
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Enabling the analyzer
 ---
-
-# Enabling the analyzer
 
 Prerequisites:
 
@@ -18,10 +17,13 @@ Prerequisites:
   - HTTP Archive (HAR) of API requests to test
   - Postman Collection v2.0 or v2.1
 
-  WARNING:
-  **Never** run fuzz testing against a production server. Not only can it perform *any* function that
+  {{< alert type="warning" >}}
+
+  **Never** run fuzz testing against a production server. Not only can it perform any function that
   the API can, it may also trigger bugs in the API. This includes actions like modifying and deleting
   data. Only run fuzzing against a test server.
+
+  {{< /alert >}}
 
 To enable Web API fuzzing use the Web API fuzzing configuration form.
 
@@ -53,7 +55,7 @@ To generate an API Fuzzing configuration snippet:
 1. Do one of the following:
    1. To copy the snippet to your clipboard, select **Copy code only**.
    1. To add the snippet to your project's `.gitlab-ci.yml` file, select
-      **Copy code and open `.gitlab-ci.yml` file**. The Pipeline Editor opens.
+      **Copy code and open `.gitlab-ci.yml` file**. The pipeline editor opens.
       1. Paste the snippet into the `.gitlab-ci.yml` file.
       1. Select the **Lint** tab to confirm the edited `.gitlab-ci.yml` file is valid.
       1. Select the **Edit** tab, then select **Commit changes**.
@@ -98,7 +100,7 @@ To configure API fuzzing in GitLab with an OpenAPI Specification:
 
 1. Add the `fuzz` stage to your `.gitlab-ci.yml` file.
 
-1. [Include](../../../../ci/yaml/index.md#includetemplate)
+1. [Include](../../../../ci/yaml/_index.md#includetemplate)
    the [`API-Fuzzing.gitlab-ci.yml` template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/API-Fuzzing.gitlab-ci.yml)
    in your `.gitlab-ci.yml` file.
 
@@ -129,7 +131,7 @@ Example `.gitlab-ci.yml` file using an OpenAPI Specification:
      - fuzz
 
    include:
-     - template: API-Fuzzing.gitlab-ci.yml
+     - template: Security/API-Fuzzing.gitlab-ci.yml
 
    variables:
      FUZZAPI_PROFILE: Quick-10
@@ -154,9 +156,12 @@ uses them to perform testing.
 
 For more details, including how to create a HAR file, see [HTTP Archive format](../create_har_files.md).
 
-WARNING:
+{{< alert type="warning" >}}
+
 HAR files may contain sensitive information such as authentication tokens, API keys, and session
 cookies. We recommend that you review the HAR file contents before adding them to a repository.
+
+{{< /alert >}}
 
 ### Configure Web API fuzzing with a HAR file
 
@@ -164,7 +169,7 @@ To configure API fuzzing to use a HAR file:
 
 1. Add the `fuzz` stage to your `.gitlab-ci.yml` file.
 
-1. [Include](../../../../ci/yaml/index.md#includetemplate)
+1. [Include](../../../../ci/yaml/_index.md#includetemplate)
    the [`API-Fuzzing.gitlab-ci.yml` template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/API-Fuzzing.gitlab-ci.yml)
    in your `.gitlab-ci.yml` file.
 
@@ -195,7 +200,7 @@ Example `.gitlab-ci.yml` file using a HAR file:
      - fuzz
 
    include:
-     - template: API-Fuzzing.gitlab-ci.yml
+     - template: Security/API-Fuzzing.gitlab-ci.yml
 
    variables:
      FUZZAPI_PROFILE: Quick-10
@@ -213,7 +218,11 @@ For details of API fuzzing configuration options, see [Available CI/CD variables
 
 ## GraphQL Schema
 
-> - Support for GraphQL Schema was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/352780) in GitLab 15.4.
+{{< history >}}
+
+- Support for GraphQL Schema was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/352780) in GitLab 15.4.
+
+{{< /history >}}
 
 GraphQL is a query language for your API and an alternative to REST APIs.
 API Fuzzing supports testing GraphQL endpoints multiple ways:
@@ -230,12 +239,15 @@ Introspection is enabled by default to allow tools like GraphiQL to work.
 
 The GraphQL support in API Fuzzing is able to query a GraphQL endpoint for the schema.
 
-NOTE:
+{{< alert type="note" >}}
+
 The GraphQL endpoint must support introspection queries for this method to work correctly.
+
+{{< /alert >}}
 
 To configure API Fuzzing to use an GraphQL endpoint URL that provides information about the target API to test:
 
-1. [Include](../../../../ci/yaml/index.md#includetemplate)
+1. [Include](../../../../ci/yaml/_index.md#includetemplate)
    the [`API-Fuzzing.gitlab-ci.yml` template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/API-Fuzzing.gitlab-ci.yml) in your `.gitlab-ci.yml` file.
 
 1. Provide the GraphQL endpoint path, for example `/api/graphql`. Specify the path by adding the `FUZZAPI_GRAPHQL` variable.
@@ -253,7 +265,7 @@ stages:
   - fuzz
 
 include:
-  - template: API-Fuzzing.gitlab-ci.yml
+  - template: Security/API-Fuzzing.gitlab-ci.yml
 
 apifuzzer_fuzz:
   variables:
@@ -273,7 +285,7 @@ API Fuzzing can use a GraphQL schema file to understand and test a GraphQL endpo
 
 To configure API Fuzzing to use a GraphQl schema file that provides information about the target API to test:
 
-1. [Include](../../../../ci/yaml/index.md#includetemplate)
+1. [Include](../../../../ci/yaml/_index.md#includetemplate)
    the [`API-Fuzzing.gitlab-ci.yml` template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/API-Fuzzing.gitlab-ci.yml) in your `.gitlab-ci.yml` file.
 
 1. Provide the GraphQL endpoint path, for example `/api/graphql`. Specify the path by adding the `FUZZAPI_GRAPHQL` variable.
@@ -294,7 +306,7 @@ stages:
   - fuzz
 
 include:
-  - template: API-Fuzzing.gitlab-ci.yml
+  - template: Security/API-Fuzzing.gitlab-ci.yml
 
 apifuzzer_fuzz:
   variables:
@@ -310,7 +322,7 @@ stages:
   - fuzz
 
 include:
-  - template: API-Fuzzing.gitlab-ci.yml
+  - template: Security/API-Fuzzing.gitlab-ci.yml
 
 apifuzzer_fuzz:
   variables:
@@ -337,10 +349,13 @@ When used with the GitLab API fuzzer, Postman Collections must contain definitio
 test with valid data. The API fuzzer extracts all the API definitions and uses them to perform
 testing.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Postman Collection files may contain sensitive information such as authentication tokens, API keys,
 and session cookies. We recommend that you review the Postman Collection file contents before adding
 them to a repository.
+
+{{< /alert >}}
 
 ### Configure Web API fuzzing with a Postman Collection file
 
@@ -348,7 +363,7 @@ To configure API fuzzing to use a Postman Collection file:
 
 1. Add the `fuzz` stage to your `.gitlab-ci.yml` file.
 
-1. [Include](../../../../ci/yaml/index.md#includetemplate)
+1. [Include](../../../../ci/yaml/_index.md#includetemplate)
    the [`API-Fuzzing.gitlab-ci.yml` template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Security/API-Fuzzing.gitlab-ci.yml)
    in your `.gitlab-ci.yml` file.
 
@@ -380,7 +395,7 @@ Example `.gitlab-ci.yml` file using a Postman Collection file:
      - fuzz
 
    include:
-     - template: API-Fuzzing.gitlab-ci.yml
+     - template: Security/API-Fuzzing.gitlab-ci.yml
 
    variables:
      FUZZAPI_PROFILE: Quick-10
@@ -398,9 +413,13 @@ For details of API fuzzing configuration options, see [Available CI/CD variables
 
 ### Postman variables
 
-> - Support for Postman Environment file format was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/356312) in GitLab 15.1.
-> - Support for multiple variable files was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/356312) in GitLab 15.1.
-> - Support for Postman variable scopes: Global and Environment was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/356312) in GitLab 15.1.
+{{< history >}}
+
+- Support for Postman Environment file format was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/356312) in GitLab 15.1.
+- Support for multiple variable files was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/356312) in GitLab 15.1.
+- Support for Postman variable scopes: Global and Environment was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/356312) in GitLab 15.1.
+
+{{< /history >}}
 
 #### Variables in Postman Client
 
@@ -409,15 +428,15 @@ requests. These placeholders are called variables, as explained in [using variab
 You can use variables to store and reuse values in your requests and scripts. For example, you can
 edit the collection to add variables to the document:
 
-![Edit collection variable tab View](../img/api_fuzzing_postman_collection_edit_variable.png)
+![Edit collection variable tab View](img/api_fuzzing_postman_collection_edit_variable_v13_9.png)
 
 Or alternatively, you can add variables in an environment:
 
-![Edit environment variables View](../img/api_fuzzing_postman_environment_edit_variable.png)
+![Edit environment variables View](img/api_fuzzing_postman_environment_edit_variable_v13_9.png)
 
 You can then use the variables in sections such as URL, headers, and others:
 
-![Edit request using variables View](../img/api_fuzzing_postman_request_edit.png)
+![Edit request using variables View](img/api_fuzzing_postman_request_edit_v13_9.png)
 
 Postman has grown from a basic client tool with a nice UX experience to a more complex ecosystem that allows testing APIs with scripts, creating complex collections that trigger secondary requests, and setting variables along the way. Not every feature in the Postman ecosystem is supported. For example, scripts are not supported. The main focus of the Postman support is to ingest Postman Collection definitions that are used by the Postman Client and their related variables defined in the workspace, environments, and the collections themselves.
 
@@ -425,9 +444,15 @@ Postman allows creating variables in different scopes. Each scope has a differen
 
 Variable scopes in Postman can be a daunting topic and not everyone is familiar with it. We strongly recommend that you read [Variable Scopes](https://learning.postman.com/docs/sending-requests/variables/variables/#variable-scopes) from Postman documentation before moving forward.
 
-As mentioned above, there are different variable scopes, and each of them has a purpose and can be used to provide more flexibility to your Postman document. There is an important note on how values for variables are computed, as per Postman documentation:
+As mentioned previously, there are different variable scopes, and each of them has a purpose and can be used to provide more flexibility to your Postman document. There is an important note on how values for variables are computed, as per Postman documentation:
 
-> If a variable with the same name is declared in two different scopes, the value stored in the variable with narrowest scope is used. For example, if there is a global variable named `username` and a local variable named `username`, the local value is used when the request runs.
+{{< alert type="note" >}}
+
+If a variable with the same name is declared in two different scopes, the value stored in the variable
+with narrowest scope is used. For example, if there is a global variable named `username` and
+a local variable named `username`, the local value is used when the request runs.
+
+{{< /alert >}}
 
 The following is a summary of the variable scopes supported by the Postman Client and API Fuzzing:
 
@@ -664,7 +689,7 @@ stages:
      - fuzz
 
 include:
-  - template: API-Fuzzing.gitlab-ci.yml
+  - template: Security/API-Fuzzing.gitlab-ci.yml
 
 variables:
   FUZZAPI_PROFILE: Quick-10
@@ -684,7 +709,7 @@ stages:
   - fuzz
 
 include:
-  - template: API-Fuzzing.gitlab-ci.yml
+  - template: Security/API-Fuzzing.gitlab-ci.yml
 
 variables:
   FUZZAPI_PROFILE: Quick
@@ -704,7 +729,7 @@ stages:
   - fuzz
 
 include:
-  - template: API-Fuzzing.gitlab-ci.yml
+  - template: Security/API-Fuzzing.gitlab-ci.yml
 
 variables:
   FUZZAPI_PROFILE: Quick
@@ -724,7 +749,7 @@ stages:
   - fuzz
 
 include:
-  - template: API-Fuzzing.gitlab-ci.yml
+  - template: Security/API-Fuzzing.gitlab-ci.yml
 
 variables:
   FUZZAPI_PROFILE: Quick
@@ -758,7 +783,7 @@ stages:
   - fuzz
 
 include:
-  - template: API-Fuzzing.gitlab-ci.yml
+  - template: Security/API-Fuzzing.gitlab-ci.yml
 
 variables:
   FUZZAPI_PROFILE: Quick
@@ -790,7 +815,7 @@ stages:
   - fuzz
 
 include:
-  - template: API-Fuzzing.gitlab-ci.yml
+  - template: Security/API-Fuzzing.gitlab-ci.yml
 
 variables:
   FUZZAPI_PROFILE: Quick
@@ -825,7 +850,7 @@ stages:
   - fuzz
 
 include:
-  - template: API-Fuzzing.gitlab-ci.yml
+  - template: Security/API-Fuzzing.gitlab-ci.yml
 
 variables:
   FUZZAPI_PROFILE: Quick
@@ -841,8 +866,8 @@ When configured correctly, a CI/CD pipeline contains a `fuzz` stage and an `apif
 typical operation, the job always succeeds even if faults are identified during fuzz testing.
 
 Faults are displayed on the **Security** pipeline tab with the suite name. When testing against the
-repositories default branch, the fuzzing faults are also shown on the Security and Compliance's
-Vulnerability Report page.
+repositories default branch, the fuzzing faults are also shown on the Security and compliance's
+vulnerability report.
 
 To prevent an excessive number of reported faults, the API fuzzing scanner limits the number of
 faults it reports.
@@ -898,13 +923,13 @@ Follow these steps to view details of a fuzzing fault:
 
 Fuzzing faults show up as vulnerabilities with a severity of Unknown. The Security Dashboard is a
 good place to get an overview of all the security vulnerabilities in your groups, projects and
-pipelines. For more information, see the [Security Dashboard documentation](../../security_dashboard/index.md).
+pipelines. For more information, see the [Security Dashboard documentation](../../security_dashboard/_index.md).
 
 ### Interacting with the vulnerabilities
 
 Fuzzing faults show up as vulnerabilities with a severity of Unknown.
-Once a fault is found, you can interact with it. Read more on how to
-[address the vulnerabilities](../../vulnerabilities/index.md).
+After a fault is found, you can interact with it. Read more on how to
+[address the vulnerabilities](../../vulnerabilities/_index.md).
 
 ## Handling False Positives
 

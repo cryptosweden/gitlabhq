@@ -1,14 +1,24 @@
 ---
-stage: Secure
+stage: Application Security Testing
 group: Dynamic Analysis
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Migrating from the DAST proxy-based analyzer to DAST version 5
 ---
 
-# Migrating from the DAST proxy-based analyzer to DAST version 5
+{{< details >}}
 
-> - The [DAST proxy-based analyzer](proxy-based.md) was [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/430966) in GitLab 16.6 and removed in 17.0.
+- Tier: Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-[DAST version 5](browser/index.md) replaces the proxy-based analyzer with a browser-based analyzer. This document serves as a guide to
+{{< /details >}}
+
+{{< history >}}
+
+- The [DAST proxy-based analyzer](proxy_based_to_browser_based_migration_guide.md) was [deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/430966) in GitLab 16.6 and removed in 17.0.
+
+{{< /history >}}
+
+[DAST version 5](browser/_index.md) replaces the proxy-based analyzer with a browser-based analyzer. This document serves as a guide to
 migrate from the proxy-based analyzer to DAST version 5.
 
 Follow this migration guide if all the following conditions apply:
@@ -22,13 +32,9 @@ Migrate to DAST version 5 by reading the following sections and making the recom
 
 ## DAST analyzer versions
 
-DAST comes in two major versions: 4 and 5. Effective from the third GitLab 17.0 breaking change window,
-2024-05-06 09:00 UTC to 2024-05-08 22:00 UTC, the DAST templates `DAST.gitlab-ci.yml` and `DAST.latest.gitlab-ci.yml`
-use DAST version 5 by default.
-
-You can continue using DAST version 4, but you should do so only as an
-interim measure while migrating to DAST version 5. For details, see
-[Continuing to use the proxy-based analyzer](#continuing-to-use-the-proxy-based-analyzer).
+DAST comes in two major versions: 4 and 5.
+Effective from GitLab 17.0 the DAST templates `DAST.gitlab-ci.yml` and `DAST.latest.gitlab-ci.yml` use DAST version 5 by default.
+You can continue using DAST version 4, but you should do so only as an interim measure while migrating to DAST version 5. For details, see [Continuing to use the proxy-based analyzer](#continuing-to-use-the-proxy-based-analyzer).
 
 Each DAST major version uses different analyzers by default:
 
@@ -43,7 +49,7 @@ Changes to make:
 
 ## Continuing to use the proxy-based analyzer
 
-You can use proxy-based DAST until GitLab 18.0. Bugs and vulnerabilities in this legacy analyzer will not be fixed.
+You can use the proxy-based DAST analyzer until GitLab 18.0. Bugs and vulnerabilities in this legacy analyzer will not be fixed.
 
 Changes to make:
 
@@ -104,7 +110,7 @@ Changes to make:
 
 - Use `DAST_CHECKS_TO_RUN` instead of `DAST_ONLY_INCLUDE_RULES`. Change the IDs used to GitLab DAST vulnerability check IDs.
 - Use `DAST_CHECKS_TO_EXCLUDE` instead of `DAST_EXCLUDE_RULES`. Change the IDs used to GitLab DAST vulnerability check IDs.
-- See [vulnerability check](browser/checks/index.md) documentation for descriptions and IDs of GitLab DAST vulnerability checks.
+- See [vulnerability check](browser/checks/_index.md) documentation for descriptions and IDs of GitLab DAST vulnerability checks.
 - CI/CD variables `DAST_AGGREGATE_VULNERABILITIES` and `DAST_MAX_URLS_PER_VULNERABILITY` are no longer supported.
 
 ### Why migrating produces different vulnerabilities
@@ -119,16 +125,14 @@ DAST version 5 scans provide better coverage of your application, so they may id
 
 ### Coverage
 
-There are three proxy-based active checks that DAST version 5 does not cover. Adding more checks to provide complete coverage
-is in active development, you may remain on `DAST_VERSION: 4` until they are complete. See [Continuing to use the proxy-based analyzer](#continuing-to-use-the-proxy-based-analyzer).
+One proxy-based active check is yet to be implemented in the browser-based DAST analyzer.
+Migration of the remaining active check is proposed in
+[epic 13411](https://gitlab.com/groups/gitlab-org/-/epics/13411). If you prefer to remain on DAST
+version 4 until the last check is migrated, see [Continuing to use the proxy-based analyzer](#continuing-to-use-the-proxy-based-analyzer).
 
-Remaining checks:
+Remaining check:
 
 - CWE-79: Cross-site Scripting (XSS)
-- CWE-384: Session Fixation
-- CWE-16: TRACE HTTP
-
-Follow the progress of the remaining checks in the epic [Remaining active checks for BBD](https://gitlab.com/groups/gitlab-org/-/epics/13411).
 
 ## On-demand scans
 
@@ -141,7 +145,7 @@ See the DAST version 5 [troubleshooting](browser/troubleshooting.md) documentati
 ## Changes to CI/CD variables
 
 The following table outlines migration actions required for each proxy-based analyzer CI/CD variable.
-See [configuration](browser/configuration/index.md) for more information on configuring DAST version 5.
+See [configuration](browser/configuration/_index.md) for more information on configuring DAST version 5.
 
 | Proxy-based analyzer CI/CD variable  | Required action          | Notes                                                                                    |
 |:-------------------------------------|:-------------------------|:-----------------------------------------------------------------------------------------|
@@ -173,7 +177,7 @@ See [configuration](browser/configuration/index.md) for more information on conf
 | `DAST_TARGET_AVAILABILITY_TIMEOUT`   | Change                   | To `DAST_TARGET_CHECK_TIMEOUT` using a duration. For example, instead of `60`, use `60s` |
 | `DAST_USE_AJAX_SPIDER`               | Remove                   | Not supported                                                                            |
 | `DAST_XML_REPORT`                    | Remove                   | Not supported                                                                            |
-| `DAST_WEBSITE`                       | Rename                   | To `DAST_TARGET_URL`                                                                     |
+| `DAST_WEBSITE`                              | Rename             | To `DAST_TARGET_URL`<br/>GitLab Self-Managed: Upgrade your instance to version 17.0 or later before removing `DAST_WEBSITE`. This variable is required if you use the `DAST.gitlab-ci.yml` file included with pre-17.0 versions of GitLab. |
 | `DAST_ZAP_CLI_OPTIONS`               | Remove                   | Not supported                                                                            |
 | `DAST_ZAP_LOG_CONFIGURATION`         | Remove                   | Not supported                                                                            |
 | `SECURE_ANALYZERS_PREFIX`            | None                     | Supported                                                                                |

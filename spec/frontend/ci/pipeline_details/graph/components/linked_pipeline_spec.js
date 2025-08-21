@@ -1,6 +1,6 @@
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
-import { GlButton, GlLoadingIcon, GlTooltip } from '@gitlab/ui';
+import { GlButton, GlLoadingIcon, GlPopover } from '@gitlab/ui';
 import { createWrapper } from '@vue/test-utils';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
@@ -36,7 +36,7 @@ describe('Linked pipeline', () => {
 
   const findButton = () => wrapper.findComponent(GlButton);
   const findCancelButton = () => wrapper.findByLabelText('Cancel downstream pipeline');
-  const findCardTooltip = () => wrapper.findComponent(GlTooltip);
+  const findCardPopover = () => wrapper.findComponent(GlPopover);
   const findDownstreamPipelineTitle = () => wrapper.findByTestId('downstream-title-content');
   const findExpandButton = () => wrapper.findByTestId('expand-pipeline-button');
   const findLinkedPipeline = () => wrapper.findComponent({ ref: 'linkedPipeline' });
@@ -104,17 +104,8 @@ describe('Linked pipeline', () => {
       expect(wrapper.text()).toContain(`#${props.pipeline.id}`);
     });
 
-    it('adds the card tooltip text to the DOM', () => {
-      expect(findCardTooltip().exists()).toBe(true);
-
-      expect(findCardTooltip().text()).toContain(mockPipeline.project.name);
-      expect(findCardTooltip().text()).toContain(mockPipeline.status.label);
-      expect(findCardTooltip().text()).toContain(mockPipeline.sourceJob.name);
-      expect(findCardTooltip().text()).toContain(mockPipeline.id.toString());
-    });
-
     it('should display multi-project label when pipeline project id is not the same as triggered pipeline project id', () => {
-      expect(findPipelineLabel().text()).toBe('Multi-project');
+      expect(findPipelineLabel().text()).toBe('multi-project');
     });
   });
 
@@ -124,7 +115,7 @@ describe('Linked pipeline', () => {
     });
 
     it('should display parent label when pipeline project id is the same as triggered_by pipeline project id', () => {
-      expect(findPipelineLabel().exists()).toBe(true);
+      expect(findPipelineLabel().text()).toBe('parent');
     });
 
     it('upstream pipeline should contain the correct link', () => {
@@ -132,8 +123,8 @@ describe('Linked pipeline', () => {
     });
 
     it('applies the reverse-row css class to the card', () => {
-      expect(findLinkedPipeline().classes()).toContain('gl-flex-direction-row-reverse');
-      expect(findLinkedPipeline().classes()).not.toContain('gl-flex-direction-row');
+      expect(findLinkedPipeline().classes()).toContain('gl-flex-row-reverse');
+      expect(findLinkedPipeline().classes()).not.toContain('gl-flex-row');
     });
   });
 
@@ -160,9 +151,38 @@ describe('Linked pipeline', () => {
       });
 
       it('applies the flex-row css class to the card', () => {
-        expect(findLinkedPipeline().classes()).toContain('gl-flex-direction-row');
-        expect(findLinkedPipeline().classes()).not.toContain('gl-flex-direction-row-reverse');
+        expect(findLinkedPipeline().classes()).toContain('gl-flex-row');
+        expect(findLinkedPipeline().classes()).not.toContain('gl-flex-row-reverse');
       });
+    });
+
+    describe('card title/popover', () => {
+      it.each`
+        name                    | pipelineProps                | expectedTitle                                                     | shouldContain                                                                          | shouldNotContain
+        ${'with pipeline name'} | ${{ name: 'Pipeline name' }} | ${'Pipeline name'}                                                | ${['Pipeline name', mockPipeline.status.label, mockPipeline.sourceJob.name]}           | ${[]}
+        ${'multi-project'}      | ${{ multiproject: true }}    | ${`${mockPipeline.sourceJob.name}: ${mockPipeline.project.name}`} | ${[mockPipeline.project.name, mockPipeline.sourceJob.name, mockPipeline.status.label]} | ${[]}
+        ${'in-project child'}   | ${{ multiproject: false }}   | ${mockPipeline.sourceJob.name}                                    | ${[mockPipeline.sourceJob.name, mockPipeline.status.label]}                            | ${[mockPipeline.project.name]}
+      `(
+        '$name: renders correct card title and popover content',
+        ({ pipelineProps, expectedTitle, shouldContain, shouldNotContain }) => {
+          const pipelineConfig = {
+            ...downstreamProps,
+            pipeline: { ...mockPipeline, ...pipelineProps },
+          };
+          createComponent({ propsData: pipelineConfig });
+
+          expect(findDownstreamPipelineTitle().text()).toBe(expectedTitle);
+
+          const popoverText = findCardPopover().text();
+          shouldContain.forEach((content) => {
+            expect(popoverText).toContain(content);
+          });
+
+          shouldNotContain.forEach((content) => {
+            expect(popoverText).not.toContain(content);
+          });
+        },
+      );
     });
 
     describe('action button', () => {
@@ -206,11 +226,11 @@ describe('Linked pipeline', () => {
               ${findRetryButton}  | ${'retry button'}
               ${findExpandButton} | ${'expand button'}
             `('hides the card tooltip when $name is hovered', async ({ findElement }) => {
-              expect(findCardTooltip().exists()).toBe(true);
+              expect(findCardPopover().exists()).toBe(true);
 
               await findElement().trigger('mouseover');
 
-              expect(findCardTooltip().exists()).toBe(false);
+              expect(findCardPopover().exists()).toBe(false);
             });
 
             describe('and the retry button is clicked', () => {
@@ -273,11 +293,11 @@ describe('Linked pipeline', () => {
               ${findCancelButton} | ${'cancel button'}
               ${findExpandButton} | ${'expand button'}
             `('hides the card tooltip when $name is hovered', async ({ findElement }) => {
-              expect(findCardTooltip().exists()).toBe(true);
+              expect(findCardPopover().exists()).toBe(true);
 
               await findElement().trigger('mouseover');
 
-              expect(findCardTooltip().exists()).toBe(false);
+              expect(findCardPopover().exists()).toBe(false);
             });
 
             describe('and the cancel button is clicked', () => {
@@ -363,10 +383,10 @@ describe('Linked pipeline', () => {
   describe('expand button', () => {
     it.each`
       pipelineType       | chevronPosition       | buttonBorderClasses | expanded
-      ${downstreamProps} | ${'chevron-lg-right'} | ${'gl-border-l-0!'} | ${false}
-      ${downstreamProps} | ${'chevron-lg-left'}  | ${'gl-border-l-0!'} | ${true}
-      ${upstreamProps}   | ${'chevron-lg-left'}  | ${'gl-border-r-0!'} | ${false}
-      ${upstreamProps}   | ${'chevron-lg-right'} | ${'gl-border-r-0!'} | ${true}
+      ${downstreamProps} | ${'chevron-lg-right'} | ${'!gl-border-l-0'} | ${false}
+      ${downstreamProps} | ${'chevron-lg-left'}  | ${'!gl-border-l-0'} | ${true}
+      ${upstreamProps}   | ${'chevron-lg-left'}  | ${'!gl-border-r-0'} | ${false}
+      ${upstreamProps}   | ${'chevron-lg-right'} | ${'!gl-border-r-0'} | ${true}
     `(
       '$pipelineType.columnTitle pipeline button icon should be $chevronPosition with $buttonBorderClasses if expanded state is $expanded',
       ({ pipelineType, chevronPosition, buttonBorderClasses, expanded }) => {

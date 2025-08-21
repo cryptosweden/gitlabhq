@@ -60,13 +60,14 @@ class Oauth::ApplicationsController < Doorkeeper::ApplicationsController
   end
 
   def set_index_vars
-    @applications = current_user.oauth_applications.load
+    @applications = current_user.oauth_applications.keyset_paginate(cursor: params[:cursor])
+    @applications_total_count = current_user.oauth_applications.count
     @authorized_tokens = current_user.oauth_authorized_tokens
                                      .latest_per_application
                                      .preload_application
 
     # Don't overwrite a value possibly set by `create`
-    @application ||= Doorkeeper::Application.new
+    @application ||= Authn::OauthApplication.new
   end
 
   # Override Doorkeeper to scope to the current user

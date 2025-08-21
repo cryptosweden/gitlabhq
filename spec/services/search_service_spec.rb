@@ -9,14 +9,17 @@ RSpec.describe SearchService, feature_category: :global_search do
   let_it_be(:inaccessible_group) { create(:group, :private) }
   let_it_be(:group_member) { create(:group_member, group: accessible_group, user: user) }
 
-  let_it_be(:accessible_project) { create(:project, :repository, :private, name: 'accessible_project', maintainers: user) }
+  let_it_be(:accessible_project) do
+    create(:project, :repository, :private, name: 'accessible_project', maintainers: user)
+  end
+
   let_it_be(:note) { create(:note_on_issue, project: accessible_project) }
 
   let_it_be(:inaccessible_project) { create(:project, :repository, :private, name: 'inaccessible_project') }
 
-  let(:snippet) { create(:snippet, author: user) }
-  let(:group_project) { create(:project, group: accessible_group, name: 'group_project') }
-  let(:public_project) { create(:project, :public, name: 'public_project') }
+  let_it_be(:snippet) { create(:personal_snippet, author: user) }
+  let_it_be(:group_project) { create(:project, group: accessible_group, name: 'group_project') }
+  let_it_be(:public_project) { create(:project, :public, name: 'public_project') }
 
   let(:page) { 1 }
   let(:per_page) { described_class::DEFAULT_PER_PAGE }
@@ -121,7 +124,8 @@ RSpec.describe SearchService, feature_category: :global_search do
     context 'with accessible project_id' do
       context 'and allowed scope' do
         it 'returns the specified scope' do
-          scope = described_class.new(user, project_id: accessible_project.id, scope: 'notes', search: valid_search).scope
+          scope = described_class.new(user, project_id: accessible_project.id,
+            scope: 'notes', search: valid_search).scope
 
           expect(scope).to eq 'notes'
         end
@@ -129,7 +133,8 @@ RSpec.describe SearchService, feature_category: :global_search do
 
       context 'and disallowed scope' do
         it 'returns the default scope' do
-          scope = described_class.new(user, project_id: accessible_project.id, scope: 'projects', search: valid_search).scope
+          scope = described_class.new(user, project_id: accessible_project.id,
+            scope: 'projects', search: valid_search).scope
 
           expect(scope).to eq 'blobs'
         end
@@ -254,12 +259,13 @@ RSpec.describe SearchService, feature_category: :global_search do
         let(:per_page) { nil }
 
         it "defaults to #{described_class::DEFAULT_PER_PAGE}" do
-          expect_any_instance_of(Gitlab::SearchResults)
-            .to receive(:objects)
+          expect_next_instance_of(Gitlab::SearchResults) do |search_results|
+            expect(search_results).to receive(:objects)
             .with(anything, hash_including(per_page: described_class::DEFAULT_PER_PAGE))
             .and_call_original
+          end
 
-          subject.search_objects
+          search_service.search_objects
         end
       end
 
@@ -267,12 +273,13 @@ RSpec.describe SearchService, feature_category: :global_search do
         let(:per_page) { '' }
 
         it "defaults to #{described_class::DEFAULT_PER_PAGE}" do
-          expect_any_instance_of(Gitlab::SearchResults)
-            .to receive(:objects)
+          expect_next_instance_of(Gitlab::SearchResults) do |search_results|
+            expect(search_results).to receive(:objects)
             .with(anything, hash_including(per_page: described_class::DEFAULT_PER_PAGE))
             .and_call_original
+          end
 
-          subject.search_objects
+          search_service.search_objects
         end
       end
 
@@ -280,12 +287,13 @@ RSpec.describe SearchService, feature_category: :global_search do
         let(:per_page) { '-1' }
 
         it "defaults to #{described_class::DEFAULT_PER_PAGE}" do
-          expect_any_instance_of(Gitlab::SearchResults)
-            .to receive(:objects)
-            .with(anything, hash_including(per_page: described_class::DEFAULT_PER_PAGE))
-            .and_call_original
+          expect_next_instance_of(Gitlab::SearchResults) do |search_results|
+            expect(search_results).to receive(:objects)
+              .with(anything, hash_including(per_page: described_class::DEFAULT_PER_PAGE))
+              .and_call_original
+          end
 
-          subject.search_objects
+          search_service.search_objects
         end
       end
 
@@ -293,12 +301,13 @@ RSpec.describe SearchService, feature_category: :global_search do
         let(:per_page) { '50' }
 
         it "converts to integer and passes to search results" do
-          expect_any_instance_of(Gitlab::SearchResults)
-            .to receive(:objects)
-            .with(anything, hash_including(per_page: 50))
-            .and_call_original
+          expect_next_instance_of(Gitlab::SearchResults) do |search_results|
+            expect(search_results).to receive(:objects)
+              .with(anything, hash_including(per_page: 50))
+              .and_call_original
+          end
 
-          subject.search_objects
+          search_service.search_objects
         end
       end
 
@@ -306,12 +315,13 @@ RSpec.describe SearchService, feature_category: :global_search do
         let(:per_page) { described_class::MAX_PER_PAGE + 1 }
 
         it "passes #{described_class::MAX_PER_PAGE}" do
-          expect_any_instance_of(Gitlab::SearchResults)
-            .to receive(:objects)
-            .with(anything, hash_including(per_page: described_class::MAX_PER_PAGE))
-            .and_call_original
+          expect_next_instance_of(Gitlab::SearchResults) do |search_results|
+            expect(search_results).to receive(:objects)
+              .with(anything, hash_including(per_page: described_class::MAX_PER_PAGE))
+              .and_call_original
+          end
 
-          subject.search_objects
+          search_service.search_objects
         end
       end
     end
@@ -320,26 +330,28 @@ RSpec.describe SearchService, feature_category: :global_search do
       context 'when < 1' do
         let(:page) { 0 }
 
-        it "defaults to 1" do
-          expect_any_instance_of(Gitlab::SearchResults)
-            .to receive(:objects)
-            .with(anything, hash_including(page: 1))
-            .and_call_original
+        it 'defaults to 1' do
+          expect_next_instance_of(Gitlab::SearchResults) do |search_results|
+            expect(search_results).to receive(:objects)
+              .with(anything, hash_including(page: 1))
+              .and_call_original
+          end
 
-          subject.search_objects
+          search_service.search_objects
         end
       end
 
       context 'when nil' do
         let(:page) { nil }
 
-        it "defaults to 1" do
-          expect_any_instance_of(Gitlab::SearchResults)
-            .to receive(:objects)
-            .with(anything, hash_including(page: 1))
-            .and_call_original
+        it 'defaults to 1' do
+          expect_next_instance_of(Gitlab::SearchResults) do |search_results|
+            expect(search_results).to receive(:objects)
+              .with(anything, hash_including(page: 1))
+              .and_call_original
+          end
 
-          subject.search_objects
+          search_service.search_objects
         end
       end
     end
@@ -404,21 +416,6 @@ RSpec.describe SearchService, feature_category: :global_search do
     it_behaves_like 'a redacted search results'
   end
 
-  describe '#valid_request?' do
-    let(:scope) { 'issues' }
-    let(:search) { 'foobar' }
-    let(:params) { instance_double(Gitlab::Search::Params) }
-
-    before do
-      allow(Gitlab::Search::Params).to receive(:new).and_return(params)
-      allow(params).to receive(:valid?).and_return double(:valid?)
-    end
-
-    it 'is the return value of params.valid?' do
-      expect(subject.valid_request?).to eq(params.valid?)
-    end
-  end
-
   describe '#abuse_messages' do
     let(:scope) { 'issues' }
     let(:search) { 'foobar' }
@@ -429,14 +426,14 @@ RSpec.describe SearchService, feature_category: :global_search do
     end
 
     it 'returns an empty array when not abusive' do
-      allow(params).to receive(:abusive?).and_return false
-      expect(subject.abuse_messages).to match_array([])
+      allow(search_service).to receive(:abuse_detected?).and_return false
+      expect(search_service.abuse_messages).to be_empty
     end
 
     it 'calls on abuse_detection.errors.full_messages when abusive' do
-      allow(params).to receive(:abusive?).and_return true
+      allow(search_service).to receive(:abuse_detected?).and_return true
       expect(params).to receive_message_chain(:abuse_detection, :errors, :full_messages)
-      subject.abuse_messages
+      search_service.abuse_messages
     end
   end
 
@@ -445,31 +442,30 @@ RSpec.describe SearchService, feature_category: :global_search do
 
     let(:raw_params) { { search: search, scope: scope } }
     let(:search) { 'foobar' }
-
-    let(:search_service) { double(:search_service) }
+    let(:search_service_double) { instance_double(Search::GlobalService) }
 
     before do
-      expect(Gitlab::Search::Params).to receive(:new)
-        .with(raw_params, detect_abuse: true).and_call_original
+      allow(search_service).to receive_messages(search_service: search_service_double, search_type: 'basic')
 
-      allow(subject).to receive(:search_service).and_return search_service
+      allow(Gitlab::Search::Params).to receive(:new)
+        .with(raw_params, detect_abuse: true).and_call_original
     end
 
-    context 'a search is abusive' do
+    context 'when a search is abusive' do
       let(:scope) { '1;drop%20table' }
 
       it 'does NOT execute search service' do
-        expect(search_service).not_to receive(:execute)
-        subject.search_results
+        expect(search_service_double).not_to receive(:execute)
+        search_service.search_results
       end
     end
 
-    context 'a search is NOT abusive' do
+    context 'when a search is NOT abusive' do
       let(:scope) { 'issues' }
 
       it 'executes search service' do
-        expect(search_service).to receive(:execute)
-        subject.search_results
+        expect(search_service_double).to receive(:execute)
+        search_service.search_results
       end
     end
   end
@@ -478,28 +474,22 @@ RSpec.describe SearchService, feature_category: :global_search do
     using RSpec::Parameterized::TableSyntax
     let(:search) { 'foobar' }
 
-    where(:scope, :feature_flag, :enabled, :expected) do
-      'blobs'          | :global_search_code_tab           | false | false
-      'blobs'          | :global_search_code_tab           | true  | true
-      'commits'        | :global_search_commits_tab        | false | false
-      'commits'        | :global_search_commits_tab        | true  | true
-      'issues'         | :global_search_issues_tab         | false | false
-      'issues'         | :global_search_issues_tab         | true  | true
-      'merge_requests' | :global_search_merge_requests_tab | false | false
-      'merge_requests' | :global_search_merge_requests_tab | true  | true
-      'snippet_titles' | :global_search_snippet_titles_tab | false | false
-      'snippet_titles' | :global_search_snippet_titles_tab | true  | true
-      'wiki_blobs'     | :global_search_wiki_tab           | false | false
-      'wiki_blobs'     | :global_search_wiki_tab           | true  | true
-      'users'          | :global_search_users_tab          | false | false
-      'users'          | :global_search_users_tab          | true  | true
-      'random'         | :random                           | nil   | true
+    where(:scope, :admin_setting, :setting_enabled, :expected) do
+      'issues'         | :global_search_issues_enabled         | false | false
+      'issues'         | :global_search_issues_enabled         | true  | true
+      'merge_requests' | :global_search_merge_requests_enabled | false | false
+      'merge_requests' | :global_search_merge_requests_enabled | true  | true
+      'snippet_titles' | :global_search_snippet_titles_enabled | false | false
+      'snippet_titles' | :global_search_snippet_titles_enabled | true  | true
+      'users'          | :global_search_users_enabled          | false | false
+      'users'          | :global_search_users_enabled          | true  | true
+      'random'         | :random                               | nil   | true
     end
 
     with_them do
       it 'returns false when feature_flag is not enabled and returns true when feature_flag is enabled' do
-        stub_feature_flags(feature_flag => enabled)
-        expect(subject.global_search_enabled_for_scope?).to eq expected
+        stub_application_setting(admin_setting => setting_enabled)
+        expect(search_service.global_search_enabled_for_scope?).to eq expected
       end
     end
 
@@ -511,15 +501,53 @@ RSpec.describe SearchService, feature_category: :global_search do
       end
 
       it 'returns false when feature_flag is not enabled' do
-        stub_feature_flags(global_search_snippet_titles_tab: false)
+        stub_application_setting(global_search_snippet_titles_enabled: false)
 
-        expect(subject.global_search_enabled_for_scope?).to eq false
+        expect(search_service.global_search_enabled_for_scope?).to be false
       end
 
       it 'returns true when feature_flag is enabled' do
-        stub_feature_flags(global_search_snippet_titles_tab: true)
+        stub_application_setting(global_search_snippet_titles_enabled: true)
 
-        expect(subject.global_search_enabled_for_scope?).to eq true
+        expect(search_service.global_search_enabled_for_scope?).to be true
+      end
+    end
+  end
+
+  describe '#abuse_detected?' do
+    let(:instance) { described_class.new(nil, params) }
+    let(:params) do
+      { search: search }
+    end
+
+    context 'when params are abusive' do
+      let(:search) { 'f' }
+
+      it 'returns true and not checks for abusive_pipes' do
+        expect(instance).not_to receive(:abusive_pipes?)
+        expect(instance.abuse_detected?).to be true
+      end
+    end
+
+    context 'when params are not abusive' do
+      context 'when abuse_detection.abusive_pipes? returns true' do
+        let(:search) { 'foo|f' }
+
+        it 'returns true' do
+          allow_next_instance_of(Gitlab::Search::AbuseDetection) do |instance|
+            allow(instance).to receive(:abusive_pipes?).and_return(true)
+          end
+          expect(instance.abuse_detected?).to be true
+        end
+      end
+
+      context 'when abuse_detection.abusive_pipes? returns false' do
+        let(:search) { 'foo|bar' }
+
+        it 'returns false' do
+          allow(instance.params.abuse_detection).to receive(:abusive_pipes?).and_return(false)
+          expect(instance.abuse_detected?).to be false
+        end
       end
     end
   end

@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Group', feature_category: :groups_and_projects do
-  let_it_be(:user) { create(:user) }
+RSpec.describe 'Group', :with_current_organization, feature_category: :groups_and_projects do
+  let_it_be(:user) { create(:user, organizations: [current_organization]) }
 
   before do
     sign_in(user)
@@ -34,33 +34,6 @@ RSpec.describe 'Group', feature_category: :groups_and_projects do
         expect(group.visibility_level).to eq(Gitlab::VisibilityLevel::PUBLIC)
         expect(page).to have_current_path(group_path(group), ignore_query: true)
         expect(page).to have_selector '.visibility-icon [data-testid="earth-icon"]'
-      end
-
-      context 'with current organization setting in middleware' do
-        let_it_be(:another_organization) { create(:organization, users: [user]) }
-
-        before_all do
-          create(:organization, :default)
-        end
-
-        context 'for setting from the header' do
-          it 'sets the organization to another organization', :feature do
-            fill_in 'Group name', with: 'test-group'
-
-            inspect_requests(
-              inject_headers: {
-                ::Organizations::ORGANIZATION_HTTP_HEADER.sub(/^HTTP_/, '') => another_organization.id.to_s
-              }
-            ) do
-              click_button 'Create group'
-            end
-
-            group = Group.find_by(name: 'test-group')
-
-            expect(group.organization).to eq(another_organization)
-            expect(page).to have_current_path(group_path(group), ignore_query: true)
-          end
-        end
       end
     end
 
@@ -192,32 +165,6 @@ RSpec.describe 'Group', feature_category: :groups_and_projects do
       end
     end
 
-    describe 'showing recaptcha on group creation when it is enabled' do
-      before do
-        stub_application_setting(recaptcha_enabled: true)
-        allow(Gitlab::Recaptcha).to receive(:load_configurations!)
-        visit new_group_path
-        click_link 'Create group'
-      end
-
-      it 'renders recaptcha' do
-        expect(page).to have_css('.recaptcha')
-      end
-    end
-
-    describe 'not showing recaptcha on group creation when it is disabled' do
-      before do
-        stub_feature_flags(recaptcha_on_top_level_group_creation: false)
-        stub_application_setting(recaptcha_enabled: true)
-        visit new_group_path
-        click_link 'Create group'
-      end
-
-      it 'does not render recaptcha' do
-        expect(page).not_to have_css('.recaptcha')
-      end
-    end
-
     describe 'showing personalization questions on group creation when it is enabled' do
       before do
         stub_application_setting(hide_third_party_offers: false)
@@ -242,13 +189,40 @@ RSpec.describe 'Group', feature_category: :groups_and_projects do
         expect(page).not_to have_content('Now, personalize your GitLab experience')
       end
     end
+
+    context 'with default active instance integration' do
+      it 'creates a new group with default integration' do
+        integration = create(:jira_integration, :instance, active: true)
+
+        expect(integration.active?).to be(true)
+        expect(integration.instance?).to be(true)
+
+        fill_in 'Group name', with: 'with-default-active-integration'
+        find("input[name='group[visibility_level]'][value='#{Gitlab::VisibilityLevel::PUBLIC}']").click
+        click_button 'Create group'
+
+        group = Group.find_by(name: 'with-default-active-integration')
+
+        expect(page).to have_content("Group with-default-active-integration was successfully created.")
+
+        visit(group_settings_integrations_path(group))
+
+        within_testid('active-integrations-table') do
+          expect(page).to have_content("Jira issues")
+          expect(page).to have_content("Use Jira as this project's issue tracker.")
+        end
+
+        expect(group.jira_integration).to be_present
+        expect(group.jira_integration.inherit_from_id).to eq(integration.id)
+      end
+    end
   end
 
   describe 'create a nested group', :js do
-    let_it_be(:group) { create(:group, path: 'foo') }
+    let_it_be(:group) { create(:group, path: 'foo', organization: current_organization) }
 
     context 'as admin' do
-      let(:user) { create(:admin) }
+      let(:user) { create(:admin, organizations: [current_organization]) }
 
       before do
         visit new_group_path(parent_id: group.id, anchor: 'create-group-pane')
@@ -273,7 +247,7 @@ RSpec.describe 'Group', feature_category: :groups_and_projects do
 
     context 'as group owner' do
       it 'creates a nested group' do
-        user = create(:user)
+        user = create(:user, organizations: [current_organization])
 
         group.add_owner(user)
         sign_out(:user)
@@ -289,26 +263,9 @@ RSpec.describe 'Group', feature_category: :groups_and_projects do
       end
     end
 
-    context 'when recaptcha is enabled' do
-      before do
-        stub_application_setting(recaptcha_enabled: true)
-        allow(Gitlab::Recaptcha).to receive(:load_configurations!)
-      end
-
-      context 'when creating subgroup' do
-        let(:path) { new_group_path(parent_id: group.id, anchor: 'create-group-pane') }
-
-        it 'does not render recaptcha' do
-          visit path
-
-          expect(page).not_to have_css('.recaptcha')
-        end
-      end
-    end
-
     context 'when many parent groups are available' do
-      let_it_be(:group2) { create(:group, path: 'foo2') }
-      let_it_be(:group3) { create(:group, path: 'foo3') }
+      let_it_be(:group2) { create(:group, path: 'foo2', organization: group.organization) }
+      let_it_be(:group3) { create(:group, path: 'foo3', organization: group.organization) }
 
       before do
         group.add_owner(user)
@@ -365,7 +322,7 @@ RSpec.describe 'Group', feature_category: :groups_and_projects do
     visit new_group_path(parent_id: group.id, anchor: 'create-group-pane')
 
     expect(page).to have_title('Not Found')
-    expect(page).to have_content('Page Not Found')
+    expect(page).to have_content('Page not found')
   end
 
   describe 'group edit', :js do
@@ -380,19 +337,8 @@ RSpec.describe 'Group', feature_category: :groups_and_projects do
       visit path
     end
 
-    it_behaves_like 'dirty submit form', [
-      { form: '.js-general-settings-form', input: 'input[name="group[name]"]', submit: 'button[type="submit"]' },
-      { form: '.js-general-settings-form', input: '#group_visibility_level_0', submit: 'button[type="submit"]' },
-      { form: '.js-general-permissions-form', input: '#group_request_access_enabled', submit: 'button[type="submit"]' },
-      {
-        form: '.js-general-permissions-form',
-        input: 'input[name="group[two_factor_grace_period]"]',
-        submit: 'button[type="submit"]'
-      }
-    ]
-
     it 'saves new settings' do
-      page.within('.gs-general') do
+      within_testid('general-settings') do
         # Have to reset it to '' so it overwrites rather than appends
         fill_in('group_name', with: '')
         fill_in 'group_name', with: new_name
@@ -413,10 +359,11 @@ RSpec.describe 'Group', feature_category: :groups_and_projects do
       expect(page).to have_selector '#confirm_name_input:focus'
     end
 
-    it 'removes group', :sidekiq_might_not_need_inline do
-      expect { remove_with_confirm('Delete group', group.path) }.to change { Group.count }.by(-1)
-      expect(group.members.all.count).to be_zero
-      expect(page).to have_content "is being deleted"
+    it 'marks the group for deletion' do
+      expect { remove_with_confirm('Delete group', group.path) }.to change {
+        group.reload.self_deletion_scheduled?
+      }.from(false).to(true)
+      expect(page).to have_content "pending deletion"
     end
   end
 

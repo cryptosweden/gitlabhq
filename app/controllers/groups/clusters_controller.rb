@@ -3,7 +3,7 @@
 class Groups::ClustersController < ::Clusters::ClustersController
   include ControllerWithCrossProjectAccessCheck
 
-  before_action :ensure_feature_enabled!
+  before_action :ensure_feature_enabled!, except: [:index, :new_cluster_docs] # rubocop:disable Rails/LexicallyScopedActionFilter -- The index action is defined in the parent controller
   requires_cross_project_access
 
   layout 'group'
@@ -16,13 +16,5 @@ class Groups::ClustersController < ::Clusters::ClustersController
 
   def group
     @group ||= find_routable!(Group, params[:group_id] || params[:id], request.fullpath)
-  end
-
-  def metrics_dashboard_params
-    {
-      cluster: cluster,
-      cluster_type: :group,
-      group: group
-    }
   end
 end

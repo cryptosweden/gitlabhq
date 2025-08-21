@@ -8,7 +8,10 @@ RSpec.describe ServiceDeskSettings::UpdateService, :aggregate_failures, feature_
       create(:service_desk_setting, outgoing_name: 'original name', custom_email: 'user@example.com')
     end
 
-    let_it_be(:credential) { create(:service_desk_custom_email_credential, project: settings.project) }
+    let_it_be(:credential) do
+      build(:service_desk_custom_email_credential, project: settings.project).save!(validate: false)
+    end
+
     let_it_be(:verification) { create(:service_desk_custom_email_verification, :finished, project: settings.project) }
     let_it_be(:user) { create(:user) }
 
@@ -67,23 +70,6 @@ RSpec.describe ServiceDeskSettings::UpdateService, :aggregate_failures, feature_
             outgoing_name: 'some name',
             project_key: 'foo',
             add_external_participants_from_cc: false
-          )
-        end
-      end
-
-      context 'when service_desk_tickets_confidentiality feature flag is disabled' do
-        before do
-          stub_feature_flags(service_desk_tickets_confidentiality: false)
-        end
-
-        it 'updates service desk setting but not tickets_confidential_by_default value' do
-          response = described_class.new(settings.project, user, params).execute
-
-          expect(response).to be_success
-          expect(settings.reset).to have_attributes(
-            outgoing_name: 'some name',
-            project_key: 'foo',
-            tickets_confidential_by_default: true
           )
         end
       end

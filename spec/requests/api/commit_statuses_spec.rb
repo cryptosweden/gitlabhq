@@ -14,14 +14,14 @@ RSpec.describe API::CommitStatuses, :clean_gitlab_redis_cache, feature_category:
     let(:get_url) { "/projects/#{project.id}/repository/commits/#{sha}/statuses" }
 
     context 'ci commit exists' do
-      let!(:master) do
+      let_it_be(:master) do
         project.ci_pipelines.build(source: :push, sha: commit.id, ref: 'master', protected: false).tap do |p|
           p.ensure_project_iid! # Necessary to avoid cross-database modification error
           p.save!
         end
       end
 
-      let!(:develop) do
+      let_it_be(:develop) do
         project.ci_pipelines.build(source: :push, sha: commit.id, ref: 'develop', protected: false).tap do |p|
           p.ensure_project_iid! # Necessary to avoid cross-database modification error
           p.save!
@@ -29,18 +29,17 @@ RSpec.describe API::CommitStatuses, :clean_gitlab_redis_cache, feature_category:
       end
 
       context "reporter user" do
-        let(:statuses_id) { json_response.map { |status| status['id'] } }
-
-        def create_status(commit, opts = {})
-          create(:commit_status, { pipeline: commit, ref: commit.ref }.merge(opts))
+        def create_status(pipeline, opts = {})
+          create(:commit_status, { pipeline: pipeline, ref: pipeline.ref }.merge(opts))
         end
 
-        let!(:status1) { create_status(master, status: 'running', retried: true) }
-        let!(:status2) { create_status(master, name: 'coverage', status: 'pending', retried: true) }
-        let!(:status3) { create_status(develop, status: 'running', allow_failure: true) }
-        let!(:status4) { create_status(master, name: 'coverage', status: 'success') }
-        let!(:status5) { create_status(develop, name: 'coverage', status: 'success') }
-        let!(:status6) { create_status(master, status: 'success') }
+        let(:statuses_id) { json_response.map { |status| status['id'] } }
+        let_it_be(:status1) { create_status(master, status: 'running', retried: true) }
+        let_it_be(:status2) { create_status(master, name: 'coverage', status: 'pending', retried: true) }
+        let_it_be(:status3) { create_status(develop, status: 'running', allow_failure: true) }
+        let_it_be(:status4) { create_status(master, name: 'coverage', status: 'success') }
+        let_it_be(:status5) { create_status(develop, name: 'coverage', status: 'success') }
+        let_it_be(:status6) { create_status(master, status: 'success', stage: 'deploy') }
 
         context 'latest commit statuses' do
           before do
@@ -52,50 +51,91 @@ RSpec.describe API::CommitStatuses, :clean_gitlab_redis_cache, feature_category:
 
             expect(response).to include_pagination_headers
             expect(json_response).to be_an Array
-            expect(statuses_id).to contain_exactly(status3.id, status4.id, status5.id, status6.id)
-            json_response.sort_by! { |status| status['id'] }
+            expect(statuses_id).to eq([status3.id, status4.id, status5.id, status6.id].sort)
             expect(json_response.map { |status| status['allow_failure'] }).to eq([true, false, false, false])
           end
         end
 
-        context 'all commit statuses' do
+        shared_examples_for 'get commit statuses' do
           before do
-            get api(get_url, reporter), params: { all: 1 }
+            get api(get_url, reporter), params: params
           end
 
           it 'returns all commit statuses' do
             expect(response).to have_gitlab_http_status(:ok)
             expect(response).to include_pagination_headers
             expect(json_response).to be_an Array
-            expect(statuses_id).to contain_exactly(
-              status1.id, status2.id, status3.id, status4.id, status5.id, status6.id
-            )
+            expect(statuses_id).to eq(expected_statuses)
+          end
+        end
+
+        context 'Get all commit statuses' do
+          let(:params) { { all: 1 } }
+          let(:expected_statuses) { (develop.statuses.ids + master.statuses.ids).sort }
+
+          it_behaves_like 'get commit statuses'
+        end
+
+        context 'commit statuses filtered by stage' do
+          before do
+            get api(get_url, reporter), params: { stage: 'deploy' }
+          end
+
+          it 'returns all commit statuses with the specified stage' do
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(response).to include_pagination_headers
+            expect(json_response).to be_an Array
+            expect(statuses_id).to contain_exactly(status6.id)
           end
         end
 
         context 'latest commit statuses for specific ref' do
-          before do
-            get api(get_url, reporter), params: { ref: 'develop' }
-          end
+          let(:params) { { ref: 'develop' } }
+          let(:expected_statuses) { [status3.id, status5.id].sort }
 
-          it 'returns latest commit statuses for specific ref' do
-            expect(response).to have_gitlab_http_status(:ok)
-            expect(response).to include_pagination_headers
-            expect(json_response).to be_an Array
-            expect(statuses_id).to contain_exactly(status3.id, status5.id)
-          end
+          it_behaves_like 'get commit statuses'
         end
 
         context 'latest commit statues for specific name' do
-          before do
-            get api(get_url, reporter), params: { name: 'coverage' }
-          end
+          let(:params) { { name: 'coverage' } }
+          let(:expected_statuses) { [status4.id, status5.id].sort }
 
-          it 'return latest commit statuses for specific name' do
-            expect(response).to have_gitlab_http_status(:ok)
-            expect(response).to include_pagination_headers
-            expect(json_response).to be_an Array
-            expect(statuses_id).to contain_exactly(status4.id, status5.id)
+          it_behaves_like 'get commit statuses'
+        end
+
+        context 'latest commit statuses for specific pipeline' do
+          let(:params) { { pipeline_id: develop.id } }
+          let(:expected_statuses) { [status3.id, status5.id].sort }
+
+          it_behaves_like 'get commit statuses'
+        end
+
+        context 'return commit statuses sort by desc id' do
+          let(:params) { { all: 1, sort: "desc" } }
+          let(:expected_statuses) { (develop.statuses.ids + master.statuses.ids).sort.reverse }
+
+          it_behaves_like 'get commit statuses'
+        end
+
+        context 'return commit statuses sort by desc pipeline_id' do
+          let(:params) { { all: 1, order_by: "pipeline_id", sort: "desc" } }
+          let(:expected_statuses) { develop.statuses.order(id: :asc).ids + master.statuses.order(id: :asc).ids }
+
+          it_behaves_like 'get commit statuses'
+        end
+
+        context 'return commit statuses sort by asc pipeline_id' do
+          let(:params) { { all: 1, order_by: "pipeline_id" } }
+          let(:expected_statuses) { master.statuses.order(id: :asc).ids + develop.statuses.order(id: :asc).ids }
+
+          it_behaves_like 'get commit statuses'
+        end
+
+        context 'Bad filter commit statuses' do
+          it 'return commit statuses order by an unmanaged field' do
+            get api(get_url, reporter), params: { all: 1, order_by: "name" }
+
+            expect(response).to have_gitlab_http_status(:bad_request)
           end
         end
       end
@@ -140,7 +180,7 @@ RSpec.describe API::CommitStatuses, :clean_gitlab_redis_cache, feature_category:
 
     context 'developer user' do
       context 'uses only required parameters' do
-        valid_statues = %w[pending running success failed canceled]
+        valid_statues = %w[pending running success failed canceled skipped]
         valid_statues.each do |status|
           context "for #{status}" do
             context 'when pipeline for sha does not exists' do
@@ -379,6 +419,28 @@ RSpec.describe API::CommitStatuses, :clean_gitlab_redis_cache, feature_category:
               expect(commit_status.coverage).to eq(10.0)
             end
           end
+
+          context 'when an error is raised' do
+            before do
+              allow(ServiceResponse).to receive(:success).and_call_original
+              allow(ServiceResponse)
+                .to receive(:success)
+                .with(hash_including(payload: hash_including(:job)))
+                .and_raise(StandardError, 'test error')
+            end
+
+            it 'does not update the commit status' do
+              expect(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception)
+
+              send_request
+
+              # TODO: https://gitlab.com/gitlab-org/gitlab/-/issues/556757
+              # should return a 500 but first we need to handle
+              # any errors that are expected. i.e. invalid state transitions ect.
+              expect(response).to have_gitlab_http_status(:bad_request)
+              expect(json_response['message']).to eq('test error')
+            end
+          end
         end
 
         context 'when a pipeline id is specified' do
@@ -501,9 +563,9 @@ RSpec.describe API::CommitStatuses, :clean_gitlab_redis_cache, feature_category:
       context 'when target URL is an invalid address' do
         before do
           post api(post_url, developer), params: {
-                                          state: 'pending',
-                                          target_url: 'invalid url'
-                                        }
+            state: 'pending',
+            target_url: 'invalid url'
+          }
         end
 
         it 'responds with bad request status and validation errors' do
@@ -516,9 +578,9 @@ RSpec.describe API::CommitStatuses, :clean_gitlab_redis_cache, feature_category:
       context 'when target URL is an unsupported scheme' do
         before do
           post api(post_url, developer), params: {
-                                          state: 'pending',
-                                          target_url: 'git://example.com'
-                                        }
+            state: 'pending',
+            target_url: 'git://example.com'
+          }
         end
 
         it 'responds with bad request status and validation errors' do
@@ -544,13 +606,13 @@ RSpec.describe API::CommitStatuses, :clean_gitlab_redis_cache, feature_category:
         end
       end
 
-      context 'with partitions', :ci_partitionable do
+      context 'with partitions' do
         include Ci::PartitioningHelpers
 
-        let(:current_partition_id) { ci_testing_partition_id_for_check_constraints }
+        let(:current_partition_id) { ci_testing_partition_id }
 
         before do
-          stub_current_partition_id(ci_testing_partition_id_for_check_constraints)
+          stub_current_partition_id(ci_testing_partition_id)
         end
 
         it 'creates records in the current partition' do

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, feature_category: :continuous_integration do
+RSpec.describe Ci::CreatePipelineService, feature_category: :continuous_integration do
   describe 'tags:' do
     let_it_be(:project) { create(:project, :repository) }
     let_it_be(:user)    { project.first_owner }
@@ -30,7 +30,8 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, f
       it 'creates a pipeline without builds', :aggregate_failures do
         expect(pipeline).not_to be_created_successfully
         expect(pipeline.builds).to be_empty
-        expect(pipeline.yaml_errors).to eq("jobs:test:tags config must be less than the limit of #{Gitlab::Ci::Config::Entry::Tags::TAGS_LIMIT} tags")
+        expect(pipeline.error_messages[0].content).to eq(
+          "jobs:test:tags config must be less than the limit of #{Gitlab::Ci::Config::Entry::Tags::TAGS_LIMIT} tags")
       end
     end
 

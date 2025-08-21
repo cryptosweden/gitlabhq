@@ -13,6 +13,7 @@ module Clusters
 
     DEFAULT_ENVIRONMENT = '*'
     KUBE_INGRESS_BASE_DOMAIN = 'KUBE_INGRESS_BASE_DOMAIN'
+    MAX_ENVIRONMENT_SCOPE_LENGTH = 255
 
     self.reactive_cache_work_type = :external_dependency
 
@@ -38,9 +39,11 @@ module Clusters
 
     has_one :integration_prometheus, class_name: 'Clusters::Integrations::Prometheus', inverse_of: :cluster
 
+    has_one :agent_migration, class_name: 'Clusters::AgentMigration', inverse_of: :cluster
+
     def self.has_one_cluster_application(name) # rubocop:disable Naming/PredicateName
       application = APPLICATIONS[name.to_s]
-      has_one application.association_name, class_name: application.to_s, inverse_of: :cluster # rubocop:disable Rails/ReflectionClassName
+      has_one application.association_name, class_name: application.to_s, inverse_of: :cluster
     end
 
     has_many :kubernetes_namespaces
@@ -50,6 +53,7 @@ module Clusters
     accepts_nested_attributes_for :platform_kubernetes, update_only: true
 
     validates :name, cluster_name: true
+    validates :environment_scope, length: 1..MAX_ENVIRONMENT_SCOPE_LENGTH, if: :environment_scope_changed?
     validates :cluster_type, presence: true
     validates :domain, allow_blank: true, hostname: { allow_numeric_hostname: true }
     validates :namespace_per_environment, inclusion: { in: [true, false] }
@@ -69,23 +73,23 @@ module Clusters
     delegate :status_reason, to: :provider, allow_nil: true
 
     alias_attribute :base_domain, :domain
-    alias_attribute :provided_by_user?, :user?
 
-    enum cluster_type: {
+    enum :cluster_type, {
       instance_type: 1,
       group_type: 2,
       project_type: 3
     }
 
-    enum platform_type: {
+    enum :platform_type, {
       kubernetes: 1
     }
 
-    enum provider_type: {
+    enum :provider_type, {
       user: 0,
       gcp: 1,
       aws: 2
     }
+    alias_method :provided_by_user?, :user?
 
     scope :enabled, -> { where(enabled: true) }
     scope :disabled, -> { where(enabled: false) }
@@ -241,7 +245,7 @@ module Clusters
     end
 
     def platform
-      return platform_kubernetes if kubernetes?
+      platform_kubernetes if kubernetes?
     end
 
     def first_project
@@ -322,15 +326,13 @@ module Clusters
 
       duplicate_management_clusters = management_project.management_clusters
         .where(environment_scope: environment_scope)
-        .where.not(id: id)
+        .id_not_in(id)
 
-      if duplicate_management_clusters.any?
-        errors.add(:environment_scope, 'cannot add duplicated environment scope')
-      end
+      errors.add(:environment_scope, 'cannot add duplicated environment scope') if duplicate_management_clusters.any?
     end
 
     def unique_environment_scope
-      if clusterable.present? && clusterable.clusters.where(environment_scope: environment_scope).where.not(id: id).exists?
+      if clusterable.present? && clusterable.clusters.where(environment_scope: environment_scope).id_not_in(id).exists?
         errors.add(:environment_scope, 'cannot add duplicated environment scope')
       end
     end
@@ -395,15 +397,11 @@ module Clusters
     end
 
     def no_groups
-      if groups.any?
-        errors.add(:cluster, 'cannot have groups assigned')
-      end
+      errors.add(:cluster, 'cannot have groups assigned') if groups.any?
     end
 
     def no_projects
-      if projects.any?
-        errors.add(:cluster, 'cannot have projects assigned')
-      end
+      errors.add(:cluster, 'cannot have projects assigned') if projects.any?
     end
   end
 end

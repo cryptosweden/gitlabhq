@@ -11,7 +11,6 @@ RSpec.describe 'groups/new.html.haml' do
     assign(:current_user, user)
 
     allow(view).to receive(:current_user).and_return(user)
-    allow(view).to receive(:captcha_required?).and_return(false)
     allow(view).to receive(:import_sources_enabled?).and_return(false)
 
     render
@@ -34,13 +33,6 @@ RSpec.describe 'groups/new.html.haml' do
       expect(rendered).to have_field('Private')
       expect(rendered).to have_field('Internal')
       expect(rendered).to have_field('Public')
-    end
-  end
-
-  describe 'role field' do
-    it 'does have a default selection' do
-      expect(rendered).to have_content('Role')
-      expect(rendered).to have_select('Role', selected: 'Software Developer')
     end
   end
 end

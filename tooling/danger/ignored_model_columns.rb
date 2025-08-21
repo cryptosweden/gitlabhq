@@ -12,7 +12,7 @@ module Tooling
       MIGRATION_METHODS_REGEX = /^\+\s*(.*\.)?(#{METHODS.join('|')})[(\s]/
       UP_METHOD_REGEX = /^.+(def\sup)/
       END_METHOD_REGEX = /^.+(end)/
-      DOC_URL = "https://docs.gitlab.com/ee/development/database/avoiding_downtime_in_migrations.html"
+      DOC_URL = "https://docs.gitlab.com/development/database/avoiding_downtime_in_migrations/"
 
       COMMENT = <<~COMMENT.freeze
         Column operations, like [dropping](#{DOC_URL}#dropping-columns), [renaming](#{DOC_URL}#renaming-columns) or
@@ -39,7 +39,7 @@ module Tooling
         _, index = file_lines.each_with_index.find do |file_line, index|
           next unless lines_to_search.include?(index)
 
-          file_line == searched_line && !exclude_indexes.include?(index) # rubocop:disable Rails/NegateInclude
+          file_line == searched_line && !exclude_indexes.include?(index)
         end
 
         index

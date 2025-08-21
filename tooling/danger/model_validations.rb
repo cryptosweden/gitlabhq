@@ -15,7 +15,7 @@ module Tooling
       VALIDATION_METHODS = %w[validates validate validates_each validates_with validates_associated].freeze
       VALIDATIONS_REGEX = /^\+\s*(.*\.)?(#{VALIDATION_METHODS.join('|')})[( ]/
 
-      CODE_QUALITY_URL = "https://docs.gitlab.com/ee/development/code_review.html#quality"
+      CODE_QUALITY_URL = "https://docs.gitlab.com/development/code_review/#quality"
       SUGGEST_MR_COMMENT = <<~SUGGEST_COMMENT.freeze
         Did you consider new validations can break existing records?
         Please follow the [code quality guidelines about new model validations](#{CODE_QUALITY_URL}) when adding a new
@@ -36,7 +36,7 @@ module Tooling
 
       def changed_model_files
         added_files = helper.added_files
-        modified_files = helper.modified_files
+        modified_files = helper.modified_files - helper.added_files
 
         modified_files.grep(MODEL_FILES_REGEX) + added_files.grep(MODEL_CONCERN_FILES_REGEX)
       end

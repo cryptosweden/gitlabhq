@@ -5,17 +5,20 @@ require 'spec_helper'
 RSpec.describe UserPreference, feature_category: :user_profile do
   let_it_be(:user) { create(:user) }
 
+  let(:marketplace_home_url) { 'https://open-vsx.org' }
   let(:user_preference) { create(:user_preference, user: user) }
 
   describe 'validations' do
-    it { is_expected.to validate_inclusion_of(:time_display_relative).in_array([true, false]) }
-    it { is_expected.to validate_inclusion_of(:render_whitespace_in_code).in_array([true, false]) }
-
     it do
       is_expected.to validate_numericality_of(:tab_width)
                        .only_integer
                        .is_greater_than_or_equal_to(Gitlab::TabWidth::MIN)
                        .is_less_than_or_equal_to(Gitlab::TabWidth::MAX)
+    end
+
+    describe 'dark_color_scheme_id' do
+      it { is_expected.to allow_value(*Gitlab::ColorSchemes.valid_ids).for(:dark_color_scheme_id) }
+      it { is_expected.not_to allow_value(Gitlab::ColorSchemes.available_schemes.size + 1).for(:dark_color_scheme_id) }
     end
 
     describe 'diffs_deletion_color and diffs_addition_color' do
@@ -59,7 +62,6 @@ RSpec.describe UserPreference, feature_category: :user_profile do
     end
 
     describe 'pass_user_identities_to_ci_jwt' do
-      it { is_expected.to validate_inclusion_of(:pass_user_identities_to_ci_jwt).in_array([true, false]) }
       it { is_expected.not_to allow_value("").for(:pass_user_identities_to_ci_jwt) }
     end
 
@@ -70,7 +72,7 @@ RSpec.describe UserPreference, feature_category: :user_profile do
         expect(pref.visibility_pipeline_id_type).to eq('id')
       end
 
-      it { is_expected.to define_enum_for(:visibility_pipeline_id_type).with_values(id: 0, iid: 1) }
+      it { is_expected.to define_enum_for(:visibility_pipeline_id_type) }
     end
 
     describe 'extensions_marketplace_opt_in_status' do
@@ -86,45 +88,54 @@ RSpec.describe UserPreference, feature_category: :user_profile do
       end
     end
 
+    describe 'extensions_marketplace_opt_in_url' do
+      it { is_expected.to validate_length_of(:extensions_marketplace_opt_in_url).is_at_most(512) }
+    end
+
     describe 'organization_groups_projects_display' do
-      it 'is set to 0 by default' do
+      it 'is set to 1 by default' do
         pref = described_class.new
 
-        expect(pref.organization_groups_projects_display).to eq('projects')
+        expect(pref.organization_groups_projects_display).to eq('groups')
       end
 
       it { is_expected.to define_enum_for(:organization_groups_projects_display).with_values(projects: 0, groups: 1) }
     end
 
-    describe 'user belongs to the home organization' do
-      let_it_be(:organization) { create(:organization) }
+    describe 'timezone_valid' do
+      context 'when timezone is nil' do
+        it { is_expected.to be_valid }
+      end
 
-      context 'when user is an organization user' do
-        before do
-          create(:organization_user, organization: organization, user: user)
-        end
+      context 'when timezone is valid' do
+        it do
+          user_preference.timezone = 'Hawaii'
 
-        it 'does not add any validation errors' do
-          user_preference.home_organization = organization
-
-          expect(user_preference).to be_valid
-          expect(user_preference.errors).to be_empty
+          is_expected.to be_valid
         end
       end
 
-      context 'when user is not an organization user' do
-        it 'adds a validation error' do
-          user_preference.home_organization = organization
+      context 'when timezone is invalid' do
+        it 'adds a validation error for invalid timezones' do
+          user_preference.timezone = 'invalid-timezone'
 
-          expect(user_preference).to be_invalid
-          expect(user_preference.errors.messages[:user].first).to eq(_("is not part of the given organization"))
+          expect(user_preference).not_to be_valid
+          expect(user_preference.errors.messages[:timezone].first).to eq("timezone is not valid")
+        end
+      end
+
+      context 'when updating a record with invalid timezone but not changing the timezone' do
+        it 'remains valid when other attributes change' do
+          user_preference.timezone = 'invalid-timezone'
+          user_preference.save!(validate: false)
+          user_preference.reload
+
+          user_preference.roadmaps_sort = 'created_desc'
+
+          expect(user_preference).to be_valid
         end
       end
     end
-  end
-
-  describe 'associations' do
-    it { is_expected.to belong_to(:home_organization).class_name('Organizations::Organization').optional }
   end
 
   describe 'notes filters global keys' do
@@ -202,69 +213,6 @@ RSpec.describe UserPreference, feature_category: :user_profile do
     end
   end
 
-  describe '#tab_width' do
-    it 'is set to 8 by default' do
-      # Intentionally not using factory here to test the constructor.
-      pref = described_class.new
-
-      expect(pref.tab_width).to eq(8)
-    end
-
-    it 'returns default value when assigning nil' do
-      pref = described_class.new(tab_width: nil)
-
-      expect(pref.tab_width).to eq(8)
-    end
-  end
-
-  describe '#tab_width=' do
-    it 'sets to default value when nil' do
-      pref = described_class.new(tab_width: nil)
-
-      expect(pref.read_attribute(:tab_width)).to eq(8)
-    end
-
-    it 'sets user values' do
-      pref = described_class.new(tab_width: 12)
-
-      expect(pref.read_attribute(:tab_width)).to eq(12)
-    end
-  end
-
-  describe '#time_display_relative' do
-    it 'is set to true by default' do
-      pref = described_class.new
-
-      expect(pref.time_display_relative).to eq(true)
-    end
-
-    it 'returns default value when assigning nil' do
-      pref = described_class.new(time_display_relative: nil)
-
-      expect(pref.time_display_relative).to eq(true)
-    end
-
-    it 'returns assigned value' do
-      pref = described_class.new(time_display_relative: false)
-
-      expect(pref.time_display_relative).to eq(false)
-    end
-  end
-
-  describe '#time_display_relative=' do
-    it 'sets to default value when nil' do
-      pref = described_class.new(time_display_relative: nil)
-
-      expect(pref.read_attribute(:time_display_relative)).to eq(true)
-    end
-
-    it 'sets user values' do
-      pref = described_class.new(time_display_relative: false)
-
-      expect(pref.read_attribute(:time_display_relative)).to eq(false)
-    end
-  end
-
   describe '#project_shortcut_buttons' do
     it 'is set to true by default' do
       pref = described_class.new
@@ -293,40 +241,6 @@ RSpec.describe UserPreference, feature_category: :user_profile do
     end
   end
 
-  describe '#render_whitespace_in_code' do
-    it 'is set to false by default' do
-      pref = described_class.new
-
-      expect(pref.render_whitespace_in_code).to eq(false)
-    end
-
-    it 'returns default value when assigning nil' do
-      pref = described_class.new(render_whitespace_in_code: nil)
-
-      expect(pref.render_whitespace_in_code).to eq(false)
-    end
-
-    it 'returns assigned value' do
-      pref = described_class.new(render_whitespace_in_code: true)
-
-      expect(pref.render_whitespace_in_code).to eq(true)
-    end
-  end
-
-  describe '#render_whitespace_in_code=' do
-    it 'sets to default value when nil' do
-      pref = described_class.new(render_whitespace_in_code: nil)
-
-      expect(pref.read_attribute(:render_whitespace_in_code)).to eq(false)
-    end
-
-    it 'sets user values' do
-      pref = described_class.new(render_whitespace_in_code: true)
-
-      expect(pref.read_attribute(:render_whitespace_in_code)).to eq(true)
-    end
-  end
-
   describe '#early_access_event_tracking?' do
     let(:participant) { true }
     let(:tracking) { true }
@@ -351,41 +265,154 @@ RSpec.describe UserPreference, feature_category: :user_profile do
     end
   end
 
-  describe '#extensions_marketplace_enabled' do
-    where(:opt_in_status, :expected_value) do
+  describe '#extensions_marketplace_opt_in_url' do
+    where(:opt_in_url, :expectation) do
       [
-        ["enabled", true],
-        ["disabled", false],
-        ["unset", false]
+        [nil, 'https://open-vsx.org'],
+        ['https://open-vsx.org', 'https://open-vsx.org'],
+        ['https://example.com', 'https://example.com']
       ]
     end
 
     with_them do
-      it 'returns boolean from extensions_marketplace_opt_in_status' do
-        user_preference.update!(extensions_marketplace_opt_in_status: opt_in_status)
+      it 'reads attribute and defaults when nil' do
+        user_preference.update!(extensions_marketplace_opt_in_url: opt_in_url)
 
-        expect(user_preference.extensions_marketplace_enabled).to be expected_value
+        expect(user_preference.extensions_marketplace_opt_in_url).to eq expectation
       end
     end
   end
 
-  describe '#extensions_marketplace_enabled=' do
-    where(:value, :expected_opt_in_status) do
+  describe '#dpop_enabled' do
+    let(:pref) { described_class.new(args) }
+
+    context 'when no arguments are provided' do
+      let(:args) { {} }
+
+      it 'is set to false by default' do
+        expect(pref.dpop_enabled).to eq(false)
+      end
+    end
+
+    context 'when dpop_enabled is set to nil' do
+      let(:args) { { dpop_enabled: nil } }
+
+      it 'returns default value' do
+        expect(pref.dpop_enabled).to eq(false)
+      end
+    end
+
+    context 'when dpop_enabled is set to true' do
+      let(:args) { { dpop_enabled: true } }
+
+      it 'returns assigned value' do
+        expect(pref.dpop_enabled).to eq(true)
+      end
+    end
+  end
+
+  describe '#text_editor', :allow_rich_text_editor_for_new_users do
+    let(:pref) { described_class.new(text_editor_type: text_editor_type) }
+    let(:text_editor_type) { :not_set }
+
+    context 'when text_editor_type is not_set' do
+      it 'returns not_set' do
+        expect(pref.text_editor).to eq "not_set"
+      end
+
+      it 'returns false for default_text_editor_enabled' do
+        expect(pref.default_text_editor_enabled).to be false
+      end
+    end
+
+    context 'when text_editor_type is set' do
+      where(:text_editor_type) { %w[plain_text_editor rich_text_editor] }
+
+      with_them do
+        it 'returns assigned text_editor_type' do
+          expect(pref.text_editor).to eq(text_editor_type)
+        end
+
+        it 'returns true for default_text_editor_enabled' do
+          expect(pref.default_text_editor_enabled).to be true
+        end
+      end
+    end
+
+    context 'when creating a new user' do
+      it 'sets rich text editor as default' do
+        pref = described_class.new
+        expect(pref.text_editor_type).to eq('rich_text_editor')
+        expect(pref.text_editor).to eq('rich_text_editor')
+        expect(pref.default_text_editor_enabled).to be true
+      end
+    end
+  end
+
+  describe '#default_text_editor_enabled' do
+    let(:pref) { described_class.new(default_text_editor_enabled: default_text_editor_enabled) }
+
+    where(:default_text_editor_enabled, :text_editor_type) do
       [
-        [true, "enabled"],
-        [false, "disabled"],
-        [0, "disabled"],
-        [1, "enabled"]
+        [true, "rich_text_editor"],
+        [false, "not_set"]
       ]
     end
 
     with_them do
-      it 'updates extensions_marketplace_opt_in_status' do
-        user_preference.update!(extensions_marketplace_opt_in_status: 'unset')
+      it 'assigns correctly' do
+        expect(pref.default_text_editor_enabled).to eq(default_text_editor_enabled)
+      end
 
-        user_preference.extensions_marketplace_enabled = value
+      it 'returns correct value for text_editor' do
+        expect(pref.text_editor).to eq(text_editor_type)
+      end
+    end
+  end
 
-        expect(user_preference.extensions_marketplace_opt_in_status).to be expected_opt_in_status
+  describe '#timezone=' do
+    context 'when timezone is blank' do
+      it 'sets the timezone to nil' do
+        user_preference.timezone = ''
+
+        expect(user_preference).to be_valid
+        expect(user_preference.timezone).to be_nil
+      end
+    end
+  end
+
+  describe 'work_items_display_settings' do
+    describe 'validations' do
+      it 'validates json schema' do
+        user_preference.work_items_display_settings = { 'shouldOpenItemsInSidePanel' => true }
+        expect(user_preference).to be_valid
+
+        user_preference.work_items_display_settings = { 'shouldOpenItemsInSidePanel' => false }
+        expect(user_preference).to be_valid
+
+        user_preference.work_items_display_settings = { 'invalidKey' => 'value' }
+        expect(user_preference).not_to be_valid
+        expect(user_preference.errors[:work_items_display_settings]).to include('must be a valid json schema')
+
+        user_preference.work_items_display_settings = { 'shouldOpenItemsInSidePanel' => 'not_boolean' }
+        expect(user_preference).not_to be_valid
+        expect(user_preference.errors[:work_items_display_settings]).to include('must be a valid json schema')
+      end
+
+      it 'allows empty object' do
+        user_preference.work_items_display_settings = {}
+        expect(user_preference).to be_valid
+      end
+
+      it 'has default empty hash' do
+        new_preference = described_class.new(user: user)
+        expect(new_preference.work_items_display_settings).to eq({})
+      end
+
+      it 'persists changes correctly' do
+        user_preference.update!(work_items_display_settings: { 'shouldOpenItemsInSidePanel' => false })
+
+        expect(user_preference.reload.work_items_display_settings).to eq({ 'shouldOpenItemsInSidePanel' => false })
       end
     end
   end

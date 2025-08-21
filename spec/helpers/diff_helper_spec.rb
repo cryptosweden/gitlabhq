@@ -13,6 +13,10 @@ RSpec.describe DiffHelper, feature_category: :code_review_workflow do
   let(:diff_refs) { commit.diff_refs }
   let(:diff_file) { Gitlab::Diff::File.new(diff, diff_refs: diff_refs, repository: repository) }
 
+  before do
+    allow(helper).to receive(:current_user).and_return(project.owner)
+  end
+
   describe 'diff_view' do
     it 'uses the view param over the cookie' do
       controller.params[:view] = 'parallel'
@@ -48,12 +52,12 @@ RSpec.describe DiffHelper, feature_category: :code_review_workflow do
 
   describe 'diff_options' do
     it 'returns no collapse false' do
-      expect(diff_options).to include(expanded: false)
+      expect(helper.diff_options).to include(expanded: false)
     end
 
     it 'returns no collapse true if expanded' do
       allow(controller).to receive(:params) { { expanded: true } }
-      expect(diff_options).to include(expanded: true)
+      expect(helper.diff_options).to include(expanded: true)
     end
 
     context 'when action name is diff_for_path' do
@@ -62,21 +66,21 @@ RSpec.describe DiffHelper, feature_category: :code_review_workflow do
       end
 
       it 'returns expanded true' do
-        expect(diff_options).to include(expanded: true)
+        expect(helper.diff_options).to include(expanded: true)
       end
 
       it 'returns paths if param old path' do
         allow(controller).to receive(:params) { { old_path: 'lib/wadus.rb' } }
-        expect(diff_options[:paths]).to include('lib/wadus.rb')
+        expect(helper.diff_options[:paths]).to include('lib/wadus.rb')
       end
 
       it 'returns paths if param new path' do
         allow(controller).to receive(:params) { { new_path: 'lib/wadus.rb' } }
-        expect(diff_options[:paths]).to include('lib/wadus.rb')
+        expect(helper.diff_options[:paths]).to include('lib/wadus.rb')
       end
 
       it 'does not set max_patch_bytes_for_file_extension' do
-        expect(diff_options[:max_patch_bytes_for_file_extension]).to be_nil
+        expect(helper.diff_options[:max_patch_bytes_for_file_extension]).to be_nil
       end
 
       context 'when file_identifier include .ipynb' do
@@ -85,7 +89,7 @@ RSpec.describe DiffHelper, feature_category: :code_review_workflow do
         end
 
         it 'sets max_patch_bytes_for_file_extension' do
-          expect(diff_options[:max_patch_bytes_for_file_extension]).to eq({ '.ipynb' => 1.megabyte })
+          expect(helper.diff_options[:max_patch_bytes_for_file_extension]).to eq({ '.ipynb' => 1.megabyte })
         end
       end
     end
@@ -487,15 +491,65 @@ RSpec.describe DiffHelper, feature_category: :code_review_workflow do
   end
 
   describe '#params_with_whitespace' do
-    before do
-      controller.params[:protocol] = 'HACKED!'
-      controller.params[:host] = 'HACKED!'
+    context 'with safe params' do
+      before do
+        controller.params[:protocol] = 'HACKED!'
+        controller.params[:host] = 'HACKED!'
+      end
+
+      it "filters with safe_params" do
+        expect(helper.params_with_whitespace.to_h).to eq({ 'w' => 1 })
+      end
     end
 
-    subject { helper.params_with_whitespace }
+    context 'with hide_whitespace' do
+      before do
+        allow(helper).to receive(:safe_params).and_return({ key: 'value' })
+      end
 
-    it "filters with safe_params" do
-      expect(subject).to eq({ 'w' => 1 })
+      context 'when w parameter is present' do
+        it 'removes the parameter when w = 1' do
+          controller.params[:w] = '1'
+          expect(helper.params_with_whitespace).to eq({ key: 'value' })
+        end
+
+        it 'adds w = 1 when w is any other value' do
+          controller.params[:w] = '0'
+          expect(helper.params_with_whitespace).to eq({ key: 'value', w: 1 })
+        end
+      end
+
+      context 'when w parameter is not present' do
+        context 'when user is not logged in' do
+          before do
+            allow(helper).to receive(:current_user).and_return(nil)
+          end
+
+          it 'removes the w parameter' do
+            expect(helper.params_with_whitespace).to eq({ key: 'value' })
+          end
+        end
+
+        context 'when user has show_whitespace_in_diffs = false' do
+          before do
+            allow(helper.current_user).to receive(:show_whitespace_in_diffs).and_return(false)
+          end
+
+          it 'removes the w parameter' do
+            expect(helper.params_with_whitespace).to eq({ key: 'value' })
+          end
+        end
+
+        context 'when user has show_whitespace_in_diffs = true' do
+          before do
+            allow(helper.current_user).to receive(:show_whitespace_in_diffs).and_return(true)
+          end
+
+          it 'adds w = 1 parameter' do
+            expect(helper.params_with_whitespace).to eq({ key: 'value', w: 1 })
+          end
+        end
+      end
     end
   end
 
@@ -696,7 +750,12 @@ RSpec.describe DiffHelper, feature_category: :code_review_workflow do
         .with(when_renamed: true)
         .and_return(:renamed_same_file)
 
-      allow_next_instance_of(MergeRequests::Conflicts::ListService, merge_request, allow_tree_conflicts: true) do |svc|
+      allow_next_instance_of(
+        MergeRequests::Conflicts::ListService,
+        merge_request,
+        allow_tree_conflicts: true,
+        skip_content: true
+      ) do |svc|
         if exception.present?
           allow(svc).to receive_message_chain(:conflicts, :files).and_raise(exception)
         else
@@ -796,6 +855,48 @@ RSpec.describe DiffHelper, feature_category: :code_review_workflow do
 
           helper.conflicts_with_types
         end
+      end
+    end
+  end
+
+  describe "#file_heading_id" do
+    subject { helper.file_heading_id(diff_file) }
+
+    it { is_expected.to eq("#{diff_file.file_hash[0..8]}-heading") }
+  end
+
+  describe "#hide_whitespace?" do
+    subject { helper.hide_whitespace? }
+
+    context 'when request has w param set' do
+      before do
+        allow(controller).to receive(:params) { { w: '1' } }
+      end
+
+      it { is_expected.to be(true) }
+    end
+
+    context 'when user is guest' do
+      before do
+        allow(helper).to receive(:current_user).and_return(nil)
+      end
+
+      it { is_expected.to be(true) }
+    end
+
+    context 'when user has preference' do
+      before do
+        allow(helper).to receive_message_chain(:current_user, :show_whitespace_in_diffs).and_return(true)
+      end
+
+      it { is_expected.to be(false) }
+
+      context 'when request has w param set' do
+        before do
+          allow(controller).to receive(:params) { { w: '1' } }
+        end
+
+        it { is_expected.to be(true) }
       end
     end
   end

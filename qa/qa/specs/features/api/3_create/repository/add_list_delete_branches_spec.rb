@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create' do
+  RSpec.describe 'Create', feature_category: :source_code_management do
     let(:project) { create(:project, name: 'project-qa-test', description: 'project for qa test') }
 
-    describe 'Create, Retrieve and Delete branches via API', :requires_admin, product_group: :source_code do
+    describe 'Create, Retrieve and Delete branches via API', :requires_admin do
       created_branch = 'create-branch'
       deleted_branch = 'delete-branch'
       filename = 'file.txt'
@@ -18,7 +18,7 @@ module QA
 
           repository.act do
             init_repository
-            configure_identity('GitLab QA', 'root@gitlab.com')
+            use_default_identity
 
             commit_file(filename, 'Test file content', default_branch_commit_message)
             push_changes

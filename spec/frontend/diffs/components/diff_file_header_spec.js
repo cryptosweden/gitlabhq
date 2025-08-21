@@ -1,92 +1,57 @@
+import { GlAnimatedChevronRightDownIcon } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
-import { cloneDeep } from 'lodash';
-// eslint-disable-next-line no-restricted-imports
-import Vuex from 'vuex';
+import { createTestingPinia } from '@pinia/testing';
+import { PiniaVuePlugin } from 'pinia';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
-
 import { mockTracking, triggerEvent } from 'helpers/tracking_helper';
-
 import DiffFileHeader from '~/diffs/components/diff_file_header.vue';
 import { DIFF_FILE_AUTOMATIC_COLLAPSE, DIFF_FILE_MANUAL_COLLAPSE } from '~/diffs/constants';
-import { reviewFile, setFileForcedOpen } from '~/diffs/store/actions';
-import {
-  SET_DIFF_FILE_VIEWED,
-  SET_MR_FILE_REVIEWS,
-  SET_FILE_FORCED_OPEN,
-} from '~/diffs/store/mutation_types';
 import { diffViewerModes } from '~/ide/constants';
 import { scrollToElement } from '~/lib/utils/common_utils';
 import { truncateSha } from '~/lib/utils/text_utility';
-import { __, sprintf } from '~/locale';
+import { sprintf } from '~/locale';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
-
-import { TEST_HOST } from 'spec/test_constants';
-import testAction from '../../__helpers__/vuex_action_helper';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { globalAccessorPlugin } from '~/pinia/plugins';
+import { useNotes } from '~/notes/store/legacy_notes';
 import diffDiscussionsMockData from '../mock_data/diff_discussions';
 
 jest.mock('~/lib/utils/common_utils', () => ({
+  convertObjectPropsToCamelCase: jest.requireActual('~/lib/utils/common_utils')
+    .convertObjectPropsToCamelCase,
+  isInMRPage: jest.requireActual('~/lib/utils/common_utils').isInMRPage,
   scrollToElement: jest.fn(),
   isLoggedIn: () => true,
 }));
 
-const diffFile = Object.freeze(
-  Object.assign(diffDiscussionsMockData.diff_file, {
-    id: '123',
-    file_hash: 'xyz',
-    file_identifier_hash: 'abc',
-    edit_path: 'link:/to/edit/path',
-    blob: {
-      id: '848ed9407c6730ff16edb3dd24485a0eea24292a',
-      path: 'lib/base.js',
-      name: 'base.js',
-      mode: '100644',
-      readable_text: true,
-      icon: 'doc-text',
-    },
-  }),
-);
+const createDiffFile = () => ({
+  ...diffDiscussionsMockData.diff_file,
+  highlighted_diff_lines: [
+    ...diffDiscussionsMockData.diff_file.highlighted_diff_lines.map((line) => {
+      return { ...line, discussions: [] };
+    }),
+  ],
+  id: '123',
+  file_hash: 'xyz',
+  file_identifier_hash: 'abc',
+  edit_path: 'link:/to/edit/path',
+  blob: {
+    id: '848ed9407c6730ff16edb3dd24485a0eea24292a',
+    path: 'lib/base.js',
+    name: 'base.js',
+    mode: '100644',
+    readable_text: true,
+    icon: 'doc-text',
+  },
+});
 
-Vue.use(Vuex);
+Vue.use(PiniaVuePlugin);
 
 describe('DiffFileHeader component', () => {
   let wrapper;
-  let mockStoreConfig;
+  let pinia;
 
-  const diffHasExpandedDiscussionsResultMock = jest.fn();
-  const diffHasDiscussionsResultMock = jest.fn();
-  const defaultMockStoreConfig = {
-    state: {},
-    getters: {
-      getNoteableData: () => ({ current_user: { can_create_note: true } }),
-    },
-    modules: {
-      diffs: {
-        namespaced: true,
-        getters: {
-          diffHasExpandedDiscussions: () => diffHasExpandedDiscussionsResultMock,
-          diffHasDiscussions: () => diffHasDiscussionsResultMock,
-        },
-        actions: {
-          toggleFileDiscussionWrappers: jest.fn(),
-          toggleFullDiff: jest.fn(),
-          setCurrentFileHash: jest.fn(),
-          setFileCollapsedByUser: jest.fn(),
-          setFileForcedOpen: jest.fn(),
-          reviewFile: jest.fn(),
-          unpinFile: jest.fn(),
-        },
-      },
-    },
-  };
-
-  afterEach(() => {
-    [
-      diffHasDiscussionsResultMock,
-      diffHasExpandedDiscussionsResultMock,
-      ...Object.values(mockStoreConfig.modules.diffs.actions),
-    ].forEach((mock) => mock.mockReset());
-  });
-
+  const getFirstDiffFile = () => useLegacyDiffs().diffFiles[0];
   const findHeader = () => wrapper.findComponent({ ref: 'header' });
   const findTitleLink = () => wrapper.findByTestId('file-title');
   const findExpandButton = () => wrapper.findComponent({ ref: 'expandDiffToFullFileButton' });
@@ -99,24 +64,31 @@ describe('DiffFileHeader component', () => {
   const findReplacedFileButton = () => wrapper.findComponent({ ref: 'replacedFileButton' });
   const findViewFileButton = () => wrapper.findComponent({ ref: 'viewButton' });
   const findCollapseButton = () => wrapper.findComponent({ ref: 'collapseButton' });
+  // In Vue3 this is kebabbed, in Vue2 it is not
+  const findCollapseIconIsOn = () =>
+    wrapper.findComponent(GlAnimatedChevronRightDownIcon).attributes('is-on') ||
+    wrapper.findComponent(GlAnimatedChevronRightDownIcon).attributes('ison');
   const findEditButton = () => wrapper.findComponent({ ref: 'editButton' });
   const findReviewFileCheckbox = () => wrapper.find("[data-testid='fileReviewCheckbox']");
 
   const createComponent = ({ props, options = {} } = {}) => {
-    mockStoreConfig = cloneDeep(defaultMockStoreConfig);
-    const store = new Vuex.Store({ ...mockStoreConfig, ...options.store });
-
     wrapper = shallowMountExtended(DiffFileHeader, {
       propsData: {
-        diffFile,
+        diffFile: getFirstDiffFile(),
         canCurrentUserFork: false,
         viewDiffsFileByFile: false,
         ...props,
       },
       ...options,
-      store,
+      pinia,
     });
   };
+
+  beforeEach(() => {
+    pinia = createTestingPinia({ plugins: [globalAccessorPlugin] });
+    useLegacyDiffs().diffFiles = [createDiffFile()];
+    useNotes();
+  });
 
   it.each`
     visibility   | collapsible
@@ -127,13 +99,16 @@ describe('DiffFileHeader component', () => {
     expect(findCollapseButton().exists()).toBe(collapsible);
   });
 
-  it.each`
-    expanded | icon
-    ${true}  | ${'chevron-down'}
-    ${false} | ${'chevron-right'}
-  `('collapse icon is $icon if expanded is $expanded', ({ icon, expanded }) => {
-    createComponent({ props: { expanded, collapsible: true } });
-    expect(findCollapseButton().props('icon')).toBe(icon);
+  it('GlAnimatedChevronRightDownIcon isOn prop is true if expanded', () => {
+    createComponent({ props: { expanded: true, collapsible: true } });
+
+    expect(findCollapseIconIsOn()).toBe('true');
+  });
+
+  it('GlAnimatedChevronRightDownIcon isOn prop is false if collapsed', () => {
+    createComponent({ props: { expanded: false, collapsible: true } });
+
+    expect(findCollapseIconIsOn()).toBeUndefined();
   });
 
   it('when header is clicked emits toggleFile', async () => {
@@ -148,13 +123,10 @@ describe('DiffFileHeader component', () => {
     createComponent();
     findHeader().trigger('click');
 
-    return testAction(
-      setFileForcedOpen,
-      { filePath: diffFile.file_path, forced: false },
-      {},
-      [{ type: SET_FILE_FORCED_OPEN, payload: { filePath: diffFile.file_path, forced: false } }],
-      [],
-    );
+    expect(useLegacyDiffs().setFileForcedOpen).toHaveBeenCalledWith({
+      filePath: getFirstDiffFile().file_path,
+      forced: false,
+    });
   });
 
   it('when collapseIcon is clicked emits toggleFile', async () => {
@@ -195,7 +167,7 @@ describe('DiffFileHeader component', () => {
 
   describe('for submodule', () => {
     const submoduleDiffFile = {
-      ...diffFile,
+      ...createDiffFile(),
       submodule: true,
       submodule_link: 'link://to/submodule',
     };
@@ -235,7 +207,7 @@ describe('DiffFileHeader component', () => {
       });
 
       expect(findTitleLink().text()).toContain(
-        `${diffFile.file_path} @ ${truncateSha(diffFile.blob.id)}`,
+        `${getFirstDiffFile().file_path} @ ${truncateSha(getFirstDiffFile().blob.id)}`,
       );
     });
 
@@ -257,12 +229,12 @@ describe('DiffFileHeader component', () => {
       createComponent({
         props: {
           diffFile: {
-            ...diffFile,
+            ...createDiffFile(),
             mode_changed: true,
             a_mode: 'old-mode',
             b_mode: 'new-mode',
             viewer: {
-              ...diffFile.viewer,
+              ...createDiffFile().viewer,
               name: diffViewerModes[mode],
             },
           },
@@ -277,12 +249,12 @@ describe('DiffFileHeader component', () => {
         createComponent({
           props: {
             diffFile: {
-              ...diffFile,
+              ...createDiffFile(),
               mode_changed: false,
               a_mode: 'old-mode',
               b_mode: 'new-mode',
               viewer: {
-                ...diffFile.viewer,
+                ...createDiffFile().viewer,
                 name: diffViewerModes[mode],
               },
             },
@@ -295,7 +267,7 @@ describe('DiffFileHeader component', () => {
     it('displays the LFS label for files stored in LFS', () => {
       createComponent({
         props: {
-          diffFile: { ...diffFile, stored_externally: true, external_storage: 'lfs' },
+          diffFile: { ...createDiffFile(), stored_externally: true, external_storage: 'lfs' },
         },
       });
       expect(findLfsLabel().exists()).toBe(true);
@@ -304,7 +276,7 @@ describe('DiffFileHeader component', () => {
     it('does not display the LFS label for files stored in repository', () => {
       createComponent({
         props: {
-          diffFile: { ...diffFile, stored_externally: false },
+          diffFile: { ...createDiffFile(), stored_externally: false },
         },
       });
       expect(findLfsLabel().exists()).toBe(false);
@@ -313,7 +285,7 @@ describe('DiffFileHeader component', () => {
     it('does not render view replaced file button if no replaced view path is present', () => {
       createComponent({
         props: {
-          diffFile: { ...diffFile, replaced_view_path: null },
+          diffFile: { ...createDiffFile(), replaced_view_path: null },
         },
       });
       expect(findReplacedFileButton().exists()).toBe(false);
@@ -333,21 +305,27 @@ describe('DiffFileHeader component', () => {
     describe('when addMergeRequestButtons is true', () => {
       describe('without discussions', () => {
         it('does not render a toggle discussions button', () => {
-          diffHasDiscussionsResultMock.mockReturnValue(false);
           createComponent({ props: { addMergeRequestButtons: true } });
           expect(findToggleDiscussionsButton().exists()).toBe(false);
         });
       });
 
       describe('with discussions', () => {
+        let diffFile;
+
+        beforeEach(() => {
+          diffFile = createDiffFile();
+          diffFile.highlighted_diff_lines[0].discussions = [{}];
+          useLegacyDiffs().diffFiles = [diffFile];
+        });
+
         it('dispatches toggleFileDiscussionWrappers when user clicks on toggle discussions button', () => {
-          diffHasDiscussionsResultMock.mockReturnValue(true);
-          createComponent({ props: { addMergeRequestButtons: true } });
+          createComponent({ props: { diffFile, addMergeRequestButtons: true } });
           expect(findToggleDiscussionsButton().exists()).toBe(true);
-          findToggleDiscussionsButton().vm.$emit('click');
-          expect(
-            mockStoreConfig.modules.diffs.actions.toggleFileDiscussionWrappers,
-          ).toHaveBeenCalledWith(expect.any(Object), diffFile);
+          findToggleDiscussionsButton().props('item').action();
+          expect(useLegacyDiffs().toggleFileDiscussionWrappers).toHaveBeenCalledWith(
+            getFirstDiffFile(),
+          );
         });
       });
 
@@ -367,7 +345,7 @@ describe('DiffFileHeader component', () => {
           createComponent({
             props: {
               diffFile: {
-                ...diffFile,
+                ...createDiffFile(),
                 external_url: externalUrl,
                 formatted_external_url: formattedExternalUrl,
               },
@@ -385,7 +363,7 @@ describe('DiffFileHeader component', () => {
 
       describe('without file blob', () => {
         beforeEach(() => {
-          createComponent({ props: { diffFile: { ...diffFile, blob: false } } });
+          createComponent({ props: { diffFile: { ...createDiffFile(), blob: false } } });
         });
 
         it('should not render toggle discussions button', () => {
@@ -401,13 +379,13 @@ describe('DiffFileHeader component', () => {
           const viewPath = 'link://view-path';
           createComponent({
             props: {
-              diffFile: { ...diffFile, view_path: viewPath },
+              diffFile: { ...createDiffFile(), view_path: viewPath },
               addMergeRequestButtons: true,
             },
           });
-          expect(findViewFileButton().attributes('href')).toBe(viewPath);
-          expect(findViewFileButton().text()).toEqual(
-            `View file @ ${diffFile.content_sha.substr(0, 8)}`,
+          expect(findViewFileButton().props('item').href).toBe(viewPath);
+          expect(findViewFileButton().props('item').text).toEqual(
+            `View file @ ${getFirstDiffFile().content_sha.substr(0, 8)}`,
           );
         });
       });
@@ -419,7 +397,7 @@ describe('DiffFileHeader component', () => {
           createComponent({
             props: {
               diffFile: {
-                ...diffFile,
+                ...createDiffFile(),
                 is_fully_expanded: true,
               },
             },
@@ -430,7 +408,7 @@ describe('DiffFileHeader component', () => {
       describe('when diff is not fully expanded', () => {
         const fullyNotExpandedFileProps = {
           diffFile: {
-            ...diffFile,
+            ...createDiffFile(),
             is_fully_expanded: false,
             edit_path: 'link/to/edit/path.txt',
             isShowingFullFile: false,
@@ -450,8 +428,10 @@ describe('DiffFileHeader component', () => {
 
         it('toggles full diff on click', () => {
           createComponent({ props: fullyNotExpandedFileProps });
-          findExpandButton().vm.$emit('click');
-          expect(mockStoreConfig.modules.diffs.actions.toggleFullDiff).toHaveBeenCalled();
+          findExpandButton().props('item').action();
+          expect(useLegacyDiffs().toggleFullDiff).toHaveBeenCalledWith(
+            fullyNotExpandedFileProps.diffFile.file_path,
+          );
         });
       });
     });
@@ -469,7 +449,7 @@ describe('DiffFileHeader component', () => {
     it('uses local anchor for link as last resort', () => {
       createComponent();
       expect(findTitleLink().attributes('href')).toMatch(
-        new RegExp(`#diff-content-${diffFile.file_hash}$`),
+        new RegExp(`#diff-content-${getFirstDiffFile().file_hash}$`),
       );
     });
 
@@ -492,21 +472,21 @@ describe('DiffFileHeader component', () => {
 
   describe('for new file', () => {
     it('displays the path', () => {
-      createComponent({ props: { diffFile: { ...diffFile, new_file: true } } });
-      expect(findTitleLink().text()).toBe(diffFile.file_path);
+      createComponent({ props: { diffFile: { ...createDiffFile(), new_file: true } } });
+      expect(findTitleLink().text()).toBe(getFirstDiffFile().file_path);
     });
   });
 
   describe('for deleted file', () => {
     it('displays the path', () => {
-      createComponent({ props: { diffFile: { ...diffFile, deleted_file: true } } });
+      createComponent({ props: { diffFile: { ...createDiffFile(), deleted_file: true } } });
       expect(findTitleLink().text()).toBe(
-        sprintf(__('%{filePath} deleted'), { filePath: diffFile.file_path }, false),
+        sprintf('%{filePath} deleted', { filePath: getFirstDiffFile().file_path }, false),
       );
     });
 
     it('does not show edit button', () => {
-      createComponent({ props: { diffFile: { ...diffFile, deleted_file: true } } });
+      createComponent({ props: { diffFile: { ...createDiffFile(), deleted_file: true } } });
       expect(findEditButton().exists()).toBe(false);
     });
   });
@@ -516,7 +496,7 @@ describe('DiffFileHeader component', () => {
       createComponent({
         props: {
           diffFile: {
-            ...diffFile,
+            ...createDiffFile(),
             renamed_file: true,
             old_path_html: 'old',
             new_path_html: 'new',
@@ -533,7 +513,7 @@ describe('DiffFileHeader component', () => {
       createComponent({
         props: {
           diffFile: {
-            ...diffFile,
+            ...createDiffFile(),
             replaced_view_path: replacedViewPath,
           },
           addMergeRequestButtons: true,
@@ -549,9 +529,9 @@ describe('DiffFileHeader component', () => {
       createComponent({
         props: {
           diffFile: {
-            ...diffFile,
+            ...createDiffFile(),
             viewer: {
-              ...diffFile.viewer,
+              ...createDiffFile().viewer,
               automaticallyCollapsed: false,
               manuallyCollapsed: null,
             },
@@ -567,19 +547,7 @@ describe('DiffFileHeader component', () => {
 
       expect(document.activeElement.blur).toHaveBeenCalled();
 
-      return testAction(
-        reviewFile,
-        { file, reviewed: true },
-        {},
-        [
-          { type: SET_DIFF_FILE_VIEWED, payload: { id: file.file_hash, seen: true } },
-          {
-            type: SET_MR_FILE_REVIEWS,
-            payload: { [file.file_identifier_hash]: [file.id, `hash:${file.file_hash}`] },
-          },
-        ],
-        [],
-      );
+      expect(useLegacyDiffs().reviewFile).toHaveBeenCalledWith({ file, reviewed: true });
     });
 
     it.each`
@@ -595,9 +563,9 @@ describe('DiffFileHeader component', () => {
         createComponent({
           props: {
             diffFile: {
-              ...diffFile,
+              ...createDiffFile(),
               viewer: {
-                ...diffFile.viewer,
+                ...createDiffFile().viewer,
                 automaticallyCollapsed: aCollapse,
                 manuallyCollapsed: mCollapse,
               },
@@ -610,11 +578,9 @@ describe('DiffFileHeader component', () => {
         findReviewFileCheckbox().vm.$emit('change', newReviewedStatus);
 
         if (callAction) {
-          expect(mockStoreConfig.modules.diffs.actions.setFileCollapsedByUser).toHaveBeenCalled();
+          expect(useLegacyDiffs().setFileCollapsedByUser).toHaveBeenCalled();
         } else {
-          expect(
-            mockStoreConfig.modules.diffs.actions.setFileCollapsedByUser,
-          ).not.toHaveBeenCalled();
+          expect(useLegacyDiffs().setFileCollapsedByUser).not.toHaveBeenCalled();
         }
       },
     );
@@ -649,9 +615,9 @@ describe('DiffFileHeader component', () => {
         createComponent({
           props: {
             diffFile: {
-              ...diffFile,
+              ...createDiffFile(),
               viewer: {
-                ...diffFile.viewer,
+                ...createDiffFile().viewer,
                 automaticallyCollapsed: false,
                 manuallyCollapsed: null,
               },
@@ -672,9 +638,9 @@ describe('DiffFileHeader component', () => {
       createComponent({
         props: {
           diffFile: {
-            ...diffFile,
+            ...createDiffFile(),
             viewer: {
-              ...diffFile.viewer,
+              ...createDiffFile().viewer,
               automaticallyCollapsed: false,
               manuallyCollapsed: null,
             },
@@ -686,29 +652,18 @@ describe('DiffFileHeader component', () => {
       });
 
       findReviewFileCheckbox().vm.$emit('change', true);
-
-      testAction(
-        setFileForcedOpen,
-        { filePath: diffFile.file_path, forced: false },
-        {},
-        [{ type: SET_FILE_FORCED_OPEN, payload: { filePath: diffFile.file_path, forced: false } }],
-        [],
-      );
-
       findReviewFileCheckbox().vm.$emit('change', false);
 
-      testAction(
-        setFileForcedOpen,
-        { filePath: diffFile.file_path, forced: false },
-        {},
-        [{ type: SET_FILE_FORCED_OPEN, payload: { filePath: diffFile.file_path, forced: false } }],
-        [],
-      );
+      expect(useLegacyDiffs().setFileForcedOpen).toHaveBeenCalledWith({
+        filePath: getFirstDiffFile().file_path,
+        forced: false,
+      });
     });
   });
 
   it('should render the comment on files button', () => {
     window.gon = { current_user_id: 1 };
+    useNotes().noteableData.current_user = { can_create_note: true };
     createComponent({
       props: {
         addMergeRequestButtons: true,
@@ -716,24 +671,5 @@ describe('DiffFileHeader component', () => {
     });
 
     expect(wrapper.find('[data-testid="comment-files-button"]').exists()).toEqual(true);
-  });
-
-  describe('pinned file', () => {
-    beforeEach(() => {
-      window.gon.features = { pinnedFile: true };
-    });
-
-    it('has pinned URL search param', () => {
-      createComponent();
-      const url = new URL(TEST_HOST + findTitleLink().attributes('href'));
-      expect(url.searchParams.get('pin')).toBe(diffFile.file_hash);
-    });
-
-    it('can unpin file', () => {
-      createComponent({ props: { addMergeRequestButtons: true, pinned: true } });
-      const unpinButton = wrapper.findComponentByTestId('unpin-button');
-      unpinButton.vm.$emit('click');
-      expect(mockStoreConfig.modules.diffs.actions.unpinFile).toHaveBeenCalled();
-    });
   });
 });

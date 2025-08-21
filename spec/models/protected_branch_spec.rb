@@ -4,6 +4,8 @@ require 'spec_helper'
 
 RSpec.describe ProtectedBranch, feature_category: :source_code_management do
   it_behaves_like 'protected ref', :protected_branch
+  it_behaves_like 'protected ref with access levels for', :merge
+  it_behaves_like 'protected ref with access levels for', :push
 
   subject { build_stubbed(:protected_branch) }
 
@@ -83,34 +85,14 @@ RSpec.describe ProtectedBranch, feature_category: :source_code_management do
   end
 
   describe '.protected_refs' do
-    let_it_be(:project) { create(:project) }
+    let(:project) { build_stubbed(:project) }
 
     subject { described_class.protected_refs(project) }
 
-    context 'when feature flag enabled' do
-      before do
-        stub_feature_flags(group_protected_branches: true)
-        stub_feature_flags(allow_protected_branches_for_group: true)
-      end
+    it 'call `all_protected_branches`' do
+      expect(project).to receive(:all_protected_branches)
 
-      it 'call `all_protected_branches`' do
-        expect(project).to receive(:all_protected_branches)
-
-        subject
-      end
-    end
-
-    context 'when feature flag disabled' do
-      before do
-        stub_feature_flags(group_protected_branches: false)
-        stub_feature_flags(allow_protected_branches_for_group: false)
-      end
-
-      it 'call `protected_branches`' do
-        expect(project).to receive(:protected_branches)
-
-        subject
-      end
+      subject
     end
   end
 
@@ -253,27 +235,75 @@ RSpec.describe ProtectedBranch, feature_category: :source_code_management do
     end
   end
 
-  describe '.default_branch?' do
-    before do
-      allow(subject.project).to receive(:default_branch).and_return(branch)
+  describe '.default_branch_for' do
+    let(:project) { create(:project) }
+
+    context 'when project has no default branch' do
+      before do
+        allow(project).to receive(:default_branch).and_return(nil)
+      end
+
+      it 'returns nil' do
+        expect(described_class.default_branch_for(project)).to be_nil
+      end
     end
 
-    context 'when the name matches the default branch' do
-      let(:branch) { subject.name }
+    context 'when project has a default branch' do
+      let(:default_branch_name) { 'main' }
 
-      it { is_expected.to be_default_branch }
+      before do
+        allow(project).to receive(:default_branch).and_return(default_branch_name)
+      end
+
+      context 'when the default branch is protected' do
+        let!(:protected_branch) { create(:protected_branch, project: project, name: default_branch_name) }
+
+        it 'returns the protected branch record' do
+          expect(described_class.default_branch_for(project)).to eq(protected_branch)
+        end
+      end
+
+      context 'when the default branch is not protected' do
+        before do
+          create(:protected_branch, project: project, name: 'some-other-branch')
+        end
+
+        it 'returns nil' do
+          expect(described_class.default_branch_for(project)).to be_nil
+        end
+      end
     end
+  end
 
-    context 'when the name does not match the default branch' do
-      let(:branch) { "#{subject.name}qwerty" }
+  describe '#default_branch?' do
+    context 'when group level' do
+      subject { build_stubbed(:protected_branch, project: nil, group: build(:group)) }
 
       it { is_expected.not_to be_default_branch }
     end
 
-    context 'when a wildcard name matches the default branch' do
-      let(:branch) { "#{subject.name}*" }
+    context 'when project level' do
+      before do
+        allow(subject.project).to receive(:default_branch).and_return(branch)
+      end
 
-      it { is_expected.not_to be_default_branch }
+      context 'when the name matches the default branch' do
+        let(:branch) { subject.name }
+
+        it { is_expected.to be_default_branch }
+      end
+
+      context 'when the name does not match the default branch' do
+        let(:branch) { "#{subject.name}qwerty" }
+
+        it { is_expected.not_to be_default_branch }
+      end
+
+      context 'when a wildcard name matches the default branch' do
+        let(:branch) { "#{subject.name}*" }
+
+        it { is_expected.not_to be_default_branch }
+      end
     end
   end
 
@@ -546,63 +576,32 @@ RSpec.describe ProtectedBranch, feature_category: :source_code_management do
   end
 
   describe "#allow_force_push?" do
-    context "when feature flag disabled" do
-      before do
-        stub_feature_flags(group_protected_branches: false)
-        stub_feature_flags(allow_protected_branches_for_group: false)
-      end
+    using RSpec::Parameterized::TableSyntax
 
-      let(:subject_branch) { create(:protected_branch, allow_force_push: allow_force_push, name: "foo") }
-      let(:project) { subject_branch.project }
+    let_it_be(:group) { create(:group) }
+    let_it_be(:project) { create(:project, group: group) }
 
-      context "when the attr allow_force_push is true" do
-        let(:allow_force_push) { true }
-
-        it "returns true" do
-          expect(described_class.allow_force_push?(project, "foo")).to eq(true)
-        end
-      end
-
-      context "when the attr allow_force_push is false" do
-        let(:allow_force_push) { false }
-
-        it "returns false" do
-          expect(described_class.allow_force_push?(project, "foo")).to eq(false)
-        end
-      end
+    where(:group_level_value, :project_level_value, :result) do
+      true    | false    | true
+      false   | true     | true
+      true    | nil      | true
+      false   | nil      | false
+      nil     | nil      | false
     end
 
-    context "when feature flag enabled" do
-      using RSpec::Parameterized::TableSyntax
+    with_them do
+      before do
+        unless group_level_value.nil?
+          create(:protected_branch, allow_force_push: group_level_value, name: "foo", project: nil, group: group)
+        end
 
-      let_it_be(:group) { create(:group) }
-      let_it_be(:project) { create(:project, group: group) }
-
-      where(:group_level_value, :project_level_value, :result) do
-        true    | false    | true
-        false   | true     | false
-        true    | nil      | true
-        false   | nil      | false
-        nil     | nil      | false
+        unless project_level_value.nil?
+          create(:protected_branch, allow_force_push: project_level_value, name: "foo", project: project)
+        end
       end
 
-      with_them do
-        before do
-          stub_feature_flags(group_protected_branches: true)
-          stub_feature_flags(allow_protected_branches_for_group: true)
-
-          unless group_level_value.nil?
-            create(:protected_branch, allow_force_push: group_level_value, name: "foo", project: nil, group: group)
-          end
-
-          unless project_level_value.nil?
-            create(:protected_branch, allow_force_push: project_level_value, name: "foo", project: project)
-          end
-        end
-
-        it "returns result" do
-          expect(described_class.allow_force_push?(project, "foo")).to eq(result)
-        end
+      it "returns result" do
+        expect(described_class.allow_force_push?(project, "foo")).to eq(result)
       end
     end
   end

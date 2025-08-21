@@ -48,7 +48,7 @@ RSpec.describe Import::FogbugzController, feature_category: :importers do
 
     context 'when client raises authentication exception' do
       before do
-        allow(::Gitlab::FogbugzImport::Client).to receive(:new).and_raise(::Fogbugz::AuthenticationException)
+        allow(::Gitlab::FogbugzImport::Client).to receive(:new).and_raise(Gitlab::FogbugzImport::Interface::AuthenticationError)
       end
 
       it 'redirects to new page form' do
@@ -64,7 +64,7 @@ RSpec.describe Import::FogbugzController, feature_category: :importers do
           post :callback, params: { uri: uri, email: 'test@example.com', password: 'mypassword' }
 
           expect(response).to redirect_to(new_import_fogbugz_url)
-          expect(flash[:alert]).to eq("Specified URL cannot be used: \"#{reason}\"")
+          expect(flash[:alert]).to eq("Specified URL cannot be used: &quot;#{reason}&quot;")
         end
       end
 
@@ -84,6 +84,14 @@ RSpec.describe Import::FogbugzController, feature_category: :importers do
         let(:uri) { 'ftp://testing' }
 
         include_examples 'denies local request', 'Only allowed schemes are http, https'
+      end
+    end
+
+    it_behaves_like 'rate limited endpoint', rate_limit_key: :fogbugz_import, with_redirect: true do
+      let(:current_user) { user }
+
+      def request
+        post :callback, params: { uri: uri, email: 'test@example.com', password: 'mypassword' }
       end
     end
   end
@@ -145,7 +153,7 @@ RSpec.describe Import::FogbugzController, feature_category: :importers do
     end
   end
 
-  describe 'POST create' do
+  describe 'POST create', :with_current_organization do
     let(:repo_id) { 'FOGBUGZ_REPO_ID' }
     let(:project) { create(:project) }
     let(:client) { instance_double(Gitlab::FogbugzImport::Client, user_map: {}) }
@@ -155,7 +163,7 @@ RSpec.describe Import::FogbugzController, feature_category: :importers do
     end
 
     it 'returns the new project' do
-      expect(Import::FogbugzService).to receive(:new).and_return(
+      expect(Import::FogbugzService).to receive(:new).with(client, user, hash_including(organization_id: current_organization.id)).and_return(
         instance_double(Import::FogbugzService, execute: ServiceResponse.success)
       )
 

@@ -9,6 +9,50 @@ RSpec.describe ContainerRegistry::GitlabApiClient, feature_category: :container_
   include_context 'container registry client stubs'
 
   let(:path) { 'namespace/path/to/repository' }
+  let_it_be(:project) { create(:project) }
+
+  shared_examples 'returning the correct result based on status code' do
+    where(:dry_run, :status_code, :expected_result) do
+      true  | 202 | :accepted
+      true  | 400 | :bad_request
+      true  | 401 | :unauthorized
+      true  | 404 | :not_found
+      true  | 409 | :name_taken
+      true  | 422 | :too_many_subrepositories
+      true  | 501 | :rename_not_supported
+
+      false | 204 | :ok
+      false | 400 | :bad_request
+      false | 401 | :unauthorized
+      false | 404 | :not_found
+      false | 409 | :name_taken
+      false | 422 | :too_many_subrepositories
+      false | 501 | :rename_not_supported
+    end
+
+    with_them do
+      it { is_expected.to eq(expected_result) }
+    end
+  end
+
+  shared_examples 'logging a repositories error' do
+    it 'logs an error' do
+      expect(Gitlab::ErrorTracking)
+        .to receive(:log_exception).with(
+          instance_of(described_class::UnsuccessfulResponseError),
+          class: described_class.name,
+          url: "/gitlab/v1/repositories/#{path}/",
+          status_code: 404
+        )
+      subject
+    end
+  end
+
+  shared_examples 'raising an Argument error: incomplete parameters' do
+    it 'raises an Argument error' do
+      expect { request }.to raise_error(ArgumentError, 'incomplete parameters given')
+    end
+  end
 
   describe '#supports_gitlab_api?' do
     subject { client.supports_gitlab_api? }
@@ -62,6 +106,43 @@ RSpec.describe ContainerRegistry::GitlabApiClient, feature_category: :container_
       end
 
       it { is_expected.to be_falsey }
+    end
+  end
+
+  shared_examples 'querying and parsing statistics' do
+    where(:output, :features, :version, :db_enabled) do
+      { release: { ext_features: 'a', version: 'v1'  }, database: { enabled: true } } | %w[a]   | 'v1'     | true
+      { release: { ext_features: 'a' }, database: { enabled: true } }                 | %w[a]   | nil      | true
+      { release: { ext_features: 'a,b' } }                                            | %w[a b] | nil      | nil
+      { release: { version: 'v1' }, database: { enabled: false } }                    | []      | 'v1'     | false
+      { release: { version: 'v1.5' }, database: {} }                                  | []      | 'v1.5'   | nil
+      { release: { version: 'v1.5' }, database: nil }                                 | []      | 'v1.5'   | nil
+      { release: { version: 'v1-git' } }                                              | []      | 'v1-git' | nil
+      { database: { enabled: true } }                                                 | []      | nil      | true
+    end
+
+    with_them do
+      before do
+        stub_statistics(status_code: 200, respond_with: output)
+      end
+
+      it { is_expected.to eq({ features:, version:, db_enabled: }) }
+    end
+
+    context 'when the response is empty' do
+      before do
+        stub_statistics(status_code: 200, respond_with: {})
+      end
+
+      it { is_expected.to eq({}) }
+    end
+
+    context 'when the request is not successful' do
+      before do
+        stub_statistics(status_code: 404)
+      end
+
+      it { is_expected.to eq({}) }
     end
   end
 
@@ -360,51 +441,67 @@ RSpec.describe ContainerRegistry::GitlabApiClient, feature_category: :container_
 
   describe '#rename_base_repository_path' do
     let(:path) { 'path/repository' }
-    let(:name) { 'newname' }
     let(:dry_run) { 'false' }
     let(:status_code) { 204 }
+    let(:name) { 'newname' }
 
-    subject { client.rename_base_repository_path(path, name: name, dry_run: dry_run) }
-
-    before do
-      stub_rename_base_repository(path, name: name, dry_run: dry_run, status_code: status_code)
+    subject do
+      client.rename_base_repository_path(
+        path, name: name, dry_run: dry_run
+      )
     end
 
-    where(:dry_run, :status_code, :expected_result) do
-      true  | 202 | :accepted
-      true  | 400 | :bad_request
-      true  | 401 | :unauthorized
-      true  | 404 | :not_found
-      true  | 409 | :name_taken
-      true  | 422 | :too_many_subrepositories
+    context 'when name is provided' do
+      let(:name) { 'newname' }
 
-      false | 204 | :ok
-      false | 400 | :bad_request
-      false | 401 | :unauthorized
-      false | 404 | :not_found
-      false | 409 | :name_taken
-      false | 422 | :too_many_subrepositories
-    end
+      before do
+        stub_patch_repository(
+          path, name: name, dry_run: dry_run, status_code: status_code
+        )
+      end
 
-    with_them do
-      it { is_expected.to eq(expected_result) }
+      it_behaves_like 'returning the correct result based on status code'
     end
 
     context 'with a non-successful response' do
       before do
-        stub_rename_base_repository(path, name: name, dry_run: false, status_code: 404)
+        stub_patch_repository(path, name: name, dry_run: false, status_code: 404)
       end
 
-      it 'logs an error' do
-        expect(Gitlab::ErrorTracking)
-          .to receive(:log_exception).with(
-            instance_of(described_class::UnsuccessfulResponseError),
-            class: described_class.name,
-            url: "/gitlab/v1/repositories/#{path}/",
-            status_code: 404
-          )
-        subject
+      it_behaves_like 'logging a repositories error'
+    end
+  end
+
+  describe '#move_repository_to_namespace' do
+    let(:path) { 'path/repository' }
+    let(:dry_run) { 'false' }
+    let(:status_code) { 204 }
+    let(:namespace) { 'group/oldproject' }
+
+    subject do
+      client.move_repository_to_namespace(
+        path, namespace: namespace, dry_run: dry_run
+      )
+    end
+
+    context 'when namespace is provided' do
+      let(:namespace) { 'group/newproject' }
+
+      before do
+        stub_patch_repository(
+          path, namespace: namespace, dry_run: dry_run, status_code: status_code
+        )
       end
+
+      it_behaves_like 'returning the correct result based on status code'
+    end
+
+    context 'with a non-successful response' do
+      before do
+        stub_patch_repository(path, namespace: namespace, dry_run: false, status_code: 404)
+      end
+
+      it_behaves_like 'logging a repositories error'
     end
   end
 
@@ -613,35 +710,103 @@ RSpec.describe ContainerRegistry::GitlabApiClient, feature_category: :container_
 
   describe '.rename_base_repository_path' do
     let(:name) { 'newname' }
+    let(:dry_run) { true }
     let(:expected_dry_run) { true }
 
-    before do
-      stub_container_registry_config(enabled: true, api_url: registry_api_url, key: 'spec/fixtures/x509_certificate_pk.key')
+    subject(:request) { described_class.rename_base_repository_path(path, name: name, project: project, dry_run: true) }
 
-      expect_next_instance_of(described_class) do |client|
-        expect(client).to receive(:rename_base_repository_path).with(path.downcase, name: name.downcase, dry_run: expected_dry_run).and_return(:ok)
+    context 'when both path and name are present' do
+      before do
+        stub_container_registry_config(enabled: true, api_url: registry_api_url, key: 'spec/fixtures/x509_certificate_pk.key')
+
+        expect_next_instance_of(described_class) do |client|
+          expect(client).to receive(:rename_base_repository_path).with(path.downcase, name: name.downcase, dry_run: expected_dry_run).and_return(:ok)
+        end
+      end
+
+      it 'passes on the parameters to  #rename_base_repository_path' do
+        request
+      end
+
+      context 'when path and/or name have non-downcased letters' do
+        let(:path) { 'pAtH/to/PROject' }
+        let(:name) { 'nEwNamE' }
+
+        it 'passes the path and name downcased to #rename_base_repository_path' do
+          request
+        end
+      end
+
+      context 'when dry_run parameter is not given' do
+        let(:expected_dry_run) { false }
+
+        it 'defaults to false' do
+          described_class.rename_base_repository_path(path, name: 'newname', project: project)
+        end
       end
     end
 
-    it 'passes on the parameters to  #rename_base_repository_path' do
-      described_class.rename_base_repository_path(path, name: name, dry_run: true)
+    context 'when path is nil' do
+      let(:path) { nil }
+
+      it_behaves_like 'raising an Argument error: incomplete parameters'
     end
 
-    context 'when path and/or name have non-downcased letters' do
-      let(:path) { 'pAtH/to/PROject' }
-      let(:name) { 'nEwNamE' }
+    context 'when name is nil' do
+      let(:name) { nil }
 
-      it 'passes the path and name downcased to #rename_base_repository_path' do
-        described_class.rename_base_repository_path(path, name: name, dry_run: true)
+      it_behaves_like 'raising an Argument error: incomplete parameters'
+    end
+  end
+
+  describe '.move_repository_to_namespace' do
+    let(:dry_run) { true }
+    let(:expected_dry_run) { true }
+    let(:namespace) { 'group_a/subgroup_b' }
+
+    subject(:request) { described_class.move_repository_to_namespace(path, namespace: namespace, project: project, dry_run: dry_run) }
+
+    context 'when both path and namespace are present' do
+      before do
+        stub_container_registry_config(enabled: true, api_url: registry_api_url, key: 'spec/fixtures/x509_certificate_pk.key')
+
+        expect_next_instance_of(described_class) do |client|
+          expect(client).to receive(:move_repository_to_namespace).with(path.downcase, namespace: namespace.downcase, dry_run: expected_dry_run).and_return(:ok)
+        end
+      end
+
+      it 'passes on the parameters to #move_repository_to_namespace' do
+        request
+      end
+
+      context 'when path and/or namespace have non-downcased letters' do
+        let(:path) { 'pAtH/to/PROject' }
+        let(:namespace) { 'group_a/suBGroup_b' }
+
+        it 'passes the path and namespace downcased to #move_repository_to_namespace' do
+          request
+        end
+      end
+
+      context 'when dry_run parameter is not given' do
+        let(:expected_dry_run) { false }
+
+        it 'defaults to false' do
+          described_class.move_repository_to_namespace(path, namespace: namespace, project: project)
+        end
       end
     end
 
-    context 'when dry_run parameter is not given' do
-      let(:expected_dry_run) { false }
+    context 'when path is nil' do
+      let(:path) { nil }
 
-      it 'defaults to false' do
-        described_class.rename_base_repository_path(path, name: 'newname')
-      end
+      it_behaves_like 'raising an Argument error: incomplete parameters'
+    end
+
+    context 'when namespace is nil' do
+      let(:namespace) { nil }
+
+      it_behaves_like 'raising an Argument error: incomplete parameters'
     end
   end
 
@@ -798,6 +963,33 @@ RSpec.describe ContainerRegistry::GitlabApiClient, feature_category: :container_
     end
   end
 
+  describe '.statistics' do
+    subject { described_class.statistics }
+
+    context 'when the registry is enabled' do
+      before do
+        stub_container_registry_config(enabled: true, api_url: registry_api_url, key: 'spec/fixtures/x509_certificate_pk.key')
+        allow(Auth::ContainerRegistryAuthenticationService).to receive(:statistics_token).and_return(token)
+      end
+
+      it_behaves_like 'querying and parsing statistics'
+    end
+
+    context 'when the registry is disabled' do
+      before do
+        stub_container_registry_config(enabled: false)
+      end
+
+      it { is_expected.to eq({}) }
+    end
+  end
+
+  describe '#statistics' do
+    subject { client.statistics }
+
+    it_behaves_like 'querying and parsing statistics'
+  end
+
   def stub_registry_gitlab_api_support(supported = true)
     status_code = supported ? 200 : 404
     stub_request(:get, "#{registry_api_url}/gitlab/v1/")
@@ -868,12 +1060,27 @@ RSpec.describe ContainerRegistry::GitlabApiClient, feature_category: :container_
       )
   end
 
-  def stub_rename_base_repository(path, name:, dry_run: false, status_code: 204)
+  def stub_patch_repository(path, name: nil, namespace: nil, dry_run: false, status_code: 204)
     url = "#{registry_api_url}/gitlab/v1/repositories/#{path}/?dry_run=#{dry_run}"
 
+    body = { name: name } if name.present?
+    body = { namespace: namespace } if namespace.present?
+
     stub_request(:patch, url)
-      .with(headers: request_headers, body: { name: name }.to_json)
+      .with(headers: request_headers, body: body.to_json)
       .to_return(status: status_code, headers: headers_with_json_content_type)
+  end
+
+  def stub_statistics(status_code: 200, respond_with: {})
+    url = "#{registry_api_url}/gitlab/v1/statistics/"
+
+    stub_request(:get, url)
+      .with(headers: { 'Accept' => described_class::JSON_TYPE })
+      .to_return(
+        status: status_code,
+        body: respond_with.to_json,
+        headers: headers_with_json_content_type
+      )
   end
 
   def request_headers

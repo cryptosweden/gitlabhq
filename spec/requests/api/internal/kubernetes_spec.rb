@@ -10,10 +10,11 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
       'HS256'
     )
 
-    { Gitlab::Kas::INTERNAL_API_REQUEST_HEADER => jwt_token }
+    { Gitlab::Kas::INTERNAL_API_KAS_REQUEST_HEADER => jwt_token }
   end
 
   let(:jwt_secret) { SecureRandom.random_bytes(Gitlab::Kas::SECRET_LENGTH) }
+  let(:agent_token_headers) { { Gitlab::Kas::INTERNAL_API_AGENT_REQUEST_HEADER => agent_token.token } }
 
   before do
     allow(Gitlab::Kas).to receive(:secret).and_return(jwt_secret)
@@ -22,7 +23,7 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
   shared_examples 'authorization' do
     context 'not authenticated' do
       it 'returns 401' do
-        send_request(headers: { Gitlab::Kas::INTERNAL_API_REQUEST_HEADER => '' })
+        send_request(headers: { Gitlab::Kas::INTERNAL_API_KAS_REQUEST_HEADER => '' })
 
         expect(response).to have_gitlab_http_status(:unauthorized)
       end
@@ -30,14 +31,14 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
   end
 
   shared_examples 'agent authentication' do
-    it 'returns 401 if Authorization header not sent' do
+    it 'returns 401 if Gitlab-Agent-Api-Request header not sent' do
       send_request
 
       expect(response).to have_gitlab_http_status(:unauthorized)
     end
 
-    it 'returns 401 if Authorization is for non-existent agent' do
-      send_request(headers: { 'Authorization' => 'Bearer NONEXISTENT' })
+    it 'returns 401 if Gitlab-Agent-Api-Request is for non-existent agent' do
+      send_request(headers: { Gitlab::Kas::INTERNAL_API_AGENT_REQUEST_HEADER => 'NONEXISTENT' })
 
       expect(response).to have_gitlab_http_status(:unauthorized)
     end
@@ -46,24 +47,8 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
   shared_examples 'agent token tracking' do
     it 'tracks token usage' do
       expect do
-        send_request(headers: { 'Authorization' => "Bearer #{agent_token.token}" })
+        send_request(headers: agent_token_headers)
       end.to change { agent_token.reload.read_attribute(:last_used_at) }
-    end
-  end
-
-  shared_examples 'error handling' do
-    let!(:agent_token) { create(:cluster_agent_token) }
-
-    # this test verifies fix for an issue where AgentToken passed in Authorization
-    # header broke error handling in the api_helpers.rb. It can be removed after
-    # https://gitlab.com/gitlab-org/gitlab/-/issues/406582 is done
-    it 'returns correct error for the endpoint' do
-      allow(Gitlab::Kas).to receive(:verify_api_request).and_raise(StandardError.new('Unexpected Error'))
-
-      send_request(headers: { 'Authorization' => "Bearer #{agent_token.token}" })
-
-      expect(response).to have_gitlab_http_status(:internal_server_error)
-      expect(response.body).to include("Unexpected Error")
     end
   end
 
@@ -73,7 +58,6 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
     end
 
     include_examples 'authorization'
-    include_examples 'error handling'
 
     context 'is authenticated for an agent' do
       let!(:agent_token) { create(:cluster_agent_token) }
@@ -85,6 +69,12 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
         send_request(params: { counters: counters, unique_counters: unique_counters })
 
         expect(response).to have_gitlab_http_status(:no_content)
+      end
+
+      it 'uses batched Redis updates' do
+        expect(Gitlab::InternalEvents).to receive(:with_batched_redis_writes)
+
+        send_request(params: { counters: { k8s_api_proxy_request: 5 } })
       end
 
       it 'returns no_content for counts of zero' do
@@ -112,68 +102,131 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
         expect(response).to have_gitlab_http_status(:bad_request)
       end
 
-      it 'tracks events and unique events', :aggregate_failures do
-        request_count = 2
-        counters = {
-          k8s_api_proxy_request: 5,
-          flux_git_push_notifications_total: 42,
-          k8s_api_proxy_requests_via_ci_access: 43,
-          k8s_api_proxy_requests_via_user_access: 44,
-          k8s_api_proxy_requests_via_pat_access: 45
-        }
-        users = create_list(:user, 3)
-        user_ids = users.map(&:id) << users[0].id
-        unique_counters = {
-          k8s_api_proxy_requests_unique_agents_via_ci_access: user_ids,
-          k8s_api_proxy_requests_unique_agents_via_user_access: user_ids,
-          k8s_api_proxy_requests_unique_agents_via_pat_access: user_ids,
-          flux_git_push_notified_unique_projects: user_ids,
-          k8s_api_proxy_requests_unique_users_via_ci_access: user_ids,
-          k8s_api_proxy_requests_unique_users_via_user_access: user_ids,
-          k8s_api_proxy_requests_unique_users_via_pat_access: user_ids
-        }
+      describe 'events tracking' do
+        it 'correctly merges legacy Redis keys for migrated metrics', :aggregate_failures do
+          legacy_redis_keys = %w[
+            USAGE_KUBERNETES_AGENT_FLUX_GIT_PUSH_NOTIFICATIONS_TOTAL
+            USAGE_KUBERNETES_AGENT_K8S_API_PROXY_REQUEST
+            USAGE_KUBERNETES_AGENT_K8S_API_PROXY_REQUESTS_VIA_CI_ACCESS
+            USAGE_KUBERNETES_AGENT_K8S_API_PROXY_REQUESTS_VIA_USER_ACCESS
+            USAGE_KUBERNETES_AGENT_K8S_API_PROXY_REQUESTS_VIA_PAT_ACCESS
+          ]
 
-        internal_events = %w[
-          k8s_api_proxy_requests_unique_users_via_ci_access
-          k8s_api_proxy_requests_unique_users_via_user_access
-          k8s_api_proxy_requests_unique_users_via_pat_access
-        ]
-
-        unique_user_metrics = %w[
-          redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_users_via_ci_access_weekly
-          redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_users_via_ci_access_monthly
-          redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_users_via_user_access_weekly
-          redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_users_via_user_access_monthly
-          redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_users_via_pat_access_weekly
-          redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_users_via_pat_access_monthly
-          redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_agents_via_user_access_weekly
-          redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_agents_via_user_access_monthly
-          redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_agents_via_ci_access_weekly
-          redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_agents_via_ci_access_monthly
-          redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_agents_via_pat_access_weekly
-          redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_agents_via_pat_access_monthly
-          redis_hll_counters.kubernetes_agent.flux_git_push_notified_unique_projects_weekly
-          redis_hll_counters.kubernetes_agent.flux_git_push_notified_unique_projects_monthly
-        ]
-
-        expect do
-          request_count.times do
-            send_request(params: { counters: counters, unique_counters: unique_counters })
+          legacy_redis_keys.each do |key|
+            Gitlab::Redis::SharedState.with { |redis| redis.set(key, 1) }
           end
-        end.to trigger_internal_events(internal_events).with(user: users[0], category: 'InternalEventTracking').exactly(4).times
-          .and trigger_internal_events(internal_events).with(user: users[1], category: 'InternalEventTracking').twice
-          .and trigger_internal_events(internal_events).with(user: users[2], category: 'InternalEventTracking').twice
-          .and increment_usage_metrics(unique_user_metrics).by(user_ids.uniq.count)
-          .and increment_usage_metrics('counts.kubernetes_agent_k8s_api_proxy_request')
-            .by(request_count * counters[:k8s_api_proxy_request])
-          .and increment_usage_metrics('counts.kubernetes_agent_flux_git_push_notifications_total')
-            .by(request_count * counters[:flux_git_push_notifications_total])
-          .and increment_usage_metrics('counts.kubernetes_agent_k8s_api_proxy_requests_via_ci_access')
-            .by(request_count * counters[:k8s_api_proxy_requests_via_ci_access])
-          .and increment_usage_metrics('counts.kubernetes_agent_k8s_api_proxy_requests_via_user_access')
-            .by(request_count * counters[:k8s_api_proxy_requests_via_user_access])
-          .and increment_usage_metrics('counts.kubernetes_agent_k8s_api_proxy_requests_via_pat_access')
-            .by(request_count * counters[:k8s_api_proxy_requests_via_pat_access])
+
+          counters = {
+            flux_git_push_notifications_total: 1,
+            k8s_api_proxy_request: 1,
+            k8s_api_proxy_requests_via_ci_access: 1,
+            k8s_api_proxy_requests_via_user_access: 1,
+            k8s_api_proxy_requests_via_pat_access: 1
+          }
+
+          send_request(params: { counters: counters })
+
+          migrated_metrics = %w[
+            kubernetes_agent_flux_git_push_notifications_total
+            kubernetes_agent_k8s_api_proxy_request
+            kubernetes_agent_k8s_api_proxy_requests_via_ci_access
+            kubernetes_agent_k8s_api_proxy_requests_via_user_access
+            kubernetes_agent_k8s_api_proxy_requests_via_pat_access
+          ]
+
+          migrated_metrics.each do |metric|
+            metric_definition = Gitlab::Usage::MetricDefinition.definitions["counts.#{metric}"]
+            current_value = Gitlab::Usage::Metric.new(metric_definition).send(:instrumentation_object).value
+            expect(current_value).to eq(2), "Expected metric #{metric} to be 2, but was #{current_value}"
+          end
+        end
+
+        it 'tracks counter events', :aggregate_failures do
+          events = API::Helpers::Kubernetes::AgentHelpers::COUNTERS_EVENTS_MAPPING
+          counters = {
+            flux_git_push_notifications_total: 3,
+            k8s_api_proxy_request: 5,
+            k8s_api_proxy_requests_via_ci_access: 43,
+            k8s_api_proxy_requests_via_user_access: 44,
+            k8s_api_proxy_requests_via_pat_access: 45
+          }
+
+          expect do
+            send_request(params: { counters: counters })
+          end.to trigger_internal_events(events['flux_git_push_notifications_total'])
+                   .with(category: 'InternalEventTracking')
+                     .exactly(counters[:flux_git_push_notifications_total]).times
+                   .and increment_usage_metrics('counts.kubernetes_agent_flux_git_push_notifications_total')
+                    .by(counters[:flux_git_push_notifications_total])
+                 .and trigger_internal_events(events['k8s_api_proxy_request'])
+                   .with(category: 'InternalEventTracking')
+                     .exactly(counters[:k8s_api_proxy_request]).times
+                   .and increment_usage_metrics('counts.kubernetes_agent_k8s_api_proxy_request')
+                    .by(counters[:k8s_api_proxy_request])
+                 .and trigger_internal_events(events['k8s_api_proxy_requests_via_ci_access'])
+                   .with(category: 'InternalEventTracking')
+                     .exactly(counters[:k8s_api_proxy_requests_via_ci_access]).times
+                   .and increment_usage_metrics('counts.kubernetes_agent_k8s_api_proxy_requests_via_ci_access')
+                     .by(counters[:k8s_api_proxy_requests_via_ci_access])
+                 .and trigger_internal_events(events['k8s_api_proxy_requests_via_user_access'])
+                   .with(category: 'InternalEventTracking')
+                     .exactly(counters[:k8s_api_proxy_requests_via_user_access]).times
+                   .and increment_usage_metrics('counts.kubernetes_agent_k8s_api_proxy_requests_via_user_access')
+                     .by(counters[:k8s_api_proxy_requests_via_user_access])
+                 .and trigger_internal_events(events['k8s_api_proxy_requests_via_pat_access'])
+                   .with(category: 'InternalEventTracking')
+                      .exactly(counters[:k8s_api_proxy_requests_via_pat_access]).times
+                    .and increment_usage_metrics('counts.kubernetes_agent_k8s_api_proxy_requests_via_pat_access')
+                      .by(counters[:k8s_api_proxy_requests_via_pat_access])
+        end
+
+        it 'tracks unique events', :aggregate_failures do
+          request_count = 2
+          users = create_list(:user, 3)
+          user_ids = users.map(&:id) << users[0].id
+
+          unique_counters = {
+            k8s_api_proxy_requests_unique_agents_via_ci_access: user_ids,
+            k8s_api_proxy_requests_unique_agents_via_user_access: user_ids,
+            k8s_api_proxy_requests_unique_agents_via_pat_access: user_ids,
+            flux_git_push_notified_unique_projects: user_ids,
+            k8s_api_proxy_requests_unique_users_via_ci_access: user_ids,
+            k8s_api_proxy_requests_unique_users_via_user_access: user_ids,
+            k8s_api_proxy_requests_unique_users_via_pat_access: user_ids
+          }
+
+          internal_events = %w[
+            k8s_api_proxy_requests_unique_users_via_ci_access
+            k8s_api_proxy_requests_unique_users_via_user_access
+            k8s_api_proxy_requests_unique_users_via_pat_access
+          ]
+
+          unique_user_metrics = %w[
+            redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_users_via_ci_access_weekly
+            redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_users_via_ci_access_monthly
+            redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_users_via_user_access_weekly
+            redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_users_via_user_access_monthly
+            redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_users_via_pat_access_weekly
+            redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_users_via_pat_access_monthly
+            redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_agents_via_user_access_weekly
+            redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_agents_via_user_access_monthly
+            redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_agents_via_ci_access_weekly
+            redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_agents_via_ci_access_monthly
+            redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_agents_via_pat_access_weekly
+            redis_hll_counters.kubernetes_agent.k8s_api_proxy_requests_unique_agents_via_pat_access_monthly
+            redis_hll_counters.kubernetes_agent.flux_git_push_notified_unique_projects_weekly
+            redis_hll_counters.kubernetes_agent.flux_git_push_notified_unique_projects_monthly
+          ]
+
+          expect do
+            request_count.times do
+              send_request(params: { unique_counters: unique_counters })
+            end
+          end.to trigger_internal_events(internal_events).with(user: users[0], category: 'InternalEventTracking').exactly(4).times
+            .and trigger_internal_events(internal_events).with(user: users[1], category: 'InternalEventTracking').twice
+            .and trigger_internal_events(internal_events).with(user: users[2], category: 'InternalEventTracking').twice
+            .and increment_usage_metrics(unique_user_metrics).by(user_ids.uniq.count)
+        end
       end
     end
   end
@@ -184,7 +237,6 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
     end
 
     include_examples 'authorization'
-    include_examples 'error handling'
 
     context 'is authenticated for an agent' do
       let!(:agent_token) { create(:cluster_agent_token) }
@@ -203,16 +255,22 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
             k8s_api_proxy_requests_unique_users_via_ci_access: event_data,
             k8s_api_proxy_requests_unique_users_via_user_access: event_data,
             k8s_api_proxy_requests_unique_users_via_pat_access: event_data,
-            register_agent_at_kas: [{
-              project_id: projects.each_value.first.id,
-              agent_version: "v17.1.0",
-              architecture: "arm64"
-            },
+            register_agent_at_kas: [
+              {
+                project_id: projects.each_value.first.id,
+                agent_version: "v17.1.0",
+                architecture: "arm64"
+                # does not send agent_id, because it's an "older" agent
+                # does not send kubernetes_version, because it's an "older" agent
+              },
               {
                 project_id: projects.values.last.id,
-                agent_version: "v17.0.0",
-                architecture: "amd64"
-              }]
+                agent_version: "v18.0.0",
+                architecture: "amd64",
+                agent_id: 12,
+                kubernetes_version: "1.33"
+              }
+            ]
           }
         end
 
@@ -231,6 +289,12 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
                   label: event[:agent_version],
                   property: event[:architecture]
                 }
+
+                additional_properties[:value] = event[:agent_id] if event[:agent_id].present?
+
+                if event[:kubernetes_version].present?
+                  additional_properties[:kubernetes_version] = event[:kubernetes_version]
+                end
               end
 
               expect(Gitlab::InternalEvents).to receive(:track_event)
@@ -244,6 +308,104 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
           end
 
           expect(response).to have_gitlab_http_status(:no_content)
+        end
+      end
+
+      context 'when register_agent_at_kas events are sent with extra telemetry data' do
+        let_it_be(:project) { create(:project) }
+
+        subject { send_request(params: { events: { register_agent_at_kas: [event_data] } }) }
+
+        shared_examples 'tracks event and returns no_content' do
+          it 'tracks event and returns no_content', :aggregate_failures do
+            expect { subject }
+              .to trigger_internal_events('register_agent_at_kas')
+              .with(
+                user: nil,
+                project: project,
+                additional_properties: expected_additional_properties,
+                category: 'InternalEventTracking'
+              )
+          end
+        end
+
+        context 'when event contains empty telemetry data' do
+          let(:event_data) do
+            {
+              project_id: project.id,
+              agent_version: 'v17.1.0',
+              architecture: 'arm64',
+              agent_id: 1,
+              kubernetes_version: '1.30',
+              extra_telemetry_data: {}
+            }
+          end
+
+          let(:expected_additional_properties) do
+            {
+              label: event_data[:agent_version],
+              property: event_data[:architecture],
+              value: event_data[:agent_id],
+              kubernetes_version: event_data[:kubernetes_version]
+            }
+          end
+
+          include_examples 'tracks event and returns no_content'
+        end
+
+        context 'when event contains unknown telemetry data' do
+          let(:event_data) do
+            {
+              project_id: project.id,
+              agent_version: 'v17.1.0',
+              architecture: 'arm64',
+              agent_id: 1,
+              kubernetes_version: '1.30',
+              extra_telemetry_data: {
+                unknown: 'unknown'
+              }
+            }
+          end
+
+          let(:expected_additional_properties) do
+            {
+              label: event_data[:agent_version],
+              property: event_data[:architecture],
+              value: event_data[:agent_id],
+              kubernetes_version: event_data[:kubernetes_version]
+            }
+          end
+
+          include_examples 'tracks event and returns no_content'
+        end
+
+        context 'when event contains installation method and helm chart version in telemetry data' do
+          let(:event_data) do
+            {
+              project_id: project.id,
+              agent_version: 'v17.1.0',
+              architecture: 'arm64',
+              agent_id: 1,
+              kubernetes_version: '1.30',
+              extra_telemetry_data: {
+                installation_method: 'helm-chart',
+                helm_chart_version: '1.0.0'
+              }
+            }
+          end
+
+          let(:expected_additional_properties) do
+            {
+              label: event_data[:agent_version],
+              property: event_data[:architecture],
+              value: event_data[:agent_id],
+              kubernetes_version: event_data[:kubernetes_version],
+              installation_method: 'helm-chart',
+              helm_chart_version: '1.0.0'
+            }
+          end
+
+          include_examples 'tracks event and returns no_content'
         end
       end
 
@@ -314,7 +476,6 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
     end
 
     include_examples 'authorization'
-    include_examples 'error handling'
 
     context 'agent exists' do
       it 'configures the agent and returns a 204' do
@@ -337,14 +498,13 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
     end
   end
 
-  describe 'GET /internal/kubernetes/agent_info' do
+  describe 'GET /internal/agents/agentk/agent_info' do
     def send_request(headers: {}, params: {})
-      get api('/internal/kubernetes/agent_info'), params: params, headers: headers.reverse_merge(jwt_auth_headers)
+      get api('/internal/agents/agentk/agent_info'), params: params, headers: headers.reverse_merge(jwt_auth_headers)
     end
 
     include_examples 'authorization'
     include_examples 'agent authentication'
-    include_examples 'error handling'
 
     context 'an agent is found' do
       let!(:agent_token) { create(:cluster_agent_token) }
@@ -355,7 +515,7 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
       include_examples 'agent token tracking'
 
       it 'returns expected data', :aggregate_failures do
-        send_request(headers: { 'Authorization' => "Bearer #{agent_token.token}" })
+        send_request(headers: agent_token_headers)
 
         expect(response).to have_gitlab_http_status(:success)
 
@@ -381,93 +541,45 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
     end
   end
 
-  describe 'GET /internal/kubernetes/project_info' do
+  describe 'GET /internal/kubernetes/agent_info' do
     def send_request(headers: {}, params: {})
-      get api('/internal/kubernetes/project_info'), params: params, headers: headers.reverse_merge(jwt_auth_headers)
+      get api('/internal/kubernetes/agent_info'), params: params, headers: headers.reverse_merge(jwt_auth_headers)
     end
 
     include_examples 'authorization'
     include_examples 'agent authentication'
-    include_examples 'error handling'
 
     context 'an agent is found' do
-      let_it_be(:agent_token) { create(:cluster_agent_token) }
+      let!(:agent_token) { create(:cluster_agent_token) }
+
+      let(:agent) { agent_token.agent }
+      let(:project) { agent.project }
 
       include_examples 'agent token tracking'
 
-      context 'project is public' do
-        let(:project) { create(:project, :public) }
+      it 'returns expected data', :aggregate_failures do
+        send_request(headers: agent_token_headers)
 
-        it 'returns expected data', :aggregate_failures do
-          send_request(params: { id: project.id }, headers: { 'Authorization' => "Bearer #{agent_token.token}" })
+        expect(response).to have_gitlab_http_status(:success)
 
-          expect(response).to have_gitlab_http_status(:success)
-
-          expect(json_response).to match(
-            a_hash_including(
-              'project_id' => project.id,
-              'gitaly_info' => a_hash_including(
-                'address' => match(/\.socket$/),
-                'token' => 'secret'
-              ),
-              'gitaly_repository' => a_hash_including(
-                'storage_name' => project.repository_storage,
-                'relative_path' => project.disk_path + '.git',
-                'gl_repository' => "project-#{project.id}",
-                'gl_project_path' => project.full_path
-              ),
-              'default_branch' => project.default_branch_or_main
-            )
+        expect(json_response).to match(
+          a_hash_including(
+            'project_id' => project.id,
+            'agent_id' => agent.id,
+            'agent_name' => agent.name,
+            'gitaly_info' => a_hash_including(
+              'address' => match(/\.socket$/),
+              'token' => 'secret'
+            ),
+            'gitaly_repository' => a_hash_including(
+              'storage_name' => project.repository_storage,
+              'relative_path' => project.disk_path + '.git',
+              'gl_repository' => "project-#{project.id}",
+              'gl_project_path' => project.full_path
+            ),
+            'default_branch' => project.default_branch_or_main
           )
-        end
-
-        context 'repository is for project members only' do
-          let(:project) { create(:project, :public, :repository_private) }
-
-          it 'returns 404' do
-            send_request(params: { id: project.id }, headers: { 'Authorization' => "Bearer #{agent_token.token}" })
-
-            expect(response).to have_gitlab_http_status(:not_found)
-          end
-        end
-      end
-
-      context 'project is private' do
-        let(:project) { create(:project, :private) }
-
-        it 'returns 404' do
-          send_request(params: { id: project.id }, headers: { 'Authorization' => "Bearer #{agent_token.token}" })
-
-          expect(response).to have_gitlab_http_status(:not_found)
-        end
-
-        context 'and agent belongs to project' do
-          let(:agent_token) { create(:cluster_agent_token, agent: create(:cluster_agent, project: project)) }
-
-          it 'returns 200' do
-            send_request(params: { id: project.id }, headers: { 'Authorization' => "Bearer #{agent_token.token}" })
-
-            expect(response).to have_gitlab_http_status(:success)
-          end
-        end
-      end
-
-      context 'project is internal' do
-        let(:project) { create(:project, :internal) }
-
-        it 'returns 404' do
-          send_request(params: { id: project.id }, headers: { 'Authorization' => "Bearer #{agent_token.token}" })
-
-          expect(response).to have_gitlab_http_status(:not_found)
-        end
-      end
-
-      context 'project does not exist' do
-        it 'returns 404' do
-          send_request(params: { id: non_existing_record_id }, headers: { 'Authorization' => "Bearer #{agent_token.token}" })
-
-          expect(response).to have_gitlab_http_status(:not_found)
-        end
+        )
       end
     end
   end
@@ -479,11 +591,10 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
 
     include_examples 'authorization'
     include_examples 'agent authentication'
-    include_examples 'error handling'
 
     shared_examples 'access is granted' do
       it 'returns success response' do
-        send_request(params: { id: project_id }, headers: { 'Authorization' => "Bearer #{agent_token.token}" })
+        send_request(params: { id: project_id }, headers: agent_token_headers)
 
         expect(response).to have_gitlab_http_status(:no_content)
       end
@@ -491,7 +602,7 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
 
     shared_examples 'access is denied' do
       it 'returns 404' do
-        send_request(params: { id: project_id }, headers: { 'Authorization' => "Bearer #{agent_token.token}" })
+        send_request(params: { id: project_id }, headers: agent_token_headers)
 
         expect(response).to have_gitlab_http_status(:not_found)
       end
@@ -560,7 +671,9 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
           'warden.user.user.key' => [[user.id], user.authenticatable_salt],
           '_csrf_token' => csrf_token
         }
-      )
+      ).tap do
+        cookies.delete(Gitlab::Application.config.session_options[:key])
+      end
     end
 
     def stub_user_session_with_no_user_id(user, csrf_token)
@@ -569,7 +682,9 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
           'warden.user.user.key' => [[nil], user.authenticatable_salt],
           '_csrf_token' => csrf_token
         }
-      )
+      ).tap do
+        cookies.delete(Gitlab::Application.config.session_options[:key])
+      end
     end
 
     def mask_token(encoded_token)
@@ -715,6 +830,24 @@ RSpec.describe API::Internal::Kubernetes, feature_category: :deployment_manageme
         send_request(params: { agent_id: agent.id, access_type: 'session_cookie', access_key: access_key, csrf_token: mask_token(token) })
 
         expect(response).to have_gitlab_http_status(:unauthorized)
+      end
+    end
+
+    context 'with feature flags' do
+      before do
+        allow(::Feature::Kas).to receive(:server_feature_flags_for_http_response).and_return(
+          { 'feature_flag_a' => 'true', 'feature_flag_b' => 'false' }
+        )
+      end
+
+      it 'returns feature flags in response header' do
+        deployment_project.add_member(user, :developer)
+        token = new_token
+        public_id = stub_user_session(user, token)
+        access_key = Gitlab::Kas::UserAccess.encrypt_public_session_id(public_id)
+        send_request(params: { agent_id: agent.id, access_type: 'session_cookie', access_key: access_key, csrf_token: mask_token(token) })
+
+        expect(response.headers.to_h).to include({ 'Gitlab-Feature-Flag' => 'feature_flag_a=true, feature_flag_b=false' })
       end
     end
   end

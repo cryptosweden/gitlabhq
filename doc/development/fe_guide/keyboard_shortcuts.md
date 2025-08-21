@@ -1,10 +1,9 @@
 ---
-stage: Manage
-group: Personal Productivity
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Growth
+group: Engagement
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Implementing keyboard shortcuts
 ---
-
-# Implementing keyboard shortcuts
 
 We use [Mousetrap](https://craig.is/killing/mice) to implement keyboard
 shortcuts in GitLab.

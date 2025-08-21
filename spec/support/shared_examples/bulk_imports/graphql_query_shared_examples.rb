@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
-RSpec.shared_examples 'a valid Direct Transfer GraphQL query' do
+RSpec.shared_examples 'a valid Direct Transfer GraphQL query' do |variables|
   let(:graphql_log) do
     GitlabSchema.execute(
       query.to_s,
-      variables: query.variables
+      variables: variables || query.variables
     )
 
     RequestStore.store[:graphql_logs].first
@@ -14,7 +14,7 @@ RSpec.shared_examples 'a valid Direct Transfer GraphQL query' do
     parsed_query = GraphQL::Query.new(
       GitlabSchema,
       query.to_s,
-      variables: query.variables
+      variables: variables || query.variables
     )
 
     result = GitlabSchema.static_validator.validate(parsed_query)
@@ -27,6 +27,15 @@ RSpec.shared_examples 'a valid Direct Transfer GraphQL query' do
       :used_deprecated_fields,
       :used_deprecated_arguments
     )
+
+    # Avoid false-positive of an experiment argument with a default
+    message = '`includeSiblingProjects` argument is no longer an experiment. Please remove code from here until
+      `#end-remove`'
+    expect(Resolvers::NamespaceProjectsResolver.arguments['includeSiblingProjects']&.deprecation).to be_experiment,
+      message
+    graphql_log[:used_deprecated_arguments].delete('NamespaceProjectsResolver.includeSiblingProjects')
+    # end-remove
+
     expect(graphql_log[:used_deprecated_fields]).to be_empty
     expect(graphql_log[:used_deprecated_arguments]).to be_empty
   end

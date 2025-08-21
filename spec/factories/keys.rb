@@ -2,7 +2,7 @@
 
 FactoryBot.define do
   factory :key do
-    title
+    sequence(:title) { |n| "title #{n}" }
     key do
       # Larger keys take longer to generate, and since this factory gets called frequently,
       # let's only create the smallest one we need.
@@ -31,8 +31,28 @@ FactoryBot.define do
     end
 
     factory :deploy_key, class: 'DeployKey' do
+      transient do
+        # rubocop:disable Lint/EmptyBlock -- block is required by factorybot
+        readonly_access_to {}
+        write_access_to {}
+        # rubocop:enable Lint/EmptyBlock
+      end
+
       after(:build) { Gitlab::ExclusiveLease.set_skip_transaction_check_flag(true) }
-      after(:create) { Gitlab::ExclusiveLease.set_skip_transaction_check_flag(nil) }
+
+      after(:create) do |deploy_key, evaluator|
+        Gitlab::ExclusiveLease.set_skip_transaction_check_flag(nil)
+        Array.wrap(evaluator.readonly_access_to).each do |project|
+          create(:deploy_keys_project, :readonly_access, deploy_key: deploy_key, project: project)
+        end
+        Array.wrap(evaluator.write_access_to).each do |project|
+          create(:deploy_keys_project, :write_access, deploy_key: deploy_key, project: project)
+        end
+      end
+
+      trait :owned do
+        user
+      end
 
       trait :private do
         public { false }
@@ -62,6 +82,17 @@ FactoryBot.define do
       after(:create) { Gitlab::ExclusiveLease.set_skip_transaction_check_flag(nil) }
 
       factory :another_deploy_key, class: 'DeployKey'
+    end
+
+    factory :rsa_key_1024 do
+      key do
+        <<~KEY.delete("\n")
+          ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAgQDAPd3PCZexjKqeQVjhwPsnZ1tD23BP1
+          53gg0VE9iM/V3KsuRze3HZkMGZLiKPVRJis9W31TPXor+aZfHn+OrbfW3h/W0XSopPxPs
+          guAcnHMA8LSMFxkXSJk9Is9NBPN4etV6oSMEUcHc2P3UKWXs575OJ/MToF/N9nICT35y0
+          NXw== dummy@gitlab.com
+        KEY
+      end
     end
 
     factory :rsa_key_2048 do
@@ -149,6 +180,22 @@ FactoryBot.define do
           il9U7+KOzaWo9mp3bmhvZWGDwzTXEZhUJYMRby7o6UxSHlA6fKE63JSDD2yhXk4CjsQRN
           C7Ph9cYSB+Wa3i9Am4rRlJgrF79okmEOMpj1idliHkpIsy/k2CN9Lf2EIHOD4NMuLrSUH
           4qJsPUq19ZbGIMdImD3vMS5b dummy@gitlab.com
+        KEY
+      end
+    end
+
+    factory :dsa_key_1024 do
+      key do
+        <<~KEY.delete("\n")
+          ssh-dss AAAAB3NzaC1kc3MAAACBAJX6HURfY3e8+ogBskskvAVHohfMG+vjNX1W+Zr2W
+          g0gPXmJv6tLy5J81AvTbjypxtPyuLSqdTOgIqFDVgU9+EE9OMTsx2leggPMjfbTSEIK5s
+          BjpqiQWLWWL7m73wo5He8uviMGJB7CHyhqHaVwutmU255rh8mC+W9Aa7ZQqgQDAAAAFQD
+          IFohzNQANsmFSx7sP/UeVfPihDwAAAIEAkuqRvlCLLHAJbb3logBdRS9xF7vkG7yRnIEw
+          lchwDqvUVJ411cJlFVz+9QBdZA4pcKS0L/2nCdZb/Ob0feNkG3cFBH6qqXy5GWZeWnEHL
+          GwLvZF5CjqOmwQhp8RUyKNt3yccPyZIcIzvRGxPrP5utGr+hKZ47NGp78yQ4jxvkuUAAA
+          CATX5Fl5UsVf8ii74qBjuik18YZFoxlBeIDowU++ArvoGkNKCnRYAGs50aDYQlB+fFpEz
+          UBELm0xpIHOwOyhzZ37fVLfLvKijOm6u5mfFZX1URUBmZeELBAFgNp2YiBvWbQwR/jtIp
+          zhZs5/p4o1mdfgGxBoM0KU5DHDnI5KrKJqo= dummy@gitlab.com
         KEY
       end
     end

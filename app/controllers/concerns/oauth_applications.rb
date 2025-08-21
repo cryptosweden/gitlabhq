@@ -10,9 +10,9 @@ module OauthApplications
   end
 
   def prepare_scopes
-    scopes = params.fetch(:doorkeeper_application, {}).fetch(:scopes, nil)
+    scopes = params.fetch(:authn_oauth_application, {}).fetch(:scopes, nil)
 
-    params[:doorkeeper_application][:scopes] = scopes.join(' ') if scopes
+    params[:authn_oauth_application][:scopes] = scopes.join(' ') if scopes
   end
 
   def set_created_session
@@ -24,7 +24,14 @@ module OauthApplications
   end
 
   def load_scopes
-    @scopes ||= Doorkeeper.configuration.scopes
+    @scopes ||= Doorkeeper::OAuth::Scopes.from_array(
+      Doorkeeper.configuration.scopes.to_a - [
+        ::Gitlab::Auth::AI_WORKFLOW.to_s,
+        ::Gitlab::Auth::DYNAMIC_USER.to_s,
+        ::Gitlab::Auth::SELF_ROTATE_SCOPE.to_s,
+        ::Gitlab::Auth::MCP_SCOPE.to_s
+      ]
+    )
   end
 
   def permitted_params
@@ -33,7 +40,7 @@ module OauthApplications
 
   def application_params
     params
-      .require(:doorkeeper_application)
+      .require(:authn_oauth_application)
       .permit(*permitted_params)
   end
 end

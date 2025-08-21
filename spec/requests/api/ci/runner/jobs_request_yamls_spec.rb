@@ -13,6 +13,10 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state, feature_catego
 
   Dir[Rails.root.join("spec/requests/api/ci/runner/yamls/*.yml")].each do |yml_file|
     context "for #{File.basename(yml_file)}" do
+      before do
+        stub_feature_flags(ci_validate_config_options: false)
+      end
+
       let(:yaml_content) { YAML.load_file(yml_file) }
       let(:gitlab_ci_yml) { yaml_content.fetch("gitlab_ci") }
       let(:request_response) { yaml_content.fetch("request_response") }
@@ -33,7 +37,7 @@ RSpec.describe API::Ci::Runner, :clean_gitlab_redis_shared_state, feature_catego
         request_job(runner.token)
         expect(response).to have_gitlab_http_status(:created)
         expect(response.headers['Content-Type']).to eq('application/json')
-        expect(json_response).to include('id' => build.id, 'token' => build.token)
+        expect(json_response).to include('id' => build.id, 'token' => instance_of(String))
         expect(json_response).to include(request_response)
       end
     end

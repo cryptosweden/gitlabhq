@@ -7,6 +7,12 @@ RSpec.describe API::Entities::Package do
 
   subject { described_class.new(package).as_json(namespace: package.project.namespace) }
 
+  shared_examples 'expose correct web_path in _links' do
+    it 'exposes correct web_path in _links' do
+      expect(subject[:_links][:web_path]).to match('/packages/')
+    end
+  end
+
   it 'exposes correct attributes' do
     expect(subject).to include(
       :id,
@@ -21,9 +27,7 @@ RSpec.describe API::Entities::Package do
     )
   end
 
-  it 'exposes correct web_path in _links' do
-    expect(subject[:_links][:web_path]).to match('/packages/')
-  end
+  it_behaves_like 'expose correct web_path in _links'
 
   context 'with a terraform_module' do
     let(:package) { create(:terraform_module_package) }
@@ -33,8 +37,14 @@ RSpec.describe API::Entities::Package do
     end
   end
 
-  context 'when package has no default status' do
-    let(:package) { create(:package, :error) }
+  context 'when package has status deprecated' do
+    let(:package) { create(:generic_package, :deprecated) }
+
+    it_behaves_like 'expose correct web_path in _links'
+  end
+
+  context 'when package has status error' do
+    let(:package) { create(:generic_package, :error) }
 
     it 'does not expose web_path in _links' do
       expect(subject[:_links]).not_to have_key(:web_path)

@@ -1,5 +1,5 @@
-export const containerExpirationPolicyData = () => ({
-  __typename: 'ContainerExpirationPolicy',
+export const containerTagsExpirationPolicyData = () => ({
+  __typename: 'ContainerTagsExpirationPolicy',
   cadence: 'EVERY_DAY',
   enabled: true,
   keepN: 'TEN_TAGS',
@@ -9,12 +9,25 @@ export const containerExpirationPolicyData = () => ({
   nextRunAt: '2020-11-19T07:37:03.941Z',
 });
 
+export const expirationPolicyEnabledPayload = {
+  data: {
+    project: {
+      id: '1',
+      containerTagsExpirationPolicy: {
+        enabled: containerTagsExpirationPolicyData().enabled,
+        nextRunAt: containerTagsExpirationPolicyData().nextRunAt,
+        __typename: 'ContainerTagsExpirationPolicy',
+      },
+    },
+  },
+};
+
 export const expirationPolicyPayload = (override) => ({
   data: {
     project: {
       id: '1',
-      containerExpirationPolicy: {
-        ...containerExpirationPolicyData(),
+      containerTagsExpirationPolicy: {
+        ...containerTagsExpirationPolicyData(),
         ...override,
       },
     },
@@ -24,7 +37,7 @@ export const expirationPolicyPayload = (override) => ({
 export const emptyExpirationPolicyPayload = () => ({
   data: {
     project: {
-      containerExpirationPolicy: {},
+      containerTagsExpirationPolicy: {},
     },
   },
 });
@@ -33,7 +46,7 @@ export const nullExpirationPolicyPayload = () => ({
   data: {
     project: {
       id: '1',
-      containerExpirationPolicy: null,
+      containerTagsExpirationPolicy: null,
     },
   },
 });
@@ -41,8 +54,8 @@ export const nullExpirationPolicyPayload = () => ({
 export const expirationPolicyMutationPayload = ({ override, errors = [] } = {}) => ({
   data: {
     updateContainerExpirationPolicy: {
-      containerExpirationPolicy: {
-        ...containerExpirationPolicyData(),
+      containerTagsExpirationPolicy: {
+        ...containerTagsExpirationPolicyData(),
         ...override,
       },
       errors,
@@ -85,12 +98,14 @@ export const packagesProtectionRulesData = [
     id: `gid://gitlab/Packages::Protection::Rule/${i}`,
     packageNamePattern: `@flight/flight-maintainer-${i}-*`,
     packageType: 'NPM',
+    minimumAccessLevelForDelete: 'OWNER',
     minimumAccessLevelForPush: 'MAINTAINER',
   })),
   {
     id: 'gid://gitlab/Packages::Protection::Rule/16',
     packageNamePattern: '@flight/flight-owner-16-*',
     packageType: 'NPM',
+    minimumAccessLevelForDelete: 'OWNER',
     minimumAccessLevelForPush: 'OWNER',
   },
 ];
@@ -132,6 +147,7 @@ export const createPackagesProtectionRuleMutationPayload = ({ override, errors =
 export const createPackagesProtectionRuleMutationInput = {
   packageNamePattern: `@flight/flight-developer-14-*`,
   packageType: 'NPM',
+  minimumAccessLevelForDelete: 'MAINTAINER',
   minimumAccessLevelForPush: 'MAINTAINER',
 };
 
@@ -166,24 +182,24 @@ export const updatePackagesProtectionRuleMutationPayload = ({
   },
 });
 
-export const containerProtectionRulesData = [
+export const containerProtectionRepositoryRulesData = [
   ...Array.from(Array(15)).map((_e, i) => ({
     id: `gid://gitlab/ContainerRegistry::Protection::Rule/${i}`,
     repositoryPathPattern: `@flight/flight/maintainer-${i}-*`,
-    minimumAccessLevelForPush: 'MAINTAINER',
     minimumAccessLevelForDelete: 'MAINTAINER',
+    minimumAccessLevelForPush: 'MAINTAINER',
   })),
   {
     id: 'gid://gitlab/ContainerRegistry::Protection::Rule/16',
     repositoryPathPattern: '@flight/flight/owner-16-*',
-    minimumAccessLevelForPush: 'OWNER',
     minimumAccessLevelForDelete: 'OWNER',
+    minimumAccessLevelForPush: 'OWNER',
   },
 ];
 
-export const containerProtectionRuleQueryPayload = ({
+export const containerProtectionRepositoryRuleQueryPayload = ({
   errors = [],
-  nodes = containerProtectionRulesData.slice(0, 10),
+  nodes = containerProtectionRepositoryRulesData.slice(0, 10),
   pageInfo = {
     hasNextPage: true,
     hasPreviousPage: false,
@@ -194,7 +210,7 @@ export const containerProtectionRuleQueryPayload = ({
   data: {
     project: {
       id: '1',
-      containerRegistryProtectionRules: {
+      containerProtectionRepositoryRules: {
         nodes,
         pageInfo: { __typename: 'PageInfo', ...pageInfo },
       },
@@ -203,11 +219,14 @@ export const containerProtectionRuleQueryPayload = ({
   },
 });
 
-export const createContainerProtectionRuleMutationPayload = ({ override, errors = [] } = {}) => ({
+export const createContainerProtectionRepositoryRuleMutationPayload = ({
+  override,
+  errors = [],
+} = {}) => ({
   data: {
-    createContainerRegistryProtectionRule: {
-      containerRegistryProtectionRule: {
-        ...containerProtectionRulesData[0],
+    createContainerProtectionRepositoryRule: {
+      containerProtectionRepositoryRule: {
+        ...containerProtectionRepositoryRulesData[0],
         ...override,
       },
       errors,
@@ -215,39 +234,47 @@ export const createContainerProtectionRuleMutationPayload = ({ override, errors 
   },
 });
 
-export const createContainerProtectionRuleMutationInput = {
+export const createContainerProtectionRepositoryRuleMutationInput = {
   repositoryPathPattern: `@flight/flight-maintainer-14-*`,
-  minimumAccessLevelForPush: 'MAINTAINER',
   minimumAccessLevelForDelete: 'MAINTAINER',
+  minimumAccessLevelForPush: 'MAINTAINER',
 };
 
-export const createContainerProtectionRuleMutationPayloadErrors = [
-  'Repository path pattern has already been taken',
+export const createContainerProtectionRepositoryRuleMutationPayloadErrors = [
+  'Repository path pattern should be a valid container repository path with optional wildcard characters.',
+  "Repository path pattern should start with the project's full path",
 ];
 
-export const deleteContainerProtectionRuleMutationPayload = ({
-  containerRegistryProtectionRule = { ...containerProtectionRulesData[0] },
+export const deleteContainerProtectionRepositoryRuleMutationPayload = ({
+  containerProtectionRepositoryRule = { ...containerProtectionRepositoryRulesData[0] },
   errors = [],
 } = {}) => ({
   data: {
-    deleteContainerRegistryProtectionRule: {
-      containerRegistryProtectionRule,
+    deleteContainerProtectionRepositoryRule: {
+      containerProtectionRepositoryRule,
       errors,
     },
   },
 });
 
-export const updateContainerProtectionRuleMutationPayload = ({
-  containerRegistryProtectionRule = {
-    ...containerProtectionRulesData[0],
+export const updateContainerProtectionRepositoryRuleMutationPayload = ({
+  containerProtectionRepositoryRule = {
+    ...containerProtectionRepositoryRulesData[0],
+    minimumAccessLevelForDelete: 'OWNER',
     minimumAccessLevelForPush: 'OWNER',
   },
   errors = [],
 } = {}) => ({
   data: {
-    updateContainerRegistryProtectionRule: {
-      containerRegistryProtectionRule,
+    updateContainerProtectionRepositoryRule: {
+      containerProtectionRepositoryRule,
       errors,
     },
   },
 });
+
+export const containerProtectionTagRuleMutationInput = {
+  tagNamePattern: 'v.+',
+  minimumAccessLevelForPush: 'MAINTAINER',
+  minimumAccessLevelForDelete: 'MAINTAINER',
+};

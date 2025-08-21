@@ -20,11 +20,21 @@ module Gitlab
 
         private
 
+        def namespace_id_for_new_entity(new_entity)
+          Gitlab::Issuable::NamespaceGetter.new(new_entity, excluded_issuable_types: [MergeRequest]).namespace_id
+        end
+
         def copy_resource_label_events
+          new_namespace_id = namespace_id_for_new_entity(new_entity)
+
           copy_events(ResourceLabelEvent.table_name, original_entity.resource_label_events) do |event|
             event.attributes
-              .except('id', 'reference', 'reference_html')
-              .merge(entity_key => new_entity.id, 'action' => ResourceLabelEvent.actions[event.action])
+              .except(*(blocked_resource_event_attributes + %w[reference reference_html]))
+              .merge(
+                entity_key => new_entity.id,
+                'action' => ResourceLabelEvent.actions[event.action],
+                'namespace_id' => new_namespace_id
+              )
           end
         end
 
@@ -32,39 +42,41 @@ module Gitlab
           return unless milestone_events_supported?
 
           copy_events(ResourceMilestoneEvent.table_name, original_entity.resource_milestone_events) do |event|
-            if event.remove?
-              event_attributes_with_milestone(event, nil)
-            else
-              destination_milestone = matching_milestone(event.milestone_title)
-
-              event_attributes_with_milestone(event, destination_milestone) if destination_milestone.present?
-            end
+            event_attributes_with_milestone(event, event.milestone_id)
           end
         end
 
         def copy_resource_state_events
           return unless state_events_supported?
 
+          new_namespace_id = namespace_id_for_new_entity(new_entity)
+
           copy_events(ResourceStateEvent.table_name, original_entity.resource_state_events) do |event|
             event.attributes
-              .except(*blocked_state_event_attributes)
-              .merge(entity_key => new_entity.id,
-                'state' => ResourceStateEvent.states[event.state])
+              .except(*blocked_resource_event_attributes)
+              .merge(
+                entity_key => new_entity.id,
+                'state' => ResourceStateEvent.states[event.state],
+                'namespace_id' => new_namespace_id
+              )
           end
         end
 
         # Overriden on EE::Gitlab::Issuable::Clone::CopyResourceEventsService
-        def blocked_state_event_attributes
-          ['id']
+        # These values should never be copied to the new entity. This service should always set a new appropriate
+        # value that references the new target.
+        def blocked_resource_event_attributes
+          %w[id issue_id merge_request_id]
         end
 
-        def event_attributes_with_milestone(event, milestone)
+        def event_attributes_with_milestone(event, milestone_id)
           event.attributes
             .except('id')
             .merge(entity_key => new_entity.id,
-              'milestone_id' => milestone&.id,
+              'milestone_id' => milestone_id,
               'action' => ResourceMilestoneEvent.actions[event.action],
-              'state' => ResourceMilestoneEvent.states[event.state])
+              'state' => ResourceMilestoneEvent.states[event.state],
+              'namespace_id' => new_entity.namespace_id)
         end
 
         def copy_events(table_name, events_to_copy)
@@ -83,7 +95,7 @@ module Gitlab
         end
 
         def entity_key
-          new_entity.class.name.underscore.foreign_key
+          new_entity.class.base_class.name.underscore.foreign_key
         end
 
         def milestone_events_supported?
@@ -97,21 +109,6 @@ module Gitlab
         def both_respond_to?(method)
           original_entity.respond_to?(method) &&
             new_entity.respond_to?(method)
-        end
-
-        def matching_milestone(title)
-          return if title.blank? || !new_entity.supports_milestone?
-
-          params = { title: title, project_ids: new_entity.project&.id, group_ids: group&.id }
-
-          milestones = MilestonesFinder.new(params).execute
-          milestones.first
-        end
-
-        def group
-          if new_entity.project&.group && current_user.can?(:read_group, new_entity.project.group)
-            new_entity.project.group
-          end
         end
       end
     end

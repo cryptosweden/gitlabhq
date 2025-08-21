@@ -2,13 +2,21 @@
 stage: Plan
 group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Group labels API
 ---
 
-# Group labels API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+{{< history >}}
+
+- `archived` attribute [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/4233) in GitLab 18.3 [with a flag](../administration/feature_flags/_index.md) named `labels_archive`. Disabled by default.
+
+{{< /history >}}
 
 This API supports managing [group labels](../user/project/labels.md#types-of-labels).
 It allows users to list, create, update, and delete group labels. Furthermore, users can subscribe to and
@@ -24,12 +32,13 @@ GET /groups/:id/labels
 
 | Attribute     | Type           | Required | Description                                                                                                                                                                  |
 | ---------     | ----           | -------- | -----------                                                                                                                                                                  |
-| `id`          | integer/string | yes      | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user.                                                               |
+| `id`          | integer/string | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths).                                                               |
 | `with_counts` | boolean        | no       | Whether or not to include issue and merge request counts. Defaults to `false`. |
 | `include_ancestor_groups` | boolean | no | Include ancestor groups. Defaults to `true`. |
 | `include_descendant_groups` | boolean | no | Include descendant groups. Defaults to `false`. |
 | `only_group_labels` | boolean | no | Toggle to include only group labels or also project labels. Defaults to `true`. |
 | `search` | string | no | Keyword to filter labels by. |
+| `archived` | boolean | no | Whether the label is archived. Returns all labels, when not set. Requires the `:labels_archive` feature flag to be enabled. |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/5/labels?with_counts=true"
@@ -49,7 +58,8 @@ Example response:
     "open_issues_count": 0,
     "closed_issues_count": 0,
     "open_merge_requests_count": 0,
-    "subscribed": false
+    "subscribed": false,
+    "archived": false
   },
   {
     "id": 4,
@@ -61,7 +71,8 @@ Example response:
     "open_issues_count": 0,
     "closed_issues_count": 0,
     "open_merge_requests_count": 0,
-    "subscribed": false
+    "subscribed": false,
+    "archived": false
   }
 ]
 ```
@@ -76,7 +87,7 @@ GET /groups/:id/labels/:label_id
 
 | Attribute     | Type           | Required | Description                                                                                                                                                                  |
 | ---------     | ----           | -------- | -----------                                                                                                                                                                  |
-| `id`          | integer or string | yes      | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user.                                                               |
+| `id`          | integer or string | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths).                                                               |
 | `label_id` | integer or string | yes | The ID or title of a group's label. |
 | `include_ancestor_groups` | boolean | no | Include ancestor groups. Defaults to `true`. |
 | `include_descendant_groups` | boolean | no | Include descendant groups. Defaults to `false`. |
@@ -99,7 +110,8 @@ Example response:
   "open_issues_count": 0,
   "closed_issues_count": 0,
   "open_merge_requests_count": 0,
-  "subscribed": false
+  "subscribed": false,
+  "archived": false
 }
 ```
 
@@ -113,10 +125,11 @@ POST /groups/:id/labels
 
 | Attribute     | Type    | Required | Description                  |
 | ------------- | ------- | -------- | ---------------------------- |
-| `id` | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id` | integer/string | yes | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths) |
 | `name`        | string  | yes      | The name of the label        |
 | `color`       | string  | yes      | The color of the label given in 6-digit hex notation with leading '#' sign (for example, #FFAABB) or one of the [CSS color names](https://developer.mozilla.org/en-US/docs/Web/CSS/color_value#Color_keywords) |
 | `description` | string  | no       | The description of the label, |
+| `archived`    | boolean | no       | Whether the label is archived. Requires the `labels_archive` feature flag to be enabled. |
 
 ```shell
 curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" --header "Content-Type: application/json" \
@@ -137,7 +150,8 @@ Example response:
   "open_issues_count": 0,
   "closed_issues_count": 0,
   "open_merge_requests_count": 0,
-  "subscribed": false
+  "subscribed": false,
+  "archived": false
 }
 ```
 
@@ -151,11 +165,12 @@ PUT /groups/:id/labels/:label_id
 
 | Attribute     | Type    | Required | Description                  |
 | ------------- | ------- | -------- | ---------------------------- |
-| `id` | integer or string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id` | integer or string | yes | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths) |
 | `label_id` | integer or string | yes | The ID or title of a group's label. |
 | `new_name`    | string  | no      | The new name of the label        |
 | `color`       | string  | no      | The color of the label given in 6-digit hex notation with leading '#' sign (for example, #FFAABB) or one of the [CSS color names](https://developer.mozilla.org/en-US/docs/Web/CSS/color_value#Color_keywords) |
 | `description` | string  | no       | The description of the label. |
+| `archived`    | boolean | no       | Whether the label is archived. Requires the `labels_archive` feature flag to be enabled. |
 
 ```shell
 curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" --header "Content-Type: application/json" \
@@ -175,12 +190,16 @@ Example response:
   "open_issues_count": 0,
   "closed_issues_count": 0,
   "open_merge_requests_count": 0,
-  "subscribed": false
+  "subscribed": false,
+  "archived": false
 }
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 An older endpoint `PUT /groups/:id/labels` with `name` in the parameters is still available, but deprecated.
+
+{{< /alert >}}
 
 ## Delete a group label
 
@@ -192,15 +211,18 @@ DELETE /groups/:id/labels/:label_id
 
 | Attribute | Type    | Required | Description           |
 | --------- | ------- | -------- | --------------------- |
-| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths) |
 | `label_id` | integer or string | yes | The ID or title of a group's label. |
 
 ```shell
 curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/5/labels/bug"
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 An older endpoint `DELETE /groups/:id/labels` with `name` in the parameters is still available, but deprecated.
+
+{{< /alert >}}
 
 ## Subscribe to a group label
 
@@ -213,7 +235,7 @@ POST /groups/:id/labels/:label_id/subscribe
 
 | Attribute  | Type              | Required | Description                          |
 | ---------- | ----------------- | -------- | ------------------------------------ |
-| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths) |
 | `label_id` | integer or string | yes      | The ID or title of a group's label. |
 
 ```shell
@@ -233,7 +255,8 @@ Example response:
   "open_issues_count": 0,
   "closed_issues_count": 0,
   "open_merge_requests_count": 0,
-  "subscribed": true
+  "subscribed": true,
+  "archived": false
 }
 ```
 
@@ -249,7 +272,7 @@ POST /groups/:id/labels/:label_id/unsubscribe
 
 | Attribute  | Type              | Required | Description                          |
 | ---------- | ----------------- | -------- | ------------------------------------ |
-| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths) |
 | `label_id` | integer or string | yes      | The ID or title of a group's label. |
 
 ```shell
@@ -269,6 +292,7 @@ Example response:
   "open_issues_count": 0,
   "closed_issues_count": 0,
   "open_merge_requests_count": 0,
-  "subscribed": false
+  "subscribed": false,
+  "archived": false
 }
 ```

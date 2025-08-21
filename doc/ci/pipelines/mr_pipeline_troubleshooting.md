@@ -2,9 +2,15 @@
 stage: Verify
 group: Pipeline Execution
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting merge request pipelines
 ---
 
-# Merge request pipeline troubleshooting
+{{< details >}}
+
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 When working with merge request pipelines, you might encounter the following issues.
 
@@ -26,8 +32,8 @@ the other is a failed merge request pipeline.
 When the configuration syntax is fixed, no further failed pipelines should appear.
 To find and fix the configuration problem, you can use:
 
-- The [pipeline editor](../pipeline_editor/index.md).
-- The [CI lint tool](../lint.md).
+- The [pipeline editor](../pipeline_editor/_index.md).
+- The [CI lint tool](../yaml/lint.md).
 
 ## The merge request's pipeline is marked as failed but the latest pipeline succeeded
 
@@ -80,10 +86,10 @@ This message is shown if the merge request pipeline, [merged results pipeline](m
 or [merge train pipeline](merge_trains.md) has failed or been canceled.
 This does not happen when a branch pipeline fails.
 
-If a merge request pipeline or merged result pipeline was canceled or failed, you can:
+If a merge request pipeline or a merged results pipeline was canceled or failed, you can:
 
 - Re-run the entire pipeline by selecting **Run pipeline** in the pipeline tab in the merge request.
-- [Retry only the jobs that failed](index.md#view-pipelines). If you re-run the entire pipeline, this is not necessary.
+- [Retry only the jobs that failed](_index.md#view-pipelines). If you re-run the entire pipeline, this is not necessary.
 - Push a new commit to fix the failure.
 
 If the merge train pipeline has failed, you can:

@@ -1,16 +1,23 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Plan
+group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Pumble
+description: "Configure GitLab to send notifications to a Pumble channel."
 ---
 
-# Pumble
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/93623) in GitLab 15.3.
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/93623) in GitLab 15.3.
+
+{{< /history >}}
 
 You can configure GitLab to send notifications to a Pumble channel:
 
@@ -30,7 +37,7 @@ notifications:
 1. To enable the integration for your group or project:
    1. In your group or project, on the left sidebar, select **Settings > Integrations**.
 1. To enable the integration for your instance:
-   1. On the left sidebar, at the bottom, select **Admin Area**.
+   1. On the left sidebar, at the bottom, select **Admin**.
    1. On the left sidebar, select **Settings > Integrations**.
 1. Select the **Pumble** integration.
 1. Ensure that the **Active** toggle is enabled.

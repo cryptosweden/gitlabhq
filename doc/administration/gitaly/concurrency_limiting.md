@@ -1,10 +1,9 @@
 ---
-stage: Systems
+stage: Data Access
 group: Gitaly
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Concurrency limiting
 ---
-
-# Concurrency limiting
 
 To avoid overwhelming the servers running Gitaly, you can limit concurrency of:
 
@@ -13,12 +12,15 @@ To avoid overwhelming the servers running Gitaly, you can limit concurrency of:
 
 These limits can be fixed, or set as adaptive.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Enabling limits on your environment should be done with caution and only
 in select circumstances, such as to protect against unexpected traffic.
-When reached, limits _do_ result in disconnects that negatively impact users.
+When reached, limits do result in disconnects that negatively impact users.
 For consistent and stable performance, you should first explore other options such as
-adjusting node specifications, and [reviewing large repositories](../../user/project/repository/monorepos/index.md) or workloads.
+adjusting node specifications, and [reviewing large repositories](../../user/project/repository/monorepos/_index.md) or workloads.
+
+{{< /alert >}}
 
 ## Limit RPC concurrency
 
@@ -30,7 +32,7 @@ When cloning or pulling repositories, various RPCs run in the background. In par
 These RPCs can consume a large amount of resources, which can have a significant impact in situations such as:
 
 - Unexpectedly high traffic.
-- Running against [large repositories](../../user/project/repository/monorepos/index.md) that don't follow best practices.
+- Running against [large repositories](../../user/project/repository/monorepos/_index.md) that don't follow best practices.
 
 You can limit these processes from overwhelming your Gitaly server in these scenarios using the concurrency limits in the Gitaly configuration file. For
 example:
@@ -64,7 +66,7 @@ gitaly['configuration'] = {
   Gitaly.
 
 This limits the number of in-flight RPC calls for the given RPCs. The limit is applied per
-repository. In the example above:
+repository. In the previous example:
 
 - Each repository served by the Gitaly server can have at most 20 simultaneous `PostUploadPackWithSidechannel` and
   `SSHUploadPackWithSidechannel` RPC calls in flight.
@@ -73,16 +75,16 @@ repository. In the example above:
 - If a request waits in the queue for more than 1 second, it is rejected with an error.
 - If the queue grows beyond 10, subsequent requests are rejected with an error.
 
-NOTE:
+{{< alert type="note" >}}
+
 When these limits are reached, users are disconnected.
+
+{{< /alert >}}
 
 You can observe the behavior of this queue using the Gitaly logs and Prometheus. For more
 information, see the [relevant documentation](monitoring.md#monitor-gitaly-concurrency-limiting).
 
 ## Limit pack-objects concurrency
-
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/7891) in GitLab 15.11 [with a flag](../../administration/feature_flags.md) named `gitaly_pack_objects_limiting_remote_ip`. Disabled by default.
-> - [Generally available](https://gitlab.com/gitlab-org/gitaly/-/merge_requests/5772) in GitLab 16.0. Feature flag `gitaly_pack_objects_limiting_remote_ip` removed.
 
 Gitaly triggers `git-pack-objects` processes when handling both SSH and HTTPS traffic to clone or pull repositories. These processes generate a `pack-file` and can
 consume a significant amount of resources, especially in situations such as unexpectedly high traffic or concurrent pulls from a large repository. On GitLab.com, we also
@@ -91,10 +93,13 @@ observe problems with clients that have slow internet connections.
 You can limit these processes from overwhelming your Gitaly server by setting pack-objects concurrency limits in the Gitaly configuration file. This setting limits the
 number of in-flight pack-object processes per remote IP address.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Only enable these limits on your environment with caution and only in select circumstances, such as to protect against unexpected traffic. When reached, these limits
 disconnect users. For consistent and stable performance, you should first explore other options such as adjusting node specifications, and
-[reviewing large repositories](../../user/project/repository/monorepos/index.md) or workloads.
+[reviewing large repositories](../../user/project/repository/monorepos/_index.md) or workloads.
+
+{{< /alert >}}
 
 Example configuration:
 
@@ -111,7 +116,7 @@ gitaly['pack_objects_limiting'] = {
 - `max_queue_length` is the maximum size the concurrency queue (per key) can grow to before requests are rejected by Gitaly.
 - `max_queue_wait` is the maximum amount of time a request can wait in the concurrency queue to be picked up by Gitaly.
 
-In the example above:
+In the previous example:
 
 - Each remote IP can have at most 15 simultaneous pack-object processes in flight on a Gitaly node.
 - If another request comes in from an IP that has used up its 15 slots, that request gets queued.
@@ -123,9 +128,50 @@ When the pack-object cache is enabled, pack-objects limiting kicks in only if th
 You can observe the behavior of this queue using Gitaly logs and Prometheus. For more information, see
 [Monitor Gitaly pack-objects concurrency limiting](monitoring.md#monitor-gitaly-pack-objects-concurrency-limiting).
 
+## Calibrating concurrency limits
+
+When setting concurrency limits, you should choose appropriate values based on your specific workload patterns. This section provides guidance on how to calibrate these limits effectively.
+
+### Using Prometheus metrics and logs for calibration
+
+Prometheus metrics provide quantitative insights into usage patterns and the impact of each type of RPC on Gitaly node resources. Several key metrics are particularly valuable for this analysis:
+
+- Resource consumption metrics per-RPC. Gitaly offloads most heavy operations to `git` processes and so the command usually shelled out to is the Git binary.
+  Gitaly exposes collected metrics from those commands as logs and Prometheus metrics.
+  - `gitaly_command_cpu_seconds_total` - Sum of CPU time spent by shelling out, with labels for `grpc_service`, `grpc_method`, `cmd`, and `subcmd`.
+  - `gitaly_command_real_seconds_total` - Sum of real time spent by shelling out, with similar labels.
+- Recent limiting metrics per-RPC:
+  - `gitaly_concurrency_limiting_in_progress` - Number of concurrent requests being processed.
+  - `gitaly_concurrency_limiting_queued` - Number of requests for an RPC for a given repository in waiting state.
+  - `gitaly_concurrency_limiting_acquiring_seconds` - Duration a request waits due to concurrency limits before processing.
+
+These metrics provide a high-level view of resource utilization at a given point in time. The `gitaly_command_cpu_seconds_total` metric is particularly effective for
+identifying specific RPCs that consume substantial CPU resources. Additional metrics are available for more detailed analysis as described in
+[Monitoring Gitaly](monitoring.md).
+
+While metrics capture overall resource usage patterns, they typically do not provide per-repository breakdowns. Therefore, logs serve as a complementary data source. To analyze logs:
+
+1. Filter logs by identified high-impact RPCs.
+1. Aggregate filtered logs by repository or project.
+1. Visualize aggregated results on a time-series graph.
+
+This combined approach of using both metrics and logs provides comprehensive visibility into both system-wide resource usage and repository-specific patterns. Analysis tools such as Kibana or similar log aggregation platforms can facilitate this process.
+
+### Adjusting limits
+
+If you find that your initial limits are not efficient enough, you might need to adjust them. With adaptive limiting, precise limits are less critical because the system
+automatically adjusts based on resource usage.
+
+Remember that concurrency limits are scoped by repository. A limit of 30 means allowing at most 30 simultaneous in-flight requests per repository. If the limit is reached,
+requests are queued and only rejected if the queue is full or the maximum waiting time is reached.
+
 ## Adaptive concurrency limiting
 
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/10734) in GitLab 16.6.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/10734) in GitLab 16.6.
+
+{{< /history >}}
 
 Gitaly supports two concurrency limits:
 
@@ -154,7 +200,7 @@ algorithm. Each adaptive limit:
 
 This mechanism provides some headroom for the machine to "breathe" and speeds up current inflight requests.
 
-![Gitaly Adaptive Concurrency Limit](img/gitaly_adaptive_concurrency_limit.png)
+![Graph showing a Gitaly adaptive concurrency limit being adjusted based on the system resource usage by following the AIMD algorithm](img/gitaly_adaptive_concurrency_limit_v16_6.png)
 
 The adaptive limiter calibrates the limits every 30 seconds and:
 
@@ -162,10 +208,14 @@ The adaptive limiter calibrates the limits every 30 seconds and:
 - Decreases the limits by half when the top-level cgroup has either memory usage that exceeds 90%, excluding highly-evictable page caches,
   or CPU throttled for 50% or more of the observation time.
 
-Otherwise, the limits increase by one until reaching the upper bound. For more information about technical implementation
-of this system, refer to [this blueprint](../../architecture/blueprints/gitaly_adaptive_concurrency_limit/index.md).
+Otherwise, the limits increase by one until reaching the upper bound.
 
-Adaptive limiting is enabled for each RPC or pack-objects cache individually. However, limits are calibrated at the same time.
+Adaptive limiting is enabled for each RPC or pack-objects cache individually. However, limits are calibrated at the same time. Adaptive limiting has the following configurations:
+
+- `adaptive` sets whether the adaptiveness is enabled.
+- `max_limit` is the maximum concurrency limit. Gitaly increases the current limit until it reaches this number. This should be a generous value that the system can fully support under typical conditions.
+- `min_limit` is the is the minimum concurrency limit of the configured RPC. When the host machine has a resource problem, Gitaly quickly reduces the limit until reaching this value. Setting `min_limit` to 0 could completely shut down processing, which is typically undesirable.
+- `initial_limit` provides a reasonable starting point between these extremes.
 
 ### Enable adaptiveness for RPC concurrency
 
@@ -179,6 +229,12 @@ The following is an example to configure an adaptive limit for RPC concurrency:
 # in /etc/gitlab/gitlab.rb
 gitaly['configuration'] = {
     # ...
+    cgroups: {
+        # Minimum required configuration to enable cgroups support.
+        repositories: {
+            count: 1
+        },
+    },
     concurrency: [
         {
             rpc: '/gitaly.SmartHTTPService/PostUploadPackWithSidechannel',
@@ -202,15 +258,6 @@ gitaly['configuration'] = {
 }
 ```
 
-In this example:
-
-- `adaptive` sets whether the adaptiveness is enabled. If set, the `max_per_repo` value is ignored in favor of the following configuration.
-- `initial_limit` is the per-repository concurrency limit to use when Gitaly starts.
-- `max_limit` is the minimum per-repository concurrency limit of the configured RPC. Gitaly increases the current limit
-  until it reaches this number.
-- `min_limit` is the is the minimum per-repository concurrency limit of the configured RPC. When the host machine has a resource problem,
-  Gitaly quickly reduces the limit until reaching this value.
-
 For more information, see [RPC concurrency](#limit-rpc-concurrency).
 
 ### Enable adaptiveness for pack-objects concurrency
@@ -233,12 +280,75 @@ gitaly['pack_objects_limiting'] = {
 }
 ```
 
-In this example:
-
-- `adaptive` sets whether the adaptiveness is enabled. If set, the value of `max_concurrency` is ignored in favor of the following configuration.
-- `initial_limit` is the per-IP concurrency limit to use when Gitaly starts.
-- `max_limit` is the minimum per-IP concurrency limit for pack-objects. Gitaly increases the current limit until it reaches this number.
-- `min_limit` is the is the minimum per-IP concurrency limit for pack-objects. When the host machine has a resources problem, Gitaly quickly
-  reduces the limit until it reaches this value.
-
 For more information, see [pack-objects concurrency](#limit-pack-objects-concurrency).
+
+### Calibrating adaptive concurrency limits
+
+Adaptive concurrency limiting is very different from the usual way that GitLab protects Gitaly resources. Rather than relying on static thresholds that may be either too restrictive or too permissive, adaptive limiting intelligently responds to actual resource conditions in real-time.
+
+This approach eliminates the need to find "perfect" threshold values through extensive calibration as described in
+[Calibrating concurrency limits](#calibrating-concurrency-limits). During failure scenarios, the adaptive limiter reduces limits exponentially (for example, 60 → 30 → 15 → 10)
+and then automatically recovers by incrementally raising limits when the system stabilizes.
+
+When calibrating adaptive limits, you can prioritize flexibility over precision.
+
+#### RPC categories and configuration examples
+
+Expensive Gitaly RPCs, which should be protected, can be categorized into two general types:
+
+- Pure Git data operations.
+- Time sensitive RPCs.
+
+Each type has distinct characteristics that influence how concurrency limits should be configured. The following examples illustrate the reasoning behind
+limit configuration. They can also be used as a starting point.
+
+##### Pure Git data operations
+
+These RPCs involve Git pull, push, and fetch operations, and possess the following characteristics:
+
+- Long-running processes.
+- Significant resource utilization.
+- Computationally expensive.
+- Not time-sensitive. Additional latency is generally acceptable.
+
+RPCs in `SmartHTTPService` and `SSHService` fall into the pure Git data operations category. A configuration example:
+
+```ruby
+{
+  rpc: "/gitaly.SmartHTTPService/PostUploadPackWithSidechannel", # or `/gitaly.SmartHTTPService/SSHUploadPackWithSidechannel`
+  adaptive: true,
+  min_limit: 10,  # Minimum concurrency to maintain even under extreme load
+  initial_limit: 40,  # Starting concurrency when service initializes
+  max_limit: 60,  # Maximum concurrency under ideal conditions
+  max_queue_wait: "60s",
+  max_queue_size: 300
+}
+```
+
+##### Time-sensitive RPCs
+
+These RPCs serve GitLab itself and other clients with different characteristics:
+
+- Typically part of online HTTP requests or Sidekiq background jobs.
+- Shorter latency profiles.
+- Generally less resource-intensive.
+
+For these RPCs, the timeout configuration in GitLab should inform the `max_queue_wait` parameter. For instance, `get_tree_entries` typically has a medium timeout of 30 seconds in GitLab:
+
+```ruby
+{
+  rpc: "/gitaly.CommitService/GetTreeEntries",
+  adaptive: true,
+  min_limit: 5,  # Minimum throughput maintained under resource pressure
+  initial_limit: 10,  # Initial concurrency setting
+  max_limit: 20,  # Maximum concurrency under optimal conditions
+  max_queue_size: 50,
+  max_queue_wait: "30s"
+}
+```
+
+### Monitoring adaptive limiting
+
+To observe how adaptive limits are behaving in production environments, refer to the monitoring tools and metrics described in
+[Monitor Gitaly adaptive concurrency limiting](monitoring.md#monitor-gitaly-adaptive-concurrency-limiting). Observing adaptive limit behavior helps confirm that limits
+are properly responding to resource pressures and adjusting as expected.

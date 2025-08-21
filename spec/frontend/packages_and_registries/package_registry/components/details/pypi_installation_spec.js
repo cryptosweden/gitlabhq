@@ -1,7 +1,6 @@
-import { GlSprintf } from '@gitlab/ui';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 import { packageData } from 'jest/packages_and_registries/package_registry/mock_data';
-import InstallationTitle from '~/packages_and_registries/package_registry/components/details/installation_title.vue';
+import InstallationMethod from '~/packages_and_registries/package_registry/components/details/installation_method.vue';
 import PypiInstallation from '~/packages_and_registries/package_registry/components/details/pypi_installation.vue';
 import {
   PERSONAL_ACCESS_TOKEN_HELP_URL,
@@ -19,14 +18,14 @@ describe('PypiInstallation', () => {
   const pipCommandStr = `pip install @gitlab-org/package-15 --index-url ${packageEntity.pypiUrl}`;
   const pypiSetupStr = `[gitlab]
 repository = ${packageEntity.pypiSetupUrl}
-username = __token__
+username = gitlab-ci-token
 password = <your personal access token>`;
 
   const pipCommand = () => wrapper.findByTestId('pip-command');
   const setupInstruction = () => wrapper.findByTestId('pypi-setup-content');
 
   const findAccessTokenLink = () => wrapper.findByTestId('access-token-link');
-  const findInstallationTitle = () => wrapper.findComponent(InstallationTitle);
+  const findInstallationMethod = () => wrapper.findComponent(InstallationMethod);
   const findSetupDocsLink = () => wrapper.findByTestId('pypi-docs-link');
 
   function createComponent(props = {}) {
@@ -37,9 +36,6 @@ password = <your personal access token>`;
           ...props,
         },
       },
-      stubs: {
-        GlSprintf,
-      },
     });
   }
 
@@ -48,17 +44,9 @@ password = <your personal access token>`;
   });
 
   describe('install command switch', () => {
-    it('has the installation title component', () => {
-      expect(findInstallationTitle().exists()).toBe(true);
-      expect(findInstallationTitle().props()).toMatchObject({
-        packageType: 'pypi',
-        options: [{ value: 'pypi', label: 'Show PyPi commands' }],
-      });
+    it('does not show the installation method component', () => {
+      expect(findInstallationMethod().exists()).toBe(false);
     });
-  });
-
-  it('renders all the messages', () => {
-    expect(wrapper.element).toMatchSnapshot();
   });
 
   describe('installation commands', () => {

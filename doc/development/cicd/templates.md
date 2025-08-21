@@ -1,15 +1,15 @@
 ---
 stage: Verify
 group: Pipeline Authoring
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Development guide for GitLab CI/CD templates (Deprecated)
 ---
 
-# Development guide for GitLab CI/CD templates (Deprecated)
+{{< alert type="note" >}}
 
-NOTE:
-With the introduction of the [CI/CD Catalog](../../ci/components/index.md#cicd-catalog),
+With the introduction of the [CI/CD Catalog](../../ci/components/_index.md#cicd-catalog),
 GitLab is no longer accepting contributions of new CI/CD templates to the codebase. Instead,
-we encourage team members to create [CI/CD components](../../ci/components/index.md)
+we encourage team members to create [CI/CD components](../../ci/components/_index.md)
 for the catalog. This transition enhances the modularity and maintainability of our
 shared CI/CD resources, and avoids the complexities of contributing new CI/CD templates.
 If you need to update an existing template, you must also update the matching CI/CD component.
@@ -17,7 +17,9 @@ If no component exists that matches the CI/CD template yet, consider [creating t
 This ensures that template and component functionality remain in sync, aligning with
 our new development practices.
 
-This document explains how to develop [GitLab CI/CD templates](../../ci/examples/index.md#cicd-templates).
+{{< /alert >}}
+
+This document explains how to develop [GitLab CI/CD templates](../../ci/examples/_index.md#cicd-templates).
 
 ## Requirements for CI/CD templates
 
@@ -26,8 +28,8 @@ Before submitting a merge request with a new or updated CI/CD template, you must
 - Place the template in the correct [directory](#template-directories).
 - Follow the [CI/CD template authoring guidelines](#template-authoring-guidelines).
 - Name the template following the `*.gitlab-ci.yml` format.
-- Use valid [`.gitlab-ci.yml` syntax](../../ci/yaml/index.md). Verify it's valid
-  with the [CI/CD lint tool](../../ci/lint.md).
+- Use valid [`.gitlab-ci.yml` syntax](../../ci/yaml/_index.md). Verify it's valid
+  with the [CI/CD lint tool](../../ci/yaml/lint.md).
 - [Add template metrics](#add-metrics).
 - Include [a changelog](../changelog.md) if the merge request introduces a user-facing change.
 - Follow the [template review process](#contribute-cicd-template-merge-requests).
@@ -44,7 +46,7 @@ in this directory, but certain template types have a specific directory reserved
 them. The ability to [select a template in new file UI](#make-sure-the-new-template-can-be-selected-in-ui)
 is determined by the directory it is in:
 
-| Sub-directory  | Selectable in UI | Template type |
+| Subdirectory  | Selectable in UI | Template type |
 |----------------|------------------|---------------|
 | `/*` (root)    | Yes              | General templates. |
 | `/AWS/*`       | No               | Templates related to Cloud Deployment (AWS). |
@@ -70,8 +72,8 @@ don't have any other `.gitlab-ci.yml` files.
 
 When authoring pipeline templates:
 
-- Place any [global keywords](../../ci/yaml/index.md#global-keywords) like `image`
-  or `before_script` in a [`default`](../../ci/yaml/index.md#default)
+- Place any [global keywords](../../ci/yaml/_index.md#global-keywords) like `image`
+  or `before_script` in a [`default`](../../ci/yaml/_index.md#default)
   section at the top of the template.
 - Note clearly in the [code comments](#explain-the-template-with-comments) if the
   template is designed to be used with the `includes` keyword in an existing
@@ -79,7 +81,7 @@ When authoring pipeline templates:
 
 A **job template** provides specific jobs that can be added to an existing CI/CD
 workflow to accomplish specific tasks. It usually should be used by adding it to
-an existing `.gitlab-ci.yml` file by using the [`includes`](../../ci/yaml/index.md#global-keywords)
+an existing `.gitlab-ci.yml` file by using the [`includes`](../../ci/yaml/_index.md#global-keywords)
 keyword. You can also copy and paste the contents into an existing `.gitlab-ci.yml` file.
 
 Configure job templates so that users can add them to their current pipeline with very
@@ -88,7 +90,7 @@ other pipeline configuration.
 
 When authoring job templates:
 
-- Do not use [global](../../ci/yaml/index.md#global-keywords) or [`default`](../../ci/yaml/index.md#default)
+- Do not use [global](../../ci/yaml/_index.md#global-keywords) or [`default`](../../ci/yaml/_index.md#default)
   keywords. When a root `.gitlab-ci.yml` includes a template, global or default keywords
   might be overridden and cause unexpected behavior. If a job template requires a
   specific stage, explain in the code comments that users must manually add the stage
@@ -117,7 +119,7 @@ with a consistent format.
 
 The `before_script`, `script`, and `after_script` keywords of every job are linted
 using [ShellCheck](https://www.shellcheck.net/) and should follow the
-[Shell scripting standards and style guidelines](../shell_scripting_guide/index.md)
+[Shell scripting standards and style guidelines](../shell_scripting_guide/_index.md)
 as much as possible.
 
 ShellCheck assumes that the script is designed to run using [Bash](https://www.gnu.org/software/bash/).
@@ -131,25 +133,17 @@ Use [`$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH`](../../ci/variables/predefined_va
 instead of a hardcoded `main` branch, and never use `master`:
 
 ```yaml
-job1:
+job:
   rules:
     if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
-    echo "example job 1"
-
-job2:
-  only:
-    variables:
-      - $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-  script:
-    echo "example job 2"
-
+    echo "example job"
 ```
 
 #### Use `rules` instead of `only` or `except`
 
-Avoid using [`only` or `except`](../../ci/yaml/index.md#only--except) if possible.
-Only and except is not being developed any more, and [`rules`](../../ci/yaml/index.md#rules)
+Avoid using [`only` or `except`](../../ci/yaml/deprecated_keywords.md#only--except) if possible.
+Only and except is not being developed any more, and [`rules`](../../ci/yaml/_index.md#rules)
 is now the preferred syntax:
 
 ```yaml
@@ -249,10 +243,10 @@ separating words.
 .with_login:
   before_script:
     # SECRET_TOKEN should be provided via the project settings
-    - docker login -u my-user -p "$SECRET_TOKEN my-registry
+    - echo "$SECRET_TOKEN" | docker login -u my-user --password-stdin my-registry
 ```
 
-Lower-case naming can optionally be used for variables which are defined locally in
+Lowercase naming can optionally be used for variables which are defined locally in
 one of the `script` keywords:
 
 ```yaml
@@ -266,11 +260,11 @@ job1:
 ### Backward compatibility
 
 A template might be dynamically included with the `include:template:` keyword. If
-you make a change to an *existing* template, you **must** make sure that it doesn't break
+you make a change to an existing template, you **must** make sure that it doesn't break
 CI/CD in existing projects.
 
 For example, changing a job name in a template could break pipelines in an existing project.
-Let's say there is a template named `Performance.gitlab-ci.yml` with the following content:
+In this example, a template named `Performance.gitlab-ci.yml` has the following content:
 
 ```yaml
 performance:
@@ -491,6 +485,6 @@ If you're unsure if it's secure or not, you must ask security experts for cross-
 
 After your CI/CD template MR is created and labeled with `ci::templates`, DangerBot
 suggests one reviewer and one maintainer that can review your code. When your merge
-request is ready for review, [mention](../../user/discussions/index.md#mentions)
+request is ready for review, [mention](../../user/discussions/_index.md#mentions)
 the reviewer and ask them to review your CI/CD template changes. See details in the merge request that added
 [a DangerBot task for CI/CD template MRs](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/44688).

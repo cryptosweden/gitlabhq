@@ -5,7 +5,8 @@ require 'spec_helper'
 NULL_LOGGER = Gitlab::JsonLogger.new('/dev/null')
 
 RSpec.describe ::Gitlab::Seeders::Ci::Runner::RunnerFleetSeeder, feature_category: :fleet_visibility do
-  let_it_be(:user) { create(:user, :admin, username: 'test-admin') }
+  let_it_be(:user_organization) { create(:organization) }
+  let_it_be(:user) { create(:user, :admin, username: 'test-admin', organizations: [user_organization]) }
 
   subject(:seeder) do
     described_class.new(NULL_LOGGER,
@@ -89,6 +90,31 @@ RSpec.describe ::Gitlab::Seeders::Ci::Runner::RunnerFleetSeeder, feature_categor
 
       it 'does not change runner count' do
         expect { seed }.not_to change { Ci::Runner.count }
+      end
+    end
+
+    context 'when organization is passed to the initializer' do
+      let(:other_organization) { create(:organization) }
+
+      subject(:seed_with_organization) do
+        described_class.new(NULL_LOGGER,
+          username: user.username,
+          registration_prefix: registration_prefix,
+          runner_count: runner_count,
+          organization_id: other_organization.id
+        ).seed
+      end
+
+      it 'assigns organization_id to created entities' do
+        expect { seed_with_organization }.not_to raise_error
+        expect(Group.search(registration_prefix).pluck(:organization_id)).to all(eq(other_organization.id))
+      end
+    end
+
+    context 'when organization is not passed to the initializer' do
+      it 'assigns organization_id of the user to created entities' do
+        expect { seed }.not_to raise_error
+        expect(Group.search(registration_prefix).pluck(:organization_id)).to all(eq(user.organization.id))
       end
     end
   end

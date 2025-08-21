@@ -296,9 +296,27 @@ RSpec.describe API::Notes, feature_category: :team_planning do
     end
   end
 
+  context "when noteable is a WikiPage::Meta" do
+    let!(:wiki_page_meta) { create(:wiki_page_meta, :for_wiki_page, container: project) }
+    let!(:wiki_page_meta_note) { create(:note, noteable: wiki_page_meta, project: project, author: user) }
+
+    before do
+      project.add_developer(user)
+    end
+
+    it_behaves_like "noteable API", 'projects', 'wiki_pages', 'id' do
+      let(:parent) { project }
+      let(:noteable) { wiki_page_meta }
+      let(:note) { wiki_page_meta_note }
+    end
+  end
+
   context "when noteable is a Merge Request" do
     let!(:merge_request) { create(:merge_request, source_project: project, target_project: project, author: user) }
     let!(:merge_request_note) { create(:note, noteable: merge_request, project: project, author: user) }
+    let(:request_body) { 'Hi!' }
+    let(:params) { { body: request_body } }
+    let(:request_path) { "/projects/#{project.id}/merge_requests/#{merge_request.iid}/notes" }
 
     it_behaves_like "noteable API", 'projects', 'merge_requests', 'iid' do
       let(:parent) { project }
@@ -306,11 +324,71 @@ RSpec.describe API::Notes, feature_category: :team_planning do
       let(:note) { merge_request_note }
     end
 
-    let(:request_body) { 'Hi!' }
-    let(:params) { { body: request_body } }
-    let(:request_path) { "/projects/#{project.id}/merge_requests/#{merge_request.iid}/notes" }
-
     subject { post api(request_path, user), params: params }
+
+    context 'a note with both text and invalid command' do
+      let(:request_body) { "hello world\n/spend hello" }
+
+      before do
+        project.add_developer(user)
+      end
+
+      it 'returns 200 status' do
+        subject
+
+        expect(response).to have_gitlab_http_status(:created)
+      end
+
+      it 'creates a new note' do
+        expect { subject }.to change { Note.where(system: false).count }.by(1)
+      end
+
+      it 'does not create a system note about the change', :sidekiq_inline do
+        expect { subject }.not_to change { Note.system.count }
+      end
+
+      it 'does not apply the commands' do
+        expect { subject }.not_to change { merge_request.reset.total_time_spent }
+      end
+    end
+
+    context 'a blank note' do
+      let(:request_body) { "" }
+
+      before do
+        project.add_developer(user)
+      end
+
+      it 'returns a 400 and does not create a note' do
+        expect { subject }.not_to change { Note.where(system: false).count }
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+      end
+    end
+
+    context 'an invalid command-only note' do
+      let(:request_body) { "/spend asdf" }
+
+      before do
+        project.add_developer(user)
+      end
+
+      it 'returns a 400 and does not create a note' do
+        expect { subject }.not_to change { Note.where(system: false).count }
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+      end
+
+      it 'does not apply the command' do
+        expect { subject }.not_to change { merge_request.reset.total_time_spent }
+      end
+
+      it 'reports the errors' do
+        subject
+
+        expect(json_response).to eq({ "message" => "400 Bad request - Failed to apply commands." })
+      end
+    end
 
     context 'a command only note' do
       context '/spend' do
@@ -415,6 +493,30 @@ RSpec.describe API::Notes, feature_category: :team_planning do
 
         it 'does not create a new note' do
           expect { subject }.not_to change { Note.count }
+        end
+      end
+    end
+
+    context 'when authenticated with a token that has the ai_workflows scope' do
+      let(:oauth_token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+
+      context 'a post request creates a merge request note' do
+        subject { post api(request_path, oauth_access_token: oauth_token), params: params }
+
+        it 'is successful' do
+          subject
+
+          expect(response).to have_gitlab_http_status(:created)
+        end
+      end
+
+      context 'a get request returns a list of merge request notes' do
+        subject { get api(request_path, oauth_access_token: oauth_token) }
+
+        it 'is successful' do
+          subject
+
+          expect(response).to have_gitlab_http_status(:ok)
         end
       end
     end

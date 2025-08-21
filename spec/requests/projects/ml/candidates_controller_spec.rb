@@ -72,26 +72,16 @@ RSpec.describe Projects::Ml::CandidatesController, feature_category: :mlops do
     it_behaves_like 'requires read_model_experiments'
   end
 
-  describe 'DELETE #destroy' do
-    let_it_be(:candidate_for_deletion) do
-      create(:ml_candidates, project: project, experiment: experiment, user: user)
-    end
-
-    let(:candidate_iid) { candidate_for_deletion.iid }
-
+  describe 'GET promote' do
     before do
-      destroy_candidate
+      promote_candidate
     end
 
-    it 'deletes the experiment', :aggregate_failures do
-      expect(response).to have_gitlab_http_status(:found)
-      expect(flash[:notice]).to eq('Candidate removed')
-      expect(response).to redirect_to("/#{project.full_path}/-/ml/experiments/#{experiment.iid}")
-      expect { Ml::Candidate.find(id: candidate_for_deletion.id) }.to raise_error(ActiveRecord::RecordNotFound)
+    it 'renders the template' do
+      expect(response).to render_template('projects/ml/candidates/promote')
     end
 
     it_behaves_like '404 if candidate does not exist'
-
     describe 'requires write_model_experiments' do
       let(:write_model_experiments) { false }
 
@@ -101,10 +91,60 @@ RSpec.describe Projects::Ml::CandidatesController, feature_category: :mlops do
     end
   end
 
+  describe 'DELETE #destroy' do
+    let_it_be(:candidate_for_deletion) do
+      create(:ml_candidates, project: project, experiment: experiment, user: user)
+    end
+
+    let(:candidate_iid) { candidate_for_deletion.iid }
+
+    context 'when experiment can be destroyed' do
+      before do
+        destroy_candidate
+      end
+
+      it 'deletes the experiment', :aggregate_failures do
+        expect(response).to have_gitlab_http_status(:found)
+        expect(flash[:notice]).to eq('Run removed')
+        expect(response).to redirect_to("/#{project.full_path}/-/ml/experiments/#{experiment.iid}")
+        expect { Ml::Candidate.find(id: candidate_for_deletion.id) }.to raise_error(ActiveRecord::RecordNotFound)
+      end
+
+      it_behaves_like '404 if candidate does not exist'
+
+      describe 'requires write_model_experiments' do
+        let(:write_model_experiments) { false }
+
+        it 'is 404' do
+          expect(response).to have_gitlab_http_status(:not_found)
+        end
+      end
+    end
+
+    context 'when candidate can not be destroyed' do
+      before do
+        allow_next_found_instance_of(Ml::Candidate) do |instance|
+          allow(instance).to receive(:destroy).and_return(false)
+        end
+        destroy_candidate
+      end
+
+      it 'returns error status and shows alert' do
+        expect(response).to have_gitlab_http_status(:redirect)
+        expect(response).to redirect_to project_ml_experiment_path(project, candidate.experiment.iid)
+        expect(flash[:alert]).to eq(s_("MlExperimentTracking|Failed to remove run"))
+      end
+    end
+  end
+
   private
 
   def show_candidate
     get project_ml_candidate_path(project, iid: candidate_iid)
+  end
+
+  def promote_candidate
+    get promote_project_ml_candidate_path(project, iid: candidate_iid)
   end
 
   def destroy_candidate

@@ -1,270 +1,198 @@
 ---
 stage: Create
-group: IDE
+group: Remote Development
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Configure the GitLab agent for remote development as part of setting up a workspace."
+description: Configure the GitLab agent for Kubernetes to support your workspace.
+title: GitLab agent for Kubernetes configuration
 ---
 
-# GitLab agent configuration
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/112397) in GitLab 15.11 [with a flag](../../administration/feature_flags.md) named `remote_development_feature_flag`. Disabled by default.
-> - [Enabled on GitLab.com and self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/391543) in GitLab 16.0.
-> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/136744) in GitLab 16.7. Feature flag `remote_development_feature_flag` removed.
+{{< /details >}}
+
+{{< history >}}
+
+- Feature flag `remote_development_feature_flag` [enabled on GitLab.com and GitLab Self-Managed](https://gitlab.com/gitlab-org/gitlab/-/issues/391543) in GitLab 16.0.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/136744) in GitLab 16.7. Feature flag `remote_development_feature_flag` removed.
+
+{{< /history >}}
 
 When you [set up workspace infrastructure](configuration.md#set-up-workspace-infrastructure),
-you must configure the GitLab agent.
-The workspace settings are available in the agent
-configuration file under `remote_development`.
+you must configure a GitLab agent for Kubernetes to support workspaces. This guide assumes that a GitLab
+agent is already installed in the Kubernetes cluster.
 
-You can use any agent in the top-level group of your workspace project
-and in the subgroups of the top-level group, provided that the agent
-is properly configured for remote development.
-For example, if the path to your workspace project is `top-group/subgroup-1/subgroup-2/workspace-project`,
-you can use any configured agent in `top-group` and in any of its subgroups.
+Prerequisites:
 
-## Workspace settings
+- You must complete the setup steps in [Tutorial: Set up the GitLab agent for Kubernetes](set_up_gitlab_agent_and_proxies.md).
+- The agent configuration must have the `remote_development` module enabled, and the required fields of this module must be correctly set.
 
-| Setting                                                                                   | Required | Default value                           | Description |
-|-------------------------------------------------------------------------------------------|----------|-----------------------------------------|-------------|
-| [`enabled`](#enabled)                                                                     | Yes      | `false`                                 | Indicates whether remote development is enabled for the GitLab agent. |
-| [`dns_zone`](#dns_zone)                                                                   | Yes      | None                                    | DNS zone where workspaces are available. |
-| [`gitlab_workspaces_proxy`](#gitlab_workspaces_proxy)                                     | No       | `gitlab-workspaces`                     | Namespace where [`gitlab-workspaces-proxy`](set_up_workspaces_proxy.md) is installed. |
-| [`network_policy`](#network_policy)                                                       | No       | See [`network_policy`](#network_policy) | Firewall rules for workspaces. |
-| [`default_resources_per_workspace_container`](#default_resources_per_workspace_container) | No       | `{}`                                    | Default requests and limits for CPU and memory per workspace container. |
-| [`max_resources_per_workspace`](#max_resources_per_workspace)                             | No       | `{}`                                    | Maximum requests and limits for CPU and memory per workspace. |
-| [`workspaces_quota`](#workspaces_quota)                                                   | No       | `-1`                                    | Maximum number of workspaces for the GitLab agent. |
-| [`workspaces_per_user_quota`](#workspaces_per_user_quota)                                 | No       | `-1`                                    | Maximum number of workspaces per user. |
+  {{< alert type="note" >}}
 
-NOTE:
-If a setting has an invalid value, it's not possible to update any setting until you fix that value.
+  If you disable the `remote_development` module on an agent that has active workspaces,
+  those workspaces become unusable. For more information, see
+  [workspace settings](settings.md#enabled).
 
-### `enabled`
+  {{< /alert >}}
+- The agent must be allowed in a group for the purpose of creating workspaces. During workspace creation, users can select allowed agents that are associated with any parent group of the workspace project.
+- The workspace creator must have the Developer role to the project of the agent.
 
-Use this setting to define whether:
+## Agent authorization in a group for creating workspaces
 
-- The GitLab agent can communicate with the GitLab instance.
-- You can [create a workspace](configuration.md#create-a-workspace) with the GitLab agent.
+{{< history >}}
 
-The default value is `false`.
+- New authorization strategy [introduced](https://gitlab.com/groups/gitlab-org/-/epics/14025) in GitLab 17.2.
 
-To enable remote development in the agent configuration, set `enabled` to `true`:
+{{< /history >}}
 
-```yaml
-remote_development:
-  enabled: true
+The new authorization strategy replaces the [legacy authorization strategy](#legacy-agent-authorization-strategy).
+Group owners and administrators can control which cluster agents host workspaces in their group.
+
+For example, if the path to your workspace project is `top-level-group/subgroup-1/subgroup-2/workspace-project`, you can use any configured agent for either `top-level-group`, `subgroup-1` or `subgroup-2` group.
+
+```mermaid
+%%{init: {'theme':'neutral'}}%%
+
+graph TD;
+
+    classDef active fill:lightgreen, stroke:#green, color:green, stroke-width:1px;
+
+    topGroup[Top-Level Group, allowed Agent 1]
+    subgroup1[Subgroup 1, allowed Agent 2]
+    subgroup2[Subgroup 2, allowed Agent 3]
+    wp(Workspace Project, Agent 1, 2 & 3 all available)
+
+    topGroup --> subgroup1
+    subgroup1 --> subgroup2
+    subgroup2 --> wp
+
+    class wp active;
 ```
 
-If remote development is disabled, an administrator must manually delete any
-running workspaces to remove those workspaces from the Kubernetes cluster.
+If you allow a cluster agent for a specific group, for example, `subgroup-1`,
+it is available to create workspaces in all projects under that group.
+Consider the scope of the allowed group carefully, as it determines where the cluster agent can
+host workspaces.
 
-### `dns_zone`
+## Allow a cluster agent for workspaces in a group
 
-Use this setting to define the DNS zone of the URL where workspaces are available.
+Prerequisites:
 
-**Example configuration:**
+- You must [set up workspace infrastructure](configuration.md#set-up-workspace-infrastructure).
+- You must have administrator access to the instance or the Owner role for the group.
 
-```yaml
-remote_development:
-  dns_zone: "<workspaces.example.dev>"
-```
+To allow a cluster agent for workspaces in a group:
 
-### `gitlab_workspaces_proxy`
+1. On the left sidebar, select **Search or go to** and find your group.
+1. On the left sidebar, select **Settings** > **Workspaces**.
+1. In the **Group agents** section, select the **All agents** tab.
+1. From the list of available agents, find the agent with status **Blocked**, and select **Allow**.
+1. On the confirmation dialog, select **Allow agent**.
 
-Use this setting to define the namespace where
-[`gitlab-workspaces-proxy`](set_up_workspaces_proxy.md) is installed.
-The default value for `gitlab_workspaces_proxy.namespace` is `gitlab-workspaces`.
+GitLab updates the status of the selected agent to **Allowed**, and displays the agent in the **Allowed agents** tab.
 
-**Example configuration:**
+## Remove an allowed cluster agent for workspaces in a group
 
-```yaml
-remote_development:
-  gitlab_workspaces_proxy:
-    namespace: "<custom-gitlab-workspaces-proxy-namespace>"
-```
+Prerequisites:
 
-### `network_policy`
+- You must [set up workspace infrastructure](configuration.md#set-up-workspace-infrastructure).
+- You must have administrator access to the instance or the Owner role for the group.
 
-Use this setting to define the network policy for each workspace.
-This setting controls network traffic for workspaces.
+To remove an allowed cluster agent from a group:
 
-The default value is:
+1. On the left sidebar, select **Search or go to** and find your group.
+1. On the left sidebar, select **Settings** > **Workspaces**.
+1. In the **Group agents** section, select the **Allowed agents** tab.
+1. From the list of allowed agents, find the agent you want to remove, and select **Block**.
+1. On the confirmation dialog, select **Block agent**.
 
-```yaml
-remote_development:
-  network_policy:
-    enabled: true
-    egress:
-      - allow: "0.0.0.0/0"
-        except:
-          - "10.0.0.0/8"
-          - "172.16.0.0/12"
-          - "192.168.0.0/16"
-```
+GitLab updates the status of the selected agent to **Blocked**, and removes the agent from the **Allowed agents** tab.
 
-In this configuration:
+{{< alert type="note" >}}
 
-- The network policy is generated for each workspace because `enabled` is `true`.
-- The egress rules allow all traffic to the internet (`0.0.0.0/0`) except to the
-  IP CIDR ranges `10.0.0.0/8`, `172.16.0.0/12`, and `192.168.0.0/16`.
+Removing an allowed cluster agent from a group does not immediately stop running workspaces using
+the agent. Running workspaces stop when they are automatically terminated or manually stopped.
 
-The behavior of the network policy depends on the Kubernetes network plugin.
-For more information, see the [Kubernetes documentation](https://kubernetes.io/docs/concepts/services-networking/network-policies/).
+{{< /alert >}}
 
-#### `network_policy.enabled`
+## Allow a cluster agent for workspaces on the instance
 
-Use this setting to define whether the network policy is generated for each workspace.
-The default value for `network_policy.enabled` is `true`.
+{{< history >}}
 
-#### `network_policy.egress`
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/548951) in GitLab 18.2.
 
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/11629) in GitLab 16.7.
+{{< /history >}}
 
-Use this setting to define a list of IP CIDR ranges to allow as egress destinations from a workspace.
+Prerequisites:
 
-Define egress rules when:
+- You must [set up workspace infrastructure](configuration.md#set-up-workspace-infrastructure).
+- You must have agents with [remote development enabled](settings.md#enabled).
+- You must have administrator access to the instance.
 
-- The GitLab instance is on a private IP range.
-- The workspace must access a cloud resource on a private IP range.
+To allow a cluster agent for workspaces on the instance:
 
-Each element of the list defines an `allow` attribute with an optional `except` attribute.
-`allow` defines an IP range to allow traffic from.
-`except` lists IP ranges to exclude from the `allow` range.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. On the left sidebar, select **Settings > General**.
+1. Expand **Available agents for workspaces**.
+1. From the list of agents with workspaces enabled, find the agent you want to allow, and select the
+   availability toggle.
 
-**Example configuration:**
+## Remove an allowed cluster agent for workspaces on the instance
 
-```yaml
-remote_development:
-  network_policy:
-    egress:
-      - allow: "0.0.0.0/0"
-        except:
-          - "10.0.0.0/8"
-          - "172.16.0.0/12"
-          - "192.168.0.0/16"
-      - allow: "172.16.123.1/32"
-```
+{{< history >}}
 
-In this example, traffic from the workspace is allowed if:
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/548951) in GitLab 18.2.
 
-- The destination IP is any range except `10.0.0.0/8`, `172.16.0.0/12`, or `192.168.0.0/16`.
-- The destination IP is `172.16.123.1/32`.
+{{< /history >}}
 
-### `default_resources_per_workspace_container`
+Prerequisites:
 
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/11625) in GitLab 16.8.
+- You must have administrator access to the instance.
 
-Use this setting to define the default [requests and limits](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#requests-and-limits)
-for CPU and memory per workspace container.
-Any resources you define in your [devfile](index.md#devfile) override this setting.
+To remove an allowed cluster agent from the instance:
 
-For `default_resources_per_workspace_container`, `requests` and `limits` are required.
-For more information about possible CPU and memory values, see [Resource units in Kubernetes](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-units-in-kubernetes).
+1. On the left sidebar, at the bottom, select **Admin**.
+1. On the left sidebar, select **Settings > General**.
+1. Expand **Available agents for workspaces**.
+1. From the list of allowed agents, find the agent you want to remove, and clear the availability toggle.
 
-When you change any of these values, existing workspaces restart immediately for the changes to take effect.
+{{< alert type="note" >}}
 
-**Example configuration:**
+Removing an allowed cluster agent from an instance does not immediately stop running workspaces using
+the agent. Running workspaces stop when they are automatically terminated or manually stopped.
 
-```yaml
-remote_development:
-  default_resources_per_workspace_container:
-    requests:
-      cpu: "0.5"
-      memory: "512Mi"
-    limits:
-      cpu: "1"
-      memory: "1Gi"
-```
+{{< /alert >}}
 
-### `max_resources_per_workspace`
+## Legacy agent authorization strategy
 
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/11625) in GitLab 16.8.
+In GitLab 17.1 and earlier, the availability of an agent in a group was not a prerequisite for
+creating workspaces.
+You can use any agent in the top-level group of a workspace project to create a workspace,
+if both of the following are true:
 
-Use this setting to define the maximum [requests and limits](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#requests-and-limits)
-for CPU and memory per workspace.
+- The remote development module is enabled.
+- You have at least the Developer role for the top-level group.
 
-For `max_resources_per_workspace`, `requests` and `limits` are required.
-For more information about possible CPU and memory values, see:
-
-- [Resource units in Kubernetes](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-units-in-kubernetes)
-- [Resource quotas](https://kubernetes.io/docs/concepts/policy/resource-quotas/)
-
-When you change any of these values, existing workspaces restart immediately for the changes to take effect.
-Workspaces fail when they exceed the values you set for `requests` and `limits`.
-
-**Example configuration:**
-
-```yaml
-remote_development:
-  max_resources_per_workspace:
-    requests:
-      cpu: "1"
-      memory: "1Gi"
-    limits:
-      cpu: "2"
-      memory: "2Gi"
-```
-
-The maximum resources you define must include any resources required for init containers
-to perform bootstrapping operations such as cloning the project repository.
-
-### `workspaces_quota`
-
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/11586) in GitLab 16.9.
-
-Use this setting to set the maximum number of workspaces for the GitLab agent.
-
-You cannot create new workspaces for an agent when:
-
-- The number of workspaces for the agent has reached the defined `workspaces_quota`.
-- `workspaces_quota` is set to `0`.
-
-This setting does not affect existing workspaces for the agent.
-
-The default value is `-1` (unlimited).
-Possible values are greater than or equal to `-1`.
-
-**Example configuration:**
-
-```yaml
-remote_development:
-  workspaces_quota: 10
-```
-
-### `workspaces_per_user_quota`
-
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/11586) in GitLab 16.9.
-
-Use this setting to set the maximum number of workspaces per user.
-
-You cannot create new workspaces for a user when:
-
-- The number of workspaces for the user has reached the defined `workspaces_per_user_quota`.
-- `workspaces_per_user_quota` is set to `0`.
-
-This setting does not affect existing workspaces for the user.
-
-The default value is `-1` (unlimited).
-Possible values are greater than or equal to `-1`.
-
-**Example configuration:**
-
-```yaml
-remote_development:
-  workspaces_per_user_quota: 3
-```
+For example, if the path to your workspace project is `top-level-group/subgroup-1/subgroup-2/workspace-project`,
+you can use any configured agent in `top-level-group` and in any of its subgroups.
 
 ## Configuring user access with remote development
 
 You can configure the `user_access` module to access the connected Kubernetes cluster with your GitLab credentials.
 This module is configured and runs independently of the `remote_development` module.
 
-Be careful when configuring both `user_access` and `remote_development` in the same GitLab agent.
+Be careful when configuring both `user_access` and `remote_development` in the same agent.
 The `remote_development` clusters manage user credentials (such as personal access tokens) as Kubernetes Secrets.
 Any misconfiguration in `user_access` might cause this private data to be accessible over the Kubernetes API.
 
 For more information about configuring `user_access`, see
-[Configure Kubernetes access](../../user/clusters/agent/user_access.md#configure-kubernetes-access).
+[Configure Kubernetes access](../clusters/agent/user_access.md#configure-kubernetes-access).
+
+## Related topics
+
+- [Tutorial: Set up the GitLab for Kubernetes](set_up_gitlab_agent_and_proxies.md)
+- [Workspace settings](settings.md)
+- [Workspace configuration](configuration.md)
+- [Troubleshooting Workspaces](workspaces_troubleshooting.md)

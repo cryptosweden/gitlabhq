@@ -2,6 +2,8 @@ import { registerSchema } from '~/ide/utils';
 import axios from '~/lib/utils/axios_utils';
 import { getBaseURL, joinPaths } from '~/lib/utils/url_utility';
 
+const DEFAULT_FILENAME = '*.yaml';
+
 export const getSecurityPolicyListUrl = ({ namespacePath, namespaceType = 'group' }) => {
   const isGroup = namespaceType === 'group';
   return joinPaths(
@@ -24,10 +26,10 @@ export const getSinglePolicySchema = async ({ namespacePath, namespaceType, poli
     const { data: schemaForMultiplePolicies } = await axios.get(
       getSecurityPolicySchemaUrl({ namespacePath, namespaceType }),
     );
-    const properties =
-      schemaForMultiplePolicies.properties[policyType]?.items?.properties ||
-      schemaForMultiplePolicies.$defs[policyType]?.items?.properties ||
-      {};
+
+    const { properties: schemaProperties, $defs: defsProperties } = schemaForMultiplePolicies;
+    const properties = schemaProperties || defsProperties[policyType] || {};
+
     return {
       title: schemaForMultiplePolicies.title,
       description: schemaForMultiplePolicies.description,
@@ -41,6 +43,7 @@ export const getSinglePolicySchema = async ({ namespacePath, namespaceType, poli
         },
         ...properties,
       },
+      $defs: schemaForMultiplePolicies.$defs,
     };
   } catch {
     return {};
@@ -61,7 +64,7 @@ export class SecurityPolicySchemaExtension {
           namespaceType,
           policyType,
         });
-        const modelFileName = instance.getModel().uri.path.split('/').pop();
+        const modelFileName = instance.getModel()?.uri.path.split('/').pop() || DEFAULT_FILENAME;
 
         registerSchema({
           uri: getSecurityPolicySchemaUrl({ namespacePath, namespaceType }),
@@ -75,7 +78,7 @@ export class SecurityPolicySchemaExtension {
           namespacePath: projectPath,
           namespaceType: 'project',
         });
-        const modelFileName = instance.getModel().uri.path.split('/').pop();
+        const modelFileName = instance.getModel()?.uri.path.split('/').pop() || DEFAULT_FILENAME;
 
         registerSchema({
           uri,

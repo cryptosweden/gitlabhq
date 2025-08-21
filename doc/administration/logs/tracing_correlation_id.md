@@ -1,14 +1,16 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Operate
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Find relevant log entries with a correlation ID
 ---
 
-# Find relevant log entries with a correlation ID
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 GitLab instances log a unique request tracking ID (known as the
 "correlation ID") for most requests. Each individual request to GitLab gets
@@ -44,7 +46,7 @@ To locate a relevant request and view its correlation ID:
 
 See the following example:
 
-![Firefox's network monitor showing an request ID header](img/network_monitor_xid.png)
+![Example correlation ID in Headers section of network request details for HTML document](img/network_monitor_xid_v13_6.png)
 
 ### Getting the correlation ID from your logs
 
@@ -52,8 +54,8 @@ Another approach to finding the correct correlation ID is to search or watch
 your logs and find the `correlation_id` value for the log entry that you're
 watching for.
 
-For example, let's say that you want learn what's happening or breaking when
-you reproduce an action in GitLab. You could tail the GitLab logs, filtering
+For example, if you want to learn what's happening or breaking when
+you reproduce an action in GitLab, you could tail the GitLab logs, filtering
 to requests by your user, and then watch the requests until you see what you're
 interested in.
 
@@ -125,7 +127,7 @@ find /var/log/gitlab -type f -mtime 0 -exec grep 'LOt9hgi1TV4' '{}' '+'
 ### Searching in distributed architectures
 
 If you have done some horizontal scaling in your GitLab infrastructure, then
-you must search across _all_ of your GitLab nodes. You can do this with
+you must search across all of your GitLab nodes. You can do this with
 some sort of log aggregation software like Loki, ELK, Splunk, or others.
 
 You can use a tool like Ansible or PSSH (parallel SSH) that can execute identical commands across your servers in
@@ -154,7 +156,7 @@ After developer tools have been enabled, obtain a session cookie as follows:
 1. Select the `results?request_id=<some-request-id>` request on the left hand side.
 1. The session cookie is displayed under the `Request Headers` section of the `Headers` panel. Right-click on the cookie value and select `Copy value`.
 
-![Obtaining a session cookie for request](img/obtaining-a-session-cookie-for-request_v14_3.png)
+![Viewing a session cookie in the Developer Tools panel of a browser](img/obtaining-a-session-cookie-for-request_v14_3.png)
 
 You have the value of the session cookie copied to your clipboard, for example:
 
@@ -187,20 +189,18 @@ The response contains the data from the API endpoint, and a `correlation_id` val
 
 You can then view the database details for this request:
 
-1. Paste the `x-request-id` value into the `request details` field of the [performance bar](../monitoring/performance/performance_bar.md) and press <kbd>Enter/Return</kbd>. This example uses the `x-request-id` value `01FGN8P881GF2E5J91JYA338Y3`, returned by the above response:
+1. Paste the `x-request-id` value into the `request details` field of the [performance bar](../monitoring/performance/performance_bar.md) and press <kbd>Enter/Return</kbd>. This example uses the `x-request-id` value `01FGN8P881GF2E5J91JYA338Y3`, returned by the previous response:
 
-   ![Paste request ID into progress bar](img/paste-request-id-into-progress-bar_v14_3.png)
+   ![The request details field of the performance bar containing an example value](img/paste-request-id-into-progress-bar_v14_3.png)
 
 1. A new request is inserted into the `Request Selector` dropdown list on the right-hand side of the Performance Bar. Select the new request to view the metrics of the API request:
 
-   ![Select request ID from request selector drop down menu](img/select-request-id-from-request-selector-drop-down-menu_v14_3.png)
+   ![A highlighted example request in an open Request Selector dropdown list](img/select-request-id-from-request-selector-drop-down-menu_v14_3.png)
 
-   <!-- vale gitlab.Substitutions = NO -->
 1. Select the `pg` link in the Progress Bar to view the database queries executed by the API request:
 
-   ![View pg database details](img/view-pg-details_v14_3.png)
-   <!-- vale gitlab.Substitutions = YES -->
+   ![GitLab API database details: 29ms / 34 queries](img/view-pg-details_v14_3.png)
 
    The database query dialog is displayed:
 
-   ![Database query dialog](img/database-query-dialog_v14_3.png)
+   ![Database query dialog with 34 SQL queries, 29ms duration, 34 replicas, 4 cached, and sorting options](img/database-query-dialog_v14_3.png)

@@ -109,12 +109,16 @@ RSpec.shared_examples 'User views a wiki page' do
       end
     end
 
-    it 'shows the creation page if file does not exist' do
+    it 'shows the page doesn\'t exist if file does not exist' do
       expect(page).to have_link('image', href: "#{wiki.wiki_base_path}/#{path}")
 
       click_on('image')
 
       expect(page).to have_current_path(%r{wikis/#{path}})
+      expect(page).to have_content("This page doesn't exist")
+
+      click_link("Create this page…")
+
       expect(page).to have_content('New page')
     end
   end
@@ -209,7 +213,7 @@ RSpec.shared_examples 'User views a wiki page' do
     let(:title) { '<foo> !@#$%^&*()[]{}=_+\'"\\|<>? <bar>' }
 
     before do
-      wiki_page.update(title: title ) # rubocop:disable Rails/SaveBang
+      wiki_page.update(title: title) # rubocop:disable Rails/SaveBang
     end
 
     it 'preserves the special characters' do
@@ -244,6 +248,25 @@ RSpec.shared_examples 'User views a wiki page' do
       visit(wiki_page_path(wiki, wiki_page, action: :history))
 
       expect(page).to have_content('<script>alert(true)<script>')
+    end
+  end
+
+  context 'when a page has headings' do
+    before do
+      wiki_page.update(content: "# Heading 1\n\n## Heading 1.1\n\n### Heading 1.1.1\n\n# Heading 2") # rubocop:disable Rails/SaveBang -- not an ActiveRecord
+    end
+
+    it 'displays the table of contents for the page' do
+      visit(wiki_page_path(wiki, wiki_page))
+
+      within '.js-wiki-toc' do
+        expect(page).to have_content('On this page')
+
+        expect(page).to have_content('Heading 1')
+        expect(page).to have_content('Heading 1.1')
+        expect(page).to have_content('Heading 1.1.1')
+        expect(page).to have_content('Heading 2')
+      end
     end
   end
 

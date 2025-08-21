@@ -1,6 +1,6 @@
 <script>
 import { GlAlert, GlButton, GlSprintf } from '@gitlab/ui';
-import { __ } from '~/locale';
+import { __, sprintf } from '~/locale';
 
 export const i18n = {
   title: __('Some changes are not shown.'),
@@ -17,7 +17,7 @@ export default {
   },
   props: {
     total: {
-      type: String,
+      type: [Number, String],
       required: true,
     },
     visible: {
@@ -26,42 +26,39 @@ export default {
     },
     plainDiffPath: {
       type: String,
-      required: true,
+      default: undefined,
+      required: false,
     },
     emailPatchPath: {
       type: String,
-      required: true,
+      default: undefined,
+      required: false,
+    },
+  },
+  computed: {
+    message() {
+      return sprintf(
+        __(`For a faster browsing experience, only %{strongStart}%{visible} of %{total}%{strongEnd} files are shown.
+          Download one of the files below to see all changes.`),
+        { visible: this.visible, total: this.total },
+      );
     },
   },
 };
 </script>
 
 <template>
-  <gl-alert
-    variant="warning"
-    class="gl-mx-5 gl-mb-4 gl-mt-3"
-    :title="$options.i18n.title"
-    :dismissible="false"
-  >
-    <gl-sprintf
-      :message="
-        sprintf(
-          __(
-            'For a faster browsing experience, only %{strongStart}%{visible} of %{total}%{strongEnd} files are shown. Download one of the files below to see all changes.',
-          ),
-          { visible, total } /* eslint-disable-line @gitlab/vue-no-new-non-primitive-in-template */,
-        )
-      "
-    >
+  <gl-alert variant="warning" class="gl-mb-5" :title="$options.i18n.title" :dismissible="false">
+    <gl-sprintf :message="message">
       <template #strong="{ content }">
         <strong>{{ content }}</strong>
       </template>
     </gl-sprintf>
     <template #actions>
-      <gl-button :href="plainDiffPath" class="gl-mr-3 gl-alert-action">
+      <gl-button v-if="plainDiffPath" :href="plainDiffPath" class="gl-alert-action gl-mr-3">
         {{ $options.i18n.plainDiff }}
       </gl-button>
-      <gl-button :href="emailPatchPath" class="gl-alert-action">
+      <gl-button v-if="emailPatchPath" :href="emailPatchPath" class="gl-alert-action">
         {{ $options.i18n.emailPatch }}
       </gl-button>
     </template>

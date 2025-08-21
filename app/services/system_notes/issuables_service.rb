@@ -180,14 +180,14 @@ module SystemNotes
     #
     # Returns the created Note object
     def change_title(old_title)
-      new_title = noteable.title.dup
+      new_title = noteable.title
 
       old_diffs, new_diffs = Gitlab::Diff::InlineDiff.new(old_title, new_title).inline_diffs
 
-      marked_old_title = Gitlab::Diff::InlineDiffMarkdownMarker.new(old_title).mark(old_diffs)
-      marked_new_title = Gitlab::Diff::InlineDiffMarkdownMarker.new(new_title).mark(new_diffs)
+      marked_old_title = Gitlab::Diff::InlineDiffMarker.new(old_title).mark(old_diffs)
+      marked_new_title = Gitlab::Diff::InlineDiffMarker.new(new_title).mark(new_diffs)
 
-      body = "changed title from **#{marked_old_title}** to **#{marked_new_title}**"
+      body = "<p>changed title from <code class=\"idiff\">#{marked_old_title}</code> to <code class=\"idiff\">#{marked_new_title}</code></p>"
 
       track_issue_event(:track_issue_title_changed_action)
       work_item_activity_counter.track_work_item_title_changed_action(author: author) if noteable.is_a?(WorkItem)
@@ -250,7 +250,9 @@ module SystemNotes
     def cross_reference(mentioned_in)
       return if cross_reference_disallowed?(mentioned_in)
 
-      gfm_reference = mentioned_in.gfm_reference(noteable.project || noteable.group)
+      from = noteable.project || noteable.try(:group) || noteable.try(:namespace)
+
+      gfm_reference = mentioned_in.gfm_reference(from)
       body = cross_reference_note_content(gfm_reference)
 
       if noteable.is_a?(ExternalIssue)
@@ -264,8 +266,8 @@ module SystemNotes
       else
         track_cross_reference_action
 
-        created_at = mentioner.created_at if USE_COMMIT_DATE_FOR_CROSS_REFERENCE_NOTE && mentioner.is_a?(Commit)
-        create_note(NoteSummary.new(noteable, noteable.project, author, body, action: 'cross_reference', created_at: created_at))
+        created_at = mentioned_in.created_at if USE_COMMIT_DATE_FOR_CROSS_REFERENCE_NOTE && mentioned_in.is_a?(Commit)
+        create_note(NoteSummary.new(noteable, noteable.project, author, body, action: 'cross_reference', created_at: created_at), skip_touch_noteable: true)
       end
     end
 
@@ -318,7 +320,7 @@ module SystemNotes
         raise ArgumentError, "Invalid direction `#{direction}`"
       end
 
-      cross_reference = noteable_ref.to_reference(project)
+      cross_reference = noteable_ref.to_reference(container)
       body = "moved #{direction} #{cross_reference}"
 
       track_issue_event(:track_issue_moved_action)
@@ -342,7 +344,7 @@ module SystemNotes
         raise ArgumentError, "Invalid direction `#{direction}`"
       end
 
-      cross_reference = noteable_ref.to_reference(project)
+      cross_reference = noteable_ref.to_reference(container)
       body = "cloned #{direction} #{cross_reference}"
 
       track_issue_event(:track_issue_cloned_action) if direction == :to

@@ -23,11 +23,21 @@ RSpec.describe BulkInsertSafe, feature_category: :database do
       end
 
       create_table :_test_bulk_insert_items_with_composite_pk, id: false, force: true do |t|
-        t.integer :id, null: true
+        t.integer :instance_id, null: true
         t.string :name, null: true
       end
 
-      execute("ALTER TABLE _test_bulk_insert_items_with_composite_pk ADD PRIMARY KEY (id,name);")
+      execute("ALTER TABLE _test_bulk_insert_items_with_composite_pk ADD PRIMARY KEY (instance_id,name);")
+
+      create_table :_test_bulk_insert_with_non_serial_pk, id: false, force: true do |t|
+        t.integer :project_id, null: false
+        t.string :name
+      end
+
+      execute("ALTER TABLE _test_bulk_insert_with_non_serial_pk ADD PRIMARY KEY (project_id);")
+      execute("ALTER TABLE _test_bulk_insert_with_non_serial_pk
+                ADD CONSTRAINT fk_test_bulk_insert_with_non_serial_pk_fk
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;")
     end
   end
 
@@ -36,6 +46,7 @@ RSpec.describe BulkInsertSafe, feature_category: :database do
       drop_table :_test_bulk_insert_items, force: true
       drop_table :_test_bulk_insert_parent_items, force: true
       drop_table :_test_bulk_insert_items_with_composite_pk, force: true
+      drop_table :_test_bulk_insert_with_non_serial_pk, force: true
     end
   end
 
@@ -58,6 +69,7 @@ RSpec.describe BulkInsertSafe, feature_category: :database do
 
       include BulkInsertSafe
       include ShaAttribute
+      include Gitlab::EncryptedAttribute
 
       validates :name, :enum_value, :secret_value, :sha_value, :jsonb_value, presence: true
 
@@ -70,7 +82,7 @@ RSpec.describe BulkInsertSafe, feature_category: :database do
       attr_encrypted :secret_value,
         mode: :per_attribute_iv,
         algorithm: 'aes-256-gcm',
-        key: Settings.attr_encrypted_db_key_base_32,
+        key: :db_key_base_32,
         insecure_mode: false
 
       attribute :enum_value, default: 'case_1'
@@ -160,9 +172,19 @@ RSpec.describe BulkInsertSafe, feature_category: :database do
 
         bulk_insert_item_class.bulk_insert!(items)
 
-        attribute_names = bulk_insert_item_class.attribute_names - %w[id created_at updated_at]
-        expect(bulk_insert_item_class.last(items.size).pluck(*attribute_names)).to eq(
-          items.pluck(*attribute_names))
+        encrypted_attribute_names = bulk_insert_item_class.attr_encrypted_encrypted_attributes.keys.map(&:to_s)
+        attribute_names = bulk_insert_item_class.attribute_names - %w[id created_at updated_at] - encrypted_attribute_names
+
+        decrypted_values = bulk_insert_item_class.last(items.size).map do |record|
+          encrypted_attribute_names.index_with { |attr| record.public_send(attr) }
+        end
+
+        expected_values = items.map do |record|
+          encrypted_attribute_names.index_with { |attr| record.public_send(attr) }
+        end
+
+        expect(bulk_insert_item_class.last(items.size).pluck(*attribute_names)).to eq(items.pluck(*attribute_names))
+        expect(decrypted_values).to eq(expected_values)
       end
 
       it 'rolls back the transaction when any item is invalid' do
@@ -255,16 +277,37 @@ RSpec.describe BulkInsertSafe, feature_category: :database do
         end
       end
 
-      let(:new_object) { bulk_insert_items_with_composite_pk_class.new(id: 1, name: 'composite') }
+      let(:new_object) { bulk_insert_items_with_composite_pk_class.new(instance_id: 1, name: 'composite') }
 
       it 'successfully inserts an item' do
         expect(ActiveRecord::InsertAll).to receive(:new)
           .with(
-            bulk_insert_items_with_composite_pk_class.insert_all_proxy_class, [new_object.as_json], on_duplicate: :raise, returning: false, unique_by: %w[id name]
+            bulk_insert_items_with_composite_pk_class.insert_all_proxy_class,
+            [new_object.as_json],
+            on_duplicate: :raise, returning: false, unique_by: %w[instance_id name]
           ).and_call_original
 
         expect { bulk_insert_items_with_composite_pk_class.bulk_insert!([new_object]) }.to(
           change(bulk_insert_items_with_composite_pk_class, :count).from(0).to(1)
+        )
+      end
+    end
+
+    context 'when the primary key is not serial' do
+      let_it_be(:project) { create(:project) }
+      let_it_be(:bulk_insert_item_class) do
+        Class.new(ActiveRecord::Base) do
+          self.table_name = '_test_bulk_insert_with_non_serial_pk'
+
+          include BulkInsertSafe
+        end
+      end
+
+      let(:new_object) { bulk_insert_item_class.new(project_id: project.id, name: 'one-to-one') }
+
+      it 'successfully inserts an item' do
+        expect { bulk_insert_item_class.bulk_insert!([new_object]) }.to(
+          change(bulk_insert_item_class, :count).from(0).to(1)
         )
       end
     end

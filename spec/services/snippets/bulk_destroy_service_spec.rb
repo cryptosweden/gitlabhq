@@ -22,8 +22,8 @@ RSpec.describe Snippets::BulkDestroyService, feature_category: :source_code_mana
     it 'deletes the snippets in bulk' do
       response = nil
 
-      expect(Repositories::DestroyService).to receive(:new).with(personal_snippet.repository).and_call_original
-      expect(Repositories::DestroyService).to receive(:new).with(project_snippet.repository).and_call_original
+      expect(::Repositories::DestroyService).to receive(:new).with(personal_snippet.repository).and_call_original
+      expect(::Repositories::DestroyService).to receive(:new).with(project_snippet.repository).and_call_original
 
       aggregate_failures do
         expect do
@@ -54,6 +54,7 @@ RSpec.describe Snippets::BulkDestroyService, feature_category: :source_code_mana
         aggregate_failures do
           expect(response).to be_error
           expect(response.message).to eq error_message
+          expect(response.reason).to eq error_reason
         end
       end
 
@@ -68,7 +69,8 @@ RSpec.describe Snippets::BulkDestroyService, feature_category: :source_code_mana
       let(:service_user) { create(:user) }
 
       it_behaves_like 'error is raised' do
-        let(:error_message) { "You don't have access to delete these snippets." }
+        let(:error_message) { described_class::NO_ACCESS_ERROR[:message] }
+        let(:error_reason) { described_class::NO_ACCESS_ERROR[:reason] }
       end
 
       context 'when skip_authorization option is passed' do
@@ -86,13 +88,14 @@ RSpec.describe Snippets::BulkDestroyService, feature_category: :source_code_mana
 
     context 'when an error is raised deleting the repository' do
       before do
-        allow_next_instance_of(Repositories::DestroyService) do |instance|
+        allow_next_instance_of(::Repositories::DestroyService) do |instance|
           allow(instance).to receive(:execute).and_return({ status: :error })
         end
       end
 
       it_behaves_like 'error is raised' do
-        let(:error_message) { 'Failed to delete snippet repositories.' }
+        let(:error_message) { described_class::SNIPPET_REPOSITORIES_DELETE_ERROR[:message] }
+        let(:error_reason) { described_class::SNIPPET_REPOSITORIES_DELETE_ERROR[:reason] }
       end
     end
 
@@ -102,7 +105,8 @@ RSpec.describe Snippets::BulkDestroyService, feature_category: :source_code_mana
       end
 
       it_behaves_like 'error is raised' do
-        let(:error_message) { 'Failed to remove snippets.' }
+        let(:error_message) { described_class::SNIPPETS_DELETE_ERROR[:message] }
+        let(:error_reason) { described_class::SNIPPETS_DELETE_ERROR[:reason] }
       end
     end
 
@@ -112,9 +116,9 @@ RSpec.describe Snippets::BulkDestroyService, feature_category: :source_code_mana
       it 'returns success' do
         response = nil
 
-        expect(Repositories::DestroyService).to receive(:new).with(personal_snippet.repository).and_call_original
-        expect(Repositories::DestroyService).to receive(:new).with(project_snippet.repository).and_call_original
-        expect(Repositories::DestroyService).to receive(:new).with(snippet_without_repo.repository).and_call_original
+        expect(::Repositories::DestroyService).to receive(:new).with(personal_snippet.repository).and_call_original
+        expect(::Repositories::DestroyService).to receive(:new).with(project_snippet.repository).and_call_original
+        expect(::Repositories::DestroyService).to receive(:new).with(snippet_without_repo.repository).and_call_original
 
         expect do
           response = subject.execute

@@ -7,6 +7,7 @@ import {
   GlFormGroup,
   GlFormInput,
   GlTooltipDirective,
+  GlDisclosureDropdownItem,
 } from '@gitlab/ui';
 import { sprintf } from '~/locale';
 import { DELETE_AGENT_BUTTON, DELETE_AGENT_MODAL_ID } from '../constants';
@@ -22,22 +23,18 @@ export default {
     GlSprintf,
     GlFormGroup,
     GlFormInput,
+    GlDisclosureDropdownItem,
   },
   directives: {
     GlModalDirective,
     GlTooltip: GlTooltipDirective,
   },
-  inject: ['projectPath', 'canAdminCluster'],
+  inject: ['fullPath', 'canAdminCluster', 'isGroup'],
   props: {
     agent: {
       required: true,
       type: Object,
       validator: (value) => ['id', 'name'].every((prop) => value[prop]),
-    },
-    defaultBranchName: {
-      default: '.noBranch',
-      required: false,
-      type: String,
     },
   },
   data() {
@@ -53,13 +50,12 @@ export default {
       return this.loading || !this.canAdminCluster;
     },
     deleteButtonTooltip() {
-      const { deleteButton, disabledHint } = this.$options.i18n;
-      return this.deleteButtonDisabled ? disabledHint : deleteButton;
+      return this.deleteButtonDisabled ? this.$options.i18n.disabledHint : '';
     },
     getAgentsQueryVariables() {
       return {
-        defaultBranchName: this.defaultBranchName,
-        projectPath: this.projectPath,
+        fullPath: this.fullPath,
+        isGroup: this.isGroup,
       };
     },
     modalId() {
@@ -145,28 +141,33 @@ export default {
       this.error = null;
       this.deleteConfirmText = null;
     },
+    showModal() {
+      this.$refs.modal?.show();
+    },
   },
 };
 </script>
 
 <template>
   <div>
-    <div
-      v-gl-tooltip="deleteButtonTooltip"
-      :tabindex="containerTabIndex"
-      class="cluster-button-container gl-rounded-base gl-display-inline-block"
+    <gl-disclosure-dropdown-item
+      v-gl-tooltip.bottom.viewport="deleteButtonTooltip"
       data-testid="delete-agent-button-tooltip"
+      :tabindex="containerTabIndex"
+      @action="showModal"
     >
       <gl-button
         ref="deleteAgentButton"
-        v-gl-modal-directive="modalId"
-        icon="remove"
-        category="secondary"
-        variant="danger"
         :disabled="deleteButtonDisabled"
-        :aria-label="$options.i18n.deleteButton"
-      />
-    </div>
+        :aria-disabled="deleteButtonDisabled"
+        category="tertiary"
+        variant="danger"
+        class="!gl-justify-start !gl-px-3 focus:!gl-shadow-inner-2-blue-400"
+        block
+      >
+        {{ $options.i18n.deleteButton }}
+      </gl-button>
+    </gl-disclosure-dropdown-item>
 
     <gl-modal
       ref="modal"

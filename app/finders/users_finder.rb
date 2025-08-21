@@ -12,9 +12,13 @@
 #     provider: string
 #     search: string
 #     active: boolean
+#     admins: boolean
 #     blocked: boolean
+#     humans: boolean
 #     external: boolean
 #     non_external: boolean
+#     without_active: boolean
+#     without_humans: boolean
 #     without_projects: boolean
 #     sort: string
 #     id: integer
@@ -36,9 +40,12 @@ class UsersFinder
     users = by_username(users)
     users = by_id(users)
     users = by_admins(users)
+    users = by_humans(users)
+    users = by_without_humans(users)
     users = by_search(users)
     users = by_blocked(users)
     users = by_active(users)
+    users = by_without_active(users)
     users = by_external_identity(users)
     users = by_external(users)
     users = by_non_external(users)
@@ -48,6 +55,9 @@ class UsersFinder
     users = by_custom_attributes(users)
     users = by_non_internal(users)
     users = by_without_project_bots(users)
+    users = by_member_source_ids(users)
+    users = by_public_email(users)
+    users = by_user_types(users)
 
     order(users)
   end
@@ -60,7 +70,7 @@ class UsersFinder
     if group
       raise Gitlab::Access::AccessDeniedError unless user_can_read_group?(group)
 
-      scope = ::Autocomplete::GroupUsersFinder.new(group: group).execute # rubocop: disable CodeReuse/Finder -- For SQL optimization sake we need to scope out group members first see: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/137647#note_1664081899
+      scope = ::Autocomplete::GroupUsersFinder.new(group: group, current_user: current_user).execute # rubocop: disable CodeReuse/Finder -- For SQL optimization sake we need to scope out group members first see: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/137647#note_1664081899
     else
       scope = current_user&.can_admin_all_resources? ? User.all : User.without_forbidden_states
     end
@@ -74,6 +84,12 @@ class UsersFinder
     users.by_username(params[:username])
   end
 
+  def by_public_email(users)
+    return users unless params[:public_email]
+
+    users.with_public_email(params[:public_email])
+  end
+
   def by_id(users)
     return users unless params[:id]
 
@@ -84,6 +100,18 @@ class UsersFinder
     return users unless params[:admins] && current_user&.can_read_all_resources?
 
     users.admins
+  end
+
+  def by_humans(users)
+    return users unless params[:humans]
+
+    users.human
+  end
+
+  def by_without_humans(users)
+    return users unless params[:without_humans]
+
+    users.without_humans
   end
 
   def by_search(users)
@@ -108,19 +136,23 @@ class UsersFinder
     users.active
   end
 
+  def by_without_active(users)
+    return users unless params[:without_active]
+
+    users.without_active
+  end
+
   def by_external_identity(users)
     return users unless params[:extern_uid] && params[:provider]
 
     users.by_provider_and_extern_uid(params[:provider], params[:extern_uid])
   end
 
-  # rubocop: disable CodeReuse/ActiveRecord
   def by_external(users)
     return users unless params[:external]
 
     users.external
   end
-  # rubocop: enable CodeReuse/ActiveRecord
 
   def by_non_external(users)
     return users unless params[:non_external]
@@ -157,13 +189,40 @@ class UsersFinder
     users.without_project_bot
   end
 
-  # rubocop: disable CodeReuse/ActiveRecord
+  def by_member_source_ids(users)
+    group_member_source_ids = params[:group_member_source_ids]
+    project_member_source_ids = params[:project_member_source_ids]
+
+    return users unless group_member_source_ids || project_member_source_ids
+
+    member_queries = []
+
+    if group_member_source_ids.present?
+      member_queries << Member.with_source_id(group_member_source_ids).with_source_type('Namespace')
+    end
+
+    if project_member_source_ids.present?
+      member_queries << Member.with_source_id(project_member_source_ids).with_source_type('Project')
+    end
+
+    return users if member_queries.empty?
+
+    member_query = member_queries.reduce(:or).non_request
+
+    users.id_in(member_query.select(:user_id))
+  end
+
+  def by_user_types(users)
+    return users if params[:user_types].nil?
+
+    users.with_user_types(params[:user_types])
+  end
+
   def order(users)
     return users unless params[:sort]
 
     users.order_by(params[:sort])
   end
-  # rubocop: enable CodeReuse/ActiveRecord
 
   def user_can_read_group?(group)
     Ability.allowed?(current_user, :read_group, group)

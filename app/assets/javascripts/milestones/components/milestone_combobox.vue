@@ -4,13 +4,11 @@ import { debounce, isEqual } from 'lodash';
 // eslint-disable-next-line no-restricted-imports
 import { mapActions, mapGetters, mapState } from 'vuex';
 import { s__, __, sprintf } from '~/locale';
-import createStore from '../stores';
 
 const SEARCH_DEBOUNCE_MS = 250;
 
 export default {
   name: 'MilestoneCombobox',
-  store: createStore(),
   components: {
     GlCollapsibleListbox,
     GlBadge,
@@ -50,8 +48,8 @@ export default {
     unselect: __('Unselect'),
   },
   computed: {
-    ...mapState(['matches', 'selectedMilestones']),
-    ...mapGetters(['isLoading']),
+    ...mapState('milestoneCombobox', ['matches', 'selectedMilestones']),
+    ...mapGetters('milestoneCombobox', ['isLoading']),
     allMilestones() {
       const { groupMilestones, projectMilestones } = this.matches || {};
       const milestones = [];
@@ -125,7 +123,7 @@ export default {
     this.fetchMilestones();
   },
   methods: {
-    ...mapActions([
+    ...mapActions('milestoneCombobox', [
       'setProjectId',
       'setGroupId',
       'setGroupMilestonesAvailable',
@@ -171,7 +169,7 @@ export default {
     </template>
     <template #footer>
       <div
-        class="gl-border-t-solid gl-border-t-1 gl-border-t-gray-200 gl-display-flex gl-flex-direction-column gl-p-2! gl-pt-0!"
+        class="gl-flex gl-flex-col gl-border-t-1 gl-border-t-dropdown !gl-p-2 !gl-pt-0 gl-border-t-solid"
       >
         <gl-button
           v-for="(item, idx) in extraLinks"
@@ -181,7 +179,7 @@ export default {
           data-testid="milestone-combobox-extra-links"
           category="tertiary"
           block
-          class="gl-justify-content-start! gl-mt-2!"
+          class="!gl-mt-2 !gl-justify-start"
         >
           {{ item.text }}
         </gl-button>

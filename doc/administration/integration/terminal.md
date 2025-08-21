@@ -2,36 +2,52 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Web terminals (deprecated)
+description: Information about Web terminals.
 ---
 
-# Web terminals (deprecated)
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-> - [Disabled on self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/353410) in GitLab 15.0.
+{{< /details >}}
 
-WARNING:
+{{< history >}}
+
+- [Disabled on GitLab Self-Managed](https://gitlab.com/gitlab-org/gitlab/-/issues/353410) in GitLab 15.0.
+
+{{< /history >}}
+
+{{< alert type="warning" >}}
+
 This feature was [deprecated](https://gitlab.com/groups/gitlab-org/configure/-/epics/8) in GitLab 14.5.
 
-FLAG:
-On self-managed GitLab, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../../administration/feature_flags.md) named `certificate_based_clusters`.
+{{< /alert >}}
 
-- Read more about the non-deprecated [Web Terminals accessible through the Web IDE](../../user/project/web_ide/index.md).
-- Read more about the non-deprecated [Web Terminals accessible from a running CI job](../../ci/interactive_web_terminal/index.md).
+{{< alert type="flag" >}}
+
+On GitLab Self-Managed, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../feature_flags/_index.md) named `certificate_based_clusters`.
+
+{{< /alert >}}
+
+- Read more about the non-deprecated [Web Terminals accessible through the Web IDE](../../user/project/web_ide/_index.md).
+- Read more about the non-deprecated [Web Terminals accessible from a running CI job](../../ci/interactive_web_terminal/_index.md).
 
 ---
 
-With the introduction of the [Kubernetes integration](../../user/infrastructure/clusters/index.md),
+With the introduction of the [Kubernetes integration](../../user/infrastructure/clusters/_index.md),
 GitLab can store and use credentials for a Kubernetes cluster.
 GitLab uses these credentials to provide access to
-[web terminals](../../ci/environments/index.md#web-terminals-deprecated) for environments.
+[web terminals](../../ci/environments/_index.md#web-terminals-deprecated) for environments.
 
-NOTE:
+{{< alert type="note" >}}
+
 Only users with at least the [Maintainer role](../../user/permissions.md) for the project access web terminals.
 
-## How it works
+{{< /alert >}}
+
+## How web terminals work
 
 A detailed overview of the architecture of web terminals and how they work
 can be found in [this document](https://gitlab.com/gitlab-org/gitlab-workhorse/blob/master/doc/channel.md).
@@ -66,11 +82,14 @@ detail below.
 
 ## Enabling and disabling terminal support
 
-NOTE:
+{{< alert type="note" >}}
+
 AWS Classic Load Balancers do not support web sockets.
 If you want web terminals to work, use AWS Network Load Balancers.
 Read [AWS Elastic Load Balancing Product Comparison](https://aws.amazon.com/elasticloadbalancing/features/#compare)
 for more information.
+
+{{< /alert >}}
 
 As web terminals use WebSockets, every HTTP/HTTPS reverse proxy in front of
 Workhorse must be configured to pass the `Connection` and `Upgrade` headers
@@ -91,11 +110,11 @@ narrower set of rules, you can restrict it to URLs ending with `/terminal.ws`.
 This approach may still result in a few false positives.
 
 If you self-compiled your installation, you may need to make some changes to your configuration. Read
-[Upgrading Community Edition and Enterprise Edition from source](../../update/upgrading_from_source.md#nginx-configuration)
+[Upgrading Community Edition and Enterprise Edition from source](../../update/upgrading_from_source.md#new-configuration-for-nginx-or-apache)
 for more details.
 
 To disable web terminal support in GitLab, stop passing
-the `Connection` and `Upgrade` hop-by-hop headers in the *first* HTTP reverse
+the `Connection` and `Upgrade` hop-by-hop headers in the first HTTP reverse
 proxy in the chain. For most users, this is the NGINX server bundled with
 Linux package installations. In this case, you need to:
 
@@ -104,7 +123,7 @@ Linux package installations. In this case, you need to:
   `Connection` and `Upgrade` lines.
 
 For your own load balancer, just reverse the configuration changes recommended
-by the above guides.
+by the previously listed guides.
 
 When these headers are not passed through, Workhorse returns a
 `400 Bad Request` response to users attempting to use a web terminal. In turn,
@@ -115,6 +134,6 @@ they receive a `Connection failed` message.
 By default, terminal sessions do not expire. To limit the terminal session
 lifetime in your GitLab instance:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Web terminal**.
 1. Set a `max session time`.

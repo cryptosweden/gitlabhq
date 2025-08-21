@@ -2,17 +2,16 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Sign commits in your GitLab repository with SSH keys."
+description: Sign commits in your GitLab repository with SSH keys.
+title: Sign commits with SSH keys
 ---
 
-# Sign commits with SSH keys
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/343879) in GitLab 15.7 [with a flag](../../../../administration/feature_flags.md) named `ssh_commit_signatures`. Enabled by default.
-> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/384202) in GitLab 15.8. Feature flag `ssh_commit_signatures` removed.
+{{< /details >}}
 
 When you sign commits with SSH keys, GitLab uses the SSH public keys associated
 with your GitLab account to cryptographically verify the commit signature.
@@ -29,21 +28,24 @@ For more information about managing the SSH keys associated with your GitLab acc
 
 After you [create an SSH key](../../../ssh.md#generate-an-ssh-key-pair) and
 [add it to your GitLab account](../../../ssh.md#add-an-ssh-key-to-your-gitlab-account)
-or [generate it using a password manager](../../../ssh.md#generate-an-ssh-key-pair-with-a-password-manager),
 configure Git to begin using the key.
 
 Prerequisites:
 
-- Git 2.34.0 or newer.
-- OpenSSH 8.1 or newer.
+- Git 2.34.0 or later.
+- OpenSSH 8.1 or later.
 
-  NOTE:
+  {{< alert type="note" >}}
+
   OpenSSH 8.7 has broken signing functionality. If you are on OpenSSH 8.7, upgrade to OpenSSH 8.8.
 
-- A SSH key with the usage type of either **Authentication & Signing** or **Signing**.
-  The SSH key must be one of these types:
-  - [ED25519](../../../ssh.md#ed25519-ssh-keys) (recommended)
-  - [RSA](../../../ssh.md#rsa-ssh-keys)
+  {{< /alert >}}
+
+- An SSH key with the **Usage type** `Authentication & Signing` or `Signing`.
+  The following SSH key types are supported:
+  - ED25519
+  - RSA
+  - ECDSA
 
 To configure Git to use your key:
 
@@ -92,7 +94,7 @@ To sign a commit:
 ## Verify commits
 
 You can verify all types of signed commits
-[in the GitLab UI](../signed_commits/index.md#verify-commits). Commits signed
+[in the GitLab UI](_index.md#verify-commits). Commits signed
 with an SSH key can also be verified locally.
 
 ### Verify commits locally
@@ -148,28 +150,17 @@ for Git to associate SSH public keys with users:
        SSH signed commit
    ```
 
-## Revoke an SSH key for signing commits
+## Signed commits with removed SSH keys
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/108344) in GitLab 15.9.
+You can revoke or delete your SSH keys used to sign commits. For more information see [Remove an SSH key](../../../ssh.md#remove-an-ssh-key).
 
-If an SSH key becomes compromised, revoke it. Revoking a key changes both future and past commits:
+Removing your SSH key can impact any commits signed with the key:
 
-- Past commits signed by this key are marked as unverified.
-- Future commits signed by this key are marked as unverified.
-
-Revoking an SSH key removes it from your account.
-SSH keys that are only used for authentication do not have the option to be revoked.
-
-To revoke an SSH key:
-
-1. On the left sidebar, select your avatar.
-1. Select **Edit profile**.
-1. On the left sidebar, select **SSH Keys** (**{key}**).
-1. Next to the SSH key you want to revoke, select **Revoke**.
-1. Optional. [Delete the SSH key.](../../../ssh.md#delete-an-ssh-key)
+- Revoking your SSH key marks your previous commits as **Unverified**. Until you add a new SSH key, any new commits are also marked as **Unverified**.
+- Deleting your SSH key doesn't impact your previous commits. Until you add a new SSH key, any new commits are marked as **Unverified**.
 
 ## Related topics
 
-- [Sign commits and tags with X.509 certificates](../signed_commits/x509.md)
+- [Sign commits and tags with X.509 certificates](x509.md)
 - [Sign commits with GPG](gpg.md)
 - [Commits API](../../../../api/commits.md)

@@ -47,7 +47,7 @@ module Gitlab
         class Cluster < ActiveRecord::Base
           self.table_name = 'clusters'
 
-          enum cluster_type: {
+          enum :cluster_type, {
             instance_type: 1,
             group_type: 2
           }
@@ -165,7 +165,7 @@ module Gitlab
 
         <<~SQL
           EXISTS (
-            #{Migratable::Project.select(1).with_group_prometheus_installed.where("projects.id BETWEEN ? AND ?", Integer(from_id), Integer(to_id)).to_sql}
+            #{Migratable::Project.select(1).with_group_prometheus_installed.where('projects.id BETWEEN ? AND ?', Integer(from_id), Integer(to_id)).to_sql}
           )
         SQL
       end

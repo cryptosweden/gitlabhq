@@ -19,11 +19,16 @@ module Gitlab
       InvalidPathError = Class.new(StandardError)
 
       class << self
-        delegate :params, :url, :store, :encrypted_secrets, to: :new
+        delegate :url, :store, :encrypted_secrets, to: :new
+
+        def params
+          @params ||= new.params.freeze
+        end
 
         def with
           pool.with { |redis| yield redis }
         end
+        alias_method :then, :with
 
         def version
           with { |redis| redis.info['redis_version'] }

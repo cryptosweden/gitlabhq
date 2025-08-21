@@ -1,49 +1,55 @@
 ---
-stage: Govern
-group: Authentication
+stage: Tenant Scale
+group: Organizations
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Namespaces API
 ---
 
-# Namespaces API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-Usernames and group names fall under a special category called
-[namespaces](../user/namespace/index.md).
+{{< /details >}}
 
-You might also want to view documentation for:
+{{< history >}}
 
-- [Users](users.md)
-- [Groups](groups.md)
+- Visibility of billing-related fields changed in GitLab 18.3 [with a flag](../administration/feature_flags/_index.md) named `restrict_namespace_api_billing_fields`. Disabled by default.
 
-[Pagination](rest/index.md#pagination) is used.
+{{< /history >}}
 
-## List namespaces
+Use this API to interact with namespaces, a special resource category used to organize users and groups. For more information, see [namespaces](../user/namespace/_index.md).
 
-> - `top_level_only` [introduced](https://gitlab.com/gitlab-org/customers-gitlab-com/-/issues/7600) in GitLab 16.8.
+This API uses [Pagination](rest/_index.md#pagination) to filter results.
 
-Get a list of the namespaces of the authenticated user. If the user is an
-administrator, a list of all namespaces in the GitLab instance is shown.
+## List all namespaces
+
+{{< history >}}
+
+- `top_level_only` [introduced](https://gitlab.com/gitlab-org/customers-gitlab-com/-/issues/7600) in GitLab 16.8.
+
+{{< /history >}}
+
+Lists all namespaces available to the current user. If the user is an
+administrator, this endpoint returns all namespaces in the instance.
 
 ```plaintext
 GET /namespaces
-GET /namespaces?search=foobar
-GET /namespaces?owned_only=true
-GET /namespaces?top_level_only=true
 ```
 
-| Attribute        | Type    | Required | Description |
-| ---------------- | ------- | -------- | ----------- |
-| `search`         | string  | no       | Returns a list of namespaces the user is authorized to view based on the search criteria |
-| `owned_only`     | boolean | no       | In GitLab 14.2 and later, returns a list of owned namespaces only |
-| `top_level_only` | boolean | no       | In GitLab 16.8 and later, returns a list of top level namespaces only |
+| Attribute          | Type    | Required | Description                                                                             |
+|--------------------|---------|----------|-----------------------------------------------------------------------------------------|
+| `search`           | string  | no       | Returns only namespaces that contain the specified value in their name or path.         |
+| `owned_only`       | boolean | no       | If `true`, only returns namespaces by the current user.                                 |
+| `top_level_only`   | boolean | no       | In GitLab 16.8 and later, if `true`, only returns top-level namespaces.                 |
+| `full_path_search` | boolean | no       | If `true`, the `search` parameter is matched against the full path of the namespaces. |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/namespaces"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/namespaces"
 ```
 
 Example response:
@@ -60,7 +66,7 @@ Example response:
     "avatar_url": "https://secure.gravatar.com/avatar/e64c7d89f26bd1972efa854d13d7dd61?s=80&d=identicon",
     "web_url": "https://gitlab.example.com/user1",
     "billable_members_count": 1,
-    "plan": "default",
+    "plan": "ultimate",
     "end_date": null,
     "trial_ends_on": null,
     "trial": false,
@@ -78,7 +84,7 @@ Example response:
     "web_url": "https://gitlab.example.com/groups/group1",
     "members_count_with_descendants": 2,
     "billable_members_count": 2,
-    "plan": "default",
+    "plan": "ultimate",
     "end_date": null,
     "trial_ends_on": null,
     "trial": false,
@@ -96,57 +102,36 @@ Example response:
     "web_url": "https://gitlab.example.com/groups/foo/bar",
     "members_count_with_descendants": 5,
     "billable_members_count": 5,
-    "plan": "default",
     "end_date": null,
     "trial_ends_on": null,
     "trial": false,
     "root_repository_size": 100,
     "projects_count": 3
   }
-    "projects_count": 3
 ]
 ```
 
-Owners also see the `plan` property associated with a namespace:
+Additional attributes might be returned for Group owners or on GitLab.com:
 
 ```json
 [
   {
-    "id": 1,
-    "name": "user1",
-    "plan": "silver",
     ...
-  }
-]
-```
-
-Users on GitLab.com also see `max_seats_used`, `seats_in_use` and `max_seats_used_changed_at` parameters.
-`max_seats_used` is the highest number of users the group had. `seats_in_use` is
-the number of license seats currently being used. `max_seats_used_changed_at` shows the date when the `max_seats_used` value changed. All the values are updated
-once a day.
-
-`max_seats_used` and `seats_in_use` are non-zero only for namespaces on paid plans.
-
-```json
-[
-  {
-    "id": 1,
-    "name": "user1",
-    "billable_members_count": 2,
     "max_seats_used": 3,
-    "max_seats_used_changed_at":"2023-02-13T12:00:02.000Z",
+    "max_seats_used_changed_at":"2025-05-15T12:00:02.000Z",
     "seats_in_use": 2,
+    "projects_count": 1,
+    "root_repository_size":0,
+    "members_count_with_descendants":26,
+    "plan": "free",
     ...
   }
 ]
 ```
 
-NOTE:
-Only group owners are presented with `members_count_with_descendants`, `root_repository_size`, `projects_count` and `plan`.
+## Get details on a namespace
 
-## Get namespace by ID
-
-Get a namespace by ID.
+Gets details on a specified namespace.
 
 ```plaintext
 GET /namespaces/:id
@@ -154,12 +139,14 @@ GET /namespaces/:id
 
 | Attribute | Type           | Required | Description |
 | --------- | -------------- | -------- | ----------- |
-| `id`      | integer/string | yes      | ID or [URL-encoded path of the namespace](rest/index.md#namespaced-path-encoding) |
+| `id`      | integer/string | yes      | ID or [URL-encoded path](rest/_index.md#namespaced-paths) of the namespace. |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/namespaces/2"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/namespaces/2"
 ```
 
 Example response:
@@ -217,9 +204,9 @@ Example response:
 }
 ```
 
-## Get existence of a namespace
+## Verify namespace availability
 
-Get existence of a namespace by path. Suggests a new namespace path that does not already exist.
+Verifies if a specified namespace already exists. If the namespace does exist, the endpoint suggests an alternate name.
 
 ```plaintext
 GET /namespaces/:namespace/exists
@@ -227,13 +214,15 @@ GET /namespaces/:namespace/exists
 
 | Attribute   | Type    | Required | Description |
 | ----------- | ------- | -------- | ----------- |
-| `namespace` | string  | yes      | Namespace's path. |
-| `parent_id` | integer | no       | The ID of the parent namespace. If no ID is specified, only top-level namespaces are considered. |
+| `namespace` | string  | yes      | Path of the namespace. |
+| `parent_id` | integer | no       | ID of the parent namespace. If unspecified, only returns top-level namespaces. |
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/namespaces/my-group/exists?parent_id=1"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/namespaces/my-group/exists?parent_id=1"
 ```
 
 Example response:

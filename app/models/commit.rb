@@ -15,6 +15,8 @@ class Commit
   include ::Gitlab::Utils::StrongMemoize
   include ActsAsPaginatedDiff
   include CacheMarkdownField
+  include GlobalID::Identification
+  include ::Repositories::StreamableDiff
 
   participant :author
   participant :committer
@@ -146,9 +148,7 @@ class Commit
       # Commit in turn expects Time-like instances upon input, so we have to
       # manually parse these values.
       hash.each do |key, value|
-        if key.to_s.end_with?(date_suffix) && value.is_a?(String)
-          hash[key] = Time.zone.parse(value)
-        end
+        hash[key] = Time.zone.parse(value) if key.to_s.end_with?(date_suffix) && value.is_a?(String)
       end
 
       from_hash(hash, project)
@@ -292,15 +292,13 @@ class Commit
       }
     }
 
-    if with_changed_files
-      data.merge!(repo_changes)
-    end
+    data.merge!(repo_changes) if with_changed_files
 
     data
   end
 
   def lazy_author
-    BatchLoader.for(author_email.downcase).batch do |emails, loader|
+    BatchLoader.for(author_email&.downcase).batch do |emails, loader|
       users = User.by_any_email(emails, confirmed: true).includes(:emails)
 
       emails.each do |email|
@@ -316,14 +314,15 @@ class Commit
       lazy_author&.itself
     end
   end
-  request_cache(:author) { author_email.downcase }
+  request_cache(:author) { author_email&.downcase }
 
   def committer(confirmed: true)
     @committer ||= User.find_by_any_email(committer_email, confirmed: confirmed)
   end
 
   def parents
-    @parents ||= parent_ids.map { |oid| Commit.lazy(container, oid) }
+    # Usage of `reject` is intentional. `compact` doesn't work here, because of BatchLoader specifics
+    @parents ||= parent_ids.map { |oid| Commit.lazy(container, oid) }.reject(&:nil?)
   end
 
   def parent
@@ -414,7 +413,7 @@ class Commit
     message_body = ["(cherry picked from commit #{sha})"]
 
     if merged_merge_request?(user)
-      commits_in_merge_request = merged_merge_request(user).commits
+      commits_in_merge_request = merged_merge_request(user).commits(load_from_gitaly: true)
 
       if commits_in_merge_request.present?
         message_body << ""
@@ -551,12 +550,6 @@ class Commit
     "commit:#{sha}"
   end
 
-  def broadcast_notes_changed
-    super
-
-    broadcast_notes_changed_for_related_mrs
-  end
-
   def readable_by?(user)
     Ability.allowed?(user, :read_commit, self)
   end
@@ -594,6 +587,18 @@ class Commit
     repository.tag_names_contains(id, limit: limit, exclude_refs: excluded) || []
   end
 
+  def has_encoded_file_paths?
+    raw_diffs.any?(&:encoded_file_path)
+  end
+
+  def valid_full_sha
+    id.match(Gitlab::Git::Commit::FULL_SHA_PATTERN).to_s
+  end
+
+  def first_diffs_slice(limit, diff_options = {})
+    diffs(diff_options.merge(max_files: limit)).diff_files
+  end
+
   private
 
   def tipping_refs(ref_prefix, limit: 0)
@@ -601,10 +606,6 @@ class Commit
       refs = repository.refs_by_oid(oid: id, ref_patterns: [ref_prefix], limit: limit)
       refs.map { |n| n.delete_prefix(ref_prefix) }
     end
-  end
-
-  def broadcast_notes_changed_for_related_mrs
-    MergeRequest.includes(target_project: :namespace).by_commit_sha(id).find_each(&:broadcast_notes_changed)
   end
 
   def commit_reference(from, referable_commit_id, full: false)
@@ -639,3 +640,5 @@ class Commit
     MergeRequestsFinder.new(user, project_id: project_id).find_by(squash_commit_sha: id)
   end
 end
+
+Commit.prepend_mod_with('Projects::Commit')

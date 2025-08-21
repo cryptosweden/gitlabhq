@@ -7,7 +7,7 @@
     had no expiration. In GitLab 15.0, an expiry will be automatically generated for any existing token that does not
     already have one.
 
-    You should [opt in](https://docs.gitlab.com/ee/integration/oauth_provider.html#access-token-expiration) to expiring
+    You should [opt in](https://docs.gitlab.com/integration/oauth_provider/#access-token-expiration) to expiring
     tokens before GitLab 15.0 is released:
 
     1. Edit the application.
@@ -15,7 +15,7 @@
 
 # The following items are not published on the docs page, but may be used in the future.
   reporter: hsutor
-  stage: manage
+  stage: Foundations
   tiers:  # (optional - may be required in the future) An array of tiers that the feature is available in currently.  e.g., [Free, Silver, Gold, Core, Premium, Ultimate]
   issue_url:  # https://gitlab.com/gitlab-org/gitlab/-/issues/21745
   documentation_url:  # (optional) This is a link to the current documentation page

@@ -1,16 +1,23 @@
 ---
-stage: Systems
+stage: Tenant Scale
 group: Geo
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+gitlab_dedicated: no
+title: Geo with Object storage
 ---
 
-# Geo with Object storage
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-> Verification of files stored in object storage was [introduced](https://gitlab.com/groups/gitlab-org/-/epics/8056) in GitLab 16.4 [with a flag](../../feature_flags.md) named `geo_object_storage_verification`. Enabled by default.
+{{< /details >}}
+
+{{< history >}}
+
+- Verification of files stored in object storage was [introduced](https://gitlab.com/groups/gitlab-org/-/epics/8056) in GitLab 16.4 [with a flag](../../feature_flags/_index.md) named `geo_object_storage_verification`. Enabled by default.
+
+{{< /history >}}
 
 Geo can be used in combination with Object Storage (AWS S3, or other compatible object storage).
 
@@ -33,32 +40,40 @@ To have:
 - GitLab manage replication, follow [Enabling GitLab replication](#enabling-gitlab-managed-object-storage-replication).
 - Third-party services manage replication, follow [Third-party replication services](#third-party-replication-services).
 
-See [Object storage replication tests](geo_validation_tests.md#object-storage-replication-tests) for comparisons between GitLab-managed replication and third-party replication.
-
 [Read more about using object storage with GitLab](../../object_storage.md).
 
 ## Enabling GitLab-managed object storage replication
 
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/5551) in GitLab 15.1.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/5551) in GitLab 15.1.
+
+{{< /history >}}
+
+{{< alert type="warning" >}}
+
+In case of issues, avoid manually deleting individual files as that can lead to [data inconsistencies](#inconsistencies-after-the-migration).
+
+{{< /alert >}}
 
 **Secondary** sites can replicate files stored on the **primary** site regardless of
 whether they are stored on the local file system or in object storage.
 
 To enable GitLab replication:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Geo > Nodes**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Geo** > **Nodes**.
 1. Select **Edit** on the **secondary** site.
 1. In the **Synchronization Settings** section, find the **Allow this secondary node to replicate content on Object Storage**
    checkbox to enable it.
 
 For LFS, follow the documentation to
-[set up LFS object storage](../../lfs/index.md#storing-lfs-objects-in-remote-object-storage).
+[set up LFS object storage](../../lfs/_index.md#storing-lfs-objects-in-remote-object-storage).
 
 For CI job artifacts, there is similar documentation to configure
-[jobs artifact object storage](../../job_artifacts.md#using-object-storage)
+[jobs artifact object storage](../../cicd/job_artifacts.md#using-object-storage).
 
-For user uploads, there is similar documentation to configure [upload object storage](../../uploads.md#using-object-storage)
+For user uploads, there is similar documentation to configure [upload object storage](../../uploads.md#using-object-storage).
 
 If you want to migrate the **primary** site's files to object storage, you can
 configure the **secondary** in a few ways:
@@ -69,10 +84,23 @@ configure the **secondary** in a few ways:
 - Use a separate object store and enable the **Allow this secondary node to replicate
   content on Object Storage** setting.
 
-GitLab does not currently support the case where both:
+{{< alert type="warning" >}}
+
+To avoid data loss, you should only enable the **Allow this secondary node to replicate content on
+Object Storage** setting if you are using separate object stores for the Primary and Secondary
+sites.
+
+{{< /alert >}}
+
+GitLab does not support the case where both:
 
 - The **primary** site uses local storage.
 - A **secondary** site uses object storage.
+
+### Inconsistencies after the migration
+
+Data inconsistencies can occur when migrating from local to object storage,
+which is further described in the [object storage troubleshooting section](../../object_storage.md#inconsistencies-after-migrating-to-object-storage).
 
 ## Third-party replication services
 

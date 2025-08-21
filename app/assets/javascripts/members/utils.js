@@ -3,7 +3,7 @@ import { s__ } from '~/locale';
 import showGlobalToast from '~/vue_shared/plugins/global_toast';
 import { convertObjectPropsToCamelCase } from '~/lib/utils/common_utils';
 import { getParameterByName, setUrlParams } from '~/lib/utils/url_utility';
-import { ACCESS_LEVEL_GUEST_INTEGER } from '~/access_level/constants';
+import { BASE_ROLES } from '~/access_level/constants';
 import {
   FIELDS,
   DEFAULT_SORT,
@@ -45,16 +45,12 @@ export const generateBadges = ({ member, isCurrentUser, canManageMembers }) => [
  *   @param {Map<string, number>} member.validRoles
  */
 export const roleDropdownItems = ({ validRoles }) => {
-  const staticRoleDropdownItems = Object.entries(validRoles).map(([text, accessLevel]) => ({
-    text,
-    accessLevel,
-    memberRoleId: null, // The value `null` is need to downgrade from custom role to static role. See: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/133430#note_1595153555
-    value: `role-static-${accessLevel}`,
-    // For base roles, only Guest and Minimal Access users won't occupy a seat.
-    occupiesSeat: accessLevel > ACCESS_LEVEL_GUEST_INTEGER,
-  }));
+  const accessLevels = new Set(Object.values(validRoles));
+  // Filter by only the roles that can be assigned to the user. For example, a user in a sub-group can't be assigned a
+  // role lower than the one they have in a parent group.
+  const roles = BASE_ROLES.filter(({ accessLevel }) => accessLevels.has(accessLevel));
 
-  return { flatten: staticRoleDropdownItems, formatted: staticRoleDropdownItems };
+  return { flatten: roles, formatted: roles };
 };
 
 /**
@@ -67,15 +63,11 @@ export const roleDropdownItems = ({ validRoles }) => {
 export const initialSelectedRole = (flattenDropdownItems, member) => {
   return flattenDropdownItems.find(
     ({ accessLevel }) => accessLevel === member.accessLevel.integerValue,
-  )?.value;
+  );
 };
 
 export const isGroup = (member) => {
   return Boolean(member.sharedWithGroup);
-};
-
-export const isDirectMember = (member) => {
-  return member.isDirectMember;
 };
 
 export const isCurrentUser = (member, currentUserId) => {
@@ -83,18 +75,18 @@ export const isCurrentUser = (member, currentUserId) => {
 };
 
 export const canRemove = (member) => {
-  return isDirectMember(member) && member.canRemove;
+  return member.isDirectMember && member.canRemove;
 };
 
 export const canRemoveBlockedByLastOwner = (member, canManageMembers) =>
-  isDirectMember(member) && canManageMembers && member.isLastOwner;
+  member.isDirectMember && canManageMembers && member.isLastOwner;
 
 export const canResend = (member) => {
   return Boolean(member.invite?.canResend);
 };
 
 export const canUpdate = (member, currentUserId) => {
-  return !isCurrentUser(member, currentUserId) && isDirectMember(member) && member.canUpdate;
+  return !isCurrentUser(member, currentUserId) && member.isDirectMember && member.canUpdate;
 };
 
 export const parseSortParam = (sortableFields) => {

@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: GraphQL API merge request checklist
 ---
-
-# GraphQL API merge request checklist
 
 The GitLab GraphQL API has a fair degree of complexity so it's important that merge requests containing GraphQL changes be reviewed by someone familiar with GraphQL.
 You can ping one via the `@gitlab-org/graphql-experts` group in a MR or in the [`#f_graphql` channel](https://gitlab.slack.com/archives/C6MLS3XEU) in Slack (available to GitLab team members only).
@@ -28,9 +27,9 @@ Try running the query in [GraphiQL](../api_graphql_styleguide.md#graphiql) on yo
 
 Check the MR for any [breaking changes](../api_graphql_styleguide.md#breaking-changes).
 
-If a feature is marked as an [experiment](../api_graphql_styleguide.md#mark-schema-items-as-alpha), you can make breaking changes immediately, with no deprecation period.
+If a feature is marked as an [experiment](../api_graphql_styleguide.md#mark-schema-items-as-experiments), you can make breaking changes immediately, with no deprecation period.
 
-For more information, see [deprecation and removal process](../../api/graphql/index.md#deprecation-and-removal-process).
+For more information, see [deprecation and removal process](../../api/graphql/_index.md#deprecation-and-removal-process).
 
 ### Multiversion compatibility
 
@@ -45,7 +44,7 @@ Changes to the generated API docs require a technical writer review.
 
 ### Changelog
 
-Public-facing changes that are not marked as an [experiment](../api_graphql_styleguide.md#mark-schema-items-as-alpha) require a [changelog entry](../changelog.md).
+Public-facing changes that are not marked as an [experiment](../api_graphql_styleguide.md#mark-schema-items-as-experiments) require a [changelog entry](../changelog.md).
 
 ### Use the framework
 

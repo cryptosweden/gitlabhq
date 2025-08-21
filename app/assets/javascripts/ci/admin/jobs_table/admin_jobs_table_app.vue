@@ -35,7 +35,7 @@ export default {
     cancelableJobsErrorMsg: CANCELABLE_JOBS_ERROR_MSG,
   },
   filterSearchBoxStyles:
-    'gl-my-0 gl-p-5 gl-bg-gray-10 gl-text-gray-900 gl-border-b gl-border-gray-100',
+    'gl-my-0 gl-p-5 gl-bg-subtle gl-text-default gl-border-b gl-border-default',
   components: {
     JobsSkeletonLoader,
     JobsTableEmptyState,
@@ -59,6 +59,10 @@ export default {
     emptyStateSvgPath: {
       default: '',
       required: false,
+    },
+    canUpdateAllJobs: {
+      default: false,
+      required: true,
     },
   },
   apollo: {
@@ -90,6 +94,7 @@ export default {
         this.error = this.$options.i18n.jobsCountErrorMsg;
       },
     },
+    // eslint-disable-next-line @gitlab/vue-no-undef-apollo-properties
     cancelable: {
       query: getCancelableJobs,
       update(data) {
@@ -239,13 +244,14 @@ export default {
     <jobs-table-tabs
       :all-jobs-count="count"
       :loading="loading"
-      :show-cancel-all-jobs-button="isCancelable"
+      :show-cancel-all-jobs-button="canUpdateAllJobs && isCancelable"
       @fetchJobsByStatus="fetchJobsByStatus"
     />
 
     <div v-if="showFilteredSearch" :class="$options.filterSearchBoxStyles">
       <jobs-filtered-search
         :query-string="validatedQueryString"
+        admin
         @filterJobsBySearch="filterJobsBySearch"
       />
     </div>

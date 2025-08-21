@@ -65,7 +65,7 @@ describe('NewEditForm', () => {
       });
 
       it('renders the character counter correctly', () => {
-        expect(findDescriptionCharacterCounter().classes()).toStrictEqual(['gl-text-gray-500']);
+        expect(findDescriptionCharacterCounter().classes()).toStrictEqual(['gl-text-subtle']);
         expect(findDescriptionCharacterCounter().text()).toBe('1995 characters remaining');
       });
     });
@@ -78,7 +78,7 @@ describe('NewEditForm', () => {
       });
 
       it('renders the character counter correctly', () => {
-        expect(findDescriptionCharacterCounter().classes()).toStrictEqual(['gl-text-red-500']);
+        expect(findDescriptionCharacterCounter().classes()).toStrictEqual(['gl-text-danger']);
         expect(findDescriptionCharacterCounter().text()).toBe('5 characters over limit');
       });
     });

@@ -2,15 +2,17 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Running Composer and npm scripts with deployment via SCP in GitLab CI/CD
 ---
 
-# Running Composer and npm scripts with deployment via SCP in GitLab CI/CD
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-This guide covers the building of dependencies of a PHP project while compiling assets via an npm script using [GitLab CI/CD](../../index.md).
+{{< /details >}}
+
+This guide covers the building of dependencies of a PHP project while compiling assets via an npm script using [GitLab CI/CD](../../_index.md).
 
 While it is possible to create your own image with custom PHP and Node.js versions, for brevity we use an existing [Docker image](https://hub.docker.com/r/tetraweb/php/) that contains both PHP and Node.js installed.
 
@@ -74,13 +76,14 @@ In order, this means that:
 1. We check if the `ssh-agent` is available and we install it if it's not.
 1. We create the `~/.ssh` folder.
 1. We make sure we're running bash.
-1. We disable host checking (we don't ask for user accept when we first connect to a server, and since every job equals a first connect, we need this).
+1. We disable host checking (we don't ask the user to accept when we first connect to a server and,
+   because every job equals a first connect, we need this).
 
 And this is basically all you need in the `before_script` section.
 
 ## How to deploy
 
-As we stated above, we need to deploy the `build` folder from the Docker image to our server. To do so, we create a new job:
+As we stated previously, we need to deploy the `build` folder from the Docker image to our server. To do so, we create a new job:
 
 ```yaml
 stage_deploy:
@@ -123,7 +126,7 @@ Therefore, for a production environment we use additional steps to ensure that a
 
 ## Where to go next
 
-Since this was a WordPress project, it includes real code snippets. Some further ideas you can pursue:
+Because this was a WordPress project, it includes real code snippets. Some further ideas you can pursue:
 
 - Having a slightly different script for the default branch allows you to deploy to a production server from that branch and to a stage server from any other branches.
 - Instead of pushing it live, you can push it to WordPress official repository.

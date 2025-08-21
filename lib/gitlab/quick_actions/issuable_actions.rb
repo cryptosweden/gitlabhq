@@ -141,9 +141,9 @@ module Gitlab
           run_label_command(labels: find_labels(labels_param), command: :relabel, updates_key: :label_ids)
         end
 
-        desc { _('Add a to do') }
-        explanation { _('Adds a to do.') }
-        execution_message { _('Added a to do.') }
+        desc { _('Add a to-do item') }
+        explanation { _('Adds a to-do item.') }
+        execution_message { _('Added a to-do item.') }
         types ::Issuable
         condition do
           quick_action_target.persisted? &&
@@ -153,9 +153,9 @@ module Gitlab
           @updates[:todo_event] = 'add'
         end
 
-        desc { _('Mark to do as done') }
-        explanation { _('Marks to do as done.') }
-        execution_message { _('Marked to do as done.') }
+        desc { _('Mark to-do item as done') }
+        explanation { _('Marks to-do item as done.') }
+        execution_message { _('Marked to-do item as done.') }
         types ::Issuable
         condition do
           quick_action_target.persisted? &&
@@ -211,18 +211,16 @@ module Gitlab
           end
         end
 
-        desc { _("Append the comment with %{shrug}") % { shrug: SHRUG } }
-        params '<Comment>'
+        desc { _("Add %{shrug}") % { shrug: SHRUG } }
         types ::Issuable
-        substitution :shrug do |comment|
-          "#{comment} #{SHRUG}"
+        substitution :shrug do
+          SHRUG
         end
 
-        desc { _("Append the comment with %{tableflip}") % { tableflip: TABLEFLIP } }
-        params '<Comment>'
+        desc { _("Add %{tableflip}") % { tableflip: TABLEFLIP } }
         types ::Issuable
-        substitution :tableflip do |comment|
-          "#{comment} #{TABLEFLIP}"
+        substitution :tableflip do
+          TABLEFLIP
         end
 
         desc { _('Set severity') }
@@ -290,15 +288,15 @@ module Gitlab
                                         when :relabel
                                           _('Replaced all labels with %{label_references} %{label_text}.') %
                                             {
-                                            label_references: label_references.join(' '),
-                                            label_text: 'label'.pluralize(label_references.count)
-                                          }
+                                              label_references: label_references.join(' '),
+                                              label_text: 'label'.pluralize(label_references.count)
+                                            }
                                         when :label
                                           _('Added %{label_references} %{label_text}.') %
                                             {
-                                            label_references: label_references.join(' '),
-                                            label_text: 'label'.pluralize(labels.count)
-                                          }
+                                              label_references: label_references.join(' '),
+                                              label_text: 'label'.pluralize(labels.count)
+                                            }
                                         end
         end
 

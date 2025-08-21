@@ -1,14 +1,16 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Use OpenID Connect as an authentication provider
 ---
 
-# Use OpenID Connect as an authentication provider
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 You can use GitLab as a client application with [OpenID Connect](https://openid.net/specs/openid-connect-core-1_0.html)
 as an OmniAuth provider.
@@ -108,9 +110,6 @@ The OpenID Connect provider provides you with a client's details and secret for 
    }
    ```
 
-   NOTE:
-   For more information on using multiple identity providers with OIDC, see [issue 5992](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/5992).
-
    For self-compiled installations:
 
    ```yaml
@@ -136,8 +135,11 @@ The OpenID Connect provider provides you with a client's details and secret for 
        }
    ```
 
-   NOTE:
+   {{< alert type="note" >}}
+
    For more information on each configuration option, refer to the [OmniAuth OpenID Connect usage documentation](https://github.com/omniauth/omniauth_openid_connect#usage) and [OpenID Connect Core 1.0 specification](https://openid.net/specs/openid-connect-core-1_0.html).
+
+   {{< /alert >}}
 
 1. For the provider configuration, change the values for the provider to match your
    OpenID Connect client setup. Use the following as a guide:
@@ -147,6 +149,15 @@ The OpenID Connect provider provides you with a client's details and secret for 
      Icons for the major social login platforms are built into GitLab,
      but you can override these icons by specifying this parameter. GitLab accepts both
      local paths and absolute URLs.
+     GitLab includes icons for most major social login platforms,
+     but you can override these icons by specifying an external URL or
+     an absolute or relative path to your own icon file.
+     - For local absolute paths, configure the provider settings as `icon: <path>/<to>/<your-icon>`.
+       - Store the icon file in `/opt/gitlab/embedded/service/gitlab-rails/public/<path>/<to>/<your-icon>`.
+       - Access the icon file at `https://gitlab.example/<path>/<to>/<your-icon>`.
+     - For local relative paths, configure the provider settings as `icon: <your-icon>`.
+       - Store the icon file in `/opt/gitlab/embedded/service/gitlab-rails/public/images/<your-icon>`.
+       - Access the icon file at `https://gitlab.example.com/images/<your-icon>`.
    - `<your_oidc_url>` (optional) is the URL that points to the OpenID Connect
      provider (for example, `https://example.com/auth/realms/your-realm`).
      If this value is not provided, the URL is constructed from `client_options`
@@ -170,7 +181,7 @@ The OpenID Connect provider provides you with a client's details and secret for 
      is usually included in requests to the token endpoint.
      However, if your OpenID Connect provider does not accept the `scope` parameter
      in such requests, set this to `false`.
-   - `pkce` (optional): Enable [Proof Key for Code Exchange](https://www.rfc-editor.org/rfc/rfc766). Available in [GitLab 15.9](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/109557).
+   - `pkce` (optional): Enable [Proof Key for Code Exchange](https://www.rfc-editor.org/rfc/rfc7636). Available in [GitLab 15.9](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/109557).
    - `client_options` are the OpenID Connect client-specific options. Specifically:
      - `identifier` is the client identifier as configured in the OpenID Connect service provider.
      - `secret` is the client secret as configured in the OpenID Connect service provider. For example,
@@ -243,6 +254,16 @@ you need the following information:
   [Microsoft Quickstart Register an Application](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app) documentation
   to obtain the tenant ID, client ID, and client secret for your app.
 
+When you register a Microsoft Azure application, you must grant API permissions to allow GitLab to
+retrieve required details. You must provide at least the `openid`, `profile`, and `email` permissions.
+For more information, see the [Microsoft documentation for configuring app permissions for a web API](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-configure-app-access-web-apis#add-permissions-to-access-microsoft-graph).
+
+{{< alert type="note" >}}
+
+All accounts provisioned by Azure must have an email address defined. If an email address is not defined, Azure assigns a randomly generated address. If you've configured [domain sign-up restrictions](../settings/sign_up_restrictions.md#allow-or-deny-sign-ups-using-specific-email-domains), this random address might prevent the account from being created.
+
+{{< /alert >}}
+
 Example configuration block for Linux package installations:
 
 ```ruby
@@ -271,23 +292,77 @@ gitlab_rails['omniauth_providers'] = [
 
 Microsoft has documented how its platform works with [the OIDC protocol](https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols-oidc).
 
+#### Microsoft Entra custom signing keys
+
+If your application has custom signing keys because you use the
+[SAML claims-mapping feature](https://learn.microsoft.com/en-us/entra/identity-platform/saml-claims-customization),
+you must configure the OpenID provider in the following ways:
+
+- Disable OpenID Connect Discovery by omitting `args.discovery`, or setting it to `false`.
+- In `client_options`, specify the following:
+  - A `jwks_uri` with the `appid` query parameter: `https://login.microsoftonline.com/<YOUR-TENANT-ID>/discovery/v2.0/keys?appid=<YOUR APP CLIENT ID>`.
+  - `end_session_endpoint`.
+  - `authorization_endpoint`.
+  - `userinfo_endpoint`.
+
+Example configuration for Linux package installations:
+
+```ruby
+gitlab_rails['omniauth_providers'] = [
+ {
+    name: "openid_connect", # do not change this parameter
+    label: "Azure OIDC", # optional label for login button, defaults to "Openid Connect"
+    args: {
+      name: "openid_connect",
+      scope: ["openid", "profile", "email"],
+      response_type: "code",
+      issuer:  "https://login.microsoftonline.com/<YOUR-TENANT-ID>/v2.0",
+      client_auth_method: "basic",
+      discovery: false,
+      uid_field: "preferred_username",
+      pkce: true,
+      client_options: {
+        identifier: "<YOUR APP CLIENT ID>",
+        secret: "<YOUR APP CLIENT SECRET>",
+        redirect_uri: "https://gitlab.example.com/users/auth/openid_connect/callback",
+        end_session_endpoint: "https://login.microsoftonline.com/<YOUR-TENANT-ID>/oauth2/v2.0/logout",
+        authorization_endpoint: "https://login.microsoftonline.com/<YOUR-TENANT-ID>/oauth2/v2.0/authorize",
+        token_endpoint: "https://login.microsoftonline.com/<YOUR-TENANT-ID>/oauth2/v2.0/token",
+        userinfo_endpoint: "https://graph.microsoft.com/oidc/userinfo",
+        jwks_uri: "https://login.microsoftonline.com/<YOUR-TENANT-ID>/discovery/v2.0/keys?appid=<YOUR APP CLIENT ID>"
+      }
+    }
+  }
+]
+```
+
+If you see authentication failures with a `KidNotFound` message, this
+is probably because of a missing or incorrect `appid` query
+parameter. GitLab raises that error if the ID token returned by
+Microsoft cannot be validated with the keys provided by the `jwks_uri`
+endpoint.
+
+For more information, see the [Microsoft Entra documentation on validating tokens](https://learn.microsoft.com/en-us/entra/identity-platform/access-tokens#validate-tokens).
+
 #### Migrate to Generic OpenID Connect configuration
 
 You can migrate to the Generic OpenID Connect configuration from both `azure_activedirectory_v2` and `azure_oauth2`.
 
-First, set the `uid_field`, which differs between providers:
+First, set the `uid_field`. Both the `uid_field` and the `sub` claim that you can select as a `uid_field` vary depending on the provider. Signing in without setting the `uid_field` results in additional identities being created within GitLab that have to be manually modified:
 
-| Provider                                                                                                        | `uid` | Supporting information  |
+| Provider                                                                                                        | `uid_field` | Supporting information  |
 |-----------------------------------------------------------------------------------------------------------------|-------|-----------------------------------------------------------------------|
 | [`omniauth-azure-oauth2`](https://gitlab.com/gitlab-org/gitlab/-/tree/master/vendor/gems/omniauth-azure-oauth2) | `sub` | Additional attributes `oid` and `tid` are offered within the `info` object. |
 | [`omniauth-azure-activedirectory-v2`](https://github.com/RIPAGlobal/omniauth-azure-activedirectory-v2/)         | `oid` | You must configure `oid` as `uid_field` when migrating. |
 | [`omniauth_openid_connect`](https://github.com/omniauth/omniauth_openid_connect/)                               | `sub` | Specify `uid_field` to use another field. |
 
-To migrate to the Generic OpenID Connect configuration, you must change the configuration to the following:
+To migrate to the Generic OpenID Connect configuration, you must update the configuration.
 
-::Tabs
+For Linux package installations, update the configuration as follows:
 
-:::TabTitle Azure OAuth 2.0
+{{< tabs >}}
+
+{{< tab title="Azure OAuth 2.0" >}}
 
 ```ruby
 gitlab_rails['omniauth_providers'] = [
@@ -295,7 +370,7 @@ gitlab_rails['omniauth_providers'] = [
     name: "azure_oauth2",
     label: "Azure OIDC", # optional label for login button, defaults to "Openid Connect"
     args: {
-      name: "azure_oauth2",
+      name: "azure_oauth2", # this matches the existing azure_oauth2 provider name, and only the strategy_class immediately below configures OpenID Connect
       strategy_class: "OmniAuth::Strategies::OpenIDConnect",
       scope: ["openid", "profile", "email"],
       response_type: "code",
@@ -314,7 +389,9 @@ gitlab_rails['omniauth_providers'] = [
 ]
 ```
 
-:::TabTitle Azure Active Directory v2
+{{< /tab >}}
+
+{{< tab title="Azure Active Directory v2" >}}
 
 ```ruby
 gitlab_rails['omniauth_providers'] = [
@@ -341,7 +418,97 @@ gitlab_rails['omniauth_providers'] = [
 ]
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
+
+For Helm installations:
+
+Add the [provider's configuration](https://docs.gitlab.com/charts/charts/globals.html#providers) in a YAML file (for example, `provider.yaml`):
+
+{{< tabs >}}
+
+{{< tab title="Azure OAuth 2.0" >}}
+
+```ruby
+{
+  "name": "azure_oauth2",
+  "args": {
+    "name": "azure_oauth2",
+    "strategy_class": "OmniAuth::Strategies::OpenIDConnect",
+    "scope": [
+      "openid",
+      "profile",
+      "email"
+    ],
+    "response_type": "code",
+    "issuer": "https://login.microsoftonline.com/<YOUR-TENANT-ID>/v2.0",
+    "client_auth_method": "query",
+    "discovery": true,
+    "uid_field": "sub",
+    "send_scope_to_token_endpoint": false,
+    "client_options": {
+      "identifier": "<YOUR APP CLIENT ID>",
+      "secret": "<YOUR APP CLIENT SECRET>",
+      "redirect_uri": "https://gitlab.example.com/users/auth/azure_oauth2/callback"
+    }
+  }
+}
+```
+
+{{< /tab >}}
+
+{{< tab title="Azure Active Directory v2" >}}
+
+```ruby
+{
+  "name": "azure_activedirectory_v2",
+  "args": {
+    "name": "azure_activedirectory_v2",
+    "strategy_class": "OmniAuth::Strategies::OpenIDConnect",
+    "scope": [
+      "openid",
+      "profile",
+      "email"
+    ],
+    "response_type": "code",
+    "issuer": "https://login.microsoftonline.com/<YOUR-TENANT-ID>/v2.0",
+    "client_auth_method": "query",
+    "discovery": true,
+    "uid_field": "sub",
+    "send_scope_to_token_endpoint": false,
+    "client_options": {
+      "identifier": "<YOUR APP CLIENT ID>",
+      "secret": "<YOUR APP CLIENT SECRET>",
+      "redirect_uri": "https://gitlab.example.com/users/auth/activedirectory_v2/callback"
+    }
+  }
+}
+```
+
+{{< /tab >}}
+
+{{< /tabs >}}
+
+As you migrate from `azure_oauth2` to `omniauth_openid_connect` as part of upgrading to GitLab 17.0 or later, the `sub` claim value set for your organization can vary. `azure_oauth2` uses Microsoft V1 endpoint while `azure_activedirectory_v2` and `omniauth_openid_connect` both use Microsoft V2 endpoint with a common `sub` value.
+
+- **For users with an email address in Entra ID**, to allow falling back to email address and updating the user's identity,
+  configure the following:
+  - In a Linux package installation, [`omniauth_auto_link_user`](../../integration/omniauth.md#link-existing-users-to-omniauth-users).
+  - In a Helm installation, [`autoLinkUser`](https://docs.gitlab.com/charts/charts/globals.html#omniauth).
+
+- **For users with no email address**, administrators must take one of the following actions:
+
+  - Set up another authentication method or enable sign-in using GitLab username and password. The user can then sign in and link their Azure identity manually using their profile.
+  - Implement OpenID Connect as a new provider alongside the existing `azure_oauth2` so the user can sign in through OAuth2, and link their OpenID Connect identity (similar to the previous method). This method would also work for users with email addresses, as long as `auto_link_user` is enabled.
+  - Update `extern_uid` manually. To do this, use the [API or Rails console](../../integration/omniauth.md#change-apps-or-configuration) to update the `extern_uid` for each user.
+    This method may be required if the instance has already been upgraded to 17.0 or later, and users have attempted to sign in.
+
+{{< alert type="note" >}}
+
+`azure_oauth2` might have used Entra ID's `upn` claim as the email address, if the `email` claim was missing or blank when provisioning GitLab accounts.
+
+{{< /alert >}}
 
 ### Configure Microsoft Azure Active Directory B2C
 
@@ -535,9 +702,12 @@ gitlab_rails['omniauth_providers'] = [
 
 #### Configure Keycloak with a symmetric key algorithm
 
-WARNING:
+{{< alert type="warning" >}}
+
 The following instructions are included for completeness, but only use symmetric key
 encryption if absolutely necessary.
+
+{{< /alert >}}
 
 To use symmetric key encryption:
 
@@ -661,7 +831,7 @@ Example configuration for self-compiled installations (file path: `config/gitlab
       label: 'Casdoor', # optional label for login button, defaults to "Openid Connect"
       args: {
         name: 'openid_connect',
-        scope: ['openid','profile','email'],
+        scope: ['openid', 'profile', 'email'],
         response_type: 'code',
         issuer: 'https://<CASDOOR_HOSTNAME>',
         discovery: true,
@@ -684,9 +854,6 @@ You should do this in either of the following scenarios:
 
 - [Migrating to the OpenID Connect protocol](#migrate-to-generic-openid-connect-configuration).
 - Offering different levels of authentication.
-
-NOTE:
-This is not compatible with [configuring users based on OIDC group membership](#configure-users-based-on-oidc-group-membership). For more information, see [issue 408248](https://gitlab.com/gitlab-org/gitlab/-/issues/408248).
 
 The following example configurations show how to offer different levels of authentication, one option with 2FA and one without 2FA.
 
@@ -750,7 +917,7 @@ For self-compiled installations:
       args: {
         name: 'openid_connect',
         strategy_class: "OmniAuth::Strategies::OpenIDConnect",
-        scope: ['openid','profile','email'],
+        scope: ['openid', 'profile', 'email'],
         response_type: 'code',
         issuer: '<your_oidc_url>',
         discovery: true,
@@ -771,7 +938,7 @@ For self-compiled installations:
       args: {
         name: 'openid_connect_2fa',
         strategy_class: "OmniAuth::Strategies::OpenIDConnect",
-        scope: ['openid','profile','email'],
+        scope: ['openid', 'profile', 'email'],
         response_type: 'code',
         issuer: '<your_oidc_url>',
         discovery: true,
@@ -825,11 +992,18 @@ For more information, see the [GitLab API user method documentation](https://pyt
 
 ## Configure users based on OIDC group membership
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+{{< details >}}
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/209898) in GitLab 15.10.
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/209898) in GitLab 15.10.
+
+{{< /history >}}
 
 You can configure OIDC group membership to:
 
@@ -839,7 +1013,7 @@ You can configure OIDC group membership to:
 
 GitLab checks these groups on each sign in and updates user attributes as necessary.
 This feature **does not** allow you to automatically add users to GitLab
-[groups](../../user/group/index.md).
+[groups](../../user/group/_index.md).
 
 ### Required groups
 
@@ -851,9 +1025,9 @@ response to require users to be members of a certain group, configure GitLab to 
 
 If you do not set `required_groups` or leave the setting empty, any user authenticated by the IdP through OIDC can use GitLab.
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb`:
 
@@ -887,7 +1061,9 @@ If you do not set `required_groups` or leave the setting empty, any user authent
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation)
    for the changes to take effect.
 
-:::TabTitle Self-compiled (source)
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
 
 1. Edit `/home/git/gitlab/config/gitlab.yml`:
 
@@ -921,7 +1097,9 @@ If you do not set `required_groups` or leave the setting empty, any user authent
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#self-compiled-installations)
    for the changes to take effect.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### External groups
 
@@ -934,9 +1112,9 @@ based on group membership, configure GitLab to identify:
   [external user](../external_users.md), using the
  `external_groups` setting.
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb`:
 
@@ -970,7 +1148,9 @@ based on group membership, configure GitLab to identify:
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation)
    for the changes to take effect.
 
-:::TabTitle Self-compiled (source)
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
 
 1. Edit `/home/git/gitlab/config/gitlab.yml`:
 
@@ -1004,13 +1184,18 @@ based on group membership, configure GitLab to identify:
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#self-compiled-installations)
    for the changes to take effect.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### Auditor groups
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+{{< details >}}
+
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 Your IdP must pass group information to GitLab in the OIDC response. To use this
 response to assign users as auditors based on group membership, configure GitLab to identify:
@@ -1019,9 +1204,9 @@ response to assign users as auditors based on group membership, configure GitLab
 - Which group memberships grant the user auditor access, using the `auditor_groups`
   setting.
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb`:
 
@@ -1055,7 +1240,9 @@ response to assign users as auditors based on group membership, configure GitLab
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation)
    for the changes to take effect.
 
-:::TabTitle Self-compiled (source)
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
 
 1. Edit `/home/git/gitlab/config/gitlab.yml`:
 
@@ -1089,7 +1276,9 @@ response to assign users as auditors based on group membership, configure GitLab
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#self-compiled-installations)
    for the changes to take effect.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### Administrator groups
 
@@ -1098,11 +1287,11 @@ response to assign users as administrator based on group membership, configure G
 
 - Where to look for the groups in the OIDC response, using the `groups_attribute` setting.
 - Which group memberships grant the user administrator access, using the
- `admin_groups` setting.
+  `admin_groups` setting.
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb`:
 
@@ -1136,7 +1325,9 @@ response to assign users as administrator based on group membership, configure G
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation)
    for the changes to take effect.
 
-:::TabTitle Self-compiled (source)
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
 
 1. Edit `/home/git/gitlab/config/gitlab.yml`:
 
@@ -1170,7 +1361,326 @@ response to assign users as administrator based on group membership, configure G
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#self-compiled-installations)
    for the changes to take effect.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
+
+### Configure a custom duration for ID Tokens
+
+{{< details >}}
+
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/377654) in GitLab 17.8.
+
+{{< /history >}}
+
+By default, GitLab ID tokens expire after 120 seconds.
+
+To configure a custom duration for your ID tokens:
+
+{{< tabs >}}
+
+{{< tab title="Linux package (Omnibus)" >}}
+
+1. Edit `/etc/gitlab/gitlab.rb`:
+
+   ```ruby
+   gitlab_rails['oidc_provider_openid_id_token_expire_in_seconds'] = 3600
+   ```
+
+1. Save the file and [reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation) for the changes to take effect.
+
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
+
+1. Edit `/home/git/gitlab/config/gitlab.yml`:
+
+   ```yaml
+   production: &base
+     oidc_provider:
+      openid_id_token_expire_in_seconds: 3600
+   ```
+
+1. Save the file and [reconfigure GitLab](../restart_gitlab.md#self-compiled-installations)
+   for the changes to take effect.
+
+{{< /tab >}}
+
+{{< /tabs >}}
+
+## Step-up authentication for Admin Mode
+
+{{< details >}}
+
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+- Status: Experiment
+
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/474650) in GitLab 17.11 [with a flag](../feature_flags/_index.md) named `omniauth_step_up_auth_for_admin_mode`. Disabled by default.
+
+{{< /history >}}
+
+{{< alert type="flag" >}}
+
+The availability of this feature is controlled by a feature flag.
+For more information, see the history.
+This feature is available for testing, but not ready for production use.
+
+{{< /alert >}}
+
+In some cases, default authentication methods don't sufficiently protect critical resources or
+high-risk actions. Step-up authentication adds an extra authentication layer for privileged actions
+or sensitive operations, such as accessing the Admin area.
+
+With step-up authentication, users must provide additional credentials before they can access
+certain features or perform specific actions. These additional methods can include methods such
+as two-factor authentication (2FA), biometric authentication, or one-time passwords (OTP).
+
+The OIDC standard includes authentication context class references (`ACR`). The `ACR` concept
+helps configure and implement step-up authentication for different scenarios, such as Admin Mode.
+
+This feature is an [experiment](../../policy/development_stages_support.md) and subject to change without notice. This feature is not ready for production use. If you want to use this feature, you should test outside of production first.
+
+### Enable step-up authentication for Admin Mode
+
+To enable step-up authentication for Admin Mode:
+
+1. Edit your GitLab configuration file (`gitlab.yml` or `/etc/gitlab/gitlab.rb`) to enable
+   step-up authentication for an specific OmniAuth provider.
+
+   ```yaml
+   production: &base
+     omniauth:
+       providers:
+       - { name: 'openid_connect',
+           label: 'Provider name',
+           args: {
+             name: 'openid_connect',
+             # ...
+             allow_authorize_params: ["claims"], # Match this to the parameters defined in `step_up_auth => admin_mode => params`
+           },
+           step_up_auth: {
+             admin_mode: {
+               # The `id_token` field defines the claims that must be included with the token.
+               # You can specify claims in one or both of the `required` or `included` fields.
+               # The token must include matching values for every claim you define in these fields.
+               id_token: {
+                 # The `required` field defines key-value pairs that must be included with the ID token.
+                 # The values must match exactly what is defined.
+                 # In this example, the 'acr' (Authentication Context Class Reference) claim
+                 # must have the value 'gold' to pass the step-up authentication challenge.
+                 # This ensures a specific level of authentication assurance.
+                 required: {
+                   acr: 'gold'
+                 },
+                 # The `included` field also defines key-value pairs that must be included with the ID token.
+                 # Multiple accepted values can be defined in an array. If an array is not used, the value must match exactly.
+                 # In this example, the 'amr' (Authentication Method References) claim
+                 # must have a value of either 'mfa' or 'fpt' to pass the step-up authentication challenge.
+                 # This is useful for scenarios where the user must provide additional authentication factors.
+                 included: {
+                   amr: ['mfa', 'fpt']
+                 },
+               },
+               # The `params` field defines any additional parameters that are sent during the authentication process.
+               # In this example, the `claims` parameter is added to the authorization request and instructs the
+               # identity provider to include an 'acr' claim with the value 'gold' in the ID token.
+               # The 'essential: true' indicates that this claim is required for successful authentication.
+               params: {
+                 claims: {
+                   id_token: {
+                     acr: {
+                       essential: true,
+                       values: ['gold']
+                     }
+                   }
+                 }
+               },
+               # Optional: Provide a custom documentation link for users who fail step-up authentication
+               # This link is displayed when step-up authentication fails, directing users to
+               # organization-specific authentication documentation.
+               documentation_link: 'https://internal.example.com/path/to/documentation'
+             },
+           }
+         }
+   ```
+
+1. Save the configuration file and restart GitLab for the changes to take effect.
+
+{{< alert type="note" >}}
+
+Although OIDC is standardized, different Identity Providers (IdPs) might have unique requirements.
+The `params` setting allows a flexible hash to define necessary parameters for step-up authentication.
+These values can vary based on the requirements for each IdP.
+
+{{< /alert >}}
+
+### Configure custom documentation links for step-up authentication
+
+When step-up authentication fails, GitLab can display custom documentation links to help users understand
+the authentication requirements for your organization. This feature allows administrators to provide
+organization-specific guidance that directs users to internal documentation or help resources.
+
+To configure a custom documentation link:
+
+1. Edit your GitLab configuration file (`gitlab.yml` or `/etc/gitlab/gitlab.rb`) to add a `documentation_link` field to `step_up_auth => admin_mode`
+
+   ```yaml
+   production: &base
+     omniauth:
+       providers:
+       - { name: 'openid_connect',
+           label: 'Corporate SSO',
+           # ... other provider configuration ...
+           step_up_auth: {
+             admin_mode: {
+               # ... id_token and params configuration ...
+               documentation_link: 'https://internal.example.com/path/to/documentation'
+             }
+           }
+         }
+   ```
+
+1. Save the configuration file and restart GitLab for the changes to take effect.
+
+When users fail step-up authentication, they see a helpful error message with links to the relevant
+documentation for the providers that failed. The links are displayed only for providers where the
+step-up authentication actually failed, making the guidance more relevant and actionable.
+
+{{< alert type="note" >}}
+
+Best practices for documentation links:
+
+- Use HTTPS URLs for security
+- Link to internal documentation that explains your organization's specific authentication requirements
+- Include information about how to enable MFA or other required authentication methods
+
+{{< /alert >}}
+
+#### Enable step-up authentication for Admin Mode using Keycloak
+
+Keycloak supports step-up authentication by defining levels of authentication and custom browser login flows.
+
+To configure step-up authentication for Admin Mode in GitLab using Keycloak:
+
+1. [Configure Keycloak](#configure-keycloak) in GitLab.
+
+1. Follow the steps in the Keycloak documentation to [create a browser login flow with step-up authentication in Keycloak](https://www.keycloak.org/docs/latest/server_admin/#_step-up-flow).
+
+1. Edit your GitLab configuration file (`gitlab.yml` or `/etc/gitlab/gitlab.rb`) to enable
+   step-up authentication in the Keycloak OIDC provider configuration.
+
+   Keycloak defines two different authentication levels: `silver` and `gold`. The following example
+   uses `gold` to represent the increased security level.
+
+   ```yaml
+   production: &base
+     omniauth:
+       providers:
+       - { name: 'openid_connect',
+           label: 'Keycloak',
+           args: {
+             name: 'openid_connect',
+             # ...
+             allow_authorize_params: ["claims"] # Match this to the parameters defined in `step_up_auth => admin_mode => params`
+           },
+           step_up_auth: {
+             admin_mode: {
+               id_token: {
+                 # In this example, the 'acr' claim must have the value 'gold' that is also defined in the Keycloak documentation.
+                 required: {
+                   acr: 'gold'
+                 }
+               },
+               params: {
+                 claims: { id_token: { acr: { essential: true, values: ['gold'] } } }
+               },
+               # Optional: Add a custom documentation link for Keycloak-specific step-up authentication help
+               documentation_link: 'https://internal.example.com/path/to/documentation'
+             },
+           }
+         }
+   ```
+
+1. Save the configuration file and restart GitLab for the changes to take effect.
+
+#### Enable step-up authentication for Admin Mode using Microsoft Entra ID
+
+Microsoft Entra ID (formerly known as Azure Active Directory) supports step-up authentication
+through [conditional access authentication context](https://learn.microsoft.com/en-us/entra/identity-platform/developer-guide-conditional-access-authentication-context).
+You should work with your Microsoft Entra ID administrators to define the correct configuration.
+
+Consider the following aspects:
+
+- Authentication context IDs are requested through the `acrs` claim only, not through the ID token
+  claim `acr` used for other identity providers.
+- Authentication context IDs use fixed values from `c1` to `c99`, each representing a specific
+  authentication context with conditional access policies.
+- By default, Microsoft Entra ID does not include the `acrs` claim in the ID token. To enable this, you must
+[configure optional claims](https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims?tabs=appui#configure-optional-claims-in-your-application).
+- When step-up authentication succeeds, the response returns the [`acrs` claim](https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference#payload-claims) as a JSON array
+  of strings. For example: `acrs: ["c1", "c2", "c3"]`.
+
+To configure step-up authentication for Admin Mode in GitLab using Microsoft Entra ID:
+
+1. [Configure Microsoft Entra ID](#configure-microsoft-azure) in GitLab.
+
+1. Follow the steps in the Microsoft Entra ID documentation to
+[define conditional access authentication contexts in Microsoft Entra ID](https://learn.microsoft.com/en-us/entra/identity-platform/developer-guide-conditional-access-authentication-context).
+
+1. In Microsoft Entra ID, define [the optional claim `acrs` to include in the ID token](https://openid.net/specs/openid-connect-core-1_0.html#IDToken).
+
+1. Edit your GitLab configuration file (`gitlab.yml` or `/etc/gitlab/gitlab.rb`) to enable
+   step-up authentication in the Microsoft Entra ID provider configuration:
+
+   ```yaml
+   production: &base
+     omniauth:
+       providers:
+       - { name: 'openid_connect',
+         label: 'Azure OIDC',
+         args: {
+           name: 'openid_connect',
+           # ...
+           allow_authorize_params: ["claims"] # Match this to the parameters defined in `step_up_auth => admin_mode => params`
+         },
+         step_up_auth: {
+           admin_mode: {
+             id_token: {
+               # In this example, the Microsoft Entra ID administrators have defined `c20`
+               # as the authentication context ID with the desired security level and
+               # an optional claim `acrs` to be included in the ID token.
+               # The `included` field declares that the id token claim `acrs` must include the value `c20`.
+               included: {
+                 acrs: ["c20"],
+               },
+             },
+             params: {
+               claims: {
+                 id_token: {
+                   acrs: { essential: true, value: 'c20' }
+                 }
+               },
+             },
+             # Optional: Add a custom documentation link for Microsoft Entra ID step-up authentication
+             documentation_link: 'https://internal.example.com/path/to/documentation'
+           },
+         }
+       }
+   ```
+
+1. Save the configuration file and restart GitLab for the changes to take effect.
 
 ## Troubleshooting
 
@@ -1190,3 +1700,8 @@ response to assign users as administrator based on group membership, configure G
    your OpenID web server configuration. For example, for
    [`oauth2-server-php`](https://github.com/bshaffer/oauth2-server-php), you may have to
    [add a configuration parameter to Apache](https://github.com/bshaffer/oauth2-server-php/issues/926#issuecomment-387502778).
+
+1. **Step-up authentication only**: Ensure that any parameters defined in
+   `step_up_auth => admin_mode => params` are also defined in `args => allow_authorize_params`.
+   This includes the parameters in the request query parameters used to
+   redirect to the IdP authorization endpoint.

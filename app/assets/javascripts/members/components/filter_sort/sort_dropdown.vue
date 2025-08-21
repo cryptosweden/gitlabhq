@@ -48,9 +48,6 @@ export default {
     },
   },
   methods: {
-    isActive(key) {
-      return this.activeOption.key === key;
-    },
     handleSortDirectionChange() {
       visitUrl(
         buildSortHref({
@@ -77,7 +74,7 @@ export default {
 
 <template>
   <gl-sorting
-    class="gl-display-flex"
+    class="gl-flex"
     dropdown-class="gl-w-full"
     block
     data-testid="members-sort-dropdown"

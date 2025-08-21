@@ -1,11 +1,10 @@
 ---
-stage: Secure
+type: reference, howto
+stage: Application Security Testing
 group: Dynamic Analysis
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-type: reference, howto
+title: Authentication
 ---
-
-# Authentication
 
 For complete coverage, the DAST analyzer must authenticate with the application being tested. This
 requires configuring the authentication credentials and authentication method in the DAST CI/CD job.
@@ -38,11 +37,53 @@ When choosing authentication credentials:
 - Note the credentials' expiry date, if any, for future reference. For example, with a password
   manager such as 1Password.
 
+The following diagram illustrates the usage of authentication variables at different stages of authentication:
+
+```mermaid
+%%{init: { "fontFamily": "GitLab Sans" }}%%
+sequenceDiagram
+    accTitle: Authentication variables
+    accDescr: A sequence diagram showing authentication variables at different stages of authentication.
+    participant DAST
+    participant Browser
+    participant Target
+
+    Note over DAST,Target: Initialization
+    DAST->>Browser: Initialize browser with proxy
+    DAST->>Browser: Navigate to DAST_AUTH_URL
+    Browser->>Target: Load initial page
+    Target-->>Browser: Return page content (may not contain login form)
+
+    Note over DAST,Target: Process before-login actions
+    DAST->>Browser: Click elements specified in DAST_AUTH_BEFORE_LOGIN_ACTIONS
+    Browser->>Target: Send click actions
+    Target-->>Browser: Render login form (modal/page)
+
+    Note over DAST,Target: Authentication
+    DAST->>Browser: Fill DAST_AUTH_USERNAME & DAST_AUTH_PASSWORD
+    DAST->>Browser: Click "submit"
+    Browser->>Target: Submit form
+    Target-->>Browser: Process authentication
+    Target-->>Browser: Set auth tokens
+
+    Note over DAST,Target: Process after-login actions (if specified)
+    DAST->>Browser: Execute DAST_AUTH_AFTER_LOGIN_ACTIONS
+    Browser->>Target: Actions after login but before login verification
+
+    Note over DAST,Target: Verification
+    DAST->>Browser: Check URL matches DAST_AUTH_SUCCESS_IF_AT_URL (if configured)
+    DAST->>Browser: Check element exists DAST_AUTH_SUCCESS_IF_ELEMENT_FOUND (if configured)
+    DAST->>Browser: Check login form absent DAST_AUTH_SUCCESS_IF_NO_LOGIN_FORM (default is true)
+```
+
 ## Getting started
 
-NOTE:
+{{< alert type="note" >}}
+
 You should periodically confirming that the analyzer's authentication is still working, as this tends to break over
 time due to changes to the application.
+
+{{< /alert >}}
 
 To run a DAST authenticated scan:
 
@@ -55,8 +96,9 @@ To run a DAST authenticated scan:
 ### Prerequisites
 
 - You have the username and password of the user you would like to authenticate as during the scan.
-- You have checked the [known limitations](#known-limitations) to ensure DAST can authenticate to your application.
+- You have checked the [known issues](#known-issues) to ensure DAST can authenticate to your application.
 - You have satisfied the prerequisites if you're using [form authentication](#form-authentication).
+- You have satisfied the additional prerequisites if your form authentication flow includes a [time-based one-time password](#totp-authentication).
 - You have thought about how you can [verify](#verifying-authentication-is-successful) whether or not authentication was successful.
 
 #### Form authentication
@@ -65,27 +107,27 @@ To run a DAST authenticated scan:
 - You know the [selectors](#finding-an-elements-selector) of the username and password HTML fields that DAST uses to input the respective values.
 - You know the element's [selector](#finding-an-elements-selector) that submits the login form when selected.
 
+#### TOTP authentication
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/13633) in scanner version 6.9.
+
+{{< /history >}}
+
+- You have the secret key for the test user's TOTP enrollment, encoded in Base32.
+- You have confirmed that the auth provider supports the following TOTP configuration (same as Google Authenticator):
+  - HMAC algorithm: SHA-1
+  - Time step: 30 seconds
+  - Token length: 6
+- You know the [selectors](#finding-an-elements-selector) of the TOTP field that DAST uses to input the generated TOTP token.
+- You know the element's [selector](#finding-an-elements-selector) that submits the TOTP token, if it is submitted separately from the password.
+
 ### Available CI/CD variables
 
-| CI/CD variable                       | Type                                        | Description                                                                                                                                                                                                                                                                         |
-|:-------------------------------------|:--------------------------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `DAST_AUTH_AFTER_LOGIN_ACTIONS`      | string                                      | A comma-separated list of actions to be run after login but before login verification. Currently supports "click" actions. Example: `click(on=id:change_to_bar_graph),click(on=css:input[name=username])`.                                                                          |
-| `DAST_AUTH_BEFORE_LOGIN_ACTIONS`     | [selector](#finding-an-elements-selector)   | A comma-separated list of selectors representing elements to click on prior to entering the `DAST_AUTH_USERNAME` and `DAST_AUTH_PASSWORD` into the login form. Example: `"css:.navigation-menu,css:.login-menu-item"`.                                                              |
-| `DAST_AUTH_CLEAR_INPUT_FIELDS`       | boolean                                     | Disables clearing of username and password fields before attempting manual login. Set to `false` by default.                                                                                                                                                                        |
-| `DAST_AUTH_COOKIE_NAMES`             | string                                      | Set to a comma-separated list of cookie names to specify which cookies are used for authentication.                                                                                                                                                                                 |
-| `DAST_AUTH_FIRST_SUBMIT_FIELD`       | [selector](#finding-an-elements-selector)   | A selector describing the element that is clicked on to submit the username form of a multi-page login process. Example, `css:button[type='user-submit']`.                                                                                                                          |
-| `DAST_AUTH_PASSWORD_FIELD`           | [selector](#finding-an-elements-selector)   | A selector describing the element used to enter the password on the login form. Example: `id:password`                                                                                                                                                                              |
-| `DAST_AUTH_PASSWORD`                 | string                                      | The password to authenticate to in the website. Example: `P@55w0rd!`.                                                                                                                                                                                                               |
-| `DAST_AUTH_REPORT`                   | boolean                                     | Set to `true` to generate a report detailing steps taken during the authentication process. You must also define `gl-dast-debug-auth-report.html` as a CI job artifact to be able to access the generated report. The report's content aids when debugging authentication failures. |
-| `DAST_AUTH_SUBMIT_FIELD`             | [selector](#finding-an-elements-selector)   | A selector describing the element clicked on to submit the login form for a single-page login form, or the password form for a multi-page login form. Example: `css:button[type='submit']`.                                                                                         |
-| `DAST_AUTH_SUCCESS_IF_AT_URL`        | URL                                         | A URL that is compared to the URL in the browser to determine if authentication has succeeded after the login form is submitted. Example: `"https://example.com/loggedin_page"`.                                                                                                    |
-| `DAST_AUTH_SUCCESS_IF_ELEMENT_FOUND` | [selector](#finding-an-elements-selector)   | A selector describing an element whose presence is used to determine if authentication has succeeded after the login form is submitted. Example: `css:.user-photo`.                                                                                                                 |
-| `DAST_AUTH_SUCCESS_IF_NO_LOGIN_FORM` | boolean                                     | Verifies successful authentication by checking for the absence of a login form after the login form has been submitted.                                                                                                                                                             |
-| `DAST_AUTH_TYPE`                     | string                                      | The authentication type to use. Example: `basic-digest`.                                                                                                                                                                                                                            |
-| `DAST_AUTH_URL`                      | URL                                         | The URL of the page containing the login form on the target website. `DAST_AUTH_USERNAME` and `DAST_AUTH_PASSWORD` are submitted with the login form to create an authenticated scan. Example: `https://login.example.com`.                                                         |
-| `DAST_AUTH_USERNAME_FIELD`           | [selector](#finding-an-elements-selector)   | A selector describing the element used to enter the username on the login form. Example: `name:username`.                                                                                                                                                                           |
-| `DAST_AUTH_USERNAME`                 | string                                      | The username to authenticate to in the website. Example: `admin`.                                                                                                                                                                                                                   |
-| `DAST_SCOPE_EXCLUDE_URLS`            | URLs                                        | The URLs to skip during the authenticated scan; comma-separated. Regular expression syntax can be used to match multiple URLs. For example, `.*` matches an arbitrary character sequence.                                                                                           |
+For a list of DAST Authentication CI/CD variables, see [Authentication variables](variables.md#authentication).
+
+The DAST CI/CD variable table is generated by the Rake task `bundle exec rake gitlab:dast_variables:compile_docs`. It uses variable metadata defined in [`lib/gitlab/security/dast_variables.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/security/dast_variables.rb).
 
 ### Update the target website
 
@@ -125,7 +167,7 @@ dast:
 ```
 
 Do **not** define `DAST_AUTH_USERNAME` and `DAST_AUTH_PASSWORD` in the YAML job definition file as this could present a security risk. Instead, create them as masked CI/CD variables using the GitLab UI.
-See [Custom CI/CD variables](../../../../../ci/variables/index.md#for-a-project) for more information.
+See [Custom CI/CD variables](../../../../../ci/variables/_index.md#for-a-project) for more information.
 
 ### Configuration for a single-step login form
 
@@ -148,7 +190,7 @@ dast:
 ```
 
 Do **not** define `DAST_AUTH_USERNAME` and `DAST_AUTH_PASSWORD` in the YAML job definition file as this could present a security risk. Instead, create them as masked CI/CD variables using the GitLab UI.
-See [Custom CI/CD variables](../../../../../ci/variables/index.md#for-a-project) for more information.
+See [Custom CI/CD variables](../../../../../ci/variables/_index.md#for-a-project) for more information.
 
 ### Configuration for a multi-step login form
 
@@ -182,16 +224,178 @@ dast:
 ```
 
 Do **not** define `DAST_AUTH_USERNAME` and `DAST_AUTH_PASSWORD` in the YAML job definition file as this could present a security risk. Instead, create them as masked CI/CD variables using the GitLab UI.
-See [Custom CI/CD variables](../../../../../ci/variables/index.md#for-a-project) for more information.
+See [Custom CI/CD variables](../../../../../ci/variables/_index.md#for-a-project) for more information.
+
+### Configuration for Time-Based One-Time Password (TOTP)
+
+Configuration for TOTP requires these CI/CD variables to be defined for the DAST job:
+
+- `DAST_AUTH_OTP_FIELD`
+- `DAST_AUTH_OTP_KEY`
+
+If the TOTP token is submitted in its own form after the password has been submitted, you must also define this variable:
+
+- `DAST_AUTH_OTP_SUBMIT_FIELD`
+
+The `_FIELD` selector variables can be defined in the job definition YAML, for example:
+
+```yaml
+include:
+  - template: DAST.gitlab-ci.yml
+
+dast:
+  variables:
+    DAST_TARGET_URL: "https://example.com"
+    DAST_AUTH_URL: "https://example.com/login"
+    DAST_AUTH_USERNAME_FIELD: "css:[name=username]"
+    DAST_AUTH_PASSWORD_FIELD: "css:[name=password]"
+    DAST_AUTH_SUBMIT_FIELD: "css:button[type=submit]"
+    DAST_AUTH_OTP_FIELD: "name:otp"
+    DAST_AUTH_OTP_SUBMIT_FIELD: "css:input[type=submit]"
+```
+
+Do **not** define `DAST_AUTH_OTP_KEY` in the YAML job definition file as this could present a security risk. Instead, create it as a masked CI/CD variable using the GitLab UI.
+See [Custom CI/CD variables](../../../../../ci/variables/_index.md#for-a-project) for more information.
 
 ### Configuration for Single Sign-On (SSO)
 
-If a user can sign in to an application, then in most cases, DAST is also able to log in.
+If a user can sign in to an application, then in most cases, DAST is also able to sign in.
 Even when an application uses Single Sign-on. Applications using SSO solutions should configure DAST
 authentication using the [single-step](#configuration-for-a-single-step-login-form) or [multi-step](#configuration-for-a-multi-step-login-form) login form configuration guides.
 
-DAST supports authentication processes where a user is redirected to an external Identity Provider's site to log in.
-Check the [known limitations](#known-limitations) of DAST authentication to determine if your SSO authentication process is supported.
+DAST supports authentication processes where a user is redirected to an external Identity Provider's site to sign in.
+Check the [known issues](#known-issues) of DAST authentication to determine if your SSO authentication process is supported.
+
+### Configuration for Windows integrated authentication (Kerberos)
+
+Windows integrated authentication (Kerberos) is a common authentication mechanism for line of business (LOB) applications hosted inside a Windows domain. It provides promptless authentication using the user's computer login.
+
+To configure this form of authentication perform the following steps:
+
+1. Collect the necessary information with assistance from your IT/operations team.
+1. Create or update the `dast` job definition in your `.gitlab-ci.yml` file.
+1. Populate the example `krb5.conf` file using the information collected.
+1. Set the necessary job variables.
+1. Set the necessary secret variables by using the project **Settings** page.
+1. Test and verify authentication is functioning.
+
+Collect the following information with assistance from your IT/Operations department:
+
+- Name of Windows domain or Kerberos Realm (must have a period in the name like `EXAMPLE.COM`)
+- Hostname for Windows/Kerberos domain controller
+- For Kerberos the auth server name. For Windows domains this is the domain controller.
+
+Create the `krb5.conf` file:
+
+```ini
+[libdefaults]
+  # Realm is another name for domain name
+  default_realm = EXAMPLE.COM
+  # These settings are not needed for Windows Domains
+  # they support other Kerberos implementations
+  kdc_timesync = 1
+  ccache_type = 4
+  forwardable = true
+  proxiable = true
+  rdns = false
+  fcc-mit-ticketflags = true
+[realms]
+  EXAMPLE.COM = {
+    # Domain controller or KDC
+    kdc = kdc.example.com
+    # Domain controller or admin server
+    admin_server = kdc.example.com
+  }
+[domain_realm]
+  # Mapping DNS domains to realms/Windows domain
+  # DNS domains provided by DAST_AUTH_NEGOTIATE_DELEGATION
+  # should also be represented here (but without the wildcard)
+  .example.com = EXAMPLE.COM
+  example.com = EXAMPLE.COM
+```
+
+This configuration makes use of the `DAST_AUTH_NEGOTIATE_DELEGATION` variable.
+This variable sets the following Chromium policies needed to allow integrated authentication:
+
+- [AuthServerAllowlist](https://chromeenterprise.google/policies/#AuthServerAllowlist)
+- [AuthNegotiateDelegateAllowlist](https://chromeenterprise.google/policies/#AuthNegotiateDelegateAllowlist)
+
+The settings for this variable are the DNS domains associated with your Windows domain or Kerberos realm.
+You should provide them:
+
+- In both lowercase and also upper case.
+- With a wildcard pattern and just the domain name.
+
+For our example the Windows domain is `EXAMPLE.COM` and the DNS domain is `example.com`.
+This gives us a value of `*.example.com,example.com,*.EXAMPLE.COM,EXAMPLE.COM` for `DAST_AUTH_NEGOTIATE_DELEGATION`.
+
+Pull it all together into a job definition:
+
+```yaml
+# This job will extend the dast job defined in
+# the DAST template which must also be included.
+dast:
+  image:
+    name: "$SECURE_ANALYZERS_PREFIX/dast:$DAST_VERSION$DAST_IMAGE_SUFFIX"
+    docker:
+      user: root
+  variables:
+    DAST_TARGET_URL: https://target.example.com
+    DAST_AUTH_URL: https://target.example.com
+    DAST_AUTH_TYPE: basic-digest
+    DAST_AUTH_NEGOTIATE_DELEGATION: '*.example.com,example.com,*.EXAMPLE.COM,EXAMPLE.COM'
+    # Not shown -- DAST_AUTH_USERNAME, DAST_AUTH_PASSWORD set via Settings -> CI -> Variables
+  before_script:
+    - KRB5_CONF='
+[libdefaults]
+  default_realm = EXAMPLE.COM
+  kdc_timesync = 1
+  ccache_type = 4
+  forwardable = true
+  proxiable = true
+  rdns = false
+  fcc-mit-ticketflags = true
+[realms]
+  EXAMPLE.COM = {
+    kdc = ad1.example.com
+    admin_server = ad1.example.com
+  }
+[domain_realm]
+  .example.com = EXAMPLE.COM
+  example.com = EXAMPLE.COM
+'
+    - cat "$KRB5_CONF" > /etc/krb5.conf
+    - echo '$DAST_AUTH_PASSWORD' | kinit $DAST_AUTH_USERNAME
+    - klist
+```
+
+Expected output:
+
+The job console output contains the output from the `before` script. It will look similar to the following if authentication was successful. The job should fail if it was unsuccessful without running a scan.
+
+```plaintext
+Password for mike@EXAMPLE.COM:
+Ticket cache: FILE:/tmp/krb5cc_1000
+Default principal: mike@EXAMPLE.COM
+
+Valid starting       Expires              Service principal
+11/11/2024 21:50:50  11/12/2024 07:50:50  krbtgt/EXAMPLE.COM@EXAMPLE.COM
+        renew until 11/12/2024 21:50:50
+```
+
+The DAST scanner will also output the following, indicating success:
+
+```plaintext
+2024-11-08T17:03:09.226 INF AUTH  attempting to authenticate find_auth_fields="basic-digest"
+2024-11-08T17:03:09.226 INF AUTH  loading login page LoginURL="https://target.example.com"
+2024-11-08T17:03:10.619 INF AUTH  verifying if login attempt was successful true_when="HTTP status code < 400 and has authentication token and no login form found (auto-detected)"
+2024-11-08T17:03:10.619 INF AUTH  requirement is satisfied, HTTP login request returned status code 200 want="HTTP status code < 400" url="https://target.example.com/"
+2024-11-08T17:03:10.623 INF AUTH  requirement is satisfied, did not detect a login form want="no login form found (auto-detected)"
+2024-11-08T17:03:10.623 INF AUTH  authentication token cookies names=""
+2024-11-08T17:03:10.623 INF AUTH  authentication token storage events keys=""
+2024-11-08T17:03:10.623 INF AUTH  requirement is satisfied, basic authentication detected want="has authentication token"
+2024-11-08T17:03:11.230 INF AUTH  login attempt succeeded
+```
 
 ### Clicking to go to the login form
 
@@ -210,6 +414,32 @@ dast:
     DAST_TARGET_URL: "https://example.com"
     DAST_AUTH_URL: "https://example.com/login"
     DAST_AUTH_BEFORE_LOGIN_ACTIONS: "css:.navigation-menu,css:.login-menu-item"
+```
+
+### Taking additional actions after submitting the login form
+
+Define `DAST_AUTH_AFTER_LOGIN_ACTIONS` to provide a sequence of actions to perform
+after submitting the sign-in form, but before verification, when authentication details are recorded.
+This can be used to proceed past a "keep me signed in" dialog.
+
+| Action                           | Format                      |
+|----------------------------------|-----------------------------|
+| Click on an element              | `click(on=<selector>)`      |
+| Select an option from a dropdown | `select(option=<selector>)` |
+
+Actions are comma-separated. For information about selectors, see [finding an element's selector](#finding-an-elements-selector).
+
+For example:
+
+```yaml
+include:
+  - template: DAST.gitlab-ci.yml
+
+dast:
+  variables:
+    DAST_TARGET_URL: "https://example.com"
+    DAST_AUTH_URL: "https://example.com/login"
+    DAST_AUTH_AFTER_LOGIN_ACTIONS: "select(option=id:accept-yes),click(on=id:continue-button)"
 ```
 
 ### Excluding logout URLs
@@ -240,7 +470,6 @@ Selectors have the format `type`:`search string`. DAST searches for the selector
 | `id`          | `id:element`                       | Searches for an HTML element with the provided element ID.                                                                                                                                            |
 | `name`        | `name:element`                     | Searches for an HTML element with the provided element name.                                                                                                                                          |
 | `xpath`       | `xpath://input[@id="my-button"]/a` | Searches for a HTML element with the provided XPath. XPath searches are expected to be less performant than other searches.                                                                           |
-| None provided | `a.click-me`                       | Defaults to searching using a CSS selector. **{warning}** **[Deprecated](https://gitlab.com/gitlab-org/gitlab/-/issues/383348)** in GitLab 15.8. Replaced by explicitly declaring the selector type.  |
 
 #### Find selectors with Google Chrome
 
@@ -249,10 +478,10 @@ Chrome DevTools element selector tool is an effective way to find a selector.
 1. Open Chrome and go to the page where you would like to find a selector, for example, the login page for your site.
 1. Open the `Elements` tab in Chrome DevTools with the keyboard shortcut `Command + Shift + c` in macOS or `Ctrl + Shift + c` in Windows or Linux.
 1. Select the `Select an element in the page to select it` tool.
-   ![search-elements](../img/dast_auth_browser_scan_search_elements.png)
+   ![search-elements](img/dast_auth_browser_scan_search_elements_v16_9.png)
 1. Select the field on your page that you would like to know the selector for.
 1. After the tool is active, highlight a field you wish to view the details of.
-   ![highlight](../img/dast_auth_browser_scan_highlight.png)
+   ![highlight](img/dast_auth_browser_scan_highlight_v16_9.png)
 1. Once highlighted, you can see the element's details, including attributes that would make a good candidate for a selector.
 
 In this example, the `id="user_login"` appears to be a good candidate. You can use this as a selector as the DAST username field by setting
@@ -377,12 +606,14 @@ dast:
     DAST_AUTH_COOKIE_NAMES: "sessionID,refreshToken"
 ```
 
-## Known limitations
+## Known issues
 
-- DAST cannot bypass a CAPTCHA if the authentication flow includes one. Turn these off in the testing environment for the application being scanned.
-- DAST cannot handle multi-factor authentication like one-time passwords (OTP) by using SMS, biometrics, or authenticator apps. Turn these off in the testing environment for the application being scanned.
+- DAST cannot bypass a CAPTCHA if the authentication flow includes one.
+  Turn these off for the configured user in the testing environment for the application being scanned.
+- DAST cannot authenticate with one-time passwords (OTP) using SMS or biometrics.
+  Turn these off for the configured user in the testing environment for the application being scanned; or change the type of MFA for the user to TOTP.
 - DAST cannot authenticate to applications that do not set an [authentication token](#authentication-tokens) during login.
-- DAST cannot authenticate to applications that require more than two inputs to be filled out. Two inputs must be supplied, username and password.
+- DAST cannot authenticate to applications that require more text inputs than username, password, and optional TOTP.
 
 ## Troubleshooting
 
@@ -413,14 +644,17 @@ Authentication failed because a home page should be displayed after login. Inste
 
 ### Configure the authentication report
 
-WARNING:
+{{< alert type="warning" >}}
+
 The authentication report can contain sensitive information such as the credentials used to perform the login.
+
+{{< /alert >}}
 
 An authentication report can be saved as a CI/CD job artifact to assist with understanding the cause of an authentication failure.
 
 The report contains steps performed during the login process, HTTP requests and responses, the Document Object Model (DOM) and screenshots.
 
-![dast-auth-report](../img/dast_auth_report.jpg)
+![dast-auth-report](img/dast_auth_report_v16_9.jpg)
 
 An example configuration where the authentication debug report is exported may look like the following:
 

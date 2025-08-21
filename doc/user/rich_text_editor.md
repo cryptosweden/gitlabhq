@@ -2,23 +2,32 @@
 stage: Plan
 group: Knowledge
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Rich text editor
 ---
 
-# Rich text editor
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/371931) for editing issue descriptions in GitLab 15.5 [with a flag](../administration/feature_flags.md) named `content_editor_on_issues`. Disabled by default.
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/382636) for [discussions](discussions/index.md), and creating and editing issues and merge requests in GitLab 15.11 with the same flag.
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/407507) for epics in GitLab 16.1 with the same flag.
-> - Feature flag `content_editor_on_issues` enabled by default in GitLab 16.2.
-> - Feature flag `content_editor_on_issues` removed in GitLab 16.5.
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/371931) for editing issue descriptions in GitLab 15.5 [with a flag](../administration/feature_flags/_index.md) named `content_editor_on_issues`. Disabled by default.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/382636) for [discussions](discussions/_index.md), and creating and editing issues and merge requests in GitLab 15.11 with the same flag.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/407507) for epics in GitLab 16.1 with the same flag.
+- Feature flag `content_editor_on_issues` enabled by default in GitLab 16.2.
+- Feature flag `content_editor_on_issues` removed in GitLab 16.5.
+- Rich text editor [set to default editor for new users](https://gitlab.com/gitlab-org/gitlab/-/issues/536611) in 18.2.
+
+{{< /history >}}
+
+The Rich text editor is the default text editor for new users in GitLab.
 
 Rich text editor is available in:
 
-- [Wikis](project/wiki/index.md)
+- [Wikis](project/wiki/_index.md)
 - Issues
 - Epics
 - Merge requests
@@ -50,7 +59,7 @@ If you want to enter Markdown source in the text box, return to using the plain 
 To switch to the plain text editor: In a text box, in the lower-left corner, select
 **Switch to plain text editing**.
 
-![Rich text editor in GitLab](img/rich_text_editor_01_v16_2.png)
+![A text editor in rich text editing mode with the "Switch to plain text editing" text box in the lower-left](img/rich_text_editor_01_v16_2.png)
 
 ## Compatibility with GitLab Flavored Markdown
 
@@ -66,13 +75,13 @@ Supported input rules:
 
 | Input rule syntax                                         | Content inserted     |
 | --------------------------------------------------------- | -------------------- |
-| `# Heading 1` <br>... <br> `###### Heading 6`             | Headings 1 through 6 |
+| `# Heading 1` through `###### Heading 6`                  | Headings 1 through 6 |
 | `**bold**` or `__bold__`                                  | Bold text            |
 | `_italics_` or `*italics*`                                | Italicized text      |
 | `~~strike~~`                                              | Strikethrough        |
 | `[link](https://example.com)`                             | Hyperlink            |
 | `code`                                                    | Inline code          |
-| <code>&#96;&#96;&#96;rb</code> + <kbd>Enter</kbd> <br> <code>&#96;&#96;&#96;js</code> + <kbd>Enter</kbd> | Code block           |
+| ` ```rb ` + <kbd>Enter</kbd> <br> ` ```js ` + <kbd>Enter</kbd> | Code block      |
 | `* List item`, or<br> `- List item`, or<br> `+ List item` | Unordered list       |
 | `1. List item`                                            | Numbered list        |
 | `<details>`                                               | Collapsible section  |
@@ -86,18 +95,18 @@ list items, diagrams (or even another table!) in table cells.
 
 To insert a table:
 
-1. Select **Insert table** **{table}**.
+1. Select **Insert table** {{< icon name="table" >}}.
 1. From the dropdown list, select the dimensions of the new table.
 
-![Alt text](img/rich_text_editor_02_v16_2.png)
+![A table size selector with 3 rows and 3 columns.](img/rich_text_editor_02_v16_2.png)
 
 ### Edit a table
 
 Inside a table cell, you can use a menu to insert or delete rows or columns.
 
-To open the menu: In the upper-right corner of a cell, select the chevron **{chevron-down}**.
+To open the menu: In the upper-right corner of a cell, select the chevron {{< icon name="chevron-down" >}}.
 
-![Alt text](img/rich_text_editor_03_v16_2.png)
+![An active chevron menu showing table actions.](img/rich_text_editor_03_v16_2.png)
 
 ### Operations on multiple cells
 
@@ -106,9 +115,9 @@ Select multiple cells and merge or split them.
 To merge selected cells into one:
 
 1. Select multiple cells - select one and drag your cursor.
-1. In the upper-right corner of a cell, select the chevron **{chevron-down}** **> Merge N cells**.
+1. In the upper-right corner of a cell, select the chevron {{< icon name="chevron-down" >}} **> Merge N cells**.
 
-To split merged cells: In the upper-right corner of a cell, select the chevron **{chevron-down}** **> Split cell**.
+To split merged cells: In the upper-right corner of a cell, select the chevron {{< icon name="chevron-down" >}} **> Split cell**.
 
 ## Insert diagrams
 
@@ -117,12 +126,13 @@ preview them live as you type the diagram code.
 
 To insert a diagram:
 
-1. On the top bar of a text box, select **{plus}** **More options** and then **Mermaid diagram** or **PlantUML diagram**.
+1. On the top bar of a text box, select {{< icon name="plus" >}} **More options** and then **Mermaid diagram** or **PlantUML diagram**.
 1. Enter the code for your diagram. The diagram preview appears in the text box.
 
-![Mermaid diagrams in rich text editor](img/rich_text_editor_04_v16_2.png)
+![A mermaid diagram preview in rich text editor with LR syntax creating a left to right flowchart](img/rich_text_editor_04_v16_2.png)
 
 ## Related topics
 
+- [Set the default text editor](profile/preferences.md#set-the-default-text-editor)
 - [Keyboard shortcuts](shortcuts.md#rich-text-editor) for rich text editor
 - [GitLab Flavored Markdown](markdown.md)

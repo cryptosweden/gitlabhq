@@ -7,9 +7,9 @@ import {
   GlLink,
 } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
-import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import { nextTick } from 'vue';
+import axios from '~/lib/utils/axios_utils';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 import mockAlerts from 'jest/vue_shared/alert_details/mocks/alerts.json';
@@ -23,6 +23,7 @@ jest.mock('~/lib/utils/url_utility', () => ({
   visitUrl: jest.fn().mockName('visitUrlMock'),
   joinPaths: jest.requireActual('~/lib/utils/url_utility').joinPaths,
   setUrlFragment: jest.requireActual('~/lib/utils/url_utility').setUrlFragment,
+  isAbsolute: jest.requireActual('~/lib/utils/url_utility').isAbsolute,
 }));
 
 describe('AlertManagementTable', () => {
@@ -97,7 +98,7 @@ describe('AlertManagementTable', () => {
       });
       expect(findAlertsTable().exists()).toBe(true);
       expect(findLoader().exists()).toBe(true);
-      expect(findAlerts().at(0).classes()).not.toContain('gl-hover-bg-blue-50');
+      expect(findAlert().exists()).toBe(false);
     });
 
     it('error state', () => {
@@ -108,8 +109,8 @@ describe('AlertManagementTable', () => {
       expect(findAlertsTable().exists()).toBe(true);
       expect(findAlertsTable().text()).toContain('No alerts to display');
       expect(findLoader().exists()).toBe(false);
+      expect(findAlert().exists()).toBe(true);
       expect(findAlert().props().variant).toBe('danger');
-      expect(findAlerts().at(0).classes()).not.toContain('gl-hover-bg-blue-50');
     });
 
     it('empty state', () => {
@@ -128,8 +129,8 @@ describe('AlertManagementTable', () => {
       expect(findAlertsTable().exists()).toBe(true);
       expect(findAlertsTable().text()).toContain('No alerts to display');
       expect(findLoader().exists()).toBe(false);
+      expect(findAlert().exists()).toBe(true);
       expect(findAlert().props().variant).toBe('info');
-      expect(findAlerts().at(0).classes()).not.toContain('gl-hover-bg-blue-50');
     });
 
     it('has data state', () => {
@@ -140,8 +141,9 @@ describe('AlertManagementTable', () => {
       expect(findLoader().exists()).toBe(false);
       expect(findAlertsTable().exists()).toBe(true);
       expect(findAlerts()).toHaveLength(mockAlerts.length);
-      expect(findAlerts().at(0).classes()).toContain('gl-hover-bg-gray-50');
-      expect(findAlerts().at(0).classes()).not.toContain('gl-hover-border-blue-200');
+      for (let i = 0; i < mockAlerts.length; i += 1) {
+        expect(findAlerts().at(i).props().variant).toBe(null);
+      }
     });
 
     it('displays the alert ID and title as a link', () => {
@@ -209,12 +211,11 @@ describe('AlertManagementTable', () => {
       });
 
       const avatar = findAssignees().at(1).findComponent(GlAvatar);
-      const { src, label } = avatar.attributes();
       const { name, avatarUrl } = mockAlerts[1].assignees.nodes[0];
 
       expect(avatar.exists()).toBe(true);
-      expect(label).toBe(name);
-      expect(src).toBe(avatarUrl);
+      expect(avatar.attributes('label')).toBe(name);
+      expect(avatar.props('src')).toBe(avatarUrl);
     });
 
     it('navigates to the detail page when alert row is clicked', () => {
@@ -288,7 +289,7 @@ describe('AlertManagementTable', () => {
           },
           loading: false,
         });
-        expect(findDateFields().length).toBe(1);
+        expect(findDateFields()).toHaveLength(1);
       });
 
       it('should not display time ago dates when values not provided', () => {

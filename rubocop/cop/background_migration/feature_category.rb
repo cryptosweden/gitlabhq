@@ -8,6 +8,12 @@ module RuboCop
   module Cop
     module BackgroundMigration
       # Cop that checks if a valid 'feature_category' is defined in the batched background migration job
+      # @example
+      #   # bad
+      #   # feature_category :invalid_category
+      #
+      #   # good
+      #   # feature_category :preferences
       class FeatureCategory < RuboCop::Cop::Base
         include MigrationHelpers
 
@@ -21,6 +27,7 @@ module RuboCop
 
         RESTRICT_ON_SEND = [:feature_category].freeze
 
+        # @!method feature_category?(node)
         def_node_search :feature_category?, <<~PATTERN
           (:send nil? :feature_category ...)
         PATTERN

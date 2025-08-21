@@ -15,9 +15,9 @@ import RunnerPauseAction from '~/ci/runner/components/runner_pause_action.vue';
 describe('RunnerPauseButton', () => {
   let wrapper;
 
-  const getTooltip = () => getBinding(wrapper.element, 'gl-tooltip').value;
   const findRunnerPauseAction = () => wrapper.findComponent(RunnerPauseAction);
   const findBtn = () => wrapper.findComponent(GlButton);
+  const getTooltip = () => getBinding(findBtn().element, 'gl-tooltip').value;
 
   const createComponent = ({
     props = {},
@@ -67,6 +67,7 @@ describe('RunnerPauseButton', () => {
         });
 
         it(`Displays a ${expectedIcon} button`, () => {
+          expect(findBtn().props('size')).toBe('medium');
           expect(findBtn().props('loading')).toBe(false);
           expect(findBtn().props('icon')).toBe(expectedIcon);
         });
@@ -121,6 +122,16 @@ describe('RunnerPauseButton', () => {
         });
       },
     );
+  });
+
+  it('Displays button with size prop', () => {
+    createComponent({
+      props: {
+        size: 'small',
+      },
+    });
+
+    expect(findBtn().props('size')).toBe('small');
   });
 
   it('Shows loading state', () => {

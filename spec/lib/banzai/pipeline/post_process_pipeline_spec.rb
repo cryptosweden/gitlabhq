@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Pipeline::PostProcessPipeline, feature_category: :team_planning do
+RSpec.describe Banzai::Pipeline::PostProcessPipeline, feature_category: :markdown do
   subject { described_class.call(doc, context) }
 
   let_it_be(:project) { create(:project, :public, :repository) }
@@ -35,8 +35,8 @@ RSpec.describe Banzai::Pipeline::PostProcessPipeline, feature_category: :team_pl
       HTML
     end
 
-    let(:doc) { HTML::Pipeline.parse(html) }
-    let(:non_related_xpath_calls) { 1 }
+    let(:doc) { Banzai::PipelineBase.parse(html) }
+    let(:non_related_xpath_calls) { 2 }
 
     it 'searches for attributes only once' do
       expect(doc).to receive(:xpath).exactly(non_related_xpath_calls + 1).times

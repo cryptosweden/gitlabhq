@@ -24,7 +24,12 @@ class Groups::GroupLinksController < Groups::ApplicationController
 
     respond_to do |format|
       format.html do
-        redirect_to group_group_members_path(group), status: :found
+        redirect_to(
+          group_group_members_path(group),
+          status: :found,
+          notice: s_('InviteMembersModal|Group invite removed. ' \
+            'It might take a few minutes for the changes to user access levels to take effect.')
+        )
       end
       format.js { head :ok }
     end
@@ -37,6 +42,6 @@ class Groups::GroupLinksController < Groups::ApplicationController
   end
 
   def group_link_params
-    params.require(:group_link).permit(:group_access, :expires_at)
+    params.require(:group_link).permit(:group_access, :expires_at, :member_role_id)
   end
 end

@@ -68,9 +68,10 @@ module Types
 
     field :related_merge_requests, Types::MergeRequestType.connection_type,
       null: true,
+      resolver: ::Resolvers::MergeRequests::IssueRelatedResolver,
       description: 'Merge requests related to the issue. This field can only be resolved for one issue in any single request.' do
-      extension ::Gitlab::Graphql::Limit::FieldCallCount, limit: 1
-    end
+        extension ::Gitlab::Graphql::Limit::FieldCallCount, limit: 1
+      end
 
     field :relative_position, GraphQL::Types::Int, null: true,
       description: 'Relative position of the issue (used for positioning in epic tree and issue boards).'
@@ -125,7 +126,7 @@ module Types
       description: 'Task completion status of the issue.'
 
     field :design_collection, Types::DesignManagement::DesignCollectionType, null: true,
-      description: 'Collection of design images associated with this issue.'
+      description: 'Collection of design images associated with the issue.'
 
     field :type, Types::IssueTypeEnum, null: true,
       method: :issue_type,
@@ -134,7 +135,7 @@ module Types
     field :alert_management_alert,
       Types::AlertManagement::AlertType,
       null: true,
-      description: 'Alert associated to this issue.',
+      description: 'Alert associated to the issue.',
       deprecated: { reason: 'Use `alert_management_alerts`', milestone: '15.6' }
 
     field :alert_management_alerts,
@@ -154,7 +155,7 @@ module Types
       description: 'Updated Issue after it got moved to another project.'
 
     field :closed_as_duplicate_of, Types::IssueType, null: true,
-      description: 'Issue this issue was closed as a duplicate of.'
+      description: 'Issue the issue was closed as a duplicate of.'
 
     field :create_note_email, GraphQL::Types::String, null: true,
       description: 'User specific email address for the issue.'
@@ -162,7 +163,7 @@ module Types
     field :timelogs, Types::TimelogType.connection_type, null: false,
       description: 'Timelogs on the issue.'
 
-    field :project_id, GraphQL::Types::Int, null: true, method: :project_id,
+    field :project_id, GraphQL::Types::Int, null: true,
       description: 'ID of the issue project.'
 
     field :customer_relations_contacts, Types::CustomerRelations::ContactType.connection_type, null: true,
@@ -172,6 +173,11 @@ module Types
       description: 'Escalation status of the issue.'
 
     field :external_author, GraphQL::Types::String, null: true, description: 'Email address of non-GitLab user reporting the issue. For guests, the email address is obfuscated.'
+
+    field :linked_work_items, ::Types::WorkItems::LinkedItemType.connection_type,
+      null: true, complexity: 5, resolver: Resolvers::WorkItems::LinkedItemsResolver,
+      description: 'Work items linked to the issue.', extras: [:lookahead],
+      experiment: { milestone: '17.8' }
 
     markdown_field :title_html, null: true
     markdown_field :description_html, null: true
@@ -194,17 +200,6 @@ module Types
 
     def closed_as_duplicate_of
       Gitlab::Graphql::Loaders::BatchModelLoader.new(Issue, object.duplicated_to_id).find
-    end
-
-    def related_merge_requests
-      # rubocop: disable CodeReuse/ActiveRecord
-      MergeRequest.where(
-        id: ::Issues::ReferencedMergeRequestsService.new(container: object.project, current_user: current_user)
-        .execute(object)
-        .first
-        .map(&:id)
-      )
-      # rubocop: enable CodeReuse/ActiveRecord
     end
 
     def discussion_locked

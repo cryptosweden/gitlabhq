@@ -7,27 +7,17 @@ module SystemCheck
 
     # Display a message telling to fix and rerun the checks
     def fix_and_rerun
-      $stdout.puts '  Please fix the error above and rerun the checks.'.color(:red)
+      $stdout.puts Rainbow('  Please fix the error above and rerun the checks.').red
     end
 
     # Display a formatted list of references (documentation or links) where to find more information
     #
     # @param [Array<String>] sources one or more references (documentation or links)
     def for_more_information(*sources)
-      $stdout.puts '  For more information see:'.color(:blue)
+      $stdout.puts Rainbow('  For more information see:').blue
       sources.each do |source|
         $stdout.puts "  #{source}"
       end
-    end
-
-    # Construct a help page based on the instance's external_url
-    #
-    # @param <String> path of the documentation page
-    # @param <String> anchor to the specific docs heading
-    #
-    # @return <String> URL of the help page
-    def construct_help_page_url(path, anchor = nil)
-      Rails.application.routes.url_helpers.help_page_url(path, anchor)
     end
 
     def see_installation_guide_section(section)
@@ -37,13 +27,13 @@ module SystemCheck
     # @deprecated This will no longer be used when all checks were executed using SystemCheck
     def finished_checking(component)
       $stdout.puts ''
-      $stdout.puts "Checking #{component.color(:yellow)} ... #{'Finished'.color(:green)}"
+      $stdout.puts "Checking #{Rainbow(component).yellow} ... #{Rainbow('Finished').green}"
       $stdout.puts ''
     end
 
     # @deprecated This will no longer be used when all checks were executed using SystemCheck
     def start_checking(component)
-      $stdout.puts "Checking #{component.color(:yellow)} ..."
+      $stdout.puts "Checking #{Rainbow(component).yellow} ..."
       $stdout.puts ''
     end
 
@@ -53,7 +43,7 @@ module SystemCheck
     def try_fixing_it(*steps)
       steps = steps.shift if steps.first.is_a?(Array)
 
-      $stdout.puts '  Try fixing it:'.color(:blue)
+      $stdout.puts Rainbow('  Try fixing it:').blue
       steps.each do |step|
         $stdout.puts "  #{step}"
       end
@@ -61,9 +51,9 @@ module SystemCheck
 
     def sanitized_message(project)
       if should_sanitize?
-        "#{project.namespace_id.to_s.color(:yellow)}/#{project.id.to_s.color(:yellow)} ... "
+        "#{Rainbow(project.namespace_id.to_s).yellow}/#{Rainbow(project.id.to_s).yellow} ... "
       else
-        "#{project.full_name.color(:yellow)} ... "
+        "#{Rainbow(project.full_name).yellow} ... "
       end
     end
 

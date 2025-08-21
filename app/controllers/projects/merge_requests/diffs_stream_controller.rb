@@ -3,30 +3,26 @@
 module Projects
   module MergeRequests
     class DiffsStreamController < Projects::MergeRequests::ApplicationController
-      include ActionController::Live
+      include RapidDiffs::StreamingResource
 
-      urgency :low, [:diffs]
+      private
 
-      def diffs
-        return render_404 unless ::Feature.enabled?(:rapid_diffs, current_user, type: :wip)
+      def resource
+        @merge_request
+      end
 
-        stream_headers
+      def diff_file_component(diff_file)
+        ::RapidDiffs::MergeRequestDiffFileComponent
+          .new(diff_file: diff_file, merge_request: @merge_request, parallel_view: view == :parallel)
+      end
 
-        offset = params[:offset].to_i
+      def diff_files_collection(diff_files)
+        ::RapidDiffs::MergeRequestDiffFileComponent
+          .with_collection(diff_files, merge_request: @merge_request, parallel_view: view == :parallel)
+      end
 
-        @merge_request.diffs(offset_index: offset).diff_files.each do |diff|
-          response.stream.write(
-            render_to_string(
-              ::RapidDiffs::DiffFileComponent.new(diff_file: diff),
-              layout: false
-            )
-          )
-        end
-
-      rescue StandardError => e
-        response.stream.write e.message
-      ensure
-        response.stream.close
+      def sorted?
+        true
       end
     end
   end

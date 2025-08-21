@@ -162,44 +162,6 @@ RSpec.describe Projects::CommitController, feature_category: :source_code_manage
     end
   end
 
-  describe 'GET branches' do
-    it 'contains branch and tags information' do
-      commit = project.commit('5937ac0a7beb003549fc5fd26fc247adbce4a52e')
-
-      get :branches, params: { namespace_id: project.namespace, project_id: project, id: commit.id }
-
-      expect(assigns(:branches)).to include('master', 'feature_conflict')
-      expect(assigns(:branches_limit_exceeded)).to be_falsey
-      expect(assigns(:tags)).to include('v1.1.0')
-      expect(assigns(:tags_limit_exceeded)).to be_falsey
-    end
-
-    it 'returns :limit_exceeded when number of branches/tags reach a threshhold' do
-      commit = project.commit('5937ac0a7beb003549fc5fd26fc247adbce4a52e')
-      allow_any_instance_of(Repository).to receive(:branch_count).and_return(1001)
-      allow_any_instance_of(Repository).to receive(:tag_count).and_return(1001)
-
-      get :branches, params: { namespace_id: project.namespace, project_id: project, id: commit.id }
-
-      expect(assigns(:branches)).to eq([])
-      expect(assigns(:branches_limit_exceeded)).to be_truthy
-      expect(assigns(:tags)).to eq([])
-      expect(assigns(:tags_limit_exceeded)).to be_truthy
-    end
-
-    context 'when commit is not found' do
-      it 'responds with 404' do
-        get(:branches, params: {
-          namespace_id: project.namespace,
-          project_id: project,
-          id: '11111111111111111111111111111111111111'
-        })
-
-        expect(response).to be_not_found
-      end
-    end
-  end
-
   describe 'POST revert' do
     context 'when target branch is not provided' do
       it 'renders the 404 page' do
@@ -238,7 +200,7 @@ RSpec.describe Projects::CommitController, feature_category: :source_code_manage
         post :revert, params: { namespace_id: project.namespace, project_id: project, start_branch: 'master', id: commit.id }
 
         expect(response).to redirect_to project_commit_path(project, commit.id)
-        expect(flash[:alert]).to match('Commit revert failed:')
+        expect(flash[:alert][:message]).to match('Commit revert failed:')
       end
     end
 
@@ -275,7 +237,7 @@ RSpec.describe Projects::CommitController, feature_category: :source_code_manage
           post :revert, params: { namespace_id: project.namespace, project_id: project, start_branch: 'master', id: merge_request.merge_commit_sha }
 
           expect(response).to redirect_to project_merge_request_path(project, merge_request)
-          expect(flash[:alert]).to match('Merge request revert failed:')
+          expect(flash[:alert][:message]).to match('Merge request revert failed:')
         end
       end
     end
@@ -459,7 +421,7 @@ RSpec.describe Projects::CommitController, feature_category: :source_code_manage
       {
         namespace_id: project.namespace,
         project_id: project,
-        id: commit.id,
+        id: master_pickable_sha,
         format: format
       }
     end
@@ -469,6 +431,43 @@ RSpec.describe Projects::CommitController, feature_category: :source_code_manage
 
       expect(assigns(:diffs)).to be_a(Gitlab::Diff::FileCollection::Commit)
       expect(assigns(:environment)).to be_nil
+    end
+
+    context 'with expanded parameter' do
+      before do
+        params[:expanded] = 1
+      end
+
+      it 'preloads highlights' do
+        allow(Process).to receive(:clock_gettime).and_call_original
+        allow(Process).to receive(:clock_gettime).with(Process::CLOCK_MONOTONIC, :second).and_return(0, 4, 8, 12, 16, 20)
+
+        diff_highlight = instance_double(Gitlab::Diff::Highlight, highlight: [])
+        allow(Gitlab::Diff::Highlight).to receive(:new).and_return(diff_highlight)
+
+        send_request
+
+        assigns(:diffs).diff_files.each do |diff_file|
+          expect(diff_file.instance_variable_get(:@highlighted_diff_lines)).not_to be_nil
+        end
+
+        expect(Gitlab::Diff::Highlight)
+          .to have_received(:new).with(anything, hash_including(plain: false)).twice.times
+        expect(Gitlab::Diff::Highlight)
+          .to have_received(:new).with(anything, hash_including(plain: true)).exactly(4).times
+      end
+    end
+
+    context 'without expanded parameter' do
+      it 'does not preload the highlights' do
+        expect(assigns(:diffs)).not_to receive(:with_highlights_preloaded)
+
+        send_request
+
+        assigns(:diffs).diff_files.each do |diff_file|
+          expect(diff_file.instance_variable_get(:@highlighted_diff_lines)).to be_nil
+        end
+      end
     end
 
     context 'when format is not html' do
@@ -608,6 +607,17 @@ RSpec.describe Projects::CommitController, feature_category: :source_code_manage
 
               expect(json_response['pipelines'].count).to eq(1)
             end
+
+            context 'while being on last page' do
+              it 'paginates the result when ref is present' do
+                allow(Ci::Pipeline).to receive(:default_per_page).and_return(1)
+
+                get_pipelines(id: commit.id, ref: project.default_branch, page: 2, format: :json)
+
+                expect(json_response['pipelines'].count).to eq(1)
+                expect(json_response['count']['all']).to eq 2
+              end
+            end
           end
         end
       end
@@ -619,40 +629,6 @@ RSpec.describe Projects::CommitController, feature_category: :source_code_manage
       end
 
       it 'returns a 404' do
-        expect(response).to have_gitlab_http_status(:not_found)
-      end
-    end
-  end
-
-  describe 'GET #rapid_diffs' do
-    subject(:send_request) { get :rapid_diffs, params: params }
-
-    let(:format) { :html }
-    let(:params) do
-      {
-        namespace_id: project.namespace,
-        project_id: project,
-        id: commit.id,
-        format: format
-      }
-    end
-
-    it 'renders rapid_diffs template' do
-      send_request
-
-      expect(assigns(:diffs)).to be_a(Gitlab::Diff::FileCollection::Commit)
-      expect(assigns(:environment)).to be_nil
-      expect(response).to render_template(:rapid_diffs)
-    end
-
-    context 'when the feature flag rapid_diffs is disabled' do
-      before do
-        stub_feature_flags(rapid_diffs: false)
-      end
-
-      it 'returns 404' do
-        send_request
-
         expect(response).to have_gitlab_http_status(:not_found)
       end
     end

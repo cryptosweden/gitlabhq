@@ -6,10 +6,6 @@ module API
     helpers ::API::Helpers::PackagesHelpers
 
     after_validation do
-      if Feature.disabled?(:packages_protected_packages, user_project)
-        render_api_error!("'packages_protected_packages' feature flag is disabled", :not_found)
-      end
-
       authenticate!
       authorize_admin_package!
     end
@@ -28,7 +24,6 @@ module API
           ]
           tags %w[projects]
           is_array true
-          hidden true
         end
         get do
           present user_project.package_protection_rules, with: Entities::Projects::Packages::Protection::Rule
@@ -44,7 +39,6 @@ module API
             { code: 422, message: 'Unprocessable Entity' }
           ]
           tags %w[projects]
-          hidden true
         end
         params do
           requires :package_name_pattern, type: String,
@@ -52,13 +46,30 @@ module API
             Wildcard character * allowed.'
           requires :package_type, type: String, values: Packages::Protection::Rule.package_types.keys,
             desc: 'Package type protected by the rule. For example npm.'
-          requires :minimum_access_level_for_push, type: String,
+          optional :minimum_access_level_for_delete, type: String,
+            values: Packages::Protection::Rule.minimum_access_level_for_deletes.keys,
+            desc: 'Minimum GitLab access level required to delete a package. ' \
+              'Valid values include `null`, `owner` or `admin`. ' \
+              'If the value is `null`, the default minimum access level is `maintainer`. ' \
+              'Must be provided when `minimum_access_level_for_push` is not set. ' \
+              'Behind a feature flag named `packages_protected_packages_delete`. Disabled by default.'
+          optional :minimum_access_level_for_push, type: String,
             values: Packages::Protection::Rule.minimum_access_level_for_pushes.keys,
-            desc: 'Minimum GitLab access level able to push a package. For example developer, maintainer, owner.'
+            desc: 'Minimum GitLab access level required to push a package. ' \
+              'Valid values include `null`, `maintainer`, `owner` or `admin`. ' \
+              'If the value is `null`, the default minimum access level is `developer`. ' \
+              'Must be provided when `minimum_access_level_for_delete` is not set.'
+          at_least_one_of :minimum_access_level_for_push, :minimum_access_level_for_delete
         end
         post do
-          response = ::Packages::Protection::CreateRuleService.new(project: user_project, current_user: current_user,
-            params: declared_params).execute
+          params = declared_params
+          params.except!(:minimum_access_level_for_delete) if Feature.disabled?(:packages_protected_packages_delete,
+            user_project)
+
+          response =
+            ::Packages::Protection::CreateRuleService
+              .new(project: user_project, current_user: current_user, params: params)
+              .execute
 
           render_api_error!({ error: response.message }, :unprocessable_entity) if response.error?
 
@@ -79,7 +90,6 @@ module API
               { code: 422, message: 'Unprocessable Entity' }
             ]
             tags %w[projects]
-            hidden true
           end
           params do
             optional :package_name_pattern, type: String,
@@ -87,15 +97,31 @@ module API
               Wildcard character * allowed.'
             optional :package_type, type: String, values: Packages::Protection::Rule.package_types.keys,
               desc: 'Package type protected by the rule. For example npm.'
+            optional :minimum_access_level_for_delete, type: String,
+              values: Packages::Protection::Rule.minimum_access_level_for_deletes.keys,
+              desc: 'Minimum GitLab access level required to delete a package. ' \
+                'Valid values include `null`, `owner` or `admin`. ' \
+                'If the value is `null`, the default minimum access level is `maintainer`. ' \
+                'Must be provided when `minimum_access_level_for_push` is not set. ' \
+                'Behind a feature flag named `packages_protected_packages_delete`. Disabled by default.'
             optional :minimum_access_level_for_push, type: String,
               values: Packages::Protection::Rule.minimum_access_level_for_pushes.keys,
-              desc: 'Minimum GitLab access level able to push a package. For example developer, maintainer, owner.'
+              desc: 'Minimum GitLab access level required to push a package. ' \
+                'Valid values include `null`, `maintainer`, `owner` or `admin`. ' \
+                'If the value is `null`, the default minimum access level is `developer`. ' \
+                'Must be provided when `minimum_access_level_for_delete` is not set.'
           end
           patch do
             package_protection_rule = user_project.package_protection_rules.find(params[:package_protection_rule_id])
 
-            response = ::Packages::Protection::UpdateRuleService.new(package_protection_rule,
-              current_user: current_user, params: declared_params(include_missing: false)).execute
+            params = declared_params(include_missing: false)
+            params.except!(:minimum_access_level_for_delete) if Feature.disabled?(:packages_protected_packages_delete,
+              user_project)
+
+            response =
+              ::Packages::Protection::UpdateRuleService
+                .new(package_protection_rule, current_user: current_user, params: params)
+                .execute
 
             render_api_error!({ error: response.message }, :unprocessable_entity) if response.error?
 
@@ -111,7 +137,6 @@ module API
               { code: 404, message: 'Not Found' }
             ]
             tags %w[projects]
-            hidden true
           end
           delete do
             package_protection_rule = user_project.package_protection_rules.find(params[:package_protection_rule_id])

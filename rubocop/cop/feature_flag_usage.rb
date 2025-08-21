@@ -5,6 +5,7 @@ module RuboCop
     class FeatureFlagUsage < RuboCop::Cop::Base
       MSG = 'Do not use Feature Flags for monkey-patches or Redis code. Use environment variables instead.'
 
+      # @!method using_feature_flag?(node)
       def_node_matcher :using_feature_flag?, <<~PATTERN
         (send (const {nil? | cbase} :Feature) {:enabled? | :disabled?} ...)
       PATTERN
@@ -12,7 +13,7 @@ module RuboCop
       def on_send(node)
         return unless using_feature_flag?(node)
 
-        add_offense(node, message: MSG)
+        add_offense(node)
       end
     end
   end

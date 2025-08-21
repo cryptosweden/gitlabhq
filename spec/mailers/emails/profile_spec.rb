@@ -157,6 +157,74 @@ RSpec.describe Emails::Profile, feature_category: :user_profile do
     end
   end
 
+  describe 'personal access token is about to expire' do
+    let_it_be(:user) { create(:user) }
+
+    subject { Notify.access_token_about_to_expire_email(user, ['example token']) }
+
+    it { is_expected.to deliver_to(user) }
+    it { is_expected.to have_subject(/^Your personal access tokens will expire in 7 days or less$/i) }
+    it { is_expected.to have_body_text(/#{user_settings_personal_access_tokens_path}/) }
+    it { is_expected.to have_body_text(/example token/) }
+
+    context 'when passed days_to_expire parameter' do
+      subject { Notify.access_token_about_to_expire_email(user, ['example token'], days_to_expire: 42) }
+
+      it { is_expected.to have_subject(/^Your personal access tokens will expire in 42 days or less$/i) }
+      it { is_expected.to have_body_text('42') }
+    end
+  end
+
+  describe 'deploy token is about to expire' do
+    let_it_be(:user) { create(:user) }
+    let_it_be_with_refind(:project) { create(:project) }
+
+    let(:token_name) { 'my-token' }
+
+    subject(:mail) do
+      Notify.deploy_token_about_to_expire_email(user, token_name, project)
+    end
+
+    it { is_expected.to deliver_to(user) }
+
+    it 'has subject containing deploy token expiry notice' do
+      expect(mail.subject).to include("Your deploy token will expire in 7 days or less")
+    end
+
+    it { is_expected.to have_body_text(/#{project_settings_repository_path(project)}/) }
+    it { is_expected.to have_body_text(/#{token_name}/) }
+    it { is_expected.to have_body_text(/#{project.full_path}/) }
+    it { is_expected.to have_body_text(/You are receiving this email because you are/) }
+
+    context 'when user is project owner' do
+      before_all do
+        project.add_owner(user)
+      end
+
+      it { is_expected.to have_body_text(/you are an Owner of the project/) }
+    end
+
+    context 'when user is project maintainer' do
+      before_all do
+        project.add_maintainer(user)
+      end
+
+      it { is_expected.to have_body_text(/you are a Maintainer of the project/) }
+    end
+
+    context 'when passed days_to_expire parameter' do
+      subject(:mail) do
+        Notify.deploy_token_about_to_expire_email(user, token_name, project, days_to_expire: 30)
+      end
+
+      it 'has subject containing deploy token expiry notice' do
+        expect(mail.subject).to include("#{project.name} | Your deploy token will expire in 30 days or less")
+      end
+
+      it { is_expected.to have_body_text('30') }
+    end
+  end
+
   describe 'resource access token is about to expire' do
     let_it_be(:user) { create(:user) }
 
@@ -199,9 +267,17 @@ RSpec.describe Emails::Profile, feature_category: :user_profile do
       it_behaves_like 'it should not have Gmail Actions links'
       it_behaves_like 'a user cannot unsubscribe through footer link'
       it_behaves_like 'resource about to expire email'
+      it_behaves_like 'appearance header and footer enabled'
+      it_behaves_like 'appearance header and footer not enabled'
 
       it 'includes the email reason' do
         is_expected.to have_body_text _('You are receiving this email because you are an Owner of the Group.')
+      end
+
+      context 'when passed days_to_expire parameter' do
+        subject { Notify.bot_resource_access_token_about_to_expire_email(user, resource, expiring_token.name, days_to_expire: 42) }
+
+        it { is_expected.to have_body_text('42') }
       end
     end
 
@@ -222,9 +298,17 @@ RSpec.describe Emails::Profile, feature_category: :user_profile do
       it_behaves_like 'it should not have Gmail Actions links'
       it_behaves_like 'a user cannot unsubscribe through footer link'
       it_behaves_like 'resource about to expire email'
+      it_behaves_like 'appearance header and footer enabled'
+      it_behaves_like 'appearance header and footer not enabled'
 
       it 'includes the email reason' do
         is_expected.to have_body_text _('You are receiving this email because you are either an Owner or Maintainer of the project.')
+      end
+
+      context 'when passed days_to_expire parameter' do
+        subject { Notify.bot_resource_access_token_about_to_expire_email(user, resource, expiring_token.name, days_to_expire: 42) }
+
+        it { is_expected.to have_body_text('42') }
       end
     end
   end
@@ -342,6 +426,57 @@ RSpec.describe Emails::Profile, feature_category: :user_profile do
     end
   end
 
+  describe 'user personal access token has been rotated' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:token) { create(:personal_access_token, user: user) }
+
+    context 'when valid' do
+      subject { Notify.access_token_rotated_email(user, token.name) }
+
+      it_behaves_like 'an email sent from GitLab'
+      it_behaves_like 'it should not have Gmail Actions links'
+      it_behaves_like 'a user cannot unsubscribe through footer link'
+
+      it 'is sent to the user' do
+        is_expected.to deliver_to user.email
+      end
+
+      it 'has the correct subject' do
+        is_expected.to have_subject(/^Your personal access token has been rotated$/i)
+      end
+
+      it 'provides the names of the token' do
+        is_expected.to have_body_text(/#{token.name}/)
+      end
+
+      it 'includes a link to personal access tokens page' do
+        is_expected.to have_body_text(/#{user_settings_personal_access_tokens_path}/)
+      end
+
+      it 'includes the email reason' do
+        is_expected.to have_body_text %r{You're receiving this email because of your account on <a .*>localhost</a>}
+      end
+    end
+
+    context 'when invalid' do
+      context 'when user does not exist' do
+        it do
+          expect { Notify.access_token_rotated_email(nil, token.name) }.not_to change { ActionMailer::Base.deliveries.count }
+        end
+      end
+
+      context 'when user is not active' do
+        before do
+          user.block!
+        end
+
+        it do
+          expect { Notify.access_token_rotated_email(user, token.name) }.not_to change { ActionMailer::Base.deliveries.count }
+        end
+      end
+    end
+  end
+
   describe 'SSH key notification' do
     let_it_be_with_reload(:user) { create(:user) }
     let_it_be(:fingerprints) { ["aa:bb:cc:dd:ee:zz"] }
@@ -443,10 +578,12 @@ RSpec.describe Emails::Profile, feature_category: :user_profile do
   end
 
   describe 'user unknown sign in email' do
-    let_it_be(:user) { create(:user) }
-    let_it_be(:ip) { '169.0.0.1' }
-    let_it_be(:current_time) { Time.current }
-    let_it_be(:email) { Notify.unknown_sign_in_email(user, ip, current_time) }
+    let(:user) { create(:user) }
+    let(:ip) { '169.0.0.1' }
+    let(:current_time) { Time.current }
+    let(:country) { 'Germany' }
+    let(:city) { 'Frankfurt' }
+    let(:email) { Notify.unknown_sign_in_email(user, ip, current_time, country: country, city: city) }
 
     subject { email }
 
@@ -476,7 +613,7 @@ RSpec.describe Emails::Profile, feature_category: :user_profile do
     end
 
     it 'includes a link to the change password documentation' do
-      is_expected.to have_body_text help_page_url('user/profile/user_passwords', anchor: 'change-your-password')
+      is_expected.to have_body_text help_page_url('user/profile/user_passwords.md', anchor: 'change-your-password')
     end
 
     it 'mentions two factor authentication when two factor is not enabled' do
@@ -484,14 +621,27 @@ RSpec.describe Emails::Profile, feature_category: :user_profile do
     end
 
     it 'includes a link to two-factor authentication documentation' do
-      is_expected.to have_body_text help_page_url('user/profile/account/two_factor_authentication')
+      is_expected.to have_body_text help_page_url('user/profile/account/two_factor_authentication.md')
+    end
+
+    it 'shows location information' do
+      is_expected.to have_body_text _('Location')
+      is_expected.to have_body_text country
+      is_expected.to have_body_text city
+    end
+
+    context 'when no location information was given' do
+      let(:country) { nil }
+      let(:city) { nil }
+
+      it { is_expected.not_to have_body_text _('Location') }
     end
 
     context 'when two factor authentication is enabled' do
       let(:user) { create(:user, :two_factor) }
 
       it 'does not mention two factor authentication' do
-        expect( Notify.unknown_sign_in_email(user, ip, current_time) )
+        expect(Notify.unknown_sign_in_email(user, ip, current_time))
           .not_to have_body_text(/two-factor authentication/)
       end
     end
@@ -526,7 +676,7 @@ RSpec.describe Emails::Profile, feature_category: :user_profile do
     end
 
     it 'includes a link to the change password documentation' do
-      is_expected.to have_body_text help_page_url('user/profile/user_passwords', anchor: 'change-your-password')
+      is_expected.to have_body_text help_page_url('user/profile/user_passwords.md', anchor: 'change-your-password')
     end
   end
 

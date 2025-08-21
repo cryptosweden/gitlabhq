@@ -5,12 +5,13 @@ class LfsObject < ApplicationRecord
   include Checksummable
   include EachBatch
   include FileStoreMounter
+  include ObjectStorable
+
+  STORE_COLUMN = :file_store
 
   has_many :lfs_objects_projects
   has_many :projects, -> { distinct }, through: :lfs_objects_projects
 
-  scope :with_files_stored_locally, -> { where(file_store: LfsObjectUploader::Store::LOCAL) }
-  scope :with_files_stored_remotely, -> { where(file_store: LfsObjectUploader::Store::REMOTE) }
   scope :for_oids, ->(oids) { where(oid: oids) }
 
   validates :oid, presence: true, uniqueness: true, format: { with: /\A\h{64}\z/ }
@@ -23,10 +24,12 @@ class LfsObject < ApplicationRecord
     find_by(oid: oid, size: size)
   end
 
-  def self.not_linked_to_project(project)
+  def self.not_linked_to_project(project, repository_type: nil)
+    linked_to_project = project.lfs_objects_projects.where('lfs_objects_projects.lfs_object_id = lfs_objects.id')
+    linked_to_project = linked_to_project.where(repository_type: repository_type) if repository_type
     where(
       'NOT EXISTS (?)',
-      project.lfs_objects_projects.select(1).where('lfs_objects_projects.lfs_object_id = lfs_objects.id')
+      linked_to_project.select(1)
     )
   end
 

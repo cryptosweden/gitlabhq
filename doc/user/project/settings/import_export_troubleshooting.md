@@ -1,12 +1,19 @@
 ---
-stage: Manage
-group: Import and Integrate
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
+stage: Create
+group: Import
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting file export project migrations
+description: "Troubleshooting file export project migrations. Covers common errors, performance issues, and solutions."
 ---
 
-# Troubleshooting file export project migrations
+{{< details >}}
 
-If you have problems with [migrating projects using file exports](import_export.md), see the possible solutions below.
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+If you have problems with [migrating projects by using file exports](import_export.md), see the possible solutions below.
 
 ## Troubleshooting commands
 
@@ -39,7 +46,7 @@ Review [issue 276930](https://gitlab.com/gitlab-org/gitlab/-/issues/276930), and
 
 If users aren't imported with imported projects, see the [preserving user contributions](import_export.md#preserving-user-contributions) requirements.
 
-A common reason for missing users is that the [public email setting](../../profile/index.md#set-your-public-email) isn't configured for users.
+A common reason for missing users is that the [public email setting](../../profile/_index.md#set-your-public-email) isn't configured for users.
 To resolve this issue, ask users to configure this setting using the GitLab UI.
 
 If there are too many users for manual configuration to be feasible,
@@ -85,8 +92,8 @@ reduce the repository size for another import attempt:
    ```
 
 1. To reduce the repository size, work on this `smaller-tmp-main` branch:
-   [identify and remove large files](../repository/reducing_the_repo_size_using_git.md)
-   or [interactively rebase and fixup](../../../topics/git/git_rebase.md#rebase-interactively-by-using-git)
+   [identify and remove large files](../repository/repository_size.md#methods-to-reduce-repository-size)
+   or [interactively rebase and fixup](../../../topics/git/git_rebase.md#interactive-rebase)
    to reduce the number of commits.
 
    ```shell
@@ -110,15 +117,18 @@ reduce the repository size for another import attempt:
    use `git remote set-url origin <new-url> && git push --force --all`
    to complete the import.
 1. Update the imported repository's
-   [branch protection rules](../protected_branches.md) and
+   [branch protection rules](../repository/branches/protected.md) and
    its [default branch](../repository/branches/default.md), and
    delete the temporary, `smaller-tmp-main` branch, and
    the local, temporary data.
 
 ### Workaround option 2
 
-NOTE:
+{{< alert type="note" >}}
+
 This workaround does not account for LFS objects.
+
+{{< /alert >}}
 
 Rather than attempting to push all changes at once, this workaround:
 
@@ -143,13 +153,13 @@ Rather than attempting to push all changes at once, this workaround:
    # ASSUMPTIONS:
    # - The GitLab location is "origin"
    # - The default branch is "main"
-   # - This will attempt to push in chunks of 500MB (dividing the total size by 500MB).
+   # - This will attempt to push in chunks of 500 MB (dividing the total size by 500 MB).
    #   Decrease this size to push in smaller chunks if you still receive timeouts.
 
    git gc
    SIZE=$(git count-objects -v 2> /dev/null | grep size-pack | awk '{print $2}')
 
-   # Be conservative... and try to push 2GB at a time
+   # Be conservative and try to push 2 GB at a time
    # (given this assumes each commit is the same size - which is wrong)
    BATCHES=$(($SIZE / 500000))
    TOTAL_COMMITS=$(git rev-list --count HEAD)
@@ -169,6 +179,39 @@ Rather than attempting to push all changes at once, this workaround:
    git push -u origin --all
    git push -u origin --tags
    ```
+
+## Sidekiq process fails to export a project
+
+Occasionally the Sidekiq process can fail to export a project, for example if
+it is terminated during execution.
+
+GitLab.com users should [contact Support](https://about.gitlab.com/support/#contact-support) to resolve this issue.
+
+GitLab Self-Managed administrators can use the Rails console to bypass the Sidekiq process and
+manually trigger the project export:
+
+```ruby
+project = Project.find(1)
+current_user = User.find_by(username: 'my-user-name')
+RequestStore.begin!
+ActiveRecord::Base.logger = Logger.new(STDOUT)
+params = {}
+
+::Projects::ImportExport::ExportService.new(project, current_user, params).execute(nil)
+```
+
+This makes the export available through the UI, but does not trigger an email to the user.
+To manually trigger the project export and send an email:
+
+```ruby
+project = Project.find(1)
+current_user = User.find_by(username: 'my-user-name')
+RequestStore.begin!
+ActiveRecord::Base.logger = Logger.new(STDOUT)
+params = {}
+
+ProjectExportWorker.new.perform(current_user.id, project.id)
+```
 
 ## Manually execute export steps
 
@@ -197,7 +240,14 @@ e.send(:design_repo_saver).send(:save)
 ## continue using `e.send(:exporter_name).send(:save)` going through the list of exporters
 
 # The following line should show you the export_path similar to /var/opt/gitlab/gitlab-rails/shared/tmp/gitlab_exports/@hashed/49/94/4994....
-s = Gitlab::ImportExport::Saver.new(exportable: p, shared:p.import_export_shared)
+s = Gitlab::ImportExport::Saver.new(exportable: p, shared: p.import_export_shared, user: u)
+
+# Prior to GitLab 17.0, the `user` parameter was not supported. If you encounter an
+# error with the above or are unsure whether or not to supply the `user`
+# argument, use the following check:
+Gitlab::ImportExport::Saver.instance_method(:initialize).parameters.include?([:keyreq, :user])
+# If the preceding check returns false, omit the user argument:
+s = Gitlab::ImportExport::Saver.new(exportable: p, shared: p.import_export_shared)
 
 # To try and upload use:
 s.send(:compress_and_save)
@@ -219,6 +269,37 @@ Validation failed: User project bots cannot be added to other groups / projects
 
 To use [Import REST API](../../../api/project_import_export.md),
 pass regular user account credentials such as [personal access tokens](../../profile/personal_access_tokens.md).
+
+## Error: `PG::QueryCanceled: ERROR: canceling statement due to statement timeout`
+
+Some migrations can time out with the error: `PG::QueryCanceled: ERROR: canceling statement due to statement timeout`.
+One way to avoid this problem is to have the migration batch size reduced. This makes a migration less likely to time
+out, but makes migrations slower.
+
+To have the batch sized reduced, you must have a feature flag enabled. For more information, see
+[issue 456948](https://gitlab.com/gitlab-org/gitlab/-/issues/456948).
+
+## Error: `command exited with error code 15 and Unable to save [FILTERED] into [FILTERED]`
+
+You might get the following error in logs when you migrate projects by using file exports:
+
+```plaintext
+command exited with error code 15 and Unable to save [FILTERED] into [FILTERED]
+```
+
+This error occurs during export or import when Sidekiq receives a `SIGTERM`, often while executing the `tar` command.
+
+In Kubernetes environments like GitLab.com and GitLab Dedicated, the operating system triggers `SIGTERM` signals
+due to memory or disk shortage, code deployments, or instance upgrades.
+To identify the root cause, an administrator should investigate why Kubernetes terminated the instance.
+
+In non-Kubernetes environments, this error might occur if the instance is terminated while executing the `tar` command.
+However, this error does not occur due to disk shortage, so memory shortage is the most likely cause.
+
+If you get this error:
+
+- When you export a file, GitLab retries the export until the maximum number of retries is reached and marks the export as failed.
+- When you import a file, you must retry the import yourself. GitLab does not retry the import automatically.
 
 ## Troubleshooting performance issues
 
@@ -290,20 +371,15 @@ Marked stuck import jobs as failed. JIDs: xyz
 
 ### Problems and solutions
 
-| Problem | Possible solutions |
-| -------- | -------- |
-| [Slow JSON](https://gitlab.com/gitlab-org/gitlab/-/issues/25251) loading/dumping models from the database | [split the worker](https://gitlab.com/gitlab-org/gitlab/-/issues/25252) |
-| | Batch export |
-| | Optimize SQL |
-| | Move away from `ActiveRecord` callbacks (difficult) |
-| High memory usage (see also some [analysis](https://gitlab.com/gitlab-org/gitlab/-/issues/18857)) | DB Commit sweet spot that uses less memory |
-| | [Netflix Fast JSON API](https://github.com/Netflix/fast_jsonapi) may help |
-| | Batch reading/writing to disk and any SQL |
+[Slow JSON](https://gitlab.com/gitlab-org/gitlab/-/issues/25251) loading/dumping models from the database:
 
-### Temporary solutions
+- [split the worker](https://gitlab.com/gitlab-org/gitlab/-/issues/25252) |
+- Batch export
+- Optimize SQL
+- Move away from `ActiveRecord` callbacks (difficult)
 
-While the performance problems are not tackled, there is a process to workaround
-importing big projects, using a foreground import:
+High memory usage (see also some [analysis](https://gitlab.com/gitlab-org/gitlab/-/issues/18857)):
 
-[Foreground import](https://gitlab.com/gitlab-com/gl-infra/reliability/-/issues/5384) of big projects for customers.
-(Using the import template in the [infrastructure tracker](https://gitlab.com/gitlab-com/gl-infra/reliability/-/issues))
+- DB Commit sweet spot that uses less memory
+- [Netflix Fast JSON API](https://github.com/Netflix/fast_jsonapi) may help
+- Batch reading/writing to disk and any SQL

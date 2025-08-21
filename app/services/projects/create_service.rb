@@ -5,7 +5,6 @@ module Projects
     include ValidatesClassificationLabel
 
     ImportSourceDisabledError = Class.new(StandardError)
-    INTERNAL_IMPORT_SOURCES = %w[gitlab_custom_project_template gitlab_project_migration].freeze
     README_FILE = 'README.md'
 
     def initialize(user, params)
@@ -13,12 +12,14 @@ module Projects
       @params = params.dup
       @skip_wiki = @params.delete(:skip_wiki)
       @initialize_with_sast = Gitlab::Utils.to_boolean(@params.delete(:initialize_with_sast))
+      @initialize_with_secret_detection = Gitlab::Utils.to_boolean(@params.delete(:initialize_with_secret_detection))
       @initialize_with_readme = Gitlab::Utils.to_boolean(@params.delete(:initialize_with_readme))
       @import_data = @params.delete(:import_data)
       @relations_block = @params.delete(:relations_block)
       @default_branch = @params.delete(:default_branch)
       @readme_template = @params.delete(:readme_template)
       @repository_object_format = @params.delete(:repository_object_format)
+      @import_export_upload = @params.delete(:import_export_upload)
 
       build_topics
     end
@@ -29,16 +30,26 @@ module Projects
       params[:snippets_enabled] = params[:snippets_access_level] if params[:snippets_access_level]
       params[:merge_requests_enabled] = params[:merge_requests_access_level] if params[:merge_requests_access_level]
       params[:issues_enabled] = params[:issues_access_level] if params[:issues_access_level]
+      params[:protect_merge_request_pipelines] = true
 
       if create_from_template?
         return ::Projects::CreateFromTemplateService.new(current_user, params).execute
       end
 
-      @project = Project.new(params.merge(creator: current_user))
+      @project = Project.new.tap do |p|
+        # Explicitly build an association for ci_cd_settings
+        # See: https://gitlab.com/gitlab-org/gitlab/-/issues/421050
+        p.build_ci_cd_settings
+        p.assign_attributes(params.merge(creator: current_user))
+      end
+
+      if @import_export_upload
+        @import_export_upload.project = project
+      end
 
       validate_import_source_enabled!
 
-      @project.visibility_level = @project.group.visibility_level unless @project.visibility_level_allowed_by_group?
+      @project.visibility_level = @project.namespace.visibility_level unless @project.visibility_level_allowed_by_namespace?
 
       # If a project is newly created it should have shared runners settings
       # based on its group having it enabled. This is like the "default value"
@@ -52,12 +63,8 @@ module Projects
 
       set_project_name_from_path
 
-      # get namespace id
-      namespace_id = params[:namespace_id] || current_user.namespace_id
-      @project.namespace_id = namespace_id.to_i
-
-      organization_id = params[:organization_id] || @project.namespace.organization_id
-      @project.organization_id = organization_id.to_i
+      @project.namespace_id = (params[:namespace_id] || current_user.namespace_id).to_i
+      @project.organization_id = (params[:organization_id] || @project.namespace.organization_id).to_i
 
       @project.check_personal_projects_limit
       return @project if @project.errors.any?
@@ -69,7 +76,7 @@ module Projects
       @relations_block&.call(@project)
       yield(@project) if block_given?
 
-      validate_classification_label(@project, :external_authorization_classification_label)
+      validate_classification_label_param!(@project, :external_authorization_classification_label)
 
       # If the block added errors, don't try to save the project
       return @project if @project.errors.any?
@@ -86,7 +93,7 @@ module Projects
 
       @project
     rescue ActiveRecord::RecordInvalid => e
-      message = "Unable to save #{e.inspect}: #{e.record.errors.full_messages.join(", ")}"
+      message = "Unable to save #{e.inspect}: #{e.record.errors.full_messages.join(', ')}"
       fail(error: message)
     rescue ImportSourceDisabledError => e
       @project.errors.add(:import_source_disabled, e.message) if @project
@@ -106,6 +113,11 @@ module Projects
 
     def validate_import_permissions
       return unless @project.import?
+
+      # Skip for project template importers, as their permission model is different from other importers
+      # See: https://gitlab.com/gitlab-org/gitlab/-/issues/414046#note_1945586449.
+      return if Gitlab::ImportSources.template?(@project.import_type)
+
       return if current_user.can?(:import_projects, parent_namespace)
 
       @project.errors.add(:user, 'is not allowed to import projects')
@@ -129,7 +141,7 @@ module Projects
       yield if block_given?
 
       event_service.create_project(@project, current_user)
-      system_hook_service.execute_hooks_for(@project, :create)
+      execute_hooks
 
       setup_authorizations
 
@@ -139,12 +151,13 @@ module Projects
 
       create_readme if @initialize_with_readme
       create_sast_commit if @initialize_with_sast
+      create_secret_detection_commit if @initialize_with_secret_detection
 
       publish_event
     end
 
     def create_project_settings
-      Gitlab::Pages.add_unique_domain_to(project)
+      Gitlab::Pages.add_unique_domain_to(project) if Gitlab::CurrentSettings.pages_unique_domain_default_enabled
 
       @project.project_setting.save if @project.project_setting.changed?
     end
@@ -160,9 +173,7 @@ module Projects
         )
 
         if group_access_level > GroupMember::NO_ACCESS
-          current_user.project_authorizations.safe_find_or_create_by!(
-            project: @project,
-            access_level: group_access_level)
+          ProjectAuthorization.find_or_create_authorization_for(current_user.id, @project.id, group_access_level)
         end
 
         AuthorizedProjectUpdate::ProjectRecalculateWorker.perform_async(@project.id)
@@ -171,9 +182,7 @@ module Projects
         # compare the inconsistency rates of both approaches, we still run
         # AuthorizedProjectsWorker but with some delay and lower urgency as a
         # safety net.
-        @project.group.refresh_members_authorized_projects(
-          priority: UserProjectAccessChangedService::LOW_PRIORITY
-        )
+        AuthorizedProjectUpdate::EnqueueGroupMembersRefreshAuthorizedProjectsWorker.perform_async(@project.group.id)
       else
         owner_user = @project.namespace.owner
         owner_member = @project.add_owner(owner_user, current_user: current_user)
@@ -182,10 +191,7 @@ module Projects
         # isn't picked up (or finished) by the time the user is redirected to the newly created project's page.
         # If that happens, the user will hit a 404. To avoid that scenario, we manually create a `project_authorizations` record for the user here.
         if owner_member.persisted?
-          owner_user.project_authorizations.safe_find_or_create_by(
-            project: @project,
-            access_level: ProjectMember::OWNER
-          )
+          ProjectAuthorization.find_or_create_authorization_for(owner_user.id, @project.id, ProjectMember::OWNER)
         end
         # During the process of adding a project owner, a check on permissions is made on the user which caches
         # the max member access for that user on this project.
@@ -210,6 +216,17 @@ module Projects
 
     def create_sast_commit
       ::Security::CiConfiguration::SastCreateService.new(@project, current_user, { initialize_with_sast: true }, commit_on_default: true).execute
+    end
+
+    def create_secret_detection_commit
+      params = { initialize_with_secret_detection: true }
+      params[:sast_also_enabled] = true if @initialize_with_sast
+
+      ::Security::CiConfiguration::SecretDetectionCreateService.new(@project, current_user, params, commit_on_default: true).execute
+    end
+
+    def execute_hooks
+      system_hook_service.execute_hooks_for(@project, :create)
     end
 
     def repository_object_format
@@ -245,6 +262,7 @@ module Projects
           if @project.saved?
             Integration.create_from_default_integrations(@project, :project_id)
 
+            @import_export_upload.save if @import_export_upload
             @project.create_labels unless @project.gitlab_project_import?
 
             next if @project.import?
@@ -309,15 +327,14 @@ module Projects
 
       import_type = @params[:import_type].to_s
 
-      return if INTERNAL_IMPORT_SOURCES.include?(import_type)
+      # Skip for projects created through the Direct Transfer importer.
+      return if import_type == BulkImports::Projects::Transformers::ProjectAttributesTransformer::PROJECT_IMPORT_TYPE
 
-      # Skip validation when creating project from a built in template
-      return if @params[:import_export_upload].present? && import_type == 'gitlab_project'
+      # Skip for project template importers, as their feature availability is not
+      # controlled by the `import_sources` application setting.
+      return if Gitlab::ImportSources.template?(import_type)
 
       unless ::Gitlab::CurrentSettings.import_sources&.include?(import_type)
-        return if import_type == 'github' && Feature.enabled?(:override_github_disabled, current_user, type: :ops)
-        return if import_type == 'bitbucket_server' && Feature.enabled?(:override_bitbucket_server_disabled, current_user, type: :ops)
-
         raise ImportSourceDisabledError, "#{import_type} import source is disabled"
       end
     end

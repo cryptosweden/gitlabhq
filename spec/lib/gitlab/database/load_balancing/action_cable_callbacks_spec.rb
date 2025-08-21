@@ -6,18 +6,18 @@ RSpec.describe Gitlab::Database::LoadBalancing::ActionCableCallbacks, :request_s
   describe '.wrapper' do
     it 'releases the connection and clears the session' do
       expect(Gitlab::Database::LoadBalancing).to receive(:release_hosts)
-      expect(Gitlab::Database::LoadBalancing::Session).to receive(:clear_session)
+      expect(Gitlab::Database::LoadBalancing::SessionMap).to receive(:clear_session)
 
-      described_class.wrapper.call(nil, lambda {})
+      described_class.wrapper.call(nil, -> {})
     end
 
     context 'with an exception' do
       it 'releases the connection and clears the session' do
         expect(Gitlab::Database::LoadBalancing).to receive(:release_hosts)
-        expect(Gitlab::Database::LoadBalancing::Session).to receive(:clear_session)
+        expect(Gitlab::Database::LoadBalancing::SessionMap).to receive(:clear_session)
 
         expect do
-          described_class.wrapper.call(nil, lambda { raise 'test_exception' })
+          described_class.wrapper.call(nil, -> { raise 'test_exception' })
         end.to raise_error('test_exception')
       end
     end

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Integrations::JiraTrackerData do
+RSpec.describe Integrations::JiraTrackerData, feature_category: :integrations do
   it_behaves_like Integrations::BaseDataFields
 
   describe 'deployment_type' do
@@ -12,7 +12,7 @@ RSpec.describe Integrations::JiraTrackerData do
   end
 
   describe 'encrypted attributes' do
-    subject { described_class.attr_encrypted_attributes.keys }
+    subject { described_class.attr_encrypted_encrypted_attributes.keys }
 
     it { is_expected.to contain_exactly(:api_url, :password, :url, :username) }
   end

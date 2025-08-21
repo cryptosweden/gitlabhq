@@ -18,7 +18,7 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
     allow(Gitlab::Database::GitlabSchema).to receive(:tables_to_schema).and_return({
       'application_setttings' => :gitlab_main_clusterwide,
       'projects' => :gitlab_main,
-      'security_findings' => :gitlab_main,
+      'zoekt_tasks' => :gitlab_main,
       'ci_builds' => :gitlab_ci,
       'ci_jobs' => :gitlab_ci,
       'loose_foreign_keys_deleted_records' => :gitlab_shared,
@@ -28,8 +28,8 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
 
   before(:all) do
     create_partition_sql = <<~SQL
-      CREATE TABLE IF NOT EXISTS #{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}.security_findings_test_partition
-      PARTITION OF security_findings
+      CREATE TABLE IF NOT EXISTS #{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}.zoekt_tasks_test_partition
+      PARTITION OF zoekt_tasks
       FOR VALUES IN (0)
     SQL
 
@@ -39,7 +39,7 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
       )
     SQL
 
-    [ApplicationRecord, Ci::ApplicationRecord]
+    ::Gitlab::Database.database_base_models_with_gitlab_shared.values
       .map(&:connection)
       .each do |conn|
         conn.execute(create_partition_sql)
@@ -59,7 +59,7 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
   end
 
   after(:all) do
-    [ApplicationRecord, Ci::ApplicationRecord]
+    ::Gitlab::Database.database_base_models_with_gitlab_shared.values
       .map(&:connection)
       .each do |conn|
         conn.execute(
@@ -88,7 +88,8 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
           database_name: database_name,
           with_retries: true,
           logger: anything,
-          dry_run: anything
+          dry_run: anything,
+          force: true
         ).once.and_return(lock_writes_manager)
         expect(lock_writes_manager).to receive(:lock_writes).once
       end
@@ -121,7 +122,8 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
           database_name: database_name,
           with_retries: true,
           logger: anything,
-          dry_run: anything
+          dry_run: anything,
+          force: true
         ).once.and_return(lock_writes_manager)
         expect(lock_writes_manager).to receive(:unlock_writes)
       end
@@ -146,7 +148,8 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
         database_name: database_name,
         with_retries: true,
         logger: anything,
-        dry_run: anything
+        dry_run: anything,
+        force: true
       ).once.and_return(lock_writes_manager)
       expect(lock_writes_manager).to receive(:lock_writes)
 
@@ -166,7 +169,8 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
         database_name: database_name,
         with_retries: true,
         logger: anything,
-        dry_run: anything
+        dry_run: anything,
+        force: true
       ).once.and_return(lock_writes_manager)
       expect(lock_writes_manager).to receive(:unlock_writes)
 
@@ -177,6 +181,7 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
   context 'when running on single database' do
     before do
       skip_if_database_exists(:ci)
+      skip_if_database_exists(:sec)
     end
 
     describe '#lock_writes' do
@@ -214,6 +219,7 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
   context 'when running on multiple databases' do
     before do
       skip_if_shared_database(:ci)
+      skip_if_shared_database(:sec)
     end
 
     describe '#lock_writes' do
@@ -231,13 +237,39 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
       it_behaves_like 'unlock tables', :gitlab_internal, 'main'
       it_behaves_like 'unlock tables', :gitlab_internal, 'ci'
 
-      gitlab_main_partition = "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}.security_findings_test_partition"
+      gitlab_main_partition = "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}.zoekt_tasks_test_partition"
       it_behaves_like 'unlock partitions', gitlab_main_partition, 'main'
       it_behaves_like 'lock partitions', gitlab_main_partition, 'ci'
 
       gitlab_main_detached_partition = "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}._test_gitlab_main_part_20220101"
       it_behaves_like 'unlock partitions', gitlab_main_detached_partition, 'main'
       it_behaves_like 'lock partitions', gitlab_main_detached_partition, 'ci'
+
+      context 'when scope_to_database is set' do
+        subject { described_class.new(options: { scope_to_database: :main }).lock_writes }
+
+        it_behaves_like 'lock tables', :gitlab_ci, 'main'
+
+        it_behaves_like 'unlock tables', :gitlab_main_clusterwide, 'main'
+        it_behaves_like 'unlock tables', :gitlab_main, 'main'
+        it_behaves_like 'unlock tables', :gitlab_shared, 'main'
+        it_behaves_like 'unlock tables', :gitlab_internal, 'main'
+
+        gitlab_main_partition = "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}.zoekt_tasks_test_partition"
+        it_behaves_like 'unlock partitions', gitlab_main_partition, 'main'
+
+        gitlab_main_detached_partition =
+          "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}._test_gitlab_main_part_20220101"
+        it_behaves_like 'unlock partitions', gitlab_main_detached_partition, 'main'
+      end
+
+      context 'when an invalid database scope has been passed' do
+        subject { described_class.new(options: { scope_to_database: :unknown }).lock_writes }
+
+        it 'raises an error' do
+          expect { subject }.to raise_error(RuntimeError, 'unknown is not a valid database to scope to.')
+        end
+      end
     end
 
     describe '#unlock_writes' do
@@ -252,20 +284,36 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
       it_behaves_like "unlock tables", :gitlab_internal, 'main'
       it_behaves_like "unlock tables", :gitlab_internal, 'ci'
 
-      gitlab_main_partition = "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}.security_findings_test_partition"
+      gitlab_main_partition = "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}.zoekt_tasks_test_partition"
       it_behaves_like 'unlock partitions', gitlab_main_partition, 'main'
       it_behaves_like 'unlock partitions', gitlab_main_partition, 'ci'
 
       gitlab_main_detached_partition = "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}._test_gitlab_main_part_20220101"
       it_behaves_like 'unlock partitions', gitlab_main_detached_partition, 'main'
       it_behaves_like 'unlock partitions', gitlab_main_detached_partition, 'ci'
+
+      context 'when scope_to_database is set' do
+        subject { described_class.new(options: { scope_to_database: :main }).unlock_writes }
+
+        it_behaves_like "unlock tables", :gitlab_ci, 'main'
+        it_behaves_like "unlock tables", :gitlab_main, 'main'
+        it_behaves_like "unlock tables", :gitlab_shared, 'main'
+        it_behaves_like "unlock tables", :gitlab_internal, 'main'
+
+        gitlab_main_partition = "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}.zoekt_tasks_test_partition"
+        it_behaves_like 'unlock partitions', gitlab_main_partition, 'main'
+
+        gitlab_main_detached_partition =
+          "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}._test_gitlab_main_part_20220101"
+        it_behaves_like 'unlock partitions', gitlab_main_detached_partition, 'main'
+      end
     end
 
     context 'when not including partitions' do
       subject { described_class.new(include_partitions: false).lock_writes }
 
       it 'does not include any table partitions' do
-        gitlab_main_partition = "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}.security_findings_test_partition"
+        gitlab_main_partition = "#{Gitlab::Database::DYNAMIC_PARTITIONS_SCHEMA}.zoekt_tasks_test_partition"
 
         expect(Gitlab::Database::LockWritesManager).not_to receive(:new).with(
           hash_including(table_name: gitlab_main_partition)
@@ -291,12 +339,13 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
 
       it 'passes dry_run flag to LockWritesManager' do
         expect(Gitlab::Database::LockWritesManager).to receive(:new).with(
-          table_name: 'security_findings',
+          table_name: 'zoekt_tasks',
           connection: anything,
           database_name: 'ci',
           with_retries: true,
           logger: anything,
-          dry_run: true
+          dry_run: true,
+          force: false
         ).and_return(default_lock_writes_manager)
         expect(default_lock_writes_manager).to receive(:lock_writes)
 
@@ -309,8 +358,10 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
 
       before do
         allow(::Gitlab::Database).to receive(:db_config_share_with).and_return(nil)
-        ci_db_config = Ci::ApplicationRecord.connection_db_config
-        allow(::Gitlab::Database).to receive(:db_config_share_with).with(ci_db_config).and_return('main')
+        (Gitlab::Database.database_base_models.values - [ActiveRecord::Base]).each do |db_record_class|
+          db_config = db_record_class.connection_db_config
+          allow(::Gitlab::Database).to receive(:db_config_share_with).with(db_config).and_return('main')
+        end
       end
 
       it 'does not lock any tables if the ci database is shared with main database' do
@@ -343,7 +394,36 @@ RSpec.describe Gitlab::Database::TablesLocker, :suppress_gitlab_schemas_validate
         database_name: 'geo',
         with_retries: true,
         logger: anything,
-        dry_run: anything
+        dry_run: anything,
+        force: true
+      )
+
+      subject
+    end
+  end
+
+  context 'when sec database is configured' do
+    let(:sec_table) do
+      Gitlab::Database::GitlabSchema
+        .tables_to_schema.filter_map { |table_name, schema| table_name if schema == :gitlab_sec }
+        .first
+    end
+
+    subject { described_class.new.unlock_writes }
+
+    before do
+      skip_if_shared_database(:sec)
+    end
+
+    it 'does not lock table in sec database' do
+      expect(Gitlab::Database::LockWritesManager).not_to receive(:new).with(
+        table_name: sec_table,
+        connection: anything,
+        database_name: 'sec',
+        with_retries: true,
+        logger: anything,
+        dry_run: anything,
+        force: true
       )
 
       subject

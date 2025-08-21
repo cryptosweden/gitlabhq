@@ -65,32 +65,12 @@ RSpec.describe BulkImports::RelationExportWorker, feature_category: :importers d
       context 'when export is user_contributions' do
         let(:relation) { 'user_contributions' }
 
-        context 'and :bulk_import_user_mapping feature flag is enabled' do
-          it 'enqueues the UserContributionsExportWorker' do
-            expect(BulkImports::UserContributionsExportWorker).to receive(:perform_async).with(
-              group.id, group.class.name, user.id
-            ).twice
+        it 'enqueues the UserContributionsExportWorker' do
+          expect(BulkImports::UserContributionsExportWorker).to receive(:perform_async).with(
+            group.id, group.class.name, user.id
+          ).twice
 
-            perform_multiple(job_args)
-          end
-        end
-
-        context 'and :bulk_import_user_mapping feature flag is disabled' do
-          before do
-            stub_feature_flags(bulk_import_user_mapping: false)
-          end
-
-          it 'does not enqueue the UserContributionsExportWorker' do
-            expect(BulkImports::UserContributionsExportWorker).not_to receive(:perform_async)
-
-            perform_multiple(job_args)
-          end
-
-          it 'does not create a user contributions export with a different service' do
-            expect { perform_multiple(job_args) }.not_to change {
-              group.bulk_import_exports.where(relation: 'user_contributions').count
-            }.from(0)
-          end
+          perform_multiple(job_args)
         end
       end
     end
@@ -98,7 +78,7 @@ RSpec.describe BulkImports::RelationExportWorker, feature_category: :importers d
 
   describe '.sidekiq_retries_exhausted' do
     let(:job) { { 'args' => job_args } }
-    let!(:export) { create(:bulk_import_export, group: group, relation: relation) }
+    let!(:export) { create(:bulk_import_export, group: group, relation: relation, user_id: user.id) }
 
     it 'sets export status to failed and tracks the exception' do
       expect(Gitlab::ErrorTracking)
@@ -109,6 +89,18 @@ RSpec.describe BulkImports::RelationExportWorker, feature_category: :importers d
 
       expect(export.reload.failed?).to eq(true)
       expect(export.error.size).to eq(255)
+    end
+  end
+
+  describe '.sidekiq_interruptions_exhausted' do
+    let!(:export) { create(:bulk_import_export, group: group, relation: relation, user_id: user.id) }
+
+    it 'sets export status to failed' do
+      job = { 'args' => job_args }
+
+      described_class.interruptions_exhausted_block.call(job)
+      expect(export.reload).to be_failed
+      expect(export.error).to eq('Export process reached the maximum number of interruptions')
     end
   end
 end

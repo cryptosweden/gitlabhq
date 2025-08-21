@@ -1,80 +1,221 @@
 <script>
-import { GlTableLite, GlEmptyState, GlLink } from '@gitlab/ui';
-import Pagination from '~/vue_shared/components/incubation/pagination.vue';
-import { FEATURE_NAME, FEATURE_FEEDBACK_ISSUE } from '~/ml/experiment_tracking/constants';
-import * as constants from '~/ml/experiment_tracking/routes/experiments/index/constants';
-import * as translations from '~/ml/experiment_tracking/routes/experiments/index/translations';
+import {
+  GlAlert,
+  GlAvatar,
+  GlAvatarLink,
+  GlButton,
+  GlEmptyState,
+  GlKeysetPagination,
+  GlLink,
+  GlModalDirective,
+  GlTableLite,
+} from '@gitlab/ui';
+import { s__, sprintf } from '~/locale';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
+import { getIdFromGraphQLId } from '~/graphql_shared/utils';
+import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 import ModelExperimentsHeader from '~/ml/experiment_tracking/components/model_experiments_header.vue';
+import getExperimentsQuery from '~/ml/experiment_tracking/graphql/queries/get_experiments.query.graphql';
+import { MLFLOW_USAGE_MODAL_ID } from '../constants';
+
+const GRAPHQL_PAGE_SIZE = 20;
 
 export default {
   name: 'MlExperimentsIndexApp',
   components: {
-    Pagination,
-    ModelExperimentsHeader,
-    GlTableLite,
+    GlAlert,
+    GlAvatar,
+    GlAvatarLink,
+    GlButton,
     GlEmptyState,
+    GlKeysetPagination,
     GlLink,
+    GlTableLite,
+    ModelExperimentsHeader,
+    TimeAgoTooltip,
+  },
+  directives: {
+    GlModal: GlModalDirective,
+  },
+  provide() {
+    return {
+      mlflowTrackingUrl: this.mlflowTrackingUrl,
+    };
   },
   props: {
-    experiments: {
-      type: Array,
-      required: true,
-    },
-    pageInfo: {
-      type: Object,
+    projectPath: {
+      type: String,
       required: true,
     },
     emptyStateSvgPath: {
       type: String,
       required: true,
     },
+    mlflowTrackingUrl: {
+      type: String,
+      required: false,
+      default: '',
+    },
   },
-  tableFields: constants.EXPERIMENTS_TABLE_FIELDS,
-  i18n: translations,
+  apollo: {
+    experiments: {
+      query: getExperimentsQuery,
+      variables() {
+        return this.queryVariables;
+      },
+      update(data) {
+        return data?.project?.mlExperiments ?? [];
+      },
+      error(error) {
+        this.errorMessage = sprintf(
+          s__('MlExperimentTracking|Failed to load experiments with error: %{error}'),
+          { error: error.message },
+        );
+        Sentry.captureException(error);
+      },
+      skip() {
+        return this.skipQueries;
+      },
+    },
+  },
+  data() {
+    return {
+      experiments: [],
+      errorMessage: '',
+      skipQueries: false,
+      pageVariables: { first: GRAPHQL_PAGE_SIZE },
+    };
+  },
   computed: {
-    hasExperiments() {
-      return this.experiments.length > 0;
+    pageInfo() {
+      return this.experiments?.pageInfo ?? {};
+    },
+    showExperimentsTable() {
+      return this.count;
+    },
+    showEmptyState() {
+      return this.experiments?.count === 0 && !this.isLoading;
     },
     tableItems() {
-      return this.experiments.map((exp) => ({
-        nameColumn: { name: exp.name, path: exp.path },
-        candidateCountColumn: exp.candidate_count,
+      return this.items.map((exp) => ({
+        nameColumn: {
+          name: exp.name,
+          path: exp.path,
+        },
+        candidateCountColumn: exp.candidateCount,
+        creatorColumn: { ...exp.creator, iid: getIdFromGraphQLId(exp.creator.id) },
+        lastActivityColumn: exp.updatedAt,
       }));
     },
+    items() {
+      return this.experiments?.nodes ?? [];
+    },
+    count() {
+      return this.experiments?.count ?? 0;
+    },
+    isLoading() {
+      return this.$apollo.queries.experiments.loading;
+    },
+    queryVariables() {
+      return {
+        fullPath: this.projectPath,
+        first: GRAPHQL_PAGE_SIZE,
+        ...this.pageVariables,
+      };
+    },
   },
-  constants: {
-    FEATURE_NAME,
-    FEATURE_FEEDBACK_ISSUE,
-    ...constants,
+  methods: {
+    nextPage() {
+      this.pageVariables = {
+        first: GRAPHQL_PAGE_SIZE,
+        last: null,
+        after: this.pageInfo.endCursor,
+      };
+    },
+    prevPage() {
+      this.pageVariables = {
+        first: null,
+        last: GRAPHQL_PAGE_SIZE,
+        before: this.pageInfo.startCursor,
+      };
+    },
   },
+  i18n: {
+    createUsingMlflowLabel: s__('MlExperimentTracking|Create an experiment using MLflow'),
+    emptyStateTitleLabel: s__('MlExperimentTracking|Get started with model experiments!'),
+    titleLabel: s__('MlExperimentTracking|Model experiments'),
+    emptyStateDescriptionLabel: s__(
+      'MlExperimentTracking|Experiments keep track of comparable model runs, and determine which parameters provides the best performance.',
+    ),
+  },
+  tableFields: [
+    { key: 'nameColumn', label: s__('MlExperimentTracking|Name') },
+    {
+      key: 'candidateCountColumn',
+      label: s__('MlExperimentTracking|Number of runs'),
+    },
+    { key: 'creatorColumn', label: s__('MlExperimentTracking|Creator') },
+    { key: 'lastActivityColumn', label: s__('MlExperimentTracking|Last activity') },
+  ],
+  mlflowModalId: MLFLOW_USAGE_MODAL_ID,
 };
 </script>
 
 <template>
   <div>
-    <model-experiments-header :page-title="$options.i18n.TITLE_LABEL" />
+    <model-experiments-header :page-title="$options.i18n.titleLabel" :count="count" />
 
-    <template v-if="hasExperiments">
+    <template v-if="showExperimentsTable">
       <gl-table-lite :items="tableItems" :fields="$options.tableFields">
-        <template #cell(nameColumn)="data">
-          <gl-link :href="data.value.path">
-            {{ data.value.name }}
+        <template #cell(nameColumn)="{ value: experiment }">
+          <gl-link :href="experiment.path">
+            {{ experiment.name }}
           </gl-link>
+        </template>
+        <template #cell(creatorColumn)="{ value: creator }">
+          <gl-avatar-link
+            v-if="creator"
+            :href="creator.webUrl"
+            :title="creator.name"
+            class="js-user-link gl-text-subtle"
+            :data-user-id="creator.iid"
+          >
+            <gl-avatar
+              :src="creator.avatarUrl"
+              :size="16"
+              :entity-name="creator.name"
+              class="mr-2"
+            />
+            {{ creator.name }}
+          </gl-avatar-link>
+        </template>
+        <template #cell(lastActivityColumn)="{ value: updatedAt }">
+          <time-ago-tooltip :time="updatedAt" />
         </template>
       </gl-table-lite>
 
-      <pagination v-if="hasExperiments" v-bind="pageInfo" />
+      <gl-keyset-pagination v-bind="pageInfo" @prev="prevPage" @next="nextPage" />
     </template>
-
     <gl-empty-state
-      v-else
-      :title="$options.i18n.EMPTY_STATE_TITLE_LABEL"
-      :primary-button-text="$options.i18n.CREATE_NEW_LABEL"
-      :primary-button-link="$options.constants.CREATE_EXPERIMENT_HELP_PATH"
+      v-if="showEmptyState"
+      :title="$options.i18n.emptyStateTitleLabel"
       :svg-path="emptyStateSvgPath"
       :svg-height="null"
-      :description="$options.i18n.EMPTY_STATE_DESCRIPTION_LABEL"
+      :description="$options.i18n.emptyStateDescriptionLabel"
       class="gl-py-8"
-    />
+    >
+      <template #actions>
+        <gl-button
+          v-gl-modal="$options.mlflowModalId"
+          data-testid="empty-create-using-button"
+          class="gl-mx-2 gl-mb-3 gl-mr-3"
+        >
+          {{ $options.i18n.createUsingMlflowLabel }}
+        </gl-button>
+      </template>
+    </gl-empty-state>
+    <gl-alert v-if="errorMessage" variant="warning" :dismissible="false">
+      {{ errorMessage }}
+    </gl-alert>
   </div>
 </template>

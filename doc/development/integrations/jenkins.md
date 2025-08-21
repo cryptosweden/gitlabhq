@@ -1,10 +1,9 @@
 ---
-stage: Manage
-group: Import and Integrate
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Create
+group: Import
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: How to run Jenkins in development environment (on macOS)
 ---
-
-# How to run Jenkins in development environment (on macOS)
 
 This is a step by step guide on how to set up [Jenkins](https://www.jenkins.io/) on your local machine and connect to it from your GitLab instance. GitLab triggers webhooks on Jenkins, and Jenkins connects to GitLab using the API. By running both applications on the same machine, we can make sure they are able to access each other.
 
@@ -24,7 +23,7 @@ brew services start jenkins
 GitLab does not allow requests to localhost or the local network by default. When running Jenkins on your local machine, you need to enable local access.
 
 1. Sign in to your GitLab instance as an administrator.
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Network**.
 1. Expand **Outbound requests**, and select the following checkboxes:
 
@@ -37,7 +36,7 @@ Jenkins uses the GitLab API and needs an access token.
 
 1. Sign in to your GitLab instance.
 1. Select your profile picture, then select **Settings**.
-1. Select **Access Tokens**.
+1. Select **Access tokens**.
 1. Create a new Access Token with the **API** scope enabled. Note the value of the token.
 
 ## Configure Jenkins

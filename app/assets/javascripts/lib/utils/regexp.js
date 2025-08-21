@@ -9,3 +9,21 @@ export const unicodeLetters =
 
 export const semverRegex =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
+
+export const noSpacesRegex = /^\S+$/;
+
+// AWS Role ARN Reference: https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html#identifiers-arns
+export const awsIamRoleArnRegex =
+  /^arn:(aws|aws-cn|aws-us-gov):iam::\d{12}:role\/[a-zA-Z0-9+=,.@\-_/]+$/;
+
+/**
+ * Checks if a string contains potential regular expression elements.
+ *
+ * @param {string} str - The string to check for potential regex elements.
+ * @returns {boolean} - Returns true if the string contains regex elements, otherwise false.
+ */
+
+export const containsPotentialRegex = (str) => {
+  const regexPattern = /[*+?^${}()|[\]\\]/;
+  return regexPattern.test(str);
+};

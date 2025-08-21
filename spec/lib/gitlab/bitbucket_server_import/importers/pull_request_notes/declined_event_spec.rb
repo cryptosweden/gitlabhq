@@ -3,30 +3,29 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::BitbucketServerImport::Importers::PullRequestNotes::DeclinedEvent, feature_category: :importers do
-  let_it_be(:project) do
-    create(:project, :repository, :import_started,
-      import_data_attributes: {
-        data: { 'project_key' => 'key', 'repo_slug' => 'slug' },
-        credentials: { 'token' => 'token' }
-      }
+  include Import::UserMappingHelper
+
+  let_it_be_with_reload(:project) do
+    create(
+      :project, :repository, :bitbucket_server_import, :in_group,
+      :import_user_mapping_enabled, :user_mapping_to_personal_namespace_owner_enabled
     )
   end
 
   let_it_be(:merge_request) { create(:merge_request, source_project: project) }
-  let_it_be(:now) { Time.now.utc.change(usec: 0) }
-
-  let!(:decliner_author) do
-    create(:user, username: 'decliner_author', email: 'decliner_author@example.org')
-  end
-
-  let(:declined_event) do
+  let_it_be(:declined_event) do
     {
       id: 7,
-      decliner_username: decliner_author.username,
-      decliner_email: decliner_author.email,
-      created_at: now
+      decliner_name: 'John Rejections',
+      decliner_username: 'decliner_author',
+      decliner_email: 'decliner_author@example.org',
+      created_at: Time.now.utc.change(usec: 0)
     }
   end
+
+  let_it_be(:source_user) { generate_source_user(project, declined_event[:decliner_username]) }
+
+  let(:cached_references) { placeholder_user_references(::Import::SOURCE_BITBUCKET_SERVER, project.import_state.id) }
 
   def expect_log(stage:, message:, iid:, event_id:)
     allow(Gitlab::BitbucketServerImport::Logger).to receive(:info).and_call_original
@@ -37,44 +36,47 @@ RSpec.describe Gitlab::BitbucketServerImport::Importers::PullRequestNotes::Decli
   subject(:importer) { described_class.new(project, merge_request) }
 
   describe '#execute', :clean_gitlab_redis_shared_state do
+    it 'pushes placeholder references' do
+      importer.execute(declined_event)
+
+      expect(cached_references).to contain_exactly(
+        ['Event', instance_of(Integer), 'author_id', source_user.id],
+        ["ResourceStateEvent", instance_of(Integer), "user_id", source_user.id],
+        ['MergeRequest::Metrics', instance_of(Integer), 'latest_closed_by_id', source_user.id]
+      )
+    end
+
     it 'imports the declined event' do
       expect { importer.execute(declined_event) }
-        .to change { merge_request.events.count }.from(0).to(1)
+        .to change { merge_request.resource_state_events.count }.from(0).to(1)
+        .and change { merge_request.events.count }.from(0).to(1)
         .and change { merge_request.resource_state_events.count }.from(0).to(1)
 
+      state_event = merge_request.resource_state_events.first
+      expect(state_event.user_id).to eq(source_user.mapped_user_id)
+      expect(state_event.state).to eq('closed')
+
       metrics = merge_request.metrics.reload
-      expect(metrics.latest_closed_by).to eq(decliner_author)
+      expect(metrics.latest_closed_by_id).to eq(source_user.mapped_user_id)
       expect(metrics.latest_closed_at).to eq(declined_event[:created_at])
 
       event = merge_request.events.first
+      expect(event.author_id).to eq(source_user.mapped_user_id)
       expect(event.action).to eq('closed')
 
       resource_state_event = merge_request.resource_state_events.first
       expect(resource_state_event.state).to eq('closed')
     end
 
-    context 'when bitbucket_server_user_mapping_by_username flag is disabled' do
-      before do
-        stub_feature_flags(bitbucket_server_user_mapping_by_username: false)
-      end
+    it 'logs its progress' do
+      expect_log(stage: 'import_declined_event', message: 'starting', iid: merge_request.iid, event_id: 7)
+      expect_log(stage: 'import_declined_event', message: 'finished', iid: merge_request.iid, event_id: 7)
 
-      context 'when a user with a matching username does not exist' do
-        let(:another_username_event) do
-          declined_event.merge(decliner_username: 'another_username')
-        end
-
-        it 'finds the user based on email' do
-          importer.execute(another_username_event)
-
-          expect(merge_request.metrics.reload.latest_closed_by).to eq(decliner_author)
-        end
-      end
+      importer.execute(declined_event)
     end
 
-    context 'when no users match email or username' do
-      let(:another_user_event) do
-        declined_event.merge(decliner_username: 'another_username', decliner_email: 'another_email@example.org')
-      end
+    context 'when declined event has no associated user' do
+      let(:declined_event) { super().merge(decliner_username: nil) }
 
       it 'does not set a decliner' do
         expect_log(
@@ -84,7 +86,7 @@ RSpec.describe Gitlab::BitbucketServerImport::Importers::PullRequestNotes::Decli
           event_id: 7
         )
 
-        expect { importer.execute(another_user_event) }
+        expect { importer.execute(declined_event) }
           .to not_change { merge_request.events.count }
           .and not_change { merge_request.resource_state_events.count }
 
@@ -92,11 +94,93 @@ RSpec.describe Gitlab::BitbucketServerImport::Importers::PullRequestNotes::Decli
       end
     end
 
-    it 'logs its progress' do
-      expect_log(stage: 'import_declined_event', message: 'starting', iid: merge_request.iid, event_id: 7)
-      expect_log(stage: 'import_declined_event', message: 'finished', iid: merge_request.iid, event_id: 7)
+    context 'when importing into a personal namespace' do
+      let_it_be(:user_namespace) { create(:namespace) }
+      let_it_be(:project) do
+        project.update!(namespace: user_namespace)
+        project
+      end
 
-      importer.execute(declined_event)
+      let_it_be(:source_user) { generate_source_user(project, declined_event[:decliner_username]) }
+
+      it 'does not push placeholder references' do
+        importer.execute(declined_event)
+
+        expect(cached_references).to be_empty
+      end
+
+      it 'imports the declined event mapped to the personal namespace owner' do
+        importer.execute(declined_event)
+
+        expect(merge_request.resource_state_events.first.user_id).to eq(user_namespace.owner_id)
+        expect(merge_request.metrics.reload.latest_closed_by_id).to eq(user_namespace.owner_id)
+        expect(merge_request.events.first.author_id).to eq(user_namespace.owner_id)
+      end
+
+      context 'when user_mapping_to_personal_namespace_owner is disabled' do
+        before do
+          project.build_or_assign_import_data(
+            data: { user_mapping_to_personal_namespace_owner_enabled: false }
+          ).save!
+        end
+
+        it 'pushes placeholder references' do
+          importer.execute(declined_event)
+
+          expect(cached_references).to contain_exactly(
+            ['Event', instance_of(Integer), 'author_id', source_user.id],
+            ["ResourceStateEvent", instance_of(Integer), "user_id", source_user.id],
+            ['MergeRequest::Metrics', instance_of(Integer), 'latest_closed_by_id', source_user.id]
+          )
+        end
+
+        it 'imports the declined event mapped to the placeholder user' do
+          importer.execute(declined_event)
+
+          expect(merge_request.resource_state_events.first.user_id).to eq(source_user.mapped_user_id)
+          expect(merge_request.metrics.reload.latest_closed_by_id).to eq(source_user.mapped_user_id)
+          expect(merge_request.events.first.author_id).to eq(source_user.mapped_user_id)
+        end
+      end
+    end
+
+    context 'when user contribution mapping is disabled' do
+      let_it_be(:decliner_author) { create(:user, username: 'decliner_author', email: 'decliner_author@example.org') }
+
+      before do
+        project.build_or_assign_import_data(data: { user_contribution_mapping_enabled: false }).save!
+      end
+
+      it 'finds the user based on email' do
+        importer.execute(declined_event)
+
+        expect(merge_request.metrics.reload.latest_closed_by).to eq(decliner_author)
+      end
+
+      it 'does not push placeholder references' do
+        importer.execute(declined_event)
+
+        expect(cached_references).to be_empty
+      end
+
+      context 'when no users match email' do
+        let(:another_user_event) { declined_event.merge(decliner_email: 'another_email@example.org') }
+
+        it 'does not set a decliner' do
+          expect_log(
+            stage: 'import_declined_event',
+            message: 'skipped due to missing user',
+            iid: merge_request.iid,
+            event_id: 7
+          )
+
+          expect { importer.execute(another_user_event) }
+            .to not_change { merge_request.events.count }
+            .and not_change { merge_request.resource_state_events.count }
+
+          expect(merge_request.metrics.reload.latest_closed_by).to be_nil
+        end
+      end
     end
   end
 end

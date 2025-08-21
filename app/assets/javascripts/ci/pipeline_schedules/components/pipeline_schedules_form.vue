@@ -1,54 +1,67 @@
 <script>
 import {
   GlButton,
-  GlCollapsibleListbox,
   GlFormCheckbox,
   GlForm,
   GlFormGroup,
   GlFormInput,
-  GlFormTextarea,
   GlLoadingIcon,
 } from '@gitlab/ui';
 import { __, s__ } from '~/locale';
 import { createAlert } from '~/alert';
+import { InternalEvents } from '~/tracking';
 import { visitUrl, queryToObject } from '~/lib/utils/url_utility';
 import { REF_TYPE_BRANCHES, REF_TYPE_TAGS } from '~/ref/constants';
 import RefSelector from '~/ref/components/ref_selector.vue';
 import TimezoneDropdown from '~/vue_shared/components/timezone_dropdown/timezone_dropdown.vue';
 import IntervalPatternInput from '~/pages/projects/pipeline_schedules/shared/components/interval_pattern_input.vue';
+import PipelineInputsForm from '~/ci/common/pipeline_inputs/pipeline_inputs_form.vue';
 import createPipelineScheduleMutation from '../graphql/mutations/create_pipeline_schedule.mutation.graphql';
 import updatePipelineScheduleMutation from '../graphql/mutations/update_pipeline_schedule.mutation.graphql';
 import getPipelineSchedulesQuery from '../graphql/queries/get_pipeline_schedules.query.graphql';
-import { VARIABLE_TYPE, FILE_TYPE } from '../constants';
+import PipelineVariablesFormGroup from './pipeline_variables_form_group.vue';
 
 const scheduleId = queryToObject(window.location.search).id;
+
+const trackingMixin = InternalEvents.mixin();
+const EVENT_NAME = 'modify_inputs_on_pipeline_schedule_page';
+const EDIT_EVENT_LABEL = 'edit_pipeline_schedule';
+const NEW_EVENT_LABEL = 'new_pipeline_schedule';
+const EVENT_PROPERTY = 'form_submission';
 
 export default {
   components: {
     GlButton,
-    GlCollapsibleListbox,
     GlForm,
     GlFormCheckbox,
     GlFormGroup,
     GlFormInput,
-    GlFormTextarea,
     GlLoadingIcon,
+    IntervalPatternInput,
+    PipelineInputsForm,
+    PipelineVariablesFormGroup,
     RefSelector,
     TimezoneDropdown,
-    IntervalPatternInput,
   },
-  inject: ['fullPath', 'projectId', 'defaultBranch', 'dailyLimit', 'settingsLink', 'schedulesPath'],
+  mixins: [trackingMixin],
+  inject: [
+    'projectPath',
+    'projectId',
+    'defaultBranch',
+    'dailyLimit',
+    'settingsLink',
+    'schedulesPath',
+  ],
   props: {
     timezoneData: {
       type: Array,
       required: true,
     },
-    refParam: {
-      type: String,
-      required: false,
-      default: '',
-    },
     editing: {
+      type: Boolean,
+      required: true,
+    },
+    canSetPipelineVariables: {
       type: Boolean,
       required: true,
     },
@@ -58,7 +71,7 @@ export default {
       query: getPipelineSchedulesQuery,
       variables() {
         return {
-          projectPath: this.fullPath,
+          projectPath: this.projectPath,
           ids: scheduleId,
         };
       },
@@ -79,6 +92,7 @@ export default {
           this.description = schedule.description;
           this.cron = schedule.cron;
           this.cronTimezone = schedule.cronTimezone;
+          this.savedInputs = schedule.inputs?.nodes || [];
           this.scheduleRef = schedule.ref || this.defaultBranch;
           this.variables = variables.map((variable) => {
             return {
@@ -89,7 +103,6 @@ export default {
               destroy: false,
             };
           });
-          this.addEmptyVariable();
           this.activated = schedule.active;
         }
       },
@@ -103,14 +116,21 @@ export default {
   },
   data() {
     return {
-      cron: '',
-      description: '',
-      scheduleRef: this.defaultBranch,
       activated: true,
+      cron: '',
       cronTimezone: '',
-      variables: [],
+      description: '',
+      pipelineInputs: [],
+      savedInputs: [],
       schedule: {},
-      showVarValues: false,
+      scheduleRef: this.defaultBranch,
+      updatedVariables: [],
+      variables: [],
+      inputsMetadata: {
+        totalAvailable: 0,
+        totalModified: 0,
+        newlyModified: 0,
+      },
     };
   },
   i18n: {
@@ -125,11 +145,7 @@ export default {
     cancel: __('Cancel'),
     targetBranchTag: __('Select target branch or tag'),
     intervalPattern: s__('PipelineSchedules|Interval Pattern'),
-    variablesDescription: s__(
-      'Pipeline|Specify variable values to be used in this run. The values specified in %{linkStart}CI/CD settings%{linkEnd} will be used by default.',
-    ),
-    removeVariableLabel: s__('CiVariables|Remove variable'),
-    variables: s__('Pipeline|Variables'),
+
     scheduleCreateError: s__(
       'PipelineSchedules|An error occurred while creating the pipeline schedule.',
     ),
@@ -139,33 +155,18 @@ export default {
     scheduleFetchError: s__(
       'PipelineSchedules|An error occurred while trying to fetch the pipeline schedule.',
     ),
-    revealText: __('Reveal values'),
-    hideText: __('Hide values'),
   },
-  formElementClasses: 'gl-md-mr-3 gl-mb-3 gl-flex-basis-quarter gl-flex-shrink-0 gl-flex-grow-0',
   computed: {
     dropdownTranslations() {
       return {
         dropdownHeader: this.$options.i18n.targetBranchTag,
       };
     },
-    typeOptions() {
-      return [
-        {
-          text: __('Variable'),
-          value: VARIABLE_TYPE,
-        },
-        {
-          text: __('File'),
-          value: FILE_TYPE,
-        },
-      ];
-    },
     getEnabledRefTypes() {
       return [REF_TYPE_BRANCHES, REF_TYPE_TAGS];
     },
     filledVariables() {
-      return this.variables.filter((variable) => variable.key !== '' && !variable.empty);
+      return this.updatedVariables.filter((variable) => variable.key !== '' && !variable.empty);
     },
     preparedVariablesUpdate() {
       return this.filledVariables.map((variable) => {
@@ -179,7 +180,7 @@ export default {
       });
     },
     preparedVariablesCreate() {
-      const vars = this.variables.filter((variable) => variable.key !== '');
+      const vars = this.updatedVariables.filter((variable) => variable.key !== '');
 
       return vars.map((variable) => {
         return {
@@ -197,45 +198,8 @@ export default {
         ? this.$options.i18n.saveScheduleBtnText
         : this.$options.i18n.createScheduleBtnText;
     },
-    varSecurityBtnText() {
-      return this.showVarValues ? this.$options.i18n.hideText : this.$options.i18n.revealText;
-    },
-    hasExistingScheduleVariables() {
-      return this.schedule?.variables?.nodes.length > 0;
-    },
-    showVarSecurityBtn() {
-      return this.editing && this.hasExistingScheduleVariables;
-    },
-  },
-  created() {
-    this.addEmptyVariable();
   },
   methods: {
-    addEmptyVariable() {
-      const lastVar = this.variables[this.variables.length - 1];
-
-      if (lastVar?.key === '' && lastVar?.value === '') {
-        return;
-      }
-
-      this.variables.push({
-        variableType: VARIABLE_TYPE,
-        key: '',
-        value: '',
-        destroy: false,
-        empty: true,
-      });
-    },
-    setVariableType(typeValue, key) {
-      const variable = this.variables.find((v) => v.key === key);
-      variable.variableType = typeValue;
-    },
-    removeVariable(index) {
-      this.variables[index].destroy = true;
-    },
-    canRemove(index) {
-      return index < this.variables.length - 1;
-    },
     async createPipelineSchedule() {
       try {
         const {
@@ -252,7 +216,8 @@ export default {
               ref: this.scheduleRef,
               variables: this.preparedVariablesCreate,
               active: this.activated,
-              projectPath: this.fullPath,
+              projectPath: this.projectPath,
+              inputs: this.pipelineInputs,
             },
           },
         });
@@ -260,6 +225,7 @@ export default {
         if (errors.length > 0) {
           createAlert({ message: errors[0] });
         } else {
+          this.trackPipelineInputsModification();
           visitUrl(this.schedulesPath);
         }
       } catch {
@@ -283,6 +249,7 @@ export default {
               ref: this.scheduleRef,
               variables: this.preparedVariablesUpdate,
               active: this.activated,
+              inputs: this.pipelineInputs,
             },
           },
         });
@@ -290,6 +257,7 @@ export default {
         if (errors.length > 0) {
           createAlert({ message: errors[0] });
         } else {
+          this.trackPipelineInputsModification();
           visitUrl(this.schedulesPath);
         }
       } catch {
@@ -309,164 +277,130 @@ export default {
     setTimezone(timezone) {
       this.cronTimezone = timezone.identifier || '';
     },
-    displayHiddenChars(variable) {
-      return (
-        this.editing && this.hasExistingScheduleVariables && !this.showVarValues && !variable.empty
-      );
+    trackPipelineInputsModification() {
+      this.trackEvent(EVENT_NAME, {
+        label: this.editing ? EDIT_EVENT_LABEL : NEW_EVENT_LABEL,
+        property: EVENT_PROPERTY,
+        value: this.inputsMetadata.newlyModified,
+        total_modified: this.inputsMetadata.totalModified,
+        total_inputs: this.inputsMetadata.totalAvailable,
+      });
     },
-    resetVariable(index) {
-      this.variables[index].empty = false;
+    handleInputsMetadataUpdate(data) {
+      if (!data) return;
+      this.inputsMetadata = {
+        ...this.inputsMetadata,
+        ...data,
+      };
     },
   },
 };
 </script>
 
 <template>
-  <div class="col-lg-8 gl-pl-0">
-    <gl-loading-icon v-if="loading && editing" size="lg" />
-    <gl-form v-else>
-      <!--Description-->
-      <gl-form-group :label="$options.i18n.description" label-for="schedule-description">
-        <gl-form-input
-          id="schedule-description"
-          v-model="description"
-          type="text"
-          :placeholder="$options.i18n.shortDescriptionPipeline"
-          data-testid="schedule-description"
-          required
-        />
-      </gl-form-group>
-      <!--Interval Pattern-->
-      <gl-form-group :label="$options.i18n.intervalPattern" label-for="schedule-interval">
-        <interval-pattern-input
-          id="schedule-interval"
-          :initial-cron-interval="cron"
-          :daily-limit="dailyLimit"
-          :send-native-errors="false"
-          @cronValue="setCronValue"
-        />
-      </gl-form-group>
-      <!--Timezone-->
-      <gl-form-group :label="$options.i18n.cronTimezoneText" label-for="schedule-timezone">
-        <timezone-dropdown
-          id="schedule-timezone"
-          :value="cronTimezone"
-          :timezone-data="timezoneData"
-          name="schedule-timezone"
-          @input="setTimezone"
-        />
-      </gl-form-group>
-      <!--Branch/Tag Selector-->
-      <gl-form-group :label="$options.i18n.targetBranchTag" label-for="schedule-target-branch-tag">
-        <ref-selector
-          id="schedule-target-branch-tag"
-          v-model="scheduleRef"
-          :enabled-ref-types="getEnabledRefTypes"
-          :project-id="projectId"
-          :value="scheduleRef"
-          :use-symbolic-ref-names="true"
-          :translations="dropdownTranslations"
-          class="gl-w-full"
-        />
-      </gl-form-group>
-      <!--Variable List-->
-      <gl-form-group class="gl-mb-0" :label="$options.i18n.variables">
-        <div v-for="(variable, index) in variables" :key="`var-${index}`">
-          <div
-            v-if="!variable.destroy"
-            class="gl-display-flex gl-align-items-stretch gl-flex-direction-column gl-md-flex-direction-row gl-mb-3 gl-pb-2"
-            data-testid="ci-variable-row"
-          >
-            <gl-collapsible-listbox
-              :items="typeOptions"
-              :selected="variable.variableType"
-              :class="$options.formElementClasses"
-              block
-              data-testid="pipeline-form-ci-variable-type"
-              @select="setVariableType($event, variable.key)"
-            />
+  <gl-loading-icon v-if="loading && editing" size="lg" />
+  <gl-form v-else @submit.prevent="scheduleHandler">
+    <!--Description-->
+    <gl-form-group
+      :label="$options.i18n.description"
+      label-for="schedule-description"
+      class="lg:gl-w-2/3"
+    >
+      <gl-form-input
+        id="schedule-description"
+        v-model="description"
+        type="text"
+        :placeholder="$options.i18n.shortDescriptionPipeline"
+        data-testid="schedule-description"
+        required
+      />
+    </gl-form-group>
+    <!--Timezone-->
+    <gl-form-group
+      :label="$options.i18n.cronTimezoneText"
+      label-for="user_timezone"
+      class="lg:gl-w-2/3"
+    >
+      <timezone-dropdown
+        id="schedule-timezone"
+        input-id="user_timezone"
+        :value="cronTimezone"
+        :timezone-data="timezoneData"
+        name="schedule-timezone"
+        required
+        @input="setTimezone"
+      />
+    </gl-form-group>
+    <!--Interval Pattern-->
+    <gl-form-group
+      :label="$options.i18n.intervalPattern"
+      label-for="schedule-interval"
+      class="lg:gl-w-2/3"
+    >
+      <interval-pattern-input
+        id="schedule-interval"
+        :initial-cron-interval="cron"
+        :daily-limit="dailyLimit"
+        :send-native-errors="false"
+        @cronValue="setCronValue"
+      />
+    </gl-form-group>
+    <!--Branch/Tag Selector-->
+    <gl-form-group
+      :label="$options.i18n.targetBranchTag"
+      label-for="schedule-target-branch-tag"
+      class="lg:gl-w-2/3"
+    >
+      <ref-selector
+        id="schedule-target-branch-tag"
+        v-model="scheduleRef"
+        :enabled-ref-types="getEnabledRefTypes"
+        :project-id="projectId"
+        :value="scheduleRef"
+        :use-symbolic-ref-names="true"
+        :translations="dropdownTranslations"
+        class="gl-w-full"
+      />
+    </gl-form-group>
+    <!--Pipeline inputs-->
+    <pipeline-inputs-form
+      :saved-inputs="savedInputs"
+      :query-ref="scheduleRef"
+      :empty-selection-text="
+        s__('PipelineSchedules|Select inputs to create a new scheduled pipeline.')
+      "
+      class="gl-mb-6"
+      @update-inputs="pipelineInputs = $event"
+      @update-inputs-metadata="handleInputsMetadataUpdate"
+    />
+    <!--Variable List-->
+    <pipeline-variables-form-group
+      v-if="canSetPipelineVariables"
+      :initial-variables="variables"
+      :editing="editing"
+      @update-variables="updatedVariables = $event"
+    />
 
-            <gl-form-input
-              v-model="variable.key"
-              :placeholder="s__('CiVariables|Input variable key')"
-              :class="$options.formElementClasses"
-              data-testid="pipeline-form-ci-variable-key"
-              @change="addEmptyVariable(variable)"
-            />
-
-            <gl-form-textarea
-              v-if="displayHiddenChars(variable)"
-              value="*****************"
-              disabled
-              class="gl-mb-3 gl-h-7!"
-              :no-resize="false"
-              data-testid="pipeline-form-ci-variable-hidden-value"
-            />
-
-            <gl-form-textarea
-              v-else
-              v-model="variable.value"
-              :placeholder="s__('CiVariables|Input variable value')"
-              class="gl-mb-3 gl-h-7!"
-              :no-resize="false"
-              data-testid="pipeline-form-ci-variable-value"
-              @change="resetVariable(index)"
-            />
-
-            <template v-if="variables.length > 1">
-              <gl-button
-                v-if="canRemove(index)"
-                class="gl-md-ml-3 gl-mb-3"
-                data-testid="remove-ci-variable-row"
-                variant="danger"
-                category="secondary"
-                icon="clear"
-                :aria-label="$options.i18n.removeVariableLabel"
-                @click="removeVariable(index)"
-              />
-              <gl-button
-                v-else
-                class="gl-md-ml-3 gl-mb-3 gl-hidden md:gl-block gl-invisible"
-                icon="clear"
-                :aria-label="$options.i18n.removeVariableLabel"
-              />
-            </template>
-          </div>
-        </div>
-      </gl-form-group>
-
+    <!--Activated-->
+    <gl-form-checkbox id="schedule-active" v-model="activated" class="gl-mb-3">
+      {{ $options.i18n.activated }}
+    </gl-form-checkbox>
+    <div class="gl-flex gl-flex-wrap gl-gap-3">
       <gl-button
-        v-if="showVarSecurityBtn"
-        class="gl-mb-5"
-        category="secondary"
+        type="submit"
         variant="confirm"
-        data-testid="variable-security-btn"
-        @click="showVarValues = !showVarValues"
+        data-testid="schedule-submit-button"
+        class="gl-w-full sm:gl-w-auto"
       >
-        {{ varSecurityBtnText }}
+        {{ buttonText }}
       </gl-button>
-
-      <!--Activated-->
-      <gl-form-checkbox id="schedule-active" v-model="activated" class="gl-mb-3">
-        {{ $options.i18n.activated }}
-      </gl-form-checkbox>
-      <div class="gl-display-flex gl-gap-3 gl-flex-wrap">
-        <gl-button
-          variant="confirm"
-          data-testid="schedule-submit-button"
-          class="gl-w-full gl-sm-w-auto"
-          @click="scheduleHandler"
-        >
-          {{ buttonText }}
-        </gl-button>
-        <gl-button
-          :href="schedulesPath"
-          data-testid="schedule-cancel-button"
-          class="gl-w-full gl-sm-w-auto"
-        >
-          {{ $options.i18n.cancel }}
-        </gl-button>
-      </div>
-    </gl-form>
-  </div>
+      <gl-button
+        :href="schedulesPath"
+        data-testid="schedule-cancel-button"
+        class="gl-w-full sm:gl-w-auto"
+      >
+        {{ $options.i18n.cancel }}
+      </gl-button>
+    </div>
+  </gl-form>
 </template>

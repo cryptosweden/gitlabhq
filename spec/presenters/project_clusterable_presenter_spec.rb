@@ -67,21 +67,36 @@ RSpec.describe ProjectClusterablePresenter, feature_category: :environment_manag
     it { is_expected.to eq(clear_cache_project_cluster_path(project, cluster)) }
   end
 
+  describe '#create_cluster_migration_path' do
+    subject { presenter.create_cluster_migration_path(cluster) }
+
+    it { is_expected.to eq(migrate_project_cluster_path(project, cluster)) }
+  end
+
+  describe '#update_cluster_migration_path' do
+    subject { presenter.update_cluster_migration_path(cluster) }
+
+    it { is_expected.to eq(update_migration_project_cluster_path(project, cluster)) }
+  end
+
   describe '#cluster_path' do
     subject { presenter.cluster_path(cluster) }
 
     it { is_expected.to eq(project_cluster_path(project, cluster)) }
   end
 
-  describe '#metrics_dashboard_path' do
-    subject { presenter.metrics_dashboard_path(cluster) }
+  describe '#sidebar_text' do
+    subject { presenter.sidebar_text }
 
-    it { is_expected.to eq(metrics_dashboard_project_cluster_path(project, cluster)) }
+    it 'renders correct sidebar text' do
+      is_expected.to eq(s_('ClusterIntegration|Use GitLab to deploy to your cluster, run jobs, ' \
+        'use review apps, and more.'))
+    end
   end
 
   describe '#learn_more_link' do
     subject { presenter.learn_more_link }
 
-    it { is_expected.to include('user/project/clusters/index') }
+    it { is_expected.to include('user/project/clusters/_index') }
   end
 end

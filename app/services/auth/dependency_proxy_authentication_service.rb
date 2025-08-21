@@ -5,11 +5,17 @@ module Auth
     AUDIENCE = 'dependency_proxy'
     HMAC_KEY = 'gitlab-dependency-proxy'
     DEFAULT_EXPIRE_TIME = 1.minute
-    REQUIRED_ABILITIES = %i[read_container_image create_container_image].freeze
+    REQUIRED_CI_ABILITIES = %i[build_read_container_image build_create_container_image].freeze
+    REQUIRED_USER_ABILITIES = %i[read_container_image create_container_image].freeze
+    REQUIRED_USER_VR_ABILITIES = %i[read_dependency_proxy write_dependency_proxy].freeze
+
+    MISSING_ABILITIES_MESSAGE = 'Dependency proxy missing authentication abilities'
 
     def execute(authentication_abilities:)
+      @authentication_abilities = authentication_abilities
+
       return error('dependency proxy not enabled', 404) unless ::Gitlab.config.dependency_proxy.enabled
-      return error('access forbidden', 403) unless valid_user_actor?(authentication_abilities)
+      return error('access forbidden', 403) unless valid_user_actor?
 
       { token: authorized_token.encoded }
     end
@@ -21,7 +27,7 @@ module Auth
         strong_memoize(:secret) do
           OpenSSL::HMAC.hexdigest(
             'sha256',
-            ::Settings.attr_encrypted_db_key_base,
+            ::Gitlab::Encryption::KeyProvider[:db_key_base].encryption_key.secret,
             HMAC_KEY
           )
         end
@@ -34,31 +40,20 @@ module Auth
 
     private
 
-    def valid_user_actor?(authentication_abilities)
-      feature_user = deploy_token&.user || current_user
-      if Feature.enabled?(:packages_dependency_proxy_containers_scope_check, feature_user)
-        if deploy_token
-          deploy_token.valid_for_dependency_proxy?
-        elsif current_user&.project_bot?
-          group_access_token&.active? && has_required_abilities?(authentication_abilities)
-        else
-          current_user
-        end
-      else
-        current_user || valid_deploy_token?
-      end
+    attr_reader :authentication_abilities
+
+    def valid_user_actor?
+      has_required_abilities? && (!deploy_token || deploy_token.valid_for_dependency_proxy?)
     end
 
-    def has_required_abilities?(authentication_abilities)
-      (REQUIRED_ABILITIES & authentication_abilities).size == REQUIRED_ABILITIES.size
+    def has_required_abilities?
+      [REQUIRED_CI_ABILITIES, REQUIRED_USER_ABILITIES, REQUIRED_USER_VR_ABILITIES].any? do |required_abilities|
+        (required_abilities & authentication_abilities).size == required_abilities.size
+      end
     end
 
     def group_access_token
       PersonalAccessTokensFinder.new(state: 'active').find_by_token(raw_token.to_s)
-    end
-
-    def valid_deploy_token?
-      deploy_token && deploy_token.valid_for_dependency_proxy?
     end
 
     def authorized_token

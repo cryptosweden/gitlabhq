@@ -2,6 +2,7 @@
 
 class InvitesController < ApplicationController
   include Gitlab::Utils::StrongMemoize
+  include SafeFormatHelper
 
   prepend_before_action :authenticate_user!, :track_invite_join_click, only: :show
   before_action :member
@@ -38,8 +39,10 @@ class InvitesController < ApplicationController
           new_user_session_path
         end
 
-      redirect_to path, notice: _("You have declined the invitation to join %{title} %{name}.") %
-        { title: invite_details[:title], name: invite_details[:name] }
+      redirect_to path,
+        notice: safe_format(_("You have declined the invitation to join %{title} %{name}."),
+          title: invite_details[:title],
+          name: invite_details[:name])
     else
       redirect_back_or_default(options: { alert: _("The invitation could not be declined.") })
     end
@@ -56,17 +59,15 @@ class InvitesController < ApplicationController
   end
 
   def member?
-    strong_memoize(:is_member) do
-      @member.source.has_user?(current_user)
-    end
+    @member.source.has_user?(current_user)
   end
+  strong_memoize_attr :member?
 
   def member
-    strong_memoize(:member) do
-      @token = params[:id].to_s
-      Member.find_by_invite_token(@token)
-    end
+    @token = params[:id].to_s
+    Member.find_by_invite_token(@token)
   end
+  strong_memoize_attr :member
 
   def ensure_member_exists
     return if member
@@ -77,7 +78,7 @@ class InvitesController < ApplicationController
   def track_invite_join_click
     return unless member && initial_invite_email?
 
-    Gitlab::Tracking.event(self.class.name, 'join_clicked', label: 'invite_email', property: member.id.to_s)
+    Gitlab::Tracking.event(self.class.name, 'join_clicked', label: 'invite_email')
   end
 
   def authenticate_user!
@@ -86,7 +87,8 @@ class InvitesController < ApplicationController
     if user_sign_up?
       set_session_invite_params
 
-      redirect_to new_user_registration_path(invite_email: member.invite_email), notice: _("To accept this invitation, create an account or sign in.")
+      redirect_to new_user_registration_path(invite_email: member.invite_email),
+        notice: _("To accept this invitation, create an account or sign in.")
     else
       redirect_to new_user_session_path(sign_in_redirect_params), notice: sign_in_notice
     end

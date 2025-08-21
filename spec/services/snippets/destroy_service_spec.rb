@@ -15,6 +15,7 @@ RSpec.describe Snippets::DestroyService, feature_category: :source_code_manageme
 
       it 'returns a ServiceResponse error' do
         expect(subject).to be_error
+        expect(subject.reason).to eq(described_class::SNIPPET_NOT_FOUND_ERROR)
       end
     end
 
@@ -28,6 +29,17 @@ RSpec.describe Snippets::DestroyService, feature_category: :source_code_manageme
       end
     end
 
+    shared_examples 'an unauthorized destroy' do
+      it 'does not delete the snippet' do
+        expect { subject }.not_to change { Snippet.count }
+      end
+
+      it 'returns ServiceResponse error' do
+        expect(subject).to be_error
+        expect(subject.reason).to eq(described_class::SNIPPET_ACCESS_ERROR)
+      end
+    end
+
     shared_examples 'an unsuccessful destroy' do
       it 'does not delete the snippet' do
         expect { subject }.not_to change { Snippet.count }
@@ -35,13 +47,14 @@ RSpec.describe Snippets::DestroyService, feature_category: :source_code_manageme
 
       it 'returns ServiceResponse error' do
         expect(subject).to be_error
+        expect(subject.reason).to eq(described_class::FAILED_TO_DELETE_ERROR)
       end
     end
 
     shared_examples 'deletes the snippet repository' do
       it 'removes the snippet repository' do
         expect(snippet.repository.exists?).to be_truthy
-        expect_next_instance_of(Repositories::DestroyService) do |instance|
+        expect_next_instance_of(::Repositories::DestroyService) do |instance|
           expect(instance).to receive(:execute).and_call_original
         end
 
@@ -50,7 +63,7 @@ RSpec.describe Snippets::DestroyService, feature_category: :source_code_manageme
 
       context 'when the repository deletion service raises an error' do
         before do
-          allow_next_instance_of(Repositories::DestroyService) do |instance|
+          allow_next_instance_of(::Repositories::DestroyService) do |instance|
             allow(instance).to receive(:execute).and_return({ status: :error })
           end
         end
@@ -70,7 +83,7 @@ RSpec.describe Snippets::DestroyService, feature_category: :source_code_manageme
         it 'does not schedule anything and return success' do
           allow(snippet).to receive(:repository).and_return(nil)
 
-          expect_next_instance_of(Repositories::DestroyService) do |instance|
+          expect_next_instance_of(::Repositories::DestroyService) do |instance|
             expect(instance).to receive(:execute).and_call_original
           end
 
@@ -116,7 +129,7 @@ RSpec.describe Snippets::DestroyService, feature_category: :source_code_manageme
       context 'when user is not able to admin_project_snippet' do
         let(:author) { other_user }
 
-        it_behaves_like 'an unsuccessful destroy'
+        it_behaves_like 'an unauthorized destroy'
       end
     end
 
@@ -139,7 +152,7 @@ RSpec.describe Snippets::DestroyService, feature_category: :source_code_manageme
       context 'when user is not able to admin_personal_snippet' do
         let(:author) { other_user }
 
-        it_behaves_like 'an unsuccessful destroy'
+        it_behaves_like 'an unauthorized destroy'
       end
     end
 
@@ -150,7 +163,7 @@ RSpec.describe Snippets::DestroyService, feature_category: :source_code_manageme
         expect(snippet.repository).not_to be_nil
         expect(snippet.repository.exists?).to be_falsey
 
-        expect_next_instance_of(Repositories::DestroyService) do |instance|
+        expect_next_instance_of(::Repositories::DestroyService) do |instance|
           expect(instance).to receive(:execute).and_call_original
         end
 

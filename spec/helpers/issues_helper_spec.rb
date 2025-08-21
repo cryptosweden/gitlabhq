@@ -6,9 +6,16 @@ RSpec.describe IssuesHelper, feature_category: :team_planning do
   include Features::MergeRequestHelpers
 
   let_it_be(:user) { create(:user) }
-  let_it_be(:group) { create(:group) }
-  let_it_be(:project) { create(:project) }
+  let_it_be_with_reload(:group) { create(:group) }
+  let_it_be_with_reload(:project) { create(:project, namespace: group) }
   let_it_be_with_reload(:issue) { create(:issue, project: project) }
+
+  before do
+    # TODO: When removing the feature flag,
+    # we won't need the tests for the issues listing page, since we'll be using
+    # the work items listing page.
+    stub_feature_flags(work_item_planning_view: false)
+  end
 
   describe '#award_user_list' do
     it 'returns a comma-separated list of the first X users' do
@@ -47,8 +54,12 @@ RSpec.describe IssuesHelper, feature_category: :team_planning do
   end
 
   describe '#award_state_class' do
-    let!(:upvote) { create(:award_emoji) }
+    let_it_be(:upvote) { create(:award_emoji) }
     let(:awardable) { upvote.awardable }
+
+    before_all do
+      upvote.awardable.project.add_guest(upvote.user)
+    end
 
     before do
       allow(helper).to receive(:can?) do |*args|
@@ -78,8 +89,8 @@ RSpec.describe IssuesHelper, feature_category: :team_planning do
 
   describe 'awards_sort' do
     it 'sorts a hash so thumbsup and thumbsdown are always on top' do
-      data = { 'thumbsdown' => 'some value', 'lifter' => 'some value', 'thumbsup' => 'some value' }
-      expect(awards_sort(data).keys).to eq(%w[thumbsup thumbsdown lifter])
+      data = { AwardEmoji::THUMBS_DOWN => 'some value', 'lifter' => 'some value', AwardEmoji::THUMBS_UP => 'some value' }
+      expect(awards_sort(data).keys).to eq(%W[#{AwardEmoji::THUMBS_UP} #{AwardEmoji::THUMBS_DOWN} lifter])
     end
   end
 
@@ -124,6 +135,18 @@ RSpec.describe IssuesHelper, feature_category: :team_planning do
       expect(helper.show_new_issue_link?(nil)).to be_falsey
     end
 
+    it 'is false when project is archived' do
+      project.update!(archived: true)
+
+      expect(helper.show_new_issue_link?(project)).to be(false)
+    end
+
+    it 'is false when project group is archived' do
+      group.update!(archived: true)
+
+      expect(helper.show_new_issue_link?(project)).to be(false)
+    end
+
     it 'is true when there is a project and no logged in user' do
       expect(helper.show_new_issue_link?(build(:project))).to be_truthy
     end
@@ -138,10 +161,11 @@ RSpec.describe IssuesHelper, feature_category: :team_planning do
   end
 
   describe '#show_moved_service_desk_issue_warning?' do
+    let_it_be(:support_bot) { Users::Internal.support_bot }
     let(:project1) { create(:project, service_desk_enabled: true) }
     let(:project2) { create(:project, service_desk_enabled: true) }
-    let!(:old_issue) { create(:issue, author: Users::Internal.support_bot, project: project1) }
-    let!(:new_issue) { create(:issue, author: Users::Internal.support_bot, project: project2) }
+    let!(:old_issue) { create(:issue, author: support_bot, project: project1) }
+    let!(:new_issue) { create(:issue, author: support_bot, project: project2) }
 
     before do
       allow(Gitlab::Email::IncomingEmail).to receive(:enabled?) { true }
@@ -199,6 +223,8 @@ RSpec.describe IssuesHelper, feature_category: :team_planning do
     it 'returns expected result' do
       allow(helper).to receive(:current_user).and_return(current_user)
       allow(helper).to receive(:can?).and_return(true)
+      allow(helper).to receive(:can?).with(current_user, :read_crm_contact, project.crm_group).and_return(true)
+      allow(helper).to receive(:can?).with(current_user, :read_crm_organization, project.crm_group).and_return(false)
       allow(helper).to receive(:image_path).and_return('#')
       allow(helper).to receive(:import_csv_namespace_project_issues_path).and_return('#')
       allow(helper).to receive(:issue_repositioning_disabled?).and_return(true)
@@ -211,8 +237,10 @@ RSpec.describe IssuesHelper, feature_category: :team_planning do
         can_create_issue: 'true',
         can_edit: 'true',
         can_import_issues: 'true',
+        can_read_crm_contact: 'true',
+        can_read_crm_organization: 'false',
         email: current_user&.notification_email_or_default,
-        emails_help_page_path: help_page_path('development/emails', anchor: 'email-namespace'),
+        emails_help_page_path: help_page_path('development/emails.md', anchor: 'email-namespace'),
         export_csv_path: export_csv_project_issues_path(project),
         full_path: project.full_path,
         has_any_issues: project_issues(project).exists?.to_s,
@@ -223,16 +251,18 @@ RSpec.describe IssuesHelper, feature_category: :team_planning do
         is_project: 'true',
         is_public_visibility_restricted: Gitlab::CurrentSettings.restricted_visibility_levels ? 'false' : '',
         is_signed_in: current_user.present?.to_s,
-        markdown_help_path: help_page_path('user/markdown'),
+        markdown_help_path: help_page_path('user/markdown.md'),
         max_attachment_size: number_to_human_size(Gitlab::CurrentSettings.max_attachment_size.megabytes),
         new_issue_path: new_project_issue_path(project),
         project_import_jira_path: project_import_jira_path(project),
-        quick_actions_help_path: help_page_path('user/project/quick_actions'),
+        quick_actions_help_path: help_page_path('user/project/quick_actions.md'),
         releases_path: project_releases_path(project, format: :json),
         reset_path: new_issuable_address_project_path(project, issuable_type: 'issue'),
         rss_path: '#',
+        project_namespace_full_path: project.namespace.full_path,
         show_new_issue_link: 'true',
-        sign_in_path: new_user_session_path
+        sign_in_path: new_user_session_path,
+        time_tracking_limit_to_hours: "false"
       }
 
       expect(helper.project_issues_list_data(project, current_user)).to include(expected)
@@ -269,8 +299,11 @@ RSpec.describe IssuesHelper, feature_category: :team_planning do
     it 'returns expected result' do
       allow(helper).to receive(:current_user).and_return(current_user)
       allow(helper).to receive(:can?).and_return(true)
+      allow(helper).to receive(:can?).with(current_user, :read_crm_contact, group.crm_group).and_return(true)
+      allow(helper).to receive(:can?).with(current_user, :read_crm_organization, group.crm_group).and_return(false)
       allow(helper).to receive(:image_path).and_return('#')
       allow(helper).to receive(:url_for).and_return('#')
+      allow(helper).to receive(:licensed_feature_available?).with(:subepics).and_return(false)
 
       assign(:has_issues, false)
       assign(:has_projects, true)
@@ -279,6 +312,8 @@ RSpec.describe IssuesHelper, feature_category: :team_planning do
         autocomplete_award_emojis_path: autocomplete_award_emojis_path,
         calendar_path: '#',
         can_create_projects: 'true',
+        can_read_crm_contact: 'true',
+        can_read_crm_organization: 'false',
         full_path: group.full_path,
         has_any_issues: false.to_s,
         has_any_projects: true.to_s,
@@ -286,7 +321,9 @@ RSpec.describe IssuesHelper, feature_category: :team_planning do
         new_project_path: new_project_path(namespace_id: group.id),
         rss_path: '#',
         sign_in_path: new_user_session_path,
-        group_id: group.id
+        group_id: group.id,
+        time_tracking_limit_to_hours: "false",
+        has_subepics_feature: "false"
       }
 
       expect(helper.group_issues_list_data(group, current_user)).to include(expected)
@@ -475,6 +512,61 @@ RSpec.describe IssuesHelper, feature_category: :team_planning do
 
         it { is_expected.to be_truthy }
       end
+    end
+  end
+
+  describe '#has_subepics_feature?' do
+    subject(:has_subepics_feature) { helper.has_subepics_feature?(namespace) }
+
+    context 'when namespace is a group project' do
+      let_it_be(:namespace) { create(:project, namespace: group) }
+
+      context 'when subepics feature is licensed and available for group' do
+        before do
+          allow(namespace.group).to receive(:licensed_feature_available?).with(:subepics).and_return(true)
+        end
+
+        it { is_expected.to be_truthy }
+      end
+
+      context 'when subepics feature is not licensed for group' do
+        before do
+          allow(namespace.group).to receive(:licensed_feature_available?).with(:subepics).and_return(false)
+        end
+
+        it { is_expected.to be_falsey }
+      end
+    end
+
+    context 'when namespace is a group' do
+      let_it_be(:namespace) { group }
+
+      context 'when subepics feature is licensed and available' do
+        before do
+          allow(namespace).to receive(:licensed_feature_available?).with(:subepics).and_return(true)
+        end
+
+        it { is_expected.to be_truthy }
+      end
+
+      context 'when subepics feature is not licensed' do
+        before do
+          allow(namespace).to receive(:licensed_feature_available?).with(:subepics).and_return(false)
+        end
+
+        it { is_expected.to be_falsey }
+      end
+    end
+
+    context 'when namespace is neither a group nor has a group' do
+      let_it_be(:namespace) { create(:namespace) }
+
+      before do
+        allow(namespace).to receive(:is_a?).with(Group).and_return(false)
+        allow(namespace).to receive(:respond_to?).with(:group).and_return(false)
+      end
+
+      it { is_expected.to be_falsey }
     end
   end
 end

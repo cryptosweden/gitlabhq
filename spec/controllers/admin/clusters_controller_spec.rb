@@ -174,6 +174,23 @@ RSpec.describe Admin::ClustersController, feature_category: :deployment_manageme
     end
   end
 
+  describe 'PUT update_migration' do
+    let(:cluster) { create(:cluster, :instance) }
+    let(:redirect_path) { admin_cluster_path(cluster, tab: 'migrate') }
+
+    def go
+      put :update_migration, params: params.merge(id: cluster)
+    end
+
+    include_examples 'cluster update migration', :admin, :admin
+
+    describe 'security' do
+      it { expect { go }.to be_allowed_for(:admin) }
+      it { expect { go }.to be_denied_for(:user) }
+      it { expect { go }.to be_denied_for(:external) }
+    end
+  end
+
   describe 'DELETE clear cluster cache' do
     let(:cluster) { create(:cluster, :instance) }
     let!(:kubernetes_namespace) do
@@ -196,6 +213,64 @@ RSpec.describe Admin::ClustersController, feature_category: :deployment_manageme
 
       expect(response).to redirect_to(admin_cluster_path(cluster))
       expect(cluster.kubernetes_namespaces).to be_empty
+    end
+
+    describe 'security' do
+      it { expect { go }.to be_allowed_for(:admin) }
+      it { expect { go }.to be_denied_for(:user) }
+      it { expect { go }.to be_denied_for(:external) }
+    end
+  end
+
+  describe 'POST migrate' do
+    let_it_be(:cluster) { create(:cluster, :instance) }
+    let_it_be(:configuration_project) { create(:project) }
+
+    def go
+      post :migrate,
+        params: {
+          cluster_migration: {
+            configuration_project_id: configuration_project.id,
+            agent_name: 'new-agent'
+          },
+          id: cluster
+        }
+    end
+
+    include_examples ':certificate_based_clusters feature flag controller responses' do
+      let(:subject) { go }
+    end
+
+    it 'calls the cluster migration service to create a new agent and token' do
+      expect_next_instance_of(
+        Clusters::Migration::CreateService,
+        an_object_having_attributes(class: cluster.class, id: cluster.id),
+        current_user: admin,
+        agent_name: 'new-agent',
+        configuration_project_id: configuration_project.id.to_s
+      ) do |service|
+        expect(service).to receive(:execute).and_call_original
+      end
+
+      expect { go }.to change { Clusters::Agent.count }.and change { Clusters::AgentToken.count }
+
+      expect(response).to redirect_to(admin_cluster_path(cluster, tab: 'migrate'))
+      expect(flash[:notice]).to eq(s_('ClusterIntegration|Migrating cluster - initiated'))
+    end
+
+    context 'when the migration service does not succeed' do
+      before do
+        allow_next_instance_of(Clusters::Migration::CreateService) do |service|
+          allow(service).to receive(:execute).and_return(ServiceResponse.error(message: 'Error message'))
+        end
+      end
+
+      it 'redirects to the cluster page with an error message' do
+        go
+
+        expect(response).to redirect_to(admin_cluster_path(cluster, tab: 'migrate'))
+        expect(flash[:alert]).to eq('Migrating cluster - failed: "Error message"')
+      end
     end
 
     describe 'security' do
@@ -415,7 +490,7 @@ RSpec.describe Admin::ClustersController, feature_category: :deployment_manageme
           expect { delete_destroy }
             .to change { Clusters::Cluster.count }.by(-1)
             .and change { Clusters::Platforms::Kubernetes.count }.by(-1)
-            .and change { Clusters::Providers::Gcp.count }.by(0)
+            .and not_change { Clusters::Providers::Gcp.count }
 
           expect(response).to redirect_to(admin_clusters_path)
           expect(flash[:notice]).to eq('Kubernetes cluster integration was successfully removed.')

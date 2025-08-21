@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Admin Groups', feature_category: :groups_and_projects do
+RSpec.describe 'Admin Groups', :with_current_organization, feature_category: :groups_and_projects do
   include Features::MembersHelpers
   include Features::InviteMembersModalHelpers
   include Spec::Support::Helpers::ModalHelpers
@@ -20,7 +20,19 @@ RSpec.describe 'Admin Groups', feature_category: :groups_and_projects do
   end
 
   describe 'list' do
-    it 'renders groups' do
+    context 'when admin_groups_vue feature flag is disabled' do
+      before do
+        stub_feature_flags(admin_groups_vue: false)
+      end
+
+      it 'renders groups' do
+        visit admin_groups_path
+
+        expect(page).to have_content(group.name)
+      end
+    end
+
+    it 'renders groups', :js do
       visit admin_groups_path
 
       expect(page).to have_content(group.name)
@@ -114,6 +126,31 @@ RSpec.describe 'Admin Groups', feature_category: :groups_and_projects do
       expect(page).to have_content("ID: #{group.id}")
     end
 
+    it 'shows the info text' do
+      group = create(:group, :private)
+
+      visit admin_group_path(group)
+
+      expect(page).to have_content("The number of direct members in the current group. Members in subgroups are " \
+        "not included. What is a direct member?")
+      expect(page).to have_content("Calculations are made based on projects in the current group. " \
+        "Projects in subgroups are not included.")
+    end
+
+    context 'with a subgroup' do
+      it 'shows the info text' do
+        group = create(:group)
+        subgroup = create(:group, parent: group)
+
+        visit admin_group_path(subgroup)
+
+        expect(page).to have_content("The number of direct members in the current group. Members in subgroups are " \
+          "not included. What is a direct member?")
+        expect(page).to have_content("Calculations are made based on projects in the current group. " \
+          "Projects in subgroups are not included.")
+      end
+    end
+
     it 'has a link to the group' do
       group = create(:group, :private)
 
@@ -147,6 +184,17 @@ RSpec.describe 'Admin Groups', feature_category: :groups_and_projects do
   end
 
   describe 'group edit' do
+    it 'shows all breadcrumbs', :js do
+      visit admin_group_edit_path(group)
+
+      expect(page_breadcrumbs).to eq([
+        { text: 'Admin area', href: admin_root_path },
+        { text: 'Groups', href: admin_groups_path },
+        { text: group.name, href: admin_group_path(group) },
+        { text: 'Edit', href: admin_group_edit_path(group) }
+      ])
+    end
+
     it 'shows the visibility level radio populated with the group visibility_level value' do
       group = create(:group, :private)
 
@@ -279,7 +327,7 @@ RSpec.describe 'Admin Groups', feature_category: :groups_and_projects do
 
       visit group_group_members_path(group)
 
-      expect(members_table).not_to have_content(current_user.name)
+      expect(page).to have_content('No results found')
     end
   end
 

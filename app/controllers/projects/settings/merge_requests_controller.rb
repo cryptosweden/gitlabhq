@@ -18,9 +18,6 @@ module Projects
           flash[:notice] = format(_("Project '%{project_name}' was successfully updated."), project_name: @project.name)
           redirect_to project_settings_merge_requests_path(@project)
         else
-          # Refresh the repo in case anything changed
-          @repository = @project.repository.reset
-
           flash[:alert] = result[:message]
           @project.reset
           render 'show'
@@ -58,7 +55,9 @@ module Projects
           :merge_method,
           :merge_commit_template_or_default,
           :squash_commit_template_or_default,
-          :suggestion_commit_message
+          :suggestion_commit_message,
+          :merge_request_title_regex,
+          :merge_request_title_regex_description
         ] + [project_setting_attributes: project_setting_attributes]
       end
     end

@@ -55,8 +55,7 @@ class HelpController < ApplicationController
     redirect_to documentation_base_url || Gitlab::Saas.doc_url
   end
 
-  def shortcuts
-  end
+  def shortcuts; end
 
   def instance_configuration
     @instance_configuration = InstanceConfiguration.new
@@ -114,7 +113,9 @@ class HelpController < ApplicationController
   end
 
   def documentation_file_path
-    @documentation_file_path ||= [version_segment, 'ee', "#{@path}.html"].compact.join('/')
+    path = @path.presence || 'index'
+    path = path.gsub(/(?:_)?index$/, '').chomp('/')
+    @documentation_file_path ||= "#{[version_segment, path].compact.join('/')}/"
   end
 
   def version_segment
@@ -147,11 +148,13 @@ class HelpController < ApplicationController
       path = raw_path
     elsif raw_path.ends_with?('index.md')
       munged_path = raw_path.gsub('index.md', '_index.md')
-
       path = munged_path if File.exist?(munged_path)
     end
 
-    path ? get_markdown_without_frontmatter(path) : nil
+    return unless path
+
+    content = get_markdown_without_frontmatter(path)
+    Gitlab::Help::HugoTransformer.new.transform(content)
   end
 end
 

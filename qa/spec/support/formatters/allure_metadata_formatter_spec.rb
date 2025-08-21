@@ -6,10 +6,14 @@ describe QA::Support::Formatters::AllureMetadataFormatter do
   let(:formatter) { described_class.new(StringIO.new) }
 
   let(:rspec_example_notification) do
-    instance_double(RSpec::Core::Notifications::ExampleNotification, example: rspec_example)
+    instance_double(
+      RSpec::Core::Notifications::FailedExampleNotification,
+      example: rspec_example,
+      message_lines: ["Some failure", "message"]
+    )
   end
 
-  # rubocop:disable RSpec/VerifiedDoubles
+  # rubocop:disable RSpec/VerifiedDoubles -- verified double complains about missing dynamically added methods
   let(:rspec_example) do
     double(
       RSpec::Core::Example,
@@ -24,7 +28,8 @@ describe QA::Support::Formatters::AllureMetadataFormatter do
       metadata: {
         testcase: 'testcase',
         quarantine: { issue: 'issue' }
-      }
+      },
+      exception: RSpec::Expectations::ExpectationNotMetError.new("Some failure message")
     )
   end
   # rubocop:enable RSpec/VerifiedDoubles
@@ -47,43 +52,71 @@ describe QA::Support::Formatters::AllureMetadataFormatter do
       expect(rspec_example).to have_received(:add_link).with(name: "Job(#{ci_job})", url: ci_job_url)
       expect(rspec_example).to have_received(:issue).with(
         'Failure issues',
-        'https://gitlab.com/gitlab-org/gitlab/-/issues?scope=all&state=opened&search=Failure%20in%20spec.rb'
+        'https://gitlab.com/gitlab-org/quality/e2e-test-issues/-/issues?sort=updated_desc&scope=all&' \
+          'state=opened&search=spec.rb&search=Some%20failure%0Amessage'
       )
     end
-  end
 
-  context 'with flaky test data', :aggregate_failures do
-    let(:influx_client) { instance_double(InfluxDB2::Client, create_query_api: influx_query_api) }
-    let(:influx_query_api) { instance_double(InfluxDB2::QueryApi, query: data) }
-    let(:data) do
-      [
+    context 'when message_lines is empty' do
+      let(:rspec_example_notification) do
         instance_double(
-          InfluxDB2::FluxTable,
-          records: [
-            instance_double(InfluxDB2::FluxRecord, values: { 'status' => 'failed', 'testcase' => 'testcase' }),
-            instance_double(InfluxDB2::FluxRecord, values: { 'status' => 'passed', 'testcase' => 'testcase' })
-          ]
+          RSpec::Core::Notifications::FailedExampleNotification,
+          example: rspec_example,
+          message_lines: []
         )
-      ]
-    end
+      end
 
-    before do
-      stub_env('QA_RUN_TYPE', 'package-and-test')
-      stub_env('QA_INFLUXDB_URL', 'url')
-      stub_env('QA_INFLUXDB_TOKEN', 'token')
-
-      allow(InfluxDB2::Client).to receive(:new) { influx_client }
-    end
-
-    context 'with skipped spec' do
-      let(:status) { :pending }
-
-      it 'skips adding flaky test data' do
-        formatter.start(nil)
+      it 'uses exception message for the search URL', :aggregate_failures do
         formatter.example_finished(rspec_example_notification)
 
-        expect(rspec_example).not_to have_received(:set_flaky)
-        expect(rspec_example).not_to have_received(:parameter)
+        expect(rspec_example).to have_received(:issue).with(
+          'Failure issues',
+          'https://gitlab.com/gitlab-org/quality/e2e-test-issues/-/issues?sort=updated_desc&scope=all&' \
+            'state=opened&search=spec.rb&search=Some%20failure%20message'
+        )
+      end
+    end
+
+    context 'when message_lines has more than 20 lines' do
+      let(:long_message_lines) { (1..60).map { |i| "Error line #{i}" } }
+      let(:rspec_example_notification) do
+        instance_double(
+          RSpec::Core::Notifications::FailedExampleNotification,
+          example: rspec_example,
+          message_lines: long_message_lines
+        )
+      end
+
+      it 'truncates message_lines to first 20 lines in search URL', :aggregate_failures do
+        formatter.example_finished(rspec_example_notification)
+
+        # The first 20 lines joined with newlines
+        expected_truncated_message = (1..20).map { |i| "Error line #{i}" }.join("\n")
+        expected_url = 'https://gitlab.com/gitlab-org/quality/e2e-test-issues/-/issues?sort=updated_desc&scope=all&' \
+          "state=opened&search=spec.rb&search=#{ERB::Util.url_encode(expected_truncated_message)}"
+
+        expect(rspec_example).to have_received(:issue).with('Failure issues', expected_url)
+      end
+    end
+
+    context 'when message_lines has exactly 20 lines' do
+      let(:fifty_message_lines) { (1..20).map { |i| "Error line #{i}" } }
+      let(:rspec_example_notification) do
+        instance_double(
+          RSpec::Core::Notifications::FailedExampleNotification,
+          example: rspec_example,
+          message_lines: fifty_message_lines
+        )
+      end
+
+      it 'uses all 20 lines in search URL', :aggregate_failures do
+        formatter.example_finished(rspec_example_notification)
+
+        expected_message = (1..20).map { |i| "Error line #{i}" }.join("\n")
+        expected_url = 'https://gitlab.com/gitlab-org/quality/e2e-test-issues/-/issues?sort=updated_desc&scope=all&' \
+          "state=opened&search=spec.rb&search=#{ERB::Util.url_encode(expected_message)}"
+
+        expect(rspec_example).to have_received(:issue).with('Failure issues', expected_url)
       end
     end
   end

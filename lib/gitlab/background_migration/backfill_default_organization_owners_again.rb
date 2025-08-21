@@ -5,7 +5,7 @@ module Gitlab
     class BackfillDefaultOrganizationOwnersAgain < BatchedMigrationJob
       operation_name :backfill_default_organization_owners_again # This is used as the key on collecting metrics
       scope_to ->(relation) { relation.where(admin: true) }
-      feature_category :cell
+      feature_category :organization
 
       module Organizations
         class OrganizationUser < ApplicationRecord
@@ -24,7 +24,7 @@ module Gitlab
             }
           end
 
-          Organizations::OrganizationUser.upsert_all(
+          ::Organizations::OrganizationUser.upsert_all(
             organization_users_attributes,
             returning: false,
             unique_by: [:organization_id, :user_id]

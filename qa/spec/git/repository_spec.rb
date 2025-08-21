@@ -1,15 +1,14 @@
 # frozen_string_literal: true
 
 RSpec.describe QA::Git::Repository do
-  include QA::Support::Helpers::StubEnv
-
   shared_context 'unresolvable git directory' do
     let(:logger) { instance_double(Logger, info: nil, debug: nil) }
+    let(:default_user) { QA::Resource::User.new }
     let(:repo_uri) { 'http://foo/bar.git' }
-    let(:repo_uri_with_credentials) { 'http://root@foo/bar.git' }
+    let(:repo_uri_with_credentials) { "http://#{default_user.username}@foo/bar.git" }
     let(:env_vars) { [%q(HOME="temp")] }
     let(:extra_env_vars) { [] }
-    let(:run_params) { { env: env_vars + extra_env_vars, sleep_internal: 0, log_prefix: "Git: " } }
+    let(:run_params) { { raise_on_failure: true, env: env_vars + extra_env_vars, sleep_internal: 0, log_prefix: "Git: " } }
     let(:repository) do
       described_class.new(command_retry_sleep_interval: 0).tap do |r|
         r.uri = repo_uri
@@ -21,9 +20,9 @@ RSpec.describe QA::Git::Repository do
     let(:tmp_netrc_dir) { Dir.mktmpdir }
 
     before do
-      stub_env('GITLAB_USERNAME', 'root')
       allow(repository).to receive(:tmp_home_dir).and_return(tmp_netrc_dir)
       allow(QA::Runtime::Logger).to receive(:logger).and_return(logger)
+      allow(QA::Runtime::User::Store).to receive(:test_user).and_return(default_user)
     end
 
     around do |example|
@@ -179,6 +178,13 @@ RSpec.describe QA::Git::Repository do
           end
         end
 
+        context 'when set to auto merge' do
+          it_behaves_like 'command with retries' do
+            let(:push_options) { '-o merge_request.auto_merge' }
+            let(:call_method) { repository.push_changes(push_options: { auto_merge: true }) }
+          end
+        end
+
         context 'when set to remove source branch' do
           it_behaves_like 'command with retries' do
             let(:push_options) { '-o merge_request.remove_source_branch' }
@@ -275,7 +281,7 @@ RSpec.describe QA::Git::Repository do
     describe '#use_default_credentials' do
       it 'adds credentials to .netrc' do
         expect(File.read(File.join(tmp_netrc_dir, '.netrc')))
-          .to eq("machine foo login #{QA::Runtime::User.default_username} password #{QA::Runtime::User.default_password}\n")
+          .to eq("machine foo login #{default_user.username} password #{default_user.password}\n")
       end
     end
   end

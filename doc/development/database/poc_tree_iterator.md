@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Batch iteration in a tree hierarchy (proof of concept)
 ---
-
-# Batch iteration in a tree hierarchy (proof of concept)
 
 The group hierarchy in GitLab is represented with a tree, where the root element
 is the top-level namespace, and the child elements are the subgroups or the
@@ -83,7 +82,7 @@ and it's fairly complex to implement. An `EachBatch` or `find_in_batches` based
 solution would not work because:
 
 - The data (group IDs) are not sorted in the hierarchy.
-- Groups in sub groups don't know about the top-level group ID.
+- Groups in subgroups don't know about the top-level group ID.
 
 ## Algorithm
 
@@ -108,10 +107,10 @@ number of descendants, thus we might end up with a huge cursor.
    1. Two arrays (tree depth and the collected IDs)
    1. A counter for tracking the number of row reads in the query.
 1. Recursively process the row and do one of the following (whenever the condition matches):
-    - Load the first child namespace and update the currently processed namespace
-      ID if we're not at the leaf node. (Walking down a branch)
-    - Load the next namespace record on the current depth if there are any rows left.
-    - Walk up one node and process rows at one level higher.
+   - Load the first child namespace and update the currently processed namespace
+     ID if we're not at the leaf node. (Walking down a branch)
+   - Load the next namespace record on the current depth if there are any rows left.
+   - Walk up one node and process rows at one level higher.
 1. Continue the processing until the number of reads reaches our `LIMIT` (batch size).
 1. Find the last processed row which contains the data for the cursor, and all the collected record IDs.
 
@@ -189,11 +188,14 @@ FROM result
         114 | {}           | {24,25,26,112,113,114} | jump
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 Using this query to find all the namespace IDs in a group hierarchy is likely slower
 than other querying methods, such as the current `self_and_descendants` implementation
 based on the `traversal_ids` column. The query above should be only used when
 implementing batch iteration over the group hierarchy.
+
+{{< /alert >}}
 
 Rudimentary batching implementation in Ruby:
 

@@ -187,25 +187,34 @@ class Repository
 
   # Gitaly migration: https://gitlab.com/gitlab-org/gitaly/issues/384
   def find_commits_by_message(query, ref = nil, path = nil, limit = 1000, offset = 0)
-    unless exists? && has_visible_content? && query.present?
-      return []
-    end
+    return [] unless exists? && has_visible_content? && query.present?
 
-    commits = raw_repository.find_commits_by_message(query.strip, ref, path, limit, offset).map do |c|
-      commit(c)
-    end
+    raw_commits = raw_repository.find_commits_by_message(query.strip, ref, path, limit, offset)
+    commits = raw_commits.map { |c| commit(c) }
     CommitCollection.new(container, commits, ref)
   end
 
-  def list_commits_by(query, ref, author: nil, before: nil, after: nil, limit: 1000)
-    return [] unless exists?
-    return [] unless has_visible_content?
-    return [] unless ref.present?
+  def list_commits(
+    ref:,
+    query: nil,
+    author: nil,
+    committed_before: nil,
+    committed_after: nil,
+    pagination_params: { page_token: nil, limit: 1000 }
+  )
+    return [] unless exists? && has_visible_content? && ref.present?
 
-    commits = raw_repository.list_commits_by(
-      query, ref, author: author, before: before, after: after, limit: limit).map do |c|
-      commit(c)
-    end
+    pagination_params[:limit] ||= 1000
+
+    raw_commits = raw_repository.list_commits(
+      ref: ref,
+      query: query,
+      author: author,
+      committed_before: committed_before,
+      committed_after: committed_after,
+      pagination_params: pagination_params
+    )
+    commits = raw_commits.map { |c| commit(c) }
     CommitCollection.new(container, commits, ref)
   end
 
@@ -238,16 +247,20 @@ class Repository
   def has_ambiguous_refs?
     return false unless branch_names.present? && tag_names.present?
 
-    with_slash, no_slash = (branch_names + tag_names).partition { |ref| ref.include?('/') }
+    with_slash = []
+    no_slash = []
+    (branch_names + tag_names).each do |ref|
+      slash_index = ref.index('/')
+      if slash_index.present?
+        with_slash << ref.first(slash_index)
+      else
+        no_slash << ref
+      end
+    end
 
     return false if with_slash.empty?
 
-    prefixes = no_slash.map { |ref| Regexp.escape(ref) }.join('|')
-    prefix_regex = %r{^(#{prefixes})/}
-
-    with_slash.any? do |ref|
-      prefix_regex.match?(ref)
-    end
+    with_slash.intersect?(no_slash)
   end
   cache_method :has_ambiguous_refs?
 
@@ -259,8 +272,8 @@ class Repository
     end
   end
 
-  def add_branch(user, branch_name, ref, expire_cache: true)
-    branch = raw_repository.add_branch(branch_name, user: user, target: ref)
+  def add_branch(user, branch_name, ref, expire_cache: true, skip_ci: false)
+    branch = raw_repository.add_branch(branch_name, user: user, target: ref, skip_ci: skip_ci)
 
     after_create_branch(expire_cache: expire_cache)
 
@@ -275,10 +288,10 @@ class Repository
     false
   end
 
-  def rm_branch(user, branch_name)
+  def rm_branch(user, branch_name, target_sha: nil)
     before_remove_branch
 
-    raw_repository.rm_branch(branch_name, user: user)
+    raw_repository.rm_branch(branch_name, user: user, target_sha: target_sha)
 
     after_remove_branch
     true
@@ -313,6 +326,14 @@ class Repository
     !!raw_repository&.ref_exists?(ref)
   rescue ArgumentError
     false
+  end
+
+  def branch_or_tag?(ref)
+    return false unless exists?
+
+    ref = Gitlab::Git.ref_name(ref, types: 'heads|tags')
+
+    branch_exists?(ref) || tag_exists?(ref)
   end
 
   def search_branch_names(pattern)
@@ -449,10 +470,6 @@ class Repository
     expire_status_cache
 
     repository_event(:create_repository)
-
-    return unless project.present?
-
-    project.run_after_commit_or_now { Onboarding::ProgressWorker.perform_async(namespace_id, 'git_write') }
   end
 
   # Runs code just before a repository is deleted.
@@ -767,8 +784,8 @@ class Repository
   #
   # order_by: name|email|commits
   # sort: asc|desc default: 'asc'
-  def contributors(order_by: nil, sort: 'asc')
-    commits = self.commits(nil, limit: 2000, offset: 0, skip_merges: true)
+  def contributors(ref: nil, order_by: nil, sort: 'asc')
+    commits = self.commits(ref, limit: 2000, offset: 0, skip_merges: true)
 
     commits = commits.group_by(&:author_email).map do |email, commits|
       contributor = Gitlab::Contributor.new
@@ -785,6 +802,18 @@ class Repository
       contributor
     end
     Commit.order_by(collection: commits, order_by: order_by, sort: sort)
+  end
+
+  def health(generate)
+    cache.fetch(:health) do
+      if generate
+        info = raw_repository.repository_info
+
+        info_h = info.to_h
+        info_h[:updated_at] = Time.current
+        info_h
+      end
+    end
   end
 
   def branch_names_contains(sha, limit: 0, exclude_refs: [])
@@ -880,12 +909,20 @@ class Repository
 
   def commit_files(user, **options)
     start_project = options.delete(:start_project)
-
     if start_project
       options[:start_repository] = start_project.repository.raw_repository
     end
 
-    with_cache_hooks { raw.commit_files(user, **options) }
+    if Feature.enabled?(:commit_files_target_sha, project)
+      options[:target_sha] = self.commit(options[:branch_name])&.sha || blank_ref
+    else
+      skip_target_sha = options.delete(:skip_target_sha)
+      unless skip_target_sha
+        options[:target_sha] = self.commit(options[:branch_name])&.sha
+      end
+    end
+
+    with_cache_hooks { raw.commit_files(user, **options.merge(sign: sign_commits?)) }
   end
 
   def merge(user, source_sha, merge_request, message)
@@ -934,8 +971,8 @@ class Repository
 
   def revert(
     user, commit, branch_name, message,
-    start_branch_name: nil, start_project: project, dry_run: false)
-
+    start_branch_name: nil, start_project: project, dry_run: false
+  )
     with_cache_hooks do
       raw_repository.revert(
         user: user,
@@ -952,7 +989,9 @@ class Repository
   def cherry_pick(
     user, commit, branch_name, message,
     start_branch_name: nil, start_project: project,
-    author_name: nil, author_email: nil, dry_run: false)
+    author_name: nil, author_email: nil, dry_run: false
+  )
+    target_sha = find_branch(branch_name)&.dereferenced_target&.id if branch_name.present?
 
     with_cache_hooks do
       raw_repository.cherry_pick(
@@ -964,7 +1003,8 @@ class Repository
         start_repository: start_project.repository.raw_repository,
         author_name: author_name,
         author_email: author_email,
-        dry_run: dry_run
+        dry_run: dry_run,
+        target_sha: target_sha
       )
     end
   end
@@ -987,16 +1027,16 @@ class Repository
 
   # If this method is not provided a set of branch names to check merge status,
   # it fetches all branches.
-  def merged_branch_names(branch_names = [])
+  def merged_branch_names(branch_names = [], include_identical: false)
     # Currently we should skip caching if requesting all branch names
     # This is only used in a few places, notably app/services/branches/delete_merged_service.rb,
     # and it could potentially result in a very large cache.
-    return raw_repository.merged_branch_names(branch_names) if branch_names.empty?
+    return raw_repository.merged_branch_names(branch_names, include_identical: include_identical) if branch_names.empty? || include_identical
 
     cache = redis_hash_cache
 
     merged_branch_names_hash = cache.fetch_and_add_missing(:merged_branch_names, branch_names) do |missing_branch_names, hash|
-      merged = raw_repository.merged_branch_names(missing_branch_names)
+      merged = raw_repository.merged_branch_names(missing_branch_names, include_identical: include_identical)
 
       missing_branch_names.each do |bn|
         # Redis only stores strings in hset keys, use a fancy encoder
@@ -1105,6 +1145,10 @@ class Repository
 
   def lfsconfig_for(sha)
     blob_data_at(sha, '.lfsconfig')
+  end
+
+  def has_gitattributes?
+    blob_data_at('HEAD', '.gitattributes').present?
   end
 
   def changelog_config(ref, path)
@@ -1228,19 +1272,23 @@ class Repository
     @cache ||= Gitlab::RepositoryCache.new(self)
   end
 
-  def remove_prohibited_branches
+  def remove_prohibited_refs
     return unless exists?
 
-    prohibited_branches = raw_repository.branch_names.select { |name| name.match(Gitlab::Git::COMMIT_ID) }
+    patterns = [Gitlab::Git::BRANCH_REF_PREFIX, Gitlab::Git::TAG_REF_PREFIX]
 
-    return if prohibited_branches.blank?
+    prohibited_refs = raw_repository.list_refs(patterns).select do |ref|
+      ref.name.match(Gitlab::Git::SHA_LIKE_REF)
+    end
 
-    prohibited_branches.each { |name| raw_repository.delete_branch(name) }
+    return if prohibited_refs.blank?
+
+    raw_repository.delete_refs(*prohibited_refs.map(&:name))
   end
 
   def get_patch_id(old_revision, new_revision)
     raw_repository.get_patch_id(old_revision, new_revision)
-  rescue Gitlab::Git::CommandError, Gitlab::Git::Repository::NoRepository => e
+  rescue Gitlab::Git::CommandError, Gitlab::Git::Repository::NoRepository, Gitlab::Git::CommandTimedOut => e
     # This is expected when there are no differences between the old_revision and the new_revision.
     # It's not ideal, but is simpler to handle this here than making breaking changes to gitaly.
     return if e.message.match?(/no difference between old and new revision./)
@@ -1308,6 +1356,20 @@ class Repository
     end
   end
 
+  def ignore_revs_file_blob
+    return unless project&.default_branch
+
+    blob_at(project.default_branch, Gitlab::Blame::IGNORE_REVS_FILE_NAME, limit: 0)
+  end
+
+  def diffs_by_changed_paths(diff_refs, offset = 0, batch_size = 30)
+    Gitlab::Git::BlobPairsDiffs
+      .new(self)
+      .diffs_by_changed_paths(diff_refs, offset, batch_size) do |diff_files|
+        yield diff_files
+      end
+  end
+
   private
 
   # Increase the limit by number of excluded refs
@@ -1366,6 +1428,10 @@ class Repository
       container.full_path,
       container: container
     )
+  end
+
+  def sign_commits?
+    true
   end
 end
 

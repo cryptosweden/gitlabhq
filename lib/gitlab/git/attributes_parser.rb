@@ -103,7 +103,8 @@ module Gitlab
 
           parsed = attrs ? parse_attributes(attrs) : {}
 
-          absolute_pattern = File.join('/', pattern)
+          absolute_pattern = pattern.starts_with?('/') ? pattern : File.join('**/', pattern)
+
           pairs << [absolute_pattern, parsed]
         end
 

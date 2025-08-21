@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::References::ExternalIssueReferenceFilter, feature_category: :team_planning do
+RSpec.describe Banzai::Filter::References::ExternalIssueReferenceFilter, feature_category: :markdown do
   include FilterSpecHelper
 
   let_it_be_with_refind(:project) { create(:project) }
@@ -98,7 +98,7 @@ RSpec.describe Banzai::Filter::References::ExternalIssueReferenceFilter, feature
     end
 
     context 'with RequestStore enabled', :request_store do
-      let(:reference_filter) { HTML::Pipeline.new([described_class]) }
+      let(:reference_filter) { Banzai::PipelineBase.new([described_class]) }
 
       it 'queries the collection on the first call' do
         expect_any_instance_of(Project).to receive(:default_issues_tracker?).once.and_call_original
@@ -114,6 +114,11 @@ RSpec.describe Banzai::Filter::References::ExternalIssueReferenceFilter, feature
         # Links must be the same
         expect(cached[:output].css('a').first[:href]).to eq(not_cached[:output].css('a').first[:href])
       end
+    end
+
+    it_behaves_like 'limits the number of filtered items' do
+      let(:text) { "#{reference} #{reference} #{reference}" }
+      let(:ends_with) { "</a> #{reference}" }
     end
   end
 

@@ -57,7 +57,6 @@ describe('Abuse Report Add Note', () => {
     it('should show the comment form', () => {
       expect(findAbuseReportCommentForm().exists()).toBe(true);
       expect(findAbuseReportCommentForm().props()).toMatchObject({
-        abuseReportId: mockAbuseReportId,
         isSubmitting: false,
         autosaveKey: `${mockAbuseReportId}-comment`,
         commentButtonText: 'Comment',
@@ -93,7 +92,7 @@ describe('Abuse Report Add Note', () => {
           'note-wrapper',
           'note-comment',
           'discussion-reply-holder',
-          'gl-border-t-0!',
+          '!gl-border-t-0',
           'clearfix',
         ]),
       );
@@ -101,12 +100,7 @@ describe('Abuse Report Add Note', () => {
       expect(findTimelineEntryInner().classes()).toEqual([]);
 
       expect(findCommentFormWrapper().classes()).toEqual(
-        expect.arrayContaining([
-          'gl-relative',
-          'gl-display-flex',
-          'gl-align-items-flex-start',
-          'gl-flex-nowrap',
-        ]),
+        expect.arrayContaining(['gl-relative', 'gl-flex', 'gl-items-start', 'gl-flex-nowrap']),
       );
     });
 
@@ -140,7 +134,7 @@ describe('Abuse Report Add Note', () => {
 
       expect(mutationSuccessHandler).toHaveBeenCalledWith({
         input: {
-          noteableId: mockAbuseReportId,
+          abuseReportId: mockAbuseReportId,
           body: noteText,
           discussionId: null,
         },

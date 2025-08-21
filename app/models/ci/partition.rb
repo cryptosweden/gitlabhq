@@ -2,7 +2,9 @@
 
 module Ci
   class Partition < Ci::ApplicationRecord
-    MAX_PARTITION_SIZE = 100.gigabytes
+    INITIAL_PARTITION_VALUE = 100
+    LAST_STATIC_PARTITION_VALUE = 102
+    DEFAULT_PARTITION_VALUES = (INITIAL_PARTITION_VALUE..LAST_STATIC_PARTITION_VALUE).to_a.freeze
 
     validates :id, :status, presence: true
     validates :status, uniqueness: { if: ->(partition) { partition.status_changed? && partition.current? } }
@@ -18,10 +20,12 @@ module Ci
       end
 
       event :switch_writes do
-        transition ready: :current
+        transition [:ready, :active] => :current
       end
 
-      before_transition [:ready] => :current do
+      before_transition any => :current do |partition|
+        next false unless partition.all_partitions_exist?
+
         Ci::Partition.with_status(:current).update_all(status: Ci::Partition.statuses[:active])
       end
     end
@@ -51,14 +55,13 @@ module Ci
 
       def provisioning(partition_id)
         Ci::Partition
-          .with_status(:preparing)
           .id_after(partition_id)
           .order(id: :asc)
           .first
       end
     end
 
-    def above_threshold?(threshold)
+    def above_threshold?(threshold = ::Gitlab::CurrentSettings.ci_partitions_size_limit)
       with_ci_connection do
         Gitlab::Database::PostgresPartition
           .with_parent_tables(parent_table_names)

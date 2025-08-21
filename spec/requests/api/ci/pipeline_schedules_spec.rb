@@ -5,7 +5,7 @@ require 'spec_helper'
 RSpec.describe API::Ci::PipelineSchedules, feature_category: :continuous_integration do
   let_it_be(:developer) { create(:user) }
   let_it_be(:user) { create(:user) }
-  let_it_be(:project) { create(:project, :repository, public_builds: false) }
+  let_it_be_with_reload(:project) { create(:project, :repository, public_builds: false) }
 
   before do
     project.add_developer(developer)
@@ -233,12 +233,11 @@ RSpec.describe API::Ci::PipelineSchedules, feature_category: :continuous_integra
 
   describe 'GET /projects/:id/pipeline_schedules/:pipeline_schedule_id/pipelines' do
     let(:pipeline_schedule) { create(:ci_pipeline_schedule, project: project, owner: developer) }
+    let(:url) { "/projects/#{project.id}/pipeline_schedules/#{pipeline_schedule.id}/pipelines" }
 
     before do
       create_list(:ci_pipeline, 2, project: project, pipeline_schedule: pipeline_schedule, source: :schedule)
     end
-
-    let(:url) { "/projects/#{project.id}/pipeline_schedules/#{pipeline_schedule.id}/pipelines" }
 
     matcher :return_pipeline_schedule_pipelines_successfully do
       match_unless_raises do |response|
@@ -385,6 +384,48 @@ RSpec.describe API::Ci::PipelineSchedules, feature_category: :continuous_integra
           expect(json_response['message']).to have_key('cron')
         end
       end
+
+      context 'with inputs' do
+        let(:input_params) do
+          attributes_for(:ci_pipeline_schedule).merge(
+            inputs: [
+              { name: 'STRING_INPUT', value: 'string value' },
+              { name: 'BOOL_INPUT', value: true },
+              { name: 'NUMBER_INPUT', value: 42 },
+              { name: 'ARRAY_INPUT', value: %w[one two three] },
+              { name: 'COMPLEX_ARRAY', value: [{ foo: 1 }, { bar: 2 }] }
+            ]
+          )
+        end
+
+        it 'creates pipeline_schedule with inputs' do
+          expect do
+            post api("/projects/#{project.id}/pipeline_schedules", developer),
+              params: input_params
+          end.to change { project.pipeline_schedules.count }.by(1)
+             .and change { Ci::PipelineScheduleInput.count }.by(5)
+
+          expect(response).to have_gitlab_http_status(:created)
+          expect(response).to match_response_schema('pipeline_schedule')
+
+          schedule = Ci::PipelineSchedule.last
+          expect(schedule.inputs.count).to eq(5)
+          expect(schedule.inputs.find_by(name: 'BOOL_INPUT').value).to be_truthy
+          expect(schedule.inputs.find_by(name: 'NUMBER_INPUT').value).to eq('42')
+          expect(schedule.inputs.find_by(name: 'ARRAY_INPUT').value).to match_array(%w[one two three])
+          expect(schedule.inputs.find_by(name: 'COMPLEX_ARRAY').value).to match_array([{ 'foo' => '1', 'bar' => '2' }])
+        end
+      end
+
+      context 'when ref has validation error' do
+        it 'does not create pipeline_schedule' do
+          post api("/projects/#{project.id}/pipeline_schedules", developer),
+            params: params.merge('ref' => 'invalid-ref')
+
+          expect(response).to have_gitlab_http_status(:bad_request)
+          expect(json_response['message']).to have_key('ref')
+        end
+      end
     end
 
     context 'authenticated user with invalid permissions' do
@@ -419,6 +460,62 @@ RSpec.describe API::Ci::PipelineSchedules, feature_category: :continuous_integra
         expect(json_response['cron']).to eq('1 2 3 4 *')
       end
 
+      context 'with inputs' do
+        let!(:pipeline_schedule_input) do
+          create(:ci_pipeline_schedule_input,
+            name: 'EXISTING_INPUT',
+            value: 'old_value',
+            pipeline_schedule: pipeline_schedule)
+        end
+
+        it 'adds a new input' do
+          expect do
+            put api("/projects/#{project.id}/pipeline_schedules/#{pipeline_schedule.id}", developer),
+              params: { inputs: [{ name: 'NEW_INPUT', value: 'new_value' }] }
+          end.to change { pipeline_schedule.inputs.count }.by(1)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(pipeline_schedule.inputs.find_by(name: 'NEW_INPUT').value).to eq('new_value')
+        end
+
+        it 'updates an existing input' do
+          expect do
+            put api("/projects/#{project.id}/pipeline_schedules/#{pipeline_schedule.id}", developer),
+              params: { inputs: [{ name: 'EXISTING_INPUT', value: 'updated_value' }] }
+          end.not_to change { pipeline_schedule.inputs.count }
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(pipeline_schedule.inputs.find_by(name: 'EXISTING_INPUT').value).to eq('updated_value')
+        end
+
+        it 'deletes an existing input' do
+          expect do
+            put api("/projects/#{project.id}/pipeline_schedules/#{pipeline_schedule.id}", developer),
+              params: { inputs: [{ name: 'EXISTING_INPUT', destroy: true }] }
+          end.to change { pipeline_schedule.inputs.count }.by(-1)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(pipeline_schedule.inputs.find_by(name: 'EXISTING_INPUT')).to be_nil
+        end
+
+        it 'performs multiple operations at once' do
+          expect do
+            put api("/projects/#{project.id}/pipeline_schedules/#{pipeline_schedule.id}", developer),
+              params: {
+                inputs: [
+                  { name: 'EXISTING_INPUT', value: 'updated_value' },
+                  { name: 'NEW_INPUT', value: 'brand_new' },
+                  { name: 'TO_DELETE', value: 'anything', destroy: true }
+                ]
+              }
+          end.to change { pipeline_schedule.inputs.count }.by(1)
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(pipeline_schedule.inputs.find_by(name: 'EXISTING_INPUT').value).to eq('updated_value')
+          expect(pipeline_schedule.inputs.find_by(name: 'NEW_INPUT').value).to eq('brand_new')
+        end
+      end
+
       context 'when cron has validation error' do
         it 'does not update pipeline_schedule' do
           put api("/projects/#{project.id}/pipeline_schedules/#{pipeline_schedule.id}", developer),
@@ -426,6 +523,16 @@ RSpec.describe API::Ci::PipelineSchedules, feature_category: :continuous_integra
 
           expect(response).to have_gitlab_http_status(:bad_request)
           expect(json_response['message']).to have_key('cron')
+        end
+      end
+
+      context 'when ref has validation error' do
+        it 'does not update pipeline_schedule' do
+          put api("/projects/#{project.id}/pipeline_schedules/#{pipeline_schedule.id}", developer),
+            params: { ref: 'invalid-ref' }
+
+          expect(response).to have_gitlab_http_status(:bad_request)
+          expect(json_response['message']).to have_key('ref')
         end
       end
     end
@@ -667,7 +774,7 @@ RSpec.describe API::Ci::PipelineSchedules, feature_category: :continuous_integra
 
         context 'when project restricts use of user defined variables' do
           before do
-            project.update!(restrict_user_defined_variables: true)
+            project.update!(ci_pipeline_variables_minimum_override_role: :maintainer)
           end
 
           context 'as developer' do
@@ -691,7 +798,7 @@ RSpec.describe API::Ci::PipelineSchedules, feature_category: :continuous_integra
 
         context 'when project does not restrict use of user defined variables' do
           before do
-            project.update!(restrict_user_defined_variables: false)
+            project.update!(ci_pipeline_variables_minimum_override_role: :developer)
           end
 
           context 'as developer' do
@@ -723,6 +830,10 @@ RSpec.describe API::Ci::PipelineSchedules, feature_category: :continuous_integra
       end
 
       context 'when key has validation error' do
+        before do
+          project.update!(ci_pipeline_variables_minimum_override_role: :developer)
+        end
+
         it 'does not create pipeline_schedule_variable' do
           post api("/projects/#{project.id}/pipeline_schedules/#{pipeline_schedule.id}/variables", developer),
             params: params.merge('key' => '!?!?')
@@ -795,7 +906,7 @@ RSpec.describe API::Ci::PipelineSchedules, feature_category: :continuous_integra
 
       context 'when project restricts use of user defined variables' do
         before do
-          project.update!(restrict_user_defined_variables: true)
+          project.update!(ci_pipeline_variables_minimum_override_role: :maintainer)
         end
 
         context 'as developer' do
@@ -819,7 +930,7 @@ RSpec.describe API::Ci::PipelineSchedules, feature_category: :continuous_integra
 
       context 'when project does not restrict use of user defined variables' do
         before do
-          project.update!(restrict_user_defined_variables: false)
+          project.update!(ci_pipeline_variables_minimum_override_role: :developer)
         end
 
         context 'as developer' do
@@ -908,7 +1019,7 @@ RSpec.describe API::Ci::PipelineSchedules, feature_category: :continuous_integra
 
       context 'when project restricts use of user defined variables' do
         before do
-          project.update!(restrict_user_defined_variables: true)
+          project.update!(ci_pipeline_variables_minimum_override_role: :maintainer)
         end
 
         context 'as developer' do
@@ -932,7 +1043,7 @@ RSpec.describe API::Ci::PipelineSchedules, feature_category: :continuous_integra
 
       context 'when project does not restrict use of user defined variables' do
         before do
-          project.update!(restrict_user_defined_variables: false)
+          project.update!(ci_pipeline_variables_minimum_override_role: :developer)
         end
 
         context 'as developer' do

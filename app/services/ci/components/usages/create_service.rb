@@ -12,27 +12,17 @@ module Ci
         end
 
         def execute
-          component_usage = Ci::Catalog::Resources::Components::Usage.new(
-            component: component,
-            catalog_resource: component.catalog_resource,
-            project: component.project,
-            used_by_project_id: used_by_project.id
-          )
+          component_last_usage = Ci::Catalog::Resources::Components::LastUsage.get_usage_for(component, used_by_project)
 
-          if component_usage.save
-            ServiceResponse.success(message: 'Usage recorded')
+          if component_last_usage.new_record?
+            component_last_usage.last_used_date = Time.current.to_date
           else
-            errors = component_usage.errors
-
-            if errors.size == 1 && errors.first.type == :taken # Only unique validation failed
-              ServiceResponse.success(message: 'Usage already recorded for today')
-            else
-              exception = ValidationError.new(errors.full_messages.join(', '))
-
-              Gitlab::ErrorTracking.track_exception(exception)
-              ServiceResponse.error(message: exception.message)
-            end
+            component_last_usage.touch(:last_used_date)
           end
+
+          component_last_usage.save
+
+          ServiceResponse.success(message: 'Usage recorded')
         end
 
         private

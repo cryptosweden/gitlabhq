@@ -21,6 +21,7 @@ export const simpleViewerMock = {
   environmentFormattedExternalUrl: '',
   environmentExternalUrlForRouteMap: '',
   canModifyBlob: true,
+  canModifyBlobWithWebIde: true,
   canCurrentUserPushToBranch: true,
   archived: false,
   storedExternally: false,
@@ -53,25 +54,19 @@ export const userPermissionsMock = {
   forkProject: true,
   downloadCode: true,
   createMergeRequestIn: true,
+  __typename: 'ProjectPermissions',
 };
 
-export const projectMock = {
+export const getProjectMockWithOverrides = ({ userPermissionsOverride = {} } = {}) => ({
   __typename: 'Project',
-  id: '1234',
-  userPermissions: userPermissionsMock,
-  pathLocks: {
-    nodes: [
-      {
-        id: 'test',
-        path: 'locked_file.js',
-        user: { id: '123', username: 'root' },
-      },
-    ],
-  },
+  id: 'gid://gitlab/Project/7',
+  userPermissions: { ...userPermissionsMock, ...userPermissionsOverride },
   repository: {
     empty: false,
   },
-};
+});
+
+export const projectMock = getProjectMockWithOverrides();
 
 export const propsMock = { path: 'some_file.js', projectPath: 'some/path' };
 
@@ -80,18 +75,57 @@ export const refWithSpecialCharMock = 'feat/selected-#-ref-#';
 export const encodedRefWithSpecialCharMock = 'feat/selected-%23-ref-%23';
 
 export const blobControlsDataMock = {
+  __typename: 'Project',
   id: '1234',
+  userPermissions: userPermissionsMock,
   repository: {
+    __typename: 'Repository',
+    empty: false,
     blobs: {
+      __typename: 'RepositoryBlobConnection',
       nodes: [
         {
+          __typename: 'RepositoryBlob',
           id: '5678',
-          findFilePath: 'find/file.js',
+          name: 'file.js',
           blamePath: 'blame/file.js',
-          historyPath: 'history/file.js',
           permalinkPath: 'permalink/file.js',
+          path: 'some/file.js',
           storedExternally: false,
-          externalStorage: '',
+          externalStorage: 'https://external-storage',
+          environmentFormattedExternalUrl: 'my.testing.environment',
+          environmentExternalUrlForRouteMap: 'https://my.testing.environment',
+          rawPath: 'https://testing.com/flightjs/flight/snippets/51/raw',
+          rawTextBlob: 'Example raw text content',
+          archived: false,
+          replacePath: 'some/replace/file.js',
+          webPath: 'some/file.js',
+          canCurrentUserPushToBranch: true,
+          canModifyBlob: true,
+          canModifyBlobWithWebIde: true,
+          forkAndViewPath: 'fork/view/path',
+          editBlobPath: 'https://edit/blob/path/file.js',
+          ideEditPath: 'https://ide/blob/path/file.js',
+          pipelineEditorPath: 'pipeline/editor/path/file.yml',
+          gitpodBlobUrl: 'gitpod/blob/url/file.js',
+          simpleViewer: {
+            __typename: 'BlobViewer',
+            collapsed: false,
+            loadingPartialName: 'loading',
+            renderError: null,
+            tooLarge: false,
+            type: 'simple',
+            fileType: 'rich',
+          },
+          richViewer: {
+            __typename: 'BlobViewer',
+            collapsed: false,
+            loadingPartialName: 'loading',
+            renderError: 'too big file',
+            tooLarge: false,
+            type: 'rich',
+            fileType: 'rich',
+          },
         },
       ],
     },
@@ -156,6 +190,7 @@ export const paginatedTreeResponseFactory = ({
                   sha: 'dc36320ac91aca2f890a31458c9e9920159e68ae',
                   name: 'gitlab-resize-image',
                   flatPath: 'workhorse/cmd/gitlab-resize-image',
+                  path: 'workhorse/cmd/gitlab-resize-image',
                   type: 'tree',
                   webPath: '/gitlab-org/gitlab/-/tree/master/workhorse/cmd/gitlab-resize-image',
                 }),
@@ -172,6 +207,7 @@ export const paginatedTreeResponseFactory = ({
                   sha: '99712dbc6b26ff92c15bf93449ea09df38adfb1b',
                   name: blobHasReadme ? 'README.md' : 'fakeBlob',
                   flatPath: blobHasReadme ? 'README.md' : 'fakeBlob',
+                  path: 'README.md',
                   type: 'blob',
                   mode: '100644',
                   webPath: '/gitlab-org/gitlab-build-images/-/blob/master/README.md',
@@ -187,3 +223,143 @@ export const paginatedTreeResponseFactory = ({
 });
 
 export const axiosMockResponse = { html: 'text', binary: true };
+
+export const headerAppInjected = {
+  canCollaborate: true,
+  canEditTree: true,
+  canPushCode: true,
+  canPushToBranch: true,
+  originalBranch: 'main',
+  selectedBranch: 'feature/new-ui',
+  newBranchPath: '/project/new-branch',
+  newTagPath: '/project/new-tag',
+  newBlobPath: '/project/new-file',
+  forkNewBlobPath: '/project/fork/new-file',
+  forkNewDirectoryPath: '/project/fork/new-directory',
+  forkUploadBlobPath: '/project/fork/upload',
+  uploadPath: '/project/upload',
+  newDirPath: '/project/new-directory',
+  projectRootPath: '/project/root/path',
+  comparePath: undefined,
+  isReadmeView: false,
+  isFork: false,
+  needsToFork: true,
+  isGitpodEnabledForUser: false,
+  isBlob: true,
+  showEditButton: true,
+  showWebIdeButton: true,
+  isGitpodEnabledForInstance: false,
+  showPipelineEditorUrl: true,
+  webIdeUrl: 'https://gitlab.com/project/-/ide/',
+  editUrl: 'https://gitlab.com/project/-/edit/main/',
+  pipelineEditorUrl: 'https://gitlab.com/project/-/ci/editor',
+  gitpodUrl: 'https://gitpod.io/#https://gitlab.com/project',
+  userPreferencesGitpodPath: '/profile/preferences#gitpod',
+  userProfileEnableGitpodPath: '/profile/preferences?enable_gitpod=true',
+  httpUrl: 'https://gitlab.com/example-group/example-project.git',
+  xcodeUrl: 'xcode://clone?repo=https://gitlab.com/example-group/example-project.git',
+  sshUrl: 'git@gitlab.com:example-group/example-project.git',
+  kerberosUrl: '',
+  downloadLinks: [
+    'https://gitlab.com/example-group/example-project/-/archive/main/example-project-main.zip',
+    'https://gitlab.com/example-group/example-project/-/archive/main/example-project-main.tar.gz',
+    'https://gitlab.com/example-group/example-project/-/archive/main/example-project-main.tar.bz2',
+    'https://gitlab.com/example-group/example-project/-/releases',
+  ],
+  downloadArtifacts: [
+    'https://gitlab.com/example-group/example-project/-/jobs/artifacts/main/download?job=build',
+  ],
+  isBinary: false,
+  rootRef: 'main',
+};
+
+export const FILE_SIZE_3MB = 3000000;
+
+export const currentUserDataMock = {
+  __typename: 'User',
+  id: '1234',
+  gitpodEnabled: true,
+  preferencesGitpodPath: 'preferences/gitpod/path',
+  profileEnableGitpodPath: 'profile/enable/gitpod/path',
+};
+
+export const applicationInfoMock = { gitpodEnabled: true };
+
+export const mockPipelineStatusUpdatedResponse = {
+  data: {
+    ciPipelineStatusUpdated: {
+      id: 'gid://gitlab/Ci::Pipeline/1257',
+      retryable: false,
+      cancelable: false,
+      __typename: 'Pipeline',
+      detailedStatus: {
+        detailsPath: '/root/simple-ci-project/-/pipelines/1257',
+        icon: 'status_success',
+        id: 'success-1255-1255',
+        label: 'passed',
+        text: 'Passed',
+        __typename: 'DetailedStatus',
+      },
+    },
+  },
+};
+
+const defaultPipelineEdges = [
+  {
+    __typename: 'PipelineEdge',
+    node: {
+      __typename: 'Pipeline',
+      id: 'gid://gitlab/Ci::Pipeline/167',
+      detailedStatus: {
+        __typename: 'DetailedStatus',
+        id: 'id',
+        detailsPath: 'https://test.com/pipeline',
+        icon: 'status_running',
+        text: 'failed',
+      },
+    },
+  },
+];
+
+export const createCommitData = ({ pipelineEdges = defaultPipelineEdges, signature = null }) => {
+  return {
+    data: {
+      project: {
+        __typename: 'Project',
+        id: 'gid://gitlab/Project/6',
+        repository: {
+          __typename: 'Repository',
+          lastCommit: {
+            __typename: 'Commit',
+            id: 'gid://gitlab/CommitPresenter/123456789',
+            sha: '123456789',
+            title: 'Commit title',
+            titleHtml: 'Commit title',
+            descriptionHtml: '',
+            message: '',
+            webPath: '/commit/123',
+            committerName: 'Test Committer',
+            committerEmail: 'testcommitter@example.com',
+            committedDate: '2019-02-02',
+            authoredDate: '2019-01-01',
+            authorName: 'Test',
+            authorEmail: 'testauthor@example.com',
+            authorGravatar: 'https://test.com',
+            author: {
+              __typename: 'UserCore',
+              id: 'gid://gitlab/User/1',
+              name: 'Test',
+              avatarUrl: 'https://test.com',
+              webPath: '/test',
+            },
+            signature,
+            pipelines: {
+              __typename: 'PipelineConnection',
+              edges: pipelineEdges,
+            },
+          },
+        },
+      },
+    },
+  };
+};

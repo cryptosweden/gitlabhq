@@ -12,7 +12,6 @@ import {
 import FilteredSearchBar from '~/vue_shared/components/filtered_search_bar/filtered_search_bar_root.vue';
 import UserToken from '~/vue_shared/components/filtered_search_bar/tokens/user_token.vue';
 import PageWrapper from '~/vue_shared/components/paginated_table_with_search_and_tabs/paginated_table_with_search_and_tabs.vue';
-import mockItems from './mocks/items.json';
 import mockFilters from './mocks/items_filters.json';
 
 const EmptyStateSlot = {
@@ -64,7 +63,6 @@ describe('AlertManagementEmptyState', () => {
         projectPath: '/link',
       },
       propsData: {
-        items: [],
         itemsCount: {},
         pageInfo: {},
         statusTabs: [],
@@ -156,7 +154,7 @@ describe('AlertManagementEmptyState', () => {
 
     it('renders a table of items if items are present', () => {
       mountComponent({
-        props: { showItems: true, items: mockItems },
+        props: { showItems: true },
       });
 
       expect(ItemsTable().exists()).toBe(true);
@@ -182,7 +180,7 @@ describe('AlertManagementEmptyState', () => {
   describe('Status Filter Tabs', () => {
     beforeEach(() => {
       mountComponent({
-        props: { items: mockItems, itemsCount, statusTabs: ITEMS_STATUS_TABS },
+        props: { itemsCount, statusTabs: ITEMS_STATUS_TABS },
       });
     });
 
@@ -210,7 +208,6 @@ describe('AlertManagementEmptyState', () => {
     beforeEach(() => {
       mountComponent({
         props: {
-          items: mockItems,
           itemsCount,
           statusTabs: ITEMS_STATUS_TABS,
           pageInfo: { hasNextPage: true },
@@ -227,7 +224,7 @@ describe('AlertManagementEmptyState', () => {
         findPagination().vm.$emit('input', 3);
 
         await nextTick();
-        expect(findPagination().findAll('.page-item').at(0).text()).toBe('Previous');
+        expect(findPagination().find('[data-testid="gl-pagination-prev"]').text()).toBe('Previous');
       });
 
       it('returns prevPage number', async () => {
@@ -250,13 +247,12 @@ describe('AlertManagementEmptyState', () => {
         findPagination().vm.$emit('input', 3);
 
         await nextTick();
-        expect(findPagination().findAll('.page-item').at(1).text()).toBe('Next');
+        expect(findPagination().find('[data-testid="gl-pagination-next"]').text()).toBe('Next');
       });
 
       it('returns nextPage number', async () => {
         mountComponent({
           props: {
-            items: mockItems,
             itemsCount,
             statusTabs: ITEMS_STATUS_TABS,
             pageInfo: { hasNextPage: true },
@@ -281,7 +277,6 @@ describe('AlertManagementEmptyState', () => {
     beforeEach(() => {
       mountComponent({
         props: {
-          items: mockItems,
           itemsCount,
           statusTabs: ITEMS_STATUS_TABS,
           filterSearchKey: 'items',

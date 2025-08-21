@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Guidelines for implementing Enterprise Edition features
 ---
-
-# Guidelines for implementing Enterprise Edition features
 
 - **Place code in `ee/`**: Put all Enterprise Edition (EE) inside the `ee/` top-level directory. The
   rest of the code must be as close to the Community Edition (CE) files as possible.
@@ -17,6 +16,13 @@ info: Any user with at least the Maintainer role can merge updates to this conte
 - **Submit a MR to the [`www-gitlab-com`](https://gitlab.com/gitlab-com/www-gitlab-com) project.**: Add the new feature to the
   [EE features list](https://about.gitlab.com/features/).
 <!-- markdownlint-enable MD044 -->
+
+## Runtime modes in development
+
+1. **EE Unlicensed**: this is what you have from a plain GDK installation, if you've installed from the [main repository](https://gitlab.com/gitlab-org/gitlab)
+1. **EE licensed**: when you [add a valid license to your GDK](https://gitlab.com/gitlab-org/customers-gitlab-com/-/blob/main/doc/setup/gitlab.md#adding-a-license-from-staging-customers-portal-to-your-gdk)
+1. **GitLab.com SaaS**: when you [simulate SaaS](#simulate-a-saas-instance)
+1. **CE**: in any of the states above, when you [simulate CE](#simulate-a-ce-instance-with-a-licensed-gdk)
 
 ## SaaS-only feature
 
@@ -107,8 +113,10 @@ See [extending CE with EE guide](#extend-ce-features-with-ee-backend-code).
 ### SaaS-only features in tests
 
 Introducing a SaaS-only feature into the codebase creates an additional code path that should be tested.
-It is strongly advised to include automated tests for all code affected by a SaaS-only feature, both when **enabled** and **disabled**
-to ensure the feature works properly.
+Include automated tests for all code affected by a SaaS-only feature, both when the feature is **enabled**
+and **disabled** to ensure the feature works properly.
+
+#### Use the `stub_saas_features` helper
 
 To enable a SaaS-only feature in a test, use the `stub_saas_features`
 helper. For example, to globally disable the `purchases_additional_minutes` feature
@@ -139,6 +147,32 @@ context 'when purchases_additional_minutes is available' do
 end
 ```
 
+#### Use the `:saas` metadata helper
+
+Depending on the type of tests, the `stub_saas_features` approach might not be enough to enable SaaS.
+In those cases, you can use the `:saas` RSpec metadata helper.
+
+For more information about tests, see
+[Tests depending on SaaS](testing_guide/best_practices.md#tests-depending-on-saas).
+
+Testing both paths with the metadata helper looks like:
+
+```ruby
+it 'shows custom projects templates tab' do
+  page.within '.project-template .custom-instance-project-templates-tab' do
+    expect(page).to have_content 'Instance'
+  end
+end
+
+context 'when SaaS', :saas do
+  it 'does not show Instance tab' do
+    page.within '.project-template' do
+      expect(page).not_to have_content 'Instance'
+    end
+  end
+end
+```
+
 ### Simulate a SaaS instance
 
 If you're developing locally and need your instance to simulate the SaaS (GitLab.com)
@@ -156,18 +190,24 @@ version of the product:
 1. Enable **Allow use of licensed EE features** to make licensed EE features available to projects
    only if the project namespace's plan includes the feature.
 
-   1. On the left sidebar, at the bottom, select **Admin Area**.
+   1. On the left sidebar, at the bottom, select **Admin**.
    1. On the left sidebar, select **Settings > General**.
    1. Expand **Account and limit**.
    1. Select the **Allow use of licensed EE features** checkbox.
    1. Select **Save changes**.
 
 1. Ensure the group you want to test the EE feature for is actually using an EE plan:
-   1. On the left sidebar, at the bottom, select **Admin Area**.
+   1. On the left sidebar, at the bottom, select **Admin**.
    1. On the left sidebar, select **Overview > Groups**.
    1. Identify the group you want to modify, and select **Edit**.
    1. Scroll to **Permissions and group features**. For **Plan**, select `Ultimate`.
    1. Select **Save changes**.
+
+Here's a [📺 video](https://youtu.be/DHkaqXw_Tmc) demonstrating how to do the steps above.
+
+<figure class="video-container">
+  <iframe src="https://www.youtube-nocookie.com/embed/DHkaqXw_Tmc" frameborder="0" allowfullscreen> </iframe>
+</figure>
 
 ## Implement a new EE feature
 
@@ -187,11 +227,11 @@ Use the following questions to guide you:
 1. Is this a **GitLab Premium** or **GitLab Ultimate** feature?
    - Based on the plan you choose to use the feature in, add the feature identifier to `PREMIUM_FEATURES`
      or `ULTIMATE_FEATURES`.
-1. Will this feature be available globally (system-wide at the GitLab instance level)?
-    - Features such as [Geo](../administration/geo/index.md) and
-      [Database Load Balancing](../administration/postgresql/database_load_balancing.md) are used by the entire instance
-      and cannot be restricted to individual user namespaces. These features are defined in the instance license.
-      Add these features to `GLOBAL_FEATURES`.
+1. Will this feature be available globally (system-wide for the GitLab instance)?
+   - Features such as [Geo](../administration/geo/_index.md) and
+     [Database Load Balancing](../administration/postgresql/database_load_balancing.md) are used by the entire instance
+     and cannot be restricted to individual user namespaces. These features are defined in the instance license.
+     Add these features to `GLOBAL_FEATURES`.
 
 ### Guard your EE feature
 
@@ -296,7 +336,7 @@ FOSS context as well.
 
 To run pipelines in both contexts, add the `~"pipeline:run-as-if-foss"` label to the merge request.
 
-See the [As-if-FOSS jobs and cross project downstream pipeline](pipelines/index.md#as-if-foss-jobs-and-cross-project-downstream-pipeline) pipelines documentation for more information.
+See the [As-if-FOSS jobs and cross project downstream pipeline](pipelines/_index.md#as-if-foss-jobs-and-cross-project-downstream-pipeline) pipelines documentation for more information.
 
 ## Separation of EE code in the backend
 
@@ -320,9 +360,10 @@ is applied not only to models. Here's a list of other examples:
 - `ee/app/workers/foo_worker.rb`
 - `ee/app/views/foo.html.haml`
 - `ee/app/views/foo/_bar.html.haml`
+- `ee/config/initializers/foo_bar.rb`
 
-This works because for every path that is present in CE's eager-load/auto-load
-paths, we add the same `ee/`-prepended path in [`config/application.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/925d3d4ebc7a2c72964ce97623ae41b8af12538d/config/application.rb#L42-52).
+This works because for every path in the CE `eager-load/auto-load`
+path, we add the same `ee/`-prepended path in [`config/application.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/925d3d4ebc7a2c72964ce97623ae41b8af12538d/config/application.rb#L42-52).
 This also applies to views.
 
 #### Testing EE-only backend features
@@ -387,7 +428,7 @@ User.prepend_mod_with('UserExtension')
 ```
 
 Since the module would require an `EE` namespace, the file should also be
-put in an `ee/` sub-directory. For example, we want to extend the user model
+put in an `ee/` subdirectory. For example, we want to extend the user model
 in EE, so we have a module called `::EE::User` put inside
 `ee/app/models/ee/user.rb`.
 
@@ -424,7 +465,7 @@ end
 
 To override a method present in the CE codebase, use `prepend`. It
 lets you override a method in a class with a method from a module, while
-still having access the class's implementation with `super`.
+still having access to the class's implementation with `super`.
 
 There are a few gotchas with it:
 
@@ -489,7 +530,7 @@ There are a few gotchas with it:
     end
   ```
 
-When prepending, place them in the `ee/` specific sub-directory, and
+When prepending, place them in the `ee/` specific subdirectory, and
 wrap class or module in `module EE` to avoid naming conflicts.
 
 For example to override the CE implementation of
@@ -518,7 +559,7 @@ end
 ApplicationController.prepend_mod_with('ApplicationController')
 ```
 
-And create a new file in the `ee/` sub-directory with the altered
+And create a new file in the `ee/` subdirectory with the altered
 implementation:
 
 ```ruby
@@ -588,6 +629,24 @@ def internal?
 end
 ```
 
+### Code in `config/initializers`
+
+Rails initialization code is located in
+
+- `config/initializers` for CE-only features
+- `ee/config/initializers` for EE features
+
+Use `Gitlab.ee { ... }`/`Gitlab.ee?` in `config/initializers` only when
+splitting is not possible. For example:
+
+```ruby
+SomeGem.configure do |config|
+  config.base = 'https://example.com'
+
+  config.encryption = true if Gitlab.ee?
+end
+```
+
 ### Code in `config/routes`
 
 When we add `draw :admin` in `config/routes.rb`, the application tries to
@@ -596,7 +655,7 @@ file located in `ee/config/routes/admin.rb`.
 
 In EE, it should at least load one file, at most two files. If it cannot find
 any files, an error is raised. In CE, since we don't know if an
-an EE route exists, it doesn't raise any errors even if it cannot find anything.
+EE route exists, it doesn't raise any errors even if it cannot find anything.
 
 This means if we want to extend a particular CE route file, just add the same
 file located in `ee/config/routes`. If we want to add an EE only route, we
@@ -621,7 +680,7 @@ def project_params
 end
 
 # Always returns an array of symbols, created however best fits the use case.
-# It _should_ be sorted alphabetically.
+# It should be sorted alphabetically.
 def project_params_attributes
   %i[
     description
@@ -671,7 +730,7 @@ avoids conflicts with big chunks of HAML code that are not fun to
 resolve when you add the indentation to the equation.
 
 EE-specific views should be placed in `ee/app/views/`, using extra
-sub-directories if appropriate.
+subdirectories if appropriate.
 
 #### Using `render_if_exists`
 
@@ -693,7 +752,7 @@ The disadvantage of this:
 The `render_if_exists` view path argument must be relative to `app/views/` and `ee/app/views`.
 Resolving an EE template path that is relative to the CE view path doesn't work.
 
-```haml
+```ruby
 - # app/views/projects/index.html.haml
 
 = render_if_exists 'button' # Will not render `ee/app/views/projects/_button` and will quietly fail
@@ -721,8 +780,8 @@ In this case, we could as well just use `render_ce` which would ignore any EE
 partials. One example would be
 `ee/app/views/projects/settings/_archive.html.haml`:
 
-```haml
-- return if @project.marked_for_deletion?
+```ruby
+- return if @project.self_deletion_scheduled?
 = render_ce 'projects/settings/archive'
 ```
 
@@ -817,11 +876,13 @@ end
 
 ### Code in `lib/`
 
-Place EE-specific logic in the top-level `EE` module namespace. Namespace the
+Place EE logic that overrides CE in the top-level `EE` module namespace. Namespace the
 class beneath the `EE` module as you usually would.
 
 For example, if CE has LDAP classes in `lib/gitlab/ldap/` then you would place
-EE-specific LDAP classes in `ee/lib/ee/gitlab/ldap`.
+EE-specific overrides in `ee/lib/ee/gitlab/ldap`.
+
+EE-only classes, with no CE counterpart, would be placed in `ee/lib/gitlab/ldap`.
 
 ### Code in `lib/api/`
 
@@ -856,8 +917,7 @@ module EE
 end
 ```
 
-Note that due to namespace differences, we need to use the full qualifier for some
-constants.
+We need to use the full qualifier for some constants due to namespace differences.
 
 #### EE parameters
 
@@ -1005,7 +1065,7 @@ end
 API::MergeRequests.prepend_mod_with('API::MergeRequests')
 ```
 
-Note that `update_merge_request_ee` doesn't do anything in CE, but
+`update_merge_request_ee` doesn't do anything in CE, but
 then we could override it in EE:
 
 ```ruby
@@ -1179,16 +1239,19 @@ end
 ### Code in `spec/`
 
 When you're testing EE-only features, avoid adding examples to the
-existing CE specs. Also do not change existing CE examples, since they
-should remain working as-is when EE is running without a license.
+existing CE specs. Instead, place EE specs in the `ee/spec` folder.
 
-Instead place EE specs in the `ee/spec` folder.
+By default, CE specs run with EE code loaded as they should remain
+working as-is when EE is running without a license.
+
+These specs also need to pass when EE code is removed. You can run
+the tests without EE code by [simulating a CE instance](#simulate-a-ce-instance-with-a-licensed-gdk).
 
 ### Code in `spec/factories`
 
 Use `FactoryBot.modify` to extend factories already defined in CE.
 
-Note that you cannot define new factories (even nested ones) inside the `FactoryBot.modify` block. You can do so in a
+You cannot define new factories (even nested ones) inside the `FactoryBot.modify` block. You can do so in a
 separate `FactoryBot.define` block as shown in the example below:
 
 ```ruby
@@ -1290,24 +1353,25 @@ Verify your feature appears in `gon.licensed_features` in the browser console.
 EE licensed features that enhance existing functionality in the UI add new
 elements or interactions to your Vue application as components.
 
-To separate template differences, use a child EE component to separate Vue template differences.
-You must import the EE component [asynchronously](https://v2.vuejs.org/v2/guide/components-dynamic-async.html#Async-Components).
+You can import EE components inside CE components to add EE features.
 
-This allows GitLab to load the correct component in EE, while in CE GitLab loads an empty component
-that renders nothing. This code **must** exist in the CE repository, in addition to the EE repository.
+Use an `ee_component` alias to import an EE component. In EE the `ee_component` import alias points
+to the `ee/app/assets/javascripts` directory. While in CE this alias will be resolved to an empty
+component that renders nothing.
 
-A CE component acts as the entry point to your EE feature. To add a EE component,
-locate it the `ee/` directory and add it with `import('ee_component/...')`:
+Here is an example of an EE component imported to a CE component:
 
-```html
+```vue
 <script>
 // app/assets/javascripts/feature/components/form.vue
 
+// In EE this will be resolved as `ee/app/assets/javascripts/feature/components/my_ee_component.vue`
+// In CE as `app/assets/javascripts/vue_shared/components/empty_component.js`
+import MyEeComponent from 'ee_component/feature/components/my_ee_component.vue';
+
 export default {
-  mixins: [glFeatureFlagMixin()],
   components: {
-    // Import an EE component from CE
-    MyEeComponent: () => import('ee_component/components/my_ee_component.vue'),
+    MyEeComponent,
   },
 };
 </script>
@@ -1321,10 +1385,18 @@ export default {
 </template>
 ```
 
+{{< alert type="note" >}}
+
+An EE component can be imported
+[asynchronously](https://v2.vuejs.org/v2/guide/components-dynamic-async.html#Async-Components) if
+its rendering within CE codebase relies on some check (for example, a feature flag check).
+
+{{< /alert >}}
+
 Check `glFeatures` to ensure that the Vue components are guarded. The components render only when
 the license is present.
 
-```html
+```vue
 <script>
 // ee/app/assets/javascripts/feature/components/special_component.vue
 
@@ -1348,8 +1420,11 @@ export default {
 </template>
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 Do not use mixins unless ABSOLUTELY NECESSARY. Try to find an alternative pattern.
+
+{{< /alert >}}
 
 ##### Recommended alternative approach (named/scoped slots)
 
@@ -1421,11 +1496,8 @@ export default {
 
 **For EE components that need different results for the same computed values, we can pass in props to the CE wrapper as seen in the example.**
 
-- **EE Child components**
-  - Since we are using the asynchronous loading to check which component to load, we'd still use the component's name, check [this example](#extend-vue-applications-with-ee-vue-components).
-
 - **EE extra HTML**
-  - For the templates that have extra HTML in EE we should move it into a new component and use the `ee_else_ce` dynamic import
+  - For the templates that have extra HTML in EE we should move it into a new component and use the `ee_else_ce` import alias
 
 #### Extend other JS code
 
@@ -1521,6 +1593,33 @@ describe('ComponentUnderTest', () => {
   });
 });
 
+```
+
+### Running EE vs CE tests
+
+Whenever you create tests for both CE and EE environments, you need to take some steps to ensure that both tests pass locally and on the pipeline when run.
+
+- By default, tests run in the EE environment, executing both EE and CE tests.
+- If you want to test only the CE file in the FOSS environment, you need to run the following command:
+
+```shell
+FOSS_ONLY=1 yarn jest path/to/spec/file.spec.js
+```
+
+As for CE tests we only add CE features, it may fail in the EE environment if EE-specific mock data is missing. To ensure CE tests work in both environments:
+
+- Use the `ee_else_ce_jest` alias when importing mock data. For example:
+
+```javascript
+import { sidebarDataCountResponse } from 'ee_else_ce_jest/super_sidebar/mock_data';
+```
+
+- Make sure that you have a CE and an EE `mock_data` file with an object (in the example above, `sidebarDataCountResponse`) with the corresponding data. One with only CE features data for the CE file and another with both CE and EE features data.
+
+- In the CE file `expect` blocks, if you need to compare an object, use `toMatchObject` instead of `toEqual`, so it doesn't expect that EE data to exist in the CE data. For example:
+
+```javascript
+expect(findPinnedSection().props('asyncCount')).toMatchObject(asyncCountData);
 ```
 
 #### SCSS code in `assets/stylesheets`

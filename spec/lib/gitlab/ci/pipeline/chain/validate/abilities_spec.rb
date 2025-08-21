@@ -3,6 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::Ci::Pipeline::Chain::Validate::Abilities, feature_category: :continuous_integration do
+  include ProjectForksHelper
   let(:project) { create(:project, :test_repo) }
   let_it_be(:user) { create(:user) }
 
@@ -15,8 +16,8 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Validate::Abilities, feature_categor
       project: project,
       current_user: user,
       origin_ref: origin_ref,
-      merge_request: merge_request,
-      trigger_request: trigger_request)
+      merge_request: merge_request
+    )
   end
 
   let(:step) { described_class.new(pipeline, command) }
@@ -24,7 +25,6 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Validate::Abilities, feature_categor
   let(:ref) { 'master' }
   let(:origin_ref) { ref }
   let(:merge_request) { nil }
-  let(:trigger_request) { nil }
 
   shared_context 'detached merge request pipeline' do
     let(:merge_request) do
@@ -113,6 +113,31 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Validate::Abilities, feature_categor
 
       it 'does not break the chain' do
         expect(step.break?).to eq false
+      end
+    end
+
+    context 'when push is from CI with job token' do
+      let(:command) do
+        Gitlab::Ci::Pipeline::Chain::Command.new(
+          project: project,
+          current_user: user,
+          origin_ref: origin_ref,
+          merge_request: merge_request,
+          gitaly_context: { 'glBuildId' => '123' }
+        )
+      end
+
+      before do
+        step.perform!
+      end
+
+      it 'adds an error about CI job token usage' do
+        expect(pipeline.errors.full_messages.first)
+          .to include('Pipeline creation is not allowed when pushing from CI jobs.')
+      end
+
+      it 'breaks the pipeline builder chain' do
+        expect(step.break?).to eq true
       end
     end
   end
@@ -222,6 +247,68 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Validate::Abilities, feature_categor
 
     context 'when owner cannot create pipeline' do
       it { is_expected.to be_falsey }
+    end
+
+    context 'when a merge request comes from a fork' do
+      let(:author) { create(:user) }
+      let(:fork_user) { create(:user) }
+      let(:target_project) { create(:project, :test_repo, :public) }
+      let(:source_project) { fork_project(target_project, fork_user, repository: true) }
+      let(:merge_request) do
+        create(:merge_request, source_project: source_project, target_project: target_project)
+      end
+
+      let(:command) do
+        Gitlab::Ci::Pipeline::Chain::Command.new(
+          project: pipeline_project,
+          current_user: author,
+          merge_request: merge_request
+        )
+      end
+
+      before do
+        source_project.add_developer(author)
+      end
+
+      context 'and the author is a member of the target project' do
+        let(:pipeline_project) { target_project }
+
+        before do
+          target_project.add_developer(author)
+          allow(command).to receive(:origin_ref).and_return('refs/merge-requests/1/head')
+        end
+
+        it { is_expected.to be_truthy }
+      end
+
+      context 'and the author is not a member of the target project' do
+        let(:pipeline_project) { source_project }
+
+        before do
+          allow(command).to receive(:origin_ref).and_return('feature')
+          source_project.repository.create_branch('feature', source_project.default_branch)
+        end
+
+        context 'when there is no branch protection rule matching the MR source ref' do
+          it { is_expected.to be_truthy }
+        end
+
+        context 'when a branch protection rule matches the MR source ref' do
+          let!(:protected_branch) do
+            create(:protected_branch, project: source_project, name: 'feature')
+          end
+
+          it { is_expected.to be_falsey }
+
+          context 'when the author is a maintainer of the source project' do
+            before do
+              source_project.add_maintainer(author)
+            end
+
+            it { is_expected.to be_truthy }
+          end
+        end
+      end
     end
   end
 end

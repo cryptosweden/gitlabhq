@@ -13,6 +13,7 @@ export {
   CANCEL_DELETE_PACKAGE_FILE_TRACKING_ACTION,
   DOWNLOAD_PACKAGE_ASSET_TRACKING_ACTION,
   SELECT_PACKAGE_FILE_TRACKING_ACTION,
+  INSTALL_PACKAGE_TRACKING_ACTION,
 } from '~/packages_and_registries/shared/constants';
 
 export const PACKAGE_TYPE_CONAN = 'CONAN';
@@ -158,15 +159,17 @@ export const ERRORED_PACKAGE_TEXT = s__(
 export const ERROR_PUBLISHING = s__('PackageRegistry|Error publishing');
 export const WARNING_TEXT = __('Warning');
 
-export const PACKAGE_REGISTRY_TITLE = __('Package Registry');
+export const PACKAGE_REGISTRY_TITLE = __('Package registry');
 
 export const PACKAGE_ERROR_STATUS = 'ERROR';
 export const PACKAGE_DEFAULT_STATUS = 'DEFAULT';
+export const PACKAGE_DEPRECATED_STATUS = 'DEPRECATED';
 
 export const NPM_PACKAGE_MANAGER = 'npm';
 export const YARN_PACKAGE_MANAGER = 'yarn';
 
 export const PROJECT_PACKAGE_ENDPOINT_TYPE = 'project';
+export const GROUP_PACKAGE_ENDPOINT_TYPE = 'group';
 export const INSTANCE_PACKAGE_ENDPOINT_TYPE = 'instance';
 
 export const GRAPHQL_PAGE_SIZE = 20;
@@ -235,14 +238,14 @@ export const PACKAGE_STATUS_OPTIONS = [
 
 // links
 
-export const EMPTY_LIST_HELP_URL = helpPagePath('user/packages/package_registry/index');
-export const PACKAGE_HELP_URL = helpPagePath('user/packages/index');
-export const NPM_HELP_PATH = helpPagePath('user/packages/npm_registry/index');
-export const MAVEN_HELP_PATH = helpPagePath('user/packages/maven_repository/index');
-export const CONAN_HELP_PATH = helpPagePath('user/packages/conan_repository/index');
-export const NUGET_HELP_PATH = helpPagePath('user/packages/nuget_repository/index');
-export const PYPI_HELP_PATH = helpPagePath('user/packages/pypi_repository/index');
-export const COMPOSER_HELP_PATH = helpPagePath('user/packages/composer_repository/index');
+export const EMPTY_LIST_HELP_URL = helpPagePath('user/packages/package_registry/_index');
+export const PACKAGE_HELP_URL = helpPagePath('user/packages/_index');
+export const NPM_HELP_PATH = helpPagePath('user/packages/npm_registry/_index');
+export const MAVEN_HELP_PATH = helpPagePath('user/packages/maven_repository/_index');
+export const CONAN_HELP_PATH = helpPagePath('user/packages/conan_repository/_index');
+export const NUGET_HELP_PATH = helpPagePath('user/packages/nuget_repository/_index');
+export const PYPI_HELP_PATH = helpPagePath('user/packages/pypi_repository/_index');
+export const COMPOSER_HELP_PATH = helpPagePath('user/packages/composer_repository/_index');
 export const PERSONAL_ACCESS_TOKEN_HELP_URL = helpPagePath('user/profile/personal_access_tokens');
 export const REQUEST_FORWARDING_HELP_PAGE_PATH = helpPagePath(
   'user/packages/package_registry/supported_functionality',

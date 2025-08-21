@@ -6,7 +6,9 @@ module Gitlab
       module Events
         class Renamed < BaseImporter
           def execute(issue_event)
-            Note.create!(note_params(issue_event))
+            created_note = Note.create!(note_params(issue_event))
+
+            push_reference(project, created_note, :author_id, issue_event[:actor]&.id)
           end
 
           private
@@ -22,6 +24,7 @@ module Gitlab
               system: true,
               created_at: issue_event.created_at,
               updated_at: issue_event.created_at,
+              imported_from: imported_from,
               system_note_metadata: SystemNoteMetadata.new(
                 {
                   action: "title",

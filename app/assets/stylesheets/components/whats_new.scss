@@ -1,8 +1,13 @@
 .whats-new-drawer {
   box-shadow: none;
   overflow-y: hidden;
-  width: 500px;
 
+   // setting custom width above mobile breakpoint
+  @media (min-width: $breakpoint-md) {
+    width: 500px;
+  }
+
+  /* stylelint-disable gitlab/no-gl-class */
   .gl-infinite-scroll-legend {
     display: none;
   }
@@ -32,21 +37,19 @@
     top: 50%;
     transform: translateY(-50%);
   }
-}
 
-.whats-new-item-title-link {
-  &:hover,
-  &:focus,
-  &:active {
-    color: $gray-900;
+  .gl-drawer-close-button {
+    margin-top: $gl-spacing-scale-3
   }
-}
-
-.whats-new-item-image {
-  border-color: $gray-50;
-  height: 250px;
+  /* stylelint-enable gitlab/no-gl-class */
 }
 
 .whats-new-modal-backdrop {
   z-index: 699;
+}
+
+.whats-new-article-drawer {
+  @media (min-width: $breakpoint-md) {
+    width: 500px;
+  }
 }

@@ -1,21 +1,26 @@
 ---
-stage: Monitor
-group: Observability
+stage: Analytics
+group: Platform Insights
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Error Tracking API
 ---
 
-# Error Tracking settings API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-## Error Tracking project settings
+{{< /details >}}
 
-The project settings API allows you to retrieve the [Error Tracking](../operations/error_tracking.md)
-settings for a project. Only for users with Maintainer role for the project.
+Use this API to interact with the Error Tracking feature for projects. For more information, see [Error Tracking](../operations/error_tracking.md).
 
-### Get Error Tracking settings
+Prerequisites:
+
+- You must have at least the Maintainer role.
+
+## Get Error Tracking settings
+
+Gets the Error Tracking settings for a specified project.
 
 ```plaintext
 GET /projects/:id/error_tracking/settings
@@ -23,10 +28,11 @@ GET /projects/:id/error_tracking/settings
 
 | Attribute | Type    | Required | Description           |
 | --------- | ------- | -------- | --------------------- |
-| `id`      | integer | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/error_tracking/settings"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/error_tracking/settings"
 ```
 
 Example response:
@@ -41,15 +47,21 @@ Example response:
 }
 ```
 
-### Create Error Tracking settings
+## Create Error Tracking settings
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/393035/) in GitLab 15.10.
+{{< history >}}
 
-The API allows you to create Error Tracking settings for a project. Only for users with Maintainer role for
-the project.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/393035/) in GitLab 15.10.
 
-NOTE:
+{{< /history >}}
+
+Creates Error Tracking settings for a specified project.
+
+{{< alert type="note" >}}
+
 This API is only available when used with [integrated error tracking](../operations/integrated_error_tracking.md).
+
+{{< /alert >}}
 
 ```plaintext
 PUT /projects/:id/error_tracking/settings
@@ -59,14 +71,15 @@ Supported attributes:
 
 | Attribute    | Type    | Required | Description                                                                                                                                                     |
 | ------------ | ------- |----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `id`         | integer | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user.                                            |
+| `id`         | integer | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths).                                            |
 | `active`     | boolean | yes      | Pass `true` to enable the error tracking setting configuration or `false` to disable it.                                                                        |
 | `integrated` | boolean | yes      | Pass `true` to enable the integrated error tracking backend. |
 
 Example request:
 
 ```shell
-curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/error_tracking/settings?active=true&integrated=true"
+curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/error_tracking/settings?active=true&integrated=true"
 ```
 
 Example response:
@@ -81,10 +94,9 @@ Example response:
 }
 ```
 
-### Enable or disable the Error Tracking project settings
+## Activate the Error Tracking project settings
 
-The API allows you to enable or disable the Error Tracking settings for a project. Only for users with the
-Maintainer role for the project.
+Activates or deactivates Error Tracking settings for a specified project.
 
 ```plaintext
 PATCH /projects/:id/error_tracking/settings
@@ -92,12 +104,13 @@ PATCH /projects/:id/error_tracking/settings
 
 | Attribute    | Type    | Required | Description           |
 | ------------ | ------- | -------- | --------------------- |
-| `id`         | integer | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`         | integer | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `active`     | boolean | yes      | Pass `true` to enable the already configured error tracking settings or `false` to disable it. |
 | `integrated` | boolean | no       | Pass `true` to enable the integrated error tracking backend. |
 
 ```shell
-curl --request PATCH --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/error_tracking/settings?active=true"
+curl --request PATCH --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/error_tracking/settings?active=true"
 ```
 
 Example response:
@@ -112,12 +125,9 @@ Example response:
 }
 ```
 
-## Error Tracking client keys
+## List all project client keys
 
-For [integrated error tracking](https://gitlab.com/gitlab-org/gitlab/-/issues/329596) feature. Only for users with the
-Maintainer role for the project.
-
-### List project client keys
+Lists all [integrated error tracking](../operations/integrated_error_tracking.md) client keys for a specified project.
 
 ```plaintext
 GET /projects/:id/error_tracking/client_keys
@@ -125,10 +135,11 @@ GET /projects/:id/error_tracking/client_keys
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/error_tracking/client_keys"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/5/error_tracking/client_keys"
 ```
 
 Example response:
@@ -150,9 +161,9 @@ Example response:
 ]
 ```
 
-### Create a client key
+## Create a client key
 
-Creates a new client key for a project. The public key attribute is generated automatically.
+Creates an [integrated error tracking](../operations/integrated_error_tracking.md) client key for a specified project. The public key attribute is generated automatically.
 
 ```plaintext
 POST /projects/:id/error_tracking/client_keys
@@ -160,11 +171,13 @@ POST /projects/:id/error_tracking/client_keys
 
 | Attribute  | Type | Required | Description |
 | ---------  | ---- | -------- | ----------- |
-| `id`       | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`       | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" --header "Content-Type: application/json" \
-     "https://gitlab.example.com/api/v4/projects/5/error_tracking/client_keys"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --header "Content-Type: application/json" \
+  --url "https://gitlab.example.com/api/v4/projects/5/error_tracking/client_keys"
 ```
 
 Example response:
@@ -178,9 +191,9 @@ Example response:
 }
 ```
 
-### Delete a client key
+## Delete a client key
 
-Removes a client key from the project.
+Deletes an [integrated error tracking](../operations/integrated_error_tracking.md) client key from a specified project.
 
 ```plaintext
 DELETE /projects/:id/error_tracking/client_keys/:key_id
@@ -188,9 +201,10 @@ DELETE /projects/:id/error_tracking/client_keys/:key_id
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
+| `id`      | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `key_id`  | integer | yes | The ID of the client key. |
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/error_tracking/client_keys/13"
+curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/5/error_tracking/client_keys/13"
 ```

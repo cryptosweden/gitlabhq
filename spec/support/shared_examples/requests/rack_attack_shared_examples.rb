@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 #
 # Requires let variables:
 # * throttle_setting_prefix: "throttle_authenticated_api", "throttle_authenticated_web", "throttle_protected_paths", "throttle_authenticated_packages_api", "throttle_authenticated_git_lfs", "throttle_authenticated_files_api", "throttle_authenticated_deprecated_api"
@@ -163,8 +164,8 @@ RSpec.shared_examples 'rate-limited token requests' do
         status: 429,
         env: :throttle,
         remote_ip: '127.0.0.1',
-        request_method: request_method,
-        path: request_args.first,
+        method: request_method,
+        path: a_string_including(request_args.first.split('?').first),
         matched: matched
       }.merge(log_data))
 
@@ -343,7 +344,7 @@ RSpec.shared_examples 'rate-limited web authenticated requests' do
         status: 429,
         env: :throttle,
         remote_ip: '127.0.0.1',
-        request_method: request_method,
+        method: request_method,
         path: url_that_requires_authentication,
         user_id: user.id,
         'meta.user' => user.username,
@@ -623,7 +624,7 @@ RSpec.shared_examples 'rate-limited unauthenticated requests' do
         status: 429,
         env: :throttle,
         remote_ip: '127.0.0.1',
-        request_method: 'GET',
+        method: 'GET',
         path: url_that_does_not_require_authentication,
         matched: throttle_name
       })

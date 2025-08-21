@@ -1,7 +1,7 @@
 <script>
-import { GlLink, GlTooltipDirective, GlTruncate } from '@gitlab/ui';
+import { GlLink, GlTruncate } from '@gitlab/ui';
 import { __ } from '~/locale';
-import timeagoMixin from '~/vue_shared/mixins/timeago';
+import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 import {
   MANUAL_DEPLOY,
   WILL_DEPLOY,
@@ -16,13 +16,9 @@ export default {
   name: 'DeploymentInfo',
   components: {
     GlLink,
-    MemoryUsage: () => import('./memory_usage.vue'),
     GlTruncate,
+    TimeAgoTooltip,
   },
-  directives: {
-    GlTooltip: GlTooltipDirective,
-  },
-  mixins: [timeagoMixin],
   props: {
     computedDeploymentStatus: {
       type: String,
@@ -30,10 +26,6 @@ export default {
     },
     deployment: {
       type: Object,
-      required: true,
-    },
-    showMetrics: {
-      type: Boolean,
       required: true,
     },
   },
@@ -47,23 +39,14 @@ export default {
     [SKIPPED]: __('Skipped deployment to'),
   },
   computed: {
-    deployTimeago() {
-      return this.timeFormatted(this.deployment.deployed_at);
-    },
     deployedText() {
       return this.$options.deployedTextMap[this.computedDeploymentStatus];
     },
     hasDeploymentTime() {
-      return Boolean(this.deployment.deployed_at && this.deployment.deployed_at_formatted);
+      return Boolean(this.deployment.deployed_at);
     },
     hasDeploymentMeta() {
       return Boolean(this.deployment.url && this.deployment.name);
-    },
-    hasMetrics() {
-      return Boolean(this.deployment.metrics_url);
-    },
-    showMemoryUsage() {
-      return this.hasMetrics && this.showMetrics;
     },
   },
 };
@@ -77,7 +60,7 @@ export default {
         :href="deployment.url"
         target="_blank"
         rel="noopener noreferrer nofollow"
-        class="js-deploy-meta gl-font-sm gl-pb-1"
+        class="js-deploy-meta gl-pb-1 gl-text-sm"
       >
         <gl-truncate
           class="js-deploy-env-name"
@@ -87,18 +70,10 @@ export default {
         />
       </gl-link>
     </template>
-    <span
+    <time-ago-tooltip
       v-if="hasDeploymentTime"
-      v-gl-tooltip
-      :title="deployment.deployed_at_formatted"
-      class="js-deploy-time"
-    >
-      {{ deployTimeago }}
-    </span>
-    <memory-usage
-      v-if="showMemoryUsage"
-      :metrics-url="deployment.metrics_url"
-      :metrics-monitoring-url="deployment.metrics_monitoring_url"
+      :time="deployment.deployed_at"
+      data-testid="deployment-time"
     />
   </div>
 </template>

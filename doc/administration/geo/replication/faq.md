@@ -1,18 +1,21 @@
 ---
-stage: Systems
+stage: Tenant Scale
 group: Geo
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+gitlab_dedicated: no
+title: Geo Frequently Asked Questions
 ---
 
-# Geo Frequently Asked Questions
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 ## What are the minimum requirements to run Geo?
 
-The requirements are listed [on the index page](../index.md#requirements-for-running-geo)
+The requirements are listed [on the index page](../_index.md#requirements-for-running-geo)
 
 ## How does Geo know which projects to sync?
 
@@ -44,11 +47,11 @@ So even if we have an outdated tracking database, the validation should activate
 Yes, but there are limitations to what we replicate (see
 [What data is replicated to a **secondary** site?](#what-data-is-replicated-to-a-secondary-site)).
 
-Read the documentation for [Disaster Recovery](../disaster_recovery/index.md).
+Read the documentation for [Disaster Recovery](../disaster_recovery/_index.md).
 
 ## What data is replicated to a **secondary** site?
 
-We currently replicate the whole rails database, project repositories, LFS objects, generated
+We replicate the whole rails database, project repositories, LFS objects, generated
 attachments, avatars and more. This means information such as user accounts,
 issues, merge requests, groups, and project data are available for
 query.
@@ -69,7 +72,7 @@ connectivity between your sites, and your hardware.
 
 That's totally fine. We use HTTP(s) to fetch repository changes from the **primary** site to all **secondary** sites.
 
-## Can I set up a container registry for a **secondary** site that mirrors the **primary** site?
+## Can I make a container registry for a secondary site to mirror the primary?
 
 Yes, however, we only support this for Disaster Recovery scenarios. See [container registry for a **secondary** site](container_registry.md).
 
@@ -83,12 +86,19 @@ No, Geo sites can be based on different reference architectures. For example, yo
 
 ## Does Geo replicate archived projects?
 
-Yes, provided they are not excluded through [selective sync](../replication/selective_synchronization.md).
+Yes, provided they are not excluded through [selective sync](selective_synchronization.md).
 
 ## Does Geo replicate personal projects?
 
-Yes, provided they are not excluded through [selective sync](../replication/selective_synchronization.md).
+Yes, provided they are not excluded through [selective sync](selective_synchronization.md).
 
 ## Are delayed deletion projects replicated to secondary sites?
 
 Yes, projects scheduled for deletion by [delayed deletion](../../settings/visibility_and_access_controls.md#delayed-project-deletion), but are yet to be permanently deleted, are replicated to secondary sites.
+
+## What happens to my secondary sites with when my primary site goes down?
+
+When a primary site goes down,
+[your secondary will not be accessible through the UI](../secondary_proxy/_index.md#behavior-of-secondary-sites-when-the-primary-geo-site-is-down)
+unless your restore the services on your primary site or you perform a promotion
+on your secondary site.

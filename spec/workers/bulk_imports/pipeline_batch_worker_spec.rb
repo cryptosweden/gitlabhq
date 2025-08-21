@@ -157,6 +157,18 @@ RSpec.describe BulkImports::PipelineBatchWorker, feature_category: :importers do
           expect(batch.reload).to be_canceled
         end
       end
+
+      context 'when batch status is failed' do
+        let(:batch) { create(:bulk_import_batch_tracker, :failed, tracker: tracker) }
+
+        it 'stays failed and does not execute' do
+          expect(batch).not_to receive(:start!)
+
+          worker.perform(batch.id)
+
+          expect(batch.reload).to be_failed
+        end
+      end
     end
 
     context 'when exclusive lease cannot be obtained' do
@@ -229,6 +241,21 @@ RSpec.describe BulkImports::PipelineBatchWorker, feature_category: :importers do
 
       described_class.sidekiq_retries_exhausted_block.call(job, StandardError.new("Something went wrong"))
 
+      expect(batch.reload).to be_failed
+    end
+  end
+
+  describe '.sidekiq_interruptions_exhausted' do
+    it 'sets batch status to failed' do
+      job = { 'args' => [batch.id] }
+
+      expect(BulkImports::Failure).to receive(:create).with(hash_including(
+        bulk_import_entity_id: entity.id,
+        exception_class: 'Import::Exceptions::SidekiqExhaustedInterruptionsError'
+      ))
+
+      expect(BulkImports::FinishBatchedPipelineWorker).to receive(:perform_async).with(tracker.id)
+      described_class.interruptions_exhausted_block.call(job)
       expect(batch.reload).to be_failed
     end
   end

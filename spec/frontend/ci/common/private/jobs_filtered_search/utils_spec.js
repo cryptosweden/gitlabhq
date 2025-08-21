@@ -6,12 +6,15 @@ describe('Filtered search utils', () => {
       queryStringObject                                        | expected
       ${{ statuses: 'SUCCESS' }}                               | ${{ statuses: 'SUCCESS' }}
       ${{ statuses: 'failed' }}                                | ${{ statuses: 'FAILED' }}
+      ${{ sources: 'PUSH' }}                                   | ${{ sources: 'PUSH' }}
+      ${{ sources: 'push' }}                                   | ${{ sources: 'PUSH' }}
       ${{ runnerTypes: 'instance_type' }}                      | ${{ runnerTypes: 'INSTANCE_TYPE' }}
       ${{ runnerTypes: 'wrong_runner_type' }}                  | ${null}
       ${{ statuses: 'SUCCESS', runnerTypes: 'instance_type' }} | ${{ statuses: 'SUCCESS', runnerTypes: 'INSTANCE_TYPE' }}
       ${{ wrong: 'SUCCESS' }}                                  | ${null}
       ${{ statuses: 'wrong' }}                                 | ${null}
       ${{ wrong: 'wrong' }}                                    | ${null}
+      ${{ name: 'rspec' }}                                     | ${{ name: 'rspec' }}
     `(
       'when provided $queryStringObject, the expected result is $expected',
       ({ queryStringObject, expected }) => {

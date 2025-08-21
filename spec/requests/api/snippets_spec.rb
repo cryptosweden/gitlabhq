@@ -246,6 +246,26 @@ RSpec.describe API::Snippets, :aggregate_failures, factory_default: :keep, featu
       end
     end
 
+    context 'when "optimized_snippet_search_query" is disabled' do
+      before do
+        stub_feature_flags(optimized_snippet_search_query: false)
+      end
+
+      it 'returns snippet json' do
+        subject
+
+        expect(response).to have_gitlab_http_status(:ok)
+
+        expect(json_response['title']).to eq(private_snippet.title)
+        expect(json_response['description']).to eq(private_snippet.description)
+        expect(json_response['file_name']).to eq(private_snippet.file_name_on_repo)
+        expect(json_response['files']).to eq(private_snippet.blobs.map { |blob| snippet_blob_file(blob) })
+        expect(json_response['visibility']).to eq(private_snippet.visibility)
+        expect(json_response['ssh_url_to_repo']).to eq(private_snippet.ssh_url_to_repo)
+        expect(json_response['http_url_to_repo']).to eq(private_snippet.http_url_to_repo)
+      end
+    end
+
     context 'with a non-existent snippet ID' do
       let(:snippet_id) { 0 }
 
@@ -262,7 +282,7 @@ RSpec.describe API::Snippets, :aggregate_failures, factory_default: :keep, featu
     end
   end
 
-  describe 'POST /snippets/' do
+  describe 'POST /snippets/', :with_current_organization do
     let(:base_params) do
       {
         title: 'Test Title',
@@ -280,8 +300,13 @@ RSpec.describe API::Snippets, :aggregate_failures, factory_default: :keep, featu
 
     subject { post api("/snippets/", personal_access_token: user_token), params: params }
 
+    before do
+      allow(Current).to receive(:organization_id).and_return(current_organization.id)
+    end
+
     shared_examples 'snippet creation' do
       let(:snippet) { Snippet.find(json_response["id"]) }
+      let(:organization_id) { current_organization.id }
 
       it 'creates a new snippet' do
         expect do
@@ -294,6 +319,7 @@ RSpec.describe API::Snippets, :aggregate_failures, factory_default: :keep, featu
         expect(json_response['file_name']).to eq(file_path)
         expect(json_response['files']).to eq(snippet.blobs.map { |blob| snippet_blob_file(blob) })
         expect(json_response['visibility']).to eq(params[:visibility])
+        expect(Snippet.find(json_response['id']).organization_id).to eq(organization_id)
       end
 
       it 'creates repository' do
@@ -538,6 +564,30 @@ RSpec.describe API::Snippets, :aggregate_failures, factory_default: :keep, featu
 
       expect(response).to have_gitlab_http_status(:not_found)
       expect(json_response['message']).to eq('404 Snippet Not Found')
+    end
+
+    context "when destruction fails" do
+      let(:error_message) { "some service error message" }
+
+      let(:error_response) do
+        ServiceResponse.error(
+          message: error_message,
+          reason: ::Snippets::DestroyService::FAILED_TO_DELETE_ERROR
+        )
+      end
+
+      before do
+        allow_next_instance_of(::Snippets::DestroyService) do |service|
+          allow(service).to receive(:execute).and_return(error_response)
+        end
+      end
+
+      it 'returns an error when DestroyService fails' do
+        delete api("/snippets/#{public_snippet.id}", personal_access_token: user_token)
+
+        expect(response).to have_gitlab_http_status(:bad_request)
+        expect(json_response['message']).to eq({ "error" => error_message })
+      end
     end
 
     it_behaves_like '412 response' do

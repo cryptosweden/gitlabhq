@@ -51,6 +51,8 @@ module PageLayoutHelper
   end
 
   def favicon
+    return Gitlab::Favicon.web_ide_favicon if current_controller?(:ide)
+
     Gitlab::Favicon.main
   end
 
@@ -88,14 +90,10 @@ module PageLayoutHelper
   end
 
   def header_title(title = nil, title_url = nil)
-    if title
-      @header_title     = title
-      @header_title_url = title_url
-    else
-      return @header_title unless @header_title_url
+    return @header_title unless title
 
-      breadcrumb_list_item(link_to(@header_title, @header_title_url))
-    end
+    @header_title     = title
+    @header_title_url = title_url
   end
 
   def sidebar(name = nil)
@@ -151,7 +149,7 @@ module PageLayoutHelper
   end
 
   def full_content_class
-    "#{container_class} #{@content_class}" # rubocop:disable Rails/HelperInstanceVariable
+    "#{container_class} #{@content_class}"
   end
 
   def page_itemtype(itemtype = nil)

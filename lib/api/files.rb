@@ -11,7 +11,10 @@ module API
 
     feature_category :source_code_management
 
+    allow_access_with_scope [:read_repository, :ai_workflows], if: ->(request) { request.get? || request.head? }
+
     helpers ::API::Helpers::HeadersHelpers
+    helpers ::API::Helpers::BlobHelpers
 
     helpers do
       def commit_params(attrs)
@@ -31,6 +34,7 @@ module API
 
       def assign_file_vars!
         authorize_read_code!
+        authorize_ai_access! if ai_workflow_scope?
 
         @commit = user_project.commit(params[:ref])
         not_found!('Commit') unless @commit
@@ -39,6 +43,19 @@ module API
         @blob = @repo.blob_at(@commit.sha, params[:file_path], limit: Gitlab::Git::Blob::LFS_POINTER_MAX_SIZE)
 
         not_found!('File') unless @blob
+      end
+
+      def ai_workflow_scope?
+        token_info = ::Current.token_info
+        return false unless token_info
+
+        Array.wrap(token_info[:token_scopes]).include?(:ai_workflows)
+      end
+
+      def authorize_ai_access!
+        return if can?(current_user, :duo_workflow, user_project) || can?(current_user, :access_duo_agentic_chat, user_project)
+
+        forbidden!('Insufficient permissions for Duo Agent Platform')
       end
 
       def commit_response(attrs)
@@ -125,8 +142,6 @@ module API
       requires :id, type: String, desc: 'The project ID', documentation: { example: 'gitlab-org/gitlab' }
     end
     resource :projects, requirements: FILE_ENDPOINT_REQUIREMENTS do
-      allow_access_with_scope :read_repository, if: ->(request) { request.get? || request.head? }
-
       desc 'Get blame file metadata from repository'
       params do
         requires :file_path, type: String, file_path: true,
@@ -168,7 +183,7 @@ module API
         success File
       end
       params do
-        requires :file_path, type: String, file_path: true,
+        requires :file_path, type: String, file_path: { allow_initial_path_separator: true },
           desc: 'The url encoded path to the file.', documentation: { example: 'lib%2Fclass%2Erb' }
         optional :ref, type: String,
           desc: 'The name of branch, tag or commit', allow_blank: false, documentation: { example: 'main' }
@@ -213,8 +228,14 @@ module API
           desc: 'The name of branch, tag or commit', allow_blank: false, documentation: { example: 'main' }
       end
       get ":id/repository/files/:file_path", requirements: FILE_ENDPOINT_REQUIREMENTS do
+        # Loads metadata for @blob as a side effect, but not not the actual data
+        #
         assign_file_vars!
+        check_rate_limit_for_blob(@blob, :repository_files)
 
+        # If #check_rate_limit_for_blob hasn't stopped the request, allow data
+        #   to actually be loaded without limit.
+        #
         @blob.load_all_data!
 
         data = blob_data

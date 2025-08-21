@@ -6,13 +6,16 @@ module VersionCheckHelper
   def show_version_check?
     return false unless Gitlab::CurrentSettings.version_check_enabled
 
-    current_user&.can_read_all_resources? && !User.single_user&.requires_usage_stats_consent?
+    current_user&.can_admin_all_resources? && !User.single_user&.requires_usage_stats_consent?
   end
 
   def gitlab_version_check
     return unless show_version_check?
 
-    VersionCheck.new.response
+    version = Rails.cache.fetch('version_check')
+    Gitlab::Version::VersionCheckCronWorker.perform_async if version.nil?
+
+    version
   end
   strong_memoize_attr :gitlab_version_check
 

@@ -1,14 +1,18 @@
+import Vue from 'vue';
 import $ from 'jquery';
+import { parseBoolean } from '~/lib/utils/common_utils';
 import WebAuthnAuthenticate from './authenticate';
-import WebAuthnRegister from './register';
+import WebAuthnAuthenticateVue from './components/authenticate.vue';
 
-export const initWebauthnAuthenticate = () => {
-  if (!gon.webauthn) {
+const initLegacyWebauthnAuthenticate = () => {
+  const el = $('#js-authenticate-token-2fa');
+
+  if (!el.length) {
     return;
   }
 
   const webauthnAuthenticate = new WebAuthnAuthenticate(
-    $('#js-authenticate-token-2fa'),
+    el,
     '#js-login-token-2fa-form',
     gon.webauthn,
     document.querySelector('#js-login-2fa-device'),
@@ -17,13 +21,36 @@ export const initWebauthnAuthenticate = () => {
   webauthnAuthenticate.start();
 };
 
-export const initWebauthnRegister = () => {
-  const el = $('#js-register-token-2fa');
+const initVueWebauthnAuthenticate = () => {
+  const el = document.getElementById('js-authentication-webauthn');
 
-  if (!el.length) {
+  if (!el) {
+    return false;
+  }
+
+  const { targetPath, renderRememberMe, rememberMe } = el.dataset;
+
+  return new Vue({
+    el,
+    name: 'WebAuthnRoot',
+    render(createElement) {
+      return createElement(WebAuthnAuthenticateVue, {
+        props: {
+          webauthnParams: JSON.parse(gon.webauthn.options),
+          targetPath,
+          renderRememberMe: parseBoolean(renderRememberMe),
+          rememberMe,
+        },
+      });
+    },
+  });
+};
+
+export const initWebauthnAuthenticate = () => {
+  if (!gon.webauthn) {
     return;
   }
 
-  const webauthnRegister = new WebAuthnRegister(el, gon.webauthn);
-  webauthnRegister.start();
+  initLegacyWebauthnAuthenticate();
+  initVueWebauthnAuthenticate();
 };

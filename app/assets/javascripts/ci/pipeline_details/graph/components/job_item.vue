@@ -1,6 +1,5 @@
 <script>
 import { GlBadge, GlForm, GlFormCheckbox, GlLink, GlModal, GlTooltipDirective } from '@gitlab/ui';
-import { reportToSentry } from '~/ci/utils';
 import delayedJobMixin from '~/ci/mixins/delayed_job_mixin';
 import { helpPagePath } from '~/helpers/help_page_helper';
 import { BV_HIDE_TOOLTIP } from '~/lib/utils/constants';
@@ -38,7 +37,7 @@ import { BRIDGE_KIND, RETRY_ACTION_TITLE, SINGLE_JOB, SKIP_RETRY_MODAL_KEY } fro
 export default {
   confirmationModalDocLink: helpPagePath('/ci/pipelines/downstream_pipelines'),
   i18n: {
-    bridgeBadgeText: __('Trigger job'),
+    bridgeBadgeText: __('trigger job'),
     bridgeRetryText: s__(
       'PipelineGraph|Downstream pipeline might not display in the graph while the new downstream pipeline is being created.',
     ),
@@ -143,12 +142,12 @@ export default {
     },
     detailsPath() {
       if (this.isLink) {
-        return this.status.detailsPath;
+        return this.status.detailsPath || this.status.deploymentDetailsPath;
       }
       return null;
     },
     hasDetails() {
-      return this.status.hasDetails;
+      return this.status.hasDetails || this.status.deploymentDetailsPath;
     },
     hasRetryAction() {
       return Boolean(this.job?.status?.action?.title === RETRY_ACTION_TITLE);
@@ -222,7 +221,7 @@ export default {
      * @return {Boolean}
      */
     hasAction() {
-      return this.job.status && this.job.status.action && this.job.status.action.path;
+      return this.job.status?.action?.path && this.job.status?.action?.icon;
     },
     hasManualConfirmationMessage() {
       return this.job.status.action.confirmationMessage !== null;
@@ -284,9 +283,6 @@ export default {
       this.shouldTriggerActionClick = false;
     },
   },
-  errorCaptured(err, _vm, info) {
-    reportToSentry('job_item', `error: ${err}, info: ${info}`);
-  },
   methods: {
     handleConfirmationModalPreferences() {
       if (this.currentSkipModalValue) {
@@ -330,25 +326,25 @@ export default {
 <template>
   <div
     :id="computedJobId"
-    class="ci-job-component gl-display-flex gl-justify-content-space-between gl-pipeline-job-width"
+    class="ci-job-component gl-pipeline-job-width gl-flex gl-overflow-hidden"
     data-testid="ci-job-item"
   >
     <component
       :is="nameComponent"
       v-gl-tooltip.viewport.left="{ customClass: 'ci-job-component-tooltip' }"
       :title="tooltipText"
-      :class="jobClasses"
       :href="detailsPath"
-      class="menu-item gl-text-gray-900 active:gl-no-underline focus:gl-no-underline hover:gl-no-underline hover:gl-bg-strong focus:gl-bg-strong gl-w-full gl-rounded"
+      :class="jobClasses"
+      class="gl-w-full gl-pr-7 !gl-no-underline"
       data-testid="ci-job-item-content"
       @click="jobItemClick"
       @mouseout="hideTooltips"
     >
-      <div class="gl-display-flex gl-align-items-center gl-flex-grow-1">
+      <div class="gl-flex gl-grow gl-items-center">
         <ci-icon :status="job.status" :use-link="false" :show-tooltip="false" />
-        <div class="gl-pl-3 gl-pr-3 gl-display-flex gl-flex-direction-column gl-pipeline-job-width">
+        <div class="gl-pipeline-job-width gl-flex gl-flex-col gl-pl-3 gl-pr-3">
           <div
-            class="gl-text-truncate gl-pr-9 gl-leading-normal gl-text-left gl-text-gray-700"
+            class="gl-truncate gl-pr-6 gl-text-left gl-leading-normal gl-text-default"
             :title="job.name"
           >
             {{ job.name }}
@@ -356,7 +352,7 @@ export default {
           <div
             v-if="showStageName"
             data-testid="stage-name-in-job"
-            class="gl-text-truncate gl-pr-9 gl-font-sm gl-text-gray-500 gl-leading-normal gl-text-left"
+            class="gl-truncate gl-pr-6 gl-text-left gl-text-sm gl-leading-normal gl-text-subtle"
           >
             {{ stageName }}
           </div>
@@ -364,7 +360,7 @@ export default {
       </div>
       <gl-badge
         v-if="isBridge"
-        class="gl-mt-3 gl-ml-7"
+        class="gl-ml-7 gl-mt-3"
         variant="info"
         data-testid="job-bridge-badge"
       >
@@ -414,7 +410,7 @@ export default {
         <gl-link :href="$options.confirmationModalDocLink" target="_blank"
           >{{ $options.i18n.confirmationModal.linkText }}
         </gl-link>
-        <div class="gl-mt-4 gl-display-flex">
+        <div class="gl-mt-4 gl-flex">
           <gl-form>
             <gl-form-checkbox class="gl-min-h-0" @input="toggleSkipRetryModalCheckbox" />
           </gl-form>

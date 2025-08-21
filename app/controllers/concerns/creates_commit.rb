@@ -17,7 +17,7 @@ module CreatesCommit
     else
       @project_to_commit_into = current_user.fork_of(target_project)
       @different_project = true
-      @branch_name ||= @project_to_commit_into.repository.next_branch('patch')
+      @branch_name ||= generated_branch_name(@project_to_commit_into)
     end
 
     @start_branch ||= @ref || @branch_name
@@ -42,7 +42,8 @@ module CreatesCommit
         format.json { render json: { message: _("success"), filePath: success_path } }
       end
     else
-      flash[:alert] = format_flash_notice(result[:message])
+      flash[:alert] = flash_message(result, @project, @branch_name, @commit_params)
+
       failure_path = failure_path.call if failure_path.respond_to?(:call)
 
       respond_to do |format|
@@ -53,7 +54,12 @@ module CreatesCommit
             redirect_to failure_path
           end
         end
-        format.json { render json: { message: _("failed"), filePath: failure_path } }
+        format.json do
+          render json: {
+            error: result[:message],
+            filePath: failure_path
+          }, status: :unprocessable_entity
+        end
       end
     end
   end
@@ -71,6 +77,27 @@ module CreatesCommit
   end
 
   private
+
+  def flash_message(result, project, branch_name, commit_params)
+    if result[:status] == :error && commit_params[:revert]
+      {
+        message: format_flash_notice(result[:message]),
+        button_text: _('Create merge request'),
+        button_path: project_new_merge_request_path(
+          project,
+          merge_request: { source_branch: branch_name }
+        )
+      }
+    else
+      format_flash_notice(result[:message])
+    end
+  end
+
+  def generated_branch_name(project)
+    return unless project
+
+    project.repository.next_branch('patch')
+  end
 
   def update_flash_notice(success_notice, success_path)
     changes_link = ActionController::Base.helpers.link_to _('changes'), success_path, class: 'gl-link'
@@ -127,16 +154,15 @@ module CreatesCommit
   # rubocop:disable Gitlab/ModuleWithInstanceVariables
   # rubocop: disable CodeReuse/ActiveRecord
   def merge_request_exists?
-    strong_memoize(:merge_request) do
-      MergeRequestsFinder.new(current_user, project_id: @project.id)
+    MergeRequestsFinder.new(current_user, project_id: @project.id)
         .execute
         .opened
         .find_by(
           source_project_id: @project_to_commit_into,
           source_branch: @branch_name,
           target_branch: @start_branch)
-    end
   end
+  strong_memoize_attr :merge_request_exists?
   # rubocop: enable CodeReuse/ActiveRecord
   # rubocop:enable Gitlab/ModuleWithInstanceVariables
 

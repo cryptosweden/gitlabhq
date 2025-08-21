@@ -461,7 +461,7 @@ RSpec.describe Gitlab::Utils::UsageData do
     end
 
     it 'returns the evaluated block when give' do
-      expect(described_class.alt_usage_data { Gitlab::CurrentSettings.uuid } ).to eq(Gitlab::CurrentSettings.uuid)
+      expect(described_class.alt_usage_data { Gitlab::CurrentSettings.uuid }).to eq(Gitlab::CurrentSettings.uuid)
     end
 
     it 'returns the value when given' do
@@ -471,9 +471,9 @@ RSpec.describe Gitlab::Utils::UsageData do
 
   describe '#redis_usage_data' do
     it 'records duration' do
-      expect(described_class).to receive(:with_metadata)
+      result = described_class.redis_usage_data
 
-      described_class.redis_usage_data
+      expect(result.duration).to be_present
     end
 
     context 'with block given' do
@@ -502,18 +502,18 @@ RSpec.describe Gitlab::Utils::UsageData do
 
     context 'with counter given' do
       context 'when gets an error' do
-        subject { described_class.redis_usage_data(::Gitlab::UsageDataCounters::PackageEventCounter) }
+        subject { described_class.redis_usage_data(::Gitlab::UsageDataCounters::MergeRequestWidgetExtensionCounter) }
 
-        let(:fallback) { ::Gitlab::UsageDataCounters::PackageEventCounter.fallback_totals }
-        let(:failing_class) { ::Gitlab::UsageDataCounters::PackageEventCounter }
+        let(:fallback) { ::Gitlab::UsageDataCounters::MergeRequestWidgetExtensionCounter.fallback_totals }
+        let(:failing_class) { ::Gitlab::UsageDataCounters::MergeRequestWidgetExtensionCounter }
         let(:failing_method) { :totals }
 
         it_behaves_like 'failing hardening method', ::Redis::CommandError
       end
 
-      it 'returns the totals when couter is given' do
-        allow(::Gitlab::UsageDataCounters::PackageEventCounter).to receive(:totals).and_return({ merge_request_create: 2 })
-        expect(described_class.redis_usage_data(::Gitlab::UsageDataCounters::PackageEventCounter)).to eql({ merge_request_create: 2 })
+      it 'returns the totals when counter is given' do
+        allow(::Gitlab::UsageDataCounters::MergeRequestWidgetExtensionCounter).to receive(:totals).and_return({ merge_request_create: 2 })
+        expect(described_class.redis_usage_data(::Gitlab::UsageDataCounters::MergeRequestWidgetExtensionCounter)).to eql({ merge_request_create: 2 })
       end
     end
   end

@@ -1,25 +1,15 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create' do
-    describe 'PostReceive idempotent', product_group: :source_code do
+  RSpec.describe 'Create', feature_category: :source_code_management do
+    describe 'PostReceive idempotent' do
       # Tests that a push does not result in multiple changes from repeated PostReceive executions.
       # One of the consequences would be duplicate push events
 
       let(:project) { create(:project, :with_readme, name: 'push-postreceive-idempotent') }
 
-      after do
-        project&.remove_via_api!
-      end
-
-      it 'pushes and creates a single push event three times', :blocking, testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347680' do
+      it 'pushes and creates a single push event three times', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347680' do
         verify_single_event_per_push(repeat: 3)
-      end
-
-      it 'repeatedly pushes and creates a single push event several times', :transient, testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347642' do
-        verify_single_event_per_push(repeat: Runtime::Env.transient_trials) do |i|
-          QA::Runtime::Logger.info("Transient bug test action - Trial #{i}")
-        end
       end
 
       def verify_single_event_per_push(repeat:)

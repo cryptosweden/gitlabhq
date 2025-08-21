@@ -2,50 +2,36 @@
 
 module Gitlab
   module InternalEvents
-    UnknownEventError = Class.new(StandardError)
-    InvalidPropertyError = Class.new(StandardError)
-    InvalidPropertyTypeError = Class.new(StandardError)
-
     SNOWPLOW_EMITTER_BUFFER_SIZE = 100
     DEFAULT_BUFFER_SIZE = 1
-    ALLOWED_ADDITIONAL_PROPERTIES = {
-      label: [String],
-      property: [String],
-      value: [Integer, Float]
-    }.freeze
-    DEFAULT_ADDITIONAL_PROPERTIES = {}.freeze
     KEY_EXPIRY_LENGTH = Gitlab::UsageDataCounters::HLLRedisCounter::KEY_EXPIRY_LENGTH
 
     class << self
       include Gitlab::Tracking::Helpers
       include Gitlab::Utils::StrongMemoize
       include Gitlab::UsageDataCounters::RedisCounter
+      include Gitlab::UsageDataCounters::RedisSum
+      include Gitlab::UsageDataCounters::RedisHashCounter
 
-      def track_event(
-        event_name, category: nil, send_snowplow_event: true,
-        additional_properties: DEFAULT_ADDITIONAL_PROPERTIES, **kwargs)
+      def track_event(event_name, category: nil, additional_properties: {}, **kwargs)
+        Gitlab::Tracking::EventValidator.new(event_name, additional_properties, kwargs).validate!
 
-        unless Gitlab::Tracking::EventDefinition.internal_event_exists?(event_name)
-          raise UnknownEventError, "Unknown event: #{event_name}"
-        end
+        send_snowplow_event = kwargs.key?(:send_snowplow_event) ? kwargs.delete(:send_snowplow_event) : true
+        event_router = Gitlab::InternalEvents::EventsRouter.new(event_name, additional_properties, kwargs)
+        track_analytics_event(event_name, send_snowplow_event, category: category,
+          additional_properties: event_router.public_additional_properties, **kwargs)
 
-        validate_properties!(additional_properties, kwargs)
+        event_router.event_definition.extra_trackers.each do |tracking_class, properties|
+          next unless tracking_class
 
-        project = kwargs[:project]
-        kwargs[:namespace] ||= project.namespace if project
-
-        update_redis_values(event_name, additional_properties, kwargs)
-        trigger_snowplow_event(event_name, category, additional_properties, kwargs) if send_snowplow_event
-        send_application_instrumentation_event(event_name, additional_properties, kwargs) if send_snowplow_event
-
-        if Feature.enabled?(:early_access_program, kwargs[:user], type: :wip)
-          create_early_access_program_event(event_name, category, additional_properties[:label], kwargs)
+          tracking_class.track_event(event_name, **event_router.extra_tracking_data(properties))
         end
       rescue StandardError => e
         extra = {}
         kwargs.each_key do |k|
           extra[k] = kwargs[k].is_a?(::ApplicationRecord) ? kwargs[k].try(:id) : kwargs[k]
         end
+
         Gitlab::ErrorTracking.track_and_raise_for_dev_exception(
           e,
           event_name: event_name,
@@ -57,35 +43,20 @@ module Gitlab
 
       private
 
-      def validate_properties!(additional_properties, kwargs)
-        validate_property!(kwargs, :user, User)
-        validate_property!(kwargs, :namespace, Namespaces::UserNamespace, Group)
-        validate_property!(kwargs, :project, Project)
-        validate_additional_properties!(additional_properties)
-      end
+      def track_analytics_event(event_name, send_snowplow_event, category: nil, additional_properties: {}, **kwargs)
+        extra = custom_additional_properties(additional_properties)
+        base_additional_properties = additional_properties.slice(*base_additional_properties_keys)
 
-      def validate_property!(hash, key, *class_names)
-        return unless hash.has_key?(key)
-        return if hash[key].nil?
-        return if class_names.include?(hash[key].class)
+        project = kwargs[:project]
+        kwargs[:namespace] ||= project.namespace if project
 
-        raise InvalidPropertyTypeError, "#{key} should be an instance of #{class_names.join(', ')}"
-      end
+        update_redis_values(event_name, additional_properties, kwargs)
+        trigger_snowplow_event(event_name, category, base_additional_properties, extra, kwargs) if send_snowplow_event
+        send_application_instrumentation_event(event_name, base_additional_properties, kwargs) if send_snowplow_event
 
-      def validate_additional_properties!(additional_properties)
-        return if additional_properties.empty?
+        return unless Feature.enabled?(:early_access_program, kwargs[:user], type: :wip)
 
-        disallowed_properties = additional_properties.keys - ALLOWED_ADDITIONAL_PROPERTIES.keys
-        unless disallowed_properties.empty?
-          info = "Additional properties should include only #{ALLOWED_ADDITIONAL_PROPERTIES.keys}. " \
-                 "Disallowed properties found: #{disallowed_properties}"
-          raise InvalidPropertyError, info
-        end
-
-        additional_properties.each do |key, _value|
-          allowed_classes = ALLOWED_ADDITIONAL_PROPERTIES[key]
-          validate_property!(additional_properties, key, *allowed_classes)
-        end
+        create_early_access_program_event(event_name, category, additional_properties[:label], kwargs)
       end
 
       def update_redis_values(event_name, additional_properties, kwargs)
@@ -94,18 +65,24 @@ module Gitlab
         return unless event_definition
 
         event_definition.event_selection_rules.each do |event_selection_rule|
-          matches_filter = event_selection_rule.filter.all? do |property_name, value|
-            additional_properties[property_name] == value
-          end
+          matches_filter = event_selection_rule.matches?(additional_properties)
 
           next unless matches_filter
 
-          if event_selection_rule.total_counter?
+          if event_selection_rule.unique_total?
+            update_unique_hash_totals_counter(event_selection_rule, **kwargs, **additional_properties)
+          elsif event_selection_rule.total_counter?
             update_total_counter(event_selection_rule)
+          elsif event_selection_rule.sum?
+            update_sums(event_selection_rule, **kwargs, **additional_properties)
           else
-            update_unique_counter(event_selection_rule, kwargs)
+            update_unique_counter(event_selection_rule, **kwargs, **additional_properties)
           end
         end
+      end
+
+      def custom_additional_properties(additional_properties)
+        additional_properties.except(*base_additional_properties_keys)
       end
 
       def update_total_counter(event_selection_rule)
@@ -115,16 +92,36 @@ module Gitlab
         increment(event_selection_rule.redis_key_for_date, expiry: expiry)
       end
 
-      def update_unique_counter(event_selection_rule, kwargs)
+      def update_sums(event_selection_rule, properties)
+        # Hardcoded to only look at 'value' since that all the schema allows.
+        # Should be dynamic based on the event selection rule
+        return unless properties.has_key?(:value)
+
+        expiry = event_selection_rule.time_framed? ? KEY_EXPIRY_LENGTH : nil
+
+        increment_sum_by(event_selection_rule.redis_key_for_date, properties[:value], expiry: expiry)
+      end
+
+      def update_unique_hash_totals_counter(event_selection_rule, properties)
+        return unless properties.has_key?(event_selection_rule.unique_identifier_name)
+
+        value = properties[event_selection_rule.unique_identifier_name]
+        expiry = event_selection_rule.time_framed? ? KEY_EXPIRY_LENGTH : nil
+
+        hash_increment(event_selection_rule.redis_key_for_date, value, expiry: expiry)
+      end
+
+      def update_unique_counter(event_selection_rule, properties)
         identifier_name = event_selection_rule.unique_identifier_name
 
-        unless kwargs[identifier_name]
+        unless properties[identifier_name]
           message = "#{event_selection_rule.name} should be triggered with a named parameter '#{identifier_name}'."
           Gitlab::AppJsonLogger.warn(message: message)
           return
         end
 
-        unique_value = kwargs[identifier_name].id
+        # Use id for ActiveRecord objects, else normalize size of stored value
+        unique_value = properties[identifier_name].try(:id) || properties[identifier_name].hash
 
         # Overrides for legacy keys of unique counters are handled in `event_selection_rule.redis_key_for_date`
         Gitlab::Redis::HLL.add(
@@ -134,7 +131,7 @@ module Gitlab
         )
       end
 
-      def trigger_snowplow_event(event_name, category, additional_properties, kwargs)
+      def trigger_snowplow_event(event_name, category, additional_properties, extra, kwargs)
         user = kwargs[:user]
         project = kwargs[:project]
         namespace = kwargs[:namespace]
@@ -142,10 +139,10 @@ module Gitlab
 
         standard_context = Tracking::StandardContext.new(
           project_id: project&.id,
-          user_id: user&.id,
-          namespace_id: namespace&.id,
-          plan_name: namespace&.actual_plan_name,
-          feature_enabled_by_namespace_ids: feature_enabled_by_namespace_ids
+          user: user,
+          namespace: namespace,
+          feature_enabled_by_namespace_ids: feature_enabled_by_namespace_ids,
+          **extra
         ).to_context
 
         service_ping_context = Tracking::ServicePingContext.new(
@@ -197,6 +194,10 @@ module Gitlab
         GitlabSDK::Client.new(app_id: app_id, host: host, buffer_size: buffer_size)
       end
       strong_memoize_attr :gitlab_sdk_client
+
+      def base_additional_properties_keys
+        Gitlab::Tracking::EventValidator::BASE_ADDITIONAL_PROPERTIES.keys
+      end
     end
   end
 end

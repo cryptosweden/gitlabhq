@@ -2,13 +2,15 @@
 stage: Plan
 group: Product Planning
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Design management
 ---
 
-# Design management
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 With Design Management you can upload design assets (including wireframes and mockups)
 to GitLab issues and keep them stored in a single place. Product designers, product managers, and
@@ -21,14 +23,14 @@ viewed and addressed.
 For a video overview, see [Design Management](https://www.youtube.com/watch?v=CCMtCqdK_aM).
 <!-- Video published on 2019-07-11 -->
 
-## Requirements
+## Prerequisites
 
-- [Git Large File Storage (LFS)](../../../topics/git/lfs/index.md) must be enabled:
+- [Git Large File Storage (LFS)](../../../topics/git/lfs/_index.md) must be enabled:
   - On GitLab.com, LFS is already enabled.
-  - On self-managed instances, a GitLab administrator must
-    [enable LFS globally](../../../administration/lfs/index.md).
-  - On both GitLab.com and self-managed instances, LFS must be
-    [enabled for the project itself](../settings/index.md#configure-project-features-and-permissions).
+  - On GitLab Self-Managed instances, a GitLab administrator must
+    [enable LFS globally](../../../administration/lfs/_index.md).
+  - On both GitLab.com and GitLab Self-Managed instances, LFS must be
+    [enabled for the project itself](../settings/_index.md#configure-project-features-and-permissions).
     If enabled globally, LFS is enabled by default for all projects. If you have
     disabled it for your project, you must enable it again.
 
@@ -36,9 +38,7 @@ For a video overview, see [Design Management](https://www.youtube.com/watch?v=CC
   Image thumbnails are stored as other uploads, and are not associated with a project but rather
   with a specific design model.
 
-  Newly created projects use hashed storage by default.
-
-  A GitLab administrator can verify the relative path of a hashed-stored project by going to **Admin Area > Projects**
+  A GitLab administrator can verify the relative path of a hashed-stored project by going to **Admin area > Projects**
   and then selecting the project in question. The **Relative path** field contains `@hashed` in its value.
 
 If the requirements are not met, you are notified in the **Designs** section.
@@ -57,14 +57,6 @@ You can upload files of the following types as designs:
 - WEBP
 
 Support for PDF files is tracked in [issue 32811](https://gitlab.com/gitlab-org/gitlab/-/issues/32811).
-
-## Known issues
-
-- Design Management data isn't deleted when:
-  - [A project is destroyed](https://gitlab.com/gitlab-org/gitlab/-/issues/13429).
-  - [An issue is deleted](https://gitlab.com/gitlab-org/gitlab/-/issues/13427).
-- Design Management data [can be replicated](../../../administration/geo/replication/datatypes.md#limitations-on-replicationverification)
-  and in GitLab 16.1 and later it can be [verified by Geo as well](https://gitlab.com/gitlab-org/gitlab/-/issues/355660).
 
 ## View a design
 
@@ -86,17 +78,17 @@ The design you selected opens. You can then [zoom in](#zoom-in-on-a-design) on i
 
 When viewing a design, you can move to other designs. To do so, either:
 
-- In the upper-right corner, select **Go to previous design** (**{chevron-lg-left}**) or **Go to next design** (**{chevron-lg-right}**).
+- In the upper-right corner, select **Go to previous design** ({{< icon name="chevron-lg-left" >}}) or **Go to next design** ({{< icon name="chevron-lg-right" >}}).
 - Press <kbd>Left</kbd> or <kbd>Right</kbd> on your keyboard.
 
 To return to the issue view, either:
 
-- In the upper-left corner, select the close icon (**{close}**).
+- In the upper-left corner, select the close icon ({{< icon name="close" >}}).
 - Press <kbd>Esc</kbd> on your keyboard.
 
-When a design is added, a green icon (**{plus-square}**) is displayed on the image
+When a design is added, a green icon ({{< icon name="plus-square" >}}) is displayed on the image
 thumbnail. When a design has been [changed](#add-a-new-version-of-a-design) in the current version,
-a blue icon (**{file-modified-solid}**) is displayed.
+a blue icon ({{< icon name="file-modified-solid" >}}) is displayed.
 
 ### Zoom in on a design
 
@@ -104,18 +96,23 @@ You can explore a design in more detail by zooming in and out of the image:
 
 - To control the amount of zoom, select plus (`+`) and minus (`-`)
   at the bottom of the image.
-- To reset the zoom level, select the redo icon (**{redo}**).
+- To reset the zoom level, select the redo icon ({{< icon name="redo" >}}).
 
 To move around the image while zoomed in, drag the image.
 
 ## Add a design to an issue
 
-> - Ability to edit the description [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/388449) in GitLab 16.1.
-> - Minimum role to add a design to an issue [changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147053) from Developer to Reporter in GitLab 16.11.
+{{< history >}}
+
+- Ability to edit the description [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/388449) in GitLab 16.1.
+- Minimum role to add a design to an issue [changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147053) from Developer to Reporter in GitLab 16.11.
+- Minimum role to add a design to an issue [changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/169256) from Reporter to Planner in GitLab 17.7.
+
+{{< /history >}}
 
 Prerequisites:
 
-- You must have at least the Reporter role for the project.
+- You must have at least the Planner role for the project.
 - The names of the uploaded files must be no longer than 255 characters.
 
 To add a design to an issue:
@@ -124,10 +121,10 @@ To add a design to an issue:
 1. Either:
    - Select **Upload designs** and then select images from your file browser. You can select up to
      10 files at once.
-   <!-- vale gitlab.SubstitutionWarning = NO -->
+   <!-- vale gitlab_base.SubstitutionWarning = NO -->
    - Select **click to upload** and then select images from your file browser. You can select up to
      10 files at once.
-   <!-- vale gitlab.SubstitutionWarning = YES -->
+   <!-- vale gitlab_base.SubstitutionWarning = YES -->
 
    - Drag a file from your file browser and drop it in the drop zone in the **Designs** section.
 
@@ -146,13 +143,18 @@ To add a design to an issue:
 
 ## Add a new version of a design
 
-> - Minimum role to add a new version of a design [changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147053) from Developer to Reporter in GitLab 16.11.
+{{< history >}}
+
+- Minimum role to add a new version of a design [changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147053) from Developer to Reporter in GitLab 16.11.
+- Minimum role to add a new version of a design [changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/169256) from Reporter to Planner in GitLab 17.7.
+
+{{< /history >}}
 
 As discussion on a design continues, you might want to upload a new version of a design.
 
 Prerequisites:
 
-- You must have at least the Reporter role for the project.
+- You must have at least the Planner role for the project.
 
 To do so, [add a design](#add-a-design-to-an-issue) with the same filename.
 
@@ -161,13 +163,18 @@ It's shown as either **Showing latest version** or **Showing version #N**.
 
 ### Skipped designs
 
-When you upload an image with the same filename as an existing uploaded design _and_ that is the
+When you upload an image with the same filename as an existing uploaded design and that is the
 same, it's skipped. This means that no new version of the design is created.
 When designs are skipped, a warning message is displayed.
 
 ## Archive a design
 
-> - Minimum role to archive a design [changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147053) from Developer to Reporter in GitLab 16.11.
+{{< history >}}
+
+- Minimum role to archive a design [changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147053) from Developer to Reporter in GitLab 16.11.
+- Minimum role to archive a design [changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/169256) from Reporter to Planner in GitLab 17.7.
+
+{{< /history >}}
 
 You can archive individual designs or select a few of them to archive at once.
 
@@ -180,13 +187,13 @@ URL.
 
 Prerequisites:
 
-- You must have at least the Reporter role for the project.
+- You must have at least the Planner role for the project.
 - You can archive only the latest version of a design.
 
 To archive a single design:
 
 1. Select the design to view it enlarged.
-1. In the upper-right corner, select **Archive design** (**{archive}**).
+1. In the upper-right corner, select **Archive design** ({{< icon name="archive" >}}).
 1. Select **Archive designs**.
 
 To archive multiple designs at once:
@@ -194,11 +201,26 @@ To archive multiple designs at once:
 1. Select the checkboxes on the designs you want to archive.
 1. Select **Archive selected**.
 
+## Design management data persistence
+
+- Design Management data is not deleted when:
+  - [A project is destroyed](https://gitlab.com/gitlab-org/gitlab/-/issues/13429).
+  - [An issue is deleted](https://gitlab.com/gitlab-org/gitlab/-/issues/13427).
+
+### Replicate design management data
+
+Design Management data [can be replicated](../../../administration/geo/replication/datatypes.md#replicated-data-types)
+and in GitLab 16.1 and later it can be [verified by Geo as well](https://gitlab.com/gitlab-org/gitlab/-/issues/355660).
+
 ## Markdown and rich text editors for descriptions
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/388449) in GitLab 16.1 [with a flag](../../../administration/feature_flags.md) named `content_editor_on_issues`. Disabled by default.
-> - [Enabled on GitLab.com and self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/375172) in GitLab 16.2.
-> - Feature flag `content_editor_on_issues` removed in GitLab 16.5.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/388449) in GitLab 16.1 [with a flag](../../../administration/feature_flags/_index.md) named `content_editor_on_issues`. Disabled by default.
+- [Enabled on GitLab.com and GitLab Self-Managed](https://gitlab.com/gitlab-org/gitlab/-/issues/375172) in GitLab 16.2.
+- Feature flag `content_editor_on_issues` removed in GitLab 16.5.
+
+{{< /history >}}
 
 You can use the Markdown and rich text editor in design descriptions.
 It's the same editor you use for comments across GitLab.
@@ -209,14 +231,14 @@ You can change the order of designs by dragging them to a new position.
 
 ## Add a comment to a design
 
-You can start [discussions](../../discussions/index.md) on uploaded designs. To do so:
+You can start [discussions](../../discussions/_index.md) on uploaded designs. To do so:
 
 1. Go to an issue.
 1. Select the design.
-<!-- vale gitlab.SubstitutionWarning = NO -->
+<!-- vale gitlab_base.SubstitutionWarning = NO -->
 <!-- Disable Vale so it doesn't catch "click" -->
 1. Click or tap the image. A pin is created in that spot, identifying the discussion's location.
-<!-- vale gitlab.SubstitutionWarning = YES -->
+<!-- vale gitlab_base.SubstitutionWarning = YES -->
 1. Enter your message.
 1. Select **Comment**.
 
@@ -231,24 +253,29 @@ so that everyone involved can participate in the discussion.
 
 ## Delete a comment from a design
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/385100) in GitLab 15.9.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/385100) in GitLab 15.9.
+- Minimum role to delete comment from a design [changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/169256) from Reporter to Planner in GitLab 17.7.
+
+{{< /history >}}
 
 Prerequisites:
 
-- You must have at least the Reporter role for the project.
+- You must have at least the Planner role for the project.
 
 To delete a comment from a design:
 
-1. On the comment you want to delete, select **More actions** **{ellipsis_v}** **> Delete comment**.
+1. On the comment you want to delete, select **More actions** {{< icon name="ellipsis_v" >}} **> Delete comment**.
 1. On the confirmation dialog, select **Delete comment**.
 
 ## Resolve a discussion thread on a design
 
 When you're done discussing part of a design, you can resolve the discussion thread.
 
-To mark a thread as resolved or unresolved, either:
+To mark a thread as resolved or open, either:
 
-- In the upper-right corner of the first comment of the discussion, select **Resolve thread** or **Unresolve thread** (**{check-circle}**).
+- In the upper-right corner of the first comment of the discussion, select **Resolve thread** or **Reopen thread** ({{< icon name="check-circle" >}}).
 - Add a new comment to the thread and select or clear the **Resolve thread** checkbox.
 
 Resolving a discussion thread also marks any pending [to-do items](../../todos.md) related to notes
@@ -259,27 +286,31 @@ To revisit a resolved discussion, expand **Resolved Comments** below the visible
 
 ## Add a to-do item for a design
 
-To add a [to-do item](../../todos.md) for a design, select **Add a to do** on the design sidebar.
+To add a [to-do item](../../todos.md) for a design, select **Add a to-do item** on the design sidebar.
 
 ## Refer to a design in Markdown
 
-To refer to a design in a [Markdown](../../markdown.md) text box in GitLab, for example, in
-a comment or description, paste its URL. It's then displayed as a short reference.
+You can refer to a design in a [Markdown](../../markdown.md) text box.
+Paste the raw URL of the design in a comment or description.
+It's then displayed as a short reference.
 
-For example, if you refer to a design somewhere with:
+For example, if you refer to a design as:
 
 ```markdown
 See https://gitlab.com/gitlab-org/gitlab/-/issues/13195/designs/Group_view.png.
 ```
 
-It's rendered as:
+GitLab automatically renders raw URLs as an abbreviated [reference](../../markdown.md#gitlab-specific-references):
 
 > See [#13195[Group_view.png]](https://gitlab.com/gitlab-org/gitlab/-/issues/13195/designs/Group_view.png).
+
+Linking to an image differs from [embedding the image](../../markdown.md#images) in a comment or description.
+It's not possible to embed a design this way.
 
 ## Design activity records
 
 User activity events on designs (creation, deletion, and updates) are tracked by GitLab and
-displayed on the [user profile](../../profile/index.md#access-your-user-profile),
+displayed on the [user profile](../../profile/_index.md#access-your-user-profile),
 [group](../../group/manage.md#view-group-activity),
 and [project](../working_with_projects.md#view-project-activity) activity pages.
 

@@ -31,7 +31,7 @@ export default {
       default: '',
     },
   },
-  clustersHelpPagePath: helpPagePath('user/clusters/agent/index.md'),
+  clustersHelpPagePath: helpPagePath('user/clusters/agent/_index.md'),
   i18n: {
     namespaceLabel: s__('Environments|Kubernetes namespace (optional)'),
     namespaceHelpText: s__('Environments|Select namespace'),
@@ -135,7 +135,7 @@ export default {
       <template v-if="shouldRenderSelectButton" #footer>
         <gl-button
           category="tertiary"
-          class="gl-justify-content-start! gl-border-t-1! gl-border-t-solid gl-border-t-gray-200 gl-pl-7! gl-rounded-top-left-none! gl-rounded-top-right-none!"
+          class="!gl-justify-start !gl-rounded-tl-none !gl-rounded-tr-none !gl-border-t-1 gl-border-t-dropdown !gl-pl-7 gl-border-t-solid"
           :class="{ 'gl-mt-3': !filteredNamespacesList.length }"
           @click="onSelect(searchTerm)"
         >

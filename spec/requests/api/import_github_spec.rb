@@ -40,55 +40,20 @@ RSpec.describe API::ImportGithub, feature_category: :importers do
     before do
       allow(client).to receive_message_chain(:octokit, :rate_limit)
       allow(client).to receive_message_chain(:octokit, :repository).and_return({ status: 200 })
+
+      allow(::Gitlab::ApplicationRateLimiter).to receive(:throttled?).and_return(false)
     end
 
-    context 'when Github Importer is disabled' do
-      before do
-        stub_application_setting(import_sources: nil)
-        stub_feature_flags(override_github_disabled: false)
-      end
+    it 'rejects requests when Github Importer is disabled' do
+      stub_application_setting(import_sources: nil)
 
-      it 'rejects requests' do
-        post api("/import/github", user), params: {
-          target_namespace: user.namespace_path,
-          personal_access_token: token,
-          repo_id: non_existing_record_id
-        }
+      post api("/import/github", user), params: {
+        target_namespace: user.namespace_path,
+        personal_access_token: token,
+        repo_id: non_existing_record_id
+      }
 
-        expect(response).to have_gitlab_http_status(:forbidden)
-      end
-
-      context 'when override_github_disabled ops flag is enabled for the user' do
-        before do
-          stub_feature_flags(override_github_disabled: user)
-        end
-
-        it 'accepts requests' do
-          post api("/import/github", user), params: {
-            target_namespace: user.namespace_path,
-            personal_access_token: token,
-            repo_id: non_existing_record_id
-          }
-
-          expect(response).to have_gitlab_http_status(:created)
-        end
-      end
-
-      context 'when override_github_disabled ops flag is enabled for another user' do
-        before do
-          stub_feature_flags(override_github_disabled: create(:user))
-        end
-
-        it 'rejects requests' do
-          post api("/import/github", user), params: {
-            target_namespace: user.namespace_path,
-            personal_access_token: token,
-            repo_id: non_existing_record_id
-          }
-
-          expect(response).to have_gitlab_http_status(:forbidden)
-        end
-      end
+      expect(response).to have_gitlab_http_status(:forbidden)
     end
 
     it 'returns 201 response when the project is imported successfully' do
@@ -205,7 +170,7 @@ RSpec.describe API::ImportGithub, feature_category: :importers do
         ActionController::Base.helpers.link_to(
           _('documentation'),
           Rails.application.routes.url_helpers.help_page_url(
-            'user/project/import/github', anchor: 'use-a-github-personal-access-token'
+            'user/project/import/github.md', anchor: 'use-a-github-personal-access-token'
           ),
           target: '_blank',
           rel: 'noopener noreferrer'
@@ -276,6 +241,21 @@ RSpec.describe API::ImportGithub, feature_category: :importers do
                                                 "Please use a classic GitHub personal access token with the `read:org` scope. " \
                                                 "Fine-grained tokens are not supported.")
         end
+      end
+    end
+
+    context 'when request exceeds rate limits' do
+      it 'throttles the endpoint' do
+        allow(::Gitlab::ApplicationRateLimiter).to receive(:throttled?).and_return(true)
+
+        post api("/import/github", user), params: {
+          target_namespace: user.namespace_path,
+          personal_access_token: token,
+          repo_id: non_existing_record_id
+        }
+
+        expect(response).to have_gitlab_http_status(:too_many_requests)
+        expect(json_response['errors']).to eq('This endpoint has been requested too many times. Try again later.')
       end
     end
   end
@@ -371,9 +351,10 @@ RSpec.describe API::ImportGithub, feature_category: :importers do
 
     context 'when rate limit reached' do
       before do
-        allow(Import::Github::GistsImportService)
-          .to receive(:new).with(user, client, access_params)
-          .and_raise(Gitlab::GithubImport::RateLimitError)
+        allow_next_instance_of(Import::Github::GistsImportService) do |service|
+          allow(service).to receive(:execute)
+            .and_return({ status: :error, message: 'GitHub API rate limit exceeded', http_status: 429 })
+        end
       end
 
       it 'returns 429 error' do

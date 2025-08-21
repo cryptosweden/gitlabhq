@@ -6,6 +6,10 @@ module Issuable
       Error = Class.new(StandardError)
       include Gitlab::Allowable
 
+      def self.execute_without_params?
+        false
+      end
+
       def initialize(issuable:, current_user:, params: {})
         @issuable = issuable
         @current_user = current_user
@@ -15,6 +19,9 @@ module Issuable
       def after_initialize; end
       def before_create; end
       def before_update; end
+      def after_create; end
+      def after_update; end
+      def after_save; end
       def after_update_commit; end
       def after_save_commit; end
 

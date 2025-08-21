@@ -1,31 +1,39 @@
 <script>
 import { GlAlert, GlIcon, GlLink, GlLoadingIcon, GlSprintf, GlTooltipDirective } from '@gitlab/ui';
-import { BUTTON_TOOLTIP_RETRY, BUTTON_TOOLTIP_CANCEL } from '~/ci/constants';
 import { timeIntervalInWords } from '~/lib/utils/datetime_utility';
 import { setUrlFragment, visitUrl } from '~/lib/utils/url_utility';
 import { __, n__, sprintf, formatNumber } from '~/locale';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
+import PageHeading from '~/vue_shared/components/page_heading.vue';
+import { reportToSentry } from '~/ci/utils';
 import ClipboardButton from '~/vue_shared/components/clipboard_button.vue';
 import CiIcon from '~/vue_shared/components/ci_icon/ci_icon.vue';
 import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 import SafeHtml from '~/vue_shared/directives/safe_html';
+import pipelineCiStatusUpdatedSubscription from '~/graphql_shared/subscriptions/pipeline_ci_status_updated.subscription.graphql';
 import { LOAD_FAILURE, POST_FAILURE, DELETE_FAILURE, DEFAULT } from '../constants';
 import cancelPipelineMutation from '../graphql/mutations/cancel_pipeline.mutation.graphql';
 import deletePipelineMutation from '../graphql/mutations/delete_pipeline.mutation.graphql';
 import retryPipelineMutation from '../graphql/mutations/retry_pipeline.mutation.graphql';
 import { getQueryHeaders } from '../graph/utils';
 import { POLL_INTERVAL } from '../graph/constants';
+import { MERGE_TRAIN_EVENT_TYPE } from './constants';
 import HeaderActions from './components/header_actions.vue';
 import HeaderBadges from './components/header_badges.vue';
 import getPipelineQuery from './graphql/queries/get_pipeline_header_data.query.graphql';
 
+const finishedStatuses = ['FAILED', 'SUCCESS', 'CANCELED'];
+const pipelineCancel = 'pipelineCancel';
+const pipelineRetry = 'pipelineRetry';
+const errorTexts = {
+  [LOAD_FAILURE]: __('We are currently unable to fetch data for the pipeline header.'),
+  [POST_FAILURE]: __('An error occurred while making the request.'),
+  [DELETE_FAILURE]: __('An error occurred while deleting the pipeline.'),
+  [DEFAULT]: __('An unknown error occurred.'),
+};
+
 export default {
   name: 'PipelineHeader',
-  BUTTON_TOOLTIP_RETRY,
-  BUTTON_TOOLTIP_CANCEL,
-  pipelineCancel: 'pipelineCancel',
-  pipelineRetry: 'pipelineRetry',
-  finishedStatuses: ['FAILED', 'SUCCESS', 'CANCELED'],
   components: {
     CiIcon,
     ClipboardButton,
@@ -34,21 +42,18 @@ export default {
     GlLink,
     GlLoadingIcon,
     GlSprintf,
+    PageHeading,
     HeaderActions,
     HeaderBadges,
     TimeAgoTooltip,
     PipelineAccountVerificationAlert: () =>
       import('ee_component/vue_shared/components/pipeline_account_verification_alert.vue'),
+    HeaderMergeTrainsLink: () =>
+      import('ee_component/ci/pipeline_details/header/components/header_merge_trains_link.vue'),
   },
   directives: {
     GlTooltip: GlTooltipDirective,
     SafeHtml,
-  },
-  errorTexts: {
-    [LOAD_FAILURE]: __('We are currently unable to fetch data for the pipeline header.'),
-    [POST_FAILURE]: __('An error occurred while making the request.'),
-    [DELETE_FAILURE]: __('An error occurred while deleting the pipeline.'),
-    [DEFAULT]: __('An unknown error occurred.'),
   },
   inject: {
     graphqlResourceEtag: {
@@ -76,8 +81,43 @@ export default {
       update(data) {
         return data.project.pipeline;
       },
-      error() {
+      result({ data }) {
+        // we use a manual subscribeToMore call due to issues with
+        // the skip hook not working correctly for the subscription
+        if (data?.project?.pipeline?.id) {
+          this.$apollo.queries.pipeline.subscribeToMore({
+            document: pipelineCiStatusUpdatedSubscription,
+            variables: {
+              pipelineId: data.project.pipeline.id,
+            },
+            updateQuery(
+              previousData,
+              {
+                subscriptionData: {
+                  data: { ciPipelineStatusUpdated },
+                },
+              },
+            ) {
+              if (ciPipelineStatusUpdated) {
+                return {
+                  project: {
+                    ...previousData.project,
+                    pipeline: {
+                      ...previousData.project.pipeline,
+                      detailedStatus: ciPipelineStatusUpdated.detailedStatus,
+                    },
+                  },
+                };
+              }
+
+              return previousData;
+            },
+          });
+        }
+      },
+      error(error) {
         this.reportFailure(LOAD_FAILURE);
+        reportToSentry(this.$options.name, error);
       },
       pollInterval: POLL_INTERVAL,
       watchLoading(isLoading) {
@@ -107,12 +147,6 @@ export default {
     hasError() {
       return this.failureType;
     },
-    hasPipelineData() {
-      return Boolean(this.pipeline);
-    },
-    isLoadingInitialQuery() {
-      return this.$apollo.queries.pipeline.loading && !this.hasPipelineData;
-    },
     detailedStatus() {
       return this.pipeline?.detailedStatus || {};
     },
@@ -120,31 +154,28 @@ export default {
       return this.pipeline?.status;
     },
     isFinished() {
-      return this.$options.finishedStatuses.includes(this.status);
-    },
-    shouldRenderContent() {
-      return !this.isLoadingInitialQuery && this.hasPipelineData;
+      return finishedStatuses.includes(this.status);
     },
     failure() {
       switch (this.failureType) {
         case LOAD_FAILURE:
           return {
-            text: this.$options.errorTexts[LOAD_FAILURE],
+            text: errorTexts[LOAD_FAILURE],
             variant: 'danger',
           };
         case POST_FAILURE:
           return {
-            text: this.$options.errorTexts[POST_FAILURE],
+            text: errorTexts[POST_FAILURE],
             variant: 'danger',
           };
         case DELETE_FAILURE:
           return {
-            text: this.$options.errorTexts[DELETE_FAILURE],
+            text: errorTexts[DELETE_FAILURE],
             variant: 'danger',
           };
         default:
           return {
-            text: this.$options.errorTexts[DEFAULT],
+            text: errorTexts[DEFAULT],
             variant: 'danger',
           };
       }
@@ -217,6 +248,9 @@ export default {
     refText() {
       return this.pipeline?.refText;
     },
+    isMergeTrainPipeline() {
+      return this.pipeline.mergeRequestEventType === MERGE_TRAIN_EVENT_TYPE;
+    },
   },
   methods: {
     reportFailure(errorType, errorMessages = []) {
@@ -244,19 +278,20 @@ export default {
             this.$apollo.queries.pipeline.startPolling(POLL_INTERVAL);
           }
         }
-      } catch {
+      } catch (error) {
         this.isRetrying = false;
 
         this.reportFailure(POST_FAILURE);
+        reportToSentry(this.$options.name, error);
       }
     },
     cancelPipeline(id) {
       this.isCanceling = true;
-      this.postPipelineAction(this.$options.pipelineCancel, cancelPipelineMutation, id);
+      this.postPipelineAction(pipelineCancel, cancelPipelineMutation, id);
     },
     retryPipeline(id) {
       this.isRetrying = true;
-      this.postPipelineAction(this.$options.pipelineRetry, retryPipelineMutation, id);
+      this.postPipelineAction(pipelineRetry, retryPipelineMutation, id);
     },
     async deletePipeline(id) {
       this.isDeleting = true;
@@ -280,10 +315,13 @@ export default {
         } else {
           visitUrl(setUrlFragment(this.paths.pipelinesPath, 'delete_success'));
         }
-      } catch {
+      } catch (error) {
         this.$apollo.queries.pipeline.startPolling(POLL_INTERVAL);
-        this.reportFailure(DELETE_FAILURE);
+
         this.isDeleting = false;
+
+        this.reportFailure(DELETE_FAILURE);
+        reportToSentry(this.$options.name, error);
       }
     },
   },
@@ -291,95 +329,96 @@ export default {
 </script>
 
 <template>
-  <div class="gl-my-4" data-testid="pipeline-header">
+  <div data-testid="pipeline-header">
     <gl-alert
       v-if="hasError"
       class="gl-mb-4"
       :title="failure.text"
       :variant="failure.variant"
       :dismissible="false"
-      data-testid="error-alert"
     >
       <div v-for="(failureMessage, index) in failureMessages" :key="`failure-message-${index}`">
         {{ failureMessage }}
       </div>
     </gl-alert>
 
-    <gl-loading-icon v-if="loading" class="gl-text-left" size="lg" />
+    <gl-loading-icon v-if="loading" class="gl-mt-5 gl-text-center" size="md" />
 
-    <div v-else class="gl-display-flex gl-justify-content-space-between gl-flex-wrap">
-      <div>
-        <h3 v-if="pipelineName" class="gl-mt-0 gl-mb-3" data-testid="pipeline-name">
+    <page-heading v-else inline-actions class="gl-mb-0 gl-gap-y-5 sm:gl-gap-y-3">
+      <template #heading>
+        <span v-if="pipelineName" data-testid="pipeline-name">
           {{ pipelineName }}
-        </h3>
-        <h3 v-else class="gl-mt-0 gl-mb-3" data-testid="pipeline-commit-title">
+        </span>
+        <span v-else data-testid="pipeline-commit-title">
           {{ commitTitle }}
-        </h3>
-        <div>
-          <ci-icon :status="detailedStatus" show-status-text :show-link="false" class="gl-mb-3" />
-          <div class="gl-ml-2 gl-mb-3 gl-display-inline-block gl-h-6">
-            <gl-link
-              v-if="user"
-              :href="user.webUrl"
-              class="gl-display-inline-block gl-text-gray-900 gl-font-bold js-user-link"
-              :data-user-id="userId"
-              :data-username="user.username"
-              data-testid="pipeline-user-link"
-            >
-              {{ user.name }}
-            </gl-link>
-            <gl-sprintf :message="triggeredText">
-              <template #link="{ content }">
-                <gl-link
-                  :href="commitPath"
-                  class="commit-sha-container"
-                  data-testid="commit-link"
-                  target="_blank"
-                >
-                  {{ content }}
-                </gl-link>
-              </template>
-            </gl-sprintf>
-          </div>
-          <div class="gl-display-inline-block gl-mb-3">
-            <clipboard-button
-              :text="commitSha"
-              category="tertiary"
-              :title="__('Copy commit SHA')"
-              data-testid="commit-copy-sha"
-              size="small"
-            />
-            <time-ago-tooltip
-              v-if="inProgress"
-              :time="pipeline.createdAt"
-              data-testid="pipeline-created-time-ago"
-            />
-            <template v-if="isFinished">
-              <time-ago-tooltip
-                :time="pipeline.createdAt"
-                data-testid="pipeline-finished-created-time-ago"
-              />, {{ s__('Pipelines|finished') }}
-              <time-ago-tooltip
-                :time="pipeline.finishedAt"
-                data-testid="pipeline-finished-time-ago"
-              />
+        </span>
+      </template>
+
+      <template #description>
+        <ci-icon :status="detailedStatus" show-status-text class="gl-mb-3" />
+        <div class="gl-inline-block">
+          <gl-link
+            v-if="user"
+            :href="user.webUrl"
+            class="js-user-link gl-inline-block gl-font-bold gl-text-default"
+            :data-user-id="userId"
+            :data-username="user.username"
+            data-testid="pipeline-user-link"
+          >
+            {{ user.name }}
+          </gl-link>
+          <gl-sprintf :message="triggeredText">
+            <template #link="{ content }">
+              <gl-link
+                :href="commitPath"
+                class="commit-sha-container"
+                data-testid="commit-link"
+                target="_blank"
+                >{{ content }}</gl-link
+              >
             </template>
-          </div>
+          </gl-sprintf>
+          <clipboard-button
+            :text="commitSha"
+            category="tertiary"
+            :title="__('Copy commit SHA')"
+            data-testid="commit-copy-sha"
+            size="small"
+          />
         </div>
-        <div v-safe-html="refText" class="gl-mb-3" data-testid="pipeline-ref-text"></div>
+        <div class="gl-inline-block">
+          <time-ago-tooltip
+            v-if="inProgress"
+            :time="pipeline.createdAt"
+            data-testid="pipeline-created-time-ago"
+          />
+          <template v-if="isFinished">
+            <time-ago-tooltip
+              :time="pipeline.createdAt"
+              data-testid="pipeline-finished-created-time-ago"
+            />, {{ s__('Pipelines|finished') }}
+            <time-ago-tooltip
+              :time="pipeline.finishedAt"
+              data-testid="pipeline-finished-time-ago"
+            />
+          </template>
+        </div>
+
+        <div v-safe-html="refText" class="gl-my-3 sm:gl-mt-0" data-testid="pipeline-ref-text"></div>
         <div>
           <header-badges :pipeline="pipeline" />
 
-          <div class="gl-display-inline-block">
-            <span
+          <div class="gl-inline-block">
+            <button
               v-gl-tooltip
               :title="s__('Pipelines|Total number of jobs for the pipeline')"
-              class="gl-ml-2"
-              data-testid="total-jobs"
+              class="gl-ml-2 !gl-cursor-default gl-rounded-base gl-border-none gl-bg-transparent gl-p-0"
             >
-              <gl-icon name="pipeline" />
-              {{ totalJobsText }}
-            </span>
+              <span data-testid="total-jobs">
+                <gl-icon name="pipeline" />
+                {{ totalJobsText }}
+              </span>
+            </button>
             <span
               v-if="showComputeMinutes"
               v-gl-tooltip
@@ -400,18 +439,24 @@ export default {
             </span>
           </div>
         </div>
-      </div>
+        <div v-if="isMergeTrainPipeline" class="gl-mt-2">
+          <header-merge-trains-link />
+        </div>
+      </template>
 
-      <header-actions
-        :pipeline="pipeline"
-        :is-retrying="isRetrying"
-        :is-canceling="isCanceling"
-        :is-deleting="isDeleting"
-        @retryPipeline="retryPipeline($event)"
-        @cancelPipeline="cancelPipeline($event)"
-        @deletePipeline="deletePipeline($event)"
-      />
-    </div>
+      <template #actions>
+        <header-actions
+          class="gl-self-start"
+          :pipeline="pipeline"
+          :is-retrying="isRetrying"
+          :is-canceling="isCanceling"
+          :is-deleting="isDeleting"
+          @retryPipeline="retryPipeline($event)"
+          @cancelPipeline="cancelPipeline($event)"
+          @deletePipeline="deletePipeline($event)"
+        />
+      </template>
+    </page-heading>
 
     <pipeline-account-verification-alert class="gl-mt-4" />
   </div>

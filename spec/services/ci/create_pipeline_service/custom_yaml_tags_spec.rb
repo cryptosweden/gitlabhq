@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness,
+RSpec.describe Ci::CreatePipelineService,
   feature_category: :continuous_integration do
   describe '!reference tags' do
     let_it_be(:project) { create(:project, :repository) }
@@ -73,7 +73,8 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness,
       it 'creates a pipeline without builds' do
         expect(pipeline).to be_persisted
         expect(pipeline.builds).to be_empty
-        expect(pipeline.yaml_errors).to eq("!reference [\"job-3\", \"script\"] is part of a circular chain")
+        expect(pipeline.error_messages[0].content).to eq(
+          "!reference [\"job-3\", \"script\"] is part of a circular chain")
       end
     end
   end

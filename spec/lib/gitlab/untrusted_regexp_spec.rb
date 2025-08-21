@@ -30,8 +30,8 @@ RSpec.describe Gitlab::UntrustedRegexp, feature_category: :shared do
     let(:regex_str) { '(?P<scheme>(ftp))' }
     let(:regex) { create_regex(regex_str, multiline: true) }
 
-    def result(regex, text)
-      regex.replace_gsub(text) do |match|
+    def result(text, regex, limit: 0)
+      regex.replace_gsub(text, limit: limit) do |match|
         if match[:scheme]
           "http|#{match[:scheme]}|rss"
         else
@@ -41,21 +41,27 @@ RSpec.describe Gitlab::UntrustedRegexp, feature_category: :shared do
     end
 
     it 'replaces all instances of the match in a string' do
-      text = 'Use only https instead of ftp'
+      text = 'Use only https instead of ftp or sftp'
 
-      expect(result(regex, text)).to eq('Use only https instead of http|ftp|rss')
+      expect(result(text, regex)).to eq('Use only https instead of http|ftp|rss or shttp|ftp|rss')
+    end
+
+    it 'limits the number of replacements' do
+      text = 'Use only https instead of ftp or sftp'
+
+      expect(result(text, regex, limit: 1)).to eq('Use only https instead of http|ftp|rss or sftp')
     end
 
     it 'replaces nothing when no match' do
       text = 'Use only https instead of gopher'
 
-      expect(result(regex, text)).to eq(text)
+      expect(result(text, regex)).to eq(text)
     end
 
     it 'handles empty text' do
       text = ''
 
-      expect(result(regex, text)).to eq('')
+      expect(result(text, regex)).to eq('')
     end
   end
 
@@ -103,7 +109,7 @@ RSpec.describe Gitlab::UntrustedRegexp, feature_category: :shared do
       let(:regexp) { 'foo' }
       let(:text) { 'foo' }
 
-      it 'returns an array of nil matches' do
+      it 'returns an array of matches' do
         is_expected.to eq(true)
       end
     end
@@ -115,6 +121,86 @@ RSpec.describe Gitlab::UntrustedRegexp, feature_category: :shared do
       it 'returns an array of nil matches' do
         is_expected.to eq(false)
       end
+    end
+
+    context 'when nil is passed' do
+      let(:regexp) { '\w{0,2}' }
+      let(:text) { nil }
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'when nil is passed with allow_empty_string' do
+      subject { create_regex(regexp).match?(text, allow_empty_string: true) }
+
+      let(:regexp) { '\w{0,2}' }
+      let(:text) { nil }
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'when a matching empty string is passed' do
+      let(:regexp) { '\w{0,2}' }
+      let(:text) { '' }
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'when a matching empty string is passed is passed with allow_empty_string' do
+      subject { create_regex(regexp).match?(text, allow_empty_string: true) }
+
+      let(:regexp) { '\w{0,2}' }
+      let(:text) { '' }
+
+      it { is_expected.to eq(true) }
+    end
+
+    context 'when a matching string only containing spaces is passed' do
+      let(:regexp) { '^\s{0,2}$' }
+      let(:text) { ' ' }
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'when a matching string only containing spaces is passed with allow_empty_string' do
+      subject { create_regex(regexp).match?(text, allow_empty_string: true) }
+
+      let(:regexp) { '^\s{0,2}$' }
+      let(:text) { ' ' }
+
+      it { is_expected.to eq(true) }
+    end
+
+    context 'when a non-matching empty string is passed' do
+      let(:regexp) { '\w{1,2}' }
+      let(:text) { '' }
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'when a non-matching empty string is passed is passed with allow_empty_string' do
+      subject { create_regex(regexp).match?(text, allow_empty_string: true) }
+
+      let(:regexp) { '\w{1,2}' }
+      let(:text) { '' }
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'when a non-matching string only containing spaces is passed' do
+      let(:regexp) { '^\s{2,4}$' }
+      let(:text) { ' ' }
+
+      it { is_expected.to eq(false) }
+    end
+
+    context 'when a non-matching string only containing spaces is passed with allow_empty_string' do
+      subject { create_regex(regexp).match?(text, allow_empty_string: true) }
+
+      let(:regexp) { '^\s{2,4}$' }
+      let(:text) { ' ' }
+
+      it { is_expected.to eq(false) }
     end
   end
 

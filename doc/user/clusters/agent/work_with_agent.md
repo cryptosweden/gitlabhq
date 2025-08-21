@@ -2,13 +2,15 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Managing the agent for Kubernetes instances
 ---
 
-# Managing the agent for Kubernetes instances
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Use the following tasks when you work with the agent for Kubernetes.
 
@@ -34,9 +36,31 @@ On this page, you can view:
 - The version of `agentk` installed on your cluster.
 - The path to each agent configuration file.
 
+### Configure your agent
+
+To configure your agent:
+
+- Add content to the `config.yaml` file optionally created [during installation](install/_index.md#create-an-agent-configuration-file).
+
+You can quickly locate an agent configuration file from the list of agents.
+The **Configuration** column indicates the location of the `config.yaml` file,
+or shows how to create one.
+
+The agent configuration file manages the various agent features:
+
+- For a GitLab CI/CD workflow. You must [authorize the agent to access your projects](ci_cd_workflow.md#authorize-agent-access), and then
+  [add `kubectl` commands to your `.gitlab-ci.yml` file](ci_cd_workflow.md#update-your-gitlab-ciyml-file-to-run-kubectl-commands).
+- For [user access](user_access.md) to the cluster from the GitLab UI or from the local terminal.
+- For configuring [operational container scanning](vulnerabilities.md).
+- For configuring [remote workspaces](../../workspace/gitlab_agent_configuration.md).
+
 ## View shared agents
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/395498) in GitLab 16.1.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/395498) in GitLab 16.1.
+
+{{< /history >}}
 
 In addition to the agents owned by your project, you can also view agents shared with the
 [`ci_access`](ci_cd_workflow.md) and [`user_access`](user_access.md) keywords. Once an agent
@@ -72,7 +96,11 @@ View and provide feedback about the UI in [this epic](https://gitlab.com/groups/
 
 ## Debug the agent
 
-> - The `grpc_level` was [introduced](https://gitlab.com/gitlab-org/cluster-integration/gitlab-agent/-/merge_requests/669) in GitLab 15.1.
+{{< history >}}
+
+- The `grpc_level` was [introduced](https://gitlab.com/gitlab-org/cluster-integration/gitlab-agent/-/merge_requests/669) in GitLab 15.1.
+
+{{< /history >}}
 
 To debug the cluster-side component (`agentk`) of the agent, set the log
 level according to the available options:
@@ -86,7 +114,7 @@ The agent has two loggers:
 - A general purpose logger, which defaults to `info`.
 - A gRPC logger, which defaults to `error`.
 
-You can change your log levels by using a top-level `observability` section in the [agent configuration file](install/index.md#configure-your-agent), for example setting the levels to `debug` and `warn`:
+You can change your log levels by using a top-level `observability` section in the [agent configuration file](#configure-your-agent), for example setting the levels to `debug` and `warn`:
 
 ```yaml
 observability:
@@ -107,8 +135,12 @@ For more information about debugging, see [troubleshooting documentation](troubl
 
 ## Reset the agent token
 
-> - Two-token limit [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/361030/) in GitLab 16.1 with a [flag](../../../administration/feature_flags.md) named `cluster_agents_limit_tokens_created`.
-> - Two-token limit [generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/412399) in GitLab 16.2. Feature flag `cluster_agents_limit_tokens_created` removed.
+{{< history >}}
+
+- Two-token limit [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/361030/) in GitLab 16.1 with a [flag](../../../administration/feature_flags/_index.md) named `cluster_agents_limit_tokens_created`.
+- Two-token limit [generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/412399) in GitLab 16.2. Feature flag `cluster_agents_limit_tokens_created` removed.
+
+{{< /history >}}
 
 An agent can have only two active tokens at one time.
 
@@ -121,8 +153,8 @@ To reset the agent token without downtime:
    1. On the **Access tokens** tab, select **Create token**.
    1. Enter token's name and description (optional) and select **Create token**.
 1. Securely store the generated token.
-1. Use the token to [install the agent in your cluster](install/index.md#install-the-agent-in-the-cluster) and to [update the agent](install/index.md#update-the-agent-version) to another version.
-1. To delete the token you're no longer using, return to the token list and select **Revoke** (**{remove}**).
+1. Use the token to [install the agent in your cluster](install/_index.md#install-the-agent-in-the-cluster) and to [update the agent](install/_index.md#update-the-agent-version) to another version.
+1. To delete the token you're no longer using, return to the token list and select **Revoke** ({{< icon name="remove" >}}).
 
 ## Remove an agent
 
@@ -137,14 +169,14 @@ To remove an agent from the UI:
 
 1. On the left sidebar, select **Search or go to** and find the project that contains the agent configuration file.
 1. Select **Operate > Kubernetes clusters**.
-1. In the table, in the row for your agent, in the **Options** column, select the vertical ellipsis (**{ellipsis_v}**).
+1. In the table, in the row for your agent, in the **Options** column, select the vertical ellipsis ({{< icon name="ellipsis_v" >}}).
 1. Select **Delete agent**.
 
 ### Remove an agent with the GitLab GraphQL API
 
 1. Get the `<cluster-agent-token-id>` from a query in the interactive GraphQL explorer.
    - For GitLab.com, go to <https://gitlab.com/-/graphql-explorer> to open GraphQL Explorer.
-   - For self-managed GitLab, go to `https://gitlab.example.com/-/graphql-explorer`, replacing `gitlab.example.com` with your instance's URL.
+   - For GitLab Self-Managed, go to `https://gitlab.example.com/-/graphql-explorer`, replacing `gitlab.example.com` with your instance's URL.
 
    ```graphql
    query{
@@ -198,4 +230,4 @@ To remove an agent from the UI:
 
 ## Related topics
 
-- [Manage an agent's workspaces](../../workspace/index.md#manage-workspaces-at-the-agent-level)
+- [Manage an agent's workspaces](../../workspace/_index.md#manage-workspaces-at-the-agent-level)

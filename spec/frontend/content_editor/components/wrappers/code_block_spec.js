@@ -98,7 +98,7 @@ describe('content/components/wrappers/code_block', () => {
 
     expect(label.text()).toEqual('frontmatter:yaml');
     expect(label.attributes('contenteditable')).toBe('false');
-    expect(label.classes()).toEqual(['gl-absolute', 'gl-top-0', 'gl-right-3']);
+    expect(label.classes()).toEqual(['gl-absolute', 'gl-right-3', 'gl-top-0']);
   });
 
   it('loads code block’s syntax highlight language', async () => {
@@ -126,9 +126,16 @@ describe('content/components/wrappers/code_block', () => {
       createWrapper({ language: 'plantuml', isDiagram: true, showPreview: true });
 
       await emitEditorEvent({ event: 'transaction', tiptapEditor });
+      // TODO: Vue 3 requires more ticks than Vue 2 to flush changes to the
+      // DOM. There's a nextTick in emitEditorEvent, so there are 4 total
+      // needed for Vue 3, and 2 total for Vue 2.
+      //
+      // See https://gitlab.com/gitlab-org/gitlab/-/issues/525422.
+      await nextTick();
+      await nextTick();
       await nextTick();
 
-      expect(wrapper.find('img').attributes('src')).toBe('url/to/some/diagram');
+      expect(wrapper.find('img').element.src).toBe('url/to/some/diagram');
       expect(wrapper.findByTestId('sandbox-preview').attributes('contenteditable')).toBe(
         String(false),
       );
@@ -140,18 +147,24 @@ describe('content/components/wrappers/code_block', () => {
       contentEditor.renderDiagram.mockResolvedValue(alternateUrl);
 
       await emitEditorEvent({ event: 'transaction', tiptapEditor });
-      await nextTick();
 
-      expect(wrapper.find('img').attributes('src')).toBe('url/to/some/diagram');
+      expect(wrapper.find('img').element.src).toBe('url/to/some/diagram');
     });
 
     it('renders an image with preview for a plantuml/kroki diagram', async () => {
       createWrapper({ language: 'plantuml', isDiagram: true, showPreview: true });
 
       await emitEditorEvent({ event: 'transaction', tiptapEditor });
+      // TODO: Vue 3 requires more ticks than Vue 2 to flush changes to the
+      // DOM. There's a nextTick in emitEditorEvent, so there are 4 total
+      // needed for Vue 3, and 2 total for Vue 2.
+      //
+      // See https://gitlab.com/gitlab-org/gitlab/-/issues/525422.
+      await nextTick();
+      await nextTick();
       await nextTick();
 
-      expect(wrapper.find('img').attributes('src')).toBe('url/to/some/diagram');
+      expect(wrapper.find('img').element.src).toBe('url/to/some/diagram');
       expect(wrapper.findComponent(SandboxedMermaid).exists()).toBe(false);
     });
 
@@ -223,19 +236,37 @@ describe('content/components/wrappers/code_block', () => {
       );
       expect(findCodeSuggestionBoxText()).toContain('Suggested change From line 5 to 5');
       expect(findCodeDeleted()).toMatchInlineSnapshot(`
-        <code
-          data-line-number="5"
-        >
-          ## Usage​
-        </code>
-      `);
+<code
+  class="!gl-border-transparent diff-line-num"
+  data-line-number="5"
+>
+  <span
+    class="line_holder"
+  >
+    <span
+      class="line_content old"
+    >
+      ## Usage​
+    </span>
+  </span>
+</code>
+`);
       expect(findCodeAdded()).toMatchInlineSnapshot(`
-        <code
-          data-line-number="5"
-        >
-          ​
-        </code>
-      `);
+<code
+  class="!gl-border-transparent diff-line-num"
+  data-line-number="5"
+>
+  <span
+    class="line_holder"
+  >
+    <span
+      class="!gl-text-transparent line_content new"
+    >
+      ​
+    </span>
+  </span>
+</code>
+`);
     });
 
     describe('decrement line start button', () => {
@@ -250,12 +281,21 @@ describe('content/components/wrappers/code_block', () => {
 
         expect(findCodeSuggestionBoxText()).toContain('Suggested change From line 4 to 5');
         expect(findCodeDeleted()).toMatchInlineSnapshot(`
-          <code
-            data-line-number="4"
-          >
-            ​
-          </code>
-        `);
+<code
+  class="!gl-border-transparent diff-line-num"
+  data-line-number="4"
+>
+  <span
+    class="line_holder"
+  >
+    <span
+      class="line_content old"
+    >
+      ​
+    </span>
+  </span>
+</code>
+`);
       });
 
       it('is disabled if the start line is already 1', async () => {
@@ -268,12 +308,21 @@ describe('content/components/wrappers/code_block', () => {
 
         expect(findCodeSuggestionBoxText()).toContain('Suggested change From line 1 to 5');
         expect(findCodeDeleted()).toMatchInlineSnapshot(`
-          <code
-            data-line-number="1"
-          >
-            # Sample README​
-          </code>
-        `);
+<code
+  class="!gl-border-transparent diff-line-num"
+  data-line-number="1"
+>
+  <span
+    class="line_holder"
+  >
+    <span
+      class="line_content old"
+    >
+      # Sample README​
+    </span>
+  </span>
+</code>
+`);
 
         expect(button.attributes('disabled')).toBe('disabled');
       });
@@ -307,12 +356,21 @@ describe('content/components/wrappers/code_block', () => {
 
         expect(findCodeSuggestionBoxText()).toContain('Suggested change From line 4 to 5');
         expect(findCodeDeleted()).toMatchInlineSnapshot(`
-          <code
-            data-line-number="4"
-          >
-            ​
-          </code>
-        `);
+<code
+  class="!gl-border-transparent diff-line-num"
+  data-line-number="4"
+>
+  <span
+    class="line_holder"
+  >
+    <span
+      class="line_content old"
+    >
+      ​
+    </span>
+  </span>
+</code>
+`);
       });
     });
 
@@ -344,12 +402,21 @@ describe('content/components/wrappers/code_block', () => {
 
         expect(findCodeSuggestionBoxText()).toContain('Suggested change From line 5 to 6');
         expect(findCodeDeleted()).toMatchInlineSnapshot(`
-          <code
-            data-line-number="5"
-          >
-            ## Usage​
-          </code>
-        `);
+<code
+  class="!gl-border-transparent diff-line-num"
+  data-line-number="5"
+>
+  <span
+    class="line_holder"
+  >
+    <span
+      class="line_content old"
+    >
+      ## Usage​
+    </span>
+  </span>
+</code>
+`);
       });
     });
 
@@ -365,12 +432,21 @@ describe('content/components/wrappers/code_block', () => {
 
         expect(findCodeSuggestionBoxText()).toContain('Suggested change From line 5 to 6');
         expect(findCodeDeleted()).toMatchInlineSnapshot(`
-          <code
-            data-line-number="5"
-          >
-            ## Usage​
-          </code>
-        `);
+<code
+  class="!gl-border-transparent diff-line-num"
+  data-line-number="5"
+>
+  <span
+    class="line_holder"
+  >
+    <span
+      class="line_content old"
+    >
+      ## Usage​
+    </span>
+  </span>
+</code>
+`);
       });
 
       it('is disabled if the end line is EOF', async () => {
@@ -383,12 +459,21 @@ describe('content/components/wrappers/code_block', () => {
 
         expect(findCodeSuggestionBoxText()).toContain('Suggested change From line 5 to 9');
         expect(findCodeDeleted()).toMatchInlineSnapshot(`
-          <code
-            data-line-number="5"
-          >
-            ## Usage​
-          </code>
-        `);
+<code
+  class="!gl-border-transparent diff-line-num"
+  data-line-number="5"
+>
+  <span
+    class="line_holder"
+  >
+    <span
+      class="line_content old"
+    >
+      ## Usage​
+    </span>
+  </span>
+</code>
+`);
 
         expect(button.attributes('disabled')).toBe('disabled');
       });

@@ -1,5 +1,4 @@
 <script>
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import DiscussionReplyPlaceholder from './discussion_reply_placeholder.vue';
 import ResolveDiscussionButton from './discussion_resolve_button.vue';
 import ResolveWithIssueButton from './discussion_resolve_with_issue_button.vue';
@@ -11,7 +10,6 @@ export default {
     ResolveDiscussionButton,
     ResolveWithIssueButton,
   },
-  mixins: [glFeatureFlagsMixin()],
   props: {
     discussion: {
       type: Object,
@@ -30,6 +28,7 @@ export default {
       required: false,
       default: '',
     },
+    // eslint-disable-next-line vue/no-unused-properties -- shouldShowJumpToNextDiscussion is part of the component's public API.
     shouldShowJumpToNextDiscussion: {
       type: Boolean,
       required: true,

@@ -1,14 +1,17 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Monitoring GitHub imports
+description: "Use Prometheus metrics to monitor GitHub imports into your GitLab Self-Managed instance."
 ---
 
-# Monitoring GitHub imports
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 The GitHub importer exposes various Prometheus metrics that you can use to
 monitor the health and progress of the importer.

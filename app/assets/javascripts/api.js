@@ -1,8 +1,9 @@
 import { createAlert } from '~/alert';
 import { __ } from '~/locale';
 import { validateAdditionalProperties } from '~/tracking/utils';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import axios from './lib/utils/axios_utils';
-import { joinPaths } from './lib/utils/url_utility';
+import { joinPaths, isAbsolute } from './lib/utils/url_utility';
 
 export const DEFAULT_PER_PAGE = 20;
 
@@ -17,6 +18,9 @@ const Api = {
   groupsPath: '/api/:version/groups.json',
   groupPath: '/api/:version/groups/:id',
   groupMembersPath: '/api/:version/groups/:id/members',
+  groupServiceAccountsPath: '/api/:version/groups/:id/service_accounts',
+  groupServiceAccountsTokensPath:
+    '/api/:version/groups/:id/service_accounts/:account_id/personal_access_tokens',
   groupMilestonesPath: '/api/:version/groups/:id/milestones',
   subgroupsPath: '/api/:version/groups/:id/subgroups',
   descendantGroupsPath: '/api/:version/groups/:id/descendant_groups',
@@ -75,7 +79,6 @@ const Api = {
   releaseLinkPath: '/api/:version/projects/:id/releases/:tag_name/assets/links/:link_id',
   mergeRequestsPipeline: '/api/:version/projects/:id/merge_requests/:merge_request_iid/pipelines',
   adminStatisticsPath: '/api/:version/application/statistics',
-  pipelineJobsPath: '/api/:version/projects/:id/pipelines/:pipeline_id/jobs',
   pipelineSinglePath: '/api/:version/projects/:id/pipelines/:pipeline_id',
   pipelinesPath: '/api/:version/projects/:id/pipelines/',
   createPipelinePath: '/api/:version/projects/:id/pipeline',
@@ -99,7 +102,6 @@ const Api = {
   deployKeysPath: '/api/:version/deploy_keys',
   secureFilePath: '/api/:version/projects/:project_id/secure_files/:secure_file_id',
   secureFilesPath: '/api/:version/projects/:project_id/secure_files',
-  dependencyProxyPath: '/api/:version/groups/:id/dependency_proxy/cache',
   markdownPath: '/api/:version/markdown',
 
   group(groupId, callback = () => {}) {
@@ -176,6 +178,30 @@ const Api = {
     });
   },
 
+  groupServiceAccounts(id, options = {}) {
+    const url = Api.buildUrl(this.groupServiceAccountsPath).replace(':id', encodeURIComponent(id));
+
+    return axios.get(url, {
+      params: {
+        sort: 'desc',
+        ...options,
+      },
+    });
+  },
+
+  groupServiceAccountsTokens(groupId, accountId, options = {}) {
+    const url = Api.buildUrl(this.groupServiceAccountsTokensPath)
+      .replace(':id', encodeURIComponent(groupId))
+      .replace(':account_id', encodeURIComponent(accountId));
+
+    return axios.get(url, {
+      params: {
+        sort: 'desc',
+        ...options,
+      },
+    });
+  },
+
   groupSubgroups(id, options) {
     const url = Api.buildUrl(this.subgroupsPath).replace(':id', encodeURIComponent(id));
 
@@ -231,13 +257,14 @@ const Api = {
   },
 
   // Return namespaces list. Filtered by query
-  namespaces(query, callback) {
+  namespaces(query, options, callback) {
     const url = Api.buildUrl(Api.namespacesPath);
     return axios
       .get(url, {
         params: {
           search: query,
           per_page: DEFAULT_PER_PAGE,
+          ...options,
         },
       })
       .then(({ data }) => callback(data));
@@ -418,6 +445,7 @@ const Api = {
       expires_at: options.expires_at,
       group_access: options.group_access,
       group_id: options.group_id,
+      member_role_id: options.member_role_id,
     });
   },
 
@@ -443,6 +471,7 @@ const Api = {
     return axios.get(url, { params });
   },
 
+  // eslint-disable-next-line max-params
   newLabel(namespacePath, projectPath, data, callback) {
     let url;
     let payload;
@@ -474,6 +503,7 @@ const Api = {
   },
 
   // Return group projects list. Filtered by query
+  // eslint-disable-next-line max-params
   groupProjects(groupId, query, options, callback = () => {}) {
     const url = Api.buildUrl(Api.groupProjectsPath).replace(':id', groupId);
     const defaults = {
@@ -497,6 +527,7 @@ const Api = {
       expires_at: options.expires_at,
       group_access: options.group_access,
       group_id: options.group_id,
+      member_role_id: options.member_role_id,
     });
   },
 
@@ -552,6 +583,7 @@ const Api = {
     return axios.get(url);
   },
 
+  // eslint-disable-next-line max-params
   projectTemplate(id, type, key, options, callback) {
     const url = Api.buildUrl(this.projectTemplatePath)
       .replace(':id', encodeURIComponent(id))
@@ -565,6 +597,7 @@ const Api = {
     });
   },
 
+  // eslint-disable-next-line max-params
   projectTemplates(id, type, params = {}, callback) {
     const url = Api.buildUrl(this.projectTemplatesPath)
       .replace(':id', encodeURIComponent(id))
@@ -577,6 +610,7 @@ const Api = {
     });
   },
 
+  // eslint-disable-next-line max-params
   issueTemplate(namespacePath, projectPath, key, type, callback) {
     const url = this.buildIssueTemplateUrl(
       Api.issuableTemplatePath,
@@ -590,6 +624,7 @@ const Api = {
       .catch(callback);
   },
 
+  // eslint-disable-next-line max-params
   issueTemplates(namespacePath, projectPath, type, callback) {
     const url = this.buildIssueTemplateUrl(
       Api.issuableTemplatesPath,
@@ -603,6 +638,7 @@ const Api = {
       .catch(callback);
   },
 
+  // eslint-disable-next-line max-params
   buildIssueTemplateUrl(path, type, projectPath, namespacePath) {
     return Api.buildUrl(path)
       .replace(':type', type)
@@ -660,6 +696,7 @@ const Api = {
    * @deprecated This method will be removed soon. Use the
    * `getUserProjects` method in `~/rest_api` instead.
    */
+  // eslint-disable-next-line max-params
   userProjects(userId, query, options, callback) {
     const url = Api.buildUrl(Api.userProjectsPath).replace(':id', userId);
     const defaults = {
@@ -718,7 +755,11 @@ const Api = {
       .replace(':id', encodeURIComponent(id))
       .replace(':merge_request_iid', mergeRequestId);
 
-    return axios.post(url);
+    const params = {
+      async: true,
+    };
+
+    return axios.post(url, params);
   },
 
   releases(id, options = {}) {
@@ -784,14 +825,6 @@ const Api = {
     return axios.get(url);
   },
 
-  pipelineJobs(projectId, pipelineId, params) {
-    const url = Api.buildUrl(this.pipelineJobsPath)
-      .replace(':id', encodeURIComponent(projectId))
-      .replace(':pipeline_id', encodeURIComponent(pipelineId));
-
-    return axios.get(url, { params });
-  },
-
   // Return all pipelines for a project or filter by query params
   pipelines(id, options = {}) {
     const url = Api.buildUrl(this.pipelinesPath).replace(':id', encodeURIComponent(id));
@@ -840,6 +873,7 @@ const Api = {
     return axios.delete(url, { data });
   },
 
+  // eslint-disable-next-line max-params
   getRawFile(id, path, params = {}, options = {}) {
     const url = Api.buildUrl(this.rawFilePath)
       .replace(':id', encodeURIComponent(id))
@@ -946,15 +980,41 @@ const Api = {
 
     const { data = {} } = { ...window.gl?.snowplowStandardContext };
     const { project_id, namespace_id } = data;
-    return axios.post(
-      url,
-      { event, project_id, namespace_id, additional_properties: additionalProperties },
-      { headers },
-    );
+    return axios
+      .post(
+        url,
+        { event, project_id, namespace_id, additional_properties: additionalProperties },
+        { headers },
+      )
+      .catch((error) => {
+        Sentry.captureException(error);
+      });
   },
 
+  /**
+   * buildUrl (1) replaces `:version` placeholder by `gon.api_version` and
+   * (2) prepends the url with `gon.relative_url_root`, if the `url` argument
+   * is not an absolute URL (http://...).
+   *
+   * Using `gon.relative_url_root` is vital for GitLab instances installed on
+   * relative paths: https://docs.gitlab.com/install/relative_url/.
+   *
+   * In Rails, **API** paths, like `api_v..._path`, do not include the
+   * `gon.relative_url_root`. Since Rails doesn't provide `api_v..._url` helpers,
+   * `expose_url` backend method can be used as an alternative to `buildUrl`.
+   *
+   * buildUrl('/api/:version/projects/1') => '/[relative_url_root]/api/v4/projects/1'
+   *
+   * @param {string} url -
+   */
   buildUrl(url) {
-    return joinPaths(gon.relative_url_root || '', url.replace(':version', gon.api_version));
+    const withVersion = url.replace(':version', gon.api_version);
+
+    if (isAbsolute(withVersion)) {
+      return withVersion;
+    }
+
+    return joinPaths(gon.relative_url_root || '', withVersion);
   },
 
   fetchFeatureFlagUserLists(id, page) {
@@ -1054,12 +1114,6 @@ const Api = {
     const result = await axios.get(url);
 
     return result;
-  },
-
-  deleteDependencyProxyCacheList(groupId, options = {}) {
-    const url = Api.buildUrl(this.dependencyProxyPath).replace(':id', groupId);
-
-    return axios.delete(url, { params: { ...options } });
   },
 
   markdown(data = {}) {

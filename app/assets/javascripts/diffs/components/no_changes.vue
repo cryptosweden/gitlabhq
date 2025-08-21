@@ -1,8 +1,9 @@
 <script>
 import { GlSprintf, GlEmptyState } from '@gitlab/ui';
-// eslint-disable-next-line no-restricted-imports
-import { mapGetters } from 'vuex';
+import { mapState } from 'pinia';
 import { s__, __ } from '~/locale';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useNotes } from '~/notes/store/legacy_notes';
 
 export default {
   i18n: {
@@ -21,11 +22,11 @@ export default {
     },
   },
   computed: {
-    ...mapGetters('diffs', [
+    ...mapState(useLegacyDiffs, [
       'diffCompareDropdownTargetVersions',
       'diffCompareDropdownSourceVersions',
     ]),
-    ...mapGetters(['getNoteableData']),
+    ...mapState(useNotes, ['getNoteableData']),
     selectedSourceVersion() {
       return this.diffCompareDropdownSourceVersions.find((x) => x.selected);
     },

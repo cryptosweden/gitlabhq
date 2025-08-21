@@ -2,6 +2,8 @@
 
 module Packages
   class CreatePackageService < BaseService
+    ERROR_RESPONSE_PACKAGE_PROTECTED = ServiceResponse.error(message: 'Package protected.', reason: :package_protected)
+
     protected
 
     def find_or_create_package!(package_type, name: params[:name], version: params[:version])
@@ -28,6 +30,23 @@ module Packages
         .create!(package_attrs(attrs)) do |package|
           add_build_info(package)
         end
+    end
+
+    def can_create_package?
+      can?(current_user, :create_package, project)
+    end
+
+    def package_protected?(package_name:, package_type:)
+      service_response =
+        ::Packages::Protection::CheckRuleExistenceService.for_push(
+          project: project,
+          current_user: current_user,
+          params: { package_name: package_name, package_type: package_type }
+        ).execute
+
+      raise ArgumentError, service_response.message if service_response.error?
+
+      service_response[:protection_rule_exists?]
     end
 
     private

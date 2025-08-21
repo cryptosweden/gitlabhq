@@ -78,13 +78,14 @@ module Gitlab
         validate_job_needs!(name, job)
         validate_dynamic_child_pipeline_dependencies!(name, job)
         validate_job_environment!(name, job)
+        validate_job_pages_publish!(name, job)
       end
 
       def validate_job_stage!(name, job)
         return unless job[:stage]
 
         unless job[:stage].is_a?(String) && job[:stage].in?(@stages)
-          error!("#{name} job: chosen stage does not exist; available stages are #{@stages.join(", ")}")
+          error!("#{name} job: chosen stage #{job[:stage]} does not exist; available stages are #{@stages.join(', ')}")
         end
       end
 
@@ -189,6 +190,13 @@ module Gitlab
         unless on_stop_job[:environment][:action] == 'stop'
           error!("#{name} job: on_stop job #{on_stop} needs to have action stop defined")
         end
+      end
+
+      def validate_job_pages_publish!(name, job)
+        return unless job[:pages].is_a?(Hash)
+        return unless job.key?(:publish) && job[:pages].key?(:publish)
+
+        error!("#{name} job: use either #{name}:publish or #{name}:pages:publish")
       end
 
       def check_circular_dependencies

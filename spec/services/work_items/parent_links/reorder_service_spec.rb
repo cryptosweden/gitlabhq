@@ -14,9 +14,10 @@ RSpec.describe WorkItems::ParentLinks::ReorderService, feature_category: :portfo
     let(:parent_link_class) { WorkItems::ParentLink }
     let(:user) { guest }
     let(:params) { { target_issuable: work_item } }
-    let(:relative_range) { [top_adjacent, last_adjacent].map(&:parent_link).map(&:relative_position) }
+    # be_between only works when the lower value is the first in the array
+    let(:relative_range) { [top_adjacent, last_adjacent].map(&:parent_link).map(&:relative_position).sort }
 
-    subject { described_class.new(parent, user, params).execute }
+    subject(:reorder) { described_class.new(parent, user, params).execute }
 
     before do
       project.add_guest(guest)
@@ -65,6 +66,7 @@ RSpec.describe WorkItems::ParentLinks::ReorderService, feature_category: :portfo
       it_behaves_like 'update service that triggers GraphQL work_item_updated subscription' do
         let(:update_subject) { parent }
         let(:execute_service) { subject }
+        let(:trigger_call_counter) { call_counter_nested }
       end
     end
 
@@ -93,7 +95,9 @@ RSpec.describe WorkItems::ParentLinks::ReorderService, feature_category: :portfo
         let(:base_param) { { target_issuable: work_item } }
 
         shared_examples 'updates hierarchy order without notes' do
-          it_behaves_like 'processes ordered hierarchy'
+          it_behaves_like 'processes ordered hierarchy' do
+            let(:call_counter_nested) { 1 }
+          end
 
           it 'keeps relationships', :aggregate_failures do
             expect { subject }.to not_change { parent_link_class.count }
@@ -122,7 +126,9 @@ RSpec.describe WorkItems::ParentLinks::ReorderService, feature_category: :portfo
 
     context 'when new parent is assigned' do
       shared_examples 'updates hierarchy order and creates notes' do
-        it_behaves_like 'processes ordered hierarchy'
+        it_behaves_like 'processes ordered hierarchy' do
+          let(:call_counter_nested) { call_counter }
+        end
 
         it 'creates notes', :aggregate_failures do
           subject
@@ -138,13 +144,17 @@ RSpec.describe WorkItems::ParentLinks::ReorderService, feature_category: :portfo
         context 'when moving before adjacent work item' do
           let(:params) { base_param.merge({ adjacent_work_item: last_adjacent, relative_position: 'BEFORE' }) }
 
-          it_behaves_like 'updates hierarchy order and creates notes'
+          it_behaves_like 'updates hierarchy order and creates notes' do
+            let(:call_counter) { 2 }
+          end
         end
 
         context 'when moving after adjacent work item' do
           let(:params) { base_param.merge({ adjacent_work_item: top_adjacent, relative_position: 'AFTER' }) }
 
-          it_behaves_like 'updates hierarchy order and creates notes'
+          it_behaves_like 'updates hierarchy order and creates notes' do
+            let(:call_counter) { 2 }
+          end
         end
 
         context 'when previous parent was in place' do
@@ -156,14 +166,34 @@ RSpec.describe WorkItems::ParentLinks::ReorderService, feature_category: :portfo
           context 'when moving before adjacent work item' do
             let(:params) { base_param.merge({ adjacent_work_item: last_adjacent, relative_position: 'BEFORE' }) }
 
-            it_behaves_like 'updates hierarchy order and creates notes'
+            it_behaves_like 'updates hierarchy order and creates notes' do
+              let(:call_counter) { 2 }
+            end
           end
 
           context 'when moving after adjacent work item' do
             let(:params) { base_param.merge({ adjacent_work_item: top_adjacent, relative_position: 'AFTER' }) }
 
-            it_behaves_like 'updates hierarchy order and creates notes'
+            it_behaves_like 'updates hierarchy order and creates notes' do
+              let(:call_counter) { 2 }
+            end
           end
+        end
+      end
+
+      context 'when no adjacent item or relative position is provided' do
+        let(:params) { { target_issuable: work_item } }
+
+        it 'returns success status and processed links', :aggregate_failures do
+          expect(reorder.keys).to match_array([:status, :created_references])
+          expect(reorder[:status]).to eq(:success)
+          expect(reorder[:created_references].map(&:work_item_id)).to match_array([work_item.id])
+        end
+
+        it 'places the item at the top of the list' do
+          reorder
+
+          expect(work_item.parent_link.relative_position).to be < top_adjacent.parent_link.relative_position
         end
       end
     end

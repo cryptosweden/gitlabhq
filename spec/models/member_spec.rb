@@ -55,6 +55,12 @@ RSpec.describe Member, feature_category: :groups_and_projects do
 
         expect(member).not_to be_valid
       end
+
+      it 'must not be a placeholder email' do
+        member.invite_email = 'gitlab_migration_placeholder_user@noreply.localhost'
+
+        expect(member).not_to be_valid
+      end
     end
 
     context 'when an invite email is not provided' do
@@ -62,6 +68,12 @@ RSpec.describe Member, feature_category: :groups_and_projects do
 
       it 'requires a user' do
         member.user = nil
+
+        expect(member).not_to be_valid
+      end
+
+      it 'does not allow placeholder users to be members' do
+        member.user = create(:user, :placeholder)
 
         expect(member).not_to be_valid
       end
@@ -171,6 +183,31 @@ RSpec.describe Member, feature_category: :groups_and_projects do
         end
       end
     end
+
+    context 'when access_level is nil' do
+      let_it_be(:group) { create(:group) }
+      let_it_be(:user) { create(:user) }
+      let_it_be(:member) { create(:group_member, source: group, user: user) }
+
+      shared_examples 'returns the correct validation error' do
+        specify do
+          member.access_level = nil
+
+          member.validate
+
+          expect(member.errors.messages[:access_level]).to include("is not included in the list")
+        end
+      end
+
+      it_behaves_like 'returns the correct validation error'
+
+      context 'for a subgroup member' do
+        let_it_be(:subgroup) { create(:group, parent: group) }
+        let_it_be(:member) { create(:group_member, source: subgroup, user: user) }
+
+        it_behaves_like 'returns the correct validation error'
+      end
+    end
   end
 
   describe 'Scopes & finders' do
@@ -236,7 +273,7 @@ RSpec.describe Member, feature_category: :groups_and_projects do
       end
     end
 
-    describe '.in_hierarchy' do
+    describe 'hierarchy related scopes' do
       let(:root_ancestor) { create(:group) }
       let(:project) { create(:project, group: root_ancestor) }
       let(:subgroup) { create(:group, parent: root_ancestor) }
@@ -247,29 +284,183 @@ RSpec.describe Member, feature_category: :groups_and_projects do
       let!(:subgroup_member) { create(:group_member, group: subgroup) }
       let!(:subgroup_project_member) { create(:project_member, project: subgroup_project) }
 
-      let(:hierarchy_members) do
-        [
-          root_ancestor_member,
-          project_member,
-          subgroup_member,
-          subgroup_project_member
-        ]
+      describe '.in_hierarchy' do
+        let(:hierarchy_members) do
+          [
+            root_ancestor_member,
+            project_member,
+            subgroup_member,
+            subgroup_project_member
+          ]
+        end
+
+        context 'for a project' do
+          subject { described_class.in_hierarchy(project) }
+
+          it { is_expected.to contain_exactly(*hierarchy_members) }
+
+          context 'with scope prefix' do
+            subject { described_class.where.not(source: project).in_hierarchy(subgroup) }
+
+            it { is_expected.to contain_exactly(root_ancestor_member, subgroup_member, subgroup_project_member) }
+          end
+
+          context 'with scope suffix' do
+            subject { described_class.in_hierarchy(project).where.not(source: project) }
+
+            it { is_expected.to contain_exactly(root_ancestor_member, subgroup_member, subgroup_project_member) }
+          end
+        end
+
+        context 'for a group' do
+          subject(:group_related_members) { described_class.in_hierarchy(subgroup) }
+
+          it { is_expected.to contain_exactly(*hierarchy_members) }
+        end
       end
 
-      subject { described_class.in_hierarchy(project) }
+      describe '.for_self_and_descendants' do
+        let(:expected_members) do
+          [
+            subgroup_member,
+            subgroup_project_member
+          ]
+        end
 
-      it { is_expected.to contain_exactly(*hierarchy_members) }
+        subject(:self_and_descendant_members) { described_class.for_self_and_descendants(subgroup) }
 
-      context 'with scope prefix' do
-        subject { described_class.where.not(source: project).in_hierarchy(subgroup) }
+        it { is_expected.to contain_exactly(*expected_members) }
+      end
+    end
 
-        it { is_expected.to contain_exactly(root_ancestor_member, subgroup_member, subgroup_project_member) }
+    describe '.seat_assignable' do
+      let_it_be(:user) { create(:user) }
+      let_it_be(:other_user) { create(:user) }
+
+      let_it_be(:other_group) { create(:group) }
+      let_it_be(:subgroup) { create(:group, parent: group) }
+      let_it_be(:project) { create(:project, group: group) }
+
+      let_it_be(:group_member) { create(:group_member, source: group, user: user) }
+      let_it_be(:subgroup_member) { create(:group_member, source: subgroup, user: user) }
+
+      let_it_be(:other_group_member) { create(:group_member, user: user, source: other_group) }
+      let_it_be(:other_user_group_member) { create(:group_member, user: other_user, source: other_group) }
+
+      context 'without namespace' do
+        it 'returns members of the user' do
+          expect(described_class.seat_assignable(users: user))
+            .to match_array([group_member, subgroup_member, other_group_member])
+        end
       end
 
-      context 'with scope suffix' do
-        subject { described_class.in_hierarchy(project).where.not(source: project) }
+      context 'with group' do
+        it 'returns members in namespace hierarchy' do
+          expect(described_class.seat_assignable(users: user, namespace: group))
+            .to match_array([group_member, subgroup_member])
+        end
+      end
 
-        it { is_expected.to contain_exactly(root_ancestor_member, subgroup_member, subgroup_project_member) }
+      context 'with subgroup' do
+        it 'returns members in namespace hierarchy' do
+          expect(described_class.seat_assignable(users: user, namespace: subgroup))
+            .to match_array([group_member, subgroup_member])
+        end
+      end
+
+      context 'with another user' do
+        it 'returns other users namespaces' do
+          expect(described_class.seat_assignable(users: other_user))
+            .to match_array([other_user_group_member])
+        end
+      end
+
+      it 'returns non invited users' do
+        group_member.update!(invite_token: Time.zone.now, invite_email: user.email)
+
+        expect(described_class.seat_assignable(users: user)).not_to include(group_member)
+      end
+
+      it 'returns non requested users' do
+        group_member.update!(requested_at: Time.zone.now)
+
+        expect(described_class.seat_assignable(users: user)).not_to include(group_member)
+      end
+    end
+
+    describe '.seat_assignable?' do
+      let_it_be(:user) { create(:user) }
+
+      let_it_be(:subgroup) { create(:group, parent: group) }
+      let_it_be(:subgroup_member) { create(:group_member, source: subgroup, user: user) }
+
+      it { expect(described_class.seat_assignable?(user: user)).to be true }
+      it { expect(described_class.seat_assignable?(user: user, namespace: group)).to be true }
+      it { expect(described_class.seat_assignable?(user: user, namespace: subgroup)).to be true }
+
+      it { expect(described_class.seat_assignable?(user: create(:user), namespace: subgroup)).to be false }
+      it { expect(described_class.seat_assignable?(user: user, namespace: create(:group))).to be false }
+    end
+
+    describe '.seat_assignable_highest_access_level' do
+      let_it_be(:user) { create(:user) }
+
+      let_it_be(:group) { create(:group).tap { |group| group.add_maintainer(user) } }
+      let_it_be(:subgroup) { create(:group, parent: group).tap { |group| group.add_developer(user) } }
+      let_it_be(:other_group) { create(:group).tap { |group| group.add_owner(user) } }
+
+      it 'returns the highest acecss level' do
+        expect(described_class.seat_assignable_highest_access_level(user: user))
+          .to eq Gitlab::Access::OWNER
+      end
+
+      it 'returns the highest access level scoped to a hierarchy' do
+        expect(described_class.seat_assignable_highest_access_level(user: user, namespace: group))
+          .to eq Gitlab::Access::MAINTAINER
+      end
+
+      it 'returns the highest access level scoped per hierarchy' do
+        expect(described_class.seat_assignable_highest_access_level(user: user, namespace: subgroup))
+          .to eq Gitlab::Access::MAINTAINER
+      end
+    end
+
+    describe '.seat_assignable_highest_access_levels' do
+      let_it_be(:user1) { create(:user) }
+      let_it_be(:user2) { create(:user) }
+
+      let_it_be(:group1) do
+        create(:group).tap do |group|
+          group.add_guest(user1)
+          group.add_maintainer(user2)
+        end
+      end
+
+      let_it_be(:group2) { create(:group).tap { |group| group.add_developer(user1) } }
+
+      it 'returns the highest access level for all namespaces' do
+        expect(described_class.seat_assignable_highest_access_levels(users: user1))
+          .to eq({ user1.id => Gitlab::Access::DEVELOPER })
+      end
+
+      it 'returns the highest access level in the namespace hierarchy' do
+        expect(described_class.seat_assignable_highest_access_levels(users: user1, namespace: group1))
+          .to eq({ user1.id => Gitlab::Access::GUEST })
+      end
+
+      it 'returns access levels for each user' do
+        expect(described_class.seat_assignable_highest_access_levels(users: [user1, user2])).to eq(
+          {
+            user1.id => Gitlab::Access::DEVELOPER,
+            user2.id => Gitlab::Access::MAINTAINER
+          }
+        )
+      end
+
+      context 'without namespace members' do
+        it 'returns nothing' do
+          expect(described_class.seat_assignable_highest_access_levels(users: user2, namespace: group2)).to eq({})
+        end
       end
     end
 
@@ -510,6 +701,15 @@ RSpec.describe Member, feature_category: :groups_and_projects do
         it { is_expected.not_to include @accepted_requested_member }
         it { is_expected.not_to include @blocked_maintainer }
         it { is_expected.not_to include @blocked_developer }
+      end
+    end
+
+    describe '.with_at_least_access_level' do
+      it 'filters members with the at least the specified access level' do
+        results = described_class.with_at_least_access_level(::Gitlab::Access::MAINTAINER)
+
+        expect(results).to include(@owner, @maintainer)
+        expect(results).not_to include(@developer)
       end
     end
 
@@ -800,6 +1000,14 @@ RSpec.describe Member, feature_category: :groups_and_projects do
       end
     end
 
+    describe '.preload_users' do
+      let_it_be(:members) { described_class.preload_users.load }
+
+      it 'does not perform any additional queries' do
+        expect { members.map(&:user) }.not_to exceed_query_limit(0)
+      end
+    end
+
     describe '.active_state' do
       let_it_be(:active_group_member) { create(:group_member, group: group) }
       let_it_be(:active_project_member) { create(:project_member, project: project) }
@@ -815,12 +1023,30 @@ RSpec.describe Member, feature_category: :groups_and_projects do
       end
     end
 
+    describe '.including_user_ids' do
+      let_it_be(:active_group_member) { create(:group_member, group: group) }
+
+      it 'includes members with given user ids' do
+        expect(group.members.including_user_ids(active_group_member.user_id)).to include active_group_member
+        expect(group.members.including_user_ids(non_existing_record_id)).to be_empty
+      end
+    end
+
     describe '.excluding_users' do
       let_it_be(:active_group_member) { create(:group_member, group: group) }
 
       it 'excludes members with given user ids' do
         expect(group.members.excluding_users([])).to include active_group_member
         expect(group.members.excluding_users(active_group_member.user_id)).not_to include active_group_member
+      end
+    end
+
+    describe '.by_user_types' do
+      it 'returns users with matching types', :aggregate_failures do
+        service_account = create(:user, :service_account, developer_of: project)
+        bot = create(:user, :project_bot, developer_of: project)
+
+        expect(described_class.by_user_types([:service_account, :project_bot]).map(&:user)).to contain_exactly(service_account, bot)
       end
     end
   end
@@ -848,6 +1074,16 @@ RSpec.describe Member, feature_category: :groups_and_projects do
           expect { create(:group_member) }.not_to have_enqueued_mail(Members::InviteMailer, :initial_email)
         end
       end
+    end
+  end
+
+  describe '.with_created_by' do
+    it 'only returns members that are created_by a user' do
+      invited_member_by_user = create(:group_member, :created_by)
+      another_member_by_user = create(:group_member, :created_by, source: invited_member_by_user.group)
+      create(:group_member)
+
+      expect(described_class.with_created_by).to contain_exactly(invited_member_by_user, another_member_by_user)
     end
   end
 
@@ -919,6 +1155,24 @@ RSpec.describe Member, feature_category: :groups_and_projects do
     end
   end
 
+  describe '.with_static_role' do
+    let_it_be(:membership_without_custom_role) { create(:group_member) }
+
+    subject { described_class.with_static_role }
+
+    it { is_expected.to contain_exactly(membership_without_custom_role) }
+  end
+
+  describe '.coerce_to_no_access' do
+    let_it_be(:member) { create(:group_member) }
+
+    it 'returns NO_ACCESS for the member' do
+      members = described_class.id_in(member.id).coerce_to_no_access.to_a
+
+      expect(members.first.access_level).to eq(Gitlab::Access::NO_ACCESS)
+    end
+  end
+
   describe '.with_group_group_sharing_access' do
     let_it_be(:shared_group) { create(:group) }
     let_it_be(:invited_group) { create(:group) }
@@ -942,7 +1196,7 @@ RSpec.describe Member, feature_category: :groups_and_projects do
         specify do
           members = invited_group
                          .members
-                         .with_group_group_sharing_access(shared_group)
+                         .with_group_group_sharing_access(shared_group, false)
                          .id_in(member.id)
                          .to_a
 
@@ -1003,14 +1257,10 @@ RSpec.describe Member, feature_category: :groups_and_projects do
   end
 
   describe '#request?' do
-    shared_examples 'calls notification service and todo service' do
+    shared_examples 'calls todo service' do
       subject { create(source_type, requested_at: Time.current.utc) }
 
       specify do
-        expect_next_instance_of(NotificationService) do |instance|
-          expect(instance).to receive(:new_access_request)
-        end
-
         expect_next_instance_of(TodoService) do |instance|
           expect(instance).to receive(:create_member_access_request_todos)
         end
@@ -1021,8 +1271,74 @@ RSpec.describe Member, feature_category: :groups_and_projects do
 
     context 'when requests for project and group are raised' do
       %i[project_member group_member].each do |source_type|
-        it_behaves_like 'calls notification service and todo service' do
+        it_behaves_like 'calls todo service' do
           let_it_be(:source_type) { source_type }
+        end
+      end
+    end
+
+    context 'for request emails' do
+      let_it_be(:new_approver) { create(:user) }
+
+      before do
+        allow(Members::AccessRequestedMailer).to receive(:with).and_call_original
+      end
+
+      context 'for a project' do
+        let_it_be(:project) { create(:project, :public, maintainers: new_approver) }
+        let_it_be(:recipient) { project.add_maintainer(project.first_owner).user }
+
+        before_all do
+          project.add_maintainer(new_approver)
+        end
+
+        it 'enqueues emails for all approvers' do
+          expect do
+            member = create(:project_member, source: project, requested_at: Time.current)
+            expect(Members::AccessRequestedMailer).to have_received(:with).with(member: member, recipient: recipient)
+            expect(Members::AccessRequestedMailer).to have_received(:with).with(member: member, recipient: new_approver)
+          end.to have_enqueued_mail(Members::AccessRequestedMailer, :email).exactly(:twice)
+        end
+
+        context 'and not eligible for notification' do
+          before do
+            allow_next_instance_of(ProjectMember) do |instance|
+              allow(instance).to receive(:notifiable?).with(:subscription).and_return(false)
+            end
+          end
+
+          it 'does not enqueue emails' do
+            expect do
+              create(:project_member, source: project, requested_at: Time.current)
+            end.not_to have_enqueued_mail(Members::AccessRequestedMailer, :email)
+          end
+        end
+      end
+
+      context 'for a group' do
+        let_it_be(:recipient) { create(:user) }
+        let_it_be(:group) { create(:group, :public, owners: [recipient, new_approver]) }
+
+        it 'enqueues emails for all approvers' do
+          expect do
+            member = create(:group_member, source: group, requested_at: Time.current)
+            expect(Members::AccessRequestedMailer).to have_received(:with).with(member: member, recipient: recipient)
+            expect(Members::AccessRequestedMailer).to have_received(:with).with(member: member, recipient: new_approver)
+          end.to have_enqueued_mail(Members::AccessRequestedMailer, :email).exactly(:twice)
+        end
+
+        context 'and not eligible for notification' do
+          before do
+            allow_next_instance_of(GroupMember) do |instance|
+              allow(instance).to receive(:notifiable?).with(:subscription).and_return(false)
+            end
+          end
+
+          it 'does not enqueue emails' do
+            expect do
+              create(:group_member, source: group, requested_at: Time.current)
+            end.not_to have_enqueued_mail(Members::AccessRequestedMailer, :email)
+          end
         end
       end
     end
@@ -1104,21 +1420,21 @@ RSpec.describe Member, feature_category: :groups_and_projects do
 
       expect(member.invite_accepted_at).to be_nil
       expect(member.invite_token).not_to be_nil
-      expect_any_instance_of(described_class).not_to receive(:after_accept_invite)
+      expect(member).not_to receive(:after_accept_invite)
     end
 
     context 'when after accepting invite' do
-      include NotificationHelpers
-
       let_it_be(:group) { create(:group, require_two_factor_authentication: true) }
       let_it_be(:member, reload: true) { create(:group_member, :invited, source: group) }
       let_it_be(:email) { member.invite_email }
       let(:user) { build(:user, email: email) }
 
-      it 'enqueues an email to user' do
-        member.accept_invite!(user)
+      it 'enqueues an invite accepted email' do
+        allow(Members::InviteAcceptedMailer).to receive(:email).with(member: member).and_call_original
 
-        expect_enqueud_email(member.real_source_type, member.id, mail: 'member_invite_accepted_email')
+        expect do
+          member.accept_invite!(user)
+        end.to have_enqueued_mail(Members::InviteAcceptedMailer, :email)
       end
 
       it 'calls updates the two factor requirement' do
@@ -1140,6 +1456,19 @@ RSpec.describe Member, feature_category: :groups_and_projects do
         end
       end
     end
+
+    context 'when after accept request' do
+      let_it_be(:group) { create(:group, require_two_factor_authentication: true) }
+      let_it_be(:member, reload: true) { create(:group_member, :awaiting, source: group) }
+
+      it 'calls updates the two factor requirement' do
+        expect(member.user).to receive(:require_two_factor_authentication_from_group).and_call_original
+
+        member.accept_request(group.first_owner)
+
+        expect(member.user.require_two_factor_authentication_from_group).to be_truthy
+      end
+    end
   end
 
   describe '#decline_invite!' do
@@ -1151,10 +1480,12 @@ RSpec.describe Member, feature_category: :groups_and_projects do
       expect(member).to be_destroyed
     end
 
-    it 'calls #after_decline_invite' do
-      expect(member).to receive(:after_decline_invite)
+    it 'enqueues an invite declined email' do
+      allow(Members::InviteDeclinedMailer).to receive(:email).with(member: member).and_call_original
 
-      member.decline_invite!
+      expect do
+        member.decline_invite!
+      end.to have_enqueued_mail(Members::InviteDeclinedMailer, :email)
     end
   end
 
@@ -1200,15 +1531,16 @@ RSpec.describe Member, feature_category: :groups_and_projects do
   end
 
   describe '#send_invitation_reminder' do
-    subject { member.send_invitation_reminder(0) }
+    subject(:send_invitation_reminder) { member.send_invitation_reminder(0) }
 
     context 'an invited group member' do
       let!(:member) { create(:group_member, :invited) }
 
-      it 'sends a reminder' do
-        expect_any_instance_of(NotificationService).to receive(:invite_member_reminder).with(member, member.raw_invite_token, 0)
+      it 'enqueues a reminder email' do
+        expect(Members::InviteReminderMailer)
+          .to receive(:email).with(member, member.raw_invite_token, 0).and_call_original
 
-        subject
+        expect { send_invitation_reminder }.to have_enqueued_mail(Members::InviteReminderMailer, :email)
       end
     end
 
@@ -1217,13 +1549,13 @@ RSpec.describe Member, feature_category: :groups_and_projects do
 
       before do
         member.instance_variable_set(:@raw_invite_token, nil)
-        allow_any_instance_of(NotificationService).to receive(:invite_member_reminder)
+        allow(Members::InviteReminderMailer).to receive(:email).and_call_original
       end
 
       it 'generates a new token' do
         expect(member).to receive(:generate_invite_token!)
 
-        subject
+        send_invitation_reminder
       end
     end
 
@@ -1231,9 +1563,9 @@ RSpec.describe Member, feature_category: :groups_and_projects do
       let!(:member) { create(:group_member) }
 
       it 'does not send a reminder' do
-        expect_any_instance_of(NotificationService).not_to receive(:invite_member_reminder)
+        expect(Members::InviteReminderMailer).not_to receive(:email)
 
-        subject
+        send_invitation_reminder
       end
     end
   end
@@ -1269,7 +1601,8 @@ RSpec.describe Member, feature_category: :groups_and_projects do
   end
 
   context 'for updating organization_users' do
-    let_it_be(:group) { create(:group, :with_organization) }
+    let_it_be(:organization) { create(:organization) }
+    let_it_be(:group) { create(:group, organization: organization) }
     let_it_be(:user) { create(:user) }
     let(:member) { create(:group_member, source: group, user: user) }
 
@@ -1355,49 +1688,70 @@ RSpec.describe Member, feature_category: :groups_and_projects do
         it_behaves_like 'does not create an organization_user entry'
       end
 
-      context 'when organization does not exist' do
-        let(:member) { create(:group_member, user: user) }
+      context 'when member is an access request' do
+        let(:member) { create(:group_member, :access_request, source: group, user: user) }
 
         it_behaves_like 'does not create an organization_user entry'
       end
     end
 
     context 'when updating' do
-      context 'when member is an invite' do
-        let_it_be(:member, reload: true) { create(:group_member, :invited, source: group) }
+      shared_examples 'an action that creates an organization record after commit' do
+        it 'inserts new record on member creation' do
+          expect { commit_member }.to change { Organizations::OrganizationUser.count }.by(1)
+          expect(group.organization.user?(user)).to be(true)
+        end
 
-        context 'when accepting the invite' do
-          let_it_be(:user) { create(:user) }
+        context 'when organization does not exist' do
+          let_it_be(:member) { create(:group_member) }
 
-          subject(:commit_member) { member.accept_invite!(user) }
+          it_behaves_like 'does not create an organization_user entry'
+        end
+      end
 
-          it 'inserts new record on member creation' do
-            expect { commit_member }.to change { Organizations::OrganizationUser.count }.by(1)
-            expect(group.organization.user?(user)).to be(true)
+      context 'when member accept invite' do
+        let_it_be_with_reload(:member, reload: true) { create(:group_member, :invited, source: group) }
+
+        subject(:commit_member) { member.accept_invite!(user) }
+
+        it_behaves_like 'an action that creates an organization record after commit'
+
+        context 'when updating the organization_users is not successful' do
+          before do
+            allow(Organizations::OrganizationUser)
+              .to receive(:create_organization_record_for).once.and_raise(ActiveRecord::StatementTimeout)
           end
 
-          context 'when updating the organization_users is not successful' do
-            before do
-              allow(Organizations::OrganizationUser)
-                .to receive(:create_organization_record_for).once.and_raise(ActiveRecord::StatementTimeout)
-            end
-
-            it 'rolls back the member creation' do
-              expect { commit_member }.to raise_error(ActiveRecord::StatementTimeout)
-              expect(group.organization.user?(user)).to be(false)
-              expect(member.reset.user).to be_nil
-            end
-          end
-
-          context 'when organization does not exist' do
-            let_it_be(:member) { create(:group_member) }
-
-            it_behaves_like 'does not create an organization_user entry'
+          it 'rolls back the member creation', :aggregate_failures do
+            expect { commit_member }.to raise_error(ActiveRecord::StatementTimeout)
+            expect(group.organization.user?(user)).to be(false)
+            expect(member.reset.user).to be_nil
           end
         end
       end
 
-      context 'when updating a non user_id attribute' do
+      context "when member's access request is approved" do
+        let_it_be_with_reload(:member) { create(:group_member, :access_request, source: group, user: user) }
+
+        subject(:commit_member) { member.accept_request(@owner_user) }
+
+        it_behaves_like 'an action that creates an organization record after commit'
+
+        context 'when updating the organization_users is not successful' do
+          before do
+            allow(Organizations::OrganizationUser)
+              .to receive(:create_organization_record_for).once.and_raise(ActiveRecord::StatementTimeout)
+          end
+
+          it 'rolls back the member creation', :aggregate_failures do
+            expect { commit_member }.to raise_error(ActiveRecord::StatementTimeout)
+            expect(group.organization.user?(user)).to be(false)
+            expect(member.reset.requested_at).not_to be_nil
+          end
+        end
+      end
+
+      context 'when updating a non user_id/requested_at attribute' do
         let_it_be(:member) { create(:group_member, :reporter, source: group) }
 
         subject(:commit_member) { member.update!(access_level: GroupMember::DEVELOPER) }
@@ -1511,6 +1865,18 @@ RSpec.describe Member, feature_category: :groups_and_projects do
       create_member
     end
 
+    context 'when member is a requested member' do
+      let(:member) { create(:group_member, source: source, requested_at: Time.current.utc) }
+
+      it 'calls the system hook service' do
+        expect_next_instance_of(SystemHooksService) do |instance|
+          expect(instance).to receive(:execute_hooks_for).with(an_instance_of(GroupMember), :request)
+        end
+
+        create_member
+      end
+    end
+
     context 'when source is a group' do
       it_behaves_like 'invokes a notification'
 
@@ -1556,6 +1922,20 @@ RSpec.describe Member, feature_category: :groups_and_projects do
         it_behaves_like 'performs all the common hooks'
       end
     end
+
+    context 'when importing' do
+      let(:member) { create(:group_member, source: source, importing: true) }
+
+      it 'does not invoke a notification' do
+        allow(Notify).to receive(:member_access_granted_email).and_call_original
+
+        create_member
+
+        expect(Notify)
+          .not_to have_received(:member_access_granted_email)
+          .with(member.real_source_type, member.id)
+      end
+    end
   end
 
   context 'when after_create :update_two_factor_requirement' do
@@ -1575,6 +1955,22 @@ RSpec.describe Member, feature_category: :groups_and_projects do
       expect(group_member.user).to receive(:update_two_factor_requirement)
 
       group_member.destroy!
+    end
+  end
+
+  context 'when after_commit :log_previous_state_on_update' do
+    let_it_be(:member) { create(:group_member) }
+
+    it 'logs a message on member update' do
+      expect(Gitlab::AppLogger)
+        .to receive(:info)
+        .with({
+          message: 'Refresh member authorized projects on update',
+          user_id: member.user.id,
+          previous_changes: %w[access_level updated_at]
+        })
+
+      member.update!(access_level: Gitlab::Access::GUEST)
     end
   end
 

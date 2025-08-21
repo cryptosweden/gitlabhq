@@ -19,6 +19,7 @@ resource :profile, only: [] do
       member do
         delete :unlink
       end
+      post :generate_support_pin
     end
 
     resource :notifications, only: [:show, :update] do
@@ -50,23 +51,23 @@ resource :profile, only: [] do
       end
     end
 
-    resources :chat_names, only: [:index, :new, :create, :destroy] do
-      collection do
-        delete :deny
-      end
-    end
-
     resource :avatar, only: [:destroy]
+
+    get 'chat_names', to: redirect('-/user_settings/integration_accounts')
+
+    get 'chat_names/new', to: redirect { |_params, request|
+      "-/user_settings/integration_accounts/new?#{request.query_string}"
+    }
 
     resource :two_factor_auth, only: [:show, :create, :destroy] do
       member do
         post :codes
         patch :skip
         post :create_webauthn
+        delete :destroy_otp
+        delete :destroy_webauthn, path: 'destroy_webauthn/:id'
       end
     end
-
-    resources :webauthn_registrations, only: [:destroy]
 
     resources :usage_quotas, only: [:index]
   end

@@ -212,7 +212,7 @@ describe('TrainingProviderList component', () => {
           const primaryProviderRadioForCurrentCard = findPrimaryProviderRadios().at(index);
 
           // if the given provider is not enabled it should not be possible select it as primary
-          expect(primaryProviderRadioForCurrentCard.attributes('disabled')).toBe(
+          expect(primaryProviderRadioForCurrentCard.attributes().disabled).toBe(
             isEnabled ? undefined : 'true',
           );
 
@@ -407,7 +407,7 @@ describe('TrainingProviderList component', () => {
       it('adds backgrounds color', () => {
         findCards().wrappers.forEach((card) => {
           expect(card.props('bodyClass')).toMatchObject({
-            'gl-bg-gray-10': true,
+            'gl-bg-subtle': true,
           });
         });
       });

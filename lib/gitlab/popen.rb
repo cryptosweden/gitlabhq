@@ -25,28 +25,34 @@ module Gitlab
       ["#{result.stdout}#{result.stderr}", status]
     end
 
-    # Returns Result
+    def popen_with_streaming(cmd, path = nil, vars = {}, &block)
+      vars, options = prepare_popen_command(cmd, path, vars)
+
+      cmd_status = nil
+      block_mutex = Mutex.new if block
+
+      Open3.popen3(vars, *cmd, options) do |stdin, stdout, stderr, wait_thr|
+        stdin.close # Close stdin immediately since we're not using it for streaming
+
+        stdout_thread = read_stream_in_thread(stdout, :stdout, block_mutex, &block)
+        stderr_thread = read_stream_in_thread(stderr, :stderr, block_mutex, &block)
+
+        stdout_thread.join
+        stderr_thread.join
+
+        cmd_status = wait_thr.value&.exitstatus || wait_thr.value.to_i
+      end
+
+      cmd_status
+    end
+
     def popen_with_detail(cmd, path = nil, vars = {})
-      unless cmd.is_a?(Array)
-        raise "System commands must be given as an array of strings"
-      end
-
-      if cmd.one? && cmd.first.match?(/\s/)
-        raise "System commands must be split into an array of space-separated values"
-      end
-
-      path ||= Dir.pwd
-      vars['PWD'] = path
-      options = { chdir: path }
-
-      unless File.directory?(path)
-        FileUtils.mkdir_p(path)
-      end
+      vars, options = prepare_popen_command(cmd, path, vars)
 
       cmd_stdout = ''
       cmd_stderr = ''
       cmd_status = nil
-      start = Time.now
+      start = Time.now.to_f
 
       Open3.popen3(vars, *cmd, options) do |stdin, stdout, stderr, wait_thr|
         # stderr and stdout pipes can block if stderr/stdout aren't drained: https://bugs.ruby-lang.org/issues/9082
@@ -62,7 +68,32 @@ module Gitlab
         cmd_status = wait_thr.value
       end
 
-      Result.new(cmd, cmd_stdout, cmd_stderr, cmd_status, Time.now - start)
+      Result.new(cmd, cmd_stdout, cmd_stderr, cmd_status, Time.now.to_f - start)
+    end
+
+    private
+
+    def prepare_popen_command(cmd, path, vars)
+      raise "Commands must be given as an array of strings" unless cmd.is_a?(Array)
+      raise "Commands must be split into an array of space-separated values" if cmd.one? && cmd.first.match?(/\s/)
+
+      path ||= Dir.pwd
+      vars['PWD'] = path
+      options = { chdir: path }
+
+      FileUtils.mkdir_p(path) unless File.directory?(path)
+
+      [vars, options]
+    end
+
+    def read_stream_in_thread(stream, stream_type, mutex, &block)
+      Thread.new do
+        stream.each_line do |line|
+          mutex.synchronize { yield(stream_type, line) } if block
+        end
+      rescue IOError
+        # This is expected when the process exits and closes its streams. No action needed.
+      end
     end
   end
 end

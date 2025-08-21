@@ -1,17 +1,23 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Build
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Package Signatures
 ---
 
-# Package Signatures
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
+
+<!-- vale gitlab_base.SubstitutionWarning = NO -->
 
 Linux packages produced by GitLab are created using [Omnibus](https://github.com/chef/omnibus), for which GitLab
 has added DEB signing using `debsigs` in [our own fork](https://gitlab.com/gitlab-org/omnibus).
+
+<!-- vale gitlab_base.SubstitutionWarning = YES -->
 
 Combined with the existing functionality of RPM signing, this addition allows GitLab to provide signed packages for all
 supported distributions using DEB or RPM.

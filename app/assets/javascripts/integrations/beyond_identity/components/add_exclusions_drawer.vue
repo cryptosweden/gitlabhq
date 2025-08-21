@@ -4,9 +4,12 @@ import { DRAWER_Z_INDEX } from '~/lib/utils/constants';
 import { getContentWrapperHeight } from '~/lib/utils/dom_utils';
 import { __ } from '~/locale';
 import ListSelector from '~/vue_shared/components/list_selector/index.vue';
+import { GROUPS_TYPE, PROJECTS_TYPE } from '~/vue_shared/components/list_selector/constants';
 
 export default {
   DRAWER_Z_INDEX,
+  GROUPS_TYPE,
+  PROJECTS_TYPE,
   components: {
     GlDrawer,
     GlButton,
@@ -64,25 +67,23 @@ export default {
     v-on="$listeners"
   >
     <template #title>
-      <h2 class="gl-font-size-h2 gl-mt-0" data-testid="title">{{ $options.i18n.addExclusions }}</h2>
+      <h2 class="gl-mt-0 gl-text-size-h2" data-testid="title">{{ $options.i18n.addExclusions }}</h2>
     </template>
 
     <template #default>
-      <!-- This selector is temporarily disabled until the backend adds support for groups -->
       <list-selector
-        v-show="false"
-        type="groups"
-        class="gl-m-5 gl-p-0!"
+        :type="$options.GROUPS_TYPE"
+        class="gl-m-5 !gl-p-0"
         autofocus
+        disable-namespace-dropdown
         :selected-items="groupExclusions"
         @select="handleSelectExclusion"
         @delete="handleRemoveExclusion"
       />
 
       <list-selector
-        type="projects"
-        class="gl-m-5 gl-p-0!"
-        autofocus
+        :type="$options.PROJECTS_TYPE"
+        class="gl-m-5 !gl-p-0"
         :selected-items="projectExclusions"
         @select="handleSelectExclusion"
         @delete="handleRemoveExclusion"

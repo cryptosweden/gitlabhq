@@ -5,7 +5,6 @@
  */
 import ChangedFileIcon from '~/vue_shared/components/changed_file_icon.vue';
 import FileRow from '~/vue_shared/components/file_row.vue';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import FileRowStats from './file_row_stats.vue';
 
 export default {
@@ -15,7 +14,6 @@ export default {
     FileRowStats,
     ChangedFileIcon,
   },
-  mixins: [glFeatureFlagsMixin()],
   props: {
     file: {
       type: Object,
@@ -41,9 +39,9 @@ export default {
       return !this.hideFileStats && this.file.type === 'blob';
     },
     fileClasses() {
-      return this.file.type === 'blob' && !this.viewedFiles[this.file.fileHash]
+      return this.file.type === 'blob' && !this.viewedFiles[this.file.id || this.file.fileHash]
         ? 'gl-font-bold'
-        : '';
+        : 'gl-text-subtle';
     },
     isActive() {
       return this.currentDiffFileId === this.file.fileHash;
@@ -56,13 +54,13 @@ export default {
   <file-row
     :file="file"
     v-bind="$attrs"
-    :class="{ 'is-active': isActive }"
+    :class="{ 'is-active': isActive, 'is-loading': file.loading }"
     class="diff-file-row"
     truncate-middle
     :file-classes="fileClasses"
     v-on="$listeners"
   >
-    <file-row-stats v-if="showFileRowStats" :file="file" class="mr-1" />
-    <changed-file-icon :file="file" :size="16" :show-tooltip="true" />
+    <file-row-stats v-if="showFileRowStats" :file="file" class="gl-mr-2" />
+    <changed-file-icon :file="file" :size="16" :show-tooltip="true" :as-button="false" />
   </file-row>
 </template>

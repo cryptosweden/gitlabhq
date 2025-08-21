@@ -5,12 +5,12 @@ require 'spec_helper'
 RSpec.describe GlobalPolicy, feature_category: :shared do
   include TermsHelper
 
+  HasUserType::BOT_USER_TYPES.each do |type| # rubocop:disable RSpec/UselessDynamicDefinition -- False positive
+    type_sym = type.to_sym
+    let_it_be(type_sym) { create(:user, type_sym) }
+  end
+
   let_it_be(:admin_user) { create(:admin) }
-  let_it_be(:project_bot) { create(:user, :project_bot) }
-  let_it_be(:service_account) { create(:user, :service_account) }
-  let_it_be(:migration_bot) { create(:user, :migration_bot) }
-  let_it_be(:security_bot) { create(:user, :security_bot) }
-  let_it_be(:llm_bot) { create(:user, :llm_bot) }
   let_it_be_with_reload(:current_user) { create(:user) }
   let_it_be(:user) { create(:user) }
 
@@ -59,29 +59,6 @@ RSpec.describe GlobalPolicy, feature_category: :shared do
 
         it { is_expected.to be_allowed(:read_users_list) }
       end
-    end
-  end
-
-  describe "create fork" do
-    context "when user has not exceeded project limit" do
-      it { is_expected.to be_allowed(:create_fork) }
-    end
-
-    context "when user has exceeded project limit" do
-      let(:current_user) { create(:user, projects_limit: 0) }
-
-      it { is_expected.not_to be_allowed(:create_fork) }
-    end
-
-    context "when user is a maintainer in a group" do
-      let(:group) { create(:group) }
-      let(:current_user) { create(:user, projects_limit: 0) }
-
-      before do
-        group.add_maintainer(current_user)
-      end
-
-      it { is_expected.to be_allowed(:create_fork) }
     end
   end
 
@@ -380,6 +357,18 @@ RSpec.describe GlobalPolicy, feature_category: :shared do
       let(:current_user) { service_account }
 
       it { is_expected.to be_disallowed(:receive_notifications) }
+
+      context 'with custom email address starting with service account prefix' do
+        let(:current_user) { build(:user, :service_account, email: 'service_account@example.com') }
+
+        it { is_expected.to be_allowed(:receive_notifications) }
+      end
+
+      context 'with custom email address ending with no-reply domain' do
+        let(:current_user) { build(:user, :service_account, email: "bot@#{User::NOREPLY_EMAIL_DOMAIN}") }
+
+        it { is_expected.to be_allowed(:receive_notifications) }
+      end
     end
 
     context 'migration bot' do
@@ -394,6 +383,96 @@ RSpec.describe GlobalPolicy, feature_category: :shared do
       end
 
       it { is_expected.to be_disallowed(:receive_notifications) }
+    end
+  end
+
+  describe 'receive confirmation instructions' do
+    describe 'regular user' do
+      it { is_expected.to be_disallowed(:receive_confirmation_instructions) }
+
+      context 'with unconfirmed email address' do
+        before do
+          current_user.update!(unconfirmed_email: 'custom_email@example.com')
+        end
+
+        it { is_expected.to be_allowed(:receive_confirmation_instructions) }
+      end
+    end
+
+    describe 'admin' do
+      let(:current_user) { admin_user }
+
+      it { is_expected.to be_disallowed(:receive_confirmation_instructions) }
+
+      context 'with unconfirmed email address' do
+        before do
+          current_user.update!(unconfirmed_email: 'custom_email@example.com')
+        end
+
+        it { is_expected.to be_allowed(:receive_confirmation_instructions) }
+      end
+    end
+
+    describe 'anonymous' do
+      let(:current_user) { nil }
+
+      it { is_expected.to be_disallowed(:receive_confirmation_instructions) }
+    end
+
+    describe 'blocked user' do
+      before do
+        current_user.block
+      end
+
+      it { is_expected.to be_disallowed(:receive_confirmation_instructions) }
+    end
+
+    describe 'deactivated user' do
+      before do
+        current_user.deactivate
+      end
+
+      it { is_expected.to be_disallowed(:receive_confirmation_instructions) }
+    end
+
+    context 'project bot' do
+      let(:current_user) { project_bot }
+
+      it { is_expected.to be_disallowed(:receive_confirmation_instructions) }
+    end
+
+    context 'service account' do
+      let(:current_user) { service_account }
+
+      it { is_expected.to be_disallowed(:receive_confirmation_instructions) }
+
+      context 'with unconfirmed email address' do
+        let(:current_user) { build(:user, :service_account, unconfirmed_email: 'custom_email@example.com') }
+
+        it { is_expected.to be_allowed(:receive_confirmation_instructions) }
+      end
+
+      context 'with unconfirmed email address ending with no-reply domain' do
+        let(:current_user) do
+          build(:user, :service_account, unconfirmed_email: "custom_email@#{User::NOREPLY_EMAIL_DOMAIN}")
+        end
+
+        it { is_expected.to be_disallowed(:receive_confirmation_instructions) }
+      end
+    end
+
+    context 'migration bot' do
+      let(:current_user) { migration_bot }
+
+      it { is_expected.to be_disallowed(:receive_confirmation_instructions) }
+    end
+
+    context 'user blocked pending approval' do
+      before do
+        current_user.block_pending_approval
+      end
+
+      it { is_expected.to be_disallowed(:receive_confirmation_instructions) }
     end
   end
 
@@ -655,35 +734,35 @@ RSpec.describe GlobalPolicy, feature_category: :shared do
     end
   end
 
-  describe 'create_instance_runner' do
+  describe 'create_instance_runners' do
     context 'admin' do
       let(:current_user) { admin_user }
 
       context 'when admin mode is enabled', :enable_admin_mode do
-        it { is_expected.to be_allowed(:create_instance_runner) }
+        it { is_expected.to be_allowed(:create_instance_runners) }
       end
 
       context 'when admin mode is disabled' do
-        it { is_expected.to be_disallowed(:create_instance_runner) }
+        it { is_expected.to be_disallowed(:create_instance_runners) }
       end
     end
 
     context 'with project_bot' do
       let(:current_user) { project_bot }
 
-      it { is_expected.to be_disallowed(:create_instance_runner) }
+      it { is_expected.to be_disallowed(:create_instance_runners) }
     end
 
     context 'with migration_bot' do
       let(:current_user) { migration_bot }
 
-      it { is_expected.to be_disallowed(:create_instance_runner) }
+      it { is_expected.to be_disallowed(:create_instance_runners) }
     end
 
     context 'with security_bot' do
       let(:current_user) { security_bot }
 
-      it { is_expected.to be_disallowed(:create_instance_runner) }
+      it { is_expected.to be_disallowed(:create_instance_runners) }
     end
 
     context 'with llm_bot' do
@@ -695,13 +774,39 @@ RSpec.describe GlobalPolicy, feature_category: :shared do
     context 'with regular user' do
       let(:current_user) { user }
 
-      it { is_expected.to be_disallowed(:create_instance_runner) }
+      it { is_expected.to be_disallowed(:create_instance_runners) }
     end
 
     context 'with anonymous' do
       let(:current_user) { nil }
 
-      it { is_expected.to be_disallowed(:create_instance_runner) }
+      it { is_expected.to be_disallowed(:create_instance_runners) }
+    end
+  end
+
+  describe 'use_quick_actions' do
+    HasUserType::BOT_USER_TYPES.each do |bot|
+      context "with #{bot}" do
+        let(:current_user) { public_send(bot) }
+
+        if bot.in?(%w[alert_bot project_bot support_bot admin_bot service_account])
+          it { is_expected.to be_allowed(:use_quick_actions) }
+        else
+          it { is_expected.to be_disallowed(:use_quick_actions) }
+        end
+      end
+    end
+
+    context 'with regular user' do
+      let(:current_user) { user }
+
+      it { is_expected.to be_allowed(:use_quick_actions) }
+    end
+
+    context 'with anonymous' do
+      let(:current_user) { nil }
+
+      it { is_expected.to be_disallowed(:use_quick_actions) }
     end
   end
 
@@ -724,6 +829,36 @@ RSpec.describe GlobalPolicy, feature_category: :shared do
       let(:current_user) { nil }
 
       it { is_expected.to be_disallowed(:create_organizatinon) }
+    end
+  end
+
+  describe 'admin pages' do
+    context 'with regular user' do
+      it { is_expected.to be_disallowed(:read_admin_cicd) }
+    end
+
+    context 'with an admin', :enable_admin_mode, :aggregate_failures do
+      let(:current_user) { admin_user }
+      let(:permissions) do
+        [
+          :access_admin_area,
+          :read_admin_audit_log,
+          :read_admin_background_jobs,
+          :read_admin_background_migrations,
+          :read_admin_cicd,
+          :read_admin_database_diagnostics,
+          :read_admin_gitaly_servers,
+          :read_admin_groups,
+          :read_admin_health_check,
+          :read_admin_metrics_dashboard,
+          :read_admin_projects,
+          :read_admin_system_information,
+          :read_admin_users,
+          :read_application_statistics
+        ]
+      end
+
+      it { expect_allowed(*permissions) }
     end
   end
 end

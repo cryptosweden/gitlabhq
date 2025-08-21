@@ -17,10 +17,14 @@ RSpec.describe Ci::PipelineSchedules::UpdateService, feature_category: :continuo
   let_it_be_with_reload(:repository) { project.repository }
 
   before_all do
+    project.update!(ci_pipeline_variables_minimum_override_role: :developer)
     project.add_maintainer(user)
     project.add_owner(project_owner)
     project.add_reporter(reporter)
     repository.add_branch(project.creator, 'patch-x', 'master')
+    repository.add_branch(project.creator, 'ambiguous', 'master')
+    repository.add_branch(project.creator, '1/nested/branch-name', 'master')
+    repository.add_tag(project.creator, 'ambiguous', 'master')
 
     pipeline_schedule.reload
   end
@@ -42,10 +46,11 @@ RSpec.describe Ci::PipelineSchedules::UpdateService, feature_category: :continuo
     end
 
     context 'when user has permission' do
+      let(:ref) { 'patch-x' }
       let(:params) do
         {
           description: 'updated_desc',
-          ref: 'patch-x',
+          ref: ref,
           active: false,
           cron: '*/1 * * * *',
           variables_attributes: [
@@ -77,6 +82,67 @@ RSpec.describe Ci::PipelineSchedules::UpdateService, feature_category: :continuo
                            .and change {
                              pipeline_schedule.variables.last.value
                            }.from('foovalue').to('barvalue')
+      end
+
+      context 'when updating inputs' do
+        before_all do
+          create(
+            :ci_pipeline_schedule_input, name: 'input_for_update', value: 'value', pipeline_schedule: pipeline_schedule
+          )
+          create(
+            :ci_pipeline_schedule_input, name: 'input_for_delete', value: 'value', pipeline_schedule: pipeline_schedule
+          )
+        end
+
+        let(:params) do
+          {
+            inputs_attributes: [
+              { name: 'new_input', value: 'a new input' },
+              { name: 'input_for_update', value: 'updated value' },
+              { name: 'input_for_delete', value: 'value', destroy: true }
+            ]
+          }
+        end
+
+        it 'pairs the new values with existing input IDs so they are updated correctly' do
+          service.execute
+
+          pipeline_schedule.reload
+
+          expect(pipeline_schedule.inputs.pluck(:name, :value)).to contain_exactly(
+            ['input_for_update', 'updated value'],
+            ['new_input', 'a new input']
+          )
+        end
+      end
+
+      context 'when the ref is ambiguous' do
+        let(:ref) { 'ambiguous' }
+
+        it 'returns ambiguous ref error' do
+          result = service.execute
+
+          expect(result).to be_a(ServiceResponse)
+          expect(result.error?).to be(true)
+          expect(result.message).to match_array(['Ref is ambiguous'])
+          expect(result.payload.errors.full_messages).to match_array(['Ref is ambiguous'])
+        end
+
+        context 'when the branch name is nested' do
+          let(:ref) { '1/nested/branch-name' }
+
+          it 'saves values with passed params' do
+            result = service.execute
+
+            expect(result.payload).to have_attributes(
+              description: 'updated_desc',
+              ref: "#{Gitlab::Git::BRANCH_REF_PREFIX}1/nested/branch-name",
+              active: false,
+              cron: '*/1 * * * *',
+              cron_timezone: 'UTC'
+            )
+          end
+        end
       end
 
       context 'when the new branch is protected', :request_store do

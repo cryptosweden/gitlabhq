@@ -14,60 +14,23 @@
 // - app/assets/javascripts/commit/pipelines/pipelines_bundle.js
 
 .pipelines {
-  .pipeline-actions {
-    min-width: 170px; //Guarantees buttons don't break in several lines.
-
-    .btn-default {
-      color: var(--gray-500, $gray-500);
-    }
-
-    .btn.btn-retry:hover,
-    .btn.btn-retry:focus {
-      border-color: $dropdown-toggle-active-border-color;
-      background-color: $gray-50;
-    }
-
-    svg path {
-      fill: var(--gray-500, $gray-500);
-    }
-
-    .dropdown-menu {
-      max-height: $dropdown-max-height;
-      overflow-y: auto;
-    }
-
-    .dropdown-toggle,
-    .dropdown-menu {
-      color: var(--gray-500, $gray-500);
-    }
-
-    .btn-group.open .btn-default {
-      background-color: $gray-50;
-      border-color: $gray-100;
-    }
-
-    .btn .text-center {
-      display: inline;
-    }
-
-    .tooltip {
-      white-space: nowrap;
-    }
-  }
-
   .pipeline-tags .label-container {
     white-space: normal;
-  }
-
-  .dark-mode-override {
-    .gl-dark & {
-      background-color: $white;
-    }
   }
 }
 
 // Pipeline mini graph
 .pipeline-mini-graph-stage-container {
+  position: relative;
+  // Temporarily sets a max height for the dropdown
+  // until GlDisclosureDropdown supports adding
+  // a max-height value
+  // see https://gitlab.com/gitlab-org/gitlab-services/design.gitlab.com/-/issues/2207
+  // stylelint-disable-next-line gitlab/no-gl-class
+  .gl-new-dropdown-inner {
+    max-height: $dropdown-max-height-lg !important;
+  }
+
   &:last-child {
     margin-right: 0;
   }
@@ -84,48 +47,27 @@
   }
 }
 
-// Action icons inside dropdowns:
-// mini graph in pipelines table
-// mini graph in MR widget pipeline
-// mini graph in Commit widget pipeline
-.mini-pipeline-graph-dropdown-menu {
-  @include pipeline-graph-dropdown-menu();
+.pipeline-mini-graph-search {
+  // stylelint-disable-next-line gitlab/no-gl-class
+  .gl-form-input {
+    @apply gl-w-full gl-h-auto gl-py-4 gl-border-none gl-rounded-none gl-text-base gl-leading-normal;
+    padding-left: calc(#{$gl-spacing-scale-7} + #{$gl-spacing-scale-2});
+    padding-right: calc(#{$gl-spacing-scale-6} + #{$gl-spacing-scale-2});
+    background-color: var(--gl-dropdown-search-background-color);
+    @apply gl-border-b;
 
-  &::before,
-  &::after {
-    content: '';
-    display: inline-block;
-    position: absolute;
-    width: 0;
-    height: 0;
-    border-color: transparent;
-    border-style: solid;
-    top: -6px;
-    left: 50%;
-    transform: translate(-50%, 0);
-    border-width: 0 5px 6px;
-
-    @include media-breakpoint-down(sm) {
-      left: 100%;
-      margin-left: -12px;
+    &:hover {
+      @apply gl-shadow-none;
     }
   }
 
-  &::before {
-    border-width: 0 5px 5px;
-    border-bottom-color: $border-color;
+  // stylelint-disable-next-line gitlab/no-gl-class
+  .gl-search-box-by-type-search-icon {
+    @apply gl-inset-4;
   }
+}
 
-  /**
-   * Center dropdown menu in mini graph
-   */
-  .dropdown &.dropdown-menu {
-    transform: translate(-80%, 0);
-
-    @media (min-width: map-get($grid-breakpoints, md)) {
-      transform: translate(-50%, 0);
-      right: auto;
-      left: 50%;
-    }
-  }
+// Pipeline failed status
+.ci-job-component.ci-job-item-failed:not(:hover):not(:focus) > a {
+  @include ci-job-item-failed-status-bg;
 }

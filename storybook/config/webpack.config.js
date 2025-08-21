@@ -6,6 +6,7 @@ const glob = require('glob');
 const sass = require('sass');
 const webpack = require('webpack');
 const { red } = require('chalk');
+const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin');
 const IS_EE = require('../../config/helpers/is_ee_env');
 const IS_JH = require('../../config/helpers/is_jh_env');
 const gitlabWebpackConfig = require('../../config/webpack.config');
@@ -53,6 +54,7 @@ const SASS_INCLUDE_PATHS = [
   'app/assets/stylesheets/_jh',
   'ee/app/assets/stylesheets',
   'ee/app/assets/stylesheets/_ee',
+  'node_modules/@gitlab/ui/src/vendor',
   'node_modules',
 ].map((p) => path.resolve(ROOT, p));
 
@@ -94,21 +96,36 @@ function sassSmartImporter(url, prev) {
   return null;
 }
 
+/**
+ * Custom function to check if file exists in assets path.
+ * @param {sass.types.String} url - The value of the Sass variable.
+ * @returns {sass.types.String} - The path to the asset.
+ */
+function checkAssetUrl(url) {
+  const urlString = url.getValue();
+  const filePath = path.resolve(__dirname, '../../app/assets/images', urlString);
+
+  // Return as is if it's a data URL.
+  if (urlString.startsWith('data:')) {
+    return new sass.types.String(`url('${urlString}')`);
+  }
+
+  // If the file exists, return the absolute file path.
+  if (existsSync(filePath)) {
+    return new sass.types.String(`url('/assets/images/${urlString}')`);
+  }
+
+  // Otherwise, return the placeholder.
+  return new sass.types.String(TRANSPARENT_1X1_PNG);
+}
+
 const sassLoaderOptions = {
   sassOptions: {
     functions: {
-      'image-url($url)': function sassImageUrlStub() {
-        return new sass.types.String(TRANSPARENT_1X1_PNG);
-      },
-      'asset_path($url)': function sassAssetPathStub() {
-        return new sass.types.String(TRANSPARENT_1X1_PNG);
-      },
-      'asset_url($url)': function sassAssetUrlStub() {
-        return new sass.types.String(TRANSPARENT_1X1_PNG);
-      },
-      'url($url)': function sassUrlStub() {
-        return new sass.types.String(TRANSPARENT_1X1_PNG);
-      },
+      'image-url($url)': checkAssetUrl,
+      'asset_path($url)': checkAssetUrl,
+      'asset_url($url)': checkAssetUrl,
+      'url($url)': checkAssetUrl,
     },
     includePaths: SASS_INCLUDE_PATHS,
     importer: sassSmartImporter,
@@ -120,12 +137,6 @@ const transpileDependencyConfig = {
   loader: 'babel-loader',
   options: {
     presets: [['@babel/preset-env', { targets: { esmodules: true } }]],
-    plugins: [
-      // See: https://gitlab.com/gitlab-org/gitlab/-/issues/336216
-      '@babel/plugin-proposal-optional-chaining',
-      // See: https://gitlab.com/gitlab-org/gitlab/-/issues/336216
-      '@babel/plugin-proposal-nullish-coalescing-operator',
-    ],
   },
 };
 
@@ -136,19 +147,21 @@ module.exports = function storybookWebpackConfig({ config }) {
   );
   config.resolve.alias = {
     ...config.resolve.alias,
-    gridstack: require.resolve('gridstack/dist/es5/gridstack.js'),
     '@cubejs-client/core': require.resolve('@cubejs-client/core/dist/cubejs-client-core.js'),
+    uuid: require.resolve('uuid'),
+    '/assets': path.resolve(__dirname, '../../app/assets'),
   };
 
   // Replace any Storybook-defined CSS loaders with our custom one.
   config.module.rules = [
-    ...config.module.rules.filter((r) => !r.test.test('.css')),
+    ...config.module.rules.filter((r) => !r.test?.test('.css')),
     {
       test: /\.s?css$/,
       exclude: /typescale\/\w+_demo\.scss$/, // skip typescale demo stylesheets
-      loaders: [
+      use: [
         'style-loader',
         'css-loader',
+        'postcss-loader',
         {
           loader: 'sass-loader',
           options: sassLoaderOptions,
@@ -171,10 +184,47 @@ module.exports = function storybookWebpackConfig({ config }) {
       test: /marked\/.*\.js?$/,
       use: transpileDependencyConfig,
     },
+    {
+      test: /\.mjs$/,
+      include: /node_modules/,
+      type: 'javascript/auto',
+      resolve: {
+        fullySpecified: false,
+      },
+    },
+    {
+      test: /\.(js|cjs)$/,
+      include: (modulePath) =>
+        /node_modules\/(jsonc-parser|monaco-editor|monaco-worker-manager|monaco-marker-data-provider)/.test(
+          modulePath,
+        ) || /node_modules\/yaml/.test(modulePath),
+      use: transpileDependencyConfig,
+    },
   ];
 
   // Silence webpack warnings about moment/pikaday not being able to resolve.
-  config.plugins.push(new webpack.IgnorePlugin(/moment/, /pikaday/));
+  config.plugins.push(
+    new webpack.IgnorePlugin({
+      resourceRegExp: /moment/,
+      contextRegExp: /pikaday/,
+    }),
+  );
+
+  config.plugins.push(
+    new MonacoWebpackPlugin({
+      filename: '[name].[contenthash:8].worker.js',
+      customLanguages: [
+        {
+          label: 'yaml',
+          entry: 'monaco-yaml',
+          worker: {
+            id: 'monaco-yaml/yamlWorker',
+            entry: 'monaco-yaml/yaml.worker',
+          },
+        },
+      ],
+    }),
+  );
 
   if (!IS_EE) {
     config.plugins.push(
@@ -187,6 +237,14 @@ module.exports = function storybookWebpackConfig({ config }) {
   if (!IS_JH) {
     config.plugins.push(
       new webpack.NormalModuleReplacementPlugin(/^jh_component\/(.*)\.vue/, (resource) => {
+        resource.request = EMPTY_VUE_COMPONENT_PATH;
+      }),
+    );
+  }
+
+  if (!IS_EE && !IS_JH) {
+    config.plugins.push(
+      new webpack.NormalModuleReplacementPlugin(/^jh_else_ee\/(.*)\.vue/, (resource) => {
         resource.request = EMPTY_VUE_COMPONENT_PATH;
       }),
     );

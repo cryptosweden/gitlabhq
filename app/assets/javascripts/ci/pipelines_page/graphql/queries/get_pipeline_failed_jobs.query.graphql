@@ -1,9 +1,12 @@
+#import "ee_else_ce/ci/pipelines_page/graphql/fragments/troubleshoot_job.fragment.graphql"
+
 query getPipelineFailedJobs($fullPath: ID!, $pipelineIid: ID!) {
   project(fullPath: $fullPath) {
     id
     pipeline(iid: $pipelineIid) {
       id
       active
+      ...TroubleshootJob
       jobs(statuses: [FAILED], retried: false) {
         count
         nodes {
@@ -27,9 +30,6 @@ query getPipelineFailedJobs($fullPath: ID!, $pipelineIid: ID!) {
           stage {
             id
             name
-          }
-          trace {
-            htmlSummary
           }
           userPermissions {
             readBuild

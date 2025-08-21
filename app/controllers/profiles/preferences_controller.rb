@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class Profiles::PreferencesController < Profiles::ApplicationController
+  include SafeFormatHelper
+
   before_action :user
 
   feature_category :user_profile
@@ -8,8 +10,7 @@ class Profiles::PreferencesController < Profiles::ApplicationController
   urgency :low, [:show]
   urgency :medium, [:update]
 
-  def show
-  end
+  def show; end
 
   def update
     result = Users::UpdateService.new(current_user, preferences_params.merge(user: user)).execute
@@ -22,7 +23,7 @@ class Profiles::PreferencesController < Profiles::ApplicationController
     end
   rescue ArgumentError => e
     # Raised when `dashboard` is given an invalid value.
-    message = _("Failed to save preferences (%{error_message}).") % { error_message: e.message }
+    message = safe_format(_("Failed to save preferences (%{error_message})."), error_message: e.message)
     render status: :bad_request, json: { type: :alert, message: message }
   end
 
@@ -40,9 +41,9 @@ class Profiles::PreferencesController < Profiles::ApplicationController
     [
       :color_scheme_id,
       :color_mode_id,
+      :dark_color_scheme_id,
       :diffs_deletion_color,
       :diffs_addition_color,
-      :home_organization_id,
       :layout,
       :dashboard,
       :project_view,
@@ -62,8 +63,11 @@ class Profiles::PreferencesController < Profiles::ApplicationController
       :keyboard_shortcuts_enabled,
       :markdown_surround_selection,
       :markdown_automatic_lists,
+      :markdown_maintain_indentation,
       :use_new_navigation,
-      :enabled_following
+      :enabled_following,
+      :use_work_items_view,
+      :text_editor
     ]
   end
 end

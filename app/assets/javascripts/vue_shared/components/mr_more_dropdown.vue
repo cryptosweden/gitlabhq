@@ -1,7 +1,6 @@
 <script>
 import {
   GlLoadingIcon,
-  GlButton,
   GlIcon,
   GlDisclosureDropdown,
   GlDisclosureDropdownItem,
@@ -34,15 +33,14 @@ export default {
     markAsReady: __('Mark as ready'),
     markAsDraft: __('Mark as draft'),
     close: __('Close %{issuableType}'),
-    closing: __('Closing %{issuableType}...'),
+    closing: __('Closing %{issuableType}…'),
     reopen: __('Reopen %{issuableType}'),
-    reopening: __('Reopening %{issuableType}...'),
+    reopening: __('Reopening %{issuableType}…'),
     lock: __('Lock %{issuableType}'),
     mergeRequestActions: __('Merge request actions'),
   },
   components: {
     GlLoadingIcon,
-    GlButton,
     GlIcon,
     GlDisclosureDropdown,
     GlDisclosureDropdownItem,
@@ -128,7 +126,6 @@ export default {
       fullPath: this.projectPath,
       isLoading: false,
       isLoadingDraft: false,
-      isLoadingClipboard: false,
       isReportAbuseDrawerOpen: false,
       isDropdownVisible: false,
     };
@@ -139,6 +136,9 @@ export default {
     },
     draftLabel() {
       return this.draft ? this.$options.i18n.markAsReady : this.$options.i18n.markAsDraft;
+    },
+    draftIcon() {
+      return this.draft ? 'check-circle' : 'review-list';
     },
     draftState() {
       return this.draft ? 'ready' : 'draft';
@@ -222,7 +222,7 @@ export default {
 </script>
 
 <template>
-  <div class="gl-display-flex gl-justify-content-end gl-w-full" data-testid="merge-request-actions">
+  <div class="gl-self-start" data-testid="merge-request-actions">
     <gl-disclosure-dropdown
       id="new-actions-header-dropdown"
       ref="mrMoreActionsDropdown"
@@ -233,31 +233,15 @@ export default {
       block
       class="gl-w-full"
       :auto-close="false"
+      icon="ellipsis_v"
+      category="tertiary"
+      text-sr-only
+      no-caret
+      :toggle-text="$options.i18n.mergeRequestActions"
+      toggle-class="gl-flex"
       @shown="showDropdown"
       @hidden="hideDropdown"
     >
-      <template #toggle>
-        <div class="gl-min-h-7 gl-mb-2 gl-sm-mb-0!">
-          <gl-button
-            class="sm:!gl-hidden gl-new-dropdown-toggle gl-w-full"
-            button-text-classes="gl-display-flex gl-justify-content-space-between gl-w-full"
-            category="secondary"
-            tabindex="0"
-            :aria-label="$options.i18n.mergeRequestActions"
-          >
-            <span class="">{{ $options.i18n.mergeRequestActions }}</span>
-            <gl-icon class="dropdown-chevron" name="chevron-down" />
-          </gl-button>
-          <gl-button
-            class="gl-hidden sm:!gl-flex gl-new-dropdown-toggle gl-new-dropdown-icon-only gl-new-dropdown-toggle-no-caret"
-            category="tertiary"
-            icon="ellipsis_v"
-            tabindex="0"
-            :aria-label="$options.i18n.mergeRequestActions"
-            :title="$options.i18n.mergeRequestActions"
-          />
-        </div>
-      </template>
       <gl-disclosure-dropdown-group v-if="isLoggedIn && !isNotificationsTodosButtons">
         <sidebar-subscriptions-widget
           :iid="String(mr.iid)"
@@ -270,7 +254,7 @@ export default {
       <gl-disclosure-dropdown-group
         bordered
         :class="{
-          'gl-mt-0! gl-pt-0! gl-border-t-0!': !isLoggedIn || isNotificationsTodosButtons,
+          '!gl-mt-0 !gl-border-t-0 !gl-pt-0': !isLoggedIn || isNotificationsTodosButtons,
         }"
       >
         <gl-disclosure-dropdown-item
@@ -278,7 +262,12 @@ export default {
           class="sm:!gl-hidden"
           data-testid="edit-merge-request"
           :item="editItem"
-        />
+        >
+          <template #list-item>
+            <gl-icon name="pencil" class="gl-mr-2" variant="subtle" />
+            {{ $options.i18n.edit }}
+          </template>
+        </gl-disclosure-dropdown-item>
 
         <gl-disclosure-dropdown-item
           v-if="isOpen && canUpdateMergeRequest"
@@ -287,6 +276,7 @@ export default {
         >
           <template #list-item>
             <gl-loading-icon v-if="isLoadingDraft" inline size="sm" />
+            <gl-icon v-else :name="draftIcon" class="gl-mr-2" variant="subtle" />
             {{ draftLabel }}
           </template>
         </gl-disclosure-dropdown-item>
@@ -305,6 +295,7 @@ export default {
               }}
             </template>
             <template v-else>
+              <gl-icon name="merge-request-close" class="gl-mr-2" variant="subtle" />
               {{ sprintf($options.i18n.close, { issuableType: $options.i18n.issuableName }) }}
             </template>
           </template>
@@ -325,13 +316,19 @@ export default {
               }}
             </template>
             <template v-else>
+              <gl-icon name="merge-request-open" class="gl-mr-2" variant="subtle" />
               {{ sprintf($options.i18n.reopen, { issuableType: $options.i18n.issuableName }) }}
             </template>
           </template>
         </gl-disclosure-dropdown-item>
 
-        <gl-disclosure-dropdown-item class="js-sidebar-lock-root">
+        <gl-disclosure-dropdown-item
+          v-if="canUpdateMergeRequest"
+          data-testid="lock-merge-request"
+          class="js-sidebar-lock-root"
+        >
           <template #list-item>
+            <gl-icon name="lock" class="gl-mr-2" variant="subtle" />
             {{ sprintf($options.i18n.lock, { issuableType: $options.i18n.issuableName }) }}
           </template>
         </gl-disclosure-dropdown-item>
@@ -343,6 +340,7 @@ export default {
           @action="copyClipboardAction"
         >
           <template #list-item>
+            <gl-icon name="copy-to-clipboard" class="gl-mr-2" variant="subtle" />
             {{ $options.i18n.copyReferenceText }}
           </template>
         </gl-disclosure-dropdown-item>
@@ -351,7 +349,7 @@ export default {
       <gl-disclosure-dropdown-group
         v-if="!isCurrentUser"
         bordered
-        :class="{ 'gl-mt-0! gl-pt-0! gl-border-t-0!': !canUpdateMergeRequest }"
+        :class="{ '!gl-mt-0 !gl-border-t-0 !gl-pt-0': !canUpdateMergeRequest }"
       >
         <gl-disclosure-dropdown-item
           class="js-report-abuse-dropdown-item"
@@ -359,6 +357,7 @@ export default {
           @action="reportAbuseAction(true)"
         >
           <template #list-item>
+            <gl-icon name="abuse" class="gl-mr-2" variant="subtle" />
             {{ $options.i18n.reportAbuse }}
           </template>
         </gl-disclosure-dropdown-item>

@@ -44,7 +44,7 @@
     Code Owners are an important piece of the code review process in GitLab. When code owners are clearly identified, contributors can see who should review contributions to a file or repository. The Code Owners feature can also be used to establish a merge request approval process. Now, you can track which teams across your organization are using the Code Owners feature in their development workflow.
 
     If you would like to drive adoption of Code Owners, sort the DevOps Adoption table by the Code Owners column to find teams that haven't yet adopted the feature so you can easily identify which teams need help getting started. Alternatively, find teams that have successfully configured Code Owners and get tips and feedback. The DevOps Adoption table is available at [the group level](https://docs.gitlab.com/ee/user/group/devops_adoption/) and [the instance level](https://docs.gitlab.com/ee/administration/analytics/dev_ops_report.html#devops-adoption).
-  stage: Manage
+  stage: Foundations
   self-managed: true
   gitlab-com: true
   available_in: [Ultimate]
@@ -60,7 +60,7 @@
     - Self-identify and enter whatever pronouns you prefer, without selecting from a predefined list.
 
     Besides being more inclusive, GitLab wants help people use the correct pronouns when replying to comments to respect people's identity.
-  stage: Manage
+  stage: Foundations
   self-managed: true
   gitlab-com: true
   available_in: [Free, Premium, Ultimate]
@@ -124,7 +124,7 @@
   release: 14.0
 - name: Change an issue's type
   description: |
-    In some cases, you may wish to change an issue's type. For example, you may want to escalate an issue to an [incident](https://docs.gitlab.com/ee/operations/incident_management/index.html) to ensure that your team handles the problem properly. To change an issue's type, edit the issue and select an issue type from the **Issue type** selector menu.
+    In some cases, you may wish to change an issue's type. For example, you may want to escalate an issue to an [incident](https://docs.gitlab.com/ee/operations/incident_management/) to ensure that your team handles the problem properly. To change an issue's type, edit the issue and select an issue type from the **Issue type** selector menu.
   stage: Monitor
   self-managed: true
   gitlab-com: true
@@ -150,12 +150,12 @@
   description: |
     Terraform modules play a central role in building standard infrastructure components throughout an organization. Up to GitLab 13.12, GitLab users had to use either a third-party Terraform module registry, local modules, or Git-based modules. While these options work well, they do not help with the distribution of the modules and they lack proper versioning support, which introduces risks for module users. GitLab 14.0 extends our [Infrastructure-as-Code offerings](https://docs.gitlab.com/ee/user/infrastructure/) with a Terraform module registry. Now, you can use the Terraform module registry built into GitLab to discover Terraform modules with semantic versioning support for upgrades and maintenance. Moreover, you can publish modules easily using GitLab CI/CD.
 
-    While following Terraform's best practices, we recommend developing each Terraform module in a dedicated GitLab project. To simplify the transition to the registry, users can host and publish multiple modules from a single GitLab repository. You can learn more about publishing and consuming a new module [in our documentation](https://docs.gitlab.com/ee/user/packages/terraform_module_registry/index.html).
+    While following Terraform's best practices, we recommend developing each Terraform module in a dedicated GitLab project. To simplify the transition to the registry, users can host and publish multiple modules from a single GitLab repository. You can learn more about publishing and consuming a new module [in our documentation](https://docs.gitlab.com/ee/user/packages/terraform_module_registry/).
   stage: Configure
   self-managed: true
   gitlab-com: true
   available_in: [Free, Premium, Ultimate]
-  documentation_link: https://docs.gitlab.com/ee/user/packages/terraform_module_registry/index.html
+  documentation_link: https://docs.gitlab.com/ee/user/packages/terraform_module_registry/
   image_url: https://about.gitlab.com/images/14_0/terraform-module-registry.png
   published_at: 2021-06-22
   release: 14.0

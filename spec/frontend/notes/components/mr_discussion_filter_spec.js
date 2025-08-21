@@ -1,8 +1,8 @@
-import { mount } from '@vue/test-utils';
 import { GlCollapsibleListbox, GlListboxItem, GlButton } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
-// eslint-disable-next-line no-restricted-imports
-import Vuex from 'vuex';
+import { PiniaVuePlugin } from 'pinia';
+import { createTestingPinia } from '@pinia/testing';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 import { mockTracking } from 'helpers/tracking_helper';
 import DiscussionFilter from '~/notes/components/mr_discussion_filter.vue';
 import {
@@ -11,42 +11,32 @@ import {
   MR_FILTER_TRACKING_USER_COMMENTS,
   MR_FILTER_TRACKING_BOT_COMMENTS,
 } from '~/notes/constants';
+import { globalAccessorPlugin } from '~/pinia/plugins';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useNotes } from '~/notes/store/legacy_notes';
 
-Vue.use(Vuex);
+Vue.use(PiniaVuePlugin);
 
 describe('Merge request discussion filter component', () => {
   let wrapper;
-  let store;
-  let updateMergeRequestFilters;
-  let setDiscussionSortDirection;
+  let pinia;
 
-  function createComponent(mergeRequestFilters = MR_FILTER_OPTIONS.map((f) => f.value)) {
-    updateMergeRequestFilters = jest.fn();
-    setDiscussionSortDirection = jest.fn();
-
-    store = new Vuex.Store({
-      modules: {
-        notes: {
-          state: {
-            mergeRequestFilters,
-            discussionSortOrder: 'asc',
-          },
-          actions: {
-            updateMergeRequestFilters,
-            setDiscussionSortDirection,
-          },
-        },
-      },
-    });
-
-    wrapper = mount(DiscussionFilter, {
-      store,
+  function createComponent() {
+    wrapper = mountExtended(DiscussionFilter, {
+      pinia,
     });
   }
 
   function findDropdownItem({ value }) {
-    return wrapper.findComponent(GlCollapsibleListbox).find(`[data-testid=listbox-item-${value}]`);
+    return wrapper.findComponentByTestId(`listbox-item-${value}`);
   }
+
+  beforeEach(() => {
+    pinia = createTestingPinia({ plugins: [globalAccessorPlugin] });
+    useLegacyDiffs();
+    useNotes().mergeRequestFilters = MR_FILTER_OPTIONS.map((f) => f.value);
+    useNotes().discussionSortOrder = 'asc';
+  });
 
   afterEach(() => {
     localStorage.removeItem('mr_activity_filters');
@@ -59,7 +49,7 @@ describe('Merge request discussion filter component', () => {
 
       createComponent();
 
-      expect(setDiscussionSortDirection).toHaveBeenCalledWith(expect.anything(), {
+      expect(useNotes().setDiscussionSortDirection).toHaveBeenCalledWith({
         direction: 'desc',
       });
     });
@@ -71,7 +61,7 @@ describe('Merge request discussion filter component', () => {
 
       createComponent();
 
-      expect(updateMergeRequestFilters).toHaveBeenCalledWith(expect.anything(), ['comments']);
+      expect(useNotes().updateMergeRequestFilters).toHaveBeenCalledWith(['comments']);
     });
   });
 
@@ -90,7 +80,7 @@ describe('Merge request discussion filter component', () => {
 
     wrapper.findComponent(GlCollapsibleListbox).vm.$emit('hidden');
 
-    expect(updateMergeRequestFilters).toHaveBeenCalledWith(expect.anything(), [
+    expect(useNotes().updateMergeRequestFilters).toHaveBeenCalledWith([
       'assignees_reviewers',
       'bot_comments',
       'comments',
@@ -113,7 +103,7 @@ describe('Merge request discussion filter component', () => {
   `('updates toggle text to $expectedText with $state', async ({ state, expectedText }) => {
     createComponent();
 
-    store.state.notes.mergeRequestFilters = state;
+    useNotes().mergeRequestFilters = state;
 
     await nextTick();
 
@@ -179,6 +169,33 @@ describe('Merge request discussion filter component', () => {
 
         expect(trackingSpy).toHaveBeenCalledTimes(1);
         expect(trackingSpy).toHaveBeenCalledWith(undefined, trackingEvent, expect.any(Object));
+      },
+    );
+  });
+
+  describe('sort direction button', () => {
+    beforeEach(createComponent);
+
+    it.each`
+      sortOrder | expectedTitle                   | expectedIcon
+      ${'asc'}  | ${'Sort direction: Ascending'}  | ${'sort-lowest'}
+      ${'desc'} | ${'Sort direction: Descending'} | ${'sort-highest'}
+    `(
+      'has the correct attributes and props when the sort-order is "$sortOrder"',
+      async ({ sortOrder, expectedTitle, expectedIcon }) => {
+        useNotes().discussionSortOrder = sortOrder;
+        await nextTick();
+
+        const sortDirectionButton = wrapper.findByTestId('mr-discussion-sort-direction');
+
+        expect(sortDirectionButton.attributes()).toMatchObject({
+          title: expectedTitle,
+          'aria-label': expectedTitle,
+        });
+
+        expect(sortDirectionButton.props()).toMatchObject({
+          icon: expectedIcon,
+        });
       },
     );
   });

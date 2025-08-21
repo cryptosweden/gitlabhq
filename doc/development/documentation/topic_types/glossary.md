@@ -2,9 +2,8 @@
 stage: none
 group: Documentation Guidelines
 info: For assistance with this Style Guide page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-other-projects-and-subjects.
+title: Glossary topic type
 ---
-
-# Glossary topic type
 
 A glossary provides a list of unfamiliar terms and their definitions to help users understand a specific
 GitLab feature.
@@ -29,7 +28,7 @@ Glossaries should provide short, concise term-definition pairs.
 
 ## Glossary example
 
-Glossary topics should be in this format. Use an unordered list primarily. You can use a table if you need to apply
+Glossary topics should be in this format. Use a [description list](../styleguide/_index.md#description-lists-in-markdown) primarily. You can use a table if you need to apply
 additional categorization.
 
 Try to include glossary topics on pages that explain the feature, rather than as a standalone page.
@@ -39,9 +38,14 @@ Try to include glossary topics on pages that explain the feature, rather than as
 
 This glossary provides definitions for terms related to FeatureName.
 
-- **Term A**: Term A does this thing.
-- **Term B**: Term B does this thing.
-- **Term C**: Term C does this thing.
+Term A
+: Term A does this thing.
+
+Term B
+: Term B does this thing.
+
+Term C
+: Term C does this thing.
 ```
 
 If you use the table format:

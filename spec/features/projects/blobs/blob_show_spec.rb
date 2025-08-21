@@ -467,6 +467,7 @@ RSpec.describe 'File blob', :js, feature_category: :source_code_management do
       expect(page).to have_link('Download (23.81 KiB)')
       # does not show a viewer switcher
       expect(page).not_to have_selector('.js-blob-viewer-switcher')
+
       expect(page).not_to have_selector('.js-copy-blob-source-btn:not(.disabled)')
       expect(page).not_to have_link('Open raw')
     end

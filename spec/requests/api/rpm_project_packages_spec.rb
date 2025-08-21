@@ -13,8 +13,10 @@ RSpec.describe API::RpmProjectPackages, feature_category: :package_registry do
   let_it_be_with_reload(:project) { create(:project, :public, group: group) }
   let_it_be(:user) { create(:user) }
   let_it_be(:personal_access_token) { create(:personal_access_token, user: user) }
-  let_it_be(:deploy_token) { create(:deploy_token, read_package_registry: true, write_package_registry: true) }
-  let_it_be(:project_deploy_token) { create(:project_deploy_token, deploy_token: deploy_token, project: project) }
+  let_it_be(:deploy_token) do
+    create(:deploy_token, read_package_registry: true, write_package_registry: true, projects: [project])
+  end
+
   let_it_be(:job) { create(:ci_build, :running, user: user, project: project) }
 
   let(:headers) { {} }
@@ -88,7 +90,7 @@ RSpec.describe API::RpmProjectPackages, feature_category: :package_registry do
     context 'with valid project' do
       where(:visibility_level, :user_role, :member, :user_token, :shared_examples_name, :expected_status) do
         'PUBLIC'  | :developer  | true  | true  | 'process rpm packages upload/download' | success_status
-        'PUBLIC'  | :guest      | true  | true  | 'process rpm packages upload/download' | :forbidden
+        'PUBLIC'  | :guest      | true  | true  | 'process rpm packages upload/download' | success_status
         'PUBLIC'  | :developer  | true  | false | 'rejects rpm packages access'          | :unauthorized
         'PUBLIC'  | :guest      | true  | false | 'rejects rpm packages access'          | :unauthorized
         'PUBLIC'  | :developer  | false | true  | 'process rpm packages upload/download' | :not_found
@@ -97,7 +99,7 @@ RSpec.describe API::RpmProjectPackages, feature_category: :package_registry do
         'PUBLIC'  | :guest      | false | false | 'rejects rpm packages access'          | :unauthorized
         'PUBLIC'  | :anonymous  | false | true  | 'process rpm packages upload/download' | :unauthorized
         'PRIVATE' | :developer  | true  | true  | 'process rpm packages upload/download' | success_status
-        'PRIVATE' | :guest      | true  | true  | 'rejects rpm packages access'          | :forbidden
+        'PRIVATE' | :guest      | true  | true  | 'process rpm packages upload/download' | success_status
         'PRIVATE' | :developer  | true  | false | 'rejects rpm packages access'          | :unauthorized
         'PRIVATE' | :guest      | true  | false | 'rejects rpm packages access'          | :unauthorized
         'PRIVATE' | :developer  | false | true  | 'rejects rpm packages access'          | :not_found
@@ -133,6 +135,10 @@ RSpec.describe API::RpmProjectPackages, feature_category: :package_registry do
     it_behaves_like 'a job token for RPM requests', :success
     it_behaves_like 'a deploy token for RPM requests', :success
     it_behaves_like 'a user token for RPM requests', :success
+
+    it_behaves_like 'updating personal access token last used' do
+      let(:headers) { basic_auth_header(user.username, personal_access_token.token) }
+    end
   end
 
   describe 'GET /api/v4/projects/:id/packages/rpm/:package_file_id/:filename' do
@@ -145,6 +151,10 @@ RSpec.describe API::RpmProjectPackages, feature_category: :package_registry do
     it_behaves_like 'a job token for RPM requests'
     it_behaves_like 'a deploy token for RPM requests'
     it_behaves_like 'a user token for RPM requests'
+
+    it_behaves_like 'updating personal access token last used' do
+      let(:headers) { basic_auth_header(user.username, personal_access_token.token) }
+    end
   end
 
   describe 'POST /api/v4/projects/:project_id/packages/rpm' do
@@ -244,6 +254,10 @@ RSpec.describe API::RpmProjectPackages, feature_category: :package_registry do
       end
     end
 
+    it_behaves_like 'updating personal access token last used' do
+      let(:headers) { basic_auth_header(user.username, personal_access_token.token) }
+    end
+
     it_behaves_like 'a deploy token for RPM requests'
     it_behaves_like 'a job token for RPM requests'
   end
@@ -269,6 +283,10 @@ RSpec.describe API::RpmProjectPackages, feature_category: :package_registry do
       end
 
       it_behaves_like 'returning response status', :not_found
+    end
+
+    it_behaves_like 'updating personal access token last used' do
+      let(:headers) { basic_auth_header(user.username, personal_access_token.token) }
     end
   end
 end

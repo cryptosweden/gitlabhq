@@ -5,10 +5,11 @@ import {
   updateCacheAfterAddingAwardEmojiToNote,
   updateCacheAfterRemovingAwardEmojiFromNote,
 } from '~/work_items/graphql/cache_utils';
-import groupWorkItemNotesByIidQuery from '../graphql/notes/group_work_item_notes_by_iid.query.graphql';
 import workItemNotesByIidQuery from '../graphql/notes/work_item_notes_by_iid.query.graphql';
+import workItemAwardEmojiQuery from '../graphql/award_emoji.query.graphql';
 import addAwardEmojiMutation from '../graphql/notes/work_item_note_add_award_emoji.mutation.graphql';
 import removeAwardEmojiMutation from '../graphql/notes/work_item_note_remove_award_emoji.mutation.graphql';
+import { findAwardEmojiWidget } from '../utils';
 
 function awardedByCurrentUser(note) {
   return (note.awardEmoji?.nodes ?? [])
@@ -33,15 +34,16 @@ export function getMutation({ note, name }) {
   };
 }
 
-export function optimisticAwardUpdate({ note, name, fullPath, isGroup, workItemIid }) {
+export function optimisticAwardUpdate({ note, name, fullPath, workItemIid }) {
   const { mutation } = getMutation({ note, name });
 
   const currentUserId = window.gon.current_user_id;
+  const currentUserFullName = window.gon.current_user_fullname;
 
   return (store) => {
     store.updateQuery(
       {
-        query: isGroup ? groupWorkItemNotesByIidQuery : workItemNotesByIidQuery,
+        query: workItemNotesByIidQuery,
         variables: { fullPath, iid: workItemIid },
       },
       (sourceData) => {
@@ -53,7 +55,7 @@ export function optimisticAwardUpdate({ note, name, fullPath, isGroup, workItemI
             user: {
               __typename: 'UserCore',
               id: convertToGraphQLId(TYPENAME_USER, currentUserId),
-              name: null,
+              name: currentUserFullName,
             },
           },
         };
@@ -66,3 +68,18 @@ export function optimisticAwardUpdate({ note, name, fullPath, isGroup, workItemI
     );
   };
 }
+
+export const getNewCustomEmojiPath = ({ cache, fullPath, workItemIid }) => {
+  const query = {
+    query: workItemAwardEmojiQuery,
+    variables: { fullPath, iid: workItemIid, pageSize: 1 },
+  };
+
+  const sourceData = cache.readQuery(query);
+
+  if (!sourceData?.workspace?.workItem) {
+    return '';
+  }
+
+  return findAwardEmojiWidget(sourceData.workspace.workItem)?.newCustomEmojiPath || '';
+};

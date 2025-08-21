@@ -4,16 +4,17 @@ import { initMrStateLazyLoad } from '~/mr_notes/init';
 import MergeRequest from '../merge_request';
 import { resetServiceWorkersPublicPath } from '../lib/utils/webpack';
 
-export default function initMrNotes(lazyLoadParams) {
+export default function initMrNotes(createRapidDiffsApp) {
   resetServiceWorkersPublicPath();
 
   const mrShowNode = document.querySelector('.merge-request');
   // eslint-disable-next-line no-new
   new MergeRequest({
     action: mrShowNode.dataset.mrAction,
+    createRapidDiffsApp,
   });
 
-  initMrStateLazyLoad(undefined, lazyLoadParams);
+  initMrStateLazyLoad();
 
   document.addEventListener('merged:UpdateActions', () => {
     initRevertCommitModal('i_code_review_post_merge_submit_revert_modal');

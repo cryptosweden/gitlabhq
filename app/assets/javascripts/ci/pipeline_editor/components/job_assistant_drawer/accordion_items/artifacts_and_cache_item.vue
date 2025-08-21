@@ -76,16 +76,19 @@ export default {
       </gl-sprintf>
     </div>
     <div v-for="entry in formOptions" :key="entry.key" class="form-group">
-      <div class="gl-display-flex">
-        <label class="gl-font-bold gl-mb-3">{{ entry.title }}</label>
+      <div class="gl-flex">
+        <label :for="`artifacts-path-${entry.key}-input`" class="gl-mb-3 gl-font-bold">{{
+          entry.title
+        }}</label>
       </div>
       <div
         v-for="(path, index) in entry.paths"
         :key="index"
-        class="gl-display-flex gl-align-items-center gl-mb-3"
+        class="gl-mb-3 gl-flex gl-items-center"
       >
-        <div class="gl-flex-grow-1 gl-flex-basis-0 gl-mr-3">
+        <div class="gl-mr-3 gl-grow gl-basis-0">
           <gl-form-input
+            :id="`artifacts-path-${entry.key}-input`"
             class="!gl-w-full"
             :value="path"
             :data-testid="entry.generateInputDataTestId(index)"
@@ -108,8 +111,9 @@ export default {
         >{{ $options.i18n.ADD_PATH }}</gl-button
       >
     </div>
-    <gl-form-group :label="$options.i18n.CACHE_KEY">
+    <gl-form-group :label="$options.i18n.CACHE_KEY" label-for="cache-key-input">
       <gl-form-input
+        id="cache-key-input"
         :value="job.cache.key"
         data-testid="cache-key-input"
         @input="$emit('update-job', 'cache.key', $event)"

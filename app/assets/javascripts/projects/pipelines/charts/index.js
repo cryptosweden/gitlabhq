@@ -20,11 +20,12 @@ const mountPipelineChartsApp = (el) => {
     coverageChartPath,
     defaultBranch,
     testRunsEmptyStateImagePath,
-    projectQualitySummaryFeedbackImagePath,
   } = el.dataset;
 
   const shouldRenderDoraCharts = parseBoolean(el.dataset.shouldRenderDoraCharts);
   const shouldRenderQualitySummary = parseBoolean(el.dataset.shouldRenderQualitySummary);
+  const clickHouseEnabledForAnalytics = parseBoolean(el.dataset.clickHouseEnabledForAnalytics);
+  const projectBranchCount = parseInt(el.dataset.projectBranchCount, 10);
   const contextId = convertToGraphQLId(TYPENAME_PROJECT, projectId);
 
   return new Vue({
@@ -39,10 +40,11 @@ const mountPipelineChartsApp = (el) => {
       failedPipelinesLink,
       shouldRenderDoraCharts,
       shouldRenderQualitySummary,
+      clickHouseEnabledForAnalytics,
       coverageChartPath,
       defaultBranch,
+      projectBranchCount,
       testRunsEmptyStateImagePath,
-      projectQualitySummaryFeedbackImagePath,
       contextId,
     },
     render: (createElement) => createElement(ProjectPipelinesCharts, {}),

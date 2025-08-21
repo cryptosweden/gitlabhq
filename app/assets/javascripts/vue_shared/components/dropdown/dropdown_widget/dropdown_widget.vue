@@ -97,6 +97,7 @@ export default {
       }
       return this.selected && option.id && this.selected.id === option.id;
     },
+    // eslint-disable-next-line vue/no-unused-properties -- showDropdown() is part of the component's public API.
     showDropdown() {
       this.$refs.dropdown.show();
     },
@@ -148,7 +149,7 @@ export default {
         <gl-loading-icon
           v-if="isLoading"
           size="lg"
-          class="gl-absolute gl-left-0 gl-top-0 gl-right-0"
+          class="gl-absolute gl-left-0 gl-right-0 gl-top-0"
         />
         <template v-else>
           <template v-if="isSearchEmpty && presetOptions.length > 0">
@@ -158,7 +159,7 @@ export default {
               :is-checked="isSelected(option)"
               is-check-centered
               is-check-item
-              @click.native.capture.stop="selectOption(option)"
+              @click.capture.native.stop="selectOption(option)"
             >
               <slot name="preset-item" :item="option">
                 {{ option.title }}
@@ -175,14 +176,14 @@ export default {
             :avatar-url="avatarUrl(option)"
             :secondary-text="secondaryText(option)"
             data-testid="unselected-option"
-            @click.native.capture.stop="selectOption(option)"
+            @click.capture.native.stop="selectOption(option)"
           >
             <slot name="item" :item="option">
               {{ option.title }}
             </slot>
           </gl-dropdown-item>
           <slot v-bind="{ isSelected }" name="grouped-options"></slot>
-          <gl-dropdown-item v-if="noOptionsFound" class="gl-pl-6!">
+          <gl-dropdown-item v-if="noOptionsFound" class="!gl-pl-6">
             {{ $options.i18n.noMatchingResults }}
           </gl-dropdown-item>
           <gl-dropdown-item v-if="noOptions">

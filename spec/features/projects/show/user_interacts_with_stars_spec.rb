@@ -2,14 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Projects > Show > User interacts with project stars', feature_category: :groups_and_projects do
+RSpec.describe 'Projects > Show > User interacts with project stars', :js, :with_current_organization, feature_category: :groups_and_projects do
   let(:project) { create(:project, :public, :repository) }
 
   context 'when user is signed in', :js do
-    let(:user) { create(:user) }
+    let(:user) { create(:user, organization: current_organization) }
 
     before do
-      stub_feature_flags(vscode_web_ide: false)
       sign_in(user)
       visit(project_path(project))
     end
@@ -37,9 +36,10 @@ RSpec.describe 'Projects > Show > User interacts with project stars', feature_ca
 
       star_project
 
-      visit(dashboard_projects_path)
+      visit(member_dashboard_projects_path)
+      wait_for_requests
 
-      expect(page).to have_css('.stars', text: 1)
+      expect(find_by_testid('stars-btn')).to have_content('1')
     end
 
     it 'validates un-starring a project' do
@@ -49,13 +49,14 @@ RSpec.describe 'Projects > Show > User interacts with project stars', feature_ca
 
       unstar_project
 
-      visit(dashboard_projects_path)
+      visit(member_dashboard_projects_path)
+      wait_for_requests
 
-      expect(page).to have_css('.stars', text: 0)
+      expect(find_by_testid('stars-btn')).to have_content('0')
     end
   end
 
-  context 'when user is not signed in', :js do
+  context 'when user is not signed in' do
     before do
       visit(project_path(project))
     end

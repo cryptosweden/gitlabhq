@@ -14,8 +14,10 @@ RSpec.describe Sidebars::Projects::Menus::IssuesMenu, feature_category: :navigat
     let(:extra_attrs) do
       {
         item_id: :project_issue_list,
-        active_routes: { path: %w[projects/issues#index projects/issues#show projects/issues#new] },
+        active_routes: { path: %w[projects/issues#index projects/issues#show projects/issues#new
+          projects/work_items#index projects/work_items#show] },
         pill_count: menu.pill_count,
+        pill_count_field: menu.pill_count_field,
         has_pill: menu.has_pill?,
         super_sidebar_parent: Sidebars::Projects::SuperSidebarMenus::PlanMenu
       }
@@ -54,34 +56,47 @@ RSpec.describe Sidebars::Projects::Menus::IssuesMenu, feature_category: :navigat
     end
   end
 
-  describe '#pill_count' do
-    it 'returns zero when there are no open issues' do
-      expect(subject.pill_count).to eq '0'
+  describe '#pill_count_field' do
+    it 'returns the correct GraphQL field name' do
+      expect(subject.pill_count_field).to eq('openIssuesCount')
     end
+  end
 
-    it 'memoizes the query' do
-      subject.pill_count
+  describe 'Menu Items' do
+    subject { described_class.new(context).renderable_items.index { |e| e.item_id == item_id } }
 
-      control = ActiveRecord::QueryRecorder.new do
-        subject.pill_count
+    describe 'Service Desk' do
+      let(:item_id) { :service_desk }
+
+      describe 'when service desk is supported' do
+        before do
+          allow(::ServiceDesk).to receive(:supported?).and_return(true)
+        end
+
+        describe 'when service desk is enabled' do
+          before do
+            project.update!(service_desk_enabled: true)
+          end
+
+          it { is_expected.not_to be_nil }
+        end
+
+        describe 'when service desk is disabled' do
+          before do
+            project.update!(service_desk_enabled: false)
+          end
+
+          it { is_expected.to be_nil }
+        end
       end
 
-      expect(control.count).to eq 0
-    end
+      describe 'when service desk is unsupported' do
+        before do
+          allow(::ServiceDesk).to receive(:supported?).and_return(false)
+          project.update!(service_desk_enabled: true)
+        end
 
-    context 'when there are open issues' do
-      it 'returns the number of open issues' do
-        create_list(:issue, 2, :opened, project: project)
-        build_stubbed(:issue, :closed, project: project)
-
-        expect(subject.pill_count).to eq '2'
-      end
-    end
-
-    describe 'formatting' do
-      it 'returns truncated digits for count value over 1000' do
-        allow(project).to receive(:open_issues_count).and_return 1001
-        expect(subject.pill_count).to eq('1k')
+        it { is_expected.to be_nil }
       end
     end
   end

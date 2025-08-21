@@ -7,12 +7,12 @@ class ContainerRepository < ApplicationRecord
   include Sortable
   include AfterCommitQueue
   include Packages::Destructible
-  include IgnorableColumns
 
   WAITING_CLEANUP_STATUSES = %i[cleanup_scheduled cleanup_unfinished].freeze
   REQUIRING_CLEANUP_STATUSES = %i[cleanup_unscheduled cleanup_scheduled].freeze
 
   MAX_TAGS_PAGES = 2000
+  MAX_DELETION_FAILURES = 10
 
   # The Registry client uses JWT token to authenticate to Registry. We cache the client using expiration
   # time of JWT token. However it's possible that the token is valid but by the time the request is made to
@@ -22,28 +22,13 @@ class ContainerRepository < ApplicationRecord
 
   belongs_to :project
 
-  ignore_columns %i[
-    migration_retries_count
-    migration_aborted_in_state
-    migration_skipped_reason
-    migration_state
-  ], remove_with: '17.2', remove_after: '2024-06-24'
-
-  ignore_columns %i[
-    migration_aborted_at
-    migration_import_done_at
-    migration_import_started_at
-    migration_plan
-    migration_pre_import_started_at
-    migration_pre_import_done_at
-    migration_skipped_at
-  ], remove_with: '17.3', remove_after: '2024-07-22'
-
   validates :name, length: { minimum: 0, allow_nil: false }
   validates :name, uniqueness: { scope: :project_id }
+  validates :failed_deletion_count, presence: true
+  validates :failed_deletion_count, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: MAX_DELETION_FAILURES }
 
-  enum status: { delete_scheduled: 0, delete_failed: 1, delete_ongoing: 2 }
-  enum expiration_policy_cleanup_status: { cleanup_unscheduled: 0, cleanup_scheduled: 1, cleanup_unfinished: 2, cleanup_ongoing: 3 }
+  enum :status, { delete_scheduled: 0, delete_failed: 1, delete_ongoing: 2 }
+  enum :expiration_policy_cleanup_status, { cleanup_unscheduled: 0, cleanup_scheduled: 1, cleanup_unfinished: 2, cleanup_ongoing: 3 }
 
   delegate :client, :gitlab_api_client, to: :registry
 
@@ -80,10 +65,6 @@ class ContainerRepository < ApplicationRecord
     ).exists?
   end
 
-  def self.all_migrated?
-    Gitlab.com_except_jh?
-  end
-
   def self.with_enabled_policy
     joins('INNER JOIN container_expiration_policies ON container_repositories.project_id = container_expiration_policies.project_id')
       .where(container_expiration_policies: { enabled: true })
@@ -104,12 +85,9 @@ class ContainerRepository < ApplicationRecord
     (Gitlab::CurrentSettings.container_registry_token_expire_delay * 60) - AUTH_TOKEN_USAGE_RESERVED_TIME_IN_SECS
   end
 
-  class << self
-    alias_method :pending_destruction, :delete_scheduled # needed by Packages::Destructible
-  end
-
-  def migrated?
-    Gitlab.com_except_jh?
+  # needed by Packages::Destructible
+  def self.pending_destruction
+    delete_scheduled.where('next_delete_attempt_at IS NULL OR next_delete_attempt_at < ?', Time.zone.now)
   end
 
   # rubocop: disable CodeReuse/ServiceClass
@@ -138,7 +116,7 @@ class ContainerRepository < ApplicationRecord
   # does a search of tags containing the name and we filter them
   # to find the exact match. Otherwise, we instantiate a tag.
   def tag(tag)
-    if migrated_and_can_access_the_gitlab_api?
+    if gitlab_api_client.supports_gitlab_api?
       page = tags_page(name: tag)
       return if page[:tags].blank?
 
@@ -158,7 +136,7 @@ class ContainerRepository < ApplicationRecord
 
   def tags
     strong_memoize(:tags) do
-      if migrated_and_can_access_the_gitlab_api?
+      if gitlab_api_client.supports_gitlab_api?
         result = []
         each_tags_page do |array_of_tags|
           result << array_of_tags
@@ -176,7 +154,7 @@ class ContainerRepository < ApplicationRecord
   end
 
   def each_tags_page(page_size: 100, &block)
-    raise ArgumentError, 'not a migrated repository' unless migrated?
+    raise ArgumentError, _('GitLab container registry API not supported') unless gitlab_api_client.supports_gitlab_api?
     raise ArgumentError, 'block not given' unless block
 
     # dummy uri to initialize the loop
@@ -202,7 +180,7 @@ class ContainerRepository < ApplicationRecord
   end
 
   def tags_page(before: nil, last: nil, sort: nil, name: nil, page_size: 100, referrers: nil, referrer_type: nil)
-    raise ArgumentError, 'not a migrated repository' unless migrated?
+    raise ArgumentError, _('GitLab container registry API not supported') unless gitlab_api_client.supports_gitlab_api?
 
     page = gitlab_api_client.tags(
       self.path,
@@ -232,8 +210,14 @@ class ContainerRepository < ApplicationRecord
   end
 
   def has_tags?
-    tags.any?
+    if gitlab_api_client.supports_gitlab_api?
+      page = tags_page(page_size: 1) # Fetch one tag to check existence
+      page[:tags].present?
+    else
+      manifest&.dig('tags').present?
+    end
   end
+  strong_memoize_attr :has_tags?
 
   def root_repository?
     name.empty?
@@ -242,7 +226,7 @@ class ContainerRepository < ApplicationRecord
   def delete_tags!
     return unless has_tags?
 
-    digests = tags.map { |tag| tag.digest }.compact.to_set
+    digests = tags.map(&:digest).compact.to_set
 
     digests.map { |digest| delete_tag(digest) }.all?
   end
@@ -268,7 +252,7 @@ class ContainerRepository < ApplicationRecord
   end
 
   def last_published_at
-    return unless migrated_and_can_access_the_gitlab_api?
+    return unless gitlab_api_client.supports_gitlab_api?
 
     timestamp_string = gitlab_api_client_repository_details['last_published_at']
     DateTime.iso8601(timestamp_string)
@@ -279,16 +263,28 @@ class ContainerRepository < ApplicationRecord
 
   def set_delete_ongoing_status
     now = Time.zone.now
+
     update_columns(
       status: :delete_ongoing,
       delete_started_at: now,
-      status_updated_at: now
+      status_updated_at: now,
+      next_delete_attempt_at: nil
     )
   end
 
   def set_delete_scheduled_status
     update_columns(
       status: :delete_scheduled,
+      delete_started_at: nil,
+      status_updated_at: Time.zone.now,
+      failed_deletion_count: failed_deletion_count + 1,
+      next_delete_attempt_at: next_delete_attempt_with_delay
+    )
+  end
+
+  def set_delete_failed_status
+    update_columns(
+      status: :delete_failed,
       delete_started_at: nil,
       status_updated_at: Time.zone.now
     )
@@ -319,11 +315,24 @@ class ContainerRepository < ApplicationRecord
     self.find_by(project: path.repository_project, name: path.repository_name)
   end
 
-  private
+  def protected_from_delete_by_tag_rules?(user)
+    return true unless user
 
-  def migrated_and_can_access_the_gitlab_api?
-    migrated? && gitlab_api_client.supports_gitlab_api?
+    # Admins are not restricted by mutable tag protection rules
+    return false if user.can_admin_all_resources?
+
+    # Check for mutable tag protection rules
+    return false unless project.has_container_registry_protected_tag_rules?(
+      action: 'delete',
+      access_level: project.team.max_member_access(user.id)
+    )
+
+    return false unless has_tags?
+
+    true
   end
+
+  private
 
   def transform_tags_page(tags_response_body)
     return [] unless tags_response_body
@@ -350,6 +359,10 @@ class ContainerRepository < ApplicationRecord
     gitlab_api_client.repository_details(self.path, sizing: :self)
   end
   strong_memoize_attr :gitlab_api_client_repository_details
+
+  def next_delete_attempt_with_delay(now = Time.zone.now)
+    now + (2**failed_deletion_count).minutes
+  end
 end
 
 ContainerRepository.prepend_mod_with('ContainerRepository')

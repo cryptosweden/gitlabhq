@@ -4,7 +4,6 @@ module BatchedGitRefUpdates
   class Deletion < ApplicationRecord
     PARTITION_DURATION = 1.day
 
-    include IgnorableColumns
     include BulkInsertSafe
     include PartitionedTable
     include EachBatch
@@ -42,7 +41,7 @@ module BatchedGitRefUpdates
           .exists?
       end
 
-    enum status: { pending: 1, processed: 2 }, _prefix: :status
+    enum :status, { pending: 1, processed: 2 }, prefix: :status
 
     def self.mark_records_processed(records)
       update_by_partition(records) do |partitioned_scope|

@@ -1,8 +1,8 @@
 <script>
-// eslint-disable-next-line no-restricted-imports
-import { mapGetters } from 'vuex';
+import { mapState } from 'pinia';
 import imageDiff from '~/diffs/mixins/image_diff';
 import DesignNotePin from '~/vue_shared/components/design_management/design_note_pin.vue';
+import { useBatchComments } from '~/batch_comments/store';
 import DraftNote from './draft_note.vue';
 
 export default {
@@ -26,9 +26,14 @@ export default {
       required: false,
       default: '',
     },
+    autosaveKey: {
+      type: String,
+      required: false,
+      default: '',
+    },
   },
   computed: {
-    ...mapGetters('batchComments', ['draftsForFile']),
+    ...mapState(useBatchComments, ['draftsForFile']),
     drafts() {
       return this.draftsForFile(this.fileHash).filter(
         (f) => f.position?.position_type === this.positionType,
@@ -53,7 +58,7 @@ export default {
           class="js-diff-notes-index -gl-translate-x-1/2"
           size="sm"
         />
-        <draft-note :draft="draft" />
+        <draft-note :draft="draft" :autosave-key="autosaveKey" />
       </div>
     </div>
   </div>

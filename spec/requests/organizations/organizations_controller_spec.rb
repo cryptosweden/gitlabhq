@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Organizations::OrganizationsController, feature_category: :cell do
-  let_it_be(:organization) { create(:organization) }
+RSpec.describe Organizations::OrganizationsController, feature_category: :organization do
+  let_it_be(:organization) { create(:organization, :private) }
 
   shared_examples 'when the user is signed in' do
     context 'when the user is signed in' do
@@ -18,11 +18,11 @@ RSpec.describe Organizations::OrganizationsController, feature_category: :cell d
         it_behaves_like 'organization - action disabled by `ui_for_organizations` feature flag'
       end
 
-      context 'as an organization user' do
+      context 'as an organization owner' do
         let_it_be(:user) { create :user }
 
         before do
-          create :organization_user, organization: organization, user: user
+          create :organization_owner, organization: organization, user: user
         end
 
         it_behaves_like 'organization - successful response'
@@ -183,6 +183,86 @@ RSpec.describe Organizations::OrganizationsController, feature_category: :cell d
           expect(json_response['has_next_page']).to eq(true)
         end
       end
+
+      context 'when most recent activities are from projects inaccessible to user' do
+        let_it_be(:limit) { 5 }
+
+        let_it_be(:project) { create(:project, organization: organization) }
+        let_it_be(:events) { create_list(:event, limit, project: project) }
+
+        let_it_be(:private_projects) { create(:project, :private, organization: organization) }
+        let_it_be(:private_events) { create_list(:event, limit, project: private_projects) }
+
+        before_all do
+          project.add_developer(user)
+          sign_in(user)
+        end
+
+        it 'returns events from projects where user has access to' do
+          get activity_organization_path(organization, limit: 5, format: :json)
+
+          expect(response.media_type).to eq('application/json')
+
+          expect(json_response['events']).to be_an(Array)
+          expect(json_response['events'].size).to eq(limit)
+        end
+      end
+
+      context 'when organization has multiple projects' do
+        let_it_be(:stale_project) { create(:project, organization: organization, developers: [user]) }
+        let_it_be(:recently_updated_project) { create(:project, organization: organization, developers: [user]) }
+
+        before_all do
+          stale_project.update!(last_activity_at: 3.days.ago)
+
+          sign_in(user)
+        end
+
+        it 'returns events from the projects with the most recent activities', :aggregate_failures do
+          stub_const("#{described_class}::DEFAULT_RESOURCE_LIMIT", 1)
+
+          get activity_organization_path(organization, format: :json)
+
+          resource_parent_path = json_response['events'].first["resource_parent"]["full_path"]
+
+          expect(json_response['events'].size).to eq(1)
+          expect(resource_parent_path).to eq(recently_updated_project.full_path)
+        end
+      end
+
+      context 'when most recent activities are from groups inaccessible to user' do
+        let_it_be(:limit) { 5 }
+
+        let_it_be(:group) { create(:group, :private, organization: organization) }
+        let_it_be(:events) do
+          create_list(:event, limit, :created, target: create(:milestone, group: group), group: group)
+        end
+
+        let_it_be(:private_group) { create(:group, :private, organization: organization) }
+        let_it_be(:private_events) do
+          create_list(
+            :event,
+            limit,
+            :created,
+            group: private_group,
+            target: create(:milestone, group: private_group)
+          )
+        end
+
+        before_all do
+          group.add_developer(user)
+          sign_in(user)
+        end
+
+        it 'returns events from groups where user has access to' do
+          get activity_organization_path(organization, limit: 5, format: :json)
+
+          expect(response.media_type).to eq('application/json')
+
+          expect(json_response['events']).to be_an(Array)
+          expect(json_response['events'].size).to eq(limit)
+        end
+      end
     end
   end
 
@@ -203,11 +283,11 @@ RSpec.describe Organizations::OrganizationsController, feature_category: :cell d
 
     it_behaves_like 'controller action that requires authentication by any user'
 
-    context 'when user is signed in and `allow_organization_creation` feature flag is disabled' do
+    context 'when user is signed in and `organization_switching` feature flag is disabled' do
       let_it_be(:user) { create(:user) }
 
       before do
-        stub_feature_flags(allow_organization_creation: false)
+        stub_feature_flags(organization_switching: false)
         sign_in(user)
       end
 

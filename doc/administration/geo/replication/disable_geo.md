@@ -1,14 +1,16 @@
 ---
-stage: Systems
+stage: Tenant Scale
 group: Geo
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Disabling Geo
 ---
 
-# Disabling Geo
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 If you want to revert to a regular Linux package installation setup after a test, or you have encountered a Disaster Recovery
 situation and you want to disable Geo momentarily, you can use these instructions to disable your
@@ -31,7 +33,7 @@ To disable Geo, you need to first remove all your secondary Geo sites, which mea
 anymore on these sites. You can follow our documentation to [remove your secondary Geo sites](remove_geo_site.md).
 
 If the current site that you want to keep using is a secondary site, you need to first promote it to primary.
-You can use our steps on [how to promote a secondary site](../disaster_recovery/index.md#step-3-promoting-a-secondary-site)
+You can use our steps on [how to promote a secondary site](../disaster_recovery/_index.md#step-3-promoting-a-secondary-site)
 to do that.
 
 ## Remove the primary site from the UI
@@ -39,8 +41,8 @@ to do that.
 To remove the **primary** site:
 
 1. [Remove all secondary Geo sites](remove_geo_site.md)
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Geo > Nodes**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Geo** > **Nodes**.
 1. Select **Remove** for the **primary** node.
 1. Confirm by selecting **Remove** when the prompt appears.
 
@@ -55,7 +57,7 @@ Geo node in a PostgreSQL console (`sudo gitlab-psql`):
 
   ```sql
   SELECT slot_name, slot_type, active FROM pg_replication_slots; -- view present replication slots
-  SELECT pg_drop_replication_slot('slot_name'); -- where slot_name is the one expected from above
+  SELECT pg_drop_replication_slot('slot_name'); -- where slot_name is the one expected from the previous command
   ```
 
 - To remove all secondary replication slots:

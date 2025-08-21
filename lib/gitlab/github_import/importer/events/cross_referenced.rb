@@ -33,7 +33,7 @@ module Gitlab
           end
 
           def create_note(issue_event, note_body, user_id)
-            Note.create!(
+            created_note = Note.create!(
               importing: true,
               system: true,
               noteable_type: issuable_type(issue_event),
@@ -42,8 +42,13 @@ module Gitlab
               author_id: user_id,
               note: note_body,
               system_note_metadata: SystemNoteMetadata.new(action: 'cross_reference'),
-              created_at: issue_event.created_at
+              created_at: issue_event.created_at,
+              imported_from: imported_from
             )
+
+            push_reference(project, created_note, :author_id, issue_event[:actor]&.id)
+
+            created_note
           end
 
           def mentioned_in_type(issue_event)

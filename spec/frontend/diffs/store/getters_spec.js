@@ -195,7 +195,7 @@ describe('Diffs Module Getters', () => {
 
     it('returns true when file discussion is expanded', () => {
       const diffFile = {
-        discussions: [{ ...discussionMock, expanded: true }],
+        discussions: [{ ...discussionMock, expandedOnDiff: true }],
         highlighted_diff_lines: [],
       };
 
@@ -288,15 +288,14 @@ describe('Diffs Module Getters', () => {
           {},
           {},
           { discussions: [discussionMock] },
-        )(diffFileMock).length,
-      ).toEqual(1);
+        )(diffFileMock),
+      ).toHaveLength(1);
     });
 
     it('returns an empty array when no discussions are found in the given diff', () => {
       expect(
-        getters.getDiffFileDiscussions(localState, {}, {}, { discussions: [] })(diffFileMock)
-          .length,
-      ).toEqual(0);
+        getters.getDiffFileDiscussions(localState, {}, {}, { discussions: [] })(diffFileMock),
+      ).toHaveLength(0);
     });
   });
 
@@ -364,6 +363,40 @@ describe('Diffs Module Getters', () => {
               path: 'file',
               tree: [],
               type: 'blob',
+            },
+          ],
+        },
+      ]);
+    });
+
+    it('assigns ids to files', () => {
+      localState.treeEntries = {
+        file: {
+          type: 'blob',
+          path: 'file',
+          parentPath: '/',
+          fileHash: '111',
+          tree: [],
+        },
+      };
+      localState.diffFiles = [{ id: '222', file_hash: '111' }];
+
+      expect(
+        getters.allBlobs(localState, {
+          flatBlobsList: getters.flatBlobsList(localState),
+        }),
+      ).toEqual([
+        {
+          isHeader: true,
+          path: '/',
+          tree: [
+            {
+              parentPath: '/',
+              path: 'file',
+              tree: [],
+              type: 'blob',
+              fileHash: '111',
+              id: '222',
             },
           ],
         },
@@ -507,28 +540,47 @@ describe('Diffs Module Getters', () => {
       expect(getters.diffFiles({ diffFiles }, {})).toBe(diffFiles);
     });
 
-    it('pins the file', () => {
-      const pinnedFile = getDiffFileMock();
+    it('links the file', () => {
+      const linkedFile = getDiffFileMock();
       const regularFile = getDiffFileMock();
-      const diffFiles = [regularFile, pinnedFile];
-      expect(getters.diffFiles({ diffFiles }, { pinnedFile })).toStrictEqual([
-        pinnedFile,
+      const diffFiles = [regularFile, linkedFile];
+      expect(getters.diffFiles({ diffFiles }, { linkedFile })).toStrictEqual([
+        linkedFile,
         regularFile,
       ]);
     });
   });
 
-  describe('pinnedFile', () => {
-    it('returns pinnedFile', () => {
-      const pinnedFile = getDiffFileMock();
-      const diffFiles = [pinnedFile];
-      expect(getters.pinnedFile({ diffFiles, pinnedFileHash: pinnedFile.file_hash }, {})).toBe(
-        pinnedFile,
+  describe('linkedFile', () => {
+    it('returns linkedFile', () => {
+      const linkedFile = getDiffFileMock();
+      const diffFiles = [linkedFile];
+      expect(getters.linkedFile({ diffFiles, linkedFileHash: linkedFile.file_hash }, {})).toBe(
+        linkedFile,
       );
     });
 
-    it('returns null if no pinned file is set', () => {
-      expect(getters.pinnedFile({}, {})).toBe(null);
+    it('returns null if no linked file is set', () => {
+      expect(getters.linkedFile({}, {})).toBe(null);
+    });
+  });
+
+  describe('fileTree', () => {
+    it('returns fileTree', () => {
+      const diffFiles = [
+        { id: '111', file_hash: '222' },
+        { id: '333', file_hash: '444' },
+      ];
+      const tree = {
+        type: 'tree',
+        path: 'tree',
+        parentPath: '/',
+        fileHash: '444',
+        tree: [{ fileHash: '222', tree: [] }],
+      };
+      expect(getters.fileTree({ diffFiles, tree: [tree] })).toStrictEqual([
+        { ...tree, id: '333', tree: [{ ...tree.tree[0], id: '111' }] },
+      ]);
     });
   });
 

@@ -1,17 +1,17 @@
 ---
-stage: Systems
-group: Cloud Connector
+stage: Data access
+group: Durability
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Reducing memory use
 ---
 
-# Reducing memory use
+The Sidekiq memory killer automatically manages background job processes that
+consume too much memory. This feature monitors worker processes and restarts them before
+the Linux memory killer steps in, which allows background jobs to run to completion
+before gracefully shutting down. By logging these events, we make it easier to
+identify jobs that lead to high memory use.
 
-The GitLab Rails application code suffers from memory leaks. For web requests
-this problem is made manageable using a [supervision thread](../operations/puma.md#reducing-memory-use)
-that automatically restarts workers if they exceed a given resident set size (RSS) threshold
-for a certain amount of time.
-We use the same approach to the Sidekiq processes used by GitLab
-to process background jobs.
+## How we monitor Sidekiq memory
 
 GitLab monitors the available RSS limit by default only for Linux package or Docker installations. The reason for this
 is that GitLab relies on runit to restart Sidekiq after a memory-induced shutdown, and self-compiled and Helm chart

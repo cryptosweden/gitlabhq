@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Repositories
-  class LfsApiController < Repositories::GitHttpClientController
+  class LfsApiController < ::Repositories::GitHttpClientController
     include LfsRequest
     include Gitlab::Utils::StrongMemoize
 
@@ -78,25 +78,6 @@ module Repositories
       objects
     end
 
-    def legacy_download_objects!
-      existing_oids = project.lfs_objects_oids(oids: objects_oids)
-
-      objects.each do |object|
-        if existing_oids.include?(object[:oid])
-          object[:actions] = proxy_download_actions(object)
-
-          object[:authenticated] = true if ::Users::Anonymous.can?(:download_code, project)
-        else
-          object[:error] = {
-            code: 404,
-            message: _("Object does not exist on the server or you don't have permissions to access it")
-          }
-        end
-      end
-
-      objects
-    end
-
     def upload_objects!
       existing_oids = project.lfs_objects_oids(oids: objects_oids)
 
@@ -111,7 +92,8 @@ module Repositories
     end
 
     def download_actions(object, lfs_object)
-      if lfs_object.file.file_storage? || lfs_object.file.class.proxy_download_enabled?
+      lfs_file = lfs_object.file
+      if lfs_file.file_storage? || lfs_file.proxy_download_enabled?
         proxy_download_actions(object)
       else
         direct_download_actions(lfs_object)
@@ -132,12 +114,17 @@ module Repositories
     def proxy_download_actions(object)
       {
         download: {
-          href: "#{project.http_url_to_repo}/gitlab-lfs/objects/#{object[:oid]}",
+          href: proxy_download_actions_download_path(object),
           header: {
             Authorization: authorization_header
           }.compact
         }
       }
+    end
+
+    # Overridden in EE
+    def proxy_download_actions_download_path(object)
+      "#{project.http_url_to_repo}/gitlab-lfs/objects/#{object[:oid]}"
     end
 
     def upload_actions(object)
@@ -151,7 +138,7 @@ module Repositories
 
     # Overridden in EE
     def upload_http_url_to_repo
-      project.http_url_to_repo
+      Gitlab::RepositoryUrlBuilder.build(repository.full_path, protocol: :http)
     end
 
     def upload_headers
@@ -195,7 +182,7 @@ module Repositories
     def lfs_auth_header
       return unless user
 
-      Gitlab::LfsToken.new(user).basic_encoding
+      Gitlab::LfsToken.new(user, project).basic_encoding
     end
 
     def should_auto_link?
@@ -214,7 +201,7 @@ module Repositories
 
       return unless lfs_object
 
-      LfsObjectsProject.link_to_project!(lfs_object, project)
+      LfsObjectsProject.link_to_project!(lfs_object, project, repo_type.name)
 
       Gitlab::AppJsonLogger.info(
         message: "LFS object auto-linked to forked project",
@@ -229,4 +216,4 @@ module Repositories
   end
 end
 
-Repositories::LfsApiController.prepend_mod_with('Repositories::LfsApiController')
+::Repositories::LfsApiController.prepend_mod_with('Repositories::LfsApiController')

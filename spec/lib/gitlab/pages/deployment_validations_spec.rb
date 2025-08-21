@@ -71,6 +71,7 @@ RSpec.describe Gitlab::Pages::DeploymentValidations, :aggregate_failures, featur
 
     context 'when there is a custom root config' do
       before do
+        stub_feature_flags(ci_validate_config_options: false)
         build.job_artifacts_archive.update!(file: fixture_file_upload("spec/fixtures/pages_with_custom_root.zip"))
         build.job_artifacts_metadata.update!(file: fixture_file_upload("spec/fixtures/pages_with_custom_root.zip.meta"))
       end
@@ -79,6 +80,27 @@ RSpec.describe Gitlab::Pages::DeploymentValidations, :aggregate_failures, featur
         let(:build_options) { { publish: 'foo' } }
 
         include_examples "valid pages deployment"
+      end
+
+      context 'and the directory specified with `pages.publish` is included in the artifacts' do
+        let(:build_options) { { pages: { publish: 'foo' } } }
+
+        include_examples "valid pages deployment"
+      end
+
+      context 'and the directory specified with `pages.publish` contains one trailing slash' do
+        let(:build_options) { { pages: { publish: 'foo/' } } }
+
+        include_examples "valid pages deployment"
+      end
+
+      context 'and `publish` is present in root as well as pages' do
+        let(:build_options) { { publish: 'foo', pages: { publish: 'foo' } } }
+
+        include_examples "invalid pages deployment",
+          message: <<~MSG.squish
+          Either the `publish` or `pages.publish` option may be present in `.gitlab-ci.yml`, but not both.
+          MSG
       end
 
       context 'and the directory specified with `publish` is not included in the artifacts' do
@@ -113,7 +135,7 @@ RSpec.describe Gitlab::Pages::DeploymentValidations, :aggregate_failures, featur
       instance_double(
         ::Gitlab::Ci::Build::Artifacts::Metadata::Entry,
         entries: [],
-        total_size: 50.megabyte
+        total_size: 50.megabytes
       )
     end
 
@@ -154,7 +176,7 @@ RSpec.describe Gitlab::Pages::DeploymentValidations, :aggregate_failures, featur
 
       context "and size is above the limit" do
         before do
-          allow(metadata_entry).to receive(:total_size).and_return(101.megabyte)
+          allow(metadata_entry).to receive(:total_size).and_return(101.megabytes)
           allow(metadata_entry).to receive(:entries).and_return([])
         end
 

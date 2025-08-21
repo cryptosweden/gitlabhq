@@ -1,8 +1,8 @@
 import { isEqual } from 'lodash';
 import { STATUS_CLOSED, STATUS_REOPENED } from '~/issues/constants';
 import { isInMRPage } from '~/lib/utils/common_utils';
-import { uuids } from '~/lib/utils/uuids';
 import * as constants from '../constants';
+import createState from './state';
 import * as types from './mutation_types';
 import * as utils from './utils';
 
@@ -38,11 +38,10 @@ export default {
         discussion.truncated_diff_lines = utils.prepareDiffLines(discussion.truncated_diff_lines);
       }
 
-      // note.base_discussion = undefined; // No point keeping a reference to this
-      delete note.base_discussion;
-      discussion.notes = [note];
+      const notes = [{ ...note }];
+      delete notes[0].base_discussion;
 
-      state.discussions.push(discussion);
+      state.discussions.push({ ...discussion, notes });
     }
   },
 
@@ -182,15 +181,8 @@ export default {
   },
 
   [types.SHOW_PLACEHOLDER_NOTE](state, data) {
-    let notesArr = state.discussions;
-
-    const existingDiscussion = utils.findNoteObjectById(notesArr, data.replyId);
-    if (existingDiscussion) {
-      notesArr = existingDiscussion.notes;
-    }
-
-    notesArr.push({
-      id: uuids()[0],
+    const placeholder = {
+      id: data.id,
       individual_note: true,
       isPlaceholderNote: true,
       placeholderType: data.isSystemNote ? constants.SYSTEM_NOTE : constants.NOTE,
@@ -199,7 +191,14 @@ export default {
           body: data.noteBody,
         },
       ],
-    });
+    };
+
+    const existingDiscussion = utils.findNoteObjectById(state.discussions, data.replyId);
+    if (existingDiscussion) {
+      existingDiscussion.notes = [...existingDiscussion.notes, placeholder];
+    } else {
+      state.discussions.push(placeholder);
+    }
   },
 
   [types.TOGGLE_AWARD](state, data) {
@@ -451,5 +450,8 @@ export default {
   },
   [types.SET_MERGE_REQUEST_FILTERS](state, value) {
     state.mergeRequestFilters = value;
+  },
+  reset(state) {
+    Object.assign(state, createState());
   },
 };

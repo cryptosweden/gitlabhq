@@ -1,7 +1,15 @@
 <script>
-import { GlBadge, GlButton, GlTooltipDirective, GlIcon, GlModal, GlToggle } from '@gitlab/ui';
+import {
+  GlBadge,
+  GlButton,
+  GlButtonGroup,
+  GlIcon,
+  GlTooltipDirective,
+  GlModal,
+  GlToggle,
+  GlTableLite,
+} from '@gitlab/ui';
 import { __, s__, sprintf } from '~/locale';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { labelForStrategy } from '../utils';
 
 import StrategyLabel from './strategy_label.vue';
@@ -10,20 +18,22 @@ export default {
   i18n: {
     deleteLabel: __('Delete'),
     editLabel: __('Edit'),
+    editAriaLabel: (name) => sprintf(__('Edit %{name}'), { name }),
     toggleLabel: __('Feature flag status'),
   },
   components: {
     GlBadge,
     GlButton,
+    GlButtonGroup,
     GlIcon,
     GlModal,
     GlToggle,
+    GlTableLite,
     StrategyLabel,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
   },
-  mixins: [glFeatureFlagMixin()],
   inject: ['csrfToken'],
   props: {
     featureFlags: {
@@ -38,6 +48,32 @@ export default {
     };
   },
   computed: {
+    tableFields() {
+      return [
+        {
+          key: 'id',
+          label: s__('FeatureFlags|ID'),
+        },
+        {
+          key: 'status',
+          label: s__('FeatureFlags|Status'),
+        },
+        {
+          key: 'name',
+          label: s__('FeatureFlags|Feature flag'),
+        },
+        {
+          key: 'env_specs',
+          label: s__('FeatureFlags|Environment Specs'),
+          thClass: 'gl-w-1/2',
+        },
+        {
+          key: 'actions',
+          label: __('Actions'),
+          thClass: 'gl-w-1/12',
+        },
+      ];
+    },
     modalTitle() {
       return sprintf(s__('FeatureFlags|Delete %{name}?'), {
         name: this.deleteFeatureFlagName,
@@ -53,13 +89,6 @@ export default {
     },
   },
   methods: {
-    scopeTooltipText(scope) {
-      return !scope.active
-        ? sprintf(s__('FeatureFlags|Inactive flag for %{scope}'), {
-            scope: scope.environmentScope,
-          })
-        : '';
-    },
     strategyBadgeText(strategy) {
       return labelForStrategy(strategy);
     },
@@ -102,122 +131,123 @@ export default {
 };
 </script>
 <template>
-  <div class="table-holder js-feature-flag-table">
-    <div class="gl-responsive-table-row table-row-header" role="row">
-      <div class="table-section section-10">{{ s__('FeatureFlags|ID') }}</div>
-      <div class="table-section section-10" role="columnheader">
-        {{ s__('FeatureFlags|Status') }}
-      </div>
-      <div class="table-section section-20" role="columnheader">
-        {{ s__('FeatureFlags|Feature flag') }}
-      </div>
-      <div class="table-section section-40" role="columnheader">
-        {{ s__('FeatureFlags|Environment Specs') }}
-      </div>
-    </div>
-
-    <template v-for="featureFlag in featureFlags">
-      <div
-        :key="featureFlag.id"
-        :data-testid="featureFlag.id"
-        class="gl-responsive-table-row"
-        role="row"
-      >
-        <div class="table-section section-10" role="gridcell">
-          <div class="table-mobile-header" role="rowheader">{{ s__('FeatureFlags|ID') }}</div>
-          <div class="table-mobile-content gl-text-left js-feature-flag-id">
-            {{ featureFlagIidText(featureFlag) }}
-          </div>
+  <div>
+    <gl-table-lite :fields="tableFields" :items="featureFlags" stacked="md">
+      <template #cell(id)="{ item = {} }">
+        <div class="!gl-text-left" data-testid="feature-flag-id">
+          {{ featureFlagIidText(item) }}
         </div>
-        <div class="table-section section-10" role="gridcell">
-          <div class="table-mobile-header" role="rowheader">{{ s__('FeatureFlags|Status') }}</div>
-          <div class="table-mobile-content gl-text-left">
-            <gl-toggle
-              v-if="featureFlag.update_path"
-              :value="featureFlag.active"
-              :label="$options.i18n.toggleLabel"
-              label-position="hidden"
-              data-testid="feature-flag-status-toggle"
-              data-track-action="click_button"
-              data-track-label="feature_flag_toggle"
-              @change="toggleFeatureFlag(featureFlag)"
-            />
-            <gl-badge
-              v-else-if="featureFlag.active"
-              variant="success"
-              data-testid="feature-flag-status-badge"
-              >{{ s__('FeatureFlags|Active') }}</gl-badge
-            >
-            <gl-badge v-else variant="danger">{{ s__('FeatureFlags|Inactive') }}</gl-badge>
-          </div>
-        </div>
+      </template>
 
-        <div class="table-section section-20" role="gridcell">
-          <div class="table-mobile-header" role="rowheader">
-            {{ s__('FeatureFlags|Feature flag') }}
-          </div>
-          <div
-            class="table-mobile-content gl-text-left gl-flex flex-column js-feature-flag-title gl-mr-5"
-          >
-            <div class="gl-flex gl-align-items-center">
-              <div class="feature-flag-name text-monospace text-wrap gl-break-anywhere">
-                {{ featureFlag.name }}
-              </div>
-              <div class="feature-flag-description">
-                <gl-icon
-                  v-if="featureFlag.description"
-                  v-gl-tooltip.hover="featureFlag.description"
-                  class="gl-ml-3 gl-mr-3"
-                  name="information-o"
-                />
-              </div>
+      <template #cell(status)="{ item = {} }">
+        <gl-toggle
+          v-if="item.update_path"
+          :value="item.active"
+          :label="$options.i18n.toggleLabel"
+          label-position="hidden"
+          data-testid="feature-flag-status-toggle"
+          data-track-action="click_button"
+          data-track-label="feature_flag_toggle"
+          @change="toggleFeatureFlag(item)"
+        />
+        <gl-badge
+          v-else-if="item.active"
+          variant="success"
+          data-testid="feature-flag-status-badge"
+          >{{ s__('FeatureFlags|Active') }}</gl-badge
+        >
+        <gl-badge v-else variant="danger">{{ s__('FeatureFlags|Inactive') }}</gl-badge>
+      </template>
+
+      <template #cell(name)="{ item = {} }">
+        <div class="gl-flex" data-testid="feature-flag-title">
+          <div class="gl-mt-2 gl-flex gl-items-center">
+            <div class="feature-flag-name text-monospace text-wrap gl-break-anywhere">
+              {{ item.name }}
+            </div>
+            <div :data-testid="`feature-flag-description-${item.id}`">
+              <button
+                v-if="item.description"
+                v-gl-tooltip="item.description"
+                :aria-label="item.description"
+                class="gl-mx-3 gl-border-0 gl-bg-transparent gl-p-0 gl-leading-0"
+              >
+                <gl-icon name="information-o" variant="info" />
+              </button>
             </div>
           </div>
         </div>
+      </template>
 
-        <div class="table-section section-40" role="gridcell">
-          <div class="table-mobile-header" role="rowheader">
-            {{ s__('FeatureFlags|Environment Specs') }}
-          </div>
-          <div
-            class="table-mobile-content gl-text-left gl-flex gl-flex-wrap justify-content-end justify-content-md-start js-feature-flag-environments"
-          >
-            <strategy-label
-              v-for="strategy in featureFlag.strategies"
-              :key="strategy.id"
-              data-testid="strategy-label"
-              class="gl-w-full gl-mr-3 gl-mt-2 gl-whitespace-normal gl-text-left"
-              v-bind="strategyBadgeText(strategy)"
+      <template #cell(env_specs)="{ item = {} }">
+        <div class="gl-flex gl-flex-wrap" data-testid="feature-flag-environments">
+          <strategy-label
+            v-for="strategy in item.strategies"
+            :key="strategy.id"
+            data-testid="strategy-label"
+            class="gl-mr-3 gl-mt-2 gl-w-full gl-whitespace-normal !gl-text-left"
+            v-bind="strategyBadgeText(strategy)"
+          />
+        </div>
+      </template>
+
+      <template #cell(actions)="{ item = {} }">
+        <gl-button-group
+          class="gl-hidden md:gl-inline-flex"
+          data-testid="flags-table-action-buttons"
+        >
+          <template v-if="item.edit_path">
+            <gl-button
+              v-gl-tooltip="$options.i18n.editLabel"
+              data-testid="feature-flag-edit-button"
+              class="gl-flex-grow"
+              icon="pencil"
+              :aria-label="$options.i18n.editAriaLabel(item.name)"
+              :href="item.edit_path"
             />
-          </div>
-        </div>
+          </template>
+          <template v-if="item.destroy_path">
+            <gl-button
+              v-gl-tooltip="$options.i18n.deleteLabel"
+              class="gl-flex-grow"
+              variant="danger"
+              icon="remove"
+              :disabled="!canDeleteFlag(item)"
+              :aria-label="$options.i18n.deleteLabel"
+              @click="setDeleteModalData(item)"
+            />
+          </template>
+        </gl-button-group>
 
-        <div class="table-section section-20 table-button-footer" role="gridcell">
-          <div class="table-action-buttons btn-group">
-            <template v-if="featureFlag.edit_path">
-              <gl-button
-                v-gl-tooltip.hover.bottom="$options.i18n.editLabel"
-                class="js-feature-flag-edit-button"
-                icon="pencil"
-                :aria-label="$options.i18n.editLabel"
-                :href="featureFlag.edit_path"
-              />
-            </template>
-            <template v-if="featureFlag.destroy_path">
-              <gl-button
-                v-gl-tooltip.hover.bottom="$options.i18n.deleteLabel"
-                class="js-feature-flag-delete-button"
-                variant="danger"
-                icon="remove"
-                :disabled="!canDeleteFlag(featureFlag)"
-                :aria-label="$options.i18n.deleteLabel"
-                @click="setDeleteModalData(featureFlag)"
-              />
-            </template>
-          </div>
+        <div
+          class="gl-flex gl-gap-4 md:gl-hidden md:gl-gap-0"
+          data-testid="flags-table-action-buttons"
+        >
+          <template v-if="item.edit_path">
+            <gl-button
+              v-gl-tooltip="$options.i18n.editLabel"
+              data-testid="feature-flag-edit-button"
+              class="gl-flex-grow"
+              icon="pencil"
+              :aria-label="$options.i18n.editAriaLabel(item.name)"
+              :href="item.edit_path"
+            />
+          </template>
+          <template v-if="item.destroy_path">
+            <gl-button
+              v-gl-tooltip="$options.i18n.deleteLabel"
+              data-testid="feature-flag-delete-button"
+              class="gl-flex-grow"
+              variant="danger"
+              icon="remove"
+              :disabled="!canDeleteFlag(item)"
+              :aria-label="$options.i18n.deleteLabel"
+              @click="setDeleteModalData(item)"
+            />
+          </template>
         </div>
-      </div>
-    </template>
+      </template>
+    </gl-table-lite>
 
     <gl-modal
       :ref="modalId"
@@ -230,7 +260,7 @@ export default {
       @ok="onSubmit"
     >
       {{ deleteModalMessage }}
-      <form ref="form" :action="deleteFeatureFlagUrl" method="post" class="js-requires-input">
+      <form ref="form" :action="deleteFeatureFlagUrl" method="post">
         <input ref="method" type="hidden" name="_method" value="delete" />
         <input :value="csrfToken" type="hidden" name="authenticity_token" />
       </form>

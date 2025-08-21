@@ -1,9 +1,8 @@
 import Vue from 'vue';
-import { GlBreadcrumb, GlToast } from '@gitlab/ui';
+import { GlToast } from '@gitlab/ui';
 import VueApollo from 'vue-apollo';
+import { getApolloProvider } from '~/issues/list/issue_client';
 import { convertObjectPropsToCamelCase, parseBoolean } from '~/lib/utils/common_utils';
-import { apolloProvider } from '~/graphql_shared/issuable_client';
-import { staticBreadcrumbs } from '~/lib/utils/breadcrumbs';
 import { JS_TOGGLE_EXPAND_CLASS, CONTEXT_NAMESPACE_GROUPS } from './constants';
 import createStore from './components/global_search/store';
 import {
@@ -11,110 +10,126 @@ import {
   initSuperSidebarCollapsedState,
 } from './super_sidebar_collapsed_state_manager';
 import SuperSidebar from './components/super_sidebar.vue';
+import SuperTopbar from './components/super_topbar.vue';
 import SuperSidebarToggle from './components/super_sidebar_toggle.vue';
+
+export { initPageBreadcrumbs } from './super_sidebar_breadcrumbs';
 
 Vue.use(GlToast);
 Vue.use(VueApollo);
 
 const getTrialStatusWidgetData = (sidebarData) => {
-  if (sidebarData.trial_status_widget_data_attrs && sidebarData.trial_status_popover_data_attrs) {
+  if (sidebarData.trial_widget_data_attrs) {
     const {
-      containerId,
-      trialDaysUsed,
-      trialDuration,
-      navIconImagePath,
+      trialType,
+      daysRemaining,
       percentageComplete,
-      planName,
-      plansHref,
+      groupId,
       trialDiscoverPagePath,
-    } = convertObjectPropsToCamelCase(sidebarData.trial_status_widget_data_attrs);
-
-    const { daysRemaining, trialEndDate } = convertObjectPropsToCamelCase(
-      sidebarData.trial_status_popover_data_attrs,
-    );
-
-    return {
-      showTrialStatusWidget: true,
-      showDuoProTrialStatusWidget: false,
-      containerId,
-      trialDaysUsed: Number(trialDaysUsed),
-      trialDuration: Number(trialDuration),
-      navIconImagePath,
-      percentageComplete: Number(percentageComplete),
-      planName,
-      plansHref,
-      daysRemaining,
-      targetId: containerId,
-      trialEndDate: new Date(trialEndDate),
-      trialDiscoverPagePath,
-    };
-  }
-
-  if (
-    sidebarData.duo_pro_trial_status_widget_data_attrs &&
-    sidebarData.duo_pro_trial_status_popover_data_attrs
-  ) {
-    const { containerId, trialDaysUsed, trialDuration, percentageComplete, widgetUrl } =
-      convertObjectPropsToCamelCase(sidebarData.duo_pro_trial_status_widget_data_attrs);
-
-    const { daysRemaining, trialEndDate, purchaseNowUrl } = convertObjectPropsToCamelCase(
-      sidebarData.duo_pro_trial_status_popover_data_attrs,
-    );
-
-    return {
-      showDuoProTrialStatusWidget: true,
-      showTrialStatusWidget: false,
-      containerId,
-      trialDaysUsed: Number(trialDaysUsed),
-      trialDuration: Number(trialDuration),
-      percentageComplete: Number(percentageComplete),
-      widgetUrl,
-      daysRemaining,
-      targetId: containerId,
-      trialEndDate: new Date(trialEndDate),
       purchaseNowUrl,
-      learnAboutButtonUrl: widgetUrl,
+      featureId,
+      dismissEndpoint,
+    } = convertObjectPropsToCamelCase(sidebarData.trial_widget_data_attrs);
+
+    return {
+      showTrialWidget: true,
+      trialType,
+      daysRemaining: Number(daysRemaining),
+      percentageComplete: Number(percentageComplete),
+      groupId,
+      trialDiscoverPagePath,
+      purchaseNowUrl,
+      featureId,
+      dismissEndpoint,
     };
   }
 
-  return { showTrialStatusWidget: false, showDuoProTrialStatusWidget: false };
+  return {
+    showTrialWidget: false,
+  };
 };
 
-export const initSuperSidebar = () => {
+export const getSuperSidebarData = () => {
   const el = document.querySelector('.js-super-sidebar');
-
   if (!el) return false;
 
-  const { rootPath, sidebar, forceDesktopExpandedSidebar, commandPalette } = el.dataset;
-
-  bindSuperSidebarCollapsedEvents(forceDesktopExpandedSidebar);
-  initSuperSidebarCollapsedState(parseBoolean(forceDesktopExpandedSidebar));
-
+  const { rootPath, sidebar, forceDesktopExpandedSidebar, commandPalette, isSaas } = el.dataset;
   const sidebarData = JSON.parse(sidebar);
   const searchData = convertObjectPropsToCamelCase(sidebarData.search);
-
+  const { searchPath, issuesPath, mrPath, autocompletePath, settingsPath, searchContext } =
+    searchData;
+  const currentPath = sidebarData?.current_context?.item?.fullPath;
   const projectsPath = sidebarData.projects_path;
   const groupsPath = sidebarData.groups_path;
-
   const commandPaletteData = JSON.parse(commandPalette);
   const projectFilesPath = commandPaletteData.project_files_url;
   const projectBlobPath = commandPaletteData.project_blob_url;
   const commandPaletteCommands = sidebarData.create_new_menu_groups || [];
   const commandPaletteLinks = convertObjectPropsToCamelCase(sidebarData.current_menu_items || []);
   const contextSwitcherLinks = sidebarData.context_switcher_links;
-
-  const { searchPath, issuesPath, mrPath, autocompletePath, settingsPath, searchContext } =
-    searchData;
   const isImpersonating = parseBoolean(sidebarData.is_impersonating);
-
   const isGroup = Boolean(sidebarData.current_context?.namespace === CONTEXT_NAMESPACE_GROUPS);
+
+  return {
+    el,
+    rootPath,
+    currentPath,
+    forceDesktopExpandedSidebar,
+    isSaas,
+    sidebarData,
+    searchPath,
+    issuesPath,
+    mrPath,
+    autocompletePath,
+    settingsPath,
+    searchContext,
+    projectsPath,
+    groupsPath,
+    projectFilesPath,
+    projectBlobPath,
+    commandPaletteCommands,
+    commandPaletteLinks,
+    contextSwitcherLinks,
+    isImpersonating,
+    isGroup,
+  };
+};
+
+export const initSuperSidebar = async ({
+  el,
+  rootPath,
+  currentPath,
+  forceDesktopExpandedSidebar,
+  isSaas,
+  sidebarData,
+  searchPath,
+  issuesPath,
+  mrPath,
+  autocompletePath,
+  settingsPath,
+  searchContext,
+  projectsPath,
+  groupsPath,
+  projectFilesPath,
+  projectBlobPath,
+  commandPaletteCommands,
+  commandPaletteLinks,
+  contextSwitcherLinks,
+  isImpersonating,
+  isGroup,
+}) => {
+  if (!el) return false;
+
+  bindSuperSidebarCollapsedEvents(forceDesktopExpandedSidebar);
+  initSuperSidebarCollapsedState(parseBoolean(forceDesktopExpandedSidebar));
 
   return new Vue({
     el,
     name: 'SuperSidebarRoot',
-    apolloProvider,
+    apolloProvider: await getApolloProvider(),
     provide: {
       rootPath,
+      currentPath,
       isImpersonating,
       ...getTrialStatusWidgetData(sidebarData),
       commandPaletteCommands,
@@ -127,9 +142,19 @@ export const initSuperSidebar = () => {
       projectBlobPath,
       projectsPath,
       groupsPath,
+      groupPath: groupsPath,
       fullPath: sidebarData.work_items?.full_path,
       hasIssuableHealthStatusFeature: sidebarData.work_items?.has_issuable_health_status_feature,
+      hasIssueWeightsFeature: sidebarData.work_items?.has_issue_weights_feature,
+      hasIterationsFeature: sidebarData.work_items?.has_iterations_feature,
+      issuesListPath: sidebarData.work_items?.issues_list_path,
+      canAdminLabel: parseBoolean(sidebarData.work_items?.can_admin_label),
+      labelsManagePath: sidebarData.work_items?.labels_manage_path,
+      workItemPlanningViewEnabled: parseBoolean(
+        sidebarData.work_items?.work_item_planning_view_enabled,
+      ),
       isGroup,
+      isSaas: parseBoolean(isSaas),
     },
     store: createStore({
       searchPath,
@@ -173,19 +198,72 @@ export const initSuperSidebarToggle = () => {
   });
 };
 
-export function initPageBreadcrumbs() {
-  const el = document.querySelector('#js-vue-page-breadcrumbs');
+/**
+ * This init function duplicates the args of `initSuperSidebar` for now.
+ * TODO: When we clean up the `global_topbar` feature flag, we should remove the unused args from
+ * both functions.
+ */
+export const initSuperTopbar = async ({
+  rootPath,
+  sidebarData,
+  searchPath,
+  issuesPath,
+  mrPath,
+  autocompletePath,
+  settingsPath,
+  searchContext,
+  projectsPath,
+  groupsPath,
+  projectFilesPath,
+  projectBlobPath,
+  commandPaletteCommands,
+  commandPaletteLinks,
+  contextSwitcherLinks,
+  isImpersonating,
+  isGroup,
+}) => {
+  const el = document.querySelector('.js-super-topbar');
   if (!el) return false;
-  const { breadcrumbsJson } = el.dataset;
-
-  staticBreadcrumbs.items = JSON.parse(breadcrumbsJson);
 
   return new Vue({
     el,
+    apolloProvider: await getApolloProvider(),
+    provide: {
+      rootPath,
+      isImpersonating,
+
+      commandPaletteCommands,
+      commandPaletteLinks,
+      contextSwitcherLinks,
+      autocompletePath,
+      settingsPath,
+      searchContext,
+      projectFilesPath,
+      projectBlobPath,
+      projectsPath,
+      groupsPath,
+      groupPath: groupsPath,
+      fullPath: sidebarData.work_items?.full_path,
+      canAdminLabel: parseBoolean(sidebarData.work_items?.can_admin_label),
+      workItemPlanningViewEnabled: parseBoolean(
+        sidebarData.work_items?.work_item_planning_view_enabled,
+      ),
+      isGroup,
+    },
+    store: createStore({
+      searchPath,
+      issuesPath,
+      mrPath,
+      autocompletePath,
+      searchContext,
+      search: '',
+    }),
     render(h) {
-      return h(GlBreadcrumb, {
-        props: staticBreadcrumbs,
+      return h(SuperTopbar, {
+        props: {
+          sidebarData,
+        },
       });
     },
   });
-}
+};

@@ -103,7 +103,7 @@ export const truncate = (string, maxLength) => {
  * @param  {String} options.chars string of chars to use as a basis for calculating average width
  * @return {Number}
  */
-const getAverageCharWidth = memoize(function getAverageCharWidth(options = {}) {
+const getAverageCharWidth = memoize((options = {}) => {
   const {
     fontSize = 12,
     fontFamily = 'sans-serif',
@@ -558,4 +558,39 @@ export const convertEachWordToTitleCase = (str) => {
     .split(' ')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+};
+
+/**
+ * Creates a unique string in the context of an array of other strings.
+ *
+ * @param {String} originalStr String to make unique
+ * @param {Array} otherStrings to compare to
+ * @param {String} modifier to recursively apply to make the string unique
+ *
+ * @returns {String} Unique string in the context of the array.
+ */
+export const uniquifyString = (originalStr, otherStrings, modifier) =>
+  otherStrings.reduce((acc, uniqueString) => {
+    return uniqueString === acc ? acc + modifier : acc;
+  }, originalStr);
+
+export const sha256 = async (str) => {
+  const data = new TextEncoder().encode(str);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+};
+
+// A simple, cryptographically insecure 32-bit hash that's short, fast, and has no dependencies.
+// Output is always 8 characters. Useful for generating unique IDs when collisions are rare
+// for small datasets. For example, when rendering some GLQL blocks (less than 100) on a page.
+// This is better than sha256 for this case since this is also available without needing https.
+// https://stackoverflow.com/a/7616484/102994
+export const simpleHash = (string) => {
+  let hash = 0;
+  for (let i = 0; i < string.length; i += 1) {
+    const char = string.charCodeAt(i);
+    hash = (hash << 5) - hash + char; // eslint-disable-line no-bitwise
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0'); // eslint-disable-line no-bitwise
 };

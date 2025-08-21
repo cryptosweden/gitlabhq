@@ -56,6 +56,46 @@ RSpec.describe ApplicationController, feature_category: :shared do
     end
   end
 
+  describe '#set_current_organization' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:current_organization) { user.organization }
+
+    before do
+      sign_in user
+    end
+
+    controller(described_class) do
+      def index; end
+    end
+
+    it 'sets current organization' do
+      get :index, format: :html
+
+      expect(Current.organization).to eq(current_organization)
+    end
+
+    context 'when X-GitLab-Organization-ID header is provided' do
+      let_it_be(:header_organization) { create(:organization) }
+
+      it 'sets the organization from header' do
+        request.headers['X-GitLab-Organization-ID'] = header_organization.id.to_s
+
+        get :index, format: :html
+
+        expect(Current.organization).to eq(header_organization)
+      end
+    end
+
+    context 'when multiple calls in one example are done' do
+      it 'does not update the organization' do
+        expect(Current).to receive(:organization=).once.and_call_original
+
+        get :index, format: :html
+        get :index, format: :html
+      end
+    end
+  end
+
   describe '#add_gon_variables' do
     before do
       Gon.clear
@@ -88,13 +128,6 @@ RSpec.describe ApplicationController, feature_category: :shared do
       let(:format) { :html }
 
       it_behaves_like 'setting gon variables'
-
-      it 'provides the organization_http_header_name' do
-        get :index, format: format
-
-        expect(json_response.to_h)
-          .to include('organization_http_header_name' => ::Organizations::ORGANIZATION_HTTP_HEADER)
-      end
     end
 
     context 'with json format' do
@@ -540,28 +573,6 @@ RSpec.describe ApplicationController, feature_category: :shared do
         expect(controller.last_payload[:target_duration_s]).to eq(0.25)
       end
     end
-
-    it 'logs response length' do
-      sign_in user
-
-      get :index
-
-      expect(controller.last_payload[:response_bytes]).to eq('authenticated'.bytesize)
-    end
-
-    context 'with log_response_length disabled' do
-      before do
-        stub_feature_flags(log_response_length: false)
-      end
-
-      it 'logs response length' do
-        sign_in user
-
-        get :index
-
-        expect(controller.last_payload).not_to include(:response_bytes)
-      end
-    end
   end
 
   describe '#access_denied' do
@@ -754,7 +765,7 @@ RSpec.describe ApplicationController, feature_category: :shared do
     it 'sets stream headers', :aggregate_failures do
       subject
 
-      expect(response.headers['Content-Length']).to be nil
+      expect(response.headers['Content-Length']).to be_nil
       expect(response.headers['X-Accel-Buffering']).to eq 'no'
       expect(response.headers['Last-Modified']).to eq '0'
     end
@@ -873,6 +884,23 @@ RSpec.describe ApplicationController, feature_category: :shared do
     end
   end
 
+  describe 'rescue_from Gitlab::Auth::TooManyIps' do
+    controller(described_class) do
+      skip_before_action :authenticate_user!
+
+      def index
+        raise Gitlab::Auth::TooManyIps.new(1, '1.2.3.4', 10)
+      end
+    end
+
+    it 'returns a 403' do
+      get :index
+
+      expect(response).to have_gitlab_http_status(:forbidden)
+      expect(response.headers['Retry-After']).to eq(Gitlab::Auth::UniqueIpsLimiter.config.unique_ips_limit_time_window.to_s)
+    end
+  end
+
   describe '#set_current_context' do
     controller(described_class) do
       feature_category :team_planning
@@ -918,12 +946,6 @@ RSpec.describe ApplicationController, feature_category: :shared do
       get :index, format: :json
 
       expect(json_response['meta.project']).to eq(project.full_path)
-    end
-
-    it 'sets the caller_id as controller#action' do
-      get :index, format: :json
-
-      expect(json_response['meta.caller_id']).to eq('AnonymousController#index')
     end
 
     it 'sets the feature_category as defined in the controller' do
@@ -1086,14 +1108,114 @@ RSpec.describe ApplicationController, feature_category: :shared do
       end
     end
 
+    it 'returns a error response with 503 status' do
+      get :index
+
+      expect(response).to have_gitlab_http_status(:service_unavailable)
+      expect(response.headers['Retry-After']).to eq(50)
+      expect(response).to render_template('errors/service_unavailable')
+    end
+  end
+
+  context 'When Regexp::TimeoutError is raised' do
+    before do
+      sign_in user
+    end
+
+    controller(described_class) do
+      def index
+        raise Regexp::TimeoutError
+      end
+    end
+
     it 'returns a plaintext error response with 503 status' do
       get :index
 
       expect(response).to have_gitlab_http_status(:service_unavailable)
-      expect(response.body).to include(
-        "Upstream Gitaly has been exhausted: maximum time in concurrency queue reached. Try again later"
-      )
-      expect(response.headers['Retry-After']).to eq(50)
+    end
+  end
+
+  describe 'cross-site request forgery protection handling' do
+    describe '#handle_unverified_request' do
+      it 'increments counter of invalid CSRF tokens detected' do
+        stub_authentication_activity_metrics do |metrics|
+          expect(metrics).to increment(:user_csrf_token_invalid_counter)
+        end
+
+        expect { described_class.new.handle_unverified_request }
+          .to raise_error(ActionController::InvalidAuthenticityToken)
+      end
+    end
+  end
+
+  describe '#after_sign_in_path_for' do
+    subject(:get_index) { get :index }
+
+    let_it_be(:user) { create(:user) }
+
+    controller(described_class) do
+      skip_before_action :authenticate_user!
+
+      def index
+        resource = User.last
+        redirect_to after_sign_in_path_for(resource)
+      end
+    end
+
+    it 'redirects to root_path by default' do
+      get_index
+
+      expect(response).to redirect_to(root_path)
+    end
+
+    context 'when resource is nil' do
+      before do
+        allow(User).to receive(:last).and_return(nil)
+      end
+
+      it 'redirects to root_path without raising error' do
+        get_index
+
+        expect(response).to redirect_to(root_path)
+      end
+    end
+
+    context 'when user has stored location to route to' do
+      before do
+        controller.send(:store_location_for, user, user_settings_profile_path)
+      end
+
+      it 'redirects to root_path by default' do
+        get_index
+
+        expect(response).to redirect_to(user_settings_profile_path)
+      end
+    end
+
+    context 'when a redirect location is stored' do
+      before do
+        controller.send(:store_location_for, :redirect, user_settings_profile_path)
+      end
+
+      it 'redirects to root_path by default' do
+        get_index
+
+        expect(response).to redirect_to(user_settings_profile_path)
+      end
+    end
+  end
+
+  describe '#set_current_ip_address' do
+    controller(described_class) do
+      def index; end
+    end
+
+    it 'tracks current client IP address' do
+      ip = '192.168.1.2'
+      expect(::Gitlab::IpAddressState).to receive(:with).with(ip).once.and_call_original
+
+      controller.request.env['REMOTE_ADDR'] = ip
+      get :index
     end
   end
 end

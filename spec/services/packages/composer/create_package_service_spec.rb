@@ -19,10 +19,9 @@ RSpec.describe Packages::Composer::CreatePackageService, feature_category: :pack
   describe '#execute' do
     let(:tag) { nil }
     let(:branch) { nil }
+    let(:created_package) { ::Packages::Composer::Package.last }
 
     subject { described_class.new(project, user, params).execute }
-
-    let(:created_package) { ::Packages::Composer::Package.last }
 
     context 'without an existing package' do
       context 'with a branch' do
@@ -35,8 +34,8 @@ RSpec.describe Packages::Composer::CreatePackageService, feature_category: :pack
 
           expect(created_package.name).to eq package_name
           expect(created_package.version).to eq 'dev-master'
-          expect(created_package.composer_metadatum.target_sha).to eq branch.target
-          expect(created_package.composer_metadatum.composer_json.to_json).to eq json
+          expect(created_package.target_sha).to eq branch.target
+          expect(created_package.composer_json.to_json).to eq json
         end
 
         it_behaves_like 'assigns the package creator' do
@@ -82,8 +81,8 @@ RSpec.describe Packages::Composer::CreatePackageService, feature_category: :pack
 
         it 'does not create a new package' do
           expect { subject }
-            .to change { ::Packages::Composer::Package.count }.by(0)
-            .and change { Packages::Composer::Metadatum.count }.by(0)
+            .to not_change { ::Packages::Composer::Package.count }
+            .and not_change { Packages::Composer::Metadatum.count }
         end
       end
 
@@ -109,7 +108,7 @@ RSpec.describe Packages::Composer::CreatePackageService, feature_category: :pack
 
       context 'same name but of different type' do
         let(:other_project) { create(:project) }
-        let!(:other_package) { create(:package, name: package_name, version: 'dev-master', project: other_project) }
+        let!(:other_package) { create(:generic_package, name: package_name, version: 'dev-master', project: other_project) }
 
         it 'creates the package' do
           expect { subject }

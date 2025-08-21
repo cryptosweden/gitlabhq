@@ -13,6 +13,11 @@ RSpec.describe Sidebars::Projects::Menus::MonitorMenu, feature_category: :naviga
 
   subject { described_class.new(context) }
 
+  before do
+    stub_feature_flags(hide_incident_management_features: false)
+    stub_feature_flags(hide_error_tracking_features: false)
+  end
+
   describe '#render?' do
     using RSpec::Parameterized::TableSyntax
     let(:enabled) { Featurable::PRIVATE }
@@ -62,12 +67,12 @@ RSpec.describe Sidebars::Projects::Menus::MonitorMenu, feature_category: :naviga
     subject { described_class.new(context).renderable_items.index { |e| e.item_id == item_id } }
 
     shared_examples 'access rights checks' do
-      specify { is_expected.not_to be_nil }
+      it { is_expected.not_to be_nil }
 
       describe 'when the user does not have access' do
         let(:user) { nil }
 
-        specify { is_expected.to be_nil }
+        it { is_expected.to be_nil }
       end
     end
 
@@ -75,6 +80,18 @@ RSpec.describe Sidebars::Projects::Menus::MonitorMenu, feature_category: :naviga
       let(:item_id) { :error_tracking }
 
       it_behaves_like 'access rights checks'
+
+      context 'when hide_error_tracking_features flag is enabled' do
+        before do
+          stub_feature_flags(hide_error_tracking_features: true)
+        end
+
+        it { is_expected.to be_nil }
+      end
+
+      context 'when hide_error_tracking_features flag is disabled' do
+        it { is_expected.not_to be_nil }
+      end
     end
 
     describe 'Alert Management' do

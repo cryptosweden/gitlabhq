@@ -2,13 +2,15 @@
 stage: Plan
 group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Associate a Zoom meeting with an issue
 ---
 
-# Associate a Zoom meeting with an issue
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 To communicate synchronously for incidents management,
 you can associate a Zoom meeting with an issue.
@@ -32,7 +34,7 @@ a system alert notifies you of its successful addition.
 The issue's description is automatically edited to include the Zoom link, and a button
 appears right under the issue's title.
 
-![Link Zoom Call in Issue](img/zoom_quickaction_button_v16_6.png)
+![GitLab issue view showing a Join Zoom meeting button](img/zoom_quickaction_button_v16_6.png)
 
 You are only allowed to attach a single Zoom meeting to an issue. If you attempt
 to add a second Zoom meeting using the `/zoom` quick action, it doesn't work. You

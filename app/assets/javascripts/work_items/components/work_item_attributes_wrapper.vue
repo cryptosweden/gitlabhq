@@ -1,6 +1,15 @@
 <script>
+import { GlBanner, GlLink } from '@gitlab/ui';
+import { s__ } from '~/locale';
 import Participants from '~/sidebar/components/participants/participants.vue';
 import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import UserCalloutDismisser from '~/vue_shared/components/user_callout_dismisser.vue';
+import { ListType } from '~/boards/constants';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
+import { PROMO_URL } from 'jh_else_ce/lib/utils/url_utility';
+
+import WorkItemDates from 'ee_else_ce/work_items/components/work_item_dates.vue';
+
 import {
   WIDGET_TYPE_ASSIGNEES,
   WIDGET_TYPE_HEALTH_STATUS,
@@ -12,40 +21,52 @@ import {
   WIDGET_TYPE_PROGRESS,
   WIDGET_TYPE_START_AND_DUE_DATE,
   WIDGET_TYPE_TIME_TRACKING,
-  WIDGET_TYPE_ROLLEDUP_DATES,
   WIDGET_TYPE_WEIGHT,
   WIDGET_TYPE_COLOR,
-  WIDGET_TYPE_DEVELOPMENT,
-  WORK_ITEM_TYPE_VALUE_EPIC,
+  WIDGET_TYPE_CRM_CONTACTS,
+  WORK_ITEM_TYPE_NAME_EPIC,
+  NAME_TO_ENUM_MAP,
+  WIDGET_TYPE_CUSTOM_FIELDS,
+  WIDGET_TYPE_STATUS,
+  STATE_CLOSED,
 } from '../constants';
+import { findHierarchyWidgetDefinition } from '../utils';
+import workItemParticipantsQuery from '../graphql/work_item_participants.query.graphql';
+import workItemAllowedParentTypesQuery from '../graphql/work_item_allowed_parent_types.query.graphql';
+
 import WorkItemAssignees from './work_item_assignees.vue';
-import WorkItemDueDate from './work_item_due_date.vue';
 import WorkItemLabels from './work_item_labels.vue';
 import WorkItemMilestone from './work_item_milestone.vue';
 import WorkItemParent from './work_item_parent.vue';
 import WorkItemTimeTracking from './work_item_time_tracking.vue';
-import WorkItemDevelopment from './work_item_development/work_item_development.vue';
+import WorkItemCrmContacts from './work_item_crm_contacts.vue';
 
 export default {
+  ListType,
   components: {
+    GlBanner,
+    GlLink,
+    UserCalloutDismisser,
     Participants,
     WorkItemLabels,
     WorkItemMilestone,
     WorkItemAssignees,
-    WorkItemDueDate,
     WorkItemParent,
     WorkItemTimeTracking,
-    WorkItemDevelopment,
+    WorkItemCrmContacts,
+    WorkItemDates,
     WorkItemWeight: () => import('ee_component/work_items/components/work_item_weight.vue'),
     WorkItemProgress: () => import('ee_component/work_items/components/work_item_progress.vue'),
     WorkItemIteration: () => import('ee_component/work_items/components/work_item_iteration.vue'),
     WorkItemHealthStatus: () =>
       import('ee_component/work_items/components/work_item_health_status.vue'),
     WorkItemColor: () => import('ee_component/work_items/components/work_item_color.vue'),
-    WorkItemRolledupDates: () =>
-      import('ee_component/work_items/components/work_item_rolledup_dates.vue'),
+    WorkItemCustomFields: () =>
+      import('ee_component/work_items/components/work_item_custom_fields.vue'),
+    WorkItemStatus: () => import('ee_component/work_items/components/work_item_status.vue'),
   },
   mixins: [glFeatureFlagMixin()],
+  inject: ['hasSubepicsFeature', 'newTrialPath'],
   props: {
     fullPath: {
       type: String,
@@ -60,16 +81,74 @@ export default {
       required: false,
       default: '',
     },
+    isGroup: {
+      type: Boolean,
+      required: true,
+    },
+  },
+  data() {
+    return {
+      workItemParticipants: {},
+      allowedParentTypes: [],
+    };
+  },
+  apollo: {
+    workItemParticipants: {
+      query: workItemParticipantsQuery,
+      variables() {
+        return {
+          fullPath: this.fullPath,
+          iid: this.workItem.iid,
+        };
+      },
+      skip() {
+        return !this.workItem.iid;
+      },
+      update({ workspace }) {
+        if (!workspace?.workItem) return {};
+
+        const workItemParticipantData = this.isWidgetPresent(
+          WIDGET_TYPE_PARTICIPANTS,
+          workspace.workItem,
+        );
+
+        return workItemParticipantData?.participants || {};
+      },
+      error(e) {
+        Sentry.captureException(e);
+      },
+    },
+    allowedParentTypes: {
+      query: workItemAllowedParentTypesQuery,
+      variables() {
+        return {
+          id: this.workItem.id,
+        };
+      },
+      update(data) {
+        return (
+          findHierarchyWidgetDefinition(data.workItem)?.allowedParentTypes?.nodes.map(
+            (el) => NAME_TO_ENUM_MAP[el.name],
+          ) || []
+        );
+      },
+      error(e) {
+        Sentry.captureException(e);
+      },
+    },
   },
   computed: {
     workItemType() {
       return this.workItem.workItemType?.name;
     },
-    canUpdate() {
-      return this.workItem?.userPermissions?.updateWorkItem;
+    canUpdateMetadata() {
+      return this.workItem?.userPermissions?.setWorkItemMetadata;
     },
-    canDelete() {
-      return this.workItem?.userPermissions?.deleteWorkItem;
+    workItemParticipantNodes() {
+      return this.workItemParticipants.nodes || [];
+    },
+    workItemParticipantCount() {
+      return this.workItemParticipants.count || 0;
     },
     workItemAssignees() {
       return this.isWidgetPresent(WIDGET_TYPE_ASSIGNEES);
@@ -77,17 +156,17 @@ export default {
     workItemLabels() {
       return this.isWidgetPresent(WIDGET_TYPE_LABELS);
     },
-    workItemDueDate() {
+    workItemStatus() {
+      return this.isWidgetPresent(WIDGET_TYPE_STATUS);
+    },
+    workItemStartAndDueDate() {
       return this.isWidgetPresent(WIDGET_TYPE_START_AND_DUE_DATE);
     },
-    workItemRolledupDates() {
-      return this.isWidgetPresent(WIDGET_TYPE_ROLLEDUP_DATES);
+    canWorkItemRollUp() {
+      return this.workItemType === WORK_ITEM_TYPE_NAME_EPIC;
     },
     workItemWeight() {
       return this.isWidgetPresent(WIDGET_TYPE_WEIGHT);
-    },
-    workItemParticipants() {
-      return this.isWidgetPresent(WIDGET_TYPE_PARTICIPANTS);
     },
     workItemProgress() {
       return this.isWidgetPresent(WIDGET_TYPE_PROGRESS);
@@ -104,13 +183,14 @@ export default {
     workItemMilestone() {
       return this.isWidgetPresent(WIDGET_TYPE_MILESTONE);
     },
-    showRolledupDates() {
-      return (
-        this.glFeatures.workItemsRolledupDates && this.workItemType === WORK_ITEM_TYPE_VALUE_EPIC
-      );
+    isParentEnabled() {
+      return this.workItemType === WORK_ITEM_TYPE_NAME_EPIC ? this.hasSubepicsFeature : true;
     },
     workItemParent() {
       return this.isWidgetPresent(WIDGET_TYPE_HIERARCHY)?.parent;
+    },
+    showParent() {
+      return this.allowedParentTypes.length > 0 && this.workItemHierarchy && this.isParentEnabled;
     },
     workItemTimeTracking() {
       return this.isWidgetPresent(WIDGET_TYPE_TIME_TRACKING);
@@ -118,165 +198,186 @@ export default {
     workItemColor() {
       return this.isWidgetPresent(WIDGET_TYPE_COLOR);
     },
-    workItemParticipantNodes() {
-      return this.workItemParticipants?.participants?.nodes ?? [];
+    hasParent() {
+      return this.workItemHierarchy?.hasParent;
     },
-    workItemAuthor() {
-      return this.workItem?.author;
+    isWorkItemClosed() {
+      return this.workItem.state === STATE_CLOSED;
     },
-    workItemDevelopment() {
-      return this.isWidgetPresent(WIDGET_TYPE_DEVELOPMENT) && this.glFeatures.workItemsAlpha;
+    workItemCrmContacts() {
+      const crmContactsWidget = this.isWidgetPresent(WIDGET_TYPE_CRM_CONTACTS);
+      return crmContactsWidget && crmContactsWidget.contactsAvailable ? crmContactsWidget : null;
+    },
+    customFields() {
+      return this.isWidgetPresent(WIDGET_TYPE_CUSTOM_FIELDS)?.customFieldValues;
+    },
+    showWorkItemStatus() {
+      return this.glFeatures.workItemStatusFeatureFlag && this.workItemStatus;
     },
   },
   methods: {
-    isWidgetPresent(type) {
-      return this.workItem?.widgets?.find((widget) => widget.type === type);
+    isWidgetPresent(type, workItem = this.workItem) {
+      return workItem?.widgets?.find((widget) => widget.type === type);
+    },
+  },
+  promoUrl: PROMO_URL,
+  i18n: {
+    upgradeBanner: {
+      title: s__('Promotions|Upgrade for advanced agile planning'),
+      description: s__(
+        'Promotions|Unlock epics, advanced boards, status, weight, iterations, and more to seamlessly tie your strategy to your DevSecOps workflows with GitLab.',
+      ),
+      primaryAction: s__('Promotions|Try it for free'),
+      secondaryAction: s__('Promotions|Learn more'),
     },
   },
 };
 </script>
 
 <template>
-  <div class="work-item-attributes-wrapper">
-    <template v-if="workItemAssignees">
-      <work-item-assignees
-        class="gl-mb-5 js-assignee"
-        :can-update="canUpdate"
-        :full-path="fullPath"
-        :work-item-id="workItem.id"
-        :assignees="workItemAssignees.assignees.nodes"
-        :participants="workItemParticipantNodes"
-        :work-item-author="workItemAuthor"
-        :allows-multiple-assignees="workItemAssignees.allowsMultipleAssignees"
-        :work-item-type="workItemType"
-        :can-invite-members="workItemAssignees.canInviteMembers"
-        @error="$emit('error', $event)"
-      />
-    </template>
-    <template v-if="workItemLabels">
-      <work-item-labels
-        class="gl-mb-5 js-labels"
-        :can-update="canUpdate"
-        :full-path="fullPath"
-        :work-item-id="workItem.id"
-        :work-item-iid="workItem.iid"
-        :work-item-type="workItemType"
-        @error="$emit('error', $event)"
-      />
-    </template>
-    <template v-if="workItemWeight">
-      <work-item-weight
-        class="gl-mb-5"
-        :can-update="canUpdate"
-        :weight="workItemWeight.weight"
-        :work-item-id="workItem.id"
-        :work-item-iid="workItem.iid"
-        :work-item-type="workItemType"
-        @error="$emit('error', $event)"
-      />
-    </template>
-    <template v-if="workItemRolledupDates && showRolledupDates">
-      <work-item-rolledup-dates
-        :can-update="canUpdate"
-        :due-date-is-fixed="workItemRolledupDates.dueDateIsFixed"
-        :due-date-fixed="workItemRolledupDates.dueDateFixed"
-        :due-date-inherited="workItemRolledupDates.dueDate"
-        :start-date-is-fixed="workItemRolledupDates.startDateIsFixed"
-        :start-date-fixed="workItemRolledupDates.startDateFixed"
-        :start-date-inherited="workItemRolledupDates.startDate"
-        :work-item-type="workItemType"
-        :work-item="workItem"
-        @error="$emit('error', $event)"
-      />
-    </template>
-    <template v-if="workItemMilestone">
-      <work-item-milestone
-        class="gl-mb-5 js-milestone"
-        :full-path="fullPath"
-        :work-item-id="workItem.id"
-        :work-item-milestone="workItemMilestone.milestone"
-        :work-item-type="workItemType"
-        :can-update="canUpdate"
-        @error="$emit('error', $event)"
-      />
-    </template>
-    <template v-if="workItemIteration">
-      <work-item-iteration
-        class="gl-mb-5"
-        :full-path="fullPath"
-        :iteration="workItemIteration.iteration"
-        :can-update="canUpdate"
-        :work-item-id="workItem.id"
-        :work-item-iid="workItem.iid"
-        :work-item-type="workItemType"
-        @error="$emit('error', $event)"
-      />
-    </template>
-    <template v-if="workItemDueDate && !showRolledupDates">
-      <work-item-due-date
-        :can-update="canUpdate"
-        :due-date="workItemDueDate.dueDate"
-        :start-date="workItemDueDate.startDate"
-        :work-item-type="workItemType"
-        :full-path="fullPath"
-        :work-item="workItem"
-        @error="$emit('error', $event)"
-      />
-    </template>
-    <template v-if="workItemProgress">
-      <work-item-progress
-        class="gl-mb-5"
-        :can-update="canUpdate"
-        :progress="workItemProgress.progress"
-        :work-item-id="workItem.id"
-        :work-item-type="workItemType"
-        @error="$emit('error', $event)"
-      />
-    </template>
-    <template v-if="workItemHealthStatus">
-      <work-item-health-status
-        class="gl-mb-5"
-        :health-status="workItemHealthStatus.healthStatus"
-        :can-update="canUpdate"
-        :work-item-id="workItem.id"
-        :work-item-iid="workItem.iid"
-        :work-item-type="workItemType"
-        :full-path="fullPath"
-        @error="$emit('error', $event)"
-      />
-    </template>
-    <template v-if="workItemColor">
-      <work-item-color
-        class="gl-mb-5"
-        :work-item="workItem"
-        :full-path="fullPath"
-        :can-update="canUpdate"
-        @error="$emit('error', $event)"
-      />
-    </template>
-    <template v-if="workItemHierarchy">
-      <work-item-parent
-        class="gl-mb-5 gl-pt-5 gl-border-t gl-border-gray-50"
-        :can-update="canUpdate"
-        :work-item-id="workItem.id"
-        :work-item-type="workItemType"
-        :parent="workItemParent"
-        :group-path="groupPath"
-        @error="$emit('error', $event)"
-      />
-    </template>
-    <work-item-development
-      v-if="workItemDevelopment"
-      class="gl-mb-5 gl-pt-5 gl-border-t gl-border-gray-50"
-      :can-update="canUpdate"
+  <div class="work-item-attributes-wrapper work-item-sidebar-container">
+    <work-item-status
+      v-if="showWorkItemStatus"
+      class="work-item-attributes-item"
+      :can-update="canUpdateMetadata"
+      :work-item-id="workItem.id"
       :work-item-iid="workItem.iid"
-      :work-item-full-path="fullPath"
+      :work-item-type="workItemType"
+      :full-path="fullPath"
+      @error="$emit('error', $event)"
+      @statusUpdated="$emit('attributesUpdated', { type: $options.ListType.status, ids: [$event] })"
+    />
+    <work-item-assignees
+      v-if="workItemAssignees"
+      class="js-assignee work-item-attributes-item"
+      :can-update="canUpdateMetadata"
+      :full-path="fullPath"
+      :is-group="isGroup"
+      :work-item-id="workItem.id"
+      :assignees="workItemAssignees.assignees.nodes"
+      :participants="workItemParticipantNodes"
+      :allows-multiple-assignees="workItemAssignees.allowsMultipleAssignees"
+      :work-item-type="workItemType"
+      :can-invite-members="workItemAssignees.canInviteMembers"
+      @error="$emit('error', $event)"
+      @assigneesUpdated="
+        $emit('attributesUpdated', { type: $options.ListType.assignee, ids: $event })
+      "
+    />
+    <work-item-labels
+      v-if="workItemLabels"
+      class="js-labels work-item-attributes-item"
+      :can-update="canUpdateMetadata"
+      :full-path="fullPath"
+      :is-group="isGroup"
+      :work-item-id="workItem.id"
+      :work-item-iid="workItem.iid"
+      :work-item-type="workItemType"
+      @error="$emit('error', $event)"
+      @labelsUpdated="$emit('attributesUpdated', { type: $options.ListType.label, ids: $event })"
+    />
+    <work-item-parent
+      v-if="showParent"
+      class="work-item-attributes-item"
+      :can-update="canUpdateMetadata"
+      :full-path="fullPath"
+      :work-item-id="workItem.id"
+      :work-item-type="workItemType"
+      :parent="workItemParent"
+      :has-parent="hasParent"
+      :group-path="groupPath"
+      :is-group="isGroup"
+      @error="$emit('error', $event)"
+    />
+    <work-item-weight
+      v-if="workItemWeight"
+      class="work-item-attributes-item"
+      :can-update="canUpdateMetadata"
+      :widget="workItemWeight"
+      :work-item-id="workItem.id"
+      :work-item-iid="workItem.iid"
+      :work-item-type="workItemType"
+      @error="$emit('error', $event)"
+    />
+    <work-item-milestone
+      v-if="workItemMilestone"
+      class="js-milestone work-item-attributes-item"
+      :is-group="isGroup"
+      :full-path="fullPath"
+      :work-item-id="workItem.id"
+      :work-item-milestone="workItemMilestone.milestone"
+      :work-item-type="workItemType"
+      :can-update="canUpdateMetadata"
+      @error="$emit('error', $event)"
+      @milestoneUpdated="
+        $emit('attributesUpdated', { type: $options.ListType.milestone, ids: [$event] })
+      "
+    />
+    <work-item-iteration
+      v-if="workItemIteration"
+      class="work-item-attributes-item"
+      :full-path="fullPath"
+      :is-group="isGroup"
+      :iteration="workItemIteration.iteration"
+      :can-update="canUpdateMetadata"
+      :work-item-id="workItem.id"
+      :work-item-iid="workItem.iid"
+      :work-item-type="workItemType"
+      @error="$emit('error', $event)"
+      @iterationUpdated="
+        $emit('attributesUpdated', { type: $options.ListType.iteration, ids: [$event] })
+      "
+    />
+    <work-item-dates
+      v-if="workItemStartAndDueDate"
+      class="work-item-attributes-item"
+      :can-update="canUpdateMetadata"
+      :start-date="workItemStartAndDueDate.startDate"
+      :due-date="workItemStartAndDueDate.dueDate"
+      :is-fixed="workItemStartAndDueDate.isFixed"
+      :should-roll-up="canWorkItemRollUp"
+      :work-item-type="workItemType"
+      :work-item="workItem"
+      @error="$emit('error', $event)"
+    />
+    <work-item-progress
+      v-if="workItemProgress"
+      class="work-item-attributes-item"
+      :can-update="canUpdateMetadata"
+      :progress="workItemProgress.progress"
+      :work-item-id="workItem.id"
+      :work-item-type="workItemType"
+      @error="$emit('error', $event)"
+    />
+    <work-item-health-status
+      v-if="workItemHealthStatus"
+      class="work-item-attributes-item"
+      :is-work-item-closed="isWorkItemClosed"
+      :work-item-id="workItem.id"
+      :work-item-iid="workItem.iid"
+      :work-item-type="workItemType"
+      :full-path="fullPath"
+      @error="$emit('error', $event)"
+    />
+    <work-item-color
+      v-if="workItemColor"
+      class="work-item-attributes-item"
+      :work-item="workItem"
+      :can-update="canUpdateMetadata"
+      @error="$emit('error', $event)"
+    />
+    <work-item-custom-fields
+      v-if="customFields"
+      :work-item-id="workItem.id"
+      :work-item-type="workItemType"
+      :custom-fields="customFields"
+      :can-update="canUpdateMetadata"
       @error="$emit('error', $event)"
     />
     <work-item-time-tracking
       v-if="workItemTimeTracking"
-      class="gl-mb-5 gl-pt-5 gl-border-t gl-border-gray-50"
-      :can-update="canUpdate"
+      class="work-item-attributes-item"
+      :can-update="canUpdateMetadata"
       :time-estimate="workItemTimeTracking.timeEstimate"
       :timelogs="workItemTimeTracking.timelogs.nodes"
       :total-time-spent="workItemTimeTracking.totalTimeSpent"
@@ -284,11 +385,46 @@ export default {
       :work-item-iid="workItem.iid"
       :work-item-type="workItemType"
     />
-    <participants
-      v-if="workItemParticipants"
-      class="gl-mb-5 gl-pt-5 gl-border-t gl-border-gray-50"
-      :number-of-less-participants="10"
-      :participants="workItemParticipants.participants.nodes"
+    <work-item-crm-contacts
+      v-if="workItemCrmContacts"
+      class="gl-border-t gl-mb-5 gl-border-subtle gl-pt-5"
+      :full-path="fullPath"
+      :work-item-id="workItem.id"
+      :work-item-iid="workItem.iid"
+      :work-item-type="workItemType"
     />
+    <participants
+      v-if="workItemParticipantNodes.length"
+      class="work-item-attributes-item"
+      data-testid="work-item-participants"
+      :participants="workItemParticipantNodes"
+      :participant-count="workItemParticipantCount"
+    />
+    <user-callout-dismisser
+      v-if="workItem.showPlanUpgradePromotion && newTrialPath"
+      feature-name="ultimate_trial"
+    >
+      <template #default="{ dismiss, shouldShowCallout }">
+        <gl-banner
+          v-if="shouldShowCallout"
+          class="work-item-attributes-item gl-mt-6"
+          :title="$options.i18n.upgradeBanner.title"
+          :button-text="$options.i18n.upgradeBanner.primaryAction"
+          :button-link="newTrialPath"
+          @close="dismiss"
+        >
+          <p>{{ $options.i18n.upgradeBanner.description }}</p>
+          <template #actions>
+            <gl-link
+              class="gl-ml-4"
+              :href="`${$options.promoUrl}/features/?stage=plan`"
+              target="_blank"
+            >
+              {{ $options.i18n.upgradeBanner.secondaryAction }}
+            </gl-link>
+          </template>
+        </gl-banner>
+      </template>
+    </user-callout-dismisser>
   </div>
 </template>

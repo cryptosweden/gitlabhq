@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Manage', only: { subdomain: "staging-ref" } do
-    describe 'Slack app integration', :slack, product_group: :import_and_integrate do
+  RSpec.describe 'Manage', only: { subdomain: "staging-ref" }, feature_category: :importers do
+    describe 'Slack app integration', :slack do
       context 'when using Slash commands' do
         # state to be seeded in the Slack UI
         let(:title) { "Issue - #{SecureRandom.hex(5)}" }
@@ -30,10 +30,6 @@ module QA
             end
             close_tab(2)
           end
-        end
-
-        after do
-          project.remove_via_api!
         end
 
         it 'creates an issue', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/377890' do
@@ -91,10 +87,6 @@ module QA
 
           context 'with target project' do
             let(:target) { create(:project, :with_readme, name: 'target_slack_project') }
-
-            after do
-              target.remove_via_api!
-            end
 
             it 'moves an issue', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/377894' do
               with_slack_tab do

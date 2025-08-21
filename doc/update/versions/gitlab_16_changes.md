@@ -1,14 +1,17 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Operate
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: GitLab 16 upgrade notes
+description: Upgrade notes for GitLab 16 versions.
 ---
 
-# GitLab 16 changes
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 This page contains upgrade information for minor and patch versions of GitLab 16.
 Ensure you review these instructions for:
@@ -16,14 +19,15 @@ Ensure you review these instructions for:
 - Your installation type.
 - All versions between your current version and your target version.
 
-For more information about upgrading GitLab Helm Chart, see [the release notes for 7.0](https://docs.gitlab.com/charts/releases/7_0.html).
+For additional information for Helm chart installations, see
+[the Helm chart 7.0 upgrade notes](https://docs.gitlab.com/charts/releases/7_0.html).
 
 ## Issues to be aware of when upgrading from 15.11
 
-- [PostgreSQL 12 is not supported starting from GitLab 16](../../update/deprecations.md#postgresql-12-deprecated). Upgrade PostgreSQL to at least version 13.6 before upgrading to GitLab 16.0 or later.
+- [PostgreSQL 12 is not supported starting from GitLab 16](../deprecations.md#postgresql-12-deprecated). Upgrade PostgreSQL to at least version 13.6 before upgrading to GitLab 16.0 or later.
 - If your GitLab instance upgraded first to 15.11.0, 15.11.1, or 15.11.2 the database schema is incorrect.
   Perform the [workaround](#undefined-column-error-upgrading-to-162-or-later) before upgrading to 16.x.
-- Starting with 16.0, GitLab self-managed installations now have two database connections by default, instead of one. This change doubles the number of PostgreSQL connections. It makes self-managed versions of GitLab behave similarly to GitLab.com, and is a step toward enabling a separate database for CI features for self-managed versions of GitLab. Before upgrading to 16.0, determine if you need to [increase max connections for PostgreSQL](https://docs.gitlab.com/omnibus/settings/database.html#configuring-multiple-database-connections).
+- Starting with 16.0, GitLab Self-Managed installations now have two database connections by default, instead of one. This change doubles the number of PostgreSQL connections. It makes self-managed versions of GitLab behave similarly to GitLab.com, and is a step toward enabling a separate database for CI features for self-managed versions of GitLab. Before upgrading to 16.0, determine if you need to [increase max connections for PostgreSQL](https://docs.gitlab.com/omnibus/settings/database.html#configuring-multiple-database-connections).
   - This change applies to installation methods with Linux packages (Omnibus), GitLab Helm chart, GitLab Operator, GitLab Docker images, and self-compiled installations.
   - [The second database connection can be disabled](#disable-the-second-database-connection).
 - Most installations can skip 16.0, 16.1, and 16.2, as the first required stop on the upgrade path is 16.3.
@@ -54,7 +58,7 @@ For more information about upgrading GitLab Helm Chart, see [the release notes f
   [Read more in the issue](https://gitlab.com/gitlab-org/gitlab/-/issues/416646).
   The [bug is fixed in GitLab 16.5 and later](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/131122).
 
-- Normally, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
+- Usually, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
 
     **Affected releases**:
 
@@ -86,9 +90,24 @@ For more information about upgrading GitLab Helm Chart, see [the release notes f
 
 ## 16.11.0
 
+- A [`groups_direct` field was added](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/146881)
+  to the [JSON web token (ID token)](../../ci/secrets/id_token_authentication.md).
+  - If you use GitLab CI/CD ID tokens to authenticate with third party services,
+    this change can cause the HTTP header size to increase. Proxy servers might reject
+    the request if the headers get too big.
+  - If possible, increase the header limit on the receiving system.
+  - See [issue 467253](https://gitlab.com/gitlab-org/gitlab/-/issues/467253) for more details.
+- After upgrading to GitLab 16.11 some users with large environments and databases experience
+  timeouts loading source code pages in the web UI.
+  - These timeouts are caused by slow PostgreSQL queries for pipeline data, which then
+    exceed the internal 60 second timeout.
+  - You can still clone Git repositories, and other requests for repository data works.
+  - See [issue 472420](https://gitlab.com/gitlab-org/gitlab/-/issues/472420) for more details,
+    including steps to confirm you're affected and housekeeping to run in PostgreSQL to correct it.
+
 ### Linux package installations
 
-In GitLab 16.11, PostgreSQL will automatically be upgraded to 14.x except for the following cases:
+In GitLab 16.11, PostgreSQL is automatically upgraded to 14.x except for the following cases:
 
 - You are running the database in high availability using Patroni.
 - Your database nodes are part of a GitLab Geo configuration.
@@ -100,8 +119,8 @@ see [Packaged PostgreSQL deployed in an HA/Geo Cluster](https://docs.gitlab.com/
 
 ### Geo installations
 
-- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
-  See details of the problem and workaround in issue [#457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
+- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/_index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
+  See details of the problem and workaround in [issue 457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
 
   **Affected releases**:
 
@@ -109,11 +128,34 @@ see [Packaged PostgreSQL deployed in an HA/Geo Cluster](https://docs.gitlab.com/
   | ----------------------- | ----------------------- | -------- |
   | 16.5                    |  All                    | None     |
   | 16.6                    |  All                    | None     |
-  | 16.7                    |  All                    | None     |
-  | 16.8                    |  All                    | None     |
-  | 16.9                    |  All                    | None     |
+  | 16.7                    |  16.7.0 - 16.7.7        | 16.7.8   |
+  | 16.8                    |  16.8.0 - 16.8.7        | 16.8.8   |
+  | 16.9                    |  16.9.0 - 16.9.8        | 16.9.9   |
   | 16.10                   |  16.10.0 - 16.10.6      | 16.10.7  |
   | 16.11                   |  16.11.0 - 16.11.3      | 16.11.4  |
+
+- In GitLab 16.11 through GitLab 17.2, a missing PostgreSQL index can cause high CPU usage, slow job artifact verification progress, and slow or timed out Geo metrics status updates. The index was added in GitLab 17.3. To manually add the index, see [Geo Troubleshooting - High CPU usage on primary during job artifact verification](../../administration/geo/replication/troubleshooting/common.md#high-cpu-usage-on-primary-during-object-verification).
+
+  **Affected releases**:
+
+  | Affected minor releases | Affected patch releases | Fixed in |
+  | ----------------------- | ----------------------- | -------- |
+  | 16.11                   |  All                    | None     |
+  | 17.0                    |  All                    | None     |
+  | 17.1                    |  All                    | None     |
+  | 17.2                    |  All                    | None     |
+
+- Geo replication details for secondary sites appear to be empty even if Geo replication is working. See [issue 468509](https://gitlab.com/gitlab-org/gitlab/-/issues/468509). There is no known workaround. The bug is fixed in GitLab 17.4.
+
+  **Affected releases**:
+
+  | Affected minor releases | Affected patch releases | Fixed in |
+  | ----------------------- | ----------------------- | -------- |
+  | 16.11                   |  16.11.5 - 16.11.10     | None     |
+  | 17.0                    |  All                    | 17.0.7   |
+  | 17.1                    |  All                    | 17.1.7   |
+  | 17.2                    |  All                    | 17.2.5   |
+  | 17.3                    |  All                    | 17.3.1   |
 
 ## 16.10.0
 
@@ -155,19 +197,19 @@ To workaround the problem:
 
 Linux package installations for GitLab 16.10 include an upgrade to a new major version of Patroni, from version 2.1.0 to version 3.0.1.
 
-If you're using one of the [reference architectures](../../administration/reference_architectures/index.md)
-that enables [High Availability (HA)](../../administration/reference_architectures/index.md#high-availability-ha)
+If you're using one of the [reference architectures](../../administration/reference_architectures/_index.md)
+that enables [High Availability (HA)](../../administration/reference_architectures/_index.md#high-availability-ha)
 (3k users or more), you're using
 [PostgreSQL replication and failover for Linux package installations](../../administration/postgresql/replication_and_failover.md), which uses Patroni.
 
-If this is your case, read [Multi-node upgrades with downtime](../../update/with_downtime.md) on how to upgrade your multi-node instance.
+If this is your case, read [Multi-node upgrades with downtime](../with_downtime.md) on how to upgrade your multi-node instance.
 
 For more information on the changes introduced between version 2.1.0 and version 3.0.1, see the [Patroni release notes](https://patroni.readthedocs.io/en/latest/releases.html).
 
 ### Geo installations
 
-- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
-  See details of the problem and workaround in issue [#457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
+- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/_index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
+  See details of the problem and workaround in [issue 457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
 
   **Affected releases**:
 
@@ -175,9 +217,9 @@ For more information on the changes introduced between version 2.1.0 and version
   | ----------------------- | ----------------------- | -------- |
   | 16.5                    |  All                    | None     |
   | 16.6                    |  All                    | None     |
-  | 16.7                    |  All                    | None     |
-  | 16.8                    |  All                    | None     |
-  | 16.9                    |  All                    | None     |
+  | 16.7                    |  16.7.0 - 16.7.7        | 16.7.8   |
+  | 16.8                    |  16.8.0 - 16.8.7        | 16.8.8   |
+  | 16.9                    |  16.9.0 - 16.9.8        | 16.9.9   |
   | 16.10                   |  16.10.0 - 16.10.6      | 16.10.7  |
   | 16.11                   |  16.11.0 - 16.11.3      | 16.11.4  |
 
@@ -203,7 +245,7 @@ planned for release in 16.9.1.
   | All                     |  All                    | 16.10.2  |
 
 - Due to a bug introduced GitLab 16.5, [personal snippets](../../user/snippets.md) are not being replicated to secondary Geo sites. This can lead to loss of personal snippet data in the event of a Geo failover.
-  See details of the problem and workaround in issue [#439933](https://gitlab.com/gitlab-org/gitlab/-/issues/439933).
+  See details of the problem and workaround in [issue 439933](https://gitlab.com/gitlab-org/gitlab/-/issues/439933).
 
   **Affected releases**:
 
@@ -224,8 +266,8 @@ planned for release in 16.9.1.
   | 16.8                    |  16.8.0 - 16.8.3        | 16.8.4   |
   | 16.9                    |  16.9.0 - 16.9.1        | 16.9.2   |
 
-- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
-  See details of the problem and workaround in issue [#457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
+- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/_index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
+  See details of the problem and workaround in [issue 457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
 
   **Affected releases**:
 
@@ -233,23 +275,21 @@ planned for release in 16.9.1.
   | ----------------------- | ----------------------- | -------- |
   | 16.5                    |  All                    | None     |
   | 16.6                    |  All                    | None     |
-  | 16.7                    |  All                    | None     |
-  | 16.8                    |  All                    | None     |
-  | 16.9                    |  All                    | None     |
+  | 16.7                    |  16.7.0 - 16.7.7        | 16.7.8   |
+  | 16.8                    |  16.8.0 - 16.8.7        | 16.8.8   |
+  | 16.9                    |  16.9.0 - 16.9.8        | 16.9.9   |
   | 16.10                   |  16.10.0 - 16.10.6      | 16.10.7  |
   | 16.11                   |  16.11.0 - 16.11.3      | 16.11.4  |
 
 ### Linux package installations
 
-- The [Sidekiq `min_concurrency` and `max_concurrency`](../../administration/sidekiq/extra_sidekiq_processes.md#manage-thread-counts-with-min_concurrency-and-max_concurrency-fields-deprecated) options are deprecated in GitLab 16.9.0 and due for removal in GitLab 17.0.0. In GitLab 16.9.0 and later, to avoid breaking changes in GitLab 17.0.0, set the new [`concurrency`](../../administration/sidekiq/extra_sidekiq_processes.md#manage-thread-counts-with-concurrency-field) option and remove the `min_concurrency` and `max_concurrency` options.
+- The Sidekiq `min_concurrency` and `max_concurrency` options are deprecated in GitLab 16.9.0 and due for removal in GitLab 17.0.0. In GitLab 16.9.0 and later, to avoid breaking changes in GitLab 17.0.0, set the new [`concurrency`](../../administration/sidekiq/extra_sidekiq_processes.md#manage-thread-counts-with-concurrency-field) option and remove the `min_concurrency` and `max_concurrency` options.
 
 ## 16.8.0
 
-- In GitLab 16.8.0 and 16.8.1, the Sidekiq gem was upgraded, and the newer version requires Redis 6.2 or later. If you are using Redis 6.0, upgrade
-  directly to 16.8.2, which [restores compatibility with Redis 6.0](https://gitlab.com/gitlab-org/gitlab/-/issues/439418).
-- NOTE: You should upgrade to Redis 6.2 or later as [Redis 6.0 is no longer supported](https://endoflife.date/redis).
-
-- Normally, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
+- GitLab 16.8.0 and 16.8.1 temporarily required Redis 6.2. GitLab 16.8.2 restored
+  [compatibility with Redis 6.0](https://gitlab.com/gitlab-org/gitlab/-/issues/439418).
+- Usually, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
 
     **Affected releases**:
 
@@ -281,7 +321,7 @@ planned for release in 16.9.1.
     - Upgrade all existing sites to GitLab 16.8.2 or later and PostgreSQL 14 before you add the new Geo secondary site to the deployment.
 
 - Due to a bug introduced GitLab 16.5, [personal snippets](../../user/snippets.md) are not being replicated to secondary Geo sites. This can lead to loss of personal snippet data in the event of a Geo failover.
-  See details of the problem and workaround in issue [#439933](https://gitlab.com/gitlab-org/gitlab/-/issues/439933).
+  See details of the problem and workaround in [issue 439933](https://gitlab.com/gitlab-org/gitlab/-/issues/439933).
 
   **Affected releases**:
 
@@ -302,8 +342,8 @@ planned for release in 16.9.1.
   | 16.8                    |  16.8.0 - 16.8.3        | 16.8.4   |
   | 16.9                    |  16.9.0 - 16.9.1        | 16.9.2   |
 
-- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
-  See details of the problem and workaround in issue [#457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
+- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/_index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
+  See details of the problem and workaround in [issue 457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
 
   **Affected releases**:
 
@@ -311,9 +351,9 @@ planned for release in 16.9.1.
   | ----------------------- | ----------------------- | -------- |
   | 16.5                    |  All                    | None     |
   | 16.6                    |  All                    | None     |
-  | 16.7                    |  All                    | None     |
-  | 16.8                    |  All                    | None     |
-  | 16.9                    |  All                    | None     |
+  | 16.7                    |  16.7.0 - 16.7.7        | 16.7.8   |
+  | 16.8                    |  16.8.0 - 16.8.7        | 16.8.8   |
+  | 16.9                    |  16.9.0 - 16.9.8        | 16.9.9   |
   | 16.10                   |  16.10.0 - 16.10.6      | 16.10.7  |
   | 16.11                   |  16.11.0 - 16.11.3      | 16.11.4  |
 
@@ -327,7 +367,7 @@ planned for release in 16.9.1.
     when your instance processes a background database migration from the GitLab 16.6 release.
     Read more about the `ci_builds` migration in the [16.6.0 upgrade notes](#1660).
 
-- Normally, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
+- Usually, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
 
     **Affected releases**:
 
@@ -380,7 +420,7 @@ Specific information applies to Linux package installations:
   | 16.7                    |  16.7.0 - 16.7.3        | 16.7.4   |
 
 - Due to a bug introduced GitLab 16.5, [personal snippets](../../user/snippets.md) are not being replicated to secondary Geo sites. This can lead to loss of personal snippet data in the event of a Geo failover.
-  See details of the problem and workaround in issue [#439933](https://gitlab.com/gitlab-org/gitlab/-/issues/439933).
+  See details of the problem and workaround in [issue 439933](https://gitlab.com/gitlab-org/gitlab/-/issues/439933).
 
   **Affected releases**:
 
@@ -392,8 +432,8 @@ Specific information applies to Linux package installations:
   | 16.8                    |  16.8.0 - 16.8.3        | 16.8.4   |
   | 16.9                    |  16.9.0 - 16.9.1        | 16.9.2   |
 
-- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
-  See details of the problem and workaround in issue [#457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
+- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/_index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
+  See details of the problem and workaround in [issue 457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
 
   **Affected releases**:
 
@@ -401,9 +441,9 @@ Specific information applies to Linux package installations:
   | ----------------------- | ----------------------- | -------- |
   | 16.5                    |  All                    | None     |
   | 16.6                    |  All                    | None     |
-  | 16.7                    |  All                    | None     |
-  | 16.8                    |  All                    | None     |
-  | 16.9                    |  All                    | None     |
+  | 16.7                    |  16.7.0 - 16.7.7        | 16.7.8   |
+  | 16.8                    |  16.8.0 - 16.8.7        | 16.8.8   |
+  | 16.9                    |  16.9.0 - 16.9.8        | 16.9.9   |
   | 16.10                   |  16.10.0 - 16.10.6      | 16.10.7  |
   | 16.11                   |  16.11.0 - 16.11.3      | 16.11.4  |
 
@@ -426,7 +466,7 @@ Specific information applies to Linux package installations:
 
   Workarounds:
 
-  - Pause the running migration in the [Admin Area](../background_migrations.md#from-the-gitlab-ui).
+  - Pause the running migration in the [**Admin** area](../background_migrations.md#from-the-gitlab-ui).
   - Recreate table statistics manually on the
     [database console](../../administration/troubleshooting/postgresql.md#start-a-database-console)
     to ensure the right query plan is selected:
@@ -437,7 +477,7 @@ Specific information applies to Linux package installations:
     ```
 
 - Old [CI Environment destroy jobs may be spawned](https://gitlab.com/gitlab-org/gitlab/-/issues/433264#) after upgrading to GitLab 16.6.
-- Normally, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
+- Usually, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
 
     **Affected releases**:
 
@@ -469,7 +509,7 @@ Specific information applies to Linux package installations:
   | 16.7                    |  16.7.0 - 16.7.3        | 16.7.4   |
 
 - Due to a bug introduced GitLab 16.5, [personal snippets](../../user/snippets.md) are not being replicated to secondary Geo sites. This can lead to loss of personal snippet data in the event of a Geo failover.
-  See details of the problem and workaround in issue [#439933](https://gitlab.com/gitlab-org/gitlab/-/issues/439933).
+  See details of the problem and workaround in [issue 439933](https://gitlab.com/gitlab-org/gitlab/-/issues/439933).
 
   **Affected releases**:
 
@@ -481,8 +521,8 @@ Specific information applies to Linux package installations:
   | 16.8                    |  16.8.0 - 16.8.3        | 16.8.4   |
   | 16.9                    |  16.9.0 - 16.9.1        | 16.9.2   |
 
-- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
-  See details of the problem and workaround in issue [#457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
+- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/_index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
+  See details of the problem and workaround in [issue 457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
 
   **Affected releases**:
 
@@ -490,15 +530,15 @@ Specific information applies to Linux package installations:
   | ----------------------- | ----------------------- | -------- |
   | 16.5                    |  All                    | None     |
   | 16.6                    |  All                    | None     |
-  | 16.7                    |  All                    | None     |
-  | 16.8                    |  All                    | None     |
-  | 16.9                    |  All                    | None     |
+  | 16.7                    |  16.7.0 - 16.7.7        | 16.7.8   |
+  | 16.8                    |  16.8.0 - 16.8.7        | 16.8.8   |
+  | 16.9                    |  16.9.0 - 16.9.8        | 16.9.9   |
   | 16.10                   |  16.10.0 - 16.10.6      | 16.10.7  |
   | 16.11                   |  16.11.0 - 16.11.3      | 16.11.4  |
 
 ## 16.5.0
 
-- Git 2.42.0 and later is required by Gitaly. For self-compiled installations, you should use the [Git version provided by Gitaly](../../install/installation.md#git).
+- Git 2.42.0 and later is required by Gitaly. For self-compiled installations, you should use the [Git version provided by Gitaly](../../install/self_compiled/_index.md#git).
 - A regression may sometimes cause an [HTTP 500 error when navigating a group](https://gitlab.com/gitlab-org/gitlab/-/issues/431659). Upgrading to GitLab 16.6 or later resolves the issue.
 - A regression may cause [Unselected Advanced Search facets to not load](https://gitlab.com/gitlab-org/gitlab/-/issues/428246). Upgrading to 16.6 or later resolves the issue.
 - The `unique_batched_background_migrations_queued_migration_version` index was
@@ -514,7 +554,7 @@ Specific information applies to Linux package installations:
   DETAIL:  Key (queued_migration_version)=(20230721095222) already exists.
   ```
 
-- Normally, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
+- Usually, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
 
     **Affected releases**:
 
@@ -602,7 +642,7 @@ Specific information applies to installations using Geo:
 
 - After [Group Wiki](../../user/project/wiki/group.md) verification was added in GitLab 16.3, missing Group Wiki repositories are being incorrectly flagged as failing verification. This issue is not a result of an actual replication/verification failure but an invalid internal state for these missing repositories inside Geo and results in errors in the logs and the verification progress reporting a failed state for these Group Wiki repositories.
 
-  See details of the problem and workaround in issue [#426571](https://gitlab.com/gitlab-org/gitlab/-/issues/426571)
+  See details of the problem and workaround in [issue 426571](https://gitlab.com/gitlab-org/gitlab/-/issues/426571)
 
   **Affected releases**:
 
@@ -625,7 +665,7 @@ Specific information applies to installations using Geo:
   | 16.7                    |  16.7.0 - 16.7.3        | 16.7.4   |
 
 - Due to a bug introduced GitLab 16.5, [personal snippets](../../user/snippets.md) are not being replicated to secondary Geo sites. This can lead to loss of personal snippet data in the event of a Geo failover.
-  See details of the problem and workaround in issue [#439933](https://gitlab.com/gitlab-org/gitlab/-/issues/439933).
+  See details of the problem and workaround in [issue 439933](https://gitlab.com/gitlab-org/gitlab/-/issues/439933).
 
   **Affected releases**:
 
@@ -637,8 +677,8 @@ Specific information applies to installations using Geo:
   | 16.8                    |  16.8.0 - 16.8.3        | 16.8.4   |
   | 16.9                    |  16.9.0 - 16.9.1        | 16.9.2   |
 
-- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
-  See details of the problem and workaround in issue [#457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
+- Due to a bug introduced GitLab 16.5 and fixed in 17.0, [GitLab Pages](../../administration/pages/_index.md) deployment files are being orphaned on secondary Geo sites. If Pages deployments are stored locally, then this can lead to zero remaining storage and subsequently data loss in the event of a failover.
+  See details of the problem and workaround in [issue 457159](https://gitlab.com/gitlab-org/gitlab/-/issues/457159).
 
   **Affected releases**:
 
@@ -646,9 +686,9 @@ Specific information applies to installations using Geo:
   | ----------------------- | ----------------------- | -------- |
   | 16.5                    |  All                    | None     |
   | 16.6                    |  All                    | None     |
-  | 16.7                    |  All                    | None     |
-  | 16.8                    |  All                    | None     |
-  | 16.9                    |  All                    | None     |
+  | 16.7                    |  16.7.0 - 16.7.7        | 16.7.8   |
+  | 16.8                    |  16.8.0 - 16.8.7        | 16.8.8   |
+  | 16.9                    |  16.9.0 - 16.9.8        | 16.9.9   |
   | 16.10                   |  16.10.0 - 16.10.6      | 16.10.7  |
   | 16.11                   |  16.11.0 - 16.11.3      | 16.11.4  |
 
@@ -689,7 +729,7 @@ Specific information applies to installations using Geo:
   character limit.
 
   ```sql
-  ;; replace `delete_branch_regex` with a name of the field used in constraint
+  -- replace `delete_branch_regex` with a name of the field used in constraint
   SELECT id FROM push_rules WHERE LENGTH(delete_branch_regex) > 511;
   ```
 
@@ -720,9 +760,9 @@ Specific information applies to installations using Geo:
   If you have too many affected push rules, and you can't update them through the GitLab UI,
   contact [GitLab support](https://about.gitlab.com/support/).
 
-- Normally, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
+- Usually, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
 
-    **Affected releases**:
+  **Affected releases**:
 
   | Affected minor releases | Affected patch releases | Fixed in |
   | ----------------------- | ----------------------- | -------- |
@@ -798,7 +838,7 @@ Specific information applies to installations using Geo:
 
 - After [Group Wiki](../../user/project/wiki/group.md) verification was added in GitLab 16.3, missing Group Wiki repositories are being incorrectly flagged as failing verification. This issue is not a result of an actual replication/verification failure but an invalid internal state for these missing repositories inside Geo and results in errors in the logs and the verification progress reporting a failed state for these Group Wiki repositories.
 
-  See details of the problem and workaround in issue [#426571](https://gitlab.com/gitlab-org/gitlab/-/issues/426571)
+  See details of the problem and workaround in [issue 426571](https://gitlab.com/gitlab-org/gitlab/-/issues/426571)
 
   **Affected releases**:
 
@@ -824,24 +864,24 @@ Specific information applies to installations using Geo:
 
 - **Update to GitLab 16.3.5 or later**. This avoids [issue 425971](https://gitlab.com/gitlab-org/gitlab/-/issues/425971) that causes an excessive use of database disk space for GitLab 16.3.3 and 16.3.4.
 
-- A unique index was added to ensure that there’s no duplicate NPM packages in the database. If you have duplicate NPM packages, you need to upgrade to 16.1 first, or you are likely to run into the following error: `PG::UniqueViolation: ERROR:  could not create unique index "idx_packages_on_project_id_name_version_unique_when_npm"`.
+- A unique index was added to ensure that there's no duplicate NPM packages in the database. If you have duplicate NPM packages, you need to upgrade to 16.1 first, or you are likely to run into the following error: `PG::UniqueViolation: ERROR:  could not create unique index "idx_packages_on_project_id_name_version_unique_when_npm"`.
 
 - For Go applications, [`crypto/tls`: verifying certificate chains containing large RSA keys is slow (CVE-2023-29409)](https://github.com/golang/go/issues/61460)
   introduced a hard limit of 8192 bits for RSA keys. In the context of Go applications at GitLab, RSA keys can be configured for:
 
   - [Container registry](../../administration/packages/container_registry.md)
   - [Gitaly](../../administration/gitaly/tls_support.md)
-  - [GitLab Pages](../../user/project/pages/custom_domains_ssl_tls_certification/index.md#manual-addition-of-ssltls-certificates)
-  - [Workhorse](../../development/workhorse/configuration.md#tls-support)
+  - [GitLab Pages](../../user/project/pages/custom_domains_ssl_tls_certification/_index.md#manual-addition-of-ssltls-certificates)
+  - Workhorse
 
   You should check the size of your RSA keys (`openssl rsa -in <your-key-file> -text -noout | grep "Key:"`)
-  for any of the applications above before
+  for any of the previous applications before
   upgrading.
 
 - A `BackfillCiPipelineVariablesForPipelineIdBigintConversion` background migration is finalized with
   the `EnsureAgainBackfillForCiPipelineVariablesPipelineIdIsFinished` post-deploy migration.
-  GitLab 16.2.0 introduced a [batched background migration](../background_migrations.md#batched-background-migrations) to
-  [backfill bigint `pipeline_id` values on the `ci_pipeline_variables` table](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/123132). This
+  GitLab 16.2.0 introduced a [batched background migration](../background_migrations.md#check-for-pending-database-background-migrations) to
+  [backfill `bigint` `pipeline_id` values on the `ci_pipeline_variables` table](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/123132). This
   migration may take a long time to complete on larger GitLab instances (4 hours to process 50 million rows reported in one case).
   To avoid a prolonged upgrade downtime, make sure the migration has completed successfully before upgrading to 16.3.
 
@@ -851,7 +891,7 @@ Specific information applies to installations using Geo:
   select count(*) from ci_pipeline_variables;
   ```
 
-- Normally, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
+- Usually, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
 
      **Affected releases**:
 
@@ -947,7 +987,7 @@ Specific information applies to installations using Geo:
 
 - After [Group Wiki](../../user/project/wiki/group.md) verification was added in GitLab 16.3, missing Group Wiki repositories are being incorrectly flagged as failing verification. This issue is not a result of an actual replication/verification failure but an invalid internal state for these missing repositories inside Geo and results in errors in the logs and the verification progress reporting a failed state for these Group Wiki repositories.
 
-  See details of the problem and workaround in issue [#426571](https://gitlab.com/gitlab-org/gitlab/-/issues/426571)
+  See details of the problem and workaround in [issue 426571](https://gitlab.com/gitlab-org/gitlab/-/issues/426571)
 
   **Affected releases**:
 
@@ -994,7 +1034,7 @@ Specific information applies to installations using Geo:
 
   Sidekiq and Puma processes must be restarted to resolve this issue.
 
-- Normally, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
+- Usually, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
 
     **Affected releases**:
 
@@ -1038,7 +1078,7 @@ Specific information applies to Linux package installations:
 
 ### Self-compiled installations
 
-- Git 2.41.0 and later is required by Gitaly. You should use the [Git version provided by Gitaly](../../install/installation.md#git).
+- Git 2.41.0 and later is required by Gitaly. You should use the [Git version provided by Gitaly](../../install/self_compiled/_index.md#git).
 
 ### Geo installations
 
@@ -1067,21 +1107,21 @@ You are not impacted:
 |-------------------------|-------------------------|----------|
 | 15.1 - 16.2             | All                     | 16.3 and later    |
 
-Workaround: A possible workaround is to [disable proxying](../../administration/geo/secondary_proxy/index.md#disable-geo-proxying). Note that the secondary site fails to serve LFS files that have not been replicated at the time of cloning.
+Workaround: A possible workaround is to [disable proxying](../../administration/geo/secondary_proxy/_index.md#disable-secondary-site-http-proxying). The secondary site fail to serve LFS files that have not been replicated at the time of cloning.
 
 ## 16.1.0
 
 - A `BackfillPreparedAtMergeRequests` background migration is finalized with
   the `FinalizeBackFillPreparedAtMergeRequests` post-deploy migration.
-  GitLab 15.10.0 introduced a [batched background migration](../background_migrations.md#batched-background-migrations) to
+  GitLab 15.10.0 introduced a [batched background migration](../background_migrations.md#check-for-pending-database-background-migrations) to
   [backfill `prepared_at` values on the `merge_requests` table](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/111865). This
   migration may take multiple days to complete on larger GitLab instances. Make sure the migration
   has completed successfully before upgrading to 16.1.0.
-- GitLab 16.1.0 includes a [batched background migration](../background_migrations.md#batched-background-migrations) `MarkDuplicateNpmPackagesForDestruction` to mark duplicate NPM packages for destruction. Make sure the migration has completed successfully before upgrading to 16.3.0 or later.
+- GitLab 16.1.0 includes a [batched background migration](../background_migrations.md#check-for-pending-database-background-migrations) `MarkDuplicateNpmPackagesForDestruction` to mark duplicate NPM packages for destruction. Make sure the migration has completed successfully before upgrading to 16.3.0 or later.
 - A `BackfillCiPipelineVariablesForBigintConversion` background migration is finalized with
   the `EnsureBackfillBigintIdIsCompleted` post-deploy migration.
-  GitLab 16.0.0 introduced a [batched background migration](../background_migrations.md#batched-background-migrations) to
-  [backfill bigint `id` values on the `ci_pipeline_variables` table](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/118878). This
+  GitLab 16.0.0 introduced a [batched background migration](../background_migrations.md#check-for-pending-database-background-migrations) to
+  [backfill `bigint` `id` values on the `ci_pipeline_variables` table](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/118878). This
   migration may take a long time to complete on larger GitLab instances (4 hours to process 50 million rows reported in one case).
   To avoid a prolonged upgrade downtime, make sure the migration has completed successfully before upgrading to 16.1.
 
@@ -1097,7 +1137,7 @@ Workaround: A possible workaround is to [disable proxying](../../administration/
   [removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/118645). For more information, see the
   [`puma.rb.example`](https://gitlab.com/gitlab-org/gitlab/-/blob/16-0-stable-ee/config/puma.rb.example) file.
 
-- Normally, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
+- Usually, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
 
     **Affected releases**:
 
@@ -1116,9 +1156,12 @@ Workaround: A possible workaround is to [disable proxying](../../administration/
 
 ### Geo installations
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+{{< details >}}
+
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 Specific information applies to installations using Geo:
 
@@ -1163,10 +1206,10 @@ by this issue.
   every Sidekiq process also listens to those queues to ensure all jobs are processed across
   all queues. This behavior does not apply if you have configured the [routing rules](../../administration/sidekiq/processing_specific_job_classes.md#routing-rules).
 - Docker 20.10.10 or later is required to run the GitLab Docker image. Older versions
-  [throw errors on startup](../../install/docker_troubleshooting.md#threaderror-cant-create-thread-operation-not-permitted).
+  [throw errors on startup](../../install/docker/troubleshooting.md#threaderror-cant-create-thread-operation-not-permitted).
 - Container registry using Azure storage might be empty with zero tags. You can fix this by following the [breaking change instructions](../deprecations.md#azure-storage-driver-defaults-to-the-correct-root-prefix).
 
-- Normally, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
+- Usually, backups in environments that have PgBouncer must [bypass PgBouncer by setting variables that are prefixed with `GITLAB_BACKUP_`](../../administration/backup_restore/backup_gitlab.md#bypassing-pgbouncer). However, due to an [issue](https://gitlab.com/gitlab-org/gitlab/-/issues/422163), `gitlab-backup` uses the regular database connection through PgBouncer instead of the direct connection defined in the override, and the database backup fails. The workaround is to use `pg_dump` directly.
 
     **Affected releases**:
 
@@ -1220,19 +1263,22 @@ date set at one year from the date of upgrade.
 
 Before this automatic expiry date is applied, you should do the following to minimize disruption:
 
-1. [Identify any access tokens without an expiration date](../../security/token_overview.md#find-tokens-with-no-expiration-date).
-1. [Give those tokens an expiration date](../../security/token_overview.md#extend-token-lifetime).
+1. [Identify any access tokens without an expiration date](../../security/tokens/token_troubleshooting.md#find-tokens-with-no-expiration-date).
+1. [Give those tokens an expiration date](../../security/tokens/token_troubleshooting.md#extend-token-lifetime).
 
 For more information, see the:
 
-- [Deprecations and removals documentation](../../update/deprecations.md#non-expiring-access-tokens).
+- [Deprecations and removals documentation](../deprecations.md#non-expiring-access-tokens).
 - [Deprecation issue](https://gitlab.com/gitlab-org/gitlab/-/issues/369122).
 
 ### Geo installations
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+{{< details >}}
+
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 Specific information applies to installations using Geo:
 
@@ -1259,33 +1305,42 @@ configuration. Some `gitaly['..']` configuration options continue to be used by 
 - `consul_service_name`
 - `consul_service_meta`
 
-Migrate by moving your existing configuration under the new structure. `git_data_dirs` is supported [until GitLab 17.0](https://gitlab.com/gitlab-org/gitaly/-/issues/5133). The new structure is supported from GitLab 15.10.
+Migrate by moving your existing configuration under the new structure. `git_data_dirs` is supported [until GitLab 18.0](https://gitlab.com/gitlab-org/omnibus-gitlab/-/issues/8786). The new structure is supported from GitLab 15.10.
 
 **Migrate to the new structure**
 
-WARNING:
-If you are running Gitaly cluster, [migrate Praefect to the new configuration structure **first**](#praefect-configuration-structure-change).
+{{< alert type="warning" >}}
+
+If you are running Gitaly Cluster (Praefect), [migrate Praefect to the new configuration structure **first**](#praefect-configuration-structure-change).
 Once this change is tested, proceed with your Gitaly nodes.
-If Gitaly is misconfigured as part of the configuration structure change, [repository verification](../../administration/gitaly/praefect.md#repository-verification)
-will [delete metadata required for Gitaly cluster to work](https://gitlab.com/gitlab-org/gitaly/-/issues/5529).
+If Gitaly is misconfigured as part of the configuration structure change, [repository verification](../../administration/gitaly/praefect/configure.md#repository-verification)
+will [delete metadata required for Gitaly Cluster (Praefect) to work](https://gitlab.com/gitlab-org/gitaly/-/issues/5529).
 To protect against configuration mistakes, temporarily disable repository verification in Praefect.
 
-1. If you're running Gitaly Cluster, ensure repository verification is disabled on all Praefect nodes.
+{{< /alert >}}
+
+1. If you're running Gitaly Cluster (Praefect), ensure repository verification is disabled on all Praefect nodes.
    Configure `verification_interval: 0`, and apply with `gitlab-ctl reconfigure`.
-1. When applying the new structure to your configuration
-   - Replace the `...` with the value from the old key.
-   - When configuring `storage` to replace `git_data_dirs`, **you must append `repositories` to the path** as documented below.
-     If you miss this out your Git repositories are inaccessible until the configuration is fixed.
-     This misconfiguration can cause metadata deletion, and is the reason for disabling repository verification.
-   - Skip any keys you haven't configured a value for previously.
-   - Recommended. Include a trailing comma for all hash keys so the hash remains valid when keys are re-ordered or additional keys are added.
+1. To apply the new structure to your configuration:
+   1. Replace the `...` with the value from the old key.
+   1. When configuring `storage` to replace `git_data_dirs`, **append `/repositories` to value of `path`** as documented in the following script. If
+      you don't complete this step, your Git repositories are inaccessible until the configuration is fixed. This
+      misconfiguration can cause metadata deletion.
+   1. Skip any keys you haven't configured a value for previously.
+   1. Recommended. Include a trailing comma for all hash keys so the hash remains valid when keys are re-ordered or additional keys are added.
 1. Apply the change with `gitlab-ctl reconfigure`.
 1. Test Git repository functionality in GitLab.
 1. Remove the old keys from the configuration once migrated, and then re-run `gitlab-ctl reconfigure`.
-1. Recommended, if you're running Gitaly Cluster. Reinstate Praefect [repository verification](../../administration/gitaly/praefect.md#repository-verification)
+1. Recommended, if you're running Gitaly Cluster (Praefect). Reinstate Praefect [repository verification](../../administration/gitaly/praefect/configure.md#repository-verification)
    by removing `verification_interval: 0`.
 
-The new structure is documented below with the old keys described in a comment above the new keys.
+The new structure is documented in the following script with the old keys described in a comment above the new keys.
+
+{{< alert type="warning" >}}
+
+Double check your update to `storage`. You must append `/repositories` to the value of `path`.
+
+{{< /alert >}}
 
 ```ruby
 gitaly['configuration'] = {
@@ -1353,9 +1408,9 @@ gitaly['configuration'] = {
       },
     ],
   },
-  # Storage could previously be configured through either gitaly['storage'] or 'git_data_dirs'. Migrate
-  # the relevant configuration according to the instructions below.
-  # For 'git_data_dirs', migrate only the 'path' to the gitaly['configuration'] and leave the rest of it untouched.
+  # Storage was previously configured with the gitaly['storage'] or 'git_data_dirs' parameters. Use
+  # the following instructions to migrate. For 'git_data_dirs', migrate only the 'path' to the
+  # gitaly['configuration'] and leave the rest untouched.
   storage: [
     {
       # gitaly['storage'][<index>]['name']
@@ -1446,23 +1501,26 @@ Migrate by moving your existing configuration under the new structure. The new s
 
 **Migrate to the new structure**
 
-WARNING:
+{{< alert type="warning" >}}
+
 Migrate Praefect to the new configuration structure **first**.
 Once this change is tested, [proceed with your Gitaly nodes](#gitaly-configuration-structure-change).
-If Gitaly is misconfigured as part of the configuration structure change, [repository verification](../../administration/gitaly/praefect.md#repository-verification)
-will [delete metadata required for Gitaly cluster to work](https://gitlab.com/gitlab-org/gitaly/-/issues/5529).
+If Gitaly is misconfigured as part of the configuration structure change, [repository verification](../../administration/gitaly/praefect/configure.md#repository-verification)
+will [delete metadata required for Gitaly Cluster (Praefect) to work](https://gitlab.com/gitlab-org/gitaly/-/issues/5529).
 To protect against configuration mistakes, temporarily disable repository verification in Praefect.
+
+{{< /alert >}}
 
 1. When applying the new structure to your configuration:
    - Replace the `...` with the value from the old key.
-   - Disable repository verification using `verification_interval: 0`, as shown below.
+   - Disable repository verification using `verification_interval: 0`, as shown in the following script.
    - Skip any keys you haven't configured a value for previously.
    - Recommended. Include a trailing comma for all hash keys so the hash remains valid when keys are re-ordered or additional keys are added.
 1. Apply the change with `gitlab-ctl reconfigure`.
 1. Test Git repository functionality in GitLab.
 1. Remove the old keys from the configuration once migrated, and then re-run `gitlab-ctl reconfigure`.
 
-The new structure is documented below with the old keys described in a comment above the new keys.
+The new structure is documented in the following script with the old keys described in a comment above the new keys.
 
 ```ruby
 praefect['configuration'] = {
@@ -1499,7 +1557,7 @@ praefect['configuration'] = {
     #
     # IMPORTANT:
     # As part of reconfiguring Praefect, disable this feature.
-    # Read about this above.
+    # Read about this as described previously.
     #
     verification_interval: 0,
   },
@@ -1609,9 +1667,9 @@ If you have PgBouncer deployed:
 
 Follow the instructions for your installation type to switch back to a single database connection:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package and Docker
+{{< tab title="Linux package and Docker" >}}
 
 1. Add this setting to `/etc/gitlab/gitlab.rb`:
 
@@ -1623,7 +1681,9 @@ Follow the instructions for your installation type to switch back to a single da
 
 In a multi-node environment, this setting should be updated on all Rails and Sidekiq nodes.
 
-:::TabTitle Helm chart (Kubernetes)
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
 
 Set the `ci.enabled` key to `false`:
 
@@ -1634,11 +1694,15 @@ global:
       enabled: false
 ```
 
-:::TabTitle Self-compiled (source)
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
 
 Remove the `ci:` section from `config/database.yml`.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ## Long-running user type data change
 
@@ -1649,7 +1713,7 @@ The threshold is **30,000 users**, which includes:
 - Developers and other users in any state, including active, blocked, and pending approval.
 - Bot accounts for project and group access tokens.
 
-GitLab 16.0 introduced a [batched background migration](../background_migrations.md#batched-background-migrations) to
+GitLab 16.0 introduced a [batched background migration](../background_migrations.md#check-for-pending-database-background-migrations) to
 [migrate `user_type` values from `NULL` to `0`](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/115849). This
 migration might take multiple days to complete on larger GitLab instances. Make sure the migration
 has completed successfully before upgrading to 16.1.0 or later.
@@ -1728,16 +1792,16 @@ was recently created:
 | 15.11                | [15.11](#workaround-instance-created-with-1511) |
 
 Most instances should use the 15.9 procedure. Only very new instances require the
-the 15.10 or 15.11 procedures. If you've migrated GitLab using backup and restore,
+15.10 or 15.11 procedures. If you've migrated GitLab using backup and restore,
 the database schema comes from the original instance. Select the workaround based
 on the source instance.
 
 The commands in the following sections are for Linux package installations, and
 differ for other installation types:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Docker
+{{< tab title="Docker" >}}
 
 - Omit `sudo`
 - Shell into the GitLab container and run the same commands:
@@ -1746,19 +1810,25 @@ differ for other installation types:
   docker exec -it <container-id> bash
   ```
 
-:::TabTitle Self-compiled (source)
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
 
 - Use `sudo -u git -H bundle exec rake RAILS_ENV=production` instead of `sudo gitlab-rake`
 - Run the SQL on [your PostgreSQL database console](../../administration/troubleshooting/postgresql.md#start-a-database-console)
 
-:::TabTitle Helm chart (Kubernetes)
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
 
 - Omit `sudo`.
 - Shell into the `toolbox` pod to run the Rake commands: `gitlab-rake` is in `/usr/local/bin` if not in the `PATH`.
   - Refer to our [Kubernetes cheat sheet](https://docs.gitlab.com/charts/troubleshooting/kubernetes_cheat_sheet.html#gitlab-specific-kubernetes-information) for details.
 - Run the SQL on [your PostgreSQL database console](../../administration/troubleshooting/postgresql.md#start-a-database-console)
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### Workaround: instance created with 15.9 or earlier
 

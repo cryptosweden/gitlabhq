@@ -1,15 +1,18 @@
 <script>
-import { GlIcon, GlTooltipDirective, GlFormCheckbox, GlLink } from '@gitlab/ui';
+import { GlTooltipDirective, GlFormCheckbox, GlLink } from '@gitlab/ui';
+import HelpPopover from '~/vue_shared/components/help_popover.vue';
+import SafeHtml from '~/vue_shared/directives/safe_html';
 import { SQUASH_BEFORE_MERGE } from '../../i18n';
 
 export default {
   components: {
-    GlIcon,
     GlFormCheckbox,
     GlLink,
+    HelpPopover,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
+    SafeHtml,
   },
   i18n: {
     ...SQUASH_BEFORE_MERGE,
@@ -34,12 +37,21 @@ export default {
     tooltipTitle() {
       return this.isDisabled ? this.$options.i18n.tooltipTitle : null;
     },
+    popoverOptions() {
+      return {
+        ...this.$options.i18n.popoverOptions,
+        container: this.popoverContainerId,
+      };
+    },
+    popoverContainerId() {
+      return 'squash-commits-popover';
+    },
   },
 };
 </script>
 
 <template>
-  <div class="gl-display-flex">
+  <div :id="popoverContainerId" class="gl-flex">
     <gl-form-checkbox
       v-gl-tooltip
       :checked="value"
@@ -52,18 +64,22 @@ export default {
     >
       {{ $options.i18n.checkboxLabel }}
     </gl-form-checkbox>
-    <gl-link
+    <help-popover
       v-if="helpPath"
-      v-gl-tooltip
-      :href="helpPath"
-      :title="$options.i18n.helpLabel"
-      class="gl-text-blue-600 gl-leading-1"
-      target="_blank"
+      class="gl-flex gl-items-start"
+      :options="popoverOptions"
+      :aria-label="$options.i18n.helpLabel"
     >
-      <gl-icon name="question-o" />
-      <span class="sr-only">
-        {{ $options.i18n.helpLabel }}
-      </span>
-    </gl-link>
+      <template v-if="popoverOptions.content">
+        <p v-if="popoverOptions.content" v-safe-html="popoverOptions.content" class="gl-mb-0"></p>
+        <gl-link
+          v-if="popoverOptions.learnMorePath"
+          :href="popoverOptions.learnMorePath"
+          target="_blank"
+          class="gl-text-sm"
+          >{{ $options.i18n.learnMore }}</gl-link
+        >
+      </template>
+    </help-popover>
   </div>
 </template>

@@ -10,9 +10,12 @@ import DeploymentTargetSelect from './components/deployment_target_select.vue';
 export function initNewProjectCreation() {
   const el = document.querySelector('.js-new-project-creation');
 
+  if (!el) {
+    return null;
+  }
+
   const {
     pushToCreateProjectCommand,
-    projectHelpPath,
     newProjectGuidelines,
     hasErrors,
     isCiCdAvailable,
@@ -35,7 +38,6 @@ export function initNewProjectCreation() {
   };
 
   const provide = {
-    projectHelpPath,
     pushToCreateProjectCommand,
   };
 

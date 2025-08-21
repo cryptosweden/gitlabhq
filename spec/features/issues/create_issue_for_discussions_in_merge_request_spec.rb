@@ -9,7 +9,7 @@ RSpec.describe 'Resolving all open threads in a merge request from an issue', :j
   let!(:discussion) { create(:diff_note_on_merge_request, noteable: merge_request, project: project).to_discussion }
 
   def resolve_all_discussions_link_selector(title: "")
-    url = new_project_issue_path(project, merge_request_to_resolve_discussions_of: merge_request.iid)
+    url = new_project_issue_path(project, merge_request_to_resolve_discussions_of: merge_request.iid, merge_request_id: merge_request.id)
 
     if title.empty?
       %(a[href="#{url}"])
@@ -29,7 +29,7 @@ RSpec.describe 'Resolving all open threads in a merge request from an issue', :j
       find('.discussions-counter .gl-new-dropdown-toggle').click
 
       within('.discussions-counter') do
-        expect(page).to have_link(_("Resolve all with new issue"), href: new_project_issue_path(project, merge_request_to_resolve_discussions_of: merge_request.iid))
+        expect(page).to have_link(_("Resolve all with new issue"), href: new_project_issue_path(project, merge_request_to_resolve_discussions_of: merge_request.iid, merge_request_id: merge_request.id))
       end
     end
 
@@ -77,7 +77,7 @@ RSpec.describe 'Resolving all open threads in a merge request from an issue', :j
         it 'shows a warning that the merge request contains unresolved threads' do
           click_button 'Expand merge checks'
 
-          expect(page).to have_content 'Unresolved discussions must be resolved'
+          expect(page).to have_content 'Open threads must be resolved'
         end
       end
     end
@@ -91,7 +91,7 @@ RSpec.describe 'Resolving all open threads in a merge request from an issue', :j
     end
 
     it 'shows a notice to ask someone else to resolve the threads' do
-      expect(page).to have_content("The threads at #{merge_request.to_reference} will stay unresolved. Ask someone with permission to resolve them.")
+      expect(page).to have_content("The threads at #{merge_request.to_reference} will stay open. Ask someone with permission to resolve them.")
     end
   end
 end

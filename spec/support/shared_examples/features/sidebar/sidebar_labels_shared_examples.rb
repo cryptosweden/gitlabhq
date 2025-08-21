@@ -2,6 +2,9 @@
 
 RSpec.shared_examples 'labels sidebar widget' do
   context 'editing labels' do
+    # Ensure support bot user is created so creation doesn't count towards query limit
+    # See https://gitlab.com/gitlab-org/gitlab/-/issues/509629
+    let_it_be(:support_bot) { Users::Internal.support_bot }
     let_it_be(:development) { create(:group_label, group: group, name: 'Development') }
     let_it_be(:stretch)     { create(:label, project: project, name: 'Stretch') }
     let_it_be(:xss_label) { create(:label, project: project, title: '&lt;script&gt;alert("xss");&lt;&#x2F;script&gt;') }
@@ -101,6 +104,8 @@ RSpec.shared_examples 'labels sidebar widget' do
           fill_in 'Label name', with: 'wontfix'
           click_link 'Magenta-pink'
           click_button 'Create'
+
+          wait_for_requests
 
           expect(page).to have_content 'wontfix'
         end

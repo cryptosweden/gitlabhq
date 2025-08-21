@@ -15,6 +15,10 @@ export default {
       type: String,
       required: true,
     },
+    nameWithNamespace: {
+      type: String,
+      required: true,
+    },
     formPath: {
       type: String,
       required: true,
@@ -39,6 +43,11 @@ export default {
       type: Number,
       required: true,
     },
+    buttonText: {
+      type: String,
+      required: false,
+      default: __('Delete project'),
+    },
   },
   data() {
     return {
@@ -58,9 +67,6 @@ export default {
       this.isModalVisible = true;
     },
   },
-  i18n: {
-    deleteProject: __('Delete project'),
-  },
 };
 </script>
 
@@ -72,6 +78,7 @@ export default {
     <delete-modal
       v-model="isModalVisible"
       :confirm-phrase="confirmPhrase"
+      :name-with-namespace="nameWithNamespace"
       :is-fork="isFork"
       :issues-count="issuesCount"
       :merge-requests-count="mergeRequestsCount"
@@ -89,7 +96,7 @@ export default {
       variant="danger"
       data-testid="delete-button"
       @click="onButtonClick"
-      >{{ $options.i18n.deleteProject }}</gl-button
+      >{{ buttonText }}</gl-button
     >
   </gl-form>
 </template>

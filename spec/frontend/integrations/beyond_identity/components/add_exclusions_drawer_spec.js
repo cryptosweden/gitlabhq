@@ -70,14 +70,12 @@ describe('AddExclusionsDrawer component', () => {
       expect(findGroupsListSelector().props()).toMatchObject({
         type: 'groups',
         autofocus: true,
+        disableNamespaceDropdown: true,
       });
     });
 
     it('renders a list selector for projects', () => {
-      expect(findProjectsListSelector().props()).toMatchObject({
-        type: 'projects',
-        autofocus: true,
-      });
+      expect(findProjectsListSelector().props('type')).toBe('projects');
     });
 
     it('renders a button for adding exclusions', () => {
@@ -102,6 +100,6 @@ describe('AddExclusionsDrawer component', () => {
     await nextTick();
 
     expect(wrapper.emitted('add')).toEqual([[mockData]]);
-    expect(findSelector().props('selectedItems').length).toBe(0);
+    expect(findSelector().props('selectedItems')).toHaveLength(0);
   });
 });

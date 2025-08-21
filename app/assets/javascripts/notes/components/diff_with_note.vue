@@ -1,7 +1,7 @@
 <script>
 import { GlButton, GlSkeletonLoader } from '@gitlab/ui';
-// eslint-disable-next-line no-restricted-imports
-import { mapState, mapActions } from 'vuex';
+import { mapState, mapActions } from 'pinia';
+import { mergeUrlParams } from '~/lib/utils/url_utility';
 import SafeHtml from '~/vue_shared/directives/safe_html';
 import DiffFileHeader from '~/diffs/components/diff_file_header.vue';
 import ImageDiffOverlay from '~/diffs/components/image_diff_overlay.vue';
@@ -9,7 +9,9 @@ import { getDiffMode } from '~/diffs/store/utils';
 import { diffViewerModes } from '~/ide/constants';
 import DiffViewer from '~/vue_shared/components/diff_viewer/diff_viewer.vue';
 import { isCollapsed } from '~/diffs/utils/diff_file';
-import { FILE_DIFF_POSITION_TYPE } from '~/diffs/constants';
+import { FILE_DIFF_POSITION_TYPE, IMAGE_DIFF_POSITION_TYPE } from '~/diffs/constants';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useNotes } from '~/notes/store/legacy_notes';
 
 const FIRST_CHAR_REGEX = /^(\+|-| )/;
 
@@ -36,9 +38,7 @@ export default {
     };
   },
   computed: {
-    ...mapState({
-      projectPath: (state) => state.diffs.projectPath,
-    }),
+    ...mapState(useLegacyDiffs, ['projectPath']),
     diffMode() {
       return getDiffMode(this.discussion.diff_file);
     },
@@ -69,7 +69,45 @@ export default {
       return this.discussion.position?.position_type;
     },
     isFileDiscussion() {
+      if (!this.discussion.diff_file) {
+        return (
+          this.discussion.original_position.position_type === IMAGE_DIFF_POSITION_TYPE ||
+          this.discussion.original_position.position_type === FILE_DIFF_POSITION_TYPE
+        );
+      }
+
       return this.positionType === FILE_DIFF_POSITION_TYPE;
+    },
+    linkedFileDiscussionPath() {
+      const { discussion_path: discussionPath } = this.discussion;
+      const file = this.discussion.diff_file?.file_hash;
+
+      return discussionPath && file ? mergeUrlParams({ file }, discussionPath) : discussionPath;
+    },
+    showHeader() {
+      if (this.discussion.diff_file) return true;
+
+      return (
+        this.discussion.original_position.position_type === FILE_DIFF_POSITION_TYPE ||
+        this.discussion.original_position.position_type === IMAGE_DIFF_POSITION_TYPE
+      );
+    },
+    backfilledDiffFile() {
+      /*
+       * https://gitlab.com/gitlab-com/gl-infra/production/-/issues/19118
+       *
+       * For the vast majority of cases, this should just be discussion.diff_file,
+       * but due to that defect, there are potentially some file discussions that cannot
+       * be rendered because there is no diff file attached
+       *
+       * This allows the header to display (sans file mode change) to roughly simulate
+       * having an actual diff file.
+       */
+      return (
+        this.discussion.diff_file || {
+          file_path: this.discussion.original_position.new_path,
+        }
+      );
     },
   },
   mounted() {
@@ -78,7 +116,7 @@ export default {
     }
   },
   methods: {
-    ...mapActions(['fetchDiscussionDiffLines']),
+    ...mapActions(useNotes, ['fetchDiscussionDiffLines']),
     fetchDiff() {
       this.error = false;
       this.fetchDiscussionDiffLines(this.discussion)
@@ -91,21 +129,21 @@ export default {
       return line.replace(FIRST_CHAR_REGEX, '');
     },
   },
-  userColorSchemeClass: window.gon.user_color_scheme,
 };
 </script>
 
 <template>
   <div :class="{ 'text-file': isTextFile }" class="diff-file file-holder">
     <diff-file-header
-      v-if="discussion.diff_file"
-      :discussion-path="discussion.discussion_path"
-      :diff-file="discussion.diff_file"
+      v-if="showHeader"
+      :discussion-path="linkedFileDiscussionPath"
+      :diff-file="backfilledDiffFile"
       :can-current-user-fork="false"
+      class="gl-border gl-border-section"
       :expanded="!isCollapsed"
     />
     <div v-if="isTextFile" class="diff-content">
-      <table class="code js-syntax-highlight" :class="$options.userColorSchemeClass">
+      <table class="code js-syntax-highlight code-syntax-highlight-theme">
         <template v-if="!isFileDiscussion">
           <template v-if="hasTruncatedDiffLines">
             <tr
@@ -129,7 +167,7 @@ export default {
             <td v-if="error" class="js-error-lazy-load-diff diff-loading-error-block">
               {{ __('Unable to load the diff') }}
               <gl-button
-                class="gl-font-regular js-toggle-lazy-diff-retry-button"
+                class="js-toggle-lazy-diff-retry-button gl-font-regular"
                 @click="fetchDiff"
               >
                 {{ __('Try again') }}
@@ -143,7 +181,7 @@ export default {
           </tr>
         </template>
         <tr class="notes_holder">
-          <td :class="{ 'gl-border-top-0!': isFileDiscussion }" class="notes-content" colspan="3">
+          <td :class="{ '!gl-border-t-0': isFileDiscussion }" class="notes-content" colspan="3">
             <slot></slot>
           </td>
         </tr>
@@ -171,7 +209,7 @@ export default {
             :file-hash="discussion.diff_file.file_hash"
             :show-comment-icon="true"
             :should-toggle-discussion="false"
-            badge-class="image-comment-badge gl-text-purple-500 gl-bg-white gl-rounded-full gl-border-white gl-border-1 gl-border-solid gl-pointer-events-none gl-shadow-md"
+            badge-class="image-comment-badge gl-text-purple-500 gl-bg-default gl-rounded-full gl-border-white gl-border-1 gl-border-solid gl-pointer-events-none gl-shadow-md"
           />
         </template>
       </diff-viewer>

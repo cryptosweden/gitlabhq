@@ -4,33 +4,28 @@
 # We need to take some precautions when using the `gitlab` gem in this project.
 #
 # See https://docs.gitlab.com/ee/development/pipelines/internals.html#using-the-gitlab-ruby-gem-in-the-canonical-project.
-require 'gitlab' unless Object.const_defined?(:Gitlab)
+if Object.const_defined?(:RSpec)
+  # Ok, we're testing, we know we're going to stub `Gitlab`, so we just ignore
+else
+  require 'gitlab'
+
+  if Gitlab.singleton_class.method_defined?(:com?)
+    abort 'lib/gitlab.rb is loaded, and this means we can no longer load the client and we cannot proceed'
+  end
+end
+
 require 'net/http'
 
 class SetPipelineName
-  DOCS                   = ['docs-lint markdown', 'docs-lint links'].freeze
-  RSPEC_PREDICTIVE       = ['rspec:predictive:trigger', 'rspec-ee:predictive:trigger'].freeze
-  CODE                   = ['retrieve-tests-metadata'].freeze
-  QA_GDK                 = ['e2e:test-on-gdk'].freeze
-  REVIEW_APP             = ['start-review-app-pipeline'].freeze
-  #  TODO: Please remove `trigger-omnibus-and-follow-up-e2e` and `follow-up-e2e:package-and-test-ee`
-  #        after 2025-04-08 in this project
-  #
-  #   `trigger-omnibus-and-follow-up-e2e` was renamed to `follow-up:trigger-omnibus` on 2024-04-08 via
-  #    https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147908/diffs?pin=c11467759d7eae77ed84e02a5445e21704c8d8e5#c11467759d7eae77ed84e02a5445e21704c8d8e5_105_104
-  #
-  #   `follow-up-e2e:package-and-test-ee` was renamed to `follow-up:e2e:package-and-test-ee` on 2024-04-08 via
-  #    https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147908/diffs?pin=c11467759d7eae77ed84e02a5445e21704c8d8e5#c11467759d7eae77ed84e02a5445e21704c8d8e5_136_137
-  QA                     = [
-    'e2e:package-and-test-ce',
-    'e2e:package-and-test-ee',
-    'follow-up-e2e:package-and-test-ee',
-    'follow-up:e2e:package-and-test-ee',
-    'follow-up:trigger-omnibus',
-    'trigger-omnibus-and-follow-up-e2e'
-  ].freeze
+  DOCS = ['docs-lint markdown', 'docs-lint links'].freeze
+  RSPEC_PREDICTIVE = ['rspec:predictive:trigger', 'rspec-ee:predictive:trigger'].freeze
+  CODE = ['retrieve-tests-metadata'].freeze
+  E2E_GDK = ['e2e:test-on-gdk'].freeze
+  E2E_CNG = ['e2e:test-on-cng'].freeze
+  E2E_OMNIBUS = ['e2e:test-on-omnibus-ee', 'e2e:test-on-omnibus-ce'].freeze
+  REVIEW_APP = ['start-review-app-pipeline'].freeze
   # Ordered by expected duration, DESC
-  PIPELINE_TYPES_ORDERED = %w[qa review-app qa-gdk code rspec-predictive docs].freeze
+  PIPELINE_TYPES_ORDERED = %w[e2e-omnibus review-app e2e-gdk e2e-cng code rspec-predictive docs].freeze
 
   # We need an access token that isn't CI_JOB_TOKEN because we are querying
   # the pipelines API to fetch jobs and bridge jobs.
@@ -76,13 +71,16 @@ class SetPipelineName
   end
 
   def pipeline_tier
-    return unless ENV['CI_MERGE_REQUEST_LABELS']
     return if expedited_pipeline?
 
-    tier_label = merge_request_labels.find { |label| label.start_with?('pipeline::tier-') }
-    return if tier_label.nil?
+    # the pipeline tier is detected by the `pipeline-tier-<tier>` job name.
+    pipeline_jobs.each do |job|
+      next unless job.name.start_with?('pipeline-tier-')
 
-    tier_label[/\d+\z/]
+      return job.name[/\d+\z/]
+    end
+
+    nil
   end
 
   def merge_request_labels
@@ -98,25 +96,33 @@ class SetPipelineName
   end
 
   def expedited_pipeline?
-    merge_request_labels.any?('pipeline::expedited') ||
-      # TODO: Remove once the label is renamed to be scoped
-      merge_request_labels.any?('pipeline:expedite')
+    merge_request_labels.any?('pipeline::expedited')
   end
 
   def pipeline_types
     return ['expedited'] if expedited_pipeline?
 
-    types = Set.new
-
-    api_client.pipeline_bridges(ENV['CI_PROJECT_ID'], ENV['CI_PIPELINE_ID']).auto_paginate do |job|
-      types.merge(pipeline_types_for(job))
-    end
-
-    api_client.pipeline_jobs(ENV['CI_PROJECT_ID'], ENV['CI_PIPELINE_ID']).auto_paginate do |job|
+    types = pipeline_jobs.each_with_object(Set.new) do |job, types|
       types.merge(pipeline_types_for(job))
     end
 
     types.sort_by { |type| PIPELINE_TYPES_ORDERED.index(type) }
+  end
+
+  def pipeline_jobs
+    @pipeline_jobs ||= []
+
+    return @pipeline_jobs if @pipeline_jobs.any?
+
+    api_client.pipeline_bridges(ENV['CI_PROJECT_ID'], ENV['CI_PIPELINE_ID']).auto_paginate do |job|
+      @pipeline_jobs << job
+    end
+
+    api_client.pipeline_jobs(ENV['CI_PROJECT_ID'], ENV['CI_PIPELINE_ID']).auto_paginate do |job|
+      @pipeline_jobs << job
+    end
+
+    @pipeline_jobs
   end
 
   def pipeline_opts
@@ -131,9 +137,11 @@ class SetPipelineName
   def pipeline_types_for(job)
     types = Set.new
     types << 'rspec-predictive' if RSPEC_PREDICTIVE.include?(job.name)
-    types << 'qa-gdk'           if QA_GDK.include?(job.name)
+    types << 'e2e-gdk'          if E2E_GDK.include?(job.name)
+    types << 'e2e-cng'          if E2E_CNG.include?(job.name)
+    # omnibus e2e tests are manual in mr pipelines and are only executed on demand
+    types << 'e2e-omnibus'      if E2E_OMNIBUS.include?(job.name) && job.status != 'manual'
     types << 'review-app'       if REVIEW_APP.include?(job.name)
-    types << 'qa'               if QA.include?(job.name)
     types << 'docs'             if DOCS.include?(job.name)
     types << 'code'             if CODE.include?(job.name)
     types

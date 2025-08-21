@@ -1,15 +1,14 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Merge requests workflow
 ---
-
-# Merge requests workflow
 
 We welcome merge requests from everyone, with fixes and improvements
 to GitLab code, tests, and documentation. The issues that are specifically suitable
 for community contributions have the
-[`Seeking community contributions`](../labels/index.md#label-for-community-contributors)
+[`Seeking community contributions`](../labels/_index.md#label-for-community-contributors)
 label, but you are free to contribute to any issue you want.
 
 ## Working from issues
@@ -28,7 +27,7 @@ regression test are merged quickly. New features without proper tests
 might be slower to receive feedback.
 
 If you are new to GitLab development (or web development in general), see the
-[how to contribute](index.md#how-to-contribute) section to get started with
+[how to contribute](_index.md#how-to-contribute) section to get started with
 some potentially easy issues.
 
 ## Merge request ownership
@@ -54,7 +53,7 @@ within the MR.
 
 ## Merge request guidelines for contributors
 
-For a walkthrough of the contribution process, see [Tutorial: Make a GitLab contribution](first_contribution/index.md).
+For a walkthrough of the contribution process, see [Tutorial: Make a GitLab contribution](first_contribution/_index.md).
 
 ### Best practices
 
@@ -78,7 +77,7 @@ For a walkthrough of the contribution process, see [Tutorial: Make a GitLab cont
 
 *Live by smaller iterations.* Keep the amount of changes in a single MR **as small as possible**.
 If you want to contribute a large feature, think very carefully about what the
-[minimum viable change](https://handbook.gitlab.com/handbook/product/product-principles/#the-minimal-viable-change-mvc)
+[minimum valuable change](https://handbook.gitlab.com/handbook/product/product-principles/#the-minimal-valuable-change-mvc)
 is. Can you split the functionality into two smaller MRs? Can you submit only the
 backend/API code? Can you start with a very simple UI? Can you do just a part of the
 refactor?
@@ -106,7 +105,7 @@ Commit messages should follow the guidelines below, for reasons explained by Chr
 - The merge request should not contain more than 10 commit messages.
 - The commit subject should contain at least 3 words.
 
-**Important notes:**
+**Important notes**:
 
 - If the guidelines are not met, the MR may not pass the [Danger checks](https://gitlab.com/gitlab-org/ruby/gems/gitlab-dangerfiles/-/blob/master/lib/danger/rules/commit_messages/Dangerfile).
 - Consider enabling [Squash and merge](../../user/project/merge_requests/squash_and_merge.md)
@@ -118,7 +117,7 @@ Commit messages should follow the guidelines below, for reasons explained by Chr
 #### Why these standards matter
 
 1. Consistent commit messages that follow these guidelines make the history more readable.
-1. Concise standard commit messages helps to identify [breaking changes](../deprecation_guidelines/index.md) for a deployment or ~"master:broken" quicker when
+1. Concise standard commit messages helps to identify [breaking changes](../deprecation_guidelines/_index.md) for a deployment or ~"master:broken" quicker when
    reviewing commits between two points in time.
 
 #### Commit message template
@@ -163,7 +162,7 @@ the contribution acceptance criteria below:
 1. If the merge request contains more than 500 changes:
    - Explain the reason
    - Mention a maintainer
-1. Mention any major [breaking changes](../deprecation_guidelines/index.md).
+1. Mention any major [breaking changes](../deprecation_guidelines/_index.md).
 1. Include proper tests and make all tests pass (unless it contains a test
    exposing a bug in existing code). Every new class should have corresponding
    unit tests, even if the class is exercised at a higher level, such as a feature test.
@@ -200,11 +199,11 @@ code. We use the following [definition of done](https://www.agilealliance.org/gl
 To reach the definition of done, the merge request must create no regressions and meet all these criteria:
 
 - Verified as working in production on GitLab.com.
-- Verified as working for self-managed instances.
-- Verified as supporting [Geo](../../administration/geo/index.md) through the [self-service framework](../geo/framework.md). For more information, see [Geo is a requirement in the definition of done](../geo/framework.md#geo-is-a-requirement-in-the-definition-of-done).
+- Verified as working for GitLab Self-Managed instances.
+- Verified as supporting [Geo](../../administration/geo/_index.md) through the [self-service framework](../geo/framework.md). For more information, see [Geo is a requirement in the definition of done](../geo/framework.md#geo-is-a-requirement-in-the-definition-of-done).
 
 If a regression occurs, we prefer you revert the change.
-Your contribution is *incomplete* until you have made sure it meets all of these
+Your contribution is incomplete until you have made sure it meets all of these
 requirements.
 
 ### Functionality
@@ -214,12 +213,12 @@ requirements.
 1. [Performance guidelines](../merge_request_concepts/performance.md) have been followed.
 1. [Secure coding guidelines](../secure_coding_guidelines.md) have been followed.
 1. [Application and rate limit guidelines](../merge_request_concepts/rate_limits.md) have been followed.
-1. [Documented](../documentation/index.md) in the `/doc` directory.
+1. [Documented](../documentation/_index.md) in the `/doc` directory.
 1. If your MR touches code that executes shell commands, reads or opens files, or
    handles paths to files on disk, make sure it adheres to the
    [shell command guidelines](../shell_commands.md)
 1. [Code changes should include observability instrumentation](../code_review.md#observability-instrumentation).
-1. If your code needs to handle file storage, see the [uploads documentation](../uploads/index.md).
+1. If your code needs to handle file storage, see the [uploads documentation](../uploads/_index.md).
 1. If your merge request adds one or more migrations, make sure to execute all migrations on a fresh database
    before the MR is reviewed.
    If the review leads to large changes in the MR, execute the migrations again
@@ -237,23 +236,27 @@ requirements.
    whether reviewing existing rows should be included as an immediate follow-up task
    to the merge request.
 
-   NOTE:
+   {{< alert type="note" >}}
+
    There isn't a way to know anything about our customers' data on their
-   [self-managed instances](../../subscriptions/self_managed/index.md), so keep
+   [GitLab Self-Managed instances](../../subscriptions/self_managed/_index.md), so keep
    that in mind for any data implications with your merge request.
-1. Consider self-managed functionality and upgrade paths. The change should consider both:
+
+   1. Consider self-managed functionality and upgrade paths. The change should consider both:
 
    - If additional work needs to be done for self-managed availability, and
    - If the change requires a [required stop](../database/required_stops.md) when upgrading GitLab versions.
 
+   {{< /alert >}}
+
    Upgrade stops are sometimes requested when a GitLab code change is dependent
    upon a background migration being already complete. Ideally, changes causing required
    upgrade stops should be held for the next major release, or
-   [at least a 3 milestones notice in advance if unavoidable](../../update/index.md#upgrade-paths).
+   [at least a 3 milestones notice in advance if unavoidable](../../update/upgrade_paths.md).
 
 ### Testing
 
-1. [Unit, integration, and system tests](../testing_guide/index.md) that all pass
+1. [Unit, integration, and system tests](../testing_guide/_index.md) that all pass
    on the CI server.
 1. Peer member testing is optional but recommended when the risk of a change is high.
    This includes when the changes are [far-reaching](https://handbook.gitlab.com/handbook/engineering/core-development/#reducing-the-impact-of-far-reaching-work)
@@ -266,7 +269,7 @@ requirements.
    added if required. Contact [the quality team](https://handbook.gitlab.com/handbook/engineering/quality/)
    with any questions.
 1. The change is tested in a review app where possible and if appropriate.
-1. Code affected by a feature flag is covered by [automated tests with the feature flag enabled and disabled](../feature_flags/index.md#feature-flags-in-tests), or both
+1. Code affected by a feature flag is covered by [automated tests with the feature flag enabled and disabled](../feature_flags/_index.md#feature-flags-in-tests), or both
    states are tested as part of peer member testing or as part of the rollout plan.
 1. If your merge request adds one or more migrations, write tests for more complex migrations.
 
@@ -274,7 +277,7 @@ requirements.
 
 1. Use available components from the GitLab Design System,
    [Pajamas](https://design.gitlab.com/).
-1. The MR must include *Before* and *After* screenshots if UI changes are made.
+1. The MR must include "Before" and "After" screenshots if UI changes are made.
 1. If the MR changes CSS classes, include the list of affected pages, which
    can be found by running `grep css-class ./app -R`.
 
@@ -284,7 +287,7 @@ requirements.
 1. Description includes any steps or setup required to ensure reviewers can view the changes you've made (for example, include any information about feature flags).
 1. [Changelog entry added](../changelog.md), if necessary.
 1. If your merge request introduces changes that require additional steps when
-   installing GitLab from source, add them to `doc/install/installation.md` in
+   self-compiling GitLab, add them to `doc/install/self_compiled/_index.md` in
    the same merge request.
 1. If your merge request introduces changes that require additional steps when
    upgrading GitLab from source, add them to
@@ -330,10 +333,10 @@ request:
 1. Note the addition in the [release blog post](https://handbook.gitlab.com/handbook/marketing/blog/release-posts/)
    (create one if it doesn't exist yet).
 1. [The upgrade guide](../../update/upgrading_from_source.md).
-1. The [GitLab Installation Guide](../../install/installation.md#1-packages-and-dependencies).
+1. The [GitLab Installation Guide](../../install/self_compiled/_index.md#1-packages-and-dependencies).
 1. The [GitLab Development Kit](https://gitlab.com/gitlab-org/gitlab-development-kit).
 1. The [CI environment preparation](https://gitlab.com/gitlab-org/gitlab/-/blob/master/scripts/prepare_build.sh).
-1. The [Omnibus package creator](https://gitlab.com/gitlab-org/omnibus-gitlab).
+1. The [Linux package creator](https://gitlab.com/gitlab-org/omnibus-gitlab).
 1. The [Cloud Native GitLab Dockerfiles](https://gitlab.com/gitlab-org/build/CNG)
 
 ## Incremental improvements

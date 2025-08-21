@@ -127,13 +127,15 @@ export default {
 
 <template>
   <div
-    class="gl-display-flex gl-flex-direction-column gl-md-flex-direction-row gl-gap-3 row-content-block"
+    class="row-content-block gl-border-t gl-border-b !-gl-mt-3 gl-flex gl-flex-col gl-gap-3 gl-border-y-0 md:gl-flex-row"
   >
     <gl-filtered-search
       v-model="internalFilter"
-      class="gl-flex-grow-1 gl-min-w-0"
+      class="gl-min-w-0 gl-grow"
       :placeholder="__('Filter results')"
       :available-tokens="tokens"
+      :search-text-option-label="__('Search for this text')"
+      terms-as-tokens
       @submit="submitSearch"
       @clear="clearSearch"
     />

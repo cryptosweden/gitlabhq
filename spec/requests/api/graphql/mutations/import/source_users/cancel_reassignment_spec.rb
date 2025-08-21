@@ -45,14 +45,14 @@ RSpec.describe 'Cancel an reassignment of an import source user', feature_catego
       group.add_owner(current_user)
     end
 
-    it 'sets import user source status back to pending_assignment', :aggregate_failures do
+    it 'sets import user source status back to pending_reassignment', :aggregate_failures do
       post_graphql_mutation(mutation, current_user: current_user)
 
       import_source_user = mutation_response['importSourceUser']
 
       expect(import_source_user['reassignedToUser']).to eq(nil)
       expect(import_source_user['reassignedByUser']).to eq(nil)
-      expect(import_source_user['status']).to eq('PENDING_ASSIGNMENT')
+      expect(import_source_user['status']).to eq('PENDING_REASSIGNMENT')
     end
 
     context 'when cancelation fails' do
@@ -73,21 +73,5 @@ RSpec.describe 'Cancel an reassignment of an import source user', feature_catego
     end
 
     it_behaves_like 'a mutation that returns a top-level access error'
-  end
-
-  context 'when feature flag `bulk_import_user_mapping`` disabled' do
-    before do
-      stub_feature_flags(bulk_import_user_mapping: false)
-    end
-
-    it 'returns a resource not available error' do
-      post_graphql_mutation(mutation, current_user: current_user)
-
-      expect(graphql_errors).to contain_exactly(
-        hash_including(
-          'message' => '`bulk_import_user_mapping` feature flag is disabled.'
-        )
-      )
-    end
   end
 end

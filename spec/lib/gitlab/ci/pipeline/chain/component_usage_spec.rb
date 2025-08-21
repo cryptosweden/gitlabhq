@@ -35,20 +35,27 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::ComponentUsage, feature_category: :p
 
     it_behaves_like 'internal event tracking' do
       let(:event) { 'ci_catalog_component_included' }
-      let(:label) { component.project.full_path }
-      let(:property) { 'my_component@1.2.0' }
+      let(:label) { "#{component.project.full_path}/#{component.name}" }
       let(:value) { 1 } # Default resource_type
+      let(:property) { component.version.name }
     end
 
     it 'creates a component usage record' do
-      expect { perform }.to change { Ci::Catalog::Resources::Components::Usage.count }.by(1)
+      expect { perform }.to change { Ci::Catalog::Resources::Components::LastUsage.count }.by(1)
     end
 
     context 'when component usage has already been recorded', :freeze_time do
-      it 'does not create a component usage record' do
-        step.perform!
+      let!(:existing_last_usage) do
+        create(:catalog_resource_component_last_usage,
+          component: component, used_by_project_id: project.id, last_used_date: Time.current.to_date - 3.days)
+      end
 
-        expect { perform }.not_to change { Ci::Catalog::Resources::Components::Usage.count }
+      it 'updates the last_used_date for the existing last_usage record' do
+        expect { step.perform! }.not_to change { Ci::Catalog::Resources::Components::LastUsage.count }
+
+        last_usage = Ci::Catalog::Resources::Components::LastUsage.find_by(component: component,
+          used_by_project_id: project.id)
+        expect(last_usage.last_used_date).to eq(Time.current.to_date)
       end
     end
   end

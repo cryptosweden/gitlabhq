@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::Maskable, feature_category: :secrets_management do
+RSpec.describe Ci::Maskable, feature_category: :ci_variables do
   let(:variable) { build(:ci_variable) }
 
   describe 'masked value validations' do
@@ -132,8 +132,8 @@ RSpec.describe Ci::Maskable, feature_category: :secrets_management do
     end
   end
 
-  describe '#to_runner_variable' do
-    subject { variable.to_runner_variable }
+  describe '#to_hash_variable' do
+    subject { variable.to_hash_variable }
 
     it 'exposes the masked attribute' do
       expect(subject).to include(:masked)

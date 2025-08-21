@@ -2,6 +2,13 @@
 import { GlIcon, GlLink, GlTooltipDirective } from '@gitlab/ui';
 import TooltipOnTruncate from '~/vue_shared/components/tooltip_on_truncate/tooltip_on_truncate.vue';
 
+const sizeClasses = {
+  s: 'gl-max-w-20',
+  m: 'gl-max-w-30',
+  l: 'gl-max-w-48',
+  xl: 'gl-max-w-75',
+};
+
 export default {
   name: 'MetadataItem',
   components: {
@@ -32,7 +39,7 @@ export default {
       required: false,
       default: 's',
       validator(value) {
-        return !value || ['xs', 's', 'm', 'l', 'xl'].includes(value);
+        return !value || ['s', 'm', 'l', 'xl'].includes(value);
       },
     },
     textTooltip: {
@@ -43,27 +50,22 @@ export default {
   },
   computed: {
     sizeClass() {
-      return `mw-${this.size}`;
+      return sizeClasses[this.size];
     },
   },
 };
 </script>
 
 <template>
-  <div class="gl-inline-flex gl-align-items-center">
-    <gl-icon v-if="icon" :name="icon" class="gl-text-gray-500 gl-min-w-5 gl-mr-3" />
-    <tooltip-on-truncate v-if="link" :title="text" class="gl-text-truncate" :class="sizeClass">
-      <gl-link :href="link" class="gl-font-bold">
+  <div class="gl-inline-flex gl-items-center">
+    <gl-icon v-if="icon" :name="icon" class="gl-mr-2 gl-min-w-5" variant="subtle" />
+    <tooltip-on-truncate v-if="link" :title="text" class="gl-truncate" :class="sizeClass">
+      <gl-link :href="link">
         {{ text }}
       </gl-link>
     </tooltip-on-truncate>
-    <div
-      v-else
-      data-testid="metadata-item-text"
-      class="gl-font-bold gl-inline-flex"
-      :class="sizeClass"
-    >
-      <tooltip-on-truncate v-if="!textTooltip" :title="text" class="gl-text-truncate">
+    <div v-else data-testid="metadata-item-text" class="gl-inline-flex" :class="sizeClass">
+      <tooltip-on-truncate v-if="!textTooltip" :title="text" class="gl-truncate">
         {{ text }}
       </tooltip-on-truncate>
       <span v-else v-gl-tooltip="{ title: textTooltip }" data-testid="text-tooltip-container">

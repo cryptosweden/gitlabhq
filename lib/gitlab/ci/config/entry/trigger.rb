@@ -29,21 +29,21 @@ module Gitlab
               config.key?(:include)
             end
 
-            # cross-project
             class CrossProjectTrigger < ::Gitlab::Config::Entry::Node
               include ::Gitlab::Config::Entry::Validatable
               include ::Gitlab::Config::Entry::Attributable
               include ::Gitlab::Config::Entry::Configurable
 
-              ALLOWED_KEYS = %i[project branch strategy forward].freeze
-              attributes :project, :branch, :strategy
+              ALLOWED_KEYS = %i[project branch strategy forward inputs].freeze
+              attributes :project, :branch, :strategy, :inputs
 
               validations do
                 validates :config, presence: true
                 validates :config, allowed_keys: ALLOWED_KEYS
+                validates :inputs, type: Hash, allow_nil: true
                 validates :project, type: String, presence: true
                 validates :branch, type: String, allow_nil: true
-                validates :strategy, type: String, inclusion: { in: %w[depend], message: 'should be depend' }, allow_nil: true
+                validates :strategy, type: String, inclusion: { in: %w[depend mirror], message: 'should be depend or mirror' }, allow_nil: true
               end
 
               entry :forward, ::Gitlab::Ci::Config::Entry::Trigger::Forward,
@@ -53,7 +53,8 @@ module Gitlab
                 { project: project,
                   branch: branch,
                   strategy: strategy,
-                  forward: forward_value }.compact
+                  forward: forward_value,
+                  inputs: inputs }.compact
               end
             end
 
@@ -70,7 +71,7 @@ module Gitlab
               validations do
                 validates :config, presence: true
                 validates :config, allowed_keys: ALLOWED_KEYS
-                validates :strategy, type: String, inclusion: { in: %w[depend], message: 'should be depend' }, allow_nil: true
+                validates :strategy, type: String, inclusion: { in: %w[depend mirror], message: 'should be depend or mirror' }, allow_nil: true
               end
 
               entry :include, ::Gitlab::Ci::Config::Entry::Includes,

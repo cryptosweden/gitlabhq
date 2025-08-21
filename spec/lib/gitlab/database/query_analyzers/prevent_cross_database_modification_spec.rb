@@ -61,7 +61,7 @@ RSpec.describe Gitlab::Database::QueryAnalyzers::PreventCrossDatabaseModificatio
     let(:model) { model }
 
     context "within #{model} transaction" do
-      it 'raises error' do
+      it 'raises error', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/508345' do
         model.transaction do
           expect { run_queries }.to raise_error do |error|
             expect(error.message).to include 'Cross-database data modification'
@@ -94,7 +94,7 @@ RSpec.describe Gitlab::Database::QueryAnalyzers::PreventCrossDatabaseModificatio
     include_examples 'successful examples', model: Ci::Pipeline
 
     include_examples 'cross-database modification errors', model: Project,
-      sql_log_contains: [/UPDATE "ci_pipelines"/]
+      sql_log_contains: [/UPDATE "p_ci_pipelines"/]
   end
 
   context 'when other data is modified' do
@@ -121,13 +121,13 @@ RSpec.describe Gitlab::Database::QueryAnalyzers::PreventCrossDatabaseModificatio
 
     context 'when data modification happens in a transaction' do
       include_examples 'cross-database modification errors', model: Project,
-        sql_log_contains: [/UPDATE "projects"/, /UPDATE "ci_pipelines"/]
+        sql_log_contains: [/UPDATE "projects"/, /UPDATE "p_ci_pipelines"/]
 
-      context 'when ci_pipelines are ignored for cross modification' do
+      context 'when p_ci_pipelines are ignored for cross modification' do
         it 'does not raise error' do
           Project.transaction do
             expect do
-              described_class.temporary_ignore_tables_in_transaction(%w[ci_pipelines], url: 'TODO') do
+              described_class.temporary_ignore_tables_in_transaction(%w[p_ci_pipelines], url: 'TODO') do
                 run_queries
               end
             end.not_to raise_error
@@ -136,7 +136,7 @@ RSpec.describe Gitlab::Database::QueryAnalyzers::PreventCrossDatabaseModificatio
       end
 
       context 'when data modification happens in nested transactions' do
-        it 'raises error, with the generated sql queries included' do
+        it 'raises error, with the generated sql queries included', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/508345' do
           Project.transaction(requires_new: true) do
             project.touch
             Project.transaction(requires_new: true) do
@@ -144,7 +144,7 @@ RSpec.describe Gitlab::Database::QueryAnalyzers::PreventCrossDatabaseModificatio
                 expect(error.message).to include('Cross-database data modification')
 
                 expect(error.message).to match(/UPDATE "projects"/)
-                expect(error.message).to match(/UPDATE "ci_pipelines"/)
+                expect(error.message).to match(/UPDATE "p_ci_pipelines"/)
               end
             end
           end
@@ -162,7 +162,7 @@ RSpec.describe Gitlab::Database::QueryAnalyzers::PreventCrossDatabaseModificatio
         end
 
         include_examples 'cross-database modification errors', model: Project,
-          sql_log_contains: [/UPDATE "projects"/, /UPDATE "ci_pipelines"/]
+          sql_log_contains: [/UPDATE "projects"/, /UPDATE "p_ci_pipelines"/]
       end
     end
 
@@ -178,10 +178,10 @@ RSpec.describe Gitlab::Database::QueryAnalyzers::PreventCrossDatabaseModificatio
 
       context 'when data modification happens in a transaction' do
         include_examples 'cross-database modification errors', model: Project,
-          sql_log_contains: [/UPDATE "projects"/, /SELECT .*"ci_pipelines"\."id".* FROM "ci_pipelines" .*FOR UPDATE/]
+          sql_log_contains: [/UPDATE "projects"/, /SELECT "p_ci_pipelines"\.\* FROM "p_ci_pipelines" .*FOR UPDATE/]
 
         context 'when the modification is inside a factory save! call' do
-          let(:runner) { create(:ci_runner, :project, projects: [build(:project)]) }
+          let(:runner) { create(:ci_runner, :project, projects: [create(:project)]) }
 
           it 'does not raise an error' do
             runner
@@ -227,11 +227,11 @@ RSpec.describe Gitlab::Database::QueryAnalyzers::PreventCrossDatabaseModificatio
   end
 
   context 'when execution is rescued with StandardError' do
-    it 'raises cross-database data modification exception' do
+    it 'raises cross-database data modification exception', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/508345' do
       expect do
         Project.transaction do
           project.touch
-          project.connection.execute('UPDATE ci_pipelines SET id=1 WHERE id = -1')
+          project.connection.execute('UPDATE p_ci_pipelines SET id=1 WHERE id = -1')
         end
       rescue StandardError
         # Ensures that standard rescue does not silence errors

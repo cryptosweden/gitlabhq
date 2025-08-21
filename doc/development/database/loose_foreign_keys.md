@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Loose foreign keys
 ---
-
-# Loose foreign keys
 
 ## Problem statement
 
@@ -16,8 +15,7 @@ Most of our database tables have foreign keys.
 With the ongoing database [decomposition work](https://gitlab.com/groups/gitlab-org/-/epics/6168),
 linked records might be present on two different database servers. Ensuring data consistency
 between two databases is not possible with standard PostgreSQL foreign keys. PostgreSQL
-does not support foreign keys operating within a single database server, defining
-a link between two database tables in two different database servers over the network.
+does not support foreign keys operating across multiple database servers.
 
 Example:
 
@@ -35,7 +33,7 @@ Our preferred approach to this problem is eventual consistency. With the loose f
 feature, we can configure delayed association cleanup without negatively affecting the
 application performance.
 
-### How it works
+### How eventual consistency is implemented
 
 In the previous example, a record in the `projects` table can have multiple `ci_pipeline`
 records. To keep the cleanup process separate from the actual parent record deletion,
@@ -47,8 +45,11 @@ we can:
 1. For each record in the table, delete the associated `ci_pipelines` records
    using the `project_id` column.
 
-NOTE:
+{{< alert type="note" >}}
+
 For this procedure to work, we must register which tables to clean up asynchronously.
+
+{{< /alert >}}
 
 ## The `scripts/decomposition/generate-loose-foreign-key`
 
@@ -57,8 +58,11 @@ decomposition effort. It presents existing keys and allows chosen foreign keys t
 converted into loose foreign keys. This ensures consistency between foreign key and loose foreign
 key definitions, and ensures that they are properly tested.
 
-WARNING:
+{{< alert type="warning" >}}
+
 We strongly advise you to use the automation script for swapping any foreign key to a loose foreign key.
+
+{{< /alert >}}
 
 The tool ensures that all aspects of swapping a foreign key are covered. This includes:
 
@@ -193,7 +197,56 @@ ci_pipelines:
     on_delete: :async_nullify
 ```
 
+### Assign specific tables to custom workers
+
+By default, all loose foreign key cleanup is handled by the `LooseForeignKeys::CleanupWorker`. However, 
+you can specify a custom worker class to handle cleanup for specific tables. This allows for better 
+load distribution and specialized handling of different table types.
+
+To assign a table to a custom worker, add the `worker_class` attribute to the configuration:
+
+```yaml
+ci_pipelines:
+  - table: projects
+    column: project_id
+    on_delete: async_delete
+    worker_class: 'CustomLooseForeignKeysWorker'
+```
+
+If the `worker_class` attribute is not specified, the table will default to using 
+`::LooseForeignKeys::CleanupWorker`.
+
+**Important considerations:**
+
+- The `worker_class` must be a valid Ruby class name as a string
+- The custom worker should follow the same pattern as `LooseForeignKeys::CleanupWorker`
+- Each worker processes only the tables specifically assigned to it through the `worker_class` attribute
+- Tables without a `worker_class` specified are processed by the default `CleanupWorker`
+- When adding a new custom worker, you must also add it to the `ALLOWED_WORKER_CLASSES` constant in `lib/gitlab/database/loose_foreign_keys.rb`
+- When adding a new custom worker, you must also add its cron job configuration to `config/initializers/1_settings.rb`
+
+Example with mixed worker assignments:
+
+```yaml
+ci_pipelines:
+  - table: projects
+    column: project_id  
+    on_delete: async_delete
+    worker_class: 'CustomCiCleanupWorker'  # Processed by CustomCiCleanupWorker
+  - table: users
+    column: user_id
+    on_delete: async_nullify
+    # No worker_class = processed by default CleanupWorker
+
+ci_builds:
+  - table: projects
+    column: project_id
+    on_delete: async_delete  # No worker_class = processed by default CleanupWorker
+```
+
 ### Track record changes
+
+#### On normal non-partitioned tables
 
 To know about deletions in the `projects` table, configure a `DELETE` trigger
 using a [post-deployment migration](post_deployment_migrations.md). The
@@ -201,7 +254,7 @@ trigger needs to be configured only once. If the model already has at least one
 `loose_foreign_key` definition, then this step can be skipped:
 
 ```ruby
-class TrackProjectRecordChanges < Gitlab::Database::Migration[2.1]
+class TrackProjectRecordChanges < Gitlab::Database::Migration[2.3]
   include Gitlab::Database::MigrationHelpers::LooseForeignKeyHelpers
 
   def up
@@ -210,6 +263,29 @@ class TrackProjectRecordChanges < Gitlab::Database::Migration[2.1]
 
   def down
     untrack_record_deletions(:projects)
+  end
+end
+```
+
+#### On partitioned tables
+
+To track deletions on partitioned tables, we need to use the helper `track_record_deletions_override_table_name`
+instead. It's because we need to make sure that when `DELETE` statements run against the partitioned
+table or its partitions, we are always registering the parent (partitioned) table instead of the partition
+(child) table name.
+
+Here is an example:
+
+```ruby
+class TrackWorkloadDeletions < Gitlab::Database::Migration[2.3]
+  include Gitlab::Database::MigrationHelpers::LooseForeignKeyHelpers
+
+  def up
+    track_record_deletions_override_table_name(:p_ci_workloads)
+  end
+
+  def down
+    untrack_record_deletions(:p_ci_workloads)
   end
 end
 ```
@@ -233,7 +309,7 @@ trigger. If the foreign key is deleted earlier, there is a good chance of
 introducing data inconsistency which needs manual cleanup:
 
 ```ruby
-class RemoveProjectsCiPipelineFk < Gitlab::Database::Migration[2.1]
+class RemoveProjectsCiPipelineFk < Gitlab::Database::Migration[2.3]
   disable_ddl_transaction!
 
   def up
@@ -268,7 +344,7 @@ If the model still has at least one `loose_foreign_key` definition remaining, th
 Migration for removing the trigger:
 
 ```ruby
-class UnTrackProjectRecordChanges < Gitlab::Database::Migration[2.1]
+class UnTrackProjectRecordChanges < Gitlab::Database::Migration[2.3]
   include Gitlab::Database::MigrationHelpers::LooseForeignKeyHelpers
 
   def up
@@ -286,7 +362,7 @@ table however, there is still a chance for having leftover pending records in th
 must be removed with an inline data migration.
 
 ```ruby
-class RemoveLeftoverProjectDeletions < Gitlab::Database::Migration[2.1]
+class RemoveLeftoverProjectDeletions < Gitlab::Database::Migration[2.3]
   disable_ddl_transaction!
 
   def up
@@ -378,7 +454,7 @@ end
 ```
 
 This endpoint still works when the parent `Project` model is deleted. This can be considered a
-a data leak which should not happen under typical circumstances:
+data leak which should not happen under typical circumstances:
 
 ```ruby
 def show
@@ -388,9 +464,12 @@ def show
 end
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 This example is unlikely in GitLab, because we usually look up the parent models to perform
 permission checks.
+
+{{< /alert >}}
 
 ## A note on `dependent: :destroy` and `dependent: :nullify`
 
@@ -404,6 +483,31 @@ For non-trivial objects that need to clean up data outside the
 database (for example, object storage) where you might wish to use `dependent: :destroy`,
 see alternatives in
 [Avoid `dependent: :nullify` and `dependent: :destroy` across databases](multiple_databases.md#avoid-dependent-nullify-and-dependent-destroy-across-databases).
+
+## Update target column to a value
+
+A loose foreign key might be used to update a target column to a value when an
+entry in parent table is deleted.
+
+It's important to add an index (if it doesn't exist yet) on
+(`column`, `target_column`) to avoid any performance issues.
+Any index starting with these two columns will work.
+
+The configuration requires additional information:
+
+- Column to be updated (`target_column`)
+- Value to be set in the target column (`target_value`)
+
+Example definition:
+
+```yaml
+packages:
+  - table: projects
+    column: project_id
+    on_delete: update_column_to
+    target_column: status
+    target_value: 4
+```
 
 ## Risks of loose foreign keys and possible mitigations
 
@@ -489,8 +593,7 @@ occurrence if pipeline is not found.
 The loose foreign keys feature is implemented within the `LooseForeignKeys` Ruby namespace. The
 code is isolated from the core application code and theoretically, it could be a standalone library.
 
-The feature is invoked solely in the [`LooseForeignKeys::CleanupWorker`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/workers/loose_foreign_keys/cleanup_worker.rb) worker class. The worker is scheduled via a
-cron job where the schedule depends on the configuration of the GitLab instance.
+The feature is invoked by worker classes, primarily the [`LooseForeignKeys::CleanupWorker`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/workers/loose_foreign_keys/cleanup_worker.rb). Custom workers can be assigned to specific tables through the `worker_class` configuration option. Workers are scheduled via cron jobs where the schedule depends on the configuration of the GitLab instance.
 
 - Non-decomposed GitLab (1 database): invoked every minute.
 - Decomposed GitLab (2 databases, CI and Main): invoked every minute, cleaning up one database
@@ -499,7 +602,7 @@ cron job where the schedule depends on the configuration of the GitLab instance.
 To avoid lock contention and the processing of the same database rows, the worker does not run
 parallel. This behavior is ensured with a Redis lock.
 
-**Record cleanup procedure:**
+**Record cleanup procedure**:
 
 1. Acquire the Redis lock.
 1. Determine which database to clean up.
@@ -507,6 +610,8 @@ parallel. This behavior is ensured with a Redis lock.
    - This is achieved by reading the `config/gitlab_loose_foreign_keys.yml` file.
    - A table is considered "tracked" when a loose foreign key definition exists for the table and
      the `DELETE` trigger is installed.
+   - When using custom workers via the `worker_class` attribute, each worker only processes tables
+     specifically assigned to it, filtering out tables assigned to other workers.
 1. Cycle through the tables with an infinite loop.
 1. For each table, load a batch of deleted parent records to clean up.
 1. Depending on the YAML configuration, build `DELETE` or `UPDATE` (nullify) queries for the
@@ -760,7 +865,7 @@ We have Prometheus metrics in place to monitor the deleted record cleanup:
 - `loose_foreign_key_rescheduled_deleted_records`: Number of deleted records that had to be
   rescheduled at a later time after 3 cleanup attempts.
 
-Example Thanos query:
+Example PromQL query:
 
 ```plaintext
 loose_foreign_key_rescheduled_deleted_records{env="gprd", table="ci_runners"}
@@ -800,7 +905,7 @@ Steps to diagnose the problem:
 
 - Check which records are accumulating.
 - Try to get an estimate of the number of remaining records.
-- Looking into the worker performance stats (Kibana or Thanos).
+- Looking into the worker performance stats (Kibana or Grafana).
 
 Possible solutions:
 
@@ -820,8 +925,11 @@ When the cleanup is done, the older partitions are automatically detached by the
 
 ### PartitionManager bug
 
-NOTE:
+{{< alert type="note" >}}
+
 This issue happened in the past on Staging and it has been mitigated.
+
+{{< /alert >}}
 
 When adding a new partition, the default value of the `partition` column is also updated. This is
 a schema change that is executed in the same transaction as the new partition creation. It's highly

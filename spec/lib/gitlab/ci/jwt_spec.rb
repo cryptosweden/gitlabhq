@@ -3,6 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::Ci::Jwt, feature_category: :secrets_management do
+  include ProjectForksHelper
   let(:namespace) { build_stubbed(:namespace) }
   let(:project) { build_stubbed(:project, namespace: namespace) }
   let_it_be(:user) { create(:user) }
@@ -34,7 +35,7 @@ RSpec.describe Gitlab::Ci::Jwt, feature_category: :secrets_management do
 
     it 'has correct values for the custom attributes' do
       aggregate_failures do
-        expect(payload[:groups_direct]).to match_array([])
+        expect(payload[:groups_direct]).to be_empty
         expect(payload[:namespace_id]).to eq(namespace.id.to_s)
         expect(payload[:namespace_path]).to eq(namespace.full_path)
         expect(payload[:project_id]).to eq(project.id.to_s)
@@ -82,8 +83,40 @@ RSpec.describe Gitlab::Ci::Jwt, feature_category: :secrets_management do
           subgroup.add_member(user, GroupMember::OWNER)
         end
 
-        it 'has correct values for the sorted direct group full paths' do
-          expect(payload[:groups_direct]).to eq(expected_groups)
+        context 'when feature flag is enabled' do
+          it 'has correct values for the sorted direct group full paths' do
+            expect(payload[:groups_direct]).to eq(expected_groups)
+          end
+        end
+
+        context 'when feature flag is enabled for group' do
+          before do
+            stub_feature_flags(ci_jwt_groups_direct: project.group)
+          end
+
+          it 'has correct values for the sorted direct group full paths' do
+            expect(payload[:groups_direct]).to eq(expected_groups)
+          end
+        end
+
+        context 'when feature flag is enabled for root namespace' do
+          before do
+            stub_feature_flags(ci_jwt_groups_direct: project.root_namespace)
+          end
+
+          it 'has correct values for the sorted direct group full paths' do
+            expect(payload[:groups_direct]).to eq(expected_groups)
+          end
+        end
+
+        context 'when feature flag is disabled' do
+          before do
+            stub_feature_flags(ci_jwt_groups_direct: false)
+          end
+
+          it 'does not include groups_direct' do
+            expect(payload.keys).not_to include(:groups_direct)
+          end
         end
       end
 
@@ -197,6 +230,41 @@ RSpec.describe Gitlab::Ci::Jwt, feature_category: :secrets_management do
         end
       end
     end
+
+    context 'when the pipeline is for a merge request from a forked project' do
+      let_it_be(:target_project_namespace) { create(:namespace) }
+      let_it_be(:target_project) { create(:project, namespace: target_project_namespace) }
+      let_it_be(:forked_project_namespace) { create(:namespace) }
+      let_it_be(:forked_project) do
+        fork_project(target_project, nil, repository: true, namespace: forked_project_namespace)
+      end
+
+      let_it_be(:merge_request) do
+        build_stubbed(:merge_request, source_project: forked_project, source_branch: 'feature',
+          target_project: target_project, target_branch: 'master')
+      end
+
+      let_it_be(:pipeline) do
+        build_stubbed(:ci_pipeline, source: :merge_request_event, merge_request: merge_request,
+          project: target_project, user: user)
+      end
+
+      let_it_be(:build) do
+        build_stubbed(
+          :ci_build,
+          project: target_project,
+          user: user,
+          pipeline: pipeline
+        )
+      end
+
+      it 'sets the project related claims of the source project of the merge request' do
+        expect(payload[:project_id]).to eq(forked_project.id.to_s)
+        expect(payload[:project_path]).to eq(forked_project.full_path)
+        expect(payload[:namespace_id]).to eq(forked_project_namespace.id.to_s)
+        expect(payload[:namespace_path]).to eq(forked_project_namespace.full_path)
+      end
+    end
   end
 
   describe '.for_build' do
@@ -212,7 +280,7 @@ RSpec.describe Gitlab::Ci::Jwt, feature_category: :secrets_management do
         end
 
         it 'generates JWT for the given job with ttl equal to build timeout' do
-          expect(build).to receive(:metadata_timeout).and_return(3_600)
+          expect(build).to receive(:timeout_value).and_return(3_600)
 
           payload, _headers = JWT.decode(jwt, rsa_key.public_key, true, { algorithm: 'RS256' })
           ttl = payload["exp"] - payload["iat"]
@@ -221,7 +289,7 @@ RSpec.describe Gitlab::Ci::Jwt, feature_category: :secrets_management do
         end
 
         it 'generates JWT for the given job with default ttl if build timeout is not set' do
-          expect(build).to receive(:metadata_timeout).and_return(nil)
+          expect(build).to receive(:timeout_value).and_return(nil)
 
           payload, _headers = JWT.decode(jwt, rsa_key.public_key, true, { algorithm: 'RS256' })
           ttl = payload["exp"] - payload["iat"]

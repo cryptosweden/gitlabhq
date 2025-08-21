@@ -27,7 +27,7 @@ RSpec.describe VersionCheckHelper do
           stub_application_setting(version_check_enabled: enabled)
           allow(User).to receive(:single_user).and_return(double(user, requires_usage_stats_consent?: consent))
           allow(helper).to receive(:current_user).and_return(user)
-          allow(user).to receive(:can_read_all_resources?).and_return(is_admin)
+          allow(user).to receive(:can_admin_all_resources?).and_return(is_admin)
         end
 
         it 'returns correct results' do
@@ -45,20 +45,38 @@ RSpec.describe VersionCheckHelper do
     end
 
     it 'when show_version_check? is false it returns nil' do
-      expect(helper.gitlab_version_check).to be nil
+      expect(helper.gitlab_version_check).to be_nil
     end
 
     context 'when show_version_check? is true' do
       let(:show_version_check) { true }
 
-      before do
-        allow_next_instance_of(VersionCheck) do |instance|
-          allow(instance).to receive(:response).and_return({ "severity" => "success" })
+      context 'when it has no cached version_check response' do
+        before do
+          allow(Rails.cache).to receive(:fetch).with('version_check').and_return(nil)
+        end
+
+        it 'schedules a version check worker' do
+          expect(Gitlab::Version::VersionCheckCronWorker).to receive(:perform_async)
+
+          helper.gitlab_version_check
+        end
+
+        it 'returns nil' do
+          expect(helper.gitlab_version_check).to be_nil
         end
       end
 
-      it 'returns an instance of the VersionCheck class if the user has access' do
-        expect(helper.gitlab_version_check).to eq({ "severity" => "success" })
+      context 'when it has a cached version_check response' do
+        let(:version_check) { { "severity" => "success" } }
+
+        before do
+          allow(Rails.cache).to receive(:fetch).with('version_check').and_return(version_check)
+        end
+
+        it 'returns the cached version check response' do
+          expect(helper.gitlab_version_check).to eq(version_check)
+        end
       end
     end
   end

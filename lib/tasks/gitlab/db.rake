@@ -19,6 +19,14 @@ namespace :gitlab do
       mark_migration_complete(args[:version])
     end
 
+    desc 'Gitlab | DB | Troubleshoot issues with the database'
+    task :sos, [:output_path] => :environment do |_, args|
+      output_path = args[:output_path] || "tmp/sos.zip"
+      Gitlab::AppLogger.info("Starting DB SOS and saving to: #{output_path}")
+      Gitlab::Database::Sos.run(output_path)
+      Gitlab::AppLogger.info("Finished running DB SOS")
+    end
+
     namespace :mark_migration_complete do
       each_database(databases) do |database_name|
         desc "Gitlab | DB | Manually insert schema migration version on #{database_name} database"
@@ -95,7 +103,50 @@ namespace :gitlab do
       configure_clickhouse_databases
     end
 
+    desc 'Bumps up the sequence range for the given sequence_names'
+    task :increase_sequences_range, [:sequence_names] => :environment do |_, args|
+      sequence_names = args[:sequence_names].split(' ')
+      next unless sequence_names.present? && Gitlab.config.cell.enabled
+
+      sequence_ranges = Gitlab::TopologyServiceClient::CellService.new.cell_sequence_ranges
+
+      next unless sequence_ranges.present?
+
+      Gitlab::Database::EachDatabase.each_connection do |connection, _database_name|
+        sequences_last_value = fetch_sequences_last_value(connection, sequence_names)
+
+        sequences_last_value.each do |sequence_name, last_value|
+          next unless last_value.present? # last_value will be null for sequences not being used yet
+
+          # 10_000 is added as a delta
+          sequence_range = sequence_ranges.find { |sequence_range| sequence_range.minval > (last_value + 10_000) }
+
+          unless sequence_range.present?
+            Gitlab::AppLogger.info("No additional sequence range could be found for sequence: #{sequence_name}")
+            next
+          end
+
+          Gitlab::Database::AlterCellSequencesRange.new(
+            sequence_range.minval.to_i,
+            sequence_range.maxval.to_i,
+            connection,
+            sequence_names: sequence_name
+          ).execute
+        end
+      end
+    end
+
+    def fetch_sequences_last_value(connection, sequence_names)
+      quoted_names = sequence_names.map { |name| connection.quote(name) }.join(', ')
+
+      connection.exec_query(
+        "SELECT sequencename, last_value FROM pg_sequences WHERE sequencename IN (#{quoted_names})"
+      ).rows.to_h
+    end
+
     def configure_pg_databases
+      check_topology_service_health!
+
       databases_with_tasks = ActiveRecord::Base.configurations.configs_for(env_name: Rails.env)
 
       databases_loaded = []
@@ -115,6 +166,8 @@ namespace :gitlab do
 
       return unless databases_loaded.present? && databases_loaded.all?
 
+      alter_cell_sequences_range
+
       Rake::Task["gitlab:db:lock_writes"].invoke
       Rake::Task['db:seed_fu'].invoke
     end
@@ -127,6 +180,8 @@ namespace :gitlab do
       database_name = ":#{database_name}" if database_name
       load_database = connection.tables.count <= 1
 
+      ActiveRecord::Base.connection_handler.clear_all_connections!
+
       if load_database
         puts "Running db:schema:load#{database_name} rake task"
         Gitlab::Database.add_post_migrate_path_to_rails(force: true)
@@ -137,6 +192,45 @@ namespace :gitlab do
       end
 
       load_database
+    end
+
+    def check_topology_service_health!
+      return unless Gitlab.config.cell.enabled
+
+      if Gitlab.config.cell.database.skip_sequence_alteration
+        return puts 'Skipping Topology Service health check due to cell sequences alteration being disabled'
+      end
+
+      unless Gitlab::TopologyServiceClient::HealthService.new.service_healthy?
+        raise 'Error: Topology Service is `UNAVAILABLE`. Exiting DB configuration.'
+      end
+
+      puts 'Topology Service is HEALTHY.'
+    end
+
+    def alter_cell_sequences_range
+      return unless Gitlab.config.cell.enabled
+
+      return puts "Skipping altering cell sequences range" if Gitlab.config.cell.database.skip_sequence_alteration
+
+      sequence_ranges = Gitlab::TopologyServiceClient::CellService.new.cell_sequence_ranges
+
+      return unless sequence_ranges.present?
+
+      # The first range is chosen because others are additionally provided ranges,
+      # which will be used to bump the range for saturating sequences.
+      sequence_range = [sequence_ranges.first.minval, sequence_ranges.first.maxval]
+      puts "Running gitlab:db:alter_cell_sequences_range rake task with (#{sequence_range.join(', ')})"
+      Rake::Task["gitlab:db:alter_cell_sequences_range"].invoke(*sequence_range)
+    end
+
+    desc "Clear all connections"
+    task :clear_all_connections do
+      ActiveRecord::Base.connection_handler.clear_all_connections!
+    end
+
+    ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
+      Rake::Task["db:test:purge:#{name}"].enhance(['gitlab:db:clear_all_connections'])
     end
 
     desc 'GitLab | DB | Run database migrations and print `unattended_migrations_completed` if action taken'
@@ -169,13 +263,13 @@ namespace :gitlab do
     end
 
     # Inform Rake that custom tasks should be run every time rake db:schema:dump is run
-    Rake::Task['db:schema:dump'].enhance do
+    Rake::Task['db:schema:dump'].enhance(['gitlab:db:create_dynamic_partitions']) do
       Rake::Task['gitlab:db:clean_structure_sql'].invoke
     end
 
     ActiveRecord::Tasks::DatabaseTasks.for_each(databases) do |name|
       # Inform Rake that custom tasks should be run every time rake db:schema:dump is run
-      Rake::Task["db:schema:dump:#{name}"].enhance do
+      Rake::Task["db:schema:dump:#{name}"].enhance(['gitlab:db:create_dynamic_partitions']) do
         Rake::Task['gitlab:db:clean_structure_sql'].invoke
       end
     end
@@ -275,9 +369,9 @@ namespace :gitlab do
       return unless Feature.enabled?(:disallow_database_ddl_feature_flags, type: :ops)
 
       puts Rainbow(<<~NOTE).yellow
-          Note: disallow_database_ddl_feature_flags feature is currently enabled. Disable it to proceed.
+        Note: disallow_database_ddl_feature_flags feature is currently enabled. Disable it to proceed.
 
-          Disable with: Feature.disable(:disallow_database_ddl_feature_flags)
+        Disable with: Feature.disable(:disallow_database_ddl_feature_flags)
       NOTE
 
       yield if block_given?
@@ -388,7 +482,7 @@ namespace :gitlab do
     namespace :migration_testing do
       # Not possible to import Gitlab::Database::DATABASE_NAMES here
       # Specs verify that a task exists for each entry in that array.
-      all_databases = %i[main ci main_clusterwide]
+      all_databases = %i[main ci sec]
 
       task up: :environment do
         Gitlab::Database::Migrations::Runner.up(database: 'main', legacy_mode: true).run
@@ -398,6 +492,8 @@ namespace :gitlab do
         all_databases.each do |db|
           desc "Run migrations on #{db} with instrumentation"
           task db => :environment do
+            next unless Gitlab::Database.has_database?(db)
+
             Gitlab::Database::Migrations::Runner.batched_migrations_last_id(db).store
             Gitlab::Database::Migrations::Runner.up(database: db).run
           end
@@ -408,6 +504,8 @@ namespace :gitlab do
         all_databases.each do |db|
           desc "Run down migrations on #{db} in current branch with instrumentation"
           task db => :environment do
+            next unless Gitlab::Database.has_database?(db)
+
             Gitlab::Database::Migrations::Runner.down(database: db).run
           end
         end
@@ -424,6 +522,8 @@ namespace :gitlab do
         all_databases.each do |db|
           desc "Sample batched background migrations on #{db} with instrumentation"
           task db, [:duration_s] => [:environment] do |_t, args|
+            next unless Gitlab::Database.has_database?(db)
+
             duration = args[:duration_s]&.to_i&.seconds || 30.minutes # Default of 30 minutes
 
             Gitlab::Database::Migrations::Runner.batched_background_migrations(for_database: db)
@@ -492,6 +592,8 @@ namespace :gitlab do
 
       desc 'Checks schema inconsistencies'
       task run: :environment do
+        logger = Logger.new($stdout)
+
         database_model = Gitlab::Database.database_base_models[Gitlab::Database::MAIN_DATABASE_NAME]
         database = Gitlab::Schema::Validation::Sources::Database.new(database_model.connection)
 
@@ -507,6 +609,42 @@ namespace :gitlab do
 
         inconsistencies.each do |inconsistency|
           puts inconsistency.display
+        end
+        logger.info "This task is a diagnostic tool to be used under the guidance of GitLab Support. You should not use the task for routine checks as database inconsistencies might be expected."
+      end
+    end
+
+    desc 'GitLab | DB | Check for PostgreSQL collation mismatches and list affected indexes'
+    task collation_checker: :environment do
+      Gitlab::Database::CollationChecker.run(logger: Logger.new($stdout))
+    end
+
+    namespace :collation_checker do
+      each_database(databases) do |database_name|
+        desc "GitLab | DB | Check for PostgreSQL collation mismatches on the #{database_name} database"
+        task database_name => :environment do
+          Gitlab::Database::CollationChecker.run(database_name: database_name, logger: Logger.new($stdout))
+        end
+      end
+    end
+
+    desc 'GitLab | DB | Repair database indexes according to fixed configuration'
+    task repair_index: :environment do
+      Gitlab::Database::RepairIndex.run(
+        logger: Logger.new($stdout),
+        dry_run: ENV['DRY_RUN'] == 'true'
+      )
+    end
+
+    namespace :repair_index do
+      each_database(databases) do |database_name|
+        desc "GitLab | DB | Repair database indexes on the #{database_name} database"
+        task database_name => :environment do
+          Gitlab::Database::RepairIndex.run(
+            database_name: database_name,
+            logger: Logger.new($stdout),
+            dry_run: ENV['DRY_RUN'] == 'true'
+          )
         end
       end
     end
@@ -544,6 +682,7 @@ namespace :gitlab do
             .reject { |c| c.name =~ /^(?:EE::)?Gitlab::(?:BackgroundMigration|DatabaseImporters)::/ }
             .reject { |c| c.name =~ /^HABTM_/ }
             .reject { |c| c < Gitlab::Database::Migration[1.0]::MigrationRecord }
+            .reject { |c| c.name == 'TmpUser' }
             .each { |c| classes[c.table_name] << c.name if classes.has_key?(c.table_name) && c.name.present? }
 
           sources.each do |source_name|
@@ -559,7 +698,8 @@ namespace :gitlab do
               'feature_categories' => [],
               'description' => nil,
               'introduced_by_url' => nil,
-              'milestone' => milestone
+              'milestone' => milestone,
+              'table_size' => 'small'
             }
 
             if File.exist?(file)

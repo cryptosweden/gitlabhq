@@ -43,8 +43,18 @@ RSpec.describe Projects::Settings::AccessTokensController, feature_category: :sy
     it_behaves_like 'GET access tokens are paginated and ordered'
   end
 
+  describe 'GET /:namespace/:project/-/settings/access_tokens/inactive.json' do
+    subject(:get_inactive_access_tokens) do
+      get inactive_project_settings_access_tokens_path(resource, format: :json)
+      response
+    end
+
+    it_behaves_like 'feature unavailable'
+    it_behaves_like 'GET inactive access tokens'
+  end
+
   describe 'POST /:namespace/:project/-/settings/access_tokens' do
-    let(:access_token_params) { { name: 'Nerd bot', scopes: ["api"], expires_at: Date.today + 1.month } }
+    let(:access_token_params) { { name: 'Nerd bot', description: 'Nerd bot description', scopes: ["api"], expires_at: 1.month.from_now } }
 
     subject do
       post project_settings_access_tokens_path(resource), params: { resource_access_token: access_token_params }
@@ -75,7 +85,7 @@ RSpec.describe Projects::Settings::AccessTokensController, feature_category: :sy
     end
 
     context 'with custom access level' do
-      let(:access_token_params) { { name: 'Nerd bot', scopes: ["api"], expires_at: Date.today + 1.month, access_level: 20 } }
+      let(:access_token_params) { { name: 'Nerd bot', scopes: ["api"], expires_at: 1.month.from_now, access_level: 20 } }
 
       subject { post project_settings_access_tokens_path(resource), params: { resource_access_token: access_token_params } }
 
@@ -99,6 +109,8 @@ RSpec.describe Projects::Settings::AccessTokensController, feature_category: :sy
     let_it_be(:resource_access_tokens) { create_list(:personal_access_token, 3, user: access_token_user) }
 
     before do
+      stub_config(dependency_proxy: { enabled: true })
+
       get project_settings_access_tokens_path(resource)
     end
 
@@ -111,6 +123,14 @@ RSpec.describe Projects::Settings::AccessTokensController, feature_category: :sy
 
     it 'sets available scopes' do
       expect(assigns(:scopes)).to include(Gitlab::Auth::K8S_PROXY_SCOPE)
+      expect(assigns(:scopes)).to include(Gitlab::Auth::SELF_ROTATE_SCOPE)
+    end
+
+    it 'does not include the virtual registry scopes' do
+      expect(assigns(:scopes)).not_to include(
+        ::Gitlab::Auth::READ_VIRTUAL_REGISTRY_SCOPE,
+        ::Gitlab::Auth::WRITE_VIRTUAL_REGISTRY_SCOPE
+      )
     end
   end
 end

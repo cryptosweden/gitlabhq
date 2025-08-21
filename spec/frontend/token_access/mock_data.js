@@ -38,23 +38,12 @@ export const projectsWithScope = {
               id: 2,
               fullPath: 'root/332268-test',
               name: 'root/332268-test',
-              namespace: {
-                id: '1234',
-                fullPath: 'root',
-              },
+              webUrl: 'http://localhost/root/332268-test',
+              avatarUrl: 'http://localhost/avatar.png',
             },
           ],
         },
       },
-    },
-  },
-};
-
-export const addProjectSuccess = {
-  data: {
-    ciJobTokenScopeAddProject: {
-      errors: [],
-      __typename: 'CiJobTokenScopeAddProjectPayload',
     },
   },
 };
@@ -86,19 +75,31 @@ export const mockGroups = [
     id: 1,
     name: 'some-group',
     fullPath: 'some-group',
-    __typename: 'Group',
+    webUrl: 'http://localhost/some-group',
+    defaultPermissions: false,
+    jobTokenPolicies: ['READ_JOBS', 'ADMIN_DEPLOYMENTS'],
+    autopopulated: true,
+    __typename: 'CiJobTokenAccessibleGroup',
   },
   {
     id: 2,
     name: 'another-group',
     fullPath: 'another-group',
-    __typename: 'Group',
+    webUrl: 'http://localhost/another-group',
+    defaultPermissions: true,
+    jobTokenPolicies: [],
+    autopopulated: true,
+    __typename: 'CiJobTokenAccessibleGroup',
   },
   {
     id: 3,
     name: 'a-sub-group',
     fullPath: 'another-group/a-sub-group',
-    __typename: 'Group',
+    webUrl: 'http://localhost/a-sub-group',
+    defaultPermissions: false,
+    jobTokenPolicies: [],
+    autopopulated: false,
+    __typename: 'CiJobTokenAccessibleGroup',
   },
 ];
 
@@ -111,7 +112,11 @@ export const mockProjects = [
       fullPath: 'root',
     },
     fullPath: 'root/merge-train-stuff',
+    webUrl: 'http://localhost/root/merge-train-stuff',
+    defaultPermissions: false,
+    jobTokenPolicies: ['READ_JOBS'],
     isLocked: false,
+    autopopulated: true,
     __typename: 'Project',
   },
   {
@@ -122,19 +127,12 @@ export const mockProjects = [
       fullPath: 'root',
     },
     fullPath: 'root/ci-project',
+    webUrl: 'http://localhost/root/ci-project',
+    defaultPermissions: true,
+    jobTokenPolicies: [],
     isLocked: true,
+    autopopulated: false,
     __typename: 'Project',
-  },
-];
-
-export const mockFields = [
-  {
-    key: 'fullPath',
-    label: '',
-  },
-  {
-    key: 'actions',
-    label: '',
   },
 ];
 
@@ -142,6 +140,7 @@ export const inboundJobTokenScopeEnabledResponse = {
   data: {
     project: {
       id: 1,
+      name: 'Test project',
       ciCdSettings: {
         inboundJobTokenScopeEnabled: true,
         __typename: 'ProjectCiCdSetting',
@@ -155,6 +154,7 @@ export const inboundJobTokenScopeDisabledResponse = {
   data: {
     project: {
       id: 1,
+      name: 'Test project',
       ciCdSettings: {
         inboundJobTokenScopeEnabled: false,
         __typename: 'ProjectCiCdSetting',
@@ -164,103 +164,13 @@ export const inboundJobTokenScopeDisabledResponse = {
   },
 };
 
-export const inboundGroupsAndProjectsWithScopeResponse = {
-  data: {
-    project: {
-      __typename: 'Project',
-      id: 1,
-      ciJobTokenScope: {
-        __typename: 'CiJobTokenScopeType',
-        inboundAllowlist: {
-          __typename: 'ProjectConnection',
-          nodes: [
-            {
-              __typename: 'Project',
-              fullPath: 'root/ci-project',
-              id: 'gid://gitlab/Project/23',
-              name: 'ci-project',
-              avatarUrl: '',
-            },
-          ],
-        },
-        groupsAllowlist: {
-          __typename: 'GroupConnection',
-          nodes: [
-            {
-              __typename: 'Group',
-              fullPath: 'root/ci-group',
-              id: 'gid://gitlab/Group/45',
-              name: 'ci-group',
-              avatarUrl: '',
-            },
-          ],
-        },
-      },
-    },
-  },
-};
+export const getSaveNamespaceHandler = (error) =>
+  jest.fn().mockResolvedValue({
+    data: { saveNamespace: { errors: error ? [error] : [] } },
+  });
 
-export const inboundGroupsAndProjectsWithScopeResponseWithAddedItem = {
-  data: {
-    project: {
-      ...inboundGroupsAndProjectsWithScopeResponse.data.project,
-      ciJobTokenScope: {
-        inboundAllowlist: {
-          nodes: [
-            ...inboundGroupsAndProjectsWithScopeResponse.data.project.ciJobTokenScope
-              .inboundAllowlist.nodes,
-            {
-              __typename: 'Project',
-              fullPath: 'root/test',
-              id: 'gid://gitlab/Project/25',
-              name: 'test',
-              avatarUrl: '',
-            },
-          ],
-        },
-        groupsAllowlist: {
-          nodes: [
-            ...inboundGroupsAndProjectsWithScopeResponse.data.project.ciJobTokenScope
-              .groupsAllowlist.nodes,
-            {
-              __typename: 'Group',
-              fullPath: 'gitlab-org',
-              id: 'gid://gitlab/Group/49',
-              name: 'gitlab-org',
-              avatarUrl: '',
-            },
-          ],
-        },
-      },
-    },
-  },
-};
-
-export const inboundAddGroupOrProjectSuccessResponse = {
-  data: {
-    ciJobTokenScopeAddProject: {
-      errors: [],
-      __typename: 'CiJobTokenScopeAddProjectPayload',
-    },
-  },
-};
-
-export const inboundRemoveGroupSuccess = {
-  data: {
-    ciJobTokenScopeRemoveProject: {
-      errors: [],
-      __typename: 'CiJobTokenScopeRemoveGroupPayload',
-    },
-  },
-};
-
-export const inboundRemoveProjectSuccess = {
-  data: {
-    ciJobTokenScopeRemoveProject: {
-      errors: [],
-      __typename: 'CiJobTokenScopeRemoveProjectPayload',
-    },
-  },
+export const inboundRemoveNamespaceSuccess = {
+  data: { removeNamespace: { errors: [] } },
 };
 
 export const inboundUpdateScopeSuccessResponse = {
@@ -275,3 +185,293 @@ export const inboundUpdateScopeSuccessResponse = {
     },
   },
 };
+
+export const mockPermissionsQueryResponse = (pushRepositoryForJobTokenAllowed = false) => ({
+  data: {
+    project: {
+      id: 'gid://gitlab/Project/20',
+      name: 'ops',
+      ciCdSettings: {
+        pushRepositoryForJobTokenAllowed,
+        __typename: 'ProjectCiCdSetting',
+      },
+      __typename: 'Project',
+    },
+  },
+});
+
+export const mockPermissionsMutationResponse = ({
+  pushRepositoryForJobTokenAllowed = true,
+  errors = [],
+} = {}) => ({
+  data: {
+    projectCiCdSettingsUpdate: {
+      ciCdSettings: {
+        pushRepositoryForJobTokenAllowed,
+        __typename: 'ProjectCiCdSetting',
+      },
+      errors,
+      __typename: 'Project',
+    },
+  },
+});
+
+export const mockAuthLogsCountResponse = (count) => ({
+  data: {
+    project: {
+      id: 'gid://gitlab/Project/26',
+      __typename: 'Project',
+      ciJobTokenAuthLogs: {
+        __typename: 'CiJobTokenAuthLogConnection',
+        count,
+      },
+    },
+  },
+});
+
+export const mockCiJobTokenScopeAllowlistResponse = (hasAutopopulatedEntries = true) => ({
+  data: {
+    project: {
+      id: 'gid://gitlab/Project/26',
+      name: 'my-repo',
+      fullPath: 'root/my-repo',
+      avatarUrl: '',
+      webUrl: 'http://localhost/root/my-repo',
+      ciJobTokenScopeAllowlist: {
+        groupsAllowlist: {
+          nodes: [
+            {
+              defaultPermissions: true,
+              jobTokenPolicies: [],
+              autopopulated: hasAutopopulatedEntries,
+              target: {
+                id: 'gid://gitlab/Group/4',
+                name: 'zed',
+                fullPath: 'zed',
+                avatarUrl: '',
+                webUrl: 'http://localhost/zed',
+                __typename: 'CiJobTokenAccessibleGroup',
+              },
+              __typename: 'CiJobTokenScopeAllowlistEntry',
+            },
+          ],
+        },
+        projectsAllowlist: {
+          nodes: [
+            {
+              defaultPermissions: true,
+              jobTokenPolicies: [],
+              autopopulated: hasAutopopulatedEntries,
+              target: {
+                id: 'gid://gitlab/Project/23',
+                name: 'your-repo',
+                fullPath: 'root/your-repo',
+                avatarUrl: '',
+                webUrl: 'http://localhost/root/your-repo',
+                __typename: 'CiJobTokenAccessibleProject',
+              },
+              __typename: 'CiJobTokenScopeAllowlistEntry',
+            },
+            {
+              defaultPermissions: true,
+              jobTokenPolicies: [],
+              autopopulated: hasAutopopulatedEntries,
+              target: {
+                id: 'gid://gitlab/Project/14',
+                name: 'abc123',
+                fullPath: 'abc/123',
+                avatarUrl: '',
+                webUrl: 'http://localhost/abc/123',
+                __typename: 'CiJobTokenAccessibleProject',
+              },
+              __typename: 'CiJobTokenScopeAllowlistEntry',
+            },
+          ],
+        },
+      },
+    },
+  },
+});
+
+export const mockAuthLogsResponse = (hasNextPage = false) => ({
+  data: {
+    project: {
+      id: 'gid://gitlab/Project/26',
+      __typename: 'Project',
+      ciJobTokenAuthLogs: {
+        __typename: 'CiJobTokenAuthLogConnection',
+        count: 1,
+        nodes: [
+          {
+            __typename: 'CiJobTokenAuthLog',
+            lastAuthorizedAt: '2024-10-25',
+            originProject: {
+              __typename: 'CiJobTokenAccessibleProject',
+              fullPath: 'root/project-that-triggers-external-pipeline',
+              path: 'project-that-triggers-external-pipeline',
+              avatarUrl: null,
+              name: 'project-that-triggers-external-pipeline',
+              id: 'gid://gitlab/Project/26',
+            },
+          },
+        ],
+        pageInfo: {
+          __typename: 'PageInfo',
+          endCursor: 'eyJpZCI6IjEifQ',
+          hasNextPage,
+        },
+      },
+    },
+  },
+});
+
+export const mockAutopopulateAllowlistResponse = ({ errorMessage } = {}) => ({
+  data: {
+    ciJobTokenScopeAutopopulateAllowlist: {
+      status: 'complete',
+      errors: errorMessage ? [{ message: errorMessage }] : [],
+      __typename: 'CiJobTokenScopeAutopopulateAllowlistPayload',
+    },
+  },
+});
+
+export const mockRemoveAutopopulatedEntriesResponse = ({ errorMessage } = {}) => ({
+  data: {
+    ciJobTokenScopeClearAllowlistAutopopulations: {
+      status: 'complete',
+      errors: errorMessage ? [{ message: errorMessage }] : [],
+      __typename: 'CiJobTokenScopeClearAllowlistAutopopulationsPayload',
+    },
+  },
+});
+
+export const POLICIES_BY_RESOURCE = [
+  {
+    resource: { value: 'DEPLOYMENTS', text: 'Deployments' },
+    policies: [
+      { value: '', text: 'None' },
+      {
+        value: 'READ_DEPLOYMENTS',
+        text: 'Read',
+        resource: { value: 'DEPLOYMENTS', text: 'Deployments' },
+      },
+      {
+        value: 'ADMIN_DEPLOYMENTS',
+        text: 'Read and write',
+        resource: { value: 'DEPLOYMENTS', text: 'Deployments' },
+      },
+    ],
+  },
+  {
+    resource: { value: 'ENVIRONMENTS', text: 'Environments' },
+    policies: [
+      { value: '', text: 'None' },
+      {
+        value: 'READ_ENVIRONMENTS',
+        text: 'Read',
+        resource: { value: 'ENVIRONMENTS', text: 'Environments' },
+      },
+      {
+        value: 'ADMIN_ENVIRONMENTS',
+        text: 'Read and write',
+        resource: { value: 'ENVIRONMENTS', text: 'Environments' },
+      },
+    ],
+  },
+  {
+    resource: { value: 'JOBS', text: 'Jobs' },
+    policies: [
+      { value: '', text: 'None' },
+      {
+        value: 'READ_JOBS',
+        text: 'Read',
+        resource: { value: 'JOBS', text: 'Jobs' },
+      },
+      {
+        value: 'ADMIN_JOBS',
+        text: 'Read and write',
+        resource: { value: 'JOBS', text: 'Jobs' },
+      },
+    ],
+  },
+  {
+    resource: { value: 'PACKAGES', text: 'Packages' },
+    policies: [
+      { value: '', text: 'None' },
+      {
+        value: 'READ_PACKAGES',
+        text: 'Read',
+        resource: { value: 'PACKAGES', text: 'Packages' },
+      },
+      {
+        value: 'ADMIN_PACKAGES',
+        text: 'Read and write',
+        resource: { value: 'PACKAGES', text: 'Packages' },
+      },
+    ],
+  },
+  {
+    resource: { value: 'PIPELINES', text: 'Pipelines' },
+    policies: [
+      { value: '', text: 'None' },
+      {
+        value: 'READ_PIPELINES',
+        text: 'Read',
+        resource: { value: 'PIPELINES', text: 'Pipelines' },
+      },
+      {
+        value: 'ADMIN_PIPELINES',
+        text: 'Read and write',
+        resource: { value: 'PIPELINES', text: 'Pipelines' },
+      },
+    ],
+  },
+  {
+    resource: { value: 'RELEASES', text: 'Releases' },
+    policies: [
+      { value: '', text: 'None' },
+      {
+        value: 'READ_RELEASES',
+        text: 'Read',
+        resource: { value: 'RELEASES', text: 'Releases' },
+      },
+      {
+        value: 'ADMIN_RELEASES',
+        text: 'Read and write',
+        resource: { value: 'RELEASES', text: 'Releases' },
+      },
+    ],
+  },
+  {
+    resource: { value: 'SECURE_FILES', text: 'Secure files' },
+    policies: [
+      { value: '', text: 'None' },
+      {
+        value: 'READ_SECURE_FILES',
+        text: 'Read',
+        resource: { value: 'SECURE_FILES', text: 'Secure files' },
+      },
+      {
+        value: 'ADMIN_SECURE_FILES',
+        text: 'Read and write',
+        resource: { value: 'SECURE_FILES', text: 'Secure files' },
+      },
+    ],
+  },
+  {
+    resource: { value: 'TERRAFORM_STATE', text: 'Terraform state' },
+    policies: [
+      { value: '', text: 'None' },
+      {
+        value: 'READ_TERRAFORM_STATE',
+        text: 'Read',
+        resource: { value: 'TERRAFORM_STATE', text: 'Terraform state' },
+      },
+      {
+        value: 'ADMIN_TERRAFORM_STATE',
+        text: 'Read and write',
+        resource: { value: 'TERRAFORM_STATE', text: 'Terraform state' },
+      },
+    ],
+  },
+];

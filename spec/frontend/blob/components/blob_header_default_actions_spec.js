@@ -11,7 +11,6 @@ import { Blob, mockEnvironmentName, mockEnvironmentPath } from './mock_data';
 
 describe('Blob Header Default Actions', () => {
   let wrapper;
-  let btnGroup;
   let buttons;
 
   const blobHash = 'foo-bar';
@@ -31,21 +30,21 @@ describe('Blob Header Default Actions', () => {
 
   beforeEach(() => {
     createComponent();
-    btnGroup = wrapper.findComponent(GlButtonGroup);
     buttons = wrapper.findAllComponents(GlButton);
   });
 
   describe('renders', () => {
+    const findButtonGroup = () => wrapper.findComponent(GlButtonGroup);
     const findCopyButton = () => wrapper.findByTestId('copy-contents-button');
     const findViewRawButton = () => wrapper.findByTestId('viewRawButton');
     const findDownloadButton = () => wrapper.findByTestId('download-button');
 
     it('gl-button-group component', () => {
-      expect(btnGroup.exists()).toBe(true);
+      expect(findButtonGroup().exists()).toBe(true);
     });
 
     it('exactly 3 buttons with predefined actions', () => {
-      expect(buttons.length).toBe(3);
+      expect(buttons).toHaveLength(3);
       [BTN_COPY_CONTENTS_TITLE, BTN_RAW_TITLE, BTN_DOWNLOAD_TITLE].forEach((title, i) => {
         expect(buttons.at(i).attributes('title')).toBe(title);
       });
@@ -131,6 +130,16 @@ describe('Blob Header Default Actions', () => {
       });
 
       expect(findEnvironmentButton().props('icon')).toBe('external-link');
+    });
+  });
+
+  describe('default actions layout', () => {
+    it('hides default actions for mobile layout', () => {
+      createComponent();
+
+      expect(wrapper.findComponent(GlButtonGroup).attributes('class')).toBe(
+        'gl-hidden sm:gl-inline-flex',
+      );
     });
   });
 });

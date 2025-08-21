@@ -40,9 +40,11 @@ module Gitlab
                       links: 'Releases::Link',
                       commit_author: 'MergeRequest::DiffCommitUser',
                       committer: 'MergeRequest::DiffCommitUser',
+                      merge_request_commits_metadata: 'MergeRequest::CommitsMetadata',
                       merge_request_diff_commits: 'MergeRequestDiffCommit',
                       work_item_type: 'WorkItems::Type',
-                      user_contributions: 'User' }.freeze
+                      user_contributions: 'User',
+                      squash_option: 'Projects::BranchRules::SquashOption' }.freeze
 
         BUILD_MODELS = %i[Ci::Build Ci::Bridge commit_status generic_commit_status].freeze
 
@@ -67,7 +69,24 @@ module Gitlab
           Ci::ExternalPullRequest
           DesignManagement::Design
           MergeRequest::DiffCommitUser
+          MergeRequest::CommitsMetadata
           MergeRequestDiffCommit
+          WorkItems::Type
+        ].freeze
+
+        RELATIONS_WITH_REWRITABLE_USERNAMES = %i[
+          milestones
+          milestone
+          merge_requests
+          merge_request
+          issues
+          issue
+          notes
+          note
+          epics
+          epic
+          snippets
+          snippet
           WorkItems::Type
         ].freeze
 
@@ -89,7 +108,7 @@ module Gitlab
           legacy_trigger?
         end
 
-        def setup_models
+        def setup_models # rubocop:disable Metrics/CyclomaticComplexity -- real sum complexity not as high as rubocop thinks.
           case @relation_name
           when :merge_request_diff_files then setup_diff
           when :note_diff_file then setup_diff
@@ -98,15 +117,23 @@ module Gitlab
           when *BUILD_MODELS then setup_build
           when :issues then setup_work_item
           when :'Ci::PipelineSchedule' then setup_pipeline_schedule
-          when :'ProtectedBranch::MergeAccessLevel' then setup_protected_branch_access_level
-          when :'ProtectedBranch::PushAccessLevel' then setup_protected_branch_access_level
+          when :'ProtectedBranch::MergeAccessLevel' then setup_protected_ref_access_level
+          when :'ProtectedBranch::PushAccessLevel' then setup_protected_ref_access_level
+          when :'ProtectedTag::CreateAccessLevel' then setup_protected_ref_access_level
           when :ApprovalProjectRulesProtectedBranch then setup_merge_approval_protected_branch
           when :releases then setup_release
           when :merge_requests, :MergeRequest, :merge_request then setup_merge_request
+          when :approvals then setup_approval
+          when :events then setup_event
+          when :'DesignManagement::Version' then setup_design_management_version
           end
 
           update_project_references
           update_group_references
+
+          return unless RELATIONS_WITH_REWRITABLE_USERNAMES.include?(@relation_name) && @rewrite_mentions
+
+          update_username_mentions(@relation_hash)
         end
 
         def generate_imported_object
@@ -199,13 +226,22 @@ module Gitlab
         def setup_pipeline_schedule
           @relation_hash['active'] = false
           @relation_hash['owner_id'] = @user.id
+          @original_user.delete('owner_id') # unset original user to not push placeholder references
         end
 
         def setup_merge_request
           @relation_hash['merge_when_pipeline_succeeds'] = false
         end
 
-        def setup_protected_branch_access_level
+        def setup_approval
+          @relation_hash = {} if @relation_hash['user_id'].nil?
+        end
+
+        def setup_event
+          @relation_hash = {} if @relation_hash['author_id'].nil?
+        end
+
+        def setup_protected_ref_access_level
           return if root_group_owner?
           return if @relation_hash['access_level'] == Gitlab::Access::NO_ACCESS
           return if @relation_hash['access_level'] == Gitlab::Access::MAINTAINER
@@ -228,6 +264,31 @@ module Gitlab
           @relation_hash['protected_branch'] = target_branch
         end
 
+        def setup_design_management_version
+          @relation_hash['namespace_id'] = @importable.project_namespace_id
+        end
+
+        def find_or_create_object!
+          return unique_relation_object if unique_relation?
+
+          # Can't use IDs as validation exists calling `group` or `project` attributes
+          finder_hash = parsed_relation_hash.tap do |hash|
+            if relation_class.attribute_method?('group_id') && @importable.is_a?(::Project)
+              hash['group'] = @importable.group
+            end
+
+            # Add project for DiffCommitUser to determine organization_id
+            if @relation_name == :'MergeRequest::DiffCommitUser' || @relation_name == :MergeRequestDiffCommit
+              hash['project'] = @importable
+            end
+
+            hash[importable_class_name] = @importable if relation_class.reflect_on_association(importable_class_name.to_sym)
+            hash.delete(importable_column_name)
+          end
+
+          @object_builder.build(relation_class, finder_hash)
+        end
+
         def compute_relative_position
           return unless max_relative_position
 
@@ -236,7 +297,23 @@ module Gitlab
 
         def max_relative_position
           Rails.cache.fetch("import:#{@importable.model_name.plural}:#{@importable.id}:hierarchy_max_issues_relative_position", expires_in: 24.hours) do
-            ::RelativePositioning.mover.context(Issue.in_projects(@importable.root_ancestor.all_projects).first)&.max_relative_position || ::Gitlab::RelativePositioning::START_POSITION
+            inner_sql = Issue
+                          .select(:id)
+                          .where(::Project.arel_table[:id].eq(Issue.arel_table[:project_id]))
+                          .order(iid: :asc)
+                          .limit(1)
+                          .to_sql
+
+            anchor_issue_id = @importable
+              .root_ancestor
+              .all_project_ids
+              .joins("INNER JOIN LATERAL (#{inner_sql}) issues ON TRUE")
+              .order(Issue.arel_table[:id].asc)
+              .pick(Issue.arel_table[:id])
+
+            ::RelativePositioning
+              .mover
+              .context(Issue.find_by(id: anchor_issue_id))&.max_relative_position || 0
           end
         end
 

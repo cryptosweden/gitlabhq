@@ -12,7 +12,7 @@ RSpec.describe Projects::Security::ConfigurationPresenter, feature_category: :so
 
   before do
     stub_licensed_features(licensed_scan_types.index_with { true })
-    stub_licensed_features(pre_receive_secret_detection: true)
+    stub_licensed_features(secret_push_protection: true)
   end
 
   describe '#to_html_data_attribute' do
@@ -30,13 +30,13 @@ RSpec.describe Projects::Security::ConfigurationPresenter, feature_category: :so
         )
       end
 
-      let!(:build_sast) { create(:ci_build, :sast, pipeline: pipeline) }
+      let!(:build_sast) { create(:ci_build, :sast, name: 'semgrep-sast', pipeline: pipeline) }
       let!(:build_dast) { create(:ci_build, :dast, pipeline: pipeline) }
       let!(:build_license_scanning) { create(:ci_build, :license_scanning, pipeline: pipeline) }
 
       it 'includes links to auto devops and secure product docs' do
-        expect(html_data[:auto_devops_help_page_path]).to eq(help_page_path('topics/autodevops/index'))
-        expect(html_data[:help_page_path]).to eq(help_page_path('user/application_security/index'))
+        expect(html_data[:auto_devops_help_page_path]).to eq(help_page_path('topics/autodevops/_index.md'))
+        expect(html_data[:help_page_path]).to eq(help_page_path('user/application_security/_index.md'))
       end
 
       it 'returns info that Auto DevOps is not enabled' do
@@ -133,7 +133,7 @@ RSpec.describe Projects::Security::ConfigurationPresenter, feature_category: :so
           { artifacts: { reports: { other_job: ['gl-other-report.json'], sast: ['gl-sast-report.json'] } } }
         end
 
-        let!(:complicated_job) { build_stubbed(:ci_build, options: artifacts) }
+        let!(:complicated_job) { build_stubbed(:ci_build, name: 'semgrep-sast', options: artifacts) }
 
         before do
           allow_next_instance_of(::Security::SecurityJobsFinder) do |finder|
@@ -230,7 +230,7 @@ RSpec.describe Projects::Security::ConfigurationPresenter, feature_category: :so
         )
       end
 
-      let!(:build_sast) { create(:ci_build, :sast, pipeline: pipeline, status: 'success') }
+      let!(:build_sast) { create(:ci_build, :sast, name: 'semgrep-sast', pipeline: pipeline, status: 'success') }
       let!(:build_dast) { create(:ci_build, :dast, pipeline: pipeline, status: 'success') }
       let!(:ci_build) { create(:ci_build, :secret_detection, pipeline: pipeline, status: 'pending') }
 
@@ -274,7 +274,7 @@ RSpec.describe Projects::Security::ConfigurationPresenter, feature_category: :so
       end
 
       it 'includes a link to CI pipeline docs' do
-        expect(html_data[:latest_pipeline_path]).to eq(help_page_path('ci/pipelines/index'))
+        expect(html_data[:latest_pipeline_path]).to eq(help_page_path('ci/pipelines/_index.md'))
       end
 
       context 'when gathering feature data' do
@@ -305,44 +305,15 @@ RSpec.describe Projects::Security::ConfigurationPresenter, feature_category: :so
       end
     end
 
-    describe 'pre_receive_secret_detection' do
+    describe 'secret_push_protection' do
       let_it_be(:project) { create(:project, :repository) }
       let(:features) { Gitlab::Json.parse(html_data[:features]) }
 
-      context 'when the feature flag is disabled' do
-        before do
-          stub_feature_flags(pre_receive_secret_detection_beta_release: false)
-        end
+      it 'feature includes secret_push_protection' do
+        skip unless Gitlab.ee?
 
-        it 'feature does not include pre_receive_secret_detection' do
-          feature = features.find { |scan| scan["type"] == 'pre_receive_secret_detection' }
-          expect(feature).to be_nil
-        end
-      end
-
-      context 'when the feature flags are enabled' do
-        before do
-          stub_feature_flags(pre_receive_secret_detection_beta_release: true)
-          stub_feature_flags(pre_receive_secret_detection_push_check: true)
-        end
-
-        it 'feature includes pre_receive_secret_detection' do
-          skip unless Gitlab.ee?
-
-          feature = features.find { |scan| scan["type"] == 'pre_receive_secret_detection' }
-          expect(feature).not_to be_nil
-        end
-      end
-
-      context 'when it is a dedicated instance' do
-        before do
-          stub_application_setting(gitlab_dedicated_instance: true)
-        end
-
-        it 'feature includes pre_receive_secret_detection' do
-          feature = features.find { |scan| scan["type"] == 'pre_receive_secret_detection' }
-          expect(feature).not_to be_nil
-        end
+        feature = features.find { |scan| scan["type"] == 'secret_push_protection' }
+        expect(feature).not_to be_nil
       end
     end
 

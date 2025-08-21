@@ -56,9 +56,6 @@ export default {
     hasHighlightedJob() {
       return Boolean(this.highlightedJob);
     },
-    isPipelineDataEmpty() {
-      return isEmpty(this.pipelineData);
-    },
     highlightedJobs() {
       // If you are hovering on a job, then the jobs we want to highlight are:
       // The job you are currently hovering + all of its needs.
@@ -109,9 +106,6 @@ export default {
       });
     },
   },
-  errorCaptured(err, _vm, info) {
-    reportToSentry(this.$options.name, `error: ${err}, info: ${info}`);
-  },
   mounted() {
     if (!isEmpty(this.linksData)) {
       this.calculateLinkData();
@@ -139,10 +133,10 @@ export default {
 };
 </script>
 <template>
-  <div class="gl-display-flex gl-relative">
+  <div class="gl-relative gl-flex">
     <svg
       id="link-svg"
-      class="gl-absolute gl-pointer-events-none"
+      class="gl-pointer-events-none gl-absolute"
       :viewBox="viewBox"
       :width="`${containerMeasurements.width}px`"
       :height="`${containerMeasurements.height}px`"
@@ -152,7 +146,7 @@ export default {
         :key="link.path"
         :ref="link.ref"
         :d="link.path"
-        class="gl-fill-transparent gl-duration-slow gl-transition-timing-function-ease"
+        class="gl-fill-transparent gl-duration-slow gl-ease-ease"
         :class="getLinkClasses(link)"
         :stroke-width="$options.STROKE_WIDTH"
       />

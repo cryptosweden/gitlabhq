@@ -14,10 +14,12 @@ module API
           check_api_write! unless request.get? || request.head?
         end
 
+        CANDIDATE_STATES = ::Ml::Candidate.statuses.keys.map(&:upcase).freeze
+
         resource :runs do
           desc 'Creates a Run.' do
             success Entities::Ml::Mlflow::Run
-            detail 'MLFlow Runs map to GitLab Candidates. https://www.mlflow.org/docs/1.28.0/rest-api.html#create-run'
+            detail 'MLFlow Runs map to GitLab Candidates. https://www.mlflow.org/docs/2.19.0/rest-api.html#create-run'
           end
           params do
             requires :experiment_id, type: Integer,
@@ -48,7 +50,7 @@ module API
 
           desc 'Searches runs/candidates within a project' do
             success Entities::Ml::Mlflow::Run
-            detail 'https://www.mlflow.org/docs/1.28.0/rest-api.html#search-runs' \
+            detail 'https://www.mlflow.org/docs/2.19.0/rest-api.html#search-runs' \
                    'experiment_ids supports only a single experiment ID.' \
                    'Introduced in GitLab 16.4'
           end
@@ -88,14 +90,14 @@ module API
 
           desc 'Updates a Run.' do
             success Entities::Ml::Mlflow::UpdateRun
-            detail 'MLFlow Runs map to GitLab Candidates. https://www.mlflow.org/docs/1.28.0/rest-api.html#update-run'
+            detail 'MLFlow Runs map to GitLab Candidates. https://www.mlflow.org/docs/2.19.0/rest-api.html#update-run'
           end
           params do
             requires :run_id, type: String, desc: 'UUID of the candidate.'
             optional :status, type: String,
-              values: ::Ml::Candidate.statuses.keys.map(&:upcase),
+              values: CANDIDATE_STATES,
               desc: "Status of the run. Accepts: " \
-                    "#{::Ml::Candidate.statuses.keys.map(&:upcase)}."
+                    "#{CANDIDATE_STATES}."
             optional :end_time, type: Integer, desc: 'Ending time of the run'
           end
           post 'update', urgency: :low do
@@ -135,7 +137,7 @@ module API
                     'used in an ETL pipeline. A param can be logged only once for a run, duplicate will be .' \
                     'ignored'
 
-            detail  'https://www.mlflow.org/docs/1.28.0/rest-api.html#log-param'
+            detail  'https://www.mlflow.org/docs/2.19.0/rest-api.html#log-param'
           end
           params do
             requires :run_id, type: String, desc: 'UUID of the run.'
@@ -151,7 +153,7 @@ module API
           desc 'Sets a tag for a run.' do
             summary 'Sets a tag for a run. '
 
-            detail  'https://www.mlflow.org/docs/1.28.0/rest-api.html#set-tag'
+            detail  'https://www.mlflow.org/docs/2.19.0/rest-api.html#set-tag'
           end
           params do
             requires :run_id, type: String, desc: 'UUID of the run.'
@@ -168,7 +170,7 @@ module API
             summary 'Log a batch of metrics and params for a run. Validation errors will block the entire batch, ' \
                     'duplicate errors will be ignored.'
 
-            detail  'https://www.mlflow.org/docs/1.28.0/rest-api.html#log-param'
+            detail  'https://www.mlflow.org/docs/2.19.0/rest-api.html#log-param'
           end
           params do
             requires :run_id, type: String, desc: 'UUID of the run.'
@@ -189,6 +191,23 @@ module API
             candidate_repository.add_tags(candidate, params[:tags])
 
             {}
+          end
+
+          desc 'Delete a run.' do
+            summary 'Delete a run.'
+
+            detail 'https://mlflow.org/docs/2.19.0/rest-api.html#delete-run'
+          end
+          params do
+            requires :run_id, type: String, desc: 'UUID of the run.'
+          end
+          post 'delete', urgency: :low do
+            destroy = ::Ml::DestroyCandidateService.new(candidate, current_user).execute
+            if destroy.success?
+              present({})
+            else
+              render_api_error!(destroy.message.first, 400)
+            end
           end
         end
       end

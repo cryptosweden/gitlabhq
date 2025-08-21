@@ -3,9 +3,8 @@ stage: none
 group: unassigned
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
 description: Data Seeder test data harness created by the Test Data Working Group https://handbook.gitlab.com/handbook/company/working-groups/demo-test-data/
+title: Data Seeder
 ---
-
-# Data Seeder
 
 The Data Seeder is a test data seeding harness, that can seed test data into a user or group namespace.
 
@@ -18,53 +17,55 @@ FactoryBot already reflects the change.
 
 1. Start a containerized GitLab instance using local files
 
-    ```shell
-    docker run \
-      -d \
-      -p 8080:80 \
-      --name gitlab \
-      -v ./scripts/data_seeder:/opt/gitlab/embedded/service/gitlab-rails/scripts/data_seeder \
-      -v ./ee/db/seeds/data_seeder:/opt/gitlab/embedded/service/gitlab-rails/ee/db/seeds/data_seeder \
-      -v ./ee/lib/tasks/gitlab/seed:/opt/gitlab/embedded/service/gitlab-rails/ee/lib/tasks/gitlab/seed \
-      -v ./spec:/opt/gitlab/embedded/service/gitlab-rails/spec \
-      -v ./ee/spec:/opt/gitlab/embedded/service/gitlab-rails/ee/spec \
-      gitlab/gitlab-ee:16.9.8-ee.0
-    ```
+   ```shell
+   docker run \
+     -d \
+     -p 8080:80 \
+     --name gitlab \
+     -v ./scripts/data_seeder:/opt/gitlab/embedded/service/gitlab-rails/scripts/data_seeder \
+     -v ./ee/db/seeds/data_seeder:/opt/gitlab/embedded/service/gitlab-rails/ee/db/seeds/data_seeder \
+     -v ./ee/lib/tasks/gitlab/seed:/opt/gitlab/embedded/service/gitlab-rails/ee/lib/tasks/gitlab/seed \
+     -v ./spec:/opt/gitlab/embedded/service/gitlab-rails/spec \
+     -v ./ee/spec:/opt/gitlab/embedded/service/gitlab-rails/ee/spec \
+     gitlab/gitlab-ee:16.9.8-ee.0
+   ```
 
 1. Globalize test gems
 
-    ```shell
-    docker exec gitlab bash -c "cd /opt/gitlab/embedded/service/gitlab-rails; ruby scripts/data_seeder/globalize_gems.rb; bundle install"
-    ```
+   ```shell
+   docker exec gitlab bash -c "cd /opt/gitlab/embedded/service/gitlab-rails; ruby scripts/data_seeder/globalize_gems.rb; bundle install"
+   ```
 
 1. Seed the data
 
-    ```shell
-    docker exec -it gitlab gitlab-rake "ee:gitlab:seed:data_seeder[beautiful_data.rb]"
-    ```
+   ```shell
+   docker exec -it gitlab gitlab-rake "ee:gitlab:seed:data_seeder[beautiful_data.rb]"
+   ```
 
 ### Without GDK
 
+Requires Git v2.26.0 or later.
+
 1. Start a containerized GitLab instance
 
-    ```shell
-    docker run \
-      -p 8080:80 \
-      --name gitlab \
-      -d \
-      gitlab/gitlab-ee:16.9.8-ee.0
-    ```
+   ```shell
+   docker run \
+     -p 8080:80 \
+     --name gitlab \
+     -d \
+     gitlab/gitlab-ee:16.9.8-ee.0
+   ```
 
 1. Import the test resources
 
-    ```ruby
-    docker exec gitlab bash -c "wget -O - https://gitlab.com/gitlab-org/gitlab/-/raw/master/scripts/data_seeder/test_resources.sh | bash"
-    ```
+   ```ruby
+   docker exec gitlab bash -c "wget -O - https://gitlab.com/gitlab-org/gitlab/-/raw/master/scripts/data_seeder/test_resources.sh | bash"
+   ```
 
-    ```ruby
-    # OR check out a specific branch, commit, or tag
-    docker exec gitlab bash -c "wget -O - https://gitlab.com/gitlab-org/gitlab/-/raw/master/scripts/data_seeder/test_resources.sh | REF=v16.7.0-ee bash"
-    ```
+   ```ruby
+   # OR check out a specific branch, commit, or tag
+   docker exec gitlab bash -c "wget -O - https://gitlab.com/gitlab-org/gitlab/-/raw/master/scripts/data_seeder/test_resources.sh | REF=v16.7.0-ee bash"
+   ```
 
 ### Get the root password
 
@@ -74,7 +75,11 @@ To fetch the password for the GitLab instance that was created, execute the foll
 docker exec gitlab cat /etc/gitlab/initial_root_password
 ```
 
-_If you receive `cat: /etc/gitlab/initialize_root_password: No such file or directory`, please wait for a bit for GitLab to boot and try again._
+{{< alert type="note" >}}
+
+If you receive `cat: /etc/gitlab/initialize_root_password: No such file or directory`, wait for a bit for GitLab to boot and try again.
+
+{{< /alert >}}
 
 You can then sign in to `http://localhost:8080/users/sign_in` using the credentials: `root / <Password taken from initial_root_password>`
 
@@ -115,38 +120,43 @@ Where `:file` is the file path. (This path reflects relative `.rb`, `.yml`, or `
 
 ## Linux package Setup
 
-WARNING:
+{{< alert type="warning" >}}
+
 While it is possible to use the Data Seeder with an Linux package installation, **use caution** if you do this when the instance is being used in a production setting.
+
+{{< /alert >}}
+
+Requires Git v2.26.0 or later.
 
 1. Change the working directory to the GitLab installation:
 
-    ```shell
-    cd /opt/gitlab/embedded/service/gitlab-rails
-    ```
+   ```shell
+   cd /opt/gitlab/embedded/service/gitlab-rails
+   ```
 
 1. Install test resources:
 
-    ```shell
-    . scripts/data_seeder/test_resources.sh
-    ```
+   ```shell
+   . scripts/data_seeder/test_resources.sh
+   ```
 
 1. Globalize gems:
 
-    ```shell
-    /opt/gitlab/embedded/bin/chpst -e /opt/gitlab/etc/gitlab-rails/env /opt/gitlab/embedded/bin/bundle exec ruby scripts/data_seeder/globalize_gems.rb
-    ```
+   ```shell
+   /opt/gitlab/embedded/bin/chpst -e /opt/gitlab/etc/gitlab-rails/env /opt/gitlab/embedded/bin/bundle exec ruby scripts/data_seeder/globalize_gems.rb
+   ```
 
 1. Install bundle:
 
-    ```shell
-    /opt/gitlab/embedded/bin/chpst -e /opt/gitlab/etc/gitlab-rails/env /opt/gitlab/embedded/bin/bundle
-    ```
+   ```shell
+   /opt/gitlab/embedded/bin/chpst -e /opt/gitlab/etc/gitlab-rails/env /opt/gitlab/embedded/bin/bundle
+   ```
 
 1. Seed the data:
 
-    ```shell
-    gitlab-rake "ee:gitlab:seed:data_seeder[beautiful_data.rb]"
-    ```
+   ```shell
+   gitlab-rake "ee:gitlab:seed:data_seeder[beautiful_data.rb]"
+   ```
 
 ## Develop
 
@@ -177,7 +187,7 @@ The `DataSeeder` class contains the following instance variables defined upon se
 - `@seed_file` - The `File` object.
 - `@owner` - The owner of the seed data.
 - `@name` - The name of the seed. This is the seed file name without the extension.
-- `@group` - The root group that all seeded data is created under.
+- `@group` - The top-level group that all seeded data is created under.
 - `@logger` - The logger object to log output. Logging output may be found in `log/data_seeder.log`.
 
 ```ruby
@@ -260,11 +270,11 @@ Factories consist of three main parts - the **Name** of the factory, the **Trait
 
 Given: `create(:iteration, :with_title, :current, title: 'My Iteration')`
 
-|||
-|:-|:-|
-| **:iteration** | This is the **Name** of the factory. The filename will be the plural form of this **Name** and reside under either `spec/factories/iterations.rb` or `ee/spec/factories/iterations.rb`. |
-| **:with_title** | This is a **Trait** of the factory. [See how it's defined](https://gitlab.com/gitlab-org/gitlab/-/blob/9c2a1f98483921dd006d70fdaed316e21fc5652f/ee/spec/factories/iterations.rb#L21-23). |
-| **:current** | This is a **Trait** of the factory. [See how it's defined](https://gitlab.com/gitlab-org/gitlab/-/blob/9c2a1f98483921dd006d70fdaed316e21fc5652f/ee/spec/factories/iterations.rb#L29-31). |
+|                           |    |
+|:--------------------------|:---|
+| **:iteration**            | This is the **Name** of the factory. The filename will be the plural form of this **Name** and reside under either `spec/factories/iterations.rb` or `ee/spec/factories/iterations.rb`. |
+| **:with_title**           | This is a **Trait** of the factory. [See how it's defined](https://gitlab.com/gitlab-org/gitlab/-/blob/9c2a1f98483921dd006d70fdaed316e21fc5652f/ee/spec/factories/iterations.rb#L21-23). |
+| **:current**              | This is a **Trait** of the factory. [See how it's defined](https://gitlab.com/gitlab-org/gitlab/-/blob/9c2a1f98483921dd006d70fdaed316e21fc5652f/ee/spec/factories/iterations.rb#L29-31). |
 | **title: 'My Iteration'** | This is an **Attribute** of the factory that is passed to the Model for creation. |
 
 ### Examples
@@ -355,9 +365,11 @@ See the issue for [allowing parsing of raw Ruby objects](https://gitlab.com/gitl
 
 ## YAML Factories
 
-### Generator to generate _n_ amount of records
+### Generator to generate `n` amount of records
 
-### [Group Labels](https://gitlab.com/gitlab-org/gitlab/-/blob/master/spec/factories/labels.rb)
+### Group Labels
+
+[Group Labels](https://gitlab.com/gitlab-org/gitlab/-/blob/master/spec/factories/labels.rb):
 
 ```yaml
 group_labels:
@@ -367,7 +379,9 @@ group_labels:
     color: "#FF0000"
 ```
 
-### [Group Milestones](https://gitlab.com/gitlab-org/gitlab/-/blob/master/spec/factories/milestones.rb)
+### Group Milestones
+
+[Group Milestones](https://gitlab.com/gitlab-org/gitlab/-/blob/master/spec/factories/milestones.rb):
 
 ```yaml
 group_milestones:
@@ -395,9 +409,11 @@ group_milestones:
 
 #### Quirks
 
-- You _must_ specify `group:` and have it be empty. This is because the Milestones factory manipulates the factory in an `after(:build)`. If this is not present, the Milestone cannot be associated properly with the Group.
+- You must specify `group:` and have it be empty. This is because the Milestones factory manipulates the factory in an `after(:build)`. If this is not present, the Milestone cannot be associated properly with the Group.
 
-### [Epics](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/spec/factories/epics.rb)
+### Epics
+
+[Epics](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/spec/factories/epics.rb):
 
 ```yaml
 epics:
@@ -446,8 +462,11 @@ projects:
 
 Variables:
 
-NOTE:
+{{< alert type="note" >}}
+
 It is not advised, but you may specify variables with spaces. These variables may be referred back to with underscores.
+
+{{< /alert >}}
 
 ### Referencing a variable
 

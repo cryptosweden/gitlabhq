@@ -1,24 +1,25 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: none
+group: unassigned
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: ClickHouse within GitLab
 ---
-
-# ClickHouse within GitLab
 
 This document gives a high-level overview of how to develop features using ClickHouse in the GitLab Rails application.
 
-NOTE:
+{{< alert type="note" >}}
+
 Most of the tooling and APIs are considered unstable.
+
+{{< /alert >}}
 
 ## GDK setup
 
 ### Setup ClickHouse server
 
-1. Install ClickHouse locally as described in [ClickHouse installation documentation](https://clickhouse.com/docs/en/install). If you use QuickInstall it will be installed in current directory, if you use homebrew it will be installed to `/opt/homebrew/bin/clickhouse`
-1. Enable experimental services with `gdk config set gdk.experimental.ruby_services true`
-1. Add clickhouse section to your `gdk.yml`. See [`gdk.example.yml`](https://gitlab.com/gitlab-org/gitlab-development-kit/-/blob/main/gdk.example.yml)
-1. Adjust `gdk.yml` clickhouse config to point to your local clickhouse installation and local data storage. E.g.
+1. Install ClickHouse locally as described in [ClickHouse installation documentation](https://clickhouse.com/docs/en/install). If you use QuickInstall it will be installed in current directory, if you use Homebrew it will be installed to `/opt/homebrew/bin/clickhouse`
+1. Add ClickHouse section to your `gdk.yml`. See [`gdk.example.yml`](https://gitlab.com/gitlab-org/gitlab-development-kit/-/blob/main/gdk.example.yml)
+1. Adjust the `gdk.yml` ClickHouse configuration file to point to your local ClickHouse installation and local data storage. E.g.
 
    ```yaml
    clickhouse:
@@ -31,25 +32,25 @@ Most of the tooling and APIs are considered unstable.
    ```
 
 1. Run `gdk reconfigure`
-1. Start clickhouse with `gdk start clickhouse`
+1. Start ClickHouse with `gdk start clickhouse`
 
 ### Configure your Rails application
 
 1. Copy the example file and configure the credentials:
 
    ```shell
-   cp config/click_house.yml.example
-   config/click_house.yml
+   cp config/click_house.yml.example config/click_house.yml
    ```
 
-1. Create the database using the `clickhouse-client` CLI tool:
+1. Create the database using the bundled `clickhouse client`:
 
    ```shell
-   clickhouse client --port 9001
+   gdk clickhouse
    ```
 
    ```sql
    create database gitlab_clickhouse_development;
+   create database gitlab_clickhouse_test;
    ```
 
 ### Validate your setup
@@ -62,6 +63,12 @@ ClickHouse::Client.select('SELECT 1', :main)
 ```
 
 ## Database schema and migrations
+
+To generate a ClickHouse database migration, execute:
+
+``` shell
+bundle exec rails generate gitlab:click_house:migration MIGRATION_CLASS_NAME
+```
 
 To run database migrations, execute:
 
@@ -108,9 +115,25 @@ class CreateIssues < ClickHouse::Migration
 end
 ```
 
+## Post deployment migrations
+
+To generate a ClickHouse database post deployment migration execute:
+
+``` shell
+bundle exec rails generate gitlab:click_house:post_deployment_migration MIGRATION_CLASS_NAME
+```
+
+These migrations will run by default together with regular migrations, but they can be skipped,
+for example, before deploying to production using `SKIP_POST_DEPLOYMENT_MIGRATIONS` environment variable, for example:
+
+``` shell
+export SKIP_POST_DEPLOYMENT_MIGRATIONS=true
+bundle exec rake gitlab:clickhouse:migrate
+```
+
 ## Writing database queries
 
-For the ClickHouse database we don't use ORM (Object Relational Mapping). The main reason is that the GitLab application has many customizations for the `ActiveRecord` PostgresSQL adapter and the application generally assumes that all databases are using `PostgreSQL`. Since ClickHouse-related features are still in a very early stage of development, we decided to implement a simple HTTP client to avoid hard to discover bugs and long debugging time when dealing with multiple `ActiveRecord` adapters.
+For the ClickHouse database we don't use ORM (Object Relational Mapping). The main reason is that the GitLab application has many customizations for the `ActiveRecord` PostgreSQL adapter and the application generally assumes that all databases are using `PostgreSQL`. Since ClickHouse-related features are still in a very early stage of development, we decided to implement a simple HTTP client to avoid hard to discover bugs and long debugging time when dealing with multiple `ActiveRecord` adapters.
 
 Additionally, ClickHouse might not be used the same way as other adapters for `ActiveRecord`. The access patterns differ from traditional transactional databases, in that ClickHouse:
 
@@ -176,10 +199,10 @@ In case there are placeholders with the same name but different values the query
 
 ### Writing query conditions
 
-When working with complex forms where multiple filter conditions are present, building queries by concatenating query fragments as string can get out of hands very quickly. For queries with several conditions you may use the `ClickHouse::QueryBuilder` class. The class uses the `Arel` gem to generate queries and provides a similar query interface like `ActiveRecord`.
+When working with complex forms where multiple filter conditions are present, building queries by concatenating query fragments as string can get out of hands very quickly. For queries with several conditions you may use the `ClickHouse::Client::QueryBuilder` class. The class uses the `Arel` gem to generate queries and provides a similar query interface like `ActiveRecord`.
 
 ```ruby
-builder = ClickHouse::QueryBuilder.new('events')
+builder = ClickHouse::Client::QueryBuilder.new('events')
 
 query = builder
   .where(builder.table[:created_at].lteq(Date.today))
@@ -224,8 +247,11 @@ CsvBuilder::Gzip.new(iterator, column_mapping).render do |tempfile|
 end
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 It's important to test and verify efficient batching of database records from PostgreSQL. Consider using the techniques described in the [Iterating tables in batches](../iterating_tables_in_batches.md).
+
+{{< /alert >}}
 
 ## Iterating over tables
 
@@ -241,7 +267,7 @@ Usage:
 
 ```ruby
 connection = ClickHouse::Connection.new(:main)
-builder = ClickHouse::QueryBuilder.new('events')
+builder = ClickHouse::Client::QueryBuilder.new('events')
 
 iterator = ClickHouse::Iterator.new(query_builder: builder, connection: connection)
 iterator.each_batch(column: :id, of: 100_000) do |scope|
@@ -253,7 +279,7 @@ In case you want to iterate over specific rows, you could add filters to the que
 
 ```ruby
 connection = ClickHouse::Connection.new(:main)
-builder = ClickHouse::QueryBuilder.new('events')
+builder = ClickHouse::Client::QueryBuilder.new('events')
 
 # filtering by target type and stringified traversal ids/path
 builder = builder.where(target_type: 'Issue')
@@ -310,6 +336,10 @@ module ClickHouse
 end
 ```
 
+## Best practices
+
+When building features that require data from ClickHouse, you should first replicate raw data from PostgreSQL tables (such as events or issues) using [Sidekiq workers](#implementing-sidekiq-workers) or another strategy. Then, build separate aggregations on top of that data. By avoiding direct aggregation from PostgreSQL, you can improve maintainability and enable data reprocessing.
+
 ## Testing
 
 ClickHouse is enabled on CI/CD but to avoid significantly affecting the pipeline runtime we've decided to run the ClickHouse server for test cases tagged with `:click_house` only.
@@ -358,6 +388,63 @@ end
 
 Additionally, to view the executed ClickHouse queries in web interactions, on the performance bar, next to the `ch` label select the count.
 
-### Getting help
+## Handling Siphon Errors in Tests
 
-For additional information or specific questions, please reach out to the ClickHouse Datastore working group in the `#f_clickhouse` Slack channel, or mention `@gitlab-org/maintainers/clickhouse` in a comment on GitLab.com.
+GitLab uses a tool called [Siphon](https://gitlab.com/gitlab-org/analytics-section/siphon) to constantly synchronise data from specified tables in PostgreSQL to ClickHouse.
+This process requires that for each specified table, the ClickHouse schema must contain a copy of the PostgreSQL schema.
+
+During GitLab development, if you add a new column to PostgreSQL without adding a matching column in ClickHouse it will fail with an error:
+
+```plaintext
+This table is synchronised to ClickHouse and you've added a new column!
+```
+
+To resolve this, you should add a migration to add the column to ClickHouse too.
+
+### Example
+
+1. Add a new column `new_int` of type `int4`  to a table that is being synchronised to ClickHouse, such as `milestones`.
+1. Note that CI will fail with the error:
+
+   ```plaintext
+   This table is synchronised to ClickHouse and you've added a new column!
+   ```
+
+1. Generate a new ClickHouse migration to add the new column, note that the ClickHouse table is prefixed with `siphon_`:
+
+   ```plaintext
+   bundle exec rails generate gitlab:click_house:migration add_new_int_to_siphon_milestones
+   ```
+
+1. In the generated file, define up/down methods to add/remove the new column. ClickHouse data types map approximately to PostgreSQL.
+   Check `Gitlab::ClickHouse::SiphonGenerator::PG_TYPE_MAP` for the appropriate mapping for the new column. Using the wrong type will trigger a different error.
+   Additionally, consider making use of [`LowCardinaility`](https://clickhouse.com/docs/sql-reference/data-types/lowcardinality) where appropriate and use [`Nullable`](https://clickhouse.com/docs/sql-reference/data-types/nullable) sparingly opting for default values instead where possible.
+
+   ```ruby
+    class AddNewIntToSiphonMilestones < ClickHouse::Migration
+      def up
+        execute <<~SQL
+          ALTER TABLE siphon_milestones ADD COLUMN new_int Int64 DEFAULT 42;
+        SQL
+      end
+
+      def down
+        execute <<~SQL
+          ALTER TABLE siphon_milestones DROP COLUMN new_int;
+        SQL
+      end
+    end
+   ```
+
+If you need further assistance, reach out to `#f_siphon` internally.
+
+## Troubleshooting
+
+If you experience `MEMORY_LIMIT_EXCEEDED` errors when executing queries, increase the `clickhouse.max_memory_usage` and `clickhouse.max_server_memory_usage` settings
+in your `gdk.yml` file.
+
+Consult the `gdk.example.yml` file for the default settings. You must reconfigure GDK for changes to take effect.
+
+## Getting help
+
+For additional information or specific questions, reach out to the ClickHouse Datastore working group in the `#f_clickhouse` Slack channel, or mention `@gitlab-org/maintainers/clickhouse` in a comment on GitLab.com.

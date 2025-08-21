@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Storybook
 ---
-
-# Storybook
 
 The Storybook for the `gitlab-org/gitlab` project is available on our [GitLab Pages site](https://gitlab-org.gitlab.io/gitlab/storybook/).
 
@@ -26,6 +25,14 @@ To build and launch Storybook locally, in the root directory of the `gitlab` pro
    yarn storybook:start
    ```
 
+1. Test Storybook entries:
+
+   ```shell
+   yarn storybook:dev:test
+   ```
+
+Discover more details about automated accessibility tests with [Accessibility Storybook tests](accessibility/storybook_tests.md).
+
 ## Adding components to Storybook
 
 Stories can be added for any Vue component in the `gitlab` repository.
@@ -44,19 +51,24 @@ To add a story:
    │  │  |  ├─ todo_button.stories.js
    ```
 
-1. Write the story as per the [official Storybook instructions](https://storybook.js.org/docs/writing-stories/)
+1. Stories should demonstrate each significantly different UI state related to the component's exposed props and events.
 
-   NOTE:
-   Specify the `title` field of the story as the component's file path from the `javascripts/` directory, without the `/components` part.
-   For example, if the component is located at `app/assets/javascripts/vue_shared/components/sidebar/todo_toggle/todo_button.vue`,
-   specify the story `title` as `vue_shared/sidebar/todo_toggle/todo_button`.
-   If the component is located in the `ee/` directory, make sure to prefix the story's title with `ee/` as well.
-   This will ensure the Storybook navigation maps closely to our internal directory structure.
+For instructions on how to write stories, refer to the [official Storybook instructions](https://storybook.js.org/docs/writing-stories/)
+
+{{< alert type="note" >}}
+
+Specify the `title` field of the story as the component's file path from the `javascripts/` directory, without the `/components` part.
+For example, if the component is located at `app/assets/javascripts/vue_shared/components/sidebar/todo_toggle/todo_button.vue`,
+specify the story `title` as `vue_shared/sidebar/todo_toggle/todo_button`.
+If the component is located in the `ee/` directory, make sure to prefix the story's title with `ee/` as well.
+This will ensure the Storybook navigation maps closely to our internal directory structure.
+
+{{< /alert >}}
 
 ## Using GitLab REST and GraphQL APIs
 
-You can write stories for components that use either the GitLab [REST](../../api/rest/index.md) or
-[GraphQL](../../api/graphql/index.md) APIs.
+You can write stories for components that use either the GitLab [REST](../../api/rest/_index.md) or
+[GraphQL](../../api/graphql/_index.md) APIs.
 
 ### Set up API access token and GitLab instance URL
 
@@ -64,8 +76,11 @@ To add a story with API access:
 
 1. Create a [personal access token](../../user/profile/personal_access_tokens.md) in your GitLab instance.
 
-   NOTE:
+   {{< alert type="note" >}}
+
    If you test against `gitlab.com`, make sure to use a token with `read_api` if possible and to make the token short-lived.
+
+   {{< /alert >}}
 
 1. Create an `.env` file in the `storybook` directory. Use the `storybook/.env.template` file as
    a starting point.
@@ -142,7 +157,6 @@ To write a story for a component that requires access to a Vuex store, use the `
 the Story context.
 
 ```javascript
-import Vue from 'vue';
 import { withVuexStore } from 'storybook_addons/vuex_store';
 import DurationChart from './duration-chart.vue';
 

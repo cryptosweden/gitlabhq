@@ -1,18 +1,20 @@
 ---
-stage: Govern
-group: Anti-Abuse
+stage: Software Supply Chain Security
+group: Authorization
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Arkose Protect
 ---
 
-# Arkose Protect
+{{< alert type="warning" >}}
 
-DISCLAIMER:
-Arkose Protect is used on GitLab.com and is not supported for self-managed GitLab
+Arkose Protect is used on GitLab.com and is not supported for GitLab Self-Managed
 instances. The following documents the internal requirements for maintaining
-Arkose Protect on GitLab.com. While this feature is theoretically usable in self-managed instances, it
+Arkose Protect on GitLab.com. While this feature is theoretically usable in GitLab Self-Managed instances, it
 is not recommended at the moment.
 
-GitLab integrates [Arkose Protect](https://www.arkoselabs.com/arkose-bot-manager/) to guard against
+{{< /alert >}}
+
+GitLab integrates [Arkose Protect](https://www.arkoselabs.com/platform/) to guard against
 malicious users from creating accounts.
 
 ## How does it work?
@@ -65,6 +67,14 @@ To enable Arkose Protect:
    ApplicationSetting.current.update(arkose_labs_private_api_key: '<your_private_api_key>')
    ```
 
+To disable Arkose Protect:
+
+To disable the ArkoseLabs integration, run the following command in the Rails console.
+
+   ```ruby
+   Feature.disable(:arkose_labs)
+   ```
+
 ## Triage and debug ArkoseLabs issues
 
 You can triage and debug issues raised by ArkoseLabs with:
@@ -110,7 +120,11 @@ This job is performed by the `Arkose::BlockedUsersReportWorker` class.
 
 ## Test your integration
 
-> - Requesting specific behaviors with Data Exchange [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/435275) in GitLab 16.8 [with a flag](../administration/feature_flags.md) named `arkose_labs_signup_data_exchange`. Disabled by default.
+{{< history >}}
+
+- Requesting specific behaviors with Data Exchange [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/435275) in GitLab 16.8 [with a flag](../administration/feature_flags/_index.md) named `arkose_labs_signup_data_exchange`. Disabled by default.
+
+{{< /history >}}
 
 In staging and development environments only, you can suppress a challenge, or force one to appear.
 You can use this feature if you want to receive a specific risk band.
@@ -142,7 +156,7 @@ index 191ae0b5cf82..b2d888b98c95 100644
 ## Additional resources
 
 <!-- markdownlint-disable MD044 -->
-The [Anti-abuse team](https://handbook.gitlab.com/handbook/engineering/development/sec/govern/anti-abuse/#team-members) owns the ArkoseLabs Protect feature. You can join our ArkoseLabs/GitLab collaboration channel on Slack: [#ext-gitlab-arkose](https://gitlab.slack.com/archives/C02SGF6RLPQ).
+The Anti-abuse team owns the ArkoseLabs Protect feature. You can join the ArkoseLabs and GitLab collaboration channel on Slack: [#ext-gitlab-arkose](https://gitlab.slack.com/archives/C02SGF6RLPQ).
 <!-- markdownlint-enable MD044 -->
 
 ArkoseLabs also maintains the following resources:

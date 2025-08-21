@@ -7,14 +7,14 @@ module Gitlab
         class Artifacts < Task
           def self.id = 'artifacts'
 
-          def human_name = _('artifacts')
+          def human_name = 'Artifacts'
 
           def destination_path = 'artifacts.tar.gz'
 
           private
 
-          def target
-            ::Backup::Targets::Files.new(nil, storage_path, options: options, excludes: ['tmp'])
+          def local
+            Gitlab::Backup::Cli::Targets::Files.new(context, storage_path, excludes: ['tmp'])
           end
 
           def storage_path = context.ci_job_artifacts_path

@@ -1,27 +1,46 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Import your project from Bitbucket Server
+description: "Import projects from Bitbucket Server to GitLab."
 ---
 
-# Import your project from Bitbucket Server
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - Ability to re-import projects [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/23905) in GitLab 15.9.
-> - Ability to import reviewers [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/416611) in GitLab 16.3.
-> - Support for pull request approval imports [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/135256) in GitLab 16.7.
+{{< /details >}}
+
+{{< history >}}
+
+- Ability to re-import projects [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/23905) in GitLab 15.9.
+- Ability to import reviewers [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/416611) in GitLab 16.3.
+- Support for pull request approval imports [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/135256) in GitLab 16.7.
+- An **Imported** badge on some imported items [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/461211) in GitLab 17.2.
+
+{{< /history >}}
 
 Import your projects from Bitbucket Server to GitLab.
 
-NOTE:
-This process is different than [importing from Bitbucket Cloud](bitbucket.md).
+## Estimating import duration
+
+Every import from Bitbucket Server is different, which affects the duration of imports you perform.
+However, to help estimate the duration of your import, a project comprised of the following data is likely to take 8 hours to import:
+
+- 13,000 pull requests
+- 10,00 branches
+- 7,000 tags
+- 500 GiB repository
 
 ## Prerequisites
 
-> - Requirement for Maintainer role instead of Developer role introduced in GitLab 16.0 and backported to GitLab 15.11.1 and GitLab 15.10.5.
+{{< history >}}
+
+- Requirement for Maintainer role instead of Developer role introduced in GitLab 16.0 and backported to GitLab 15.11.1 and GitLab 15.10.5.
+
+{{< /history >}}
 
 - [Bitbucket Server import source](../../../administration/settings/import_and_export_settings.md#configure-allowed-import-sources)
   must be enabled. If not enabled, ask your GitLab administrator to enable it. The Bitbucket Server import source is enabled
@@ -35,10 +54,10 @@ This process is different than [importing from Bitbucket Cloud](bitbucket.md).
 To import your Bitbucket repositories:
 
 1. Sign in to GitLab.
-1. On the left sidebar, at the top, select **Create new** (**{plus}**) and **New project/repository**.
+1. On the left sidebar, at the top, select **Create new** ({{< icon name="plus" >}}) and **New project/repository**.
 1. Select **Import project**.
 1. Select **Bitbucket Server**.
-1. Log in to Bitbucket and grant GitLab access to your Bitbucket account.
+1. Sign in to Bitbucket and grant GitLab access to your Bitbucket account.
 1. Select the projects to import, or import all projects. You can filter projects by name and select
    the namespace for which to import each project.
 1. To import a project:
@@ -49,12 +68,14 @@ To import your Bitbucket repositories:
 
 - Repository description
 - Git repository data
-- Pull requests
-- Pull request comments, user mentions, reviewers, approvals, and merge events
+- Pull requests, including comments, user mentions, reviewers, and merge events
 - LFS objects
 
-When importing, repository public access is retained. If a repository is private in Bitbucket, it's
-created as private in GitLab as well.
+When importing:
+
+- Repository public access is retained. If a repository is private in Bitbucket, it's created as private in GitLab as
+  well.
+- Imported merge requests and comments have an **Imported** badge in GitLab.
 
 When closed or merged pull requests are imported, commit SHAs that do not exist in the repository are fetched from the Bitbucket server
 to make sure pull requests have commits tied to them:
@@ -71,6 +92,8 @@ The following items aren't imported:
 - Attachments in Markdown
 - Task lists
 - Emoji reactions
+- Pull request approvals
+- Approval rules for pull requests
 
 ## Items that are imported but changed
 
@@ -83,19 +106,30 @@ The following items are changed when they are imported:
 - Project filtering doesn't support fuzzy search. Only **starts with** or **full match** strings are
   supported.
 
-## User assignment
+## User contribution and membership mapping
 
-> - Importing approvals by email address or username [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/23586) in GitLab 16.7.
-> - Matching user mentions with GitLab users [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/433008) in GitLab 16.8.
-> - [Changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/153041) to import approvals only by email address in GitLab 17.1.
+{{< history >}}
 
-FLAG:
-On self-managed GitLab, matching user mentions with GitLab users is not available. To make it available per user,
-an administrator can [enable the feature flag](../../../administration/feature_flags.md) named `bitbucket_server_import_stage_import_users`.
-On GitLab.com and GitLab Dedicated, this feature is not available.
+- User mapping by email address or username [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/36885) in GitLab 13.4 [with a flag](../../../administration/feature_flags/_index.md) named `bitbucket_server_user_mapping_by_username`. Disabled by default.
+- Mapping user mentions to GitLab users [added](https://gitlab.com/gitlab-org/gitlab/-/issues/433008) in GitLab 16.8.
+- [Changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/153041) to map users only by email address in GitLab 17.1.
+- [Changed on GitLab.com](https://gitlab.com/groups/gitlab-org/-/epics/14667) to [user contribution and membership mapping](_index.md#user-contribution-and-membership-mapping) in GitLab 17.8.
+- [Enabled on GitLab.com and GitLab Self-Managed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/176675) in GitLab 17.8.
 
-When issues and pull requests are importing, the importer tries to match a Bitbucket Server user's email address
-with a confirmed email address in the GitLab user database. If no such user is found:
+{{< /history >}}
+
+The Bitbucket Server importer uses an [improved method](_index.md#user-contribution-and-membership-mapping)
+of mapping user contributions for GitLab.com and GitLab Self-Managed.
+
+### Old method of user contribution mapping
+
+You can use the old user contribution mapping method for imports to GitLab Self-Managed and GitLab Dedicated instances.
+To use this method, `bitbucket_server_user_mapping` must be disabled.
+For imports to GitLab.com, you must
+use the [improved method](_index.md#user-contribution-and-membership-mapping) instead.
+
+Using the old method, the importer tries to match a Bitbucket Server user's email address with a confirmed email address in the GitLab user database. If no
+such user is found:
 
 - The project creator is used instead. The importer appends a note in the comment to mark the original creator.
 - For pull request reviewers, no reviewer is assigned.
@@ -110,22 +144,6 @@ If the project is public, GitLab only matches users who are invited to the proje
 The importer creates any new namespaces (groups) if they don't exist. If the namespace is taken, the
 repository imports under the namespace of the user who started the import process.
 
-### User assignment by username
-
-> - Not recommended for production use.
-
-FLAG:
-On self-managed GitLab and GitLab.com, by default this feature is not available. To make it
-available, an administrator can [enable the feature flag](../../../administration/feature_flags.md)
-named `bitbucket_server_user_mapping_by_username`. This feature is not ready for production use.
-
-With this feature enabled, user email address matching is disabled.
-Instead, the importer matches users in the GitLab user database with the Bitbucket Server user's:
-
-- `username`
-- `slug`
-- `displayName`
-
 ## Troubleshooting
 
 ### General
@@ -134,7 +152,7 @@ If the GUI-based import tool does not work, you can try to:
 
 - Use the [GitLab Import API](../../../api/import.md#import-repository-from-bitbucket-server)
   Bitbucket Server endpoint.
-- Set up [repository mirroring](../repository/mirror/index.md).
+- Set up [repository mirroring](../repository/mirror/_index.md).
   It provides verbose error output.
 
 See the [troubleshooting section](bitbucket.md#troubleshooting)
@@ -156,4 +174,4 @@ To troubleshoot this problem, use the [Projects API](../../../api/projects.md) t
 This value indicates the URL provided by the Bitbucket server to use for the import. If this URL isn't publicly resolvable, you can get unresolvable address errors.
 
 To fix this problem, ensure that the Bitbucket server is aware of any proxy servers because proxy servers can impact how Bitbucket constructs and uses URLs.
-For more information, see [Atlassian's documentation](https://confluence.atlassian.com/bitbucketserver/proxy-and-secure-bitbucket-776640099.html).
+For more information, see [Proxy and secure Bitbucket](https://confluence.atlassian.com/bitbucketserver/proxy-and-secure-bitbucket-776640099.html).

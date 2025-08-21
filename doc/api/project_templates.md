@@ -2,13 +2,15 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Project templates API
 ---
 
-# Project templates API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 This API is a project-specific version of these endpoints:
 
@@ -23,7 +25,7 @@ It deprecates these endpoints, which are scheduled for removal in API version 5.
 In addition to templates common to the entire instance, project-specific
 templates are also available from this API endpoint.
 
-Support is also available for [group-level file templates](../user/group/manage.md#group-file-templates).
+Support is also available for [file templates for groups](../user/group/manage.md#group-file-templates).
 
 ## Get all templates of a particular type
 
@@ -33,8 +35,15 @@ GET /projects/:id/templates/:type
 
 | Attribute  | Type   | Required | Description |
 | ---------- | ------ | -------- | ----------- |
-| `id`      | integer or string | Yes       | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `id`      | integer or string | Yes       | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `type`     | string | Yes  | The type of the template. Accepted values are: `dockerfiles`, `gitignores`, `gitlab_ci_ymls`, `licenses`, `issues`, or `merge_requests`. |
+
+Example request:
+
+```shell
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+     --url "https://gitlab.example.com/api/v4/projects/1/templates/licenses"
+```
 
 Example response (licenses):
 
@@ -99,12 +108,19 @@ GET /projects/:id/templates/:type/:name
 
 | Attribute  | Type   | Required | Description |
 | ---------- | ------ | -------- | ----------- |
-| `id`      | integer or string | Yes       | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding). |
+| `id`      | integer or string | Yes       | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths). |
 | `name`     | string | Yes       | The key of the template, as obtained from the collection endpoint. |
 | `type`     | string | Yes | The type of the template. One of: `dockerfiles`, `gitignores`, `gitlab_ci_ymls`, `licenses`, `issues`, or `merge_requests`. |
 | `fullname` | string | No        | The full name of the copyright holder to use when expanding placeholders in the template. Affects only licenses. |
 | `project`  | string | No        | The project name to use when expanding placeholders in the template. Affects only licenses. |
 | `source_template_project_id`   | integer | No       | The project ID where a given template is being stored. Helpful when multiple templates from different projects have the same name. If multiple templates have the same name, the match from `closest ancestor` is returned if `source_template_project_id` is not specified, |
+
+Example request:
+
+```shell
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+     --url "https://gitlab.example.com/api/v4/projects/1/templates/dockerfiles/Binary"
+```
 
 Example response (Dockerfile):
 
@@ -113,6 +129,13 @@ Example response (Dockerfile):
   "name": "Binary",
   "content": "# This file is a template, and might need editing before it works on your project.\n# This Dockerfile installs a compiled binary into a bare system.\n# You must either commit your compiled binary into source control (not recommended)\n# or build the binary first as part of a CI/CD pipeline.\n\nFROM buildpack-deps:buster\n\nWORKDIR /usr/local/bin\n\n# Change `app` to whatever your binary is called\nAdd app .\nCMD [\"./app\"]\n"
 }
+```
+
+Example request:
+
+```shell
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+     --url "https://gitlab.example.com/api/v4/projects/1/templates/licenses/mit"
 ```
 
 Example response (license):

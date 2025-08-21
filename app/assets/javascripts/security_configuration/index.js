@@ -1,11 +1,11 @@
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import { GlToast } from '@gitlab/ui';
+import resolvers from 'ee_else_ce/security_configuration/security_attributes/graphql/resolvers';
 import createDefaultClient from '~/lib/graphql';
 import { parseBooleanDataAttributes } from '~/lib/utils/dom_utils';
 import SecurityConfigurationApp from './components/app.vue';
 import { augmentFeatures } from './utils';
-import { securityFeatures } from './constants';
 
 export const initSecurityConfiguration = (el) => {
   if (!el) {
@@ -16,7 +16,7 @@ export const initSecurityConfiguration = (el) => {
   Vue.use(GlToast);
 
   const apolloProvider = new VueApollo({
-    defaultClient: createDefaultClient(),
+    defaultClient: createDefaultClient(resolvers),
   });
 
   const {
@@ -29,12 +29,12 @@ export const initSecurityConfiguration = (el) => {
     autoDevopsPath,
     vulnerabilityTrainingDocsPath,
     containerScanningForRegistryEnabled,
+    secretDetectionConfigurationPath,
+    vulnerabilityArchiveExportPath,
+    licenseConfigurationSource,
   } = el.dataset;
 
-  const { augmentedSecurityFeatures } = augmentFeatures(
-    securityFeatures,
-    features ? JSON.parse(features) : [],
-  );
+  const { augmentedSecurityFeatures } = augmentFeatures(features ? JSON.parse(features) : []);
 
   return new Vue({
     el,
@@ -47,9 +47,14 @@ export const initSecurityConfiguration = (el) => {
       autoDevopsPath,
       vulnerabilityTrainingDocsPath,
       containerScanningForRegistryEnabled,
+      vulnerabilityArchiveExportPath,
+      secretDetectionConfigurationPath,
+      licenseConfigurationSource,
       ...parseBooleanDataAttributes(el, [
-        'preReceiveSecretDetectionAvailable',
-        'preReceiveSecretDetectionEnabled',
+        'secretPushProtectionAvailable',
+        'secretPushProtectionEnabled',
+        'validityChecksAvailable',
+        'validityChecksEnabled',
         'userIsProjectAdmin',
       ]),
     },

@@ -3,10 +3,10 @@
 require 'spec_helper'
 RSpec.describe ProjectAccessTokens::RotateService, feature_category: :system_access do
   describe '#execute' do
-    let_it_be(:token, reload: true) { create(:personal_access_token) }
+    let(:token) { create(:resource_access_token, resource: project) }
     let(:current_user) { create(:user) }
     let(:project) { create(:project, group: create(:group)) }
-    let(:error_message) { 'Not eligible to rotate token with access level higher than the user' }
+    let(:error_message) { 'Not eligible to rotate tokens with permissions not held by the user' }
 
     subject(:response) { described_class.new(current_user, token, project).execute }
 
@@ -17,8 +17,16 @@ RSpec.describe ProjectAccessTokens::RotateService, feature_category: :system_acc
         new_token = response.payload[:personal_access_token]
 
         expect(new_token.token).not_to eq(token.token)
-        expect(new_token.expires_at).to eq(Date.today + 1.week)
+        expect(new_token.expires_at).to eq(1.week.from_now.to_date)
         expect(new_token.user).to eq(token.user)
+      end
+
+      it_behaves_like 'internal event tracking' do
+        let(:event) { 'rotate_prat' }
+        let(:category) { described_class.name }
+        let(:user) { token.user }
+        let(:namespace) { project.namespace }
+        subject(:track_event) { response }
       end
     end
 
@@ -35,19 +43,14 @@ RSpec.describe ProjectAccessTokens::RotateService, feature_category: :system_acc
         it_behaves_like "rotates token successfully"
 
         context 'when creating the new token fails' do
-          let(:error_message) { 'boom!' }
-
           before do
-            allow_next_instance_of(PersonalAccessToken) do |token|
-              allow(token).to receive_message_chain(:errors, :full_messages, :to_sentence).and_return(error_message)
-              allow(token).to receive_message_chain(:errors, :clear)
-              allow(token).to receive_message_chain(:errors, :empty?).and_return(false)
-            end
+            # change the default expiration for rotation to create an invalid token
+            stub_const('::PersonalAccessTokens::RotateService::EXPIRATION_PERIOD', 10.years)
           end
 
           it 'returns an error' do
             expect(response).to be_error
-            expect(response.message).to eq(error_message)
+            expect(response.message).to include('Expiration date must be before')
           end
 
           it 'reverts the changes' do
@@ -131,17 +134,20 @@ RSpec.describe ProjectAccessTokens::RotateService, feature_category: :system_acc
 
           context 'when its a bot user' do
             let_it_be(:bot_user) { create(:user, :project_bot) }
+            let_it_be(:token, reload: true) { create(:personal_access_token, user: bot_user) }
             let_it_be(:bot_user_membership) do
-              create(:project_member, :developer, user: bot_user, project: create(:project))
+              create(
+                :project_member,
+                :developer,
+                user: bot_user,
+                project: create(:project),
+                expires_at: token.expires_at
+              )
             end
 
-            let_it_be(:token, reload: true) { create(:personal_access_token, user: bot_user) }
-
-            it 'updates membership expires at' do
+            it 'does not set membership expires at' do
               response
-
-              new_token = response.payload[:personal_access_token]
-              expect(bot_user_membership.reload.expires_at).to eq(new_token.expires_at)
+              expect(bot_user_membership.reload.expires_at).to be_nil
             end
           end
         end
@@ -181,6 +187,52 @@ RSpec.describe ProjectAccessTokens::RotateService, feature_category: :system_acc
               expect(response).to be_error
               expect(response.message).to eq(error_message)
             end
+          end
+        end
+      end
+    end
+
+    context 'for token external status inheritance from current_user' do
+      context 'when current user is maintainer' do
+        before do
+          project.add_maintainer(current_user)
+        end
+
+        context 'when current_user is external and token is not external' do
+          before do
+            current_user.update!(external: true)
+          end
+
+          it 'rotates token and token inherits current_user external status', :aggregate_failures do
+            expect(current_user.external).to be(true)
+            expect(token.user.external).to be(false)
+
+            expect(response).to be_success
+
+            new_token = response.payload[:personal_access_token]
+            expect(new_token.user).to eq(token.user)
+
+            expect(current_user.external).to be(true)
+            expect(new_token.user.external).to be(true)
+          end
+        end
+
+        context 'when current_user is not external and token is external' do
+          before do
+            token.user.update!(external: true)
+          end
+
+          it 'rotates token and token inherits current_user external status', :aggregate_failures do
+            expect(current_user.external).to be(false)
+            expect(token.user.external).to be(true)
+
+            expect(response).to be_success
+
+            new_token = response.payload[:personal_access_token]
+            expect(new_token.user).to eq(token.user)
+
+            expect(current_user.external).to be(false)
+            expect(new_token.user.external).to be(false)
           end
         end
       end

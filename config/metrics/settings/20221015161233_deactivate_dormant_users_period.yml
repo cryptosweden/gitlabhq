@@ -2,6 +2,8 @@
 key_path: deactivate_dormant_users_period
 description: The value of the dormant users period being used
 product_group: utilization
+product_categories:
+- seat_cost_management
 value_type: boolean
 status: active
 milestone: "15.6"
@@ -11,10 +13,7 @@ data_source: database
 data_category: optional
 instrumentation_class: DormantUserPeriodSettingMetric
 performance_indicator_type: []
-distribution:
-- ce
-- ee
-tier:
+tiers:
 - free
 - premium
 - ultimate

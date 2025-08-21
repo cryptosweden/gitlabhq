@@ -41,22 +41,11 @@ module MarkdownMatchers
     set_default_markdown_messages
 
     match do |actual|
-      expect(actual).to have_selector('gl-emoji', count: 12)
+      expect(actual).to have_selector('gl-emoji', count: 10)
 
       emoji_element = actual.at_css('gl-emoji')
       expect(emoji_element['data-name'].to_s).not_to be_empty
       expect(emoji_element['data-unicode-version'].to_s).not_to be_empty
-    end
-  end
-
-  # TableOfContentsLegacyFilter
-  matcher :create_header_links do
-    set_default_markdown_messages
-
-    match do |actual|
-      expect(actual).to have_selector('h1 a#user-content-gitlab-markdown')
-      expect(actual).to have_selector('h2 a#user-content-markdown')
-      expect(actual).to have_selector('h3 a#user-content-autolinking-in-markdownfilter')
     end
   end
 
@@ -304,7 +293,7 @@ module MarkdownMatchers
     set_default_markdown_messages
 
     match do |actual|
-      expect(actual).to have_link(href: 'http://localhost:8080/png/U9npoazIqBLJ24uiIbImKl18pSd9vm80EtS5lW00')
+      expect(actual).to have_link(href: 'http://localhost:8080/png/U9npoazIqBLJ24uiIbImKl18pSd91m0rkGMq')
     end
   end
 
@@ -313,7 +302,7 @@ module MarkdownMatchers
     set_default_markdown_messages
 
     match do |actual|
-      expect(actual).to have_link(href: 'http://localhost:8000/nomnoml/svg/eNqLDsgsSixJrUmtTHXOL80rsVLwzCupKUrMTNHQtC7IzMlJTE_V0KzhUlCITkpNLEqJ1dWNLkgsKsoviUUSs7KLTssvzVHIzS8tyYjliuUCAE_tHdw=')
+      expect(actual).to have_link(href: 'http://localhost:8000/nomnoml/svg/eNqLDsgsSixJrUmtTHXOL80rsVLwzCupKUrMTNHQtC7IzMlJTE_V0KzhUlCITkpNLEqJ1dWNLkgsKsoviUUSs7KLTssvzVHIzS8tyYjligUAMhEd0g==')
     end
   end
 end

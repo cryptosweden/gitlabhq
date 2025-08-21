@@ -2,20 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
+RSpec.describe Notes::QuickActionsService, feature_category: :text_editors do
+  let_it_be_with_reload(:project) { create(:project, :repository) }
+
   shared_context 'note on noteable' do
-    let_it_be(:project) { create(:project, :repository) }
     let_it_be(:maintainer) { create(:user, maintainer_of: project) }
     let_it_be(:assignee) { create(:user) }
 
-    before do
+    before_all do
       project.add_maintainer(assignee)
     end
   end
 
   shared_examples 'note on noteable that supports quick actions' do
-    include_context 'note on noteable'
-
     before do
       note.note = note_text
     end
@@ -123,22 +122,26 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
           context 'when not specifying a date' do
             let(:note_text) { "/spend 1h" }
 
-            it 'does not include the date' do
-              _, update_params = service.execute(note)
-              service.apply_updates(update_params, note)
+            it 'includes the date, time and timezone' do
+              allow_any_instance_of(User).to receive(:timezone).and_return('Hawaii') # rubocop:disable RSpec/AnyInstanceOf -- It's not the next instance
 
-              expect(Note.last.note).to eq('added 1h of time spent')
+              travel_to(Time.utc(2025, 5, 1)) do
+                _, update_params = service.execute(note)
+                service.apply_updates(update_params, note)
+
+                expect(Note.last.note).to eq('added 1h of time spent at 2025-04-30 14:00:00 -1000')
+              end
             end
           end
 
           context 'when specifying a date' do
             let(:note_text) { "/spend 1h 2020-01-01" }
 
-            it 'does include the date' do
+            it 'includes the date, time and timezone' do
               _, update_params = service.execute(note)
               service.apply_updates(update_params, note)
 
-              expect(Note.last.note).to eq('added 1h of time spent at 2020-01-01')
+              expect(Note.last.note).to eq('added 1h of time spent at 2020-01-01 12:00:00 UTC')
             end
           end
         end
@@ -206,7 +209,7 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
     describe '/confidential' do
       let_it_be_with_reload(:noteable) { create(:work_item, :issue, project: project) }
       let_it_be(:note_text) { '/confidential' }
-      let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
+      let(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
 
       context 'when work item does not have children' do
         it 'leaves the note empty' do
@@ -228,7 +231,7 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
 
           it 'does not mark parent work item as confidential' do
             expect { execute(note) }.to not_change { noteable.reload.confidential }.from(false)
-            expect(noteable.errors[:base]).to include('A confidential work item cannot have a parent that already has non-confidential children.')
+            expect(noteable.errors[:base]).to include('All child items must be confidential in order to turn on confidentiality.')
           end
         end
 
@@ -350,57 +353,13 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
       end
     end
 
-    describe '/remind_me' do
-      let(:issue) { create(:issue, project: project, milestone: milestone) }
-      let(:note_text) { '/remind_me 1d' }
-      let(:note) { create(:note_on_issue, noteable: issue, project: project, note: note_text) }
-
-      context 'on an issue' do
-        it 'leaves the note empty' do
-          expect(execute(note)).to be_empty
-        end
-
-        it 'attempts to set a reminder' do
-          expect(Issuable::CreateReminderWorker).to receive(:perform_in)
-
-          execute(note)
-        end
-      end
-
-      context 'on a merge request' do
-        let(:note_mr) { create(:note_on_merge_request, project: project, note: note_text) }
-
-        it 'leaves the note empty' do
-          expect(execute(note_mr)).to be_empty
-        end
-
-        it 'attempts to set a reminder' do
-          expect(Issuable::CreateReminderWorker).to receive(:perform_in)
-
-          execute(note)
-        end
-      end
-    end
-
     describe '/add_child' do
-      let_it_be(:noteable) { create(:work_item, :objective, project: project) }
+      let_it_be_with_reload(:noteable) { create(:work_item, :objective, project: project) }
       let_it_be(:child) { create(:work_item, :objective, project: project) }
       let_it_be(:second_child) { create(:work_item, :objective, project: project) }
       let_it_be(:note_text) { "/add_child #{child.to_reference}, #{second_child.to_reference}" }
-      let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
-      let_it_be(:children) { [child, second_child] }
-
-      shared_examples 'adds child work items' do
-        it 'leaves the note empty' do
-          expect(execute(note)).to be_empty
-        end
-
-        it 'adds child work items' do
-          expect { execute(note) }.to change { WorkItems::ParentLink.count }.by(2)
-          expect(noteable.reload.work_item_children).to match_array(children)
-          expect(noteable.valid?).to be_truthy
-        end
-      end
+      let(:note) { build(:note, noteable: noteable, project: project, note: note_text) }
+      let(:children) { [child, second_child] }
 
       it_behaves_like 'adds child work items'
 
@@ -412,7 +371,7 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
 
       context 'when using work item URL' do
         let_it_be(:project_path) { "#{Gitlab.config.gitlab.url}/#{project.full_path}" }
-        let_it_be(:url) { "#{project_path}/work_items/#{child.iid}, #{project_path}/work_items/#{second_child.iid}" }
+        let_it_be(:url) { "#{project_path}/work_items/#{child.iid}, #{project_path}/issues/#{second_child.iid}" }
         let_it_be(:note_text) { "/add_child #{url}" }
 
         it_behaves_like 'adds child work items'
@@ -423,7 +382,7 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
       let_it_be_with_reload(:noteable) { create(:work_item, :objective, project: project) }
       let_it_be_with_reload(:child) { create(:work_item, :objective, project: project) }
       let_it_be(:note_text) { "/remove_child #{child.to_reference}" }
-      let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
+      let(:note) { build(:note, noteable: noteable, project: project, note: note_text) }
 
       before do
         create(:parent_link, work_item_parent: noteable, work_item: child)
@@ -465,20 +424,7 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
       let_it_be_with_reload(:noteable) { create(:work_item, :objective, project: project) }
       let_it_be_with_reload(:parent) { create(:work_item, :objective, project: project) }
       let_it_be(:note_text) { "/set_parent #{parent.to_reference}" }
-      let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
-
-      shared_examples 'sets work item parent' do
-        it 'leaves the note empty' do
-          expect(execute(note)).to be_empty
-        end
-
-        it 'sets work item parent' do
-          execute(note)
-
-          expect(parent.valid?).to be_truthy
-          expect(noteable.work_item_parent).to eq(parent)
-        end
-      end
+      let(:note) { build(:note, noteable: noteable, project: project, note: note_text) }
 
       context 'when using work item reference' do
         let_it_be(:note_text) { "/set_parent #{project.full_path}#{parent.to_reference}" }
@@ -498,13 +444,26 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
 
         it_behaves_like 'sets work item parent'
       end
+
+      context 'when user has no access to the work_item' do
+        before do
+          allow(maintainer).to receive(:can?).and_call_original
+          allow(maintainer).to receive(:can?).with(:admin_issue_relation, noteable).and_return(false)
+        end
+
+        let(:note) { build(:note, noteable: noteable, project: project, note: note_text) }
+
+        it 'does not assign the parent' do
+          expect { execute(note) }.not_to change { noteable.reload.work_item_parent }
+        end
+      end
     end
 
     describe '/remove_parent' do
       let_it_be_with_reload(:parent) { create(:work_item, :objective, project: project) }
       let_it_be_with_reload(:noteable) { create(:work_item, :objective, project: project) }
       let_it_be(:note_text) { "/remove_parent" }
-      let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
+      let(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
 
       before do
         create(:parent_link, work_item_parent: parent, work_item: noteable)
@@ -519,6 +478,19 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
 
         expect(noteable.valid?).to be_truthy
         expect(noteable.work_item_parent).to eq(nil)
+      end
+
+      context 'when user has no access to the work_item' do
+        before do
+          allow(maintainer).to receive(:can?).and_call_original
+          allow(maintainer).to receive(:can?).with(:admin_issue_relation, noteable).and_return(false)
+        end
+
+        let(:note) { build(:note, noteable: noteable, project: project, note: note_text) }
+
+        it 'does not assign the parent' do
+          expect { execute(note) }.not_to change { noteable.reload.work_item_parent }
+        end
       end
     end
 
@@ -536,7 +508,7 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
       context 'when user is not allowed to promote work item' do
         let_it_be_with_reload(:noteable) { create(:work_item, :task, project: project) }
         let_it_be(:note_text) { '/promote_to issue' }
-        let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
+        let(:note) { build(:note, noteable: noteable, project: project, note: note_text) }
 
         before do
           project.team.find_member(maintainer.id).destroy!
@@ -551,7 +523,7 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
       context 'on a task' do
         let_it_be_with_reload(:noteable) { create(:work_item, :task, project: project) }
         let_it_be(:note_text) { '/promote_to Issue' }
-        let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
+        let(:note) { build(:note, noteable: noteable, project: project, note: note_text) }
 
         it_behaves_like 'promotes work item', from: 'task', to: 'issue'
 
@@ -565,7 +537,7 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
       context 'on an issue' do
         let_it_be_with_reload(:noteable) { create(:work_item, :issue, project: project) }
         let_it_be(:note_text) { '/promote_to Incident' }
-        let_it_be(:note) { create(:note, noteable: noteable, project: project, note: note_text) }
+        let(:note) { build(:note, noteable: noteable, project: project, note: note_text) }
 
         it_behaves_like 'promotes work item', from: 'issue', to: 'incident'
 
@@ -573,6 +545,38 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
           let_it_be(:note_text) { '/promote_to incident' }
 
           it_behaves_like 'promotes work item', from: 'issue', to: 'incident'
+        end
+      end
+    end
+
+    context 'when existing note contains quick actions' do
+      let(:note_text) { "foo\n/close\nbar" }
+
+      before do
+        note.save!
+        note.note = edit_note_text
+      end
+
+      context 'when a quick action exists in original note' do
+        let(:edit_note_text) { "foo\n/close\nbar\nbaz" }
+
+        it 'sanitizes/removes any quick actions and does not execute them' do
+          content = execute(note)
+
+          expect(content).to eq "foo\nbar\nbaz"
+          expect(note.noteable.open?).to be_truthy
+        end
+      end
+
+      context 'when a new quick action is used in new note' do
+        let(:edit_note_text) { "bar\n/react :smile:\nfoo" }
+
+        it 'executes any quick actions not in unedited note' do
+          content = execute(note)
+
+          expect(content).to eq "bar\nfoo"
+          expect(note.noteable.award_emoji.first.name).to eq 'smile'
+          expect(note.noteable.open?).to be_truthy
         end
       end
     end
@@ -612,6 +616,8 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
   end
 
   describe '#execute' do
+    include_context 'note on noteable'
+
     let(:service) { described_class.new(project, maintainer) }
 
     it_behaves_like 'note on noteable that supports quick actions' do
@@ -629,9 +635,44 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
       let(:note) { build(:note_on_merge_request, project: project, noteable: merge_request) }
     end
 
-    context 'note on work item that supports quick actions' do
-      include_context 'note on noteable'
+    describe '/create_merge_request' do
+      let(:note) { build(:note, noteable: noteable, project: project, note: note_text) }
 
+      context 'when noteable is a work item' do
+        let_it_be(:noteable) { create(:work_item, project: project) }
+
+        context 'when no branch name is provided' do
+          let(:note_text) { '/create_merge_request' }
+
+          it 'creates a merge request with default branch name', :aggregate_failures do
+            expect { execute(note) }.to change { MergeRequest.count }.by(1)
+
+            expect(MergeRequest.last.source_branch).to eq(noteable.to_branch_name)
+          end
+
+          context 'when work item type does not have the development widget' do
+            let_it_be(:work_item_type) { create(:work_item_type, :non_default) }
+            let_it_be(:noteable) { create(:work_item, project: project, work_item_type: work_item_type) }
+
+            it 'does not create a merge request' do
+              expect { execute(note) }.to not_change { MergeRequest.count }
+            end
+          end
+        end
+
+        context 'when a branch name is provided' do
+          let(:note_text) { '/create_merge_request test-branch-1' }
+
+          it 'creates a merge request with default branch name', :aggregate_failures do
+            expect { execute(note) }.to change { MergeRequest.count }.by(1)
+
+            expect(MergeRequest.last.source_branch).to eq('test-branch-1')
+          end
+        end
+      end
+    end
+
+    context 'note on work item that supports quick actions' do
       let_it_be(:work_item, reload: true) { create(:work_item, project: project) }
 
       let(:note) { build(:note_on_work_item, project: project, noteable: work_item) }
@@ -707,19 +748,49 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
           end
         end
       end
+
+      describe '/subscribe or /unsubscribe' do
+        shared_examples 'when applying to work_item' do
+          it 'leaves the note empty' do
+            expect(execute(note)).to be_empty
+          end
+
+          it 'triggers work item updated subscription' do
+            expect(GraphqlTriggers).to receive(:work_item_updated).with(work_item)
+
+            execute(note)
+          end
+        end
+
+        describe '/subscribe' do
+          let_it_be(:note_text) { '/subscribe' }
+
+          it_behaves_like 'when applying to work_item'
+        end
+
+        describe '/unsubscribe' do
+          let_it_be(:note_text) { '/unsubscribe' }
+
+          before do
+            work_item.subscribe(maintainer, project)
+          end
+
+          it_behaves_like 'when applying to work_item'
+        end
+      end
     end
   end
 
   describe '#apply_updates' do
     include_context 'note on noteable'
 
-    let_it_be(:issue) { create(:issue, project: project) }
-    let_it_be(:work_item, reload: true) { create(:work_item, :issue, project: project) }
-    let_it_be(:merge_request) { create(:merge_request, source_project: project) }
-    let_it_be(:issue_note) { create(:note_on_issue, project: project, noteable: issue) }
-    let_it_be(:work_item_note) { create(:note, project: project, noteable: work_item) }
-    let_it_be(:mr_note) { create(:note_on_merge_request, project: project, noteable: merge_request) }
-    let_it_be(:commit_note) { create(:note_on_commit, project: project) }
+    let_it_be_with_reload(:issue) { create(:issue, project: project) }
+    let_it_be_with_reload(:work_item) { create(:work_item, :issue, project: project) }
+    let_it_be_with_reload(:merge_request) { create(:merge_request, source_project: project) }
+    let_it_be_with_reload(:issue_note) { create(:note_on_issue, project: project, noteable: issue) }
+    let_it_be_with_reload(:work_item_note) { create(:note, project: project, noteable: work_item) }
+    let_it_be_with_reload(:mr_note) { create(:note_on_merge_request, project: project, noteable: merge_request) }
+    let_it_be_with_reload(:commit_note) { create(:note_on_commit, project: project) }
     let(:update_params) { {} }
 
     subject(:apply_updates) { described_class.new(project, maintainer).apply_updates(update_params, note) }
@@ -770,8 +841,9 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
         create(:parent_link, work_item: task, work_item_parent: work_item)
 
         expect(apply_updates.success?).to be false
-        expect(apply_updates.message)
-          .to include("A confidential work item cannot have a parent that already has non-confidential children.")
+        expect(apply_updates.message).to include(
+          "A confidential issue must have only confidential children. Make any child items confidential and try again."
+        )
       end
     end
 
@@ -793,9 +865,8 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
 
   context 'CE restriction for issue assignees' do
     describe '/assign' do
-      let(:project) { create(:project) }
-      let(:assignee) { create(:user) }
-      let(:maintainer) { create(:user) }
+      let_it_be(:assignee) { create(:user) }
+      let_it_be(:maintainer) { create(:user) }
       let(:service) { described_class.new(project, maintainer) }
       let(:note) { create(:note_on_issue, note: note_text, project: project) }
 
@@ -803,10 +874,13 @@ RSpec.describe Notes::QuickActionsService, feature_category: :team_planning do
         %(/assign @#{assignee.username} @#{maintainer.username}\n")
       end
 
-      before do
-        stub_licensed_features(multiple_issue_assignees: false)
+      before_all do
         project.add_maintainer(maintainer)
         project.add_maintainer(assignee)
+      end
+
+      before do
+        stub_licensed_features(multiple_issue_assignees: false)
       end
 
       it 'adds only one assignee from the list' do

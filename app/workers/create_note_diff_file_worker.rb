@@ -12,8 +12,13 @@ class CreateNoteDiffFileWorker # rubocop:disable Scalability/IdempotentWorker
   def perform(diff_note_id)
     return unless diff_note_id.present?
 
-    diff_note = DiffNote.find_by_id(diff_note_id) # rubocop: disable CodeReuse/ActiveRecord
+    diff_note = DiffNote.find_by_id(diff_note_id)
 
     diff_note&.create_diff_file
+  rescue DiffNote::NoteDiffFileCreationError => e
+    # We rescue DiffNote::NoteDiffFileCreationError since we don't want to
+    # fail the job and retry as it won't make any difference if we can't find
+    # the diff or diff line.
+    Gitlab::ErrorTracking.track_exception(e, diff_note_id: diff_note_id)
   end
 end

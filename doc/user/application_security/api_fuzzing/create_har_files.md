@@ -1,26 +1,31 @@
 ---
-stage: Secure
+stage: Application Security Testing
 group: Dynamic Analysis
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Create HAR Files
 ---
 
-# Create HAR Files
+{{< details >}}
 
-DETAILS:
-**Tier:** Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 HTTP Archive (HAR) format files are an industry standard for exchanging information about HTTP
 requests and HTTP responses. A HAR file's content is JSON formatted, containing browser interactions
 with a web site. The file extension `.har` is commonly used.
 
 The HAR files can be used to perform [web API Fuzz Testing](configuration/enabling_the_analyzer.md#http-archive-har) as part of
-your [GitLab CI/CD](../../../ci/index.md) pipelines.
+your [GitLab CI/CD](../../../ci/_index.md) pipelines.
 
-WARNING:
+{{< alert type="warning" >}}
+
 A HAR file stores information exchanged between web client and web server. It could also
 store sensitive information such as authentication tokens, API keys, and session cookies. We
 recommend that you review the HAR file contents before adding them to a repository.
+
+{{< /alert >}}
 
 ## HAR file creation
 
@@ -38,10 +43,13 @@ automatically record your network activity and generate the HAR file:
 1. [Chrome web browser](#chrome-web-browser).
 1. [Firefox web browser](#firefox-web-browser).
 
-WARNING:
+{{< alert type="warning" >}}
+
 HAR files may contain sensitive information such as authentication tokens, API keys, and
 session cookies. We recommend that you review the HAR file contents before adding them to a
 repository.
+
+{{< /alert >}}
 
 ### GitLab HAR Recorder
 
@@ -74,9 +82,7 @@ Install GitLab HAR Recorder:
 To verify the HAR contains all requests, use an online HAR viewer, for example:
 
 - [HAR Viewer](http://www.softwareishard.com/har/viewer/)
-<!-- vale gitlab.Admin = NO -->
 - [Google Admin Toolbox HAR Analyzer](https://toolbox.googleapps.com/apps/har_analyzer/)
-<!-- vale gitlab.Admin = YES -->
 
 ### Insomnia API Client
 
@@ -197,9 +203,7 @@ a text editor.
 Tools recommended for viewing HAR files include:
 
 - [HAR Viewer](http://www.softwareishard.com/har/viewer/) - (online)
-<!-- vale gitlab.Admin = NO -->
 - [Google Admin Toolbox HAR Analyzer](https://toolbox.googleapps.com/apps/har_analyzer/) - (online)
-<!-- vale gitlab.Admin = YES -->
 - [Fiddler](https://www.telerik.com/fiddler) - local
 - [Insomnia API Client](https://insomnia.rest/) - local
 
@@ -240,4 +244,4 @@ intact.
 The following example demonstrates use of [Visual Studio Code](https://code.visualstudio.com/) text
 editor to edit an Authorization token found in a header.
 
-![Authorization token edited in Visual Studio Code](img/vscode_har_edit_auth_header.png)
+![Authorization token edited in Visual Studio Code](img/vscode_har_edit_auth_header_v13_12.png)

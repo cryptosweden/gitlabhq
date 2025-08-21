@@ -7,7 +7,7 @@ RSpec.describe API::Entities::Ci::RunnerManager, feature_category: :runner do
 
   let(:entity) { described_class.new(runner_manager) }
 
-  subject(:runner_manager_entity) { entity.as_json }
+  subject(:runner_manager_entity) { entity.presented.as_json }
 
   exposed_fields = %i[id version revision platform architecture]
 
@@ -18,6 +18,8 @@ RSpec.describe API::Entities::Ci::RunnerManager, feature_category: :runner do
   end
 
   it "exposes runner manager system_id" do
-    expect(runner_manager_entity[:system_id]).to eq(runner_manager.public_send(:system_xid))
+    expect(runner_manager_entity[:system_id]).to eq(runner_manager.system_xid)
   end
+
+  it_behaves_like 'job_execution_status field', :runner_manager
 end

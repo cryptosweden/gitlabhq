@@ -21,12 +21,13 @@ module Releases
     def filepath_format_valid?
       return if filepath.nil? # valid use case
       return errors.add(:filepath, "is too long (maximum is #{FILEPATH_MAX_LENGTH} characters)") if filepath.length > FILEPATH_MAX_LENGTH
-      return errors.add(:filepath, 'is in an invalid format') unless FILEPATH_REGEX.match? filepath
+
+      errors.add(:filepath, 'is in an invalid format') unless FILEPATH_REGEX.match? filepath
     end
 
     scope :sorted, -> { order(created_at: :desc) }
 
-    enum link_type: {
+    enum :link_type, {
       other: 0,
       runbook: 1,
       package: 2,

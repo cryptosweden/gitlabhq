@@ -9,6 +9,7 @@ export const BRANCH_REF_TYPE = 'heads';
 export const TAG_REF_TYPE = 'tags';
 export const TAG_REF_TYPE_ICON = 'tag';
 export const BRANCH_REF_TYPE_ICON = 'branch';
+export const SEARCH_ICON = 'search';
 export const REF_TYPE_PARAM_NAME = 'ref_type';
 
 export const X_TOTAL_HEADER = 'x-total';
@@ -24,10 +25,10 @@ export const DEFAULT_I18N = Object.freeze({
   branchesErrorMessage: __('An error occurred while fetching branches. Retry the search.'),
   tagsErrorMessage: __('An error occurred while fetching tags. Retry the search.'),
   commitsErrorMessage: __('An error occurred while fetching commits. Retry the search.'),
+  selected: __('Selected'),
   branches: __('Branches'),
   tags: __('Tags'),
   commits: __('Commits'),
   noRefSelected: __('No ref selected'),
   totalCountLabel: s__('TotalRefCountIndicator|1000+'),
-  protectedLabelText: __('protected'),
 });

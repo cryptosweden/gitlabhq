@@ -3,11 +3,13 @@ fragment CatalogResourceFields on CiCatalogResource {
   description
   fullPath
   icon
+  last30DayUsageCount
   name
   starCount
-  last30DayUsageCount
   starrersPath
+  topics
   verificationLevel
+  archived
   versions(first: 1) {
     nodes {
       id
@@ -28,5 +30,6 @@ fragment CatalogResourceFields on CiCatalogResource {
       }
     }
   }
+  visibilityLevel
   webPath
 }

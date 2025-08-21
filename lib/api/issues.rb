@@ -2,7 +2,15 @@
 
 module API
   class Issues < ::API::Base
+    include ::API::Concerns::AiWorkflowsAccess
+    include ::API::Concerns::McpAccess
+    include APIGuard
     include PaginationParams
+
+    allow_ai_workflows_access
+    allow_mcp_access_read
+    allow_mcp_access_create
+
     helpers Helpers::IssuesHelpers
     helpers SpammableActions::CaptchaCheck::RestApiActionsSupport
 
@@ -78,6 +86,7 @@ module API
         optional :with_labels_details, type: Boolean, desc: 'Return titles of labels and other details', default: false
         optional :state, type: String, values: %w[opened closed all], default: 'all',
           desc: 'Return opened, closed, or all issues'
+        optional :closed_by_id, type: Integer, desc: 'Return issues which were closed by the user with the given ID.'
         optional :order_by, type: String, values: Helpers::IssuesHelpers.sort_options, default: 'created_at',
           desc: 'Return issues ordered by `created_at`, `due_date`, `label_priority`, `milestone_due`, `popularity`, `priority`, `relative_position`, `title`, or `updated_at` fields.'
         optional :sort, type: String, values: %w[asc desc], default: 'desc',
@@ -85,7 +94,6 @@ module API
         optional :due_date, type: String, values: %w[0 any today tomorrow overdue week month next_month_and_previous_two_weeks] << '',
           desc: 'Return issues that have no due date (`0`), or whose due date is this week, this month, between two weeks ago and next month, or which are overdue. Accepts: `overdue`, `week`, `month`, `next_month_and_previous_two_weeks`, `0`'
         optional :issue_type, type: String, values: WorkItems::Type.allowed_types_for_issues, desc: "The type of the issue. Accepts: #{WorkItems::Type.allowed_types_for_issues.join(', ')}"
-
         use :issues_stats_params
         use :pagination
       end
@@ -135,6 +143,7 @@ module API
         authenticate! unless params[:scope] == 'all'
         validate_search_rate_limit! if declared_params[:search].present?
         issues = paginate(find_issues)
+        issues = Ability.issues_readable_by_user(issues, current_user)
 
         options = {
           with: Entities::Issue,
@@ -208,10 +217,17 @@ module API
       end
       params do
         use :issues_params
+        optional :cursor, type: String, desc: 'Cursor for obtaining the next set of records'
       end
       get ":id/issues" do
         validate_search_rate_limit! if declared_params[:search].present?
-        issues = paginate(find_issues(project_id: user_project.id))
+
+        if declared_params[:order_by] && Issue.supported_keyset_orderings.keys
+                                              .exclude?(declared_params[:order_by].to_sym)
+          params.delete("pagination")
+        end
+
+        issues = find_issues(project_id: user_project.id)
 
         options = {
           with: Entities::Issue,
@@ -221,7 +237,7 @@ module API
           include_subscribed: false
         }
 
-        present issues, options
+        present paginate_with_strategies(issues), options
       end
 
       desc 'Get statistics for the list of project issues'
@@ -366,7 +382,7 @@ module API
       end
       # rubocop: disable CodeReuse/ActiveRecord
       post ':id/issues/:issue_iid/move' do
-        Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/20776')
+        Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/20776', new_threshold: 260)
 
         issue = user_project.issues.find_by(iid: params[:issue_iid])
         not_found!('Issue') unless issue
@@ -375,10 +391,15 @@ module API
         not_found!('Project') unless new_project
 
         begin
-          issue = ::Issues::MoveService.new(container: user_project, current_user: current_user).execute(issue, new_project)
+          response = ::WorkItems::DataSync::MoveService.new(
+            work_item: issue, current_user: current_user, target_namespace: new_project.project_namespace
+          ).execute
+
+          render_api_error!(response.message, 400) if response.error?
+
+          issue = response.payload[:work_item]
+
           present issue, with: Entities::Issue, current_user: current_user, project: user_project
-        rescue ::Issues::MoveService::MoveError => error
-          render_api_error!(error.message, 400)
         end
       end
       # rubocop: enable CodeReuse/ActiveRecord
@@ -402,11 +423,16 @@ module API
         not_found!('Project') unless target_project
 
         begin
-          issue = ::Issues::CloneService.new(container: user_project, current_user: current_user)
-            .execute(issue, target_project, with_notes: params[:with_notes])
+          response = ::WorkItems::DataSync::CloneService.new(
+            work_item: issue, current_user: current_user, target_namespace: target_project.project_namespace,
+            params: { clone_with_notes: params[:with_notes] }
+          ).execute
+
+          render_api_error!(response.message, 400) if response.error?
+
+          issue = response.payload[:work_item]
+
           present issue, with: Entities::Issue, current_user: current_user, project: target_project
-        rescue ::Issues::CloneService::CloneError => error
-          render_api_error!(error.message, 400)
         end
       end
       # rubocop: enable CodeReuse/ActiveRecord
@@ -423,7 +449,7 @@ module API
         authorize!(:destroy_issue, issue)
 
         destroy_conditionally!(issue) do |issue|
-          Issuable::DestroyService.new(container: user_project, current_user: current_user).execute(issue)
+          ::Issues::DestroyService.new(container: user_project, current_user: current_user).execute(issue)
         end
       end
       # rubocop: enable CodeReuse/ActiveRecord

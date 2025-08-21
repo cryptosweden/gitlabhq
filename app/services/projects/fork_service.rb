@@ -42,6 +42,10 @@ module Projects
         return ServiceResponse.error(message: _('Target project cannot be equal to source project'), reason: :self_fork)
       end
 
+      if fork_to_project.organization_id != fork_network.organization_id
+        return ServiceResponse.error(message: _('Target project must belong to source project organization'), reason: :fork_organization_mismatch)
+      end
+
       build_fork_network_member(fork_to_project)
 
       if link_fork_network(fork_to_project)
@@ -90,7 +94,8 @@ module Projects
         suggestion_commit_message: @project.suggestion_commit_message,
         merge_commit_template: @project.merge_commit_template,
         squash_commit_template: @project.squash_commit_template,
-        import_data: { data: { fork_branch: branch } }
+        import_data: { data: { fork_branch: branch } },
+        repository_storage: @project.repository_storage
       }
 
       if @project.avatar.present? && @project.avatar.image?
@@ -99,7 +104,9 @@ module Projects
 
       new_params[:mr_default_target_self] = target_mr_default_target_self unless target_mr_default_target_self.nil?
 
-      new_params.merge!(@project.object_pool_params)
+      if !@project.forked? && @project.git_objects_poolable?
+        new_params[:pool_repository] = @project.ensure_pool_repository
+      end
 
       new_params
     end
@@ -109,7 +116,13 @@ module Projects
     end
 
     def fork_network
-      @fork_network ||= @project.fork_network || @project.build_root_of_fork_network
+      @fork_network ||= @project.fork_network || build_fork_network
+    end
+
+    def build_fork_network
+      @project.build_root_of_fork_network.tap do |fork_network|
+        fork_network.organization = @project.organization
+      end
     end
 
     def build_fork_network_member(fork_to_project)

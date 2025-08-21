@@ -45,11 +45,11 @@ export default {
 
     <div
       v-if="selectedArtifacts.length > 0"
-      class="gl-my-4 gl-p-4 gl-border-1 gl-border-solid gl-border-gray-100"
+      class="gl-my-4 gl-border-1 gl-border-solid gl-border-default gl-p-4"
       data-testid="bulk-delete-container"
     >
-      <div class="gl-display-flex gl-align-items-center">
-        <div>
+      <div class="gl-flex gl-items-center">
+        <div data-testid="banner-text">
           <gl-sprintf :message="$options.i18n.banner(checkedCount)">
             <template #strong="{ content }">
               <strong>{{ content }}</strong>

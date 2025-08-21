@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe AuthorizedProjectUpdate::ProjectRecalculateWorker, feature_category: :system_access do
+RSpec.describe AuthorizedProjectUpdate::ProjectRecalculateWorker, feature_category: :permissions do
   include ExclusiveLeaseHelpers
 
   let_it_be(:project) { create(:project) }
@@ -11,6 +11,16 @@ RSpec.describe AuthorizedProjectUpdate::ProjectRecalculateWorker, feature_catego
 
   it 'is labeled as high urgency' do
     expect(described_class.get_urgency).to eq(:high)
+  end
+
+  it 'has the `until_executed` deduplicate strategy' do
+    expect(described_class.get_deduplicate_strategy).to eq(:until_executed)
+  end
+
+  it 'has an option to reschedule once if deduplicated' do
+    expect(described_class.get_deduplication_options).to include(
+      { if_deduplicated: :reschedule_once, including_scheduled: true }
+    )
   end
 
   include_examples 'an idempotent worker' do
@@ -40,29 +50,6 @@ RSpec.describe AuthorizedProjectUpdate::ProjectRecalculateWorker, feature_catego
       end
 
       worker.perform(project.id)
-    end
-
-    context 'exclusive lease' do
-      let(:lock_key) { "#{described_class.name.underscore}/projects/#{project.id}" }
-      let(:timeout) { 10.seconds }
-
-      context 'when exclusive lease has not been taken' do
-        it 'obtains a new exclusive lease' do
-          expect_to_obtain_exclusive_lease(lock_key, timeout: timeout)
-
-          worker.perform(project.id)
-        end
-      end
-
-      context 'when exclusive lease has already been taken' do
-        before do
-          stub_exclusive_lease_taken(lock_key, timeout: timeout)
-        end
-
-        it 'raises an error' do
-          expect { worker.perform(project.id) }.to raise_error(Gitlab::ExclusiveLeaseHelpers::FailedToObtainLockError)
-        end
-      end
     end
   end
 end

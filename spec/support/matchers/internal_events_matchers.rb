@@ -14,7 +14,7 @@
 #   Example:
 #            expect { subject }
 #              .to trigger_internal_events('web_ide_viewed')
-#              .with(user: user, project: project, namespace: namepsace)
+#              .with(user: user, project: project, namespace: namespace)
 #
 # -- #increment_usage_metrics -------
 #       Use: Asserts that one or more usage metric was incremented by the right value.
@@ -38,12 +38,12 @@
 #
 # expect { subject }
 #   .to trigger_internal_events('mr_created', 'member_role_created')
-#   .with(user: user, project: project, category: category, label: label)
+#   .with(user: user, project: project, category: category, additional_properties: { label: label } )
 #   .exactly(3).times
 #
 # expect { subject }
 #   .to trigger_internal_events('mr_created')
-#     .with(user: user, project: project, category: category, label: label)
+#     .with(user: user, project: project, category: category, additional_properties: { label: label } )
 #   .and increment_usage_metrics('counts.deployments')
 #     .at_least(:once)
 #   .and change { mr.notes.count }.by(1)
@@ -78,7 +78,8 @@ module InternalEventsMatchHelpers
 
   def check_if_events_exist!(event_names)
     event_names.each do |event_name|
-      next if Gitlab::InternalEvents::EventDefinitions.known_event?(event_name)
+      next if Gitlab::Tracking::EventDefinition.internal_event_exists?(event_name)
+      next if Gitlab::UsageDataCounters::HLLRedisCounter.legacy_event?(event_name)
 
       raise ArgumentError, "Unknown event '#{event_name}'! #{name} matcher accepts only existing events"
     end
@@ -96,6 +97,10 @@ end
 RSpec::Matchers.define :trigger_internal_events do |*event_names|
   include InternalEventsMatchHelpers
 
+  def supports_value_expectations?
+    true
+  end
+
   description { "trigger the internal events: #{event_names.join(', ')}" }
 
   failure_message { @failure_message }
@@ -107,6 +112,7 @@ RSpec::Matchers.define :trigger_internal_events do |*event_names|
       **args
     }
     @properties[:namespace] ||= @properties[:project]&.namespace
+    @additional_properties ||= @properties.fetch(:additional_properties, {})
   end
 
   %i[once twice thrice never at_most at_least times time exactly].each do |message|
@@ -116,45 +122,33 @@ RSpec::Matchers.define :trigger_internal_events do |*event_names|
     end
   end
 
-  match do |proc|
-    @event_names = event_names.flatten
-    @properties ||= {}
-    @chained_methods ||= [[:once]]
+  chain(:on_click) { @on_click = true }
+  chain(:on_load) { @on_load = true }
 
+  match do |input|
+    setup_match_context(event_names)
     check_if_params_provided!(:events, @event_names)
     check_if_events_exist!(@event_names)
 
-    allow(Gitlab::InternalEvents).to receive(:track_event).and_call_original
-    allow(Gitlab::Redis::HLL).to receive(:add).and_call_original
-
-    collect_expectations do |event_name|
-      [
-        expect_internal_event(event_name),
-        expect_snowplow(event_name),
-        expect_redis(event_name),
-        expect_product_analytics(event_name)
-      ]
-    end
-
-    proc.call
-
-    verify_expectations
-
-    true
-  rescue RSpec::Mocks::MockExpectationError => e
-    @failure_message = e.message
-    false
-  ensure
-    # prevent expectations from being satisfied outside of the block scope
-    unstub_expectations
+    input.is_a?(Proc) ? expect_events_to_fire(input) : expect_data_attributes(input)
   end
 
-  match_when_negated do |proc|
-    @event_names = event_names.flatten
-
+  match_when_negated do |input|
+    setup_match_context(event_names)
     check_if_events_exist!(@event_names)
 
-    # rubocop:disable RSpec/ExpectGitlabTracking -- Supercedes the #expect_snowplow_event helper for internal events
+    input.is_a?(Proc) ? expect_no_events_to_fire(input) : expect_data_attributes(input, negate: true)
+  end
+
+  private
+
+  def setup_match_context(event_names)
+    @event_names = event_names.flatten
+    @properties ||= {}
+  end
+
+  def expect_no_events_to_fire(proc)
+    # rubocop:disable RSpec/ExpectGitlabTracking -- Supersedes the #expect_snowplow_event helper for internal events
     allow(Gitlab::Tracking).to receive(:event).and_call_original
     allow(Gitlab::InternalEvents).to receive(:track_event).and_call_original
     # rubocop:enable RSpec/ExpectGitlabTracking
@@ -179,7 +173,66 @@ RSpec::Matchers.define :trigger_internal_events do |*event_names|
     unstub_expectations
   end
 
-  private
+  def expect_events_to_fire(proc)
+    check_chain_methods_for_block!
+
+    @chained_methods ||= [[:once]]
+
+    allow(Gitlab::InternalEvents).to receive(:track_event).and_call_original
+    allow(Gitlab::Redis::HLL).to receive(:add).and_call_original
+
+    collect_expectations do |event_name|
+      [
+        expect_internal_event(event_name),
+        expect_snowplow(event_name),
+        expect_product_analytics(event_name)
+      ]
+    end
+
+    proc.call
+
+    verify_expectations
+
+    true
+  rescue RSpec::Mocks::MockExpectationError => e
+    @failure_message = e.message
+    false
+  ensure
+    # prevent expectations from being satisfied outside of the block scope
+    unstub_expectations
+  end
+
+  # All `node` inputs should be compatible with the have_css matcher
+  # https://www.rubydoc.info/gems/capybara/Capybara/RSpecMatchers#have_css-instance_method
+  def expect_data_attributes(node, negate: false)
+    # ensure assertions work for Capybara::Node::Simple inputs
+    node = node.native if node.respond_to?(:native)
+
+    check_negated_chain_methods_for_node! if negate
+    check_chain_methods_for_node!
+    check_negated_events_limit_for_node! if negate
+    check_events_limit_for_node!
+
+    expect_data_attribute(node, 'tracking', @event_names.first)
+    expect_data_attribute(node, 'label', @additional_properties.try(:[], :label))
+    expect_data_attribute(node, 'property', @additional_properties.try(:[], :property))
+    expect_data_attribute(node, 'value', @additional_properties.try(:[], :value))
+    expect_data_attribute(node, 'tracking-load', @on_load)
+
+    true
+  rescue RSpec::Expectations::ExpectationNotMetError => e
+    @failure_message = e.message
+    false
+  end
+
+  # Keep this in sync with the constants in app/assets/javascripts/tracking/constants.js
+  def expect_data_attribute(node, attribute, value)
+    if value
+      expect(node).to have_css("[data-event-#{attribute}=\"#{value}\"]")
+    else
+      expect(node).not_to have_css("[data-event-#{attribute}]")
+    end
+  end
 
   def receive_expected_count_of(message)
     apply_chain_methods(receive(message), @chained_methods)
@@ -206,7 +259,7 @@ RSpec::Matchers.define :trigger_internal_events do |*event_names|
           standard_context,
           service_ping_context_for(event_name)
         ),
-        **@properties.slice(:label, :property, :value).compact
+        **@additional_properties.slice(:label, :property, :value).compact
       )
     )
   end
@@ -217,13 +270,24 @@ RSpec::Matchers.define :trigger_internal_events do |*event_names|
       to_json: include(
         schema: Gitlab::Tracking::StandardContext::GITLAB_STANDARD_SCHEMA_URL,
         data: include(
-          user_id: id_for(:user),
+          user_id: user_id,
           project_id: id_for(:project),
           namespace_id: id_for(:namespace),
-          feature_enabled_by_namespace_ids: @properties[:feature_enabled_by_namespace_ids]
+          feature_enabled_by_namespace_ids: @properties[:feature_enabled_by_namespace_ids],
+          **{ extra: @additional_properties.except(:label, :property, :value) || {} }
         )
       )
     )
+  end
+
+  def user_id
+    # rubocop:disable Gitlab/AvoidGitlabInstanceChecks -- testing the existing logic in the standard context
+    if Gitlab.com?
+      id_for(:user)
+    else
+      id_for(:user) ? Gitlab::CryptoHelper.sha256(id_for(:user)) : nil
+    end
+    # rubocop:enable Gitlab/AvoidGitlabInstanceChecks
   end
 
   def service_ping_context_for(event_name)
@@ -247,23 +311,11 @@ RSpec::Matchers.define :trigger_internal_events do |*event_names|
     # rubocop:enable RSpec/ExpectGitlabTracking
   end
 
-  def expect_redis(event_name)
-    Gitlab::InternalEvents::EventDefinitions.unique_properties(event_name).map do |property|
-      expect(Gitlab::Redis::HLL)
-        .to receive_expected_count_of(:add)
-        .with(hash_including(
-          key: a_string_including(event_name),
-          value: @properties.any? ? id_for(property) : anything,
-          expiry: 6.weeks
-        ))
-    end
-  end
-
   def expect_product_analytics(event_name)
     return expect_any_product_analytics_call(event_name) if @properties.none?
 
     expected_context = { project_id: id_for(:project), namespace_id: id_for(:namespace) }
-    additional_properties = @properties.slice(:label, :property, :value)
+    additional_properties = @additional_properties.slice(:label, :property, :value)
     expected_context[:additional_properties] = additional_properties if additional_properties.any?
 
     expect(product_analytics_spy).to receive_expected_count_of(:track).with(
@@ -313,6 +365,39 @@ RSpec::Matchers.define :trigger_internal_events do |*event_names|
       doubled_module.expectations.pop
     end
   end
+
+  def check_chain_methods_for_block!
+    return unless instance_variable_defined?(:@on_load) || instance_variable_defined?(:@on_click)
+
+    raise ArgumentError, "Chain methods :on_click, :on_load are only available for Capybara::Node::Simple type " \
+      "arguments"
+  end
+
+  def check_events_limit_for_node!
+    return if @event_names.length <= 1
+
+    raise ArgumentError, "Providing multiple event names to #{name} is only supported for block arguments"
+  end
+
+  def check_negated_events_limit_for_node!
+    return if @event_names.none?
+
+    raise ArgumentError, "Negated #{name} matcher accepts no arguments or chain methods when testing data attributes"
+  end
+
+  def check_chain_methods_for_node!
+    return unless @chained_methods
+
+    raise ArgumentError, "Chain methods #{@chained_methods.map(&:first).join(',')} are only available for " \
+      "block arguments"
+  end
+
+  def check_negated_chain_methods_for_node!
+    return unless instance_variable_defined?(:@on_load) || instance_variable_defined?(:@on_click) || @properties.any?
+
+    raise ArgumentError, "Chain methods :on_click, :on_load, :with are unavailable for negated #{name} matcher with " \
+      "for Capybara::Node::Simple type arguments"
+  end
 end
 
 RSpec::Matchers.define :increment_usage_metrics do |*key_paths|
@@ -343,9 +428,11 @@ RSpec::Matchers.define :increment_usage_metrics do |*key_paths|
 
   failure_message do
     increment = @chained_methods.flat_map { |*args| args }.join(' ')
+    tip = redis_trait_debugging_tip_if_applicable.to_s
+
     format_for_key_paths do |key_path, initial, final|
       "expected metric #{key_path} to be incremented #{increment}\n  ->  value went from #{initial} to #{final}"
-    end
+    end + tip
   end
 
   failure_message_when_negated do
@@ -413,6 +500,17 @@ RSpec::Matchers.define :increment_usage_metrics do |*key_paths|
 
       yield(key_path, initial, final)
     end.join("\n")
+  end
+
+  def redis_trait_debugging_tip_if_applicable
+    return if @values.none? do |key_path, values|
+      dirty_redis = values.first.nonzero?
+      unique_metric = get_metric_definition(key_path).event_selection_rules.any?(&:unique_identifier_name)
+
+      dirty_redis && unique_metric
+    end
+
+    "\n\nDebugging tip: Add the :clean_gitlab_redis_shared_state trait to reset event counters between examples."
   end
 end
 

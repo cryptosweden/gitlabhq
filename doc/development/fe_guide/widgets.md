@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Widgets
 ---
-
-# Widgets
 
 Frontend widgets are standalone Vue applications or Vue component trees that can be added on a page
 to handle a part of the functionality.
@@ -144,4 +143,4 @@ methods: {
 
 ## Merge request widgets
 
-Refer to the documentation specific to the [merge request widget extension framework](merge_request_widget_extensions.md).
+Refer to the documentation specific to the [merge request widget framework](merge_request_widgets.md).

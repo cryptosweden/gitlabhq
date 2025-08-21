@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Accessing session data
 ---
-
-# Accessing session data
 
 Session data in GitLab is stored in Redis and can be accessed in a variety of ways.
 
@@ -62,7 +61,7 @@ Marshal.load(session_data)
 
 ## Getting device information with ActiveSession
 
-The [**Active Sessions** page on a user's profile](../user/profile/active_sessions.md) displays information about the device used to access each session. The methods used there to list sessions can also be useful for development.
+The [**Active sessions** page on a user's profile](../user/profile/active_sessions.md) displays information about the device used to access each session. The methods used there to list sessions can also be useful for development.
 
 ```ruby
 # Get list of sessions for a given user

@@ -1,16 +1,18 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Plan
+group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting Jira DVCS connector
 ---
 
-# Troubleshooting Jira DVCS connector
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-When working with the [Jira DVCS connector](index.md), you might encounter the following issues.
+{{< /details >}}
+
+When working with the [Jira DVCS connector](_index.md), you might encounter the following issues.
 
 ## Jira cannot access the GitLab server
 
@@ -38,10 +40,10 @@ Problems with SSL and TLS can cause this error message:
 Error obtaining access token. Cannot access https://gitlab.example.com from Jira.
 ```
 
-- The [Jira integration](../index.md) requires
+- The [Jira issues integration](../_index.md) requires
   GitLab to connect to Jira. Any TLS issues that arise from a private certificate
   authority or self-signed certificate are resolved
-  [on the GitLab server](https://docs.gitlab.com/omnibus/settings/ssl/index.html#install-custom-public-certificates),
+  [on the GitLab server](https://docs.gitlab.com/omnibus/settings/ssl/#install-custom-public-certificates),
   as GitLab is the TLS client.
 - The Jira development panel requires Jira to connect to GitLab, which
   causes Jira to be the TLS client. If your GitLab server's certificate is not
@@ -83,13 +85,13 @@ The requested scope is invalid, unknown, or malformed.
 Potential resolutions:
 
 1. Verify that the URL shown in the browser after being redirected from Jira in the
-   [Jira DVCS connector setup](index.md#configure-jira-for-dvcs) includes `scope=api` in
+   [Jira DVCS connector setup](https://confluence.atlassian.com/adminjiraserver/linking-gitlab-accounts-1027142272.html#LinkingGitLabaccounts-InJiraagain) includes `scope=api` in
    the query string.
 1. If `scope=api` is missing from the URL, edit the
-   [GitLab account configuration](index.md#create-a-gitlab-application-for-dvcs). Review
+   [GitLab account configuration](https://confluence.atlassian.com/adminjiraserver/linking-gitlab-accounts-1027142272.html#LinkingGitLabaccounts-InGitLab). Review
    the **Scopes** field and ensure the `api` checkbox is selected.
 
-## `410 Gone` when connecting to Jira
+## Error: `410 Gone`
 
 When you connect to Jira and synchronize repositories, you might get a `410 Gone` error.
 This issue occurs when you use the Jira DVCS connector and your integration is configured to use **GitHub Enterprise**.
@@ -103,24 +105,24 @@ resynchronize the information:
 
 1. In Jira, select **Jira Administration > Applications > DVCS accounts**.
 1. For the account (group or subgroup), select
-   **Refresh repositories** from the **{ellipsis_h}** (ellipsis) menu.
+   **Refresh repositories** from the {{< icon name="ellipsis_h" >}} (ellipsis) menu.
 1. For each project, next to the **Last activity** date:
-   - To perform a *soft resync*, select the sync icon.
-   - To complete a *full sync*, press `Shift` and select the sync icon.
+   - To perform a soft resync, select the sync icon.
+   - To complete a full sync, press `Shift` and select the sync icon.
 
 For more information, see the
 [Atlassian documentation](https://support.atlassian.com/jira-cloud-administration/docs/integrate-with-development-tools/).
 
-## `Sync Failed` when refreshing repository data
+## Error: `Sync Failed`
 
-If you get a `Sync Failed` error in Jira when [refreshing repository data](index.md#refresh-data-imported-to-jira) for specific projects, check your Jira DVCS connector logs. Look for errors that occur when executing requests to API resources in GitLab. For example:
+If you get a `Sync Failed` error in Jira when you [refresh repository data](_index.md#refresh-data-imported-to-jira) for specific projects, check your Jira DVCS connector logs. Look for errors that occur when executing requests to API resources in GitLab. For example:
 
 ```plaintext
 Failed to execute request [https://gitlab.com/api/v4/projects/:id/merge_requests?page=1&per_page=100 GET https://gitlab.com/api/v4/projects/:id/merge_requests?page=1&per_page=100 returned a response status of 403 Forbidden] errors:
 {"message":"403 Forbidden"}
 ```
 
-If you get a `403 Forbidden` error, this project might have some [GitLab features disabled](../../../user/project/settings/index.md#configure-project-features-and-permissions).
+If you get a `403 Forbidden` error, this project might have some [GitLab features disabled](../../../user/project/settings/_index.md#configure-project-features-and-permissions).
 In the previous example, the merge requests feature is disabled.
 
 To resolve the issue, enable the relevant feature:
@@ -136,7 +138,7 @@ To find webhook logs in a DVCS-linked project:
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Settings > Webhooks**.
-1. Scroll down to **Project Hooks**.
+1. Scroll down to **Project hooks**.
 1. Next to the log that points to your Jira instance, select **Edit**.
 1. Scroll down to **Recent events**.
 

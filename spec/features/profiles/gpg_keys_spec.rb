@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'User Settings > GPG Keys', feature_category: :user_profile do
+RSpec.describe 'User Settings > GPG keys', feature_category: :user_profile do
   let(:user) { create(:user, email: GpgHelpers::User2.emails.first) }
 
   before do
@@ -55,7 +55,7 @@ RSpec.describe 'User Settings > GPG Keys', feature_category: :user_profile do
     click_link('Remove')
 
     expect(page).to have_content('Your GPG keys')
-    page.within('.gl-new-card-count') do
+    within_testid('crud-count') do
       expect(page).to have_content('0')
     end
   end
@@ -69,7 +69,7 @@ RSpec.describe 'User Settings > GPG Keys', feature_category: :user_profile do
     click_link('Revoke')
 
     expect(page).to have_content('Your GPG keys')
-    page.within('.gl-new-card-count') do
+    within_testid('crud-count') do
       expect(page).to have_content('0')
     end
 

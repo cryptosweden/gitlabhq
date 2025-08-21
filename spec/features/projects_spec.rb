@@ -5,11 +5,13 @@ require 'spec_helper'
 RSpec.describe 'Project', feature_category: :source_code_management do
   include ProjectForksHelper
   include MobileHelpers
+  include ListboxHelpers
 
   describe 'template' do
     let(:user) { create(:user) }
 
     before do
+      stub_feature_flags(new_project_creation_form: false)
       sign_in user
       visit new_project_path
     end
@@ -25,6 +27,10 @@ RSpec.describe 'Project', feature_category: :source_code_management do
         click_link 'Create from template'
         find(".project-template #{sub_template_tab}").click if sub_template_tab
         find("label[for=#{template.name}]").click
+
+        click_on 'Pick a group or namespace'
+        select_listbox_item user.username
+
         fill_in("project_name", with: template.name)
 
         page.within '#content-body' do
@@ -56,6 +62,10 @@ RSpec.describe 'Project', feature_category: :source_code_management do
         focused_template = page.find(':focus').ancestor(template_option_selector)
         focused_template_name = focused_template.find(template_name_selector).text
         focused_template.find(choose_template_selector).send_keys :enter
+
+        click_on 'Pick a group or namespace'
+        select_listbox_item user.username
+
         fill_in "project_name", with: project_name
 
         expect(selected_template).to have_text(focused_template_name)
@@ -81,6 +91,7 @@ RSpec.describe 'Project', feature_category: :source_code_management do
     let(:user)    { create(:user) }
 
     before do
+      stub_feature_flags(new_project_creation_form: false)
       sign_in user
       visit new_project_path
     end
@@ -180,6 +191,7 @@ RSpec.describe 'Project', feature_category: :source_code_management do
     let(:path)    { project_path(project) }
 
     before do
+      stub_feature_flags(directory_code_dropdown_updates: false)
       sign_in(project.first_owner)
       visit path
     end
@@ -268,28 +280,36 @@ RSpec.describe 'Project', feature_category: :source_code_management do
     end
   end
 
-  describe 'removal', :js do
-    let(:user)    { create(:user) }
-    let(:project) { create(:project, namespace: user.namespace) }
+  describe 'removal', :with_current_organization, :js do
+    let_it_be(:user) { create(:user, organization: current_organization) }
+    let_it_be(:group) { create(:group, :public, owners: user) }
+    let_it_be_with_reload(:project_to_delete) { create(:project, group: group) }
 
     before do
-      sign_in(user)
-      project.add_maintainer(user)
-      visit edit_project_path(project)
+      stub_application_setting(deletion_adjourned_period: 7)
+      sign_in user
+      visit edit_project_path(project_to_delete)
     end
 
-    it 'focuses on the confirmation field' do
-      click_button 'Delete project'
+    it 'deletes project delayed and is restorable', :freeze_time do
+      deletion_adjourned_period = ::Gitlab::CurrentSettings.deletion_adjourned_period
+      deletion_date = (Time.now.utc + deletion_adjourned_period.days).strftime('%F')
 
-      expect(page).to have_selector '#confirm_name_input:focus'
-    end
+      expect(page).to have_content("This action will place this project, including all its resources, in a pending deletion state for #{deletion_adjourned_period} days, and delete it permanently on #{deletion_date}.")
 
-    it 'deletes a project', :sidekiq_inline do
-      expect { remove_with_confirm('Delete project', project.path_with_namespace, 'Yes, delete project') }.to change { Project.count }.by(-1)
-      expect(page).to have_content "Project '#{project.full_name}' is being deleted."
-      expect(Project.all.count).to be_zero
-      expect(project.issues).to be_empty
-      expect(project.merge_requests).to be_empty
+      click_button "Delete project"
+
+      expect(page).to have_content("This project can be restored until #{deletion_date}.")
+
+      fill_in 'confirm_name_input', with: project_to_delete.path_with_namespace
+      click_button 'Yes, delete project'
+      wait_for_requests
+
+      expect(page).to have_content("This project is pending deletion, and will be deleted on #{deletion_date}. Repository and other project resources are read-only.")
+
+      visit inactive_dashboard_projects_path
+
+      expect(page).to have_content(project_to_delete.name_with_namespace)
     end
   end
 

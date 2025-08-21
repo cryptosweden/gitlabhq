@@ -118,11 +118,11 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
             put :reset_registration_token
             post :create_deploy_token, path: 'deploy_token/create', to: 'repository#create_deploy_token'
             get :runner_setup_scripts, format: :json
+            get :export_job_token_authorizations, defaults: { format: :csv }
           end
 
           resource :operations, only: [:show, :update] do
             member do
-              post :reset_alerting_token
               post :reset_pagerduty_token
             end
           end
@@ -155,6 +155,11 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
           resources :access_tokens, only: [:index, :create] do
             member do
               put :revoke
+              put :rotate
+            end
+
+            collection do
+              get :inactive, format: :json
             end
           end
 
@@ -183,6 +188,8 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
         resources :project_members, except: [:show, :new, :create, :edit], constraints: { id: %r{[a-zA-Z./0-9_\-#%+:]+} }, concerns: :access_requestable do
           collection do
             delete :leave
+
+            get :invite_search, format: :json
           end
 
           member do
@@ -340,12 +347,7 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
             get :search
           end
 
-          resources :deployments, only: [:index, :show] do
-            member do
-              get :metrics
-              get :additional_metrics
-            end
-          end
+          resources :deployments, only: [:index, :show]
         end
 
         resources :alert_management, only: [:index] do
@@ -356,7 +358,9 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
 
         get 'alert_management/:id', to: 'alert_management#details', as: 'alert_management_alert'
 
-        resources :work_items, only: [:show], param: :iid do
+        get :work_items, to: 'work_items#calendar', constraints: ->(req) { req.format == :ics }
+        get :work_items, to: 'work_items#rss', constraints: ->(req) { req.format == :atom }
+        resources :work_items, only: [:show, :index], param: :iid do
           collection do
             post :import_csv
             post 'import_csv/authorize', to: 'work_items#authorize'
@@ -408,7 +412,7 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
           to: 'snippets/blobs#raw',
           format: false,
           as: :snippet_blob_raw,
-          constraints: { snippet_id: /\d+/ }
+          constraints: { snippet_id: /\d+/, ref: %r{[^\/]+} }
 
         draw :issues
         draw :merge_requests
@@ -459,8 +463,6 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
           end
         end
 
-        get :planning_hierarchy
-
         resources :badges, only: [] do
           collection do
             constraints format: /svg/ do
@@ -479,10 +481,16 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
 
         namespace :ml do
           resources :experiments, only: [:index, :show, :destroy], controller: 'experiments', param: :iid
-          resources :candidates, only: [:show, :destroy], controller: 'candidates', param: :iid
-          resources :models, only: [:index, :show, :destroy, :new], controller: 'models', param: :model_id do
-            resources :versions, only: [:show], controller: 'model_versions', param: :model_version_id
+          resources :candidates, only: [:show, :destroy], controller: 'candidates', param: :iid do
+            member do
+              get :promote
+            end
           end
+          resources :models, only: [:index, :show, :edit, :destroy, :new], controller: 'models', param: :model_id do
+            resources :versions, only: [:new], controller: 'model_versions'
+            resources :versions, only: [:show, :edit], controller: 'model_versions', param: :model_version_id
+          end
+          post :preview_markdown
         end
 
         namespace :service_desk do
@@ -502,6 +510,8 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
 
       # All new routes should go under /-/ scope.
       # Look for scope '-' at the top of the file.
+
+      post '/restore' => '/projects#restore', as: :restore # rubocop:todo Cop/PutProjectRoutesUnderScope -- Moved from EE
 
       #
       # Service Desk
@@ -528,7 +538,8 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
         defaults: { format: 'json' },
         constraints: { template_type: %r{issue|merge_request}, format: 'json' }
 
-      resource :pages, only: [:new, :show, :update, :destroy] do # rubocop: disable Cop/PutProjectRoutesUnderScope
+      resource :pages, only: [:new, :show, :update, :destroy, :regenerate_unique_domain] do # rubocop: disable Cop/PutProjectRoutesUnderScope
+        post :regenerate_unique_domain # rubocop:todo Cop/PutProjectRoutesUnderScope
         resources :domains, except: :index, controller: 'pages_domains', constraints: { id: %r{[^/]+} } do # rubocop: disable Cop/PutProjectRoutesUnderScope
           member do
             post :verify # rubocop:todo Cop/PutProjectRoutesUnderScope
@@ -538,17 +549,9 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
         end
       end
 
-      namespace :prometheus do
-        resources :metrics, constraints: { id: %r{[^\/]+} }, only: [:index, :new, :create, :edit, :update, :destroy] do # rubocop: disable Cop/PutProjectRoutesUnderScope
-          get :active_common, on: :collection # rubocop:todo Cop/PutProjectRoutesUnderScope
-          post :validate_query, on: :collection # rubocop:todo Cop/PutProjectRoutesUnderScope
-        end
-      end
-
       scope :prometheus, as: :prometheus do
         resources :alerts, constraints: { id: /\d+/ }, only: [] do # rubocop: disable Cop/PutProjectRoutesUnderScope
           post :notify, on: :collection, to: 'alerting/notifications#create', defaults: { endpoint_identifier: 'legacy-prometheus' } # rubocop: disable Cop/PutProjectRoutesUnderScope
-          get :metrics_dashboard, on: :member # rubocop:todo Cop/PutProjectRoutesUnderScope
         end
       end
 
@@ -581,7 +584,6 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
 
       resources :notes, only: [:create, :destroy, :update], concerns: :awardable, constraints: { id: /\d+/ } do # rubocop: disable Cop/PutProjectRoutesUnderScope
         member do
-          delete :delete_attachment # rubocop:todo Cop/PutProjectRoutesUnderScope
           post :resolve # rubocop:todo Cop/PutProjectRoutesUnderScope
           delete :resolve, action: :unresolve # rubocop:todo Cop/PutProjectRoutesUnderScope
           get :outdated_line_change # rubocop:todo Cop/PutProjectRoutesUnderScope
@@ -609,10 +611,6 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
             end
           end
         end
-      end
-
-      scope :service_ping, controller: :service_ping do
-        post :web_ide_pipelines_count # rubocop:todo Cop/PutProjectRoutesUnderScope
       end
 
       resources :web_ide_terminals, path: :ide_terminals, only: [:create, :show], constraints: { id: /\d+/, format: :json } do # rubocop: disable Cop/PutProjectRoutesUnderScope
@@ -670,7 +668,6 @@ constraints(::Constraints::ProjectUrlConstrainer.new) do
         post :unarchive
         post :housekeeping
         post :toggle_star
-        post :preview_markdown, as: :preview_markdown_deprecated
         post :export
         post :remove_export
         post :generate_new_export

@@ -69,9 +69,15 @@ RSpec.describe Ml::ModelVersion, feature_category: :mlops do
 
     describe 'description' do
       context 'when description is too large' do
-        let(:description) { 'a' * 501 }
+        let(:description) { 'a' * 10_001 }
 
         it { expect(errors).to include(:description) }
+      end
+
+      context 'when description is below threshold' do
+        let(:description) { 'a' * 100 }
+
+        it { expect(errors).not_to include(:description) }
       end
     end
 
@@ -174,13 +180,13 @@ RSpec.describe Ml::ModelVersion, feature_category: :mlops do
     context 'if id has no match' do
       let(:id) { non_existing_record_id }
 
-      it { is_expected.to be(nil) }
+      it { is_expected.to be_nil }
     end
 
     context 'if project id does not match' do
       let(:project_id) { non_existing_record_id }
 
-      it { is_expected.to be(nil) }
+      it { is_expected.to be_nil }
     end
   end
 
@@ -199,19 +205,19 @@ RSpec.describe Ml::ModelVersion, feature_category: :mlops do
     context 'if id has no match' do
       let(:version) { non_existing_record_id }
 
-      it { is_expected.to be(nil) }
+      it { is_expected.to be_nil }
     end
 
     context 'if project id does not match' do
       let(:project_id) { non_existing_record_id }
 
-      it { is_expected.to be(nil) }
+      it { is_expected.to be_nil }
     end
 
     context 'if model name does not match' do
       let(:model_name) { non_existing_record_id }
 
-      it { is_expected.to be(nil) }
+      it { is_expected.to be_nil }
     end
   end
 
@@ -227,7 +233,7 @@ RSpec.describe Ml::ModelVersion, feature_category: :mlops do
     subject { described_class.latest_by_model }
 
     it 'returns only the latest model version per model id' do
-      is_expected.to match_array([model_version4, model_version2])
+      is_expected.to match_array([model_version3, model_version2])
     end
   end
 

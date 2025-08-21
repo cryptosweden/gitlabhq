@@ -33,9 +33,7 @@ module Issuable
   include Import::HasImportSource
 
   TITLE_LENGTH_MAX = 255
-  TITLE_HTML_LENGTH_MAX = 800
   DESCRIPTION_LENGTH_MAX = 1.megabyte
-  DESCRIPTION_HTML_LENGTH_MAX = 5.megabytes
   SEARCHABLE_FIELDS = %w[title description].freeze
   MAX_NUMBER_OF_ASSIGNEES_OR_REVIEWERS = 200
 
@@ -47,7 +45,7 @@ module Issuable
   }.with_indifferent_access.freeze
 
   included do
-    cache_markdown_field :title, pipeline: :single_line
+    cache_markdown_field :title, pipeline: :single_line_markdown
     cache_markdown_field :description, issuable_reference_expansion_enabled: true
 
     redact_field :description
@@ -81,11 +79,9 @@ module Issuable
     has_many :note_authors, -> { distinct }, through: :notes, source: :author
     has_many :user_note_authors, -> { distinct.where("notes.system = false") }, through: :notes, source: :author
 
-    has_many :label_links, as: :target, inverse_of: :target
+    has_many :label_links, as: :target, inverse_of: :target, dependent: :delete_all # rubocop:disable Cop/ActiveRecordDependent -- Polymorphic association, so no FK
     has_many :labels, through: :label_links
     has_many :todos, as: :target
-
-    has_one :metrics, inverse_of: model_name.singular.to_sym, autosave: true
 
     delegate :name,
       :email,
@@ -114,26 +110,33 @@ module Issuable
     # rubocop:disable GitlabSecurity/SqlInjection
     # The `assignee_association_name` method is not an user input.
     scope :assigned, -> do
-      where("EXISTS (SELECT TRUE FROM #{assignee_association_name}_assignees WHERE #{assignee_association_name}_id = #{assignee_association_name}s.id)")
+      where("EXISTS (SELECT TRUE FROM #{assignee_association_name}_assignees \
+        WHERE #{assignee_association_name}_id = #{assignee_association_name}s.id)")
     end
     scope :unassigned, -> do
-      where("NOT EXISTS (SELECT TRUE FROM #{assignee_association_name}_assignees WHERE #{assignee_association_name}_id = #{assignee_association_name}s.id)")
+      where("NOT EXISTS (SELECT TRUE FROM #{assignee_association_name}_assignees \
+        WHERE #{assignee_association_name}_id = #{assignee_association_name}s.id)")
     end
     scope :assigned_to, ->(users) do
-      assignees_class = self.reflect_on_association("#{assignee_association_name}_assignees").klass
+      assignees_class = reflect_on_association("#{assignee_association_name}_assignees").klass
 
-      condition = assignees_class.where(user_id: users).where(Arel.sql("#{assignee_association_name}_id = #{assignee_association_name}s.id"))
+      condition = assignees_class.where(user_id: users)
+        .where(Arel.sql("#{assignee_association_name}_id = #{assignee_association_name}s.id"))
       where(condition.arel.exists)
     end
     scope :not_assigned_to, ->(users) do
-      assignees_class = self.reflect_on_association("#{assignee_association_name}_assignees").klass
+      assignees_class = reflect_on_association("#{assignee_association_name}_assignees").klass
 
-      condition = assignees_class.where(user_id: users).where(Arel.sql("#{assignee_association_name}_id = #{assignee_association_name}s.id"))
+      condition = assignees_class.where(user_id: users)
+        .where(Arel.sql("#{assignee_association_name}_id = #{assignee_association_name}s.id"))
       where(condition.arel.exists.not)
     end
     # rubocop:enable GitlabSecurity/SqlInjection
 
-    scope :without_label, -> { joins("LEFT OUTER JOIN label_links ON label_links.target_type = '#{name}' AND label_links.target_id = #{table_name}.id").where(label_links: { id: nil }) }
+    scope :without_label, -> {
+      joins("LEFT OUTER JOIN label_links ON label_links.target_type = '#{name}' \
+      AND label_links.target_id = #{table_name}.id").where(label_links: { id: nil })
+    }
     scope :with_label_ids, ->(label_ids) { joins(:label_links).where(label_links: { label_id: label_ids }) }
     scope :join_project, -> { joins(:project) }
     scope :inc_notes_with_associations, -> { includes(notes: [:project, :author, :award_emoji]) }
@@ -141,14 +144,16 @@ module Issuable
     scope :non_archived, -> { join_project.where(projects: { archived: false }) }
 
     scope :includes_for_bulk_update, -> do
-      associations = %i[author assignees epic group labels metrics project source_project target_project].select do |association|
+      associations = %i[
+        author assignees epic group labels metrics project source_project target_project
+      ].select do |association|
         reflect_on_association(association)
       end
 
       includes(*associations)
     end
 
-    attr_mentionable :title, pipeline: :single_line
+    attr_mentionable :title, pipeline: :single_line_markdown
     attr_mentionable :description
 
     participant :author
@@ -287,6 +292,27 @@ module Issuable
       fuzzy_search(query, [:title])
     end
 
+    def gfm_autocomplete_search(query)
+      issuables_cte = Gitlab::SQL::CTE.new(table_name, without_order)
+
+      search_conditions = unscoped.where(
+        'title ILIKE :pattern',
+        pattern: "%#{sanitize_sql_like(query)}%"
+      )
+
+      if query.match?(/\A\d+\z/)
+        search_conditions = search_conditions.or(
+          unscoped.where('iid::text LIKE :pattern', pattern: "#{query}%")
+        )
+      end
+
+      unscoped
+        .with(issuables_cte.to_arel)
+        .from(issuables_cte.table)
+        .merge(search_conditions)
+        .order(issuables_cte.table[:id].desc)
+    end
+
     def available_states
       @available_states ||= STATE_ID_MAP.slice(*available_state_names)
     end
@@ -327,17 +353,28 @@ module Issuable
     def sort_by_attribute(method, excluded_labels: [])
       sorted =
         case method.to_s
-        when 'downvotes_desc'                                 then order_downvotes_desc
-        when 'label_priority', 'label_priority_asc'           then order_labels_priority(excluded_labels: excluded_labels)
-        when 'label_priority_desc'                            then order_labels_priority('DESC', excluded_labels: excluded_labels)
-        when 'milestone', 'milestone_due_asc'                 then order_milestone_due_asc
-        when 'milestone_due_desc'                             then order_milestone_due_desc
-        when 'popularity_asc'                                 then order_upvotes_asc
-        when 'popularity', 'popularity_desc', 'upvotes_desc'  then order_upvotes_desc
-        when 'priority', 'priority_asc'                       then order_due_date_and_labels_priority(excluded_labels: excluded_labels)
-        when 'priority_desc'                                  then order_due_date_and_labels_priority('DESC', excluded_labels: excluded_labels)
-        when 'title_asc'                                      then order_title_asc.with_order_id_desc
-        when 'title_desc'                                     then order_title_desc.with_order_id_desc
+        when 'downvotes_desc'
+          then order_downvotes_desc
+        when 'label_priority', 'label_priority_asc'
+          then order_labels_priority(excluded_labels: excluded_labels)
+        when 'label_priority_desc'
+          then order_labels_priority('DESC', excluded_labels: excluded_labels)
+        when 'milestone', 'milestone_due_asc'
+          then order_milestone_due_asc
+        when 'milestone_due_desc'
+          then order_milestone_due_desc
+        when 'popularity_asc'
+          then order_upvotes_asc
+        when 'popularity', 'popularity_desc', 'upvotes_desc'
+          then order_upvotes_desc
+        when 'priority', 'priority_asc'
+          then order_due_date_and_labels_priority(excluded_labels: excluded_labels)
+        when 'priority_desc'
+          then order_due_date_and_labels_priority('DESC', excluded_labels: excluded_labels)
+        when 'title_asc'
+          then order_title_asc.with_order_id_desc
+        when 'title_desc'
+          then order_title_desc.with_order_id_desc
         else order_by(method)
         end
 
@@ -371,7 +408,7 @@ module Issuable
 
     def order_labels_priority(direction = 'ASC', excluded_labels: [], extra_select_columns: [], with_cte: false)
       highest_priority = highest_label_priority(
-        target_type: name,
+        target_type: name == "WorkItem" ? "Issue" : name,
         target_column: "#{table_name}.id",
         project_column: "#{table_name}.#{project_foreign_key}",
         excluded_labels: excluded_labels
@@ -397,7 +434,8 @@ module Issuable
 
     def with_label(title, sort = nil)
       if title.is_a?(Array) && title.size > 1
-        joins(:labels).where(labels: { title: title }).group(*grouping_columns(sort)).having("COUNT(DISTINCT labels.title) = #{title.size}")
+        joins(:labels).where(labels: { title: title }).group(*grouping_columns(sort))
+          .having("COUNT(DISTINCT labels.title) = #{title.size}")
       else
         joins(:labels).where(labels: { title: title })
       end
@@ -506,11 +544,11 @@ module Issuable
     end
   end
 
-  def subscribed_without_subscriptions?(user, project)
+  def subscribed_without_subscriptions?(user, _project)
     participant?(user)
   end
 
-  def can_assign_epic?(user)
+  def can_assign_epic?(_user)
     false
   end
 
@@ -534,11 +572,12 @@ module Issuable
       changes[:target_branch] = [old_target_branch(old_associations), target_branch]
     end
 
-    if supports_escalation? && escalation_status && old_escalation_status(old_associations) != escalation_status.status_name
+    if supports_escalation? && escalation_status &&
+        old_escalation_status(old_associations) != escalation_status.status_name
       changes[:escalation_status] = [old_escalation_status(old_associations), escalation_status.status_name]
     end
 
-    if self.respond_to?(:total_time_spent) && old_total_time_spent(old_associations) != total_time_spent
+    if respond_to?(:total_time_spent) && old_total_time_spent(old_associations) != total_time_spent
       changes[:total_time_spent] = [old_total_time_spent(old_associations), total_time_spent]
       changes[:time_change] = [old_time_change(old_associations), time_change]
     end
@@ -551,9 +590,7 @@ module Issuable
     changes = {}
     old_reviewers = old_associations.fetch(:reviewers, reviewers)
 
-    if old_reviewers != reviewers
-      changes[:reviewers] = [old_reviewers.map(&:hook_attrs), reviewers.map(&:hook_attrs)]
-    end
+    changes[:reviewers] = [old_reviewers.map(&:hook_attrs), reviewers.map(&:hook_attrs)] if old_reviewers != reviewers
 
     changes
   end
@@ -624,7 +661,7 @@ module Issuable
     includes << :project unless notes.projects_loaded?
     includes << :system_note_metadata unless notes.system_note_metadata_loaded?
 
-    if includes.any?
+    if persisted? && includes.any?
       notes.includes(includes)
     else
       notes
@@ -691,15 +728,15 @@ module Issuable
   end
 
   def old_escalation_status(assoc)
-    @_old_escalation_status ||= assoc.fetch(:escalation_status, escalation_status.status_name) # rubocop:disable Gitlab/ModuleWithInstanceVariables -- This is only used here
+    @_old_escalation_status ||= assoc.fetch(:escalation_status, escalation_status.status_name)
   end
 
   def old_total_time_spent(assoc)
-    @_old_total_time_spent ||= assoc.fetch(:total_time_spent, total_time_spent) # rubocop:disable Gitlab/ModuleWithInstanceVariables -- This is only used here
+    @_old_total_time_spent ||= assoc.fetch(:total_time_spent, total_time_spent)
   end
 
   def old_time_change(assoc)
-    @_old_time_change ||= assoc.fetch(:time_change, time_change) # rubocop:disable Gitlab/ModuleWithInstanceVariables -- This is only used here
+    @_old_time_change ||= assoc.fetch(:time_change, time_change)
   end
 end
 

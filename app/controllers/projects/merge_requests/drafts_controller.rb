@@ -57,7 +57,8 @@ class Projects::MergeRequests::DraftsController < Projects::MergeRequests::Appli
   end
 
   def publish
-    result = DraftNotes::PublishService.new(merge_request, current_user).execute(draft_note(allow_nil: true))
+    result = DraftNotes::PublishService.new(merge_request, current_user, draft_note_ids_param)
+      .execute(draft: draft_note(allow_nil: true))
 
     if create_note_params[:note]
       ::Notes::CreateService.new(@project, current_user, create_note_params).execute
@@ -132,6 +133,13 @@ class Projects::MergeRequests::DraftsController < Projects::MergeRequests::Appli
     end
   end
 
+  def draft_note_ids_param
+    permitted_params = params.permit(ids: [])
+    permitted_params[:ids] = permitted_params[:ids]&.map(&:to_i) if permitted_params[:ids].present?
+
+    permitted_params
+  end
+
   def approve_params
     params.permit(:approve)
   end
@@ -154,11 +162,14 @@ class Projects::MergeRequests::DraftsController < Projects::MergeRequests::Appli
   end
 
   def render_draft_note(note)
-    params = { target_id: merge_request.id, target_type: 'MergeRequest', text: note.note }
-    result = PreviewMarkdownService.new(container: @project, current_user: current_user, params: params).execute
-    markdown_params = { markdown_engine: result[:markdown_engine], issuable_reference_expansion_enabled: true }
+    params = { target_id: merge_request.iid, target_type: 'MergeRequest', text: note.note }
+    result = PreviewMarkdownService.new(container: @project, current_user: current_user, params: params)
+      .execute do |text|
+      markdown_params = { issuable_reference_expansion_enabled: true }
+      view_context.markdown(text, markdown_params)
+    end
 
-    note.rendered_note = view_context.markdown(result[:text], markdown_params)
+    note.rendered_note = result[:rendered_html]
     note.users_referenced = result[:users]
     note.commands_changes = view_context.markdown(result[:commands])
 

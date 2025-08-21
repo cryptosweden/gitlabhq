@@ -80,6 +80,10 @@ RSpec.describe API::Terraform::Modules::V1::ProjectPackages, feature_category: :
       end
     end
 
+    it_behaves_like 'updating personal access token last used' do
+      let(:headers) { workhorse_headers.merge('PRIVATE-TOKEN' => personal_access_token.token) }
+    end
+
     context 'for use_final_store_path' do
       let(:headers) { workhorse_headers.merge('PRIVATE-TOKEN' => personal_access_token.token) }
 
@@ -89,7 +93,7 @@ RSpec.describe API::Terraform::Modules::V1::ProjectPackages, feature_category: :
 
       it 'sends use_final_store_path with true' do
         expect(::Packages::PackageFileUploader).to receive(:workhorse_authorize).with(
-          hash_including(use_final_store_path: true, final_store_path_root_id: project.id)
+          hash_including(use_final_store_path: true, final_store_path_config: { root_hash: project.id })
         ).and_call_original
 
         api_request
@@ -122,7 +126,7 @@ RSpec.describe API::Terraform::Modules::V1::ProjectPackages, feature_category: :
     shared_examples 'creating a package' do
       it 'creates a package' do
         expect { api_request }
-          .to change { project.packages.count }.by(1)
+          .to change { ::Packages::TerraformModule::Package.for_projects(project).count }.by(1)
           .and change { Packages::PackageFile.count }.by(1)
         expect(response).to have_gitlab_http_status(:created)
       end
@@ -131,8 +135,8 @@ RSpec.describe API::Terraform::Modules::V1::ProjectPackages, feature_category: :
     shared_examples 'not creating a package' do |expected_status|
       it 'does not create a package' do
         expect { api_request }
-          .to change { project.packages.count }.by(0)
-          .and change { Packages::PackageFile.count }.by(0)
+          .to not_change { ::Packages::TerraformModule::Package.for_projects(project).count }
+          .and not_change { Packages::PackageFile.count }
         expect(response).to have_gitlab_http_status(expected_status)
       end
     end
@@ -278,6 +282,10 @@ RSpec.describe API::Terraform::Modules::V1::ProjectPackages, feature_category: :
           end
         end
       end
+    end
+
+    it_behaves_like 'updating personal access token last used' do
+      let(:headers) { workhorse_headers.merge('PRIVATE-TOKEN' => personal_access_token.token) }
     end
   end
 end

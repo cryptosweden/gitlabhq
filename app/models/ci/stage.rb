@@ -15,7 +15,7 @@ module Ci
     query_constraints :id, :partition_id
     partitionable scope: :pipeline, partitioned: true
 
-    enum status: Ci::HasStatus::STATUSES_ENUM
+    enum :status, Ci::HasStatus::STATUSES_ENUM
 
     belongs_to :project
     belongs_to :pipeline, ->(stage) { in_partition(stage) },
@@ -197,7 +197,10 @@ module Ci
 
     # We only check jobs that are played by `Ci::PlayManualStageService`.
     def confirm_manual_job?
-      processables.manual.any? do |job|
+      manual_jobs = processables.manual
+      return false unless manual_jobs.exists?
+
+      manual_jobs.includes(:pipeline, :metadata, [deployment: [environment: :project]]).any? do |job|
         job.playable? && job.manual_confirmation_message
       end
     end
@@ -206,5 +209,26 @@ module Ci
     def latest_stage_status
       statuses.latest.composite_status || 'skipped'
     end
+
+    def ordered_latest_statuses
+      preload_metadata(statuses.in_order_of(:status, Ci::HasStatus::ORDERED_STATUSES).latest_ordered)
+    end
+
+    def ordered_retried_statuses
+      preload_metadata(statuses.in_order_of(:status, Ci::HasStatus::ORDERED_STATUSES).retried_ordered)
+    end
+
+    private
+
+    def preload_metadata(statuses)
+      relations = [:metadata, :job_definition, :pipeline,
+        { downstream_pipeline: [:user, { project: [:route, { namespace: :route }] }] }]
+
+      Preloaders::CommitStatusPreloader.new(statuses).execute(relations)
+
+      statuses
+    end
   end
 end
+
+Ci::Stage.prepend_mod

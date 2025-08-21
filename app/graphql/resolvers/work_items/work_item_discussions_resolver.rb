@@ -13,15 +13,23 @@ module Resolvers
 
       alias_method :notes_widget, :object
 
-      argument :filter, Types::WorkItems::NotesFilterTypeEnum,
+      argument :filter, ::Types::WorkItems::NotesFilterTypeEnum,
         required: false,
-        default_value: Types::WorkItems::NotesFilterTypeEnum.default_value,
+        default_value: ::Types::WorkItems::NotesFilterTypeEnum.default_value,
         description: 'Type of notes collection: ALL_NOTES, ONLY_COMMENTS, ONLY_ACTIVITY.'
 
-      type Types::Notes::DiscussionType.connection_type, null: true
+      argument :sort, ::Types::WorkItems::DiscussionsSortEnum,
+        required: false,
+        default_value: ::Types::WorkItems::DiscussionsSortEnum.default_value,
+        description: 'Sort order for the discussions.'
+
+      type ::Types::Notes::DiscussionType.connection_type, null: true
 
       def resolve(**args)
         finder = Issuable::DiscussionsListService.new(current_user, work_item, params(args))
+
+        # precompute noteable_url once so that it is reused for all notes
+        context.scoped_set!(:noteable_url, ::Gitlab::UrlBuilder.build(object.work_item))
 
         Gitlab::Graphql::ExternallyPaginatedArray.new(
           finder.paginator.cursor_for_previous_page,
@@ -48,6 +56,7 @@ module Resolvers
       def params(args)
         {
           notes_filter: args[:filter],
+          sort: args[:sort],
           cursor: args[:after],
           per_page: self.class.nodes_limit(args, @field, context: context)
         }

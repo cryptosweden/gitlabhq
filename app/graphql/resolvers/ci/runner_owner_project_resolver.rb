@@ -5,7 +5,7 @@ module Resolvers
     class RunnerOwnerProjectResolver < BaseResolver
       include LooksAhead
 
-      type Types::ProjectType, null: true
+      type ::Types::Projects::ProjectInterface, null: true
 
       alias_method :runner, :object
 
@@ -35,7 +35,7 @@ module Resolvers
         return unless runner.project_type?
 
         BatchLoader::GraphQL.for(runner.id).batch do |runner_ids, loader|
-          # rubocop: disable CodeReuse/ActiveRecord
+          # rubocop:disable CodeReuse/ActiveRecord -- this query is too specific to generalize in model
           runner_and_projects_with_row_number =
             ::Ci::RunnerProject
               .where(runner_id: runner_ids)

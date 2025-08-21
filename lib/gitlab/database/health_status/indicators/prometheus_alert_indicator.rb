@@ -13,7 +13,7 @@ module Gitlab
           }.freeze
 
           def initialize(context)
-            @gitlab_schema = context.gitlab_schema.to_sym
+            @connection = context.connection
           end
 
           def evaluate
@@ -34,7 +34,7 @@ module Gitlab
 
           private
 
-          attr_reader :gitlab_schema
+          attr_reader :connection
 
           def indicator_name
             self.class.name.demodulize
@@ -98,22 +98,30 @@ module Gitlab
           end
 
           def sli_query
-            {
-              gitlab_main: prometheus_alert_db_indicators_settings[sli_query_key][:main],
-              gitlab_main_cell: prometheus_alert_db_indicators_settings[sli_query_key][:main_cell],
-              gitlab_ci: prometheus_alert_db_indicators_settings[sli_query_key][:ci]
-            }.fetch(gitlab_schema)
+            # TODO: temporary until CRs can be rolled out with https://gitlab.com/gitlab-org/gitlab/-/issues/501105
+            return gitlab_sec_sli_query if connection.load_balancer.name.to_sym == :sec
+
+            prometheus_alert_db_indicators_settings[sli_query_key][connection.load_balancer.name.to_sym]
           end
           strong_memoize_attr :sli_query
 
+          def gitlab_sec_sli_query
+            prometheus_alert_db_indicators_settings[sli_query_key][:sec] ||
+              prometheus_alert_db_indicators_settings[sli_query_key][:main]
+          end
+
           def slo
-            {
-              gitlab_main: prometheus_alert_db_indicators_settings[slo_key][:main],
-              gitlab_main_cell: prometheus_alert_db_indicators_settings[slo_key][:main_cell],
-              gitlab_ci: prometheus_alert_db_indicators_settings[slo_key][:ci]
-            }.fetch(gitlab_schema)
+            # TODO: temporary until CRs can be rolled out with https://gitlab.com/gitlab-org/gitlab/-/issues/501105
+            return gitlab_sec_slo_query if connection.load_balancer.name.to_sym == :sec
+
+            prometheus_alert_db_indicators_settings[slo_key][connection.load_balancer.name.to_sym]
           end
           strong_memoize_attr :slo
+
+          def gitlab_sec_slo_query
+            prometheus_alert_db_indicators_settings[slo_key][:sec] ||
+              prometheus_alert_db_indicators_settings[slo_key][:main]
+          end
 
           def fetch_sli(query)
             response = client.query(query)

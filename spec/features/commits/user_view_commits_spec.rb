@@ -3,6 +3,8 @@
 require 'spec_helper'
 
 RSpec.describe 'Commit > User view commits', feature_category: :source_code_management do
+  include RepoHelpers
+
   let_it_be(:user) { create(:user) }
   let_it_be(:group) { create(:group, :public) }
 
@@ -52,7 +54,7 @@ RSpec.describe 'Commit > User view commits', feature_category: :source_code_mana
 
           it 'renders not found' do
             expect(page).to have_title('Not Found')
-            expect(page).to have_content('Page Not Found')
+            expect(page).to have_content('Page not found')
           end
         end
       end
@@ -61,26 +63,27 @@ RSpec.describe 'Commit > User view commits', feature_category: :source_code_mana
 
   describe 'Single commit', :js do
     let_it_be(:project) { create_default(:project, :public, :repository, group: group) }
-    let_it_be(:branch_name) { 'feature' }
-    let_it_be(:sha) { project.commit(branch_name).sha }
+    let_it_be(:sha) { sample_commit.sha }
 
     it 'passes axe automated accessibility testing' do
       visit project_commit_path(project, sha)
 
-      wait_for_requests # ensures page is fully loaded
+      wait_for_requests
 
       expect(page).to be_axe_clean.within('#content-body').skipping :'color-contrast', :'link-in-text-block',
         :'link-name', :'valid-lang'
     end
 
     context 'when displayed with rapid_diffs' do
-      it 'passes axe automated accessibility testing' do
-        visit "#{project_commit_path(project, sha)}?rapid_diffs=true"
+      let_it_be(:diffs) { project.commit(sha).diffs }
 
-        wait_for_requests # ensures page is fully loaded
+      before do
+        visit project_commit_path(project, sha, rapid_diffs: true)
 
-        expect(page).to be_axe_clean.within('#content-body').skipping :'link-name', :'valid-lang'
+        wait_for_requests
       end
+
+      it_behaves_like 'Rapid Diffs application'
     end
   end
 end

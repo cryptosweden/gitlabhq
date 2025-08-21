@@ -9,9 +9,12 @@ module Gitlab
         class Mapper
           # Fetches file contents and verifies them
           class Verifier < Base
+            def skip_load_content!
+              tap { @skip_load_content = true }
+            end
+
             private
 
-            # rubocop: disable Metrics/CyclomaticComplexity
             def process_without_instrumentation(files)
               files.each do |file|
                 # When running a pipeline, some Ci::ProjectConfig sources prepend the config content with an
@@ -39,7 +42,8 @@ module Gitlab
                 verify_execution_time!
 
                 file.validate_content! if file.valid?
-                file.load_and_validate_expanded_hash! if file.valid?
+
+                file.load_and_validate_expanded_hash! if file.valid? && !@skip_load_content
 
                 next unless file.valid?
 
@@ -49,7 +53,6 @@ module Gitlab
                 verify_max_total_pipeline_size!
               end
             end
-            # rubocop: enable Metrics/CyclomaticComplexity
 
             def verify_max_includes!
               return if context.expandset.count <= context.max_includes

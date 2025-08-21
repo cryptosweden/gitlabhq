@@ -28,7 +28,7 @@ describe('Unicode Support Map', () => {
         expect(getArgs[1][0]).toBe('gl-emoji-user-agent');
 
         expect(setArgs[0][0]).toBe('gl-emoji-version');
-        expect(setArgs[0][1]).toBe('0.2.0');
+        expect(setArgs[0][1]).toBe('0.3.0');
         expect(setArgs[1][0]).toBe('gl-emoji-user-agent');
         expect(setArgs[1][1]).toBe(navigator.userAgent);
         expect(setArgs[2][0]).toBe('gl-emoji-unicode-support-map');
@@ -44,7 +44,7 @@ describe('Unicode Support Map', () => {
       });
 
       it('should not call .getItem or .setItem', () => {
-        expect(window.localStorage.getItem.mock.calls.length).toBe(1);
+        expect(window.localStorage.getItem.mock.calls).toHaveLength(1);
         expect(window.localStorage.setItem).not.toHaveBeenCalled();
       });
     });

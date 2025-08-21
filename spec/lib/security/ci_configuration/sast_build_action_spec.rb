@@ -30,47 +30,43 @@ RSpec.describe Security::CiConfiguration::SastBuildAction do
   end
 
   let(:params_with_analyzer_info) do
-    params.merge( { analyzers:
-                    [
-                      {
-                        name: "bandit",
-                        enabled: false
-                      },
-                      {
-                        name: "brakeman",
-                        enabled: true,
-                        variables: [
-                          { field: "SAST_BRAKEMAN_LEVEL",
-                            default_value: "1",
-                            value: "2" }
-                        ]
-                      },
-                      {
-                        name: "flawfinder",
-                        enabled: true,
-                        variables: [
-                          { field: "SAST_FLAWFINDER_LEVEL",
-                            default_value: "1",
-                            value: "1" }
-                        ]
-                      }
-                    ] }
-                )
+    params.merge({
+      analyzers: [
+        {
+          name: "bandit",
+          enabled: false
+        },
+        {
+          name: "brakeman",
+          enabled: true,
+          variables: [
+            { field: "SAST_BRAKEMAN_LEVEL", default_value: "1", value: "2" }
+          ]
+        },
+        {
+          name: "flawfinder",
+          enabled: true,
+          variables: [
+            { field: "SAST_FLAWFINDER_LEVEL", default_value: "1", value: "1" }
+          ]
+        }
+      ]
+    })
   end
 
   let(:params_with_all_analyzers_enabled) do
-    params.merge( { analyzers:
-                    [
-                      {
-                        name: "flawfinder",
-                        enabled: true
-                      },
-                      {
-                        name: "brakeman",
-                        enabled: true
-                      }
-                    ] }
-                )
+    params.merge({
+      analyzers: [
+        {
+          name: "flawfinder",
+          enabled: true
+        },
+        {
+          name: "brakeman",
+          enabled: true
+        }
+      ]
+    })
   end
 
   context 'with existing .gitlab-ci.yml' do
@@ -314,7 +310,7 @@ RSpec.describe Security::CiConfiguration::SastBuildAction do
 
   # stubbing this method allows this spec file to use fast_spec_helper
   def fast_auto_devops_stages
-    auto_devops_template = YAML.safe_load( File.read('lib/gitlab/ci/templates/Auto-DevOps.gitlab-ci.yml') )
+    auto_devops_template = YAML.safe_load(File.read('lib/gitlab/ci/templates/Auto-DevOps.gitlab-ci.yml'))
     auto_devops_template['stages']
   end
 
@@ -322,7 +318,7 @@ RSpec.describe Security::CiConfiguration::SastBuildAction do
     <<-CI_YML.strip_heredoc
     # You can override the included template(s) by including variable overrides
     # SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-    # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
+    # Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure
     # Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
     # Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
     # Note that environment variables can be set in several places
@@ -343,7 +339,7 @@ RSpec.describe Security::CiConfiguration::SastBuildAction do
     <<-CI_YML.strip_heredoc
     # You can override the included template(s) by including variable overrides
     # SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-    # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
+    # Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure
     # Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
     # Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
     # Note that environment variables can be set in several places
@@ -361,7 +357,7 @@ RSpec.describe Security::CiConfiguration::SastBuildAction do
     <<-CI_YML.strip_heredoc
       # You can override the included template(s) by including variable overrides
       # SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-      # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
+      # Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure
       # Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
       # Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
       # Note that environment variables can be set in several places
@@ -385,7 +381,7 @@ RSpec.describe Security::CiConfiguration::SastBuildAction do
     <<-CI_YML.strip_heredoc
       # You can override the included template(s) by including variable overrides
       # SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-      # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
+      # Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure
       # Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
       # Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
       # Note that environment variables can be set in several places
@@ -422,7 +418,7 @@ RSpec.describe Security::CiConfiguration::SastBuildAction do
     <<-CI_YML.strip_heredoc
       # You can override the included template(s) by including variable overrides
       # SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-      # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
+      # Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure
       # Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
       # Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
       # Note that environment variables can be set in several places
@@ -448,7 +444,7 @@ RSpec.describe Security::CiConfiguration::SastBuildAction do
     <<-CI_YML.strip_heredoc
       # You can override the included template(s) by including variable overrides
       # SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-      # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
+      # Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure
       # Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
       # Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
       # Note that environment variables can be set in several places
@@ -472,7 +468,7 @@ RSpec.describe Security::CiConfiguration::SastBuildAction do
     <<-CI_YML.strip_heredoc
       # You can override the included template(s) by including variable overrides
       # SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-      # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
+      # Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure
       # Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
       # Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
       # Note that environment variables can be set in several places
@@ -497,7 +493,7 @@ RSpec.describe Security::CiConfiguration::SastBuildAction do
     <<-CI_YML.strip_heredoc
       # You can override the included template(s) by including variable overrides
       # SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-      # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
+      # Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure
       # Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
       # Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
       # Note that environment variables can be set in several places
@@ -522,7 +518,7 @@ RSpec.describe Security::CiConfiguration::SastBuildAction do
     <<-CI_YML.strip_heredoc
       # You can override the included template(s) by including variable overrides
       # SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-      # Secret Detection customization: https://docs.gitlab.com/ee/user/application_security/secret_detection/pipeline/#customization
+      # Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure
       # Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
       # Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
       # Note that environment variables can be set in several places

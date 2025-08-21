@@ -34,6 +34,7 @@ class Blob < SimpleDelegator
     BlobViewer::SVG,
     BlobViewer::OpenApi,
     BlobViewer::GeoJson,
+    BlobViewer::Graph,
 
     BlobViewer::Image,
     BlobViewer::Sketch,
@@ -94,8 +95,7 @@ class Blob < SimpleDelegator
   end
 
   def self.lazy(repository, commit_id, path, blob_size_limit: Gitlab::Git::Blob::MAX_DATA_DISPLAY_SIZE)
-    key = [:repository_blobs, repository]
-    key << blob_size_limit if Feature.enabled?(:increase_diff_file_performance, repository.project)
+    key = [:repository_blobs, repository, blob_size_limit]
 
     BatchLoader.for([commit_id, path]).batch(key: key) do |items, loader, args|
       args[:key].second.blobs_at(items, blob_size_limit: blob_size_limit).each do |blob|
@@ -242,6 +242,10 @@ class Blob < SimpleDelegator
 
   def expand!
     @expanded = true
+  end
+
+  def file_hash
+    OpenSSL::Digest::SHA256.hexdigest(path)
   end
 
   private

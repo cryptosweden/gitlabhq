@@ -3,6 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::GonHelper, feature_category: :shared do
+  let_it_be(:organization) { create(:organization) }
   let(:helper) do
     Class.new do
       include Gitlab::GonHelper
@@ -77,6 +78,46 @@ RSpec.describe Gitlab::GonHelper, feature_category: :shared do
         end
       end
     end
+
+    context 'when ui_for_organizations feature flag is enabled' do
+      context 'when current_organization is set', :with_current_organization do
+        subject(:add_gon_variables) { helper.add_gon_variables }
+
+        before do
+          Current.organization = current_organization
+        end
+
+        it 'exposes current_organization' do
+          expect(gon).to receive(:current_organization=).with(
+            current_organization.slice(:id, :name, :full_path, :web_url, :avatar_url)
+          )
+
+          add_gon_variables
+        end
+
+        it_behaves_like 'internal event not tracked'
+      end
+
+      context 'when current_organization is not set' do
+        it 'does not expose current_organization' do
+          expect(gon).not_to receive(:current_organization=)
+
+          helper.add_gon_variables
+        end
+      end
+    end
+
+    context 'when ui_for_organizations feature flag is disabled', :with_current_organization do
+      before do
+        stub_feature_flags(ui_for_organizations: false)
+      end
+
+      it 'does not expose current_organization' do
+        expect(gon).not_to receive(:current_organization=)
+
+        helper.add_gon_variables
+      end
+    end
   end
 
   describe '#push_frontend_ability' do
@@ -128,7 +169,7 @@ RSpec.describe Gitlab::GonHelper, feature_category: :shared do
         .and_return(gon)
     end
 
-    it 'pushes a feature flag to the frontend with the provided value' do
+    it 'pushes a feature flag to the frontend with a true value' do
       expect(gon)
         .to receive(:push)
         .with({ features: { 'myFeatureFlag' => true } }, true)
@@ -136,12 +177,16 @@ RSpec.describe Gitlab::GonHelper, feature_category: :shared do
       helper.push_force_frontend_feature_flag(:my_feature_flag, true)
     end
 
-    it 'pushes a disabled feature flag if provided value is nil' do
+    it 'pushes a feature flag to the frontend with a false value' do
       expect(gon)
         .to receive(:push)
         .with({ features: { 'myFeatureFlag' => false } }, true)
 
-      helper.push_force_frontend_feature_flag(:my_feature_flag, nil)
+      helper.push_force_frontend_feature_flag(:my_feature_flag, false)
+    end
+
+    it 'raises an ArgumentError if argument is not a boolean' do
+      expect { helper.push_force_frontend_feature_flag(:my_feature_flag, Object.new) }.to raise_error ArgumentError
     end
   end
 

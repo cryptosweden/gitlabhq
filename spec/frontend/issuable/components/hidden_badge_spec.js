@@ -1,4 +1,4 @@
-import { GlBadge, GlIcon } from '@gitlab/ui';
+import { GlBadge } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
 import HiddenBadge from '~/issuable/components/hidden_badge.vue';
@@ -11,35 +11,33 @@ describe('HiddenBadge component', () => {
       directives: {
         GlTooltip: createMockDirective('gl-tooltip'),
       },
-      propsData: {
-        issuableType: 'issue',
-      },
     });
   };
 
   const findBadge = () => wrapper.findComponent(GlBadge);
-  const findIcon = () => wrapper.findComponent(GlIcon);
 
-  beforeEach(() => {
-    mountComponent();
-  });
+  describe('default', () => {
+    beforeEach(() => {
+      mountComponent();
+    });
 
-  it('renders warning badge', () => {
-    expect(findBadge().text()).toBe('Hidden');
-    expect(findBadge().props('variant')).toEqual('warning');
-  });
+    it('renders warning badge', () => {
+      expect(findBadge().attributes('aria-label')).toBe('Hidden');
+      expect(findBadge().props('variant')).toEqual('warning');
+    });
 
-  it('renders spam icon', () => {
-    expect(findIcon().props('name')).toBe('spam');
-  });
+    it('renders spam icon', () => {
+      expect(findBadge().props('icon')).toBe('spam');
+    });
 
-  it('has tooltip', () => {
-    expect(getBinding(wrapper.element, 'gl-tooltip')).not.toBeUndefined();
-  });
+    it('has tooltip', () => {
+      expect(getBinding(wrapper.element, 'gl-tooltip')).not.toBeUndefined();
+    });
 
-  it('has title', () => {
-    expect(findBadge().attributes('title')).toBe(
-      'This issue is hidden because its author has been banned.',
-    );
+    it('has title', () => {
+      expect(findBadge().attributes('title')).toBe(
+        'This item is hidden because its author has been banned.',
+      );
+    });
   });
 });

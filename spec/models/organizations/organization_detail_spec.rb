@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Organizations::OrganizationDetail, type: :model, feature_category: :cell do
+RSpec.describe Organizations::OrganizationDetail, type: :model, feature_category: :organization do
   describe 'associations' do
     it { is_expected.to belong_to(:organization).inverse_of(:organization_detail) }
   end
@@ -30,6 +30,14 @@ RSpec.describe Organizations::OrganizationDetail, type: :model, feature_category
       let(:model_object) { create(:organization_detail) }
       let(:upload_attribute) { :avatar }
       let(:uploader_class) { AttachmentUploader }
+    end
+  end
+
+  describe '#uploads_sharding_key' do
+    it 'returns organization_id' do
+      organization_detail = build_stubbed(:organization_detail)
+
+      expect(organization_detail.uploads_sharding_key).to eq(organization_id: organization_detail.organization_id)
     end
   end
 end

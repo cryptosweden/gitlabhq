@@ -12,6 +12,7 @@ module API
       end
 
       feature_category :mobile_devops
+      urgency :low
 
       default_format :json
 
@@ -29,6 +30,7 @@ module API
           use :pagination
         end
         route_setting :authentication, basic_auth_personal_access_token: true, job_token_allowed: true
+        route_setting :authorization, job_token_policies: :read_secure_files
         get ':id/secure_files' do
           secure_files = user_project.secure_files.order_by_created_at
           present paginate(secure_files), with: Entities::Ci::SecureFile
@@ -40,10 +42,11 @@ module API
           failure [{ code: 404, message: '404 Not found' }]
         end
         params do
-          requires :id, type: Integer, desc: 'The ID of a secure file'
+          requires :secure_file_id, type: Integer, desc: 'The ID of a secure file'
         end
 
         route_setting :authentication, basic_auth_personal_access_token: true, job_token_allowed: true
+        route_setting :authorization, job_token_policies: :read_secure_files
         get ':id/secure_files/:secure_file_id' do
           secure_file = user_project.secure_files.find(params[:secure_file_id])
           present secure_file, with: Entities::Ci::SecureFile
@@ -53,7 +56,12 @@ module API
           failure [{ code: 404, message: '404 Not found' }]
           tags %w[secure_files]
         end
+        params do
+          requires :secure_file_id, type: Integer, desc: 'The ID of a secure file'
+        end
+
         route_setting :authentication, basic_auth_personal_access_token: true, job_token_allowed: true
+        route_setting :authorization, job_token_policies: :read_secure_files
         get ':id/secure_files/:secure_file_id/download' do
           secure_file = user_project.secure_files.find(params[:secure_file_id])
 
@@ -65,7 +73,6 @@ module API
 
         resource do
           before do
-            check_read_only_feature_flag_enabled!
             authorize! :admin_secure_files, user_project
           end
 
@@ -80,6 +87,7 @@ module API
             requires :file, types: [Rack::Multipart::UploadedFile, ::API::Validations::Types::WorkhorseFile], desc: 'The secure file being uploaded', documentation: { type: 'file' }
           end
           route_setting :authentication, basic_auth_personal_access_token: true, job_token_allowed: true
+          route_setting :authorization, job_token_policies: :admin_secure_files
           post ':id/secure_files' do
             secure_file = user_project.secure_files.new(
               name: Gitlab::PathTraversal.check_path_traversal!(params[:name])
@@ -102,6 +110,7 @@ module API
             failure [{ code: 404, message: '404 Not found' }]
           end
           route_setting :authentication, basic_auth_personal_access_token: true, job_token_allowed: true
+          route_setting :authorization, job_token_policies: :admin_secure_files
           delete ':id/secure_files/:secure_file_id' do
             secure_file = user_project.secure_files.find(params[:secure_file_id])
 
@@ -115,10 +124,6 @@ module API
       helpers do
         def check_api_enabled!
           forbidden! unless Gitlab.config.ci_secure_files.enabled
-        end
-
-        def check_read_only_feature_flag_enabled!
-          service_unavailable! if Feature.enabled?(:ci_secure_files_read_only, user_project, type: :ops)
         end
       end
     end

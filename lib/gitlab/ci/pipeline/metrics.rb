@@ -105,6 +105,21 @@ module Gitlab
           Gitlab::Metrics.counter(name, comment)
         end
 
+        def self.duplicate_job_name_errors_counter
+          name = :gitlab_ci_duplicate_job_name_errors_counter
+          comment = 'Counter of duplicate job name errors'
+
+          Gitlab::Metrics.counter(name, comment)
+        end
+
+        def self.job_token_authorization_failures_counter
+          name = :gitlab_ci_job_token_authorization_failures
+          comment = 'Count of job token authorization failures'
+          labels = { same_root_ancestor: false }
+
+          Gitlab::Metrics.counter(name, comment, labels)
+        end
+
         def ci_minutes_exceeded_builds_counter
           name = :ci_minutes_exceeded_builds_counter
           comment = 'Count of builds dropped due to compute minutes exceeded'

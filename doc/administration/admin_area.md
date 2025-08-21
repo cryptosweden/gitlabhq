@@ -2,115 +2,112 @@
 stage: none
 group: unassigned
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: Manage your GitLab instance and configure features in the UI.
+title: GitLab Admin area
 ---
 
-# GitLab Admin Area
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
 
-The Admin Area provides a web UI to manage and configure features of GitLab
-self-managed instances. If you are an administrator, to access the Admin Area:
+{{< /details >}}
 
-- In GitLab 16.7 and later: on the left sidebar, at the bottom, select **Admin Area**.
-- In GitLab 16.1 and later: on the left sidebar, select **Search or go to**, then select **Admin Area**.
-- In GitLab 16.0 and earlier: on the top bar, select **Main menu > Admin**.
+The **Admin** area provides a web UI to manage and configure features of a
+GitLab Self-Managed instance. If you are an administrator, to access the **Admin** area:
 
-If the GitLab instance uses Admin Mode, you must [enable Admin Mode for your session](settings/sign_in_restrictions.md#turn-on-admin-mode-for-your-session) before
-the **Admin Area** button is visible.
+- In GitLab 17.3 and later: on the left sidebar, at the bottom, select **Admin**.
+- In GitLab 16.7 and later: on the left sidebar, at the bottom, select **Admin area**.
+- In GitLab 16.1 and later: on the left sidebar, select **Search or go to**, then select **Admin**.
+- In GitLab 16.0 and earlier: on the top bar, select **Main menu** > **Admin**.
 
-NOTE:
-Only administrators on GitLab self-managed or GitLab Dedicated can access the Admin Area. On GitLab.com the Admin Area feature is not available.
+If the GitLab instance uses Admin Mode, you must
+[enable Admin Mode for your session](settings/sign_in_restrictions.md#turn-on-admin-mode-for-your-session) before
+**Admin** is visible.
 
-## Administering organizations
+{{< alert type="note" >}}
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/419540) in GitLab 16.10 [with a flag](feature_flags.md) named `ui_for_organizations`. Disabled by default.
+Only administrators on GitLab Self-Managed or GitLab Dedicated can access the **Admin** area.
+On GitLab.com, the **Admin** area feature is not available.
 
-FLAG:
-On self-managed GitLab, by default this feature is not available. To make it available, an administrator can [enable the feature flag](feature_flags.md) named `ui_for_organizations`.
-On GitLab.com and GitLab Dedicated, this feature is not available.
-This feature is not ready for production use.
-
-You can administer all organizations in the GitLab instance from the Admin Area's Organizations page.
-
-To access the Organizations page:
-
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Organizations**.
+{{< /alert >}}
 
 ## Administering projects
 
-You can administer all projects in the GitLab instance from the Admin Area's Projects page.
+{{< history >}}
 
-To access the Projects page:
+- New look [introduced](https://gitlab.com/groups/gitlab-org/-/epics/17782) in GitLab 18.2 [with a flag](feature_flags/_index.md) named `admin_projects_vue`. Disabled by default.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/549452) in GitLab 18.3. Feature flag `admin_projects_vue` removed.
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Projects**.
-1. Select the **All**, **Private**, **Internal**, or **Public** tab to list only
-   projects of that criteria.
+{{< /history >}}
 
-By default, all projects are listed, in reverse order of when they were last updated. For each
-project, the following information is listed:
+To administer all projects in the GitLab instance:
 
-- Name
-- Namespace
-- Description
-- Size, updated every 15 minutes at most
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Projects**. The page shows each project's:
 
-Projects can be edited or deleted.
+   - Name
+   - Description
+   - Visibility level
+   - Role
+   - Topics
+   - Status
+   - Storage size
+   - Number of stars
+   - Number of forks
+   - Number of merge requests
+   - Number of issues
 
-To edit a project's name or description:
+1. Optional. Select a tab:
 
-1. In the Projects overview, next to the project you want to edit, select **Edit**.
+   - **Active** shows all active projects.
+   - **Inactive** shows projects that are archived or pending deletion.
+
+1. Optional. Combine filters to find your desired projects. Filter by:
+
+   - Name. You must enter at least three characters.
+   - Visibility, either public, internal, or private.
+   - Programming language.
+   - Group or user namespace.
+   - Projects where you have the Owner role.
+
+1. Optional. To change the sort order, select the sort dropdown list and choose the desired order.
+   The available sort options are:
+
+   - Name
+   - Created date
+   - Updated date
+   - Stars
+   - Storage size
+
+### Edit a project
+
+To edit a project's name or description from the **Admin** area's Projects page:
+
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Projects**.
+1. Find the project you want to edit and select **Actions** ({{< icon name="ellipsis_v" >}}) > **Edit**.
 1. Edit the **Project name** or **Project description**.
 1. Select **Save Changes**.
 
+### Delete a project
+
 To delete a project:
 
-1. In the Projects overview, next to the project you want to delete, select **Delete**.
-
-The list of projects can be sorted by:
-
-- Updated date
-- Last created
-- Name
-- Most stars
-- Oldest created
-- Oldest updated
-- Largest repository
-
-A user can choose to hide or show archived projects in the list.
-
-In the **Filter by name** field, type the project name you want to find, and GitLab filters
-them as you type.
-
-To filter only projects in that namespace, select from the **Namespace** dropdown list.
-
-You can combine the filter options. For example, to list only public projects with `score` in their name:
-
-1. Select the **Public** tab.
-1. Enter `score` in the **Filter by name** text box.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Projects**.
+1. Find the project you want to edit and select **Actions** ({{< icon name="ellipsis_v" >}}) > **Delete**.
+1. On the confirmation dialog, select **Yes, delete project**.
 
 ## Administering users
 
-> - Filtering users [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/238183) in GitLab 17.0.
+{{< history >}}
 
-You can administer all users in the GitLab instance from the Admin Area's Users page:
+- Filtering users [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/238183) in GitLab 17.0.
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Users**.
+{{< /history >}}
 
-You can use the user search box to search and filter users by:
-
-- User **access level**.
-- Whether **two-factor authentication** is enabled or disabled.
-- User **state**.
-
-You can also type text into the search box. For example, the name of a specific user.
-This text search is case insensitive, and applies partial matching to name, username and email for self-managed instances.
-
-For each user, the following are listed:
+The **Admin** area's Users page shows this information for each user:
 
 - Username
 - Email address
@@ -119,90 +116,124 @@ For each user, the following are listed:
 - Date of account creation
 - Date of last activity
 
-To edit a user, in the user's row, select **Edit**. To delete the user, or delete
-the user and their contributions, select the cog dropdown list in that user's row,
-and select the desired option.
+To administer all users from the **Admin** area's Users page:
 
-To change the sort order:
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Users**.
+1. Optional. To change the sort order, which defaults to user name:
 
-1. Select the sort dropdown list.
-1. Select the desired order.
+   1. Select the sort dropdown list.
+   1. Select the desired order.
 
-By default the sort dropdown list shows **Name**.
+1. Optional. Use the user search box to search and filter users by:
+
+   - User **access level**.
+   - Whether **two-factor authentication** is enabled or disabled.
+   - User **state**.
+   - Whether the user **type** is [placeholder](../user/project/import/_index.md#placeholder-users).
+
+1. Optional. In the user search field, enter text, then press <kbd>Enter</kbd>. This case-insensitive
+   text search applies partial matching to name, username, and email.
+
+To edit a user, find the user's row and select **Edit**.
+
+### Delete a user
+
+To delete the user, or delete the user and their contributions, from the **Admin** area's Users page:
+
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Users**.
+1. Find the user you want to delete. In the row, select **User administration**
+   ({{< icon name="ellipsis_v">}}), then select the desired option.
 
 ### User impersonation
 
-An administrator can "impersonate" any other user, including other administrators.
-This allows the administrator to "see what the user sees," and take actions on behalf of the user.
-You can impersonate a user in the following ways:
+An administrator can impersonate any other user, including other administrators.
+This enables you to see what the user sees in GitLab, and take actions on behalf of the user.
+
+To impersonate a user:
 
 - Through the UI:
-  1. On the left sidebar, at the bottom, select **Admin Area**.
-  1. On the left sidebar, select **Overview > Users**.
+  1. On the left sidebar, at the bottom, select **Admin**.
+  1. On the left sidebar, select **Overview** > **Users**.
   1. From the list of users, select a user.
-  1. Select **Impersonate**.
-- With the API, using [impersonation tokens](../api/rest/index.md#impersonation-tokens).
+  1. On the top right, select **Impersonate**.
+  1. To stop impersonating, on the left sidebar at the top, select **Stop impersonating** ({{< icon name="incognito">}}).
+- With the API, using [impersonation tokens](../api/rest/authentication.md#impersonation-tokens).
 
-All impersonation activities are [captured with audit events](audit_event_reports.md#user-impersonation).
-By default, impersonation is enabled. GitLab can be configured to [disable impersonation](../api/rest/index.md#disable-impersonation).
-
-![user impersonation button](img/impersonate_user_button_v13_8.png)
+All impersonation activities are [captured with audit events](compliance/audit_event_reports.md#user-impersonation).
+By default, impersonation is enabled. GitLab can be configured to
+[disable impersonation](../api/rest/authentication.md#disable-impersonation).
 
 ### User identities
 
-> - The ability to see a user's SCIM identity was [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/294608) in GitLab 15.3.
+{{< details >}}
 
-When using authentication providers, administrators can see the identities for a user:
+- Tier: Premium, Ultimate
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Users**.
+{{< /details >}}
+
+{{< history >}}
+
+- Viewing a user's SCIM identity [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/294608) in GitLab 15.3.
+
+{{< /history >}}
+
+When using authentication providers, administrators can see the identities for a user. This page
+shows the user's identities, including SCIM identities. Use this information to troubleshoot
+SCIM-related issues and confirm the identities being used for an account.
+
+To do this:
+
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Users**.
 1. From the list of users, select a user.
 1. Select **Identities**.
 
-This list shows the user's identities, including SCIM identities. Administrators can use this information to troubleshoot SCIM-related issues and confirm
-the identities being used for an account.
+### User permission export
 
-### User Permission Export
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
 
-An administrator can export user permissions for all users in the GitLab instance from the Admin Area's Users page.
-The export lists direct membership the users have in groups and projects.
+{{< /details >}}
 
-The following data is included in the export:
+When you export user permissions, the exported information shows the direct membership users have
+in groups and projects. It includes this data, and is limited to the first 100,000 users:
 
 - Username
 - Email
 - Type
 - Path
-- Access level ([Project](../user/permissions.md#project-members-permissions) and [Group](../user/permissions.md#group-members-permissions))
-- Date of last activity. For a list of activities that populate this column, see the [Users API documentation](../api/users.md#get-user-activities).
+- Access level ([Project](../user/permissions.md#project-members-permissions) and
+  [Group](../user/permissions.md#group-members-permissions))
+- Date of last activity. For a list of activities that populate this column, see the
+  [Users API documentation](../api/users.md#list-a-users-activity).
 
-Only the first 100,000 user accounts are exported.
+To export user permissions for all active users in your GitLab instance:
 
-![user permission export button](img/export_permissions_v13_11.png)
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Users**.
+1. On the top right, select **Export permissions as CSV** ({{< icon name="export" >}}).
 
 ### Users statistics
 
 The **Users statistics** page provides an overview of user accounts by role. These statistics are
-calculated daily, so user changes made since the last update are not reflected.
-
-The following totals are also included:
+calculated daily. User changes made after the last update are not reflected. These totals are also included:
 
 - Billable users
 - Blocked users
 - Total users
 
-GitLab billing is based on the number of [**Billable users**](../subscriptions/self_managed/index.md#billable-users).
+GitLab billing is based on the number of [billable users](../subscriptions/manage_users_and_seats.md#billable-users).
 
 ### Add email to user
 
-You must be an administrator to manually add emails to users:
+To add email addresses to user accounts manually:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Users**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Users**.
 1. Locate the user and select them.
 1. Select **Edit**.
 1. In **Email**, enter the new email address. This adds the new email address to the
@@ -213,58 +244,108 @@ You must be an administrator to manually add emails to users:
 
 The [Cohorts](user_cohorts.md) tab displays the monthly cohorts of new users and their activities over time.
 
-## Prevent a user from creating top level groups
+## Prevent a user from creating top-level groups
 
-By default, users can create top level groups. To prevent a user from creating a top level group:
+By default, users can create top-level groups. To prevent a user from creating a top-level group:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Users**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Users**.
 1. Locate the user and select them.
 1. Select **Edit**.
-1. Clear the **Can create top level group** checkbox.
+1. Clear the **Can create top-level group** checkbox.
 1. Select **Save changes**.
 
-It is also possible to [limit which roles can create a subgroup within a group](../user/group/subgroups/index.md#change-who-can-create-subgroups).
+It is also possible to limit which roles can
+[create a subgroup of another group](../user/group/subgroups/_index.md#change-who-can-create-subgroups).
 
 ## Administering groups
 
-You can administer all groups in the GitLab instance from the Admin Area's Groups page.
+{{< history >}}
 
-To access the Groups page:
+- New look [introduced](https://gitlab.com/groups/gitlab-org/-/epics/17783) in GitLab 18.2 [with a flag](feature_flags/_index.md) named `admin_groups_vue`. Disabled by default.
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Groups**.
+{{< /history >}}
 
-For each group, the page displays their name, description, size, number of projects in the group,
-number of members, and whether the group is private, internal, or public. To edit a group, in the group's row, select **Edit**. To delete the group, in the group's row, select **Delete**.
+{{< alert type="flag" >}}
 
-To change the sort order, select the sort dropdown list and select the desired order. The default
-sort order is by **Last created**.
+The availability of this feature is controlled by a feature flag.
+For more information, see the history.
 
-To search for groups by name, enter your criteria in the search field. The group search is case
-insensitive, and applies partial matching.
+{{< /alert >}}
 
-To [Create a new group](../user/group/index.md#create-a-group) select **New group**.
+To administer all groups in the GitLab instance:
+
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Groups**. The page shows each group's:
+
+   - Name
+   - Description
+   - Visibility level
+   - Role
+   - Status
+   - Storage size
+   - Number of subgroups
+   - Number of projects
+   - Member count
+
+1. Optional. Select a tab:
+
+   - **Active** shows all active groups.
+   - **Inactive** shows groups that are pending deletion.
+
+1. Optional. To change the sort order, select the sort dropdown list and choose the desired order.
+   The available sort options are:
+
+   - Name
+   - Created date
+   - Updated date
+   - [Storage size](../user/storage_usage_quotas.md)
+
+1. Optional. To filter groups by name, in the search bar, enter at least three characters.
+1. Optional. To [create a new group](../user/group/_index.md#create-a-group) select **New group**.
+
+### Edit a group
+
+To edit a group's name or description from the **Admin** area's Groups page:
+
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Groups**.
+1. Find the group you want to edit and select **Actions** ({{< icon name="ellipsis_v" >}}) > **Edit**.
+1. Edit the **Group name** or **Group description**.
+1. Select **Save Changes**.
+
+### Delete a group
+
+To delete a group:
+
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Groups**.
+1. Find the group you want to edit and select **Actions** ({{< icon name="ellipsis_v" >}}) > **Delete**.
+1. On the confirmation dialog, select **Confirm**.
 
 ## Administering topics
 
-> - Merging topics [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/366884) in GitLab 15.5.
+{{< history >}}
 
-You can categorize and find similar projects with [topics](../user/project/project_topics.md).
+- Merging topics [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/366884) in GitLab 15.5.
+
+{{< /history >}}
+
+Categorize and find similar projects with [topics](../user/project/project_topics.md).
 
 ### View all topics
 
 To view all topics in the GitLab instance:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Topics**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Topics**.
 
 For each topic, the page displays its name and the number of projects labeled with the topic.
 
 ### Search for topics
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Topics**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Topics**.
 1. In the search box, enter your search criteria.
    The topic search is case-insensitive and applies partial matching.
 
@@ -272,8 +353,8 @@ For each topic, the page displays its name and the number of projects labeled wi
 
 To create a topic:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Topics**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Topics**.
 1. Select **New topic**.
 1. Enter the **Topic slug (name)** and **Topic title**.
 1. Optional. Enter a **Description** and add a **Topic avatar**.
@@ -281,7 +362,6 @@ To create a topic:
 
 The created topics are displayed on the **Explore topics** page.
 
-NOTE:
 The assigned topics are visible only to everyone with access to the project,
 but everyone can see which topics exist on the GitLab instance.
 Do not include sensitive information in the name of a topic.
@@ -291,8 +371,8 @@ Do not include sensitive information in the name of a topic.
 You can edit a topic's name, title, description, and avatar at any time.
 To edit a topic:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Topics**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Topics**.
 1. Select **Edit** in that topic's row.
 1. Edit the topic slug (name), title, description, or avatar.
 1. Select **Save changes**.
@@ -302,8 +382,8 @@ To edit a topic:
 If you no longer need a topic, you can permanently remove it.
 To remove a topic:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Topics**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Topics**.
 1. To remove a topic, select **Remove** in that topic's row.
 
 ### Merge topics
@@ -314,8 +394,8 @@ After a merged topic is deleted, you cannot restore it.
 
 To merge topics:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Topics**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Topics**.
 1. Select **Merge topics**.
 1. From the **Source topic** dropdown list, select the topic you want to merge and remove.
 1. From the **Target topic** dropdown list, select the topic you want to merge the source topic into.
@@ -323,15 +403,15 @@ To merge topics:
 
 ## Administering Gitaly servers
 
-You can list all Gitaly servers in the GitLab instance from the Admin Area's **Gitaly Servers**
-page. For more details, see [Gitaly](gitaly/index.md).
+You can list all Gitaly servers in the GitLab instance from the **Admin** area's **Gitaly servers**
+page. For more details, see [Gitaly](gitaly/_index.md).
 
-To access the **Gitaly Servers** page:
+To access the **Gitaly servers** page:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Gitaly Servers**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Gitaly servers**.
 
-For each Gitaly server, the following details are listed:
+The page includes this information about each Gitaly server:
 
 | Field          | Description |
 |----------------|-------------|
@@ -341,57 +421,56 @@ For each Gitaly server, the following details are listed:
 | Git version    | Version of Git installed on the Gitaly server |
 | Up to date     | Indicates if the Gitaly server version is the latest version available. A green dot indicates the server is up to date. |
 
+## Administering organizations
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/419540) in GitLab 16.10 [with a flag](feature_flags/_index.md) named `ui_for_organizations`. Disabled by default.
+
+{{< /history >}}
+
+{{< alert type="flag" >}}
+
+On GitLab Self-Managed, by default this feature is not available. To make it available, an administrator
+can [enable the feature flag](feature_flags/_index.md) named `ui_for_organizations`.
+On GitLab.com and GitLab Dedicated, this feature is not available.
+This feature is not ready for production use.
+
+{{< /alert >}}
+
+The Organizations page in the **Admin** area lists all projects by default, in reverse order of when
+they were last updated. Each project shows:
+
+- Name
+- Namespace
+- Description
+- Size, updated every 15 minutes at most
+
+To administer all organizations in the GitLab instance from this page:
+
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Organizations**.
+
 ## CI/CD section
 
 ### Administering runners
 
-> - [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/340859) from **Overview > Runners** to **CI/CD > Runners** in GitLab 15.8.
+{{< history >}}
 
-You can administer all runners in the GitLab instance from the Admin Area's **Runners** page. See
-[GitLab Runner](https://docs.gitlab.com/runner/) for more information.
+- [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/340859) from **Overview** > **Runners** to **CI/CD** > **Runners** in GitLab 15.8.
 
-To access the **Runners** page:
+{{< /history >}}
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Runners**.
+To administer all runners in the GitLab instance:
 
-#### Search and filter runners
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **CI/CD** > **Runners**.
 
-To search runners' descriptions:
-
-1. In the **Search or filter results** text box, type the description of the runner you want to
-   find.
-1. Press <kbd>Enter</kbd>.
-
-You can also filter runners by status, type, and tag. To filter:
-
-1. Select a tab or the **Search or filter results** text box.
-1. Select any **Type**, or filter by **Status** or **Tags**.
-1. Select or enter your search criteria.
-
-![Attributes of a runner filtered by status](img/index_runners_search_or_filter_v14_5.png)
-
-#### Bulk delete runners
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/370241) in GitLab 15.4.
-> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/353981) in GitLab 15.5.
-
-You can delete multiple runners at the same time.
-
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Overview > Runners**.
-1. To the left of the runners you want to delete, select the checkbox.
-   To select all of the runners on the page, select the checkbox above
-   the list.
-1. Select **Delete selected**.
-
-#### Runner attributes
-
-For each runner, the following attributes are listed:
+This information is shown for each runner:
 
 | Attribute    | Description |
 |--------------|-------------|
-| Status       | The status of the runner. In [GitLab 15.1 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/22224), for the **Ultimate** tier, the upgrade status is available. |
+| Status       | The status of the runner. In [GitLab 15.1 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/22224), for the Ultimate tier, the upgrade status is available. |
 | Runner details | Information about the runner, including partial token and details about the computer the runner was registered from. |
 | Version      | GitLab Runner version. |
 | Jobs         | Total number of jobs run by the runner. |
@@ -400,16 +479,54 @@ For each runner, the following attributes are listed:
 
 You can also edit, pause, or remove each runner.
 
-### Administering Jobs
+For more information, see [GitLab Runner](https://docs.gitlab.com/runner/).
 
-> - [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/386311) from **Overview > Jobs** to **CI/CD > Jobs** in GitLab 15.8.
+#### Search and filter runners
 
-You can administer all jobs in the GitLab instance from the Admin Area's Jobs page.
+To search runners' descriptions:
 
-To access the Jobs page:
+1. In the **Search or filter results** text box, enter the description of the runner you want to
+   find.
+1. Press <kbd>Enter</kbd>.
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **CI/CD > Jobs**. All jobs are listed, in descending order of job ID.
+To filter runners by status, type, and tag:
+
+1. Select a tab or the **Search or filter results** text box.
+1. Select any **Type**, or filter by **Status** or **Tags**.
+1. Select or enter your search criteria.
+
+![Attributes of a runner filtered by status.](img/index_runners_search_or_filter_v14_5.png)
+
+#### Bulk delete runners
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/370241) in GitLab 15.4.
+- [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/353981) in GitLab 15.5.
+
+{{< /history >}}
+
+To delete multiple runners at the same time:
+
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Overview** > **Runners**.
+1. To the left of the runner you want to delete, select the checkbox.
+   To select all runners on the page, select the checkbox above
+   the list.
+1. Select **Delete selected**.
+
+### Administering jobs
+
+{{< history >}}
+
+- [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/386311) from **Overview** > **Jobs** to **CI/CD** > **Jobs** in GitLab 15.8.
+
+{{< /history >}}
+
+To administer all jobs in the GitLab instance:
+
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **CI/CD** > **Jobs**. All jobs are listed, in descending order of job ID.
 1. Select the **All** tab to list all jobs. Select the **Pending**, **Running**, or **Finished**
    tab to list only jobs of that status.
 
@@ -417,7 +534,7 @@ For each job, the following details are listed:
 
 | Field    | Description |
 |----------|-------------|
-| Status   | Job status, either **passed**, **skipped**, or **failed**.              |
+| Status   | Job status. One of **passed**, **skipped**, or **failed**.              |
 | Job      | Includes links to the job, branch, and the commit that started the job. |
 | Pipeline | Includes a link to the specific pipeline.                               |
 | Project  | Name of the project, and organization, to which the job belongs.        |
@@ -429,11 +546,15 @@ For each job, the following details are listed:
 
 ## Monitoring section
 
-The following topics document the **Monitoring** section of the Admin Area.
+The following topics document the **Monitoring** section of the **Admin** area.
 
-### System Information
+### System information
 
-> - Support for relative time [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/341248) in GitLab 15.2. "Uptime" statistic was renamed to "System started".
+{{< history >}}
+
+- Support for relative time [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/341248) in GitLab 15.2. "Uptime" statistic was renamed to "System started".
+
+{{< /history >}}
 
 The **System information** page provides the following statistics:
 
@@ -444,16 +565,17 @@ The **System information** page provides the following statistics:
 | Disk Usage     | Disk space in use, and total disk space available |
 | System started | When the system hosting GitLab was started. In GitLab 15.1 and earlier, this was an uptime statistic. |
 
-These statistics are updated only when you go to the **System information** page, or you refresh the page in your browser.
+These statistics are updated only when you go to the **System information** page, or you refresh the
+page in your browser.
 
-### Background Jobs
+### Background jobs
 
-The **Background Jobs** page displays the Sidekiq dashboard. Sidekiq is used by GitLab to
-perform processing in the background.
+The **Background jobs** page displays the Sidekiq dashboard. Sidekiq is used by GitLab to
+perform background processes.
 
-The Sidekiq dashboard consists of the following elements:
+The Sidekiq dashboard contains:
 
-- A tab per jobs' status.
+- A tab for each [job's lifecycle status](https://github.com/sidekiq/sidekiq/wiki/Job-Lifecycle).
 - A breakdown of background job statistics.
 - A live graph of **Processed** and **Failed** jobs, with a selectable polling interval.
 - An historical graph of **Processed** and **Failed** jobs, with a selectable time span.
@@ -466,9 +588,9 @@ The Sidekiq dashboard consists of the following elements:
 
 ### Logs
 
-**Log** view has been removed from the Admin Area dashboard since the logging does not work in multi-node setups and could cause confusion for administrators by displaying partial information.
-
-For multi-node systems we recommend ingesting the logs into services like Elasticsearch and Splunk.
+The contents of these log files can help troubleshoot a problem. The content of each log file is
+listed in chronological order. To minimize performance issues, a maximum 2000 lines of each log file
+are shown.
 
 | Log file                | Contents |
 |:------------------------|:---------|
@@ -480,24 +602,32 @@ For multi-node systems we recommend ingesting the logs into services like Elasti
 | `integrations_json.log` | Activity between GitLab and integrated systems |
 | `kubernetes.log`        | Kubernetes activity |
 
-The contents of these log files can be useful when troubleshooting a problem.
+For details of these log files and their contents, see [Log system](logs/_index.md).
 
-For details of these log files and their contents, see [Log system](logs/index.md).
+The **Log** view has been removed from the **Admin** area dashboard to prevent confusion for administrators
+of multi-node systems. This view presents partial information for multi-node setups. For multi-node
+systems, ingest the logs into services like Elasticsearch and Splunk.
 
-The content of each log file is listed in chronological order. To minimize performance issues, a maximum 2000 lines of each log file are shown.
+### Audit events
 
-### Audit Events
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
 
-The **Audit Events** page lists changes made within the GitLab server. With this information you can control, analyze, and track every change.
+{{< /details >}}
+
+The **Audit events** page lists changes made to the GitLab server. Use this information to
+control, analyze, and track every change.
 
 ### Statistics
 
-The **Instance overview** section of the Dashboard lists the current statistics of the GitLab instance. This information is retrieved using the [Application statistics API](../api/statistics.md#get-current-application-statistics).
+The **Instance overview** section of the Dashboard lists the current statistics of the GitLab instance.
+Retrieve this information with the
+[Application statistics API](../api/statistics.md#get-details-on-current-application-statistics).
 
-NOTE:
-These statistics show exact counts for values less than 10,000. For values of 10,000 and higher, these statistics show approximate data
-when [TablesampleCountStrategy](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/database/count/tablesample_count_strategy.rb?ref_type=heads#L16) and [ReltuplesCountStrategy](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/database/count/reltuples_count_strategy.rb?ref_type=heads) strategies are used for calculations.
+These statistics show exact counts for values less than 10,000. For values of 10,000 and higher,
+these statistics show approximate data
+when [`TablesampleCountStrategy`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/database/count/tablesample_count_strategy.rb?ref_type=heads#L16) and
+[`ReltuplesCountStrategy`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/database/count/reltuples_count_strategy.rb?ref_type=heads)
+strategies are used for calculations.

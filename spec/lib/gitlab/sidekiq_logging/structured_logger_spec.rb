@@ -2,11 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::SidekiqLogging::StructuredLogger do
+RSpec.describe Gitlab::SidekiqLogging::StructuredLogger, feature_category: :shared do
   before do
     # We disable a memory instrumentation feature
     # as this requires a special patched Ruby
     allow(Gitlab::Memory::Instrumentation).to receive(:available?) { false }
+
+    # We disable Thread.current.name there could be state leak from other specs.
+    allow(Thread.current).to receive(:name).and_return(nil)
+    Thread.current[:sidekiq_capsule] = Sidekiq::Capsule.new('test', Sidekiq.default_configuration)
+  end
+
+  after do
+    Thread.current[:sidekiq_capsule] = nil
   end
 
   describe '#call', :request_store do
@@ -181,7 +189,7 @@ RSpec.describe Gitlab::SidekiqLogging::StructuredLogger do
 
       it 'logs without created_at and enqueued_at fields' do
         travel_to(timestamp) do
-          excluded_fields = %w[created_at enqueued_at args scheduling_latency_s]
+          excluded_fields = %w[created_at enqueued_at args queue_duration_s scheduling_latency_s]
 
           expect(logger).to receive(:info).with(start_payload.except(*excluded_fields)).ordered
           expect(logger).to receive(:info).with(end_payload.except(*excluded_fields)).ordered
@@ -196,6 +204,7 @@ RSpec.describe Gitlab::SidekiqLogging::StructuredLogger do
     context 'with latency' do
       let(:created_at) { Time.iso8601('2018-01-01T10:00:00.000Z') }
       let(:scheduling_latency_s) { 7200.0 }
+      let(:queue_duration_s) { scheduling_latency_s }
 
       it 'logs with scheduling latency' do
         travel_to(timestamp) do
@@ -284,12 +293,8 @@ RSpec.describe Gitlab::SidekiqLogging::StructuredLogger do
       let(:expected_end_payload_with_db) do
         expected_end_payload.merge(
           'db_duration_s' => a_value >= 0.1,
-          'db_count' => a_value >= 1,
           "db_#{db_config_name}_replica_count" => 0,
-          'db_replica_duration_s' => a_value >= 0,
-          'db_primary_count' => a_value >= 1,
           "db_#{db_config_name}_count" => a_value >= 1,
-          'db_primary_duration_s' => a_value > 0,
           "db_#{db_config_name}_duration_s" => a_value > 0
         )
       end
@@ -455,6 +460,36 @@ RSpec.describe Gitlab::SidekiqLogging::StructuredLogger do
       end
     end
 
+    context 'when the job is buffered' do
+      let(:buffered_at) { timestamp - 5.seconds }
+      let(:buffering_duration) { created_at - buffered_at }
+      let(:scheduling_latency_s) { timestamp - created_at }
+      let(:queue_duration_s) { buffering_duration + scheduling_latency_s }
+
+      let(:extra_fields) do
+        {
+          'concurrency_limit_buffering_duration_s' => buffering_duration,
+          'scheduling_latency_s' => scheduling_latency_s,
+          'concurrency_limit_buffered_at' => buffered_at
+        }
+      end
+
+      let(:buffered_job) { job.merge('concurrency_limit_buffered_at' => buffered_at) }
+      let(:expected_start_payload) { start_payload.merge(extra_fields) }
+      let(:expected_end_payload) { end_payload.merge(extra_fields) }
+
+      it 'logs start and end of job with "concurrency_limit_buffering_duration_s" job_status' do
+        travel_to(timestamp) do
+          expect(logger).to receive(:info).with(expected_start_payload).ordered
+          expect(logger).to receive(:info).with(expected_end_payload).ordered
+          expect(subject).to receive(:log_job_start).and_call_original
+          expect(subject).to receive(:log_job_done).and_call_original
+
+          call_subject(buffered_job, 'test_queue') {}
+        end
+      end
+    end
+
     context 'with a real worker' do
       let(:worker_class) { AuthorizedKeysWorker.name }
 
@@ -477,6 +512,17 @@ RSpec.describe Gitlab::SidekiqLogging::StructuredLogger do
         end
       end
     end
+
+    context "when a thread name is set" do
+      it "includes the name in the payload" do
+        allow(Thread.current).to receive(:name).and_return("sidekiq-worker")
+
+        expect(logger).to receive(:info).with(a_hash_including('sidekiq_thread_name' => 'sidekiq-worker')).ordered
+        expect(logger).to receive(:info).with(a_hash_including('sidekiq_thread_name' => 'sidekiq-worker')).ordered
+
+        call_subject(job, 'test_queue') {}
+      end
+    end
   end
 
   describe '#add_time_keys!' do
@@ -492,7 +538,13 @@ RSpec.describe Gitlab::SidekiqLogging::StructuredLogger do
         'completed_at' => current_utc_time.to_i }
     end
 
-    subject { described_class.new(Sidekiq.logger) }
+    let(:config) do
+      config = Sidekiq::Config.new
+      config.logger = Sidekiq.logger
+      config
+    end
+
+    subject { described_class.new(config) }
 
     it 'update payload correctly' do
       travel_to(current_utc_time) do

@@ -15,7 +15,6 @@ RSpec.describe Integrations::Jira, feature_category: :integrations do
   let(:jira_issue_prefix) { '' }
   let(:jira_issue_regex) { '' }
   let(:password) { 'jira-password' }
-  let(:project_key) { 'TEST' }
   let(:project_keys) { %w[TEST1 TEST2] }
   let(:transition_id) { 'test27' }
   let(:server_info_results) { { 'deploymentType' => 'Cloud' } }
@@ -26,7 +25,6 @@ RSpec.describe Integrations::Jira, feature_category: :integrations do
       url: url,
       username: username,
       password: password,
-      project_key: project_key,
       project_keys: project_keys
     )
   end
@@ -223,7 +221,18 @@ RSpec.describe Integrations::Jira, feature_category: :integrations do
     subject(:fields) { integration.fields }
 
     it 'returns custom fields' do
-      expect(fields.pluck(:name)).to eq(%w[url api_url jira_auth_type username password jira_issue_regex jira_issue_prefix jira_issue_transition_id issues_enabled project_keys])
+      expect(fields.pluck(:name)).to include(
+        'url',
+        'api_url',
+        'jira_auth_type',
+        'username',
+        'password',
+        'jira_issue_regex',
+        'jira_issue_prefix',
+        'jira_issue_transition_id',
+        'issues_enabled',
+        'project_keys'
+      )
     end
   end
 
@@ -239,11 +248,6 @@ RSpec.describe Integrations::Jira, feature_category: :integrations do
 
       it 'includes SECTION_TYPE_JIRA_ISSUES' do
         expect(sections).to include(described_class::SECTION_TYPE_JIRA_ISSUES)
-      end
-
-      it 'section SECTION_TYPE_JIRA_ISSUES has `plan` attribute' do
-        jira_issues_section = integration.sections.find { |s| s[:type] == described_class::SECTION_TYPE_JIRA_ISSUES }
-        expect(jira_issues_section[:plan]).to eq('premium')
       end
     end
 
@@ -408,7 +412,6 @@ RSpec.describe Integrations::Jira, feature_category: :integrations do
         jira_issue_regex: jira_issue_regex,
         jira_issue_prefix: jira_issue_prefix,
         jira_issue_transition_id: transition_id,
-        project_key: project_key,
         project_keys: project_keys
       }
     end
@@ -429,7 +432,6 @@ RSpec.describe Integrations::Jira, feature_category: :integrations do
       expect(integration.jira_tracker_data.jira_issue_prefix).to eq(jira_issue_prefix)
       expect(integration.jira_tracker_data.jira_issue_transition_id).to eq(transition_id)
       expect(integration.jira_tracker_data.deployment_cloud?).to be_truthy
-      expect(integration.jira_tracker_data.project_key).to eq(project_key)
       expect(integration.jira_tracker_data.project_keys).to eq(project_keys)
     end
 
@@ -1086,6 +1088,8 @@ RSpec.describe Integrations::Jira, feature_category: :integrations do
     shared_examples 'handles cross-references' do
       let(:resource_name) { jira_integration.send(:mentionable_name, resource) }
       let(:resource_url) { jira_integration.send(:build_entity_url, resource_name, resource.to_param) }
+      let(:resource_human_name) { resource.model_name.human }
+      let(:plural_resource_human_name) { resource_name.pluralize.humanize(capitalize: false) }
       let(:issue_url) { "#{url}/rest/api/2/issue/JIRA-123" }
       let(:comment_url) { "#{issue_url}/comment" }
       let(:remote_link_url) { "#{issue_url}/remotelink" }
@@ -1111,7 +1115,7 @@ RSpec.describe Integrations::Jira, feature_category: :integrations do
               relationship: 'mentioned on',
               object: {
                 url: resource_url,
-                title: "#{resource.model_name.human} - #{resource.title}",
+                title: "#{resource_human_name} - #{resource.title}",
                 icon: { title: 'GitLab', url16x16: favicon_path },
                 status: { resolved: false }
               }
@@ -1152,7 +1156,7 @@ RSpec.describe Integrations::Jira, feature_category: :integrations do
         end
 
         it 'does not create a comment or remote link' do
-          expect(subject).to eq("Events for #{resource_name.pluralize.humanize(capitalize: false)} are disabled.")
+          expect(subject).to eq("Events for #{plural_resource_human_name} are disabled.")
           expect(WebMock).not_to have_requested(:post, comment_url)
           expect(WebMock).not_to have_requested(:post, remote_link_url)
         end
@@ -1190,6 +1194,17 @@ RSpec.describe Integrations::Jira, feature_category: :integrations do
       end
     end
 
+    context 'for work items' do
+      it_behaves_like 'handles cross-references' do
+        let(:resource) { build_stubbed(:work_item, project: project) }
+        let(:comment_body) { /mentioned this issue in \[a work item\|/ }
+
+        it 'uses work item iid for resource url' do
+          expect(resource_url).to include("/-/work_items/#{resource.iid}")
+        end
+      end
+    end
+
     context 'for merge requests' do
       it_behaves_like 'handles cross-references' do
         let(:resource) { build_stubbed(:merge_request, source_project: project) }
@@ -1206,7 +1221,9 @@ RSpec.describe Integrations::Jira, feature_category: :integrations do
 
     context 'for snippets' do
       it_behaves_like 'handles cross-references' do
-        let(:resource) { build_stubbed(:snippet, project: project) }
+        let(:resource) { build_stubbed(:project_snippet, project: project) }
+        let(:resource_human_name) { 'Snippet' }
+        let(:plural_resource_human_name) { 'project snippets' }
         let(:comment_body) { /mentioned this issue in \[a snippet\|/ }
       end
     end

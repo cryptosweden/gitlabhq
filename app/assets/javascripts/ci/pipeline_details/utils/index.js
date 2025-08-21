@@ -46,11 +46,9 @@ export const createNodeDict = (nodes, { needsKey = NEEDS_PROPERTY } = {}) => {
       needs: node.jobs.map((job) => job[needsKey] || []).flat(),
     };
 
-    if (node.size > 1) {
-      node.jobs.forEach((job) => {
-        acc[job.name] = newNode;
-      });
-    }
+    node.jobs.forEach((job) => {
+      acc[job.name] = newNode;
+    });
 
     acc[node.name] = newNode;
     return acc;
@@ -144,4 +142,8 @@ export const graphqlEtagPipelinePath = (graphqlPath, pipelineId) => {
 
 export const graphqlEtagMergeRequestPipelines = (graphqlPath, mergeRequestId) => {
   return `${graphqlPath}merge_requests/id/${mergeRequestId}`;
+};
+
+export const graphqlEtagStagePath = (graphqlPath, stageId) => {
+  return `${graphqlPath}/stages/id/${stageId}`;
 };

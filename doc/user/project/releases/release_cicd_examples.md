@@ -2,9 +2,8 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Release CI/CD examples
 ---
-
-# Release CI/CD examples
 
 GitLab release functionality is flexible, able to be configured to match your workflow. This page
 features example CI/CD release jobs. Each example demonstrates a method of creating a release in a
@@ -20,11 +19,14 @@ In this CI/CD example, the release is triggered by one of the following events:
 You can use this method if you prefer to create the Git tag manually, and create a release as a
 result.
 
-NOTE:
+{{< alert type="note" >}}
+
 Do not provide Release notes when you create the Git tag in the UI. Providing release notes
 creates a release, resulting in the pipeline failing.
 
-Key points in the following _extract_ of an example `.gitlab-ci.yml` file:
+{{< /alert >}}
+
+Key points in the following extract of an example `.gitlab-ci.yml` file:
 
 - The `rules` stanza defines when the job is added to the pipeline.
 - The Git tag is used in the release's name and description.
@@ -32,7 +34,7 @@ Key points in the following _extract_ of an example `.gitlab-ci.yml` file:
 ```yaml
 release_job:
   stage: release
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  image: registry.gitlab.com/gitlab-org/cli:latest
   rules:
     - if: $CI_COMMIT_TAG                 # Run this job when a tag is created
   script:
@@ -47,7 +49,7 @@ release_job:
 In this CI/CD example, the release is triggered when you merge a commit to the default branch. You
 can use this method if your release workflow does not create a tag manually.
 
-Key points in the following _extract_ of an example `.gitlab-ci.yml` file:
+Key points in the following extract of an example `.gitlab-ci.yml` file:
 
 - The Git tag, description, and reference are created automatically in the pipeline.
 - If you manually create a tag, the `release_job` job does not run.
@@ -55,7 +57,7 @@ Key points in the following _extract_ of an example `.gitlab-ci.yml` file:
 ```yaml
 release_job:
   stage: release
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  image: registry.gitlab.com/gitlab-org/cli:latest
   rules:
     - if: $CI_COMMIT_TAG
       when: never                                  # Do not run this job when a tag is created manually
@@ -68,10 +70,13 @@ release_job:
     ref: '$CI_COMMIT_SHA'                          # The tag is created from the pipeline SHA.
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 Environment variables set in `before_script` or `script` are not available for expanding
 in the same job. Read more about
 [potentially making variables available for expanding](https://gitlab.com/gitlab-org/gitlab-runner/-/issues/6400).
+
+{{< /alert >}}
 
 ## Create release metadata in a custom script
 
@@ -79,10 +84,10 @@ In this CI/CD example the release preparation is split into separate jobs for gr
 
 - The `prepare_job` job generates the release metadata. Any image can be used to run the job,
   including a custom image. The generated metadata is stored in the variable file `variables.env`.
-  This metadata is [passed to the downstream job](../../../ci/variables/index.md#pass-an-environment-variable-to-another-job).
+  This metadata is [passed to the downstream job](../../../ci/variables/job_scripts.md#pass-an-environment-variable-to-another-job).
 - The `release_job` uses the content from the variables file to create a release, using the
   metadata passed to it in the variables file. This job must use the
-  `registry.gitlab.com/gitlab-org/release-cli:latest` image because it contains the release CLI.
+  `registry.gitlab.com/gitlab-org/cli:latest` image because it contains the `glab` CLI.
 
 ```yaml
 prepare_job:
@@ -100,7 +105,7 @@ prepare_job:
 
 release_job:
   stage: release
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  image: registry.gitlab.com/gitlab-org/cli:latest
   needs:
     - job: prepare_job
       artifacts: true
@@ -112,7 +117,7 @@ release_job:
     - echo "running release_job for $TAG"
   release:
     name: 'Release $TAG'
-    description: 'Created using the release-cli $EXTRA_DESCRIPTION'  # $EXTRA_DESCRIPTION and the $TAG
+    description: 'Created using the CLI $EXTRA_DESCRIPTION'  # $EXTRA_DESCRIPTION and the $TAG
     tag_name: '$TAG'                                                 # variables must be defined elsewhere
     ref: '$CI_COMMIT_SHA'                                            # in the pipeline. For example, in the
     milestones:                                                      # prepare_job
@@ -136,7 +141,7 @@ Creating a release using a CI/CD job could potentially trigger multiple pipeline
 
 - Tag first, release second:
 
-  1. A tag is created via UI or pushed.
+  1. A tag is created from the UI or pushed.
   1. A tag pipeline is triggered, and runs `release` job.
   1. A release is created.
 
@@ -147,7 +152,7 @@ Creating a release using a CI/CD job could potentially trigger multiple pipeline
   1. A tag is created.
   1. A tag pipeline is triggered. The pipeline also runs `release` job.
 
-In the second workflow, the `release` job runs in multiple pipelines. To prevent this, you can use the [`workflow:rules` keyword](../../../ci/yaml/index.md#workflowrules) to determine if a release job should run in a tag pipeline:
+In the second workflow, the `release` job runs in multiple pipelines. To prevent this, you can use the [`workflow:rules` keyword](../../../ci/yaml/_index.md#workflowrules) to determine if a release job should run in a tag pipeline:
 
 ```yaml
 release_job:

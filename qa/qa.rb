@@ -7,19 +7,17 @@ require 'gitlab/utils/all'
 require_relative '../lib/gitlab_edition'
 require_relative '../config/initializers/0_inject_enterprise_edition_module'
 
-require_relative 'lib/gitlab'
-
 require_relative '../config/bundler_setup'
 Bundler.require(:default)
 
 require 'securerandom'
 require 'pathname'
 require 'rainbow/refinement'
+require 'active_support'
 require 'active_support/core_ext/hash'
 require 'active_support/core_ext/object/blank'
 require 'active_support/core_ext/module/delegation'
 require 'active_support/parameter_filter'
-
 module QA
   root = "#{__dir__}/qa"
 
@@ -89,7 +87,7 @@ module QA
     "fips" => "FIPS",
     "ci_cd_settings" => "CICDSettings",
     "cli" => "CLI",
-    "webgoat" => "Webgoat"
+    "import_with_smtp" => "ImportWithSMTP"
   )
 
   loader.setup
@@ -101,24 +99,7 @@ Warning.process do |warning|
   QA::Runtime::Logger.warn(warning.strip)
 end
 
-Warning.ignore(/already initialized constant Chemlab::Vendor|previous definition of Vendor was here/)
-
-# TODO: Temporary monkeypatch for broadcast logging
-# Remove once activesupport is upgraded to 7.1
-module Gitlab
-  module QA
-    class TestLogger
-      # Combined logger instance
-      #
-      # @param [<Symbol, String>] level
-      # @param [String] source
-      # @return [ActiveSupport::Logger]
-      def self.logger(level: :info, source: 'Gitlab QA', path: 'tmp')
-        console_log = console_logger(level: level, source: source)
-        file_log = file_logger(source: source, path: path)
-
-        console_log.extend(ActiveSupport::Logger.broadcast(file_log))
-      end
-    end
-  end
-end
+# ignore faraday-multipart warning produced by octokit as it is only required for functionality we don't use
+# see: https://github.com/octokit/octokit.rb/issues/1701
+Warning.ignore(/To use multipart middleware with Faraday v2\.0/)
+require "octokit"

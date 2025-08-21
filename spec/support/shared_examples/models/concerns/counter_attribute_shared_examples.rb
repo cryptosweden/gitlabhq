@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 require 'spec_helper'
 
 RSpec.shared_examples_for CounterAttribute do |counter_attributes|
@@ -7,7 +8,7 @@ RSpec.shared_examples_for CounterAttribute do |counter_attributes|
   end
 
   it 'defines a method to store counters' do
-    registered_attributes = model.class.counter_attributes.map { |e| e[:attribute] } # rubocop:disable Rails/Pluck
+    registered_attributes = model.class.counter_attributes.keys
     expect(registered_attributes).to contain_exactly(*counter_attributes)
   end
 
@@ -18,9 +19,7 @@ RSpec.shared_examples_for CounterAttribute do |counter_attributes|
         let(:increment) { Gitlab::Counters::Increment.new(amount: amount, ref: 3) }
         let(:counter_key) { model.counter(attribute).key }
         let(:returns_current) do
-          model.class.counter_attributes
-               .find { |a| a[:attribute] == attribute }
-               .fetch(:returns_current, false)
+          model.class.counter_attributes[attribute].fetch(:returns_current, false)
         end
 
         subject { model.increment_counter(attribute, increment) }
@@ -59,7 +58,7 @@ RSpec.shared_examples_for CounterAttribute do |counter_attributes|
 
             it 'schedules a worker to flush counter increments asynchronously' do
               expect(FlushCounterIncrementsWorker).to receive(:perform_in)
-                .with(Gitlab::Counters::BufferedCounter::WORKER_DELAY, model.class.name, model.id, attribute)
+                .with(Gitlab::Counters::BufferedCounter::WORKER_DELAY, model.class.name, model.id, attribute.to_s)
                 .and_call_original
 
               subject
@@ -176,7 +175,7 @@ RSpec.shared_examples_for CounterAttribute do |counter_attributes|
 
           it 'schedules a worker to flush counter increments asynchronously' do
             expect(FlushCounterIncrementsWorker).to receive(:perform_in)
-              .with(Gitlab::Counters::BufferedCounter::WORKER_DELAY, model.class.name, model.id, attribute)
+              .with(Gitlab::Counters::BufferedCounter::WORKER_DELAY, model.class.name, model.id, attribute.to_s)
               .and_call_original
 
             subject

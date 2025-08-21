@@ -2,8 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :clean_gitlab_redis_cache, feature_category: :continuous_integration do
+RSpec.describe Ci::CreatePipelineService, :clean_gitlab_redis_cache, feature_category: :continuous_integration do
   include ProjectForksHelper
+  include Ci::PipelineMessageHelpers
 
   let_it_be_with_refind(:project) { create(:project, :repository) }
   let_it_be_with_reload(:user) { project.first_owner }
@@ -11,6 +12,8 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
   let(:ref_name) { 'refs/heads/master' }
 
   before do
+    stub_feature_flags(ci_validate_config_options: false)
+    project.update!(ci_pipeline_variables_minimum_override_role: :maintainer)
     stub_ci_pipeline_to_return_yaml_file
   end
 
@@ -21,25 +24,27 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
       before: '00000000',
       after: project.commit.id,
       ref: ref_name,
-      trigger_request: nil,
       variables_attributes: nil,
       merge_request: nil,
       external_pull_request: nil,
       push_options: nil,
       source_sha: nil,
       target_sha: nil,
-      save_on_errors: true)
+      partition_id: nil,
+      save_on_errors: true,
+      pipeline_creation_request: nil)
       params = { ref: ref,
                  before: before,
                  after: after,
                  variables_attributes: variables_attributes,
                  push_options: push_options,
                  source_sha: source_sha,
-                 target_sha: target_sha }
+                 target_sha: target_sha,
+                 partition_id: partition_id,
+                 pipeline_creation_request: pipeline_creation_request }
 
       described_class.new(project, user, params).execute(source,
         save_on_errors: save_on_errors,
-        trigger_request: trigger_request,
         merge_request: merge_request,
         external_pull_request: external_pull_request) do |pipeline|
         yield(pipeline) if block_given?
@@ -51,29 +56,29 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
       it_behaves_like 'pipelines are created without N+1 SQL queries' do
         let(:config1) do
           <<~YAML
-          job1:
-            stage: build
-            script: exit 0
+            job1:
+              stage: build
+              script: exit 0
 
-          job2:
-            stage: test
-            script: exit 0
+            job2:
+              stage: test
+              script: exit 0
           YAML
         end
 
         let(:config2) do
           <<~YAML
-          job1:
-            stage: build
-            script: exit 0
+            job1:
+              stage: build
+              script: exit 0
 
-          job2:
-            stage: test
-            script: exit 0
+            job2:
+              stage: test
+              script: exit 0
 
-          job3:
-            stage: deploy
-            script: exit 0
+            job3:
+              stage: deploy
+              script: exit 0
           YAML
         end
 
@@ -112,7 +117,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
         expect(pipeline.iid).not_to be_nil
         expect(pipeline.repository_source?).to be true
         expect(pipeline.builds.first).to be_kind_of(Ci::Build)
-        expect(pipeline.yaml_errors).not_to be_present
+        expect(pipeline.error_messages).to be_empty
       end
 
       it 'increments the prometheus counter' do
@@ -431,7 +436,6 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
       expect(response.message).to eq('Missing CI config file')
       expect(response.payload).not_to be_persisted
       expect(Ci::Pipeline.count).to eq(0)
-      expect(Onboarding::PipelineCreatedWorker).not_to receive(:perform_async)
     end
 
     shared_examples 'a failed pipeline' do
@@ -443,7 +447,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
         expect(pipeline).to be_persisted
         expect(pipeline.builds.any?).to be false
         expect(pipeline.status).to eq('failed')
-        expect(pipeline.yaml_errors).not_to be_nil
+        expect(pipeline.error_messages).not_to be_empty
       end
     end
 
@@ -498,7 +502,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
         it 'saves error in pipeline' do
           pipeline = execute_service.payload
 
-          expect(pipeline.yaml_errors).to include('Undefined error')
+          expect(pipeline.error_messages[0].content).to include('Undefined error')
         end
 
         it 'logs error' do
@@ -590,7 +594,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
       it 'saves error in pipeline' do
         pipeline = execute_service.payload
 
-        expect(pipeline.yaml_errors).to include('Undefined error')
+        expect(pipeline.error_messages[0].content).to include('Undefined error')
       end
 
       it 'logs error' do
@@ -672,10 +676,9 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
         { 'ci' => { 'skip' => true } }
       end
 
-      it 'creates a pipline in the skipped state' do
+      it 'creates a pipeline in the skipped state' do
         pipeline = execute_service(push_options: push_options).payload
 
-        # TODO: DRY these up with "skips builds creation if the commit message"
         expect(pipeline).to be_persisted
         expect(pipeline.builds.any?).to be false
         expect(pipeline.status).to eq("skipped")
@@ -692,8 +695,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
         result = execute_service
 
         expect(result).to be_error
-        expect(result.message).to eq('Pipeline will not run for the selected trigger. ' \
-          'The rules configuration prevented any jobs from being added to the pipeline.')
+        expect(result.message).to eq(sanitize_message(Ci::Pipeline.rules_failure_message))
         expect(result.payload).not_to be_persisted
         expect(Ci::Build.all).to be_empty
         expect(Ci::Pipeline.count).to eq(0)
@@ -901,7 +903,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
           build = pipeline.builds.first
           expect(pipeline).to be_kind_of(Ci::Pipeline)
           expect(pipeline).to be_valid
-          expect(pipeline.yaml_errors).not_to be_present
+          expect(pipeline.error_messages).to be_empty
           expect(pipeline).to be_persisted
           expect(build).to be_kind_of(Ci::Build)
           expect(build.options).to eq(config[:release].except(:stage, :only))
@@ -984,10 +986,10 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
 
       context 'when trigger belongs to no one' do
         let(:user) {}
-        let(:trigger_request) { create(:ci_trigger_request) }
+        let(:trigger) { create(:ci_trigger, project: project) }
 
         it 'does not create a pipeline', :aggregate_failures do
-          response = execute_service(trigger_request: trigger_request)
+          response = execute_service
 
           expect(response).to be_error
           expect(response.payload).not_to be_persisted
@@ -997,15 +999,14 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
 
       context 'when trigger belongs to a developer' do
         let(:user) { create(:user) }
-        let(:trigger) { create(:ci_trigger, owner: user) }
-        let(:trigger_request) { create(:ci_trigger_request, trigger: trigger) }
+        let(:trigger) { create(:ci_trigger, owner: user, project: project) }
 
         before do
           project.add_developer(user)
         end
 
         it 'does not create a pipeline', :aggregate_failures do
-          response = execute_service(trigger_request: trigger_request)
+          response = execute_service
 
           expect(response).to be_error
           expect(response.payload).not_to be_persisted
@@ -1015,15 +1016,14 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
 
       context 'when trigger belongs to a maintainer' do
         let(:user) { create(:user) }
-        let(:trigger) { create(:ci_trigger, owner: user) }
-        let(:trigger_request) { create(:ci_trigger_request, trigger: trigger) }
+        let(:trigger) { create(:ci_trigger, owner: user, project: project) }
 
         before do
           project.add_maintainer(user)
         end
 
         it 'creates a pipeline' do
-          expect(execute_service(trigger_request: trigger_request).payload)
+          expect(execute_service.payload)
             .to be_persisted
           expect(Ci::Pipeline.count).to eq(1)
         end
@@ -1138,7 +1138,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
       context 'with valid pipeline variables' do
         let(:variables_attributes) do
           [{ key: 'first', secret_value: 'world' },
-           { key: 'second', secret_value: 'second_world' }]
+            { key: 'second', secret_value: 'second_world' }]
         end
 
         it 'creates a pipeline with specified variables' do
@@ -1150,7 +1150,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
       context 'with duplicate pipeline variables' do
         let(:variables_attributes) do
           [{ key: 'hello', secret_value: 'world' },
-           { key: 'hello', secret_value: 'second_world' }]
+            { key: 'hello', secret_value: 'second_world' }]
         end
 
         it 'fails to create the pipeline' do
@@ -1163,10 +1163,10 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
       context 'with more than one duplicate pipeline variable' do
         let(:variables_attributes) do
           [{ key: 'hello', secret_value: 'world' },
-           { key: 'hello', secret_value: 'second_world' },
-           { key: 'single', secret_value: 'variable' },
-           { key: 'other', secret_value: 'value' },
-           { key: 'other', secret_value: 'other value' }]
+            { key: 'hello', secret_value: 'second_world' },
+            { key: 'single', secret_value: 'variable' },
+            { key: 'other', secret_value: 'value' },
+            { key: 'other', secret_value: 'other value' }]
         end
 
         it 'fails to create the pipeline' do
@@ -1189,14 +1189,13 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
       end
 
       let(:pipeline) { response.payload }
+      let(:ref_name) { 'refs/heads/feature' }
+      let(:source_sha) { project.commit(ref_name).id }
+      let(:target_sha) { nil }
 
       before do
         stub_ci_pipeline_yaml_file(YAML.dump(config))
       end
-
-      let(:ref_name) { 'refs/heads/feature' }
-      let(:source_sha) { project.commit(ref_name).id }
-      let(:target_sha) { nil }
 
       context 'when source is external pull request' do
         let(:source) { :external_pull_request_event }
@@ -1263,11 +1262,9 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
 
               it 'does not create a detached merge request pipeline', :aggregate_failures do
                 expect(response).to be_error
-                expect(response.message).to eq('Pipeline will not run for the selected trigger. ' \
-                  'The rules configuration prevented any jobs from being added to the pipeline.')
+                expect(response.message).to eq(sanitize_message(Ci::Pipeline.rules_failure_message))
                 expect(pipeline).not_to be_persisted
-                expect(pipeline.errors[:base]).to eq(['Pipeline will not run for the selected trigger. ' \
-                  'The rules configuration prevented any jobs from being added to the pipeline.'])
+                expect(pipeline.errors[:base]).to eq([sanitize_message(Ci::Pipeline.rules_failure_message)])
               end
             end
           end
@@ -1347,14 +1344,13 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
       end
 
       let(:pipeline) { response.payload }
+      let(:ref_name) { 'refs/heads/feature' }
+      let(:source_sha) { project.commit(ref_name).id }
+      let(:target_sha) { nil }
 
       before do
         stub_ci_pipeline_yaml_file(YAML.dump(config))
       end
-
-      let(:ref_name) { 'refs/heads/feature' }
-      let(:source_sha) { project.commit(ref_name).id }
-      let(:target_sha) { nil }
 
       context 'when source is merge request' do
         let(:source) { :merge_request_event }
@@ -1411,13 +1407,6 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
               pipeline
 
               expect(MergeRequests::UpdateHeadPipelineWorker).to have_received(:perform_async).with('Ci::PipelineCreatedEvent', { 'pipeline_id' => pipeline.id })
-            end
-
-            it 'schedules a namespace onboarding create action worker' do
-              expect(Onboarding::PipelineCreatedWorker)
-                .to receive(:perform_async).with(project.namespace_id)
-
-              pipeline
             end
 
             context 'when target sha is specified' do
@@ -1477,8 +1466,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
 
               it 'does not create a detached merge request pipeline', :aggregate_failures do
                 expect(response).to be_error
-                expect(response.message).to eq('Pipeline will not run for the selected trigger. ' \
-                  'The rules configuration prevented any jobs from being added to the pipeline.')
+                expect(response.message).to eq(sanitize_message(Ci::Pipeline.rules_failure_message))
                 expect(pipeline).not_to be_persisted
               end
             end
@@ -1514,8 +1502,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
 
             it 'does not create a detached merge request pipeline', :aggregate_failures do
               expect(response).to be_error
-              expect(response.message).to eq('Pipeline will not run for the selected trigger. ' \
-                'The rules configuration prevented any jobs from being added to the pipeline.')
+              expect(response.message).to eq(sanitize_message(Ci::Pipeline.rules_failure_message))
               expect(pipeline).not_to be_persisted
             end
           end
@@ -1543,8 +1530,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
 
             it 'does not create a detached merge request pipeline', :aggregate_failures do
               expect(response).to be_error
-              expect(response.message).to eq('Pipeline will not run for the selected trigger. ' \
-                'The rules configuration prevented any jobs from being added to the pipeline.')
+              expect(response.message).to eq(sanitize_message(Ci::Pipeline.rules_failure_message))
               expect(pipeline).not_to be_persisted
             end
           end
@@ -1574,8 +1560,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
 
             it 'does not create a detached merge request pipeline', :aggregate_failures do
               expect(response).to be_error
-              expect(response.message).to eq('Pipeline will not run for the selected trigger. ' \
-                'The rules configuration prevented any jobs from being added to the pipeline.')
+              expect(response.message).to eq(sanitize_message(Ci::Pipeline.rules_failure_message))
               expect(pipeline).not_to be_persisted
             end
           end
@@ -1603,8 +1588,7 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
 
             it 'does not create a detached merge request pipeline', :aggregate_failures do
               expect(response).to be_error
-              expect(response.message).to eq('Pipeline will not run for the selected trigger. ' \
-                'The rules configuration prevented any jobs from being added to the pipeline.')
+              expect(response.message).to eq(sanitize_message(Ci::Pipeline.rules_failure_message))
               expect(pipeline).not_to be_persisted
             end
           end
@@ -1695,11 +1679,9 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
         shared_examples 'has errors' do
           it 'contains the expected errors', :aggregate_failures do
             expect(pipeline.builds).to be_empty
-
-            error_message = "'test_a' job needs 'build_a' job, but 'build_a' is not in any previous stage"
-            expect(pipeline.yaml_errors).to eq(error_message)
-            expect(pipeline.error_messages.map(&:content)).to contain_exactly(error_message)
-            expect(pipeline.errors[:base]).to contain_exactly(error_message)
+            error_message = "'test_a' job needs 'build_a' job, but 'build_a' does not exist in the pipeline"
+            expect(pipeline.error_messages.map(&:content).first).to include(error_message)
+            expect(pipeline.errors[:base].first).to include(error_message)
           end
         end
 
@@ -1709,7 +1691,11 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
 
           it 'does create a pipeline as test_a depends on build_a', :aggregate_failures do
             expect(response).to be_error
-            expect(response.message).to eq("'test_a' job needs 'build_a' job, but 'build_a' is not in any previous stage")
+
+            expect(response.message).to include(
+              "'test_a' job needs 'build_a' job, but 'build_a' does not exist in the pipeline"
+            )
+
             expect(pipeline).to be_persisted
           end
 
@@ -1739,303 +1725,134 @@ RSpec.describe Ci::CreatePipelineService, :ci_config_feature_flag_correctness, :
       end
     end
 
-    describe 'pipeline components' do
-      let(:components_project) do
-        create(:project, :repository, creator: user, namespace: user.namespace)
-      end
-
-      let(:component_path) do
-        "#{Gitlab.config.gitlab.host}/#{components_project.full_path}/my-component@v0.1"
-      end
-
-      let(:template) do
-        <<~YAML
-          spec:
-            inputs:
-              stage:
-              suffix:
-                default: my-job
-          ---
-          test-$[[ inputs.suffix ]]:
-            stage: $[[ inputs.stage ]]
-            script: run tests
-        YAML
-      end
-
-      let(:sha) do
-        components_project.repository.create_file(
-          user,
-          'templates/my-component/template.yml',
-          template,
-          message: 'Add my first CI component',
-          branch_name: 'master'
-        )
-      end
-
-      let(:config) do
-        <<~YAML
-          include:
-            - component: #{component_path}
-              inputs:
-                stage: my-stage
-
-          stages:
-            - my-stage
-
-          test-1:
-            stage: my-stage
-            script: run test-1
-        YAML
-      end
-
-      before do
-        stub_ci_pipeline_yaml_file(config)
-      end
-
-      context 'when there is no version with specified tag' do
-        before do
-          components_project.repository.add_tag(user, 'v0.01', sha)
-        end
-
-        it 'does not create a pipeline' do
-          response = execute_service(save_on_errors: true)
-
-          pipeline = response.payload
-
-          expect(pipeline).to be_persisted
-          expect(pipeline.yaml_errors)
-            .to include "my-component@v0.1' - content not found"
-        end
-      end
-
-      context 'when there is a proper revision available' do
-        before do
-          components_project.repository.add_tag(user, 'v0.1', sha)
-        end
-
-        context 'when component is valid' do
-          it 'creates a pipeline using a pipeline component' do
-            response = execute_service(save_on_errors: true)
-
-            pipeline = response.payload
-
-            expect(pipeline).to be_persisted
-            expect(pipeline.yaml_errors).to be_blank
-            expect(pipeline.statuses.count).to eq 2
-            expect(pipeline.statuses.map(&:name)).to match_array %w[test-1 test-my-job]
-          end
-        end
-
-        context 'when interpolation is invalid' do
-          let(:template) do
-            <<~YAML
-              spec:
-                inputs:
-                  stage:
-              ---
-              test:
-                stage: $[[ inputs.stage ]]
-                script: rspec --suite $[[ inputs.suite ]]
-            YAML
-          end
-
-          it 'does not create a pipeline' do
-            response = execute_service(save_on_errors: true)
-
-            pipeline = response.payload
-
-            expect(pipeline).to be_persisted
-            expect(pipeline.yaml_errors)
-              .to include 'unknown interpolation key: `suite`'
-          end
-        end
-
-        context 'when there is a syntax error in the template' do
-          let(:template) do
-            <<~YAML
-              spec:
-                inputs:
-                  stage:
-              ---
-              :test
-                stage: $[[ inputs.stage ]]
-            YAML
-          end
-
-          it 'does not create a pipeline' do
-            response = execute_service(save_on_errors: true)
-
-            pipeline = response.payload
-
-            expect(pipeline).to be_persisted
-            expect(pipeline.yaml_errors)
-              .to include 'mapping values are not allowed'
-          end
+    unless Gitlab.ee?
+      context 'with partition_id param' do
+        it 'raises error' do
+          expect { execute_service(partition_id: ci_testing_partition_id) }
+            .to raise_error(ArgumentError, "Param `partition_id` is not allowed")
         end
       end
     end
 
-    # TODO: Remove this test section when include:with is removed as part of https://gitlab.com/gitlab-org/gitlab/-/issues/408369
-    describe 'pipeline components using include:with instead of include:inputs' do
-      let(:components_project) do
-        create(:project, :repository, creator: user, namespace: user.namespace)
-      end
-
-      let(:component_path) do
-        "#{Gitlab.config.gitlab.host}/#{components_project.full_path}/my-component@v0.1"
-      end
-
-      let(:template) do
-        <<~YAML
-          spec:
-            inputs:
-              stage:
-              suffix:
-                default: my-job
-          ---
-          test-$[[ inputs.suffix ]]:
-            stage: $[[ inputs.stage ]]
-            script: run tests
-        YAML
-      end
-
-      let(:sha) do
-        components_project.repository.create_file(
-          user,
-          'templates/my-component/template.yml',
-          template,
-          message: 'Add my first CI component',
-          branch_name: 'master'
-        )
+    describe 'pipeline creation status updating', :clean_gitlab_redis_shared_state do
+      let(:merge_request) do
+        create(:merge_request, source_branch: 'feature', target_branch: "master", source_project: project)
       end
 
       let(:config) do
-        <<~YAML
-          include:
-            - component: #{component_path}
-              with:
-                stage: my-stage
-
-          stages:
-            - my-stage
-
-          test-1:
-            stage: my-stage
-            script: run test-1
-        YAML
+        {
+          test: {
+            script: 'ls',
+            rules: [{ if: "$CI_PIPELINE_SOURCE == 'merge_request_event'" }]
+          }
+        }
       end
 
       before do
-        stub_ci_pipeline_yaml_file(config)
+        stub_ci_pipeline_yaml_file(config.to_json)
       end
 
-      context 'when there is no version with specified tag' do
-        before do
-          components_project.repository.add_tag(user, 'v0.01', sha)
-        end
+      context 'when the pipeline creation succeeds' do
+        it 'updates the status with `succeeded` and the pipeline ID' do
+          creation_request = ::Ci::PipelineCreation::Requests.start_for_merge_request(merge_request)
 
-        it 'does not create a pipeline' do
-          response = execute_service(save_on_errors: true)
+          response = execute_service(
+            merge_request: merge_request, pipeline_creation_request: creation_request, source: :merge_request_event
+          )
 
-          pipeline = response.payload
-
-          expect(pipeline).to be_persisted
-          expect(pipeline.yaml_errors)
-            .to include "my-component@v0.1' - content not found"
+          successful_request = ::Ci::PipelineCreation::Requests.hget(creation_request)
+          expect(successful_request['pipeline_id']).to eq(response.payload.id)
+          expect(successful_request['status']).to eq(::Ci::PipelineCreation::Requests::SUCCEEDED)
         end
       end
 
-      context 'when there is a proper revision available' do
-        before do
-          components_project.repository.add_tag(user, 'v0.1', sha)
-        end
+      context 'when the pipeline creation fails' do
+        let_it_be_with_reload(:user) { create(:user) }
 
-        context 'when component is valid' do
-          it 'creates a pipeline using a pipeline component' do
-            response = execute_service(save_on_errors: true)
+        it 'updates the status with `failed`' do
+          creation_request = ::Ci::PipelineCreation::Requests.start_for_merge_request(merge_request)
 
-            pipeline = response.payload
+          execute_service(
+            merge_request: merge_request, pipeline_creation_request: creation_request, source: :merge_request_event
+          )
 
-            expect(pipeline).to be_persisted
-            expect(pipeline.yaml_errors).to be_blank
-            expect(pipeline.statuses.count).to eq 2
-            expect(pipeline.statuses.map(&:name)).to match_array %w[test-1 test-my-job]
-          end
-
-          context 'when inputs have a description' do
-            let(:template) do
-              <<~YAML
-                spec:
-                  inputs:
-                    stage:
-                    suffix:
-                      default: my-job
-                      description: description
-                ---
-                test-$[[ inputs.suffix ]]:
-                  stage: $[[ inputs.stage ]]
-                  script: run tests
-              YAML
-            end
-
-            it 'creates a pipeline' do
-              response = execute_service(save_on_errors: true)
-
-              pipeline = response.payload
-
-              expect(pipeline).to be_persisted
-              expect(pipeline.yaml_errors).to be_blank
-            end
-          end
-        end
-
-        context 'when interpolation is invalid' do
-          let(:template) do
-            <<~YAML
-              spec:
-                inputs:
-                  stage:
-              ---
-              test:
-                stage: $[[ inputs.stage ]]
-                script: rspec --suite $[[ inputs.suite ]]
-            YAML
-          end
-
-          it 'does not create a pipeline' do
-            response = execute_service(save_on_errors: true)
-
-            pipeline = response.payload
-
-            expect(pipeline).to be_persisted
-            expect(pipeline.yaml_errors)
-              .to include 'unknown interpolation key: `suite`'
-          end
-        end
-
-        context 'when there is a syntax error in the template' do
-          let(:template) do
-            <<~YAML
-              spec:
-                inputs:
-                  stage:
-              ---
-              :test
-                stage: $[[ inputs.stage ]]
-            YAML
-          end
-
-          it 'does not create a pipeline' do
-            response = execute_service(save_on_errors: true)
-
-            pipeline = response.payload
-
-            expect(pipeline).to be_persisted
-            expect(pipeline.yaml_errors)
-              .to include 'mapping values are not allowed'
-          end
+          failed_request = ::Ci::PipelineCreation::Requests.hget(creation_request)
+          expect(failed_request['error']).to eq('Insufficient permissions to create a new pipeline')
+          expect(failed_request['status']).to eq(::Ci::PipelineCreation::Requests::FAILED)
         end
       end
+    end
+  end
+
+  describe 'SEQUENCE ordering' do
+    it 'has AssignPartition before EvaluatePolicies to be able to set consistent partition_id for policy jobs' do
+      assign_partition_index, find_configs_index = indexes_in_sequence(
+        Gitlab::Ci::Pipeline::Chain::AssignPartition,
+        Gitlab::Ci::Pipeline::Chain::PipelineExecutionPolicies::EvaluatePolicies
+      )
+      expect(assign_partition_index).to be < find_configs_index
+    end
+
+    it 'has EvaluatePolicies before Skip to disallow pipeline skipping with enforced policy jobs' do
+      find_configs_index, skip_index = indexes_in_sequence(
+        Gitlab::Ci::Pipeline::Chain::PipelineExecutionPolicies::EvaluatePolicies,
+        Gitlab::Ci::Pipeline::Chain::Skip
+      )
+      expect(find_configs_index).to be < skip_index
+    end
+
+    it 'has EvaluatePolicies before Config::Content to force the pipeline creation without project CI config' do
+      find_configs_index, config_content_index = indexes_in_sequence(
+        Gitlab::Ci::Pipeline::Chain::PipelineExecutionPolicies::EvaluatePolicies,
+        Gitlab::Ci::Pipeline::Chain::Config::Content
+      )
+      expect(find_configs_index).to be < config_content_index
+    end
+
+    it 'has ApplyPolicies after Populate to ensure that pipeline stages are set' do
+      merge_jobs_index, populate_index = indexes_in_sequence(
+        Gitlab::Ci::Pipeline::Chain::PipelineExecutionPolicies::ApplyPolicies,
+        Gitlab::Ci::Pipeline::Chain::Populate
+      )
+      expect(merge_jobs_index).to be > populate_index
+    end
+
+    it 'has ApplyPolicies before StopDryRun to make policy jobs visible in dry run' do
+      merge_jobs_index, stop_dry_run_index = indexes_in_sequence(
+        Gitlab::Ci::Pipeline::Chain::PipelineExecutionPolicies::ApplyPolicies,
+        Gitlab::Ci::Pipeline::Chain::StopDryRun
+      )
+      expect(merge_jobs_index).to be < stop_dry_run_index
+    end
+
+    private
+
+    def indexes_in_sequence(step1, step2)
+      step1_index = described_class::SEQUENCE.find_index(step1)
+      step2_index = described_class::SEQUENCE.find_index(step2)
+      [step1_index, step2_index]
+    end
+  end
+
+  describe '#execute_async' do
+    it 'queues a worker for pipeline creation' do
+      allow(SecureRandom).to receive(:uuid).and_return('test-id')
+
+      expect(CreatePipelineWorker).to receive(:perform_async).with(
+        project.id, user.id, project.default_branch, 'web', { 'save_on_errors' => false },
+        {
+          'pipeline_creation_request' => {
+            'key' => Ci::PipelineCreation::Requests.request_key(project, 'test-id'),
+            'id' => 'test-id'
+          }
+        }
+      )
+
+      service = described_class.new(project, user, ref: project.default_branch)
+      response = service.execute_async('web', { save_on_errors: false })
+
+      expect(response).to be_success
+      expect(response.payload).to eq('test-id')
     end
   end
 end

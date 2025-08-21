@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create' do
-    describe 'Push over SSH using Git protocol version 2', :requires_git_protocol_v2, product_group: :source_code do
+  RSpec.describe 'Create', feature_category: :source_code_management do
+    describe 'Push over SSH using Git protocol version 2', :requires_git_protocol_v2 do
       # Note: If you run this test against GDK make sure you've enabled sshd and
       # enabled setting the Git protocol by adding `AcceptEnv GIT_PROTOCOL` to
       # `sshd_config`
@@ -22,12 +22,10 @@ module QA
 
         example.run
 
-        ssh_key.remove_via_api!
-
-        Page::Main::Menu.perform(&:sign_out_if_signed_in)
+        ssh_key&.remove_via_api!
       end
 
-      it 'user pushes to the repository', :blocking, testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347734' do
+      it 'user pushes to the repository', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347734' do
         project = create(:project, name: 'git-protocol-project')
 
         file_name = 'README.md'
@@ -38,15 +36,12 @@ module QA
         # Use Git to clone the project, push a file to it, and then check the
         # supported Git protocol
         Git::Repository.perform do |repository|
-          username = 'GitLab QA'
-          email = 'root@gitlab.com'
-
           repository.uri = project.repository_ssh_location.uri
 
           begin
             repository.use_ssh_key(ssh_key)
             repository.clone
-            repository.configure_identity(username, email)
+            repository.use_default_identity
             repository.default_branch = project.default_branch
             repository.checkout(project.default_branch, new_branch: true)
 

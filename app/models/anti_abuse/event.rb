@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module AntiAbuse
-  class Event < MainClusterwide::ApplicationRecord
+  class Event < ApplicationRecord
     self.table_name = 'abuse_events'
 
     validates :category, presence: true
@@ -12,7 +12,7 @@ module AntiAbuse
     belongs_to :user, inverse_of: :abuse_events
     belongs_to :abuse_report, inverse_of: :abuse_events
 
-    enum category: Enums::Abuse::Category.categories
-    enum source: Enums::Abuse::Source.sources
+    enum :category, Enums::Abuse::Category.categories
+    enum :source, Enums::Abuse::Source.sources
   end
 end

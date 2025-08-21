@@ -1,9 +1,10 @@
 # frozen_string_literal: true
 
 class IdeController < ApplicationController
-  include WebIdeCSP
-  include StaticObjectExternalStorageCSP
   include Gitlab::Utils::StrongMemoize
+  include WebIdeCSP
+  include RoutableActions
+  include StaticObjectExternalStorageCSP
   include ProductAnalyticsTracking
 
   before_action :authorize_read_project!, only: [:index]
@@ -12,6 +13,7 @@ class IdeController < ApplicationController
   before_action do
     push_frontend_feature_flag(:build_service_proxy)
     push_frontend_feature_flag(:reject_unsigned_commits_by_gitlab)
+    push_frontend_feature_flag(:web_ide_language_server, current_user)
   end
 
   feature_category :web_ide
@@ -23,15 +25,14 @@ class IdeController < ApplicationController
   def index
     @fork_info = fork_info(project, params[:branch])
 
-    render layout: helpers.use_new_web_ide? ? 'fullscreen' : 'application'
+    render layout: 'fullscreen'
   end
 
   def oauth_redirect
-    return render_404 unless ::Gitlab::WebIde::DefaultOauthApplication.feature_enabled?(current_user)
     # TODO - It's **possible** we end up here and no oauth application has been set up.
     # We need to have better handling of these edge cases. Here's a follow-up issue:
     # https://gitlab.com/gitlab-org/gitlab/-/issues/433322
-    return render_404 unless ::Gitlab::WebIde::DefaultOauthApplication.oauth_application
+    return render_404 unless ::WebIde::DefaultOauthApplication.oauth_application
 
     render layout: 'fullscreen', locals: { minimal: true }
   end
@@ -39,13 +40,19 @@ class IdeController < ApplicationController
   private
 
   def authorize_read_project!
-    render_404 unless can?(current_user, :read_project, project)
+    return @project if @project
+
+    path = params[:project_id]
+
+    @project = find_routable!(Project, path, request.fullpath, extra_authorization_proc: auth_proc)
+  end
+
+  def auth_proc
+    ->(project) { !project.pending_delete? }
   end
 
   def ensure_web_ide_oauth_application!
-    return unless ::Gitlab::WebIde::DefaultOauthApplication.feature_enabled?(current_user)
-
-    ::Gitlab::WebIde::DefaultOauthApplication.ensure_oauth_application!
+    ::WebIde::DefaultOauthApplication.ensure_oauth_application!
   end
 
   def fork_info(project, branch)
@@ -63,12 +70,11 @@ class IdeController < ApplicationController
   end
 
   def project
-    strong_memoize(:project) do
-      next unless params[:project_id].present?
+    return unless params[:project_id].present?
 
-      Project.find_by_full_path(params[:project_id])
-    end
+    Project.find_by_full_path(params[:project_id])
   end
+  strong_memoize_attr :project
 
   def tracking_namespace_source
     project.namespace

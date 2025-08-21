@@ -16,8 +16,10 @@ import {
   DELETE_IMAGE_SUCCESS_MESSAGE,
   DELETE_IMAGE_ERROR_MESSAGE,
   GRAPHQL_PAGE_SIZE,
+  GRAPHQL_PAGE_SIZE_METADATA_ENABLED,
   SORT_FIELDS,
   SETTINGS_TEXT,
+  FETCH_IMAGES_LIST_ERROR_MESSAGE,
 } from '~/packages_and_registries/container_registry/explorer/constants';
 import deleteContainerRepositoryMutation from '~/packages_and_registries/container_registry/explorer/graphql/mutations/delete_container_repository.mutation.graphql';
 import getContainerRepositoriesDetails from '~/packages_and_registries/container_registry/explorer/graphql/queries/get_container_repositories_details.query.graphql';
@@ -25,22 +27,28 @@ import component from '~/packages_and_registries/container_registry/explorer/pag
 import { mockTracking, unmockTracking } from 'helpers/tracking_helper';
 import PersistedPagination from '~/packages_and_registries/shared/components/persisted_pagination.vue';
 import PersistedSearch from '~/packages_and_registries/shared/components/persisted_search.vue';
-import MetadataDatabaseAlert from '~/packages_and_registries/shared/components/container_registry_metadata_database_alert.vue';
+import MetadataDatabaseBanner from '~/packages_and_registries/shared/components/container_registry_metadata_database_banner.vue';
 import { FILTERED_SEARCH_TERM } from '~/vue_shared/components/filtered_search_bar/constants';
 import TitleArea from '~/vue_shared/components/registry/title_area.vue';
+import { helpPagePath } from '~/helpers/help_page_helper';
+import { createAlert } from '~/alert';
 
 import { $toast } from 'jest/packages_and_registries/shared/mocks';
 import {
   graphQLImageListMock,
+  graphQLImageListNullContainerRepositoriesMock,
   graphQLImageDeleteMock,
   deletedContainerRepository,
   graphQLEmptyImageListMock,
   graphQLEmptyGroupImageListMock,
+  graphQLGroupImageListNullContainerRepositoriesMock,
   pageInfo,
   graphQLProjectImageRepositoriesDetailsMock,
   dockerCommands,
 } from '../mock_data';
 import { GlEmptyState, DeleteModal } from '../stubs';
+
+jest.mock('~/alert');
 
 describe('List Page', () => {
   let wrapper;
@@ -58,7 +66,7 @@ describe('List Page', () => {
   const findRegistryHeader = () => wrapper.findComponent(RegistryHeader);
 
   const findDeleteAlert = () => wrapper.findComponent(GlAlert);
-  const findMetadataDatabaseAlert = () => wrapper.findComponent(MetadataDatabaseAlert);
+  const findMetadataDatabaseBanner = () => wrapper.findComponent(MetadataDatabaseBanner);
   const findImageList = () => wrapper.findComponent(ImageList);
   const findPersistedSearch = () => wrapper.findComponent(PersistedSearch);
   const findEmptySearchMessage = () => wrapper.find('[data-testid="emptySearch"]');
@@ -83,6 +91,7 @@ describe('List Page', () => {
     mutationResolver = jest.fn().mockResolvedValue(graphQLImageDeleteMock),
     config = { isGroupPage: false },
     query = {},
+    sortUpdate = false,
   } = {}) => {
     Vue.use(VueApollo);
 
@@ -103,7 +112,9 @@ describe('List Page', () => {
         RegistryHeader,
         TitleArea,
         DeleteImage,
+        ImageList,
         MetadataContainerScanning: true,
+        ContainerScanningCounts: true,
       },
       mocks: {
         $toast,
@@ -123,18 +134,21 @@ describe('List Page', () => {
         GlTooltip: createMockDirective('gl-tooltip'),
       },
     });
+
+    if (sortUpdate) {
+      fireFirstSortUpdate();
+    }
   };
 
   it('contains registry header', async () => {
-    mountComponent();
-    fireFirstSortUpdate();
+    mountComponent({ sortUpdate: true });
     await waitForApolloRequestRender();
 
     expect(findRegistryHeader().exists()).toBe(true);
     expect(findRegistryHeader().props()).toMatchObject({
       imagesCount: 2,
       metadataLoading: false,
-      helpPagePath: '',
+      helpPagePath: helpPagePath('user/packages/container_registry/_index'),
       hideExpirationPolicyData: false,
       showCleanupPolicyLink: false,
       expirationPolicy: {},
@@ -146,7 +160,7 @@ describe('List Page', () => {
     it('is rendered when metadata database is not enabled', () => {
       mountComponent();
 
-      expect(findMetadataDatabaseAlert().exists()).toBe(true);
+      expect(findMetadataDatabaseBanner().exists()).toBe(true);
     });
 
     it('is not rendered when metadata database is enabled', () => {
@@ -156,7 +170,7 @@ describe('List Page', () => {
         },
       });
 
-      expect(findMetadataDatabaseAlert().exists()).toBe(false);
+      expect(findMetadataDatabaseBanner().exists()).toBe(false);
     });
   });
 
@@ -164,7 +178,7 @@ describe('List Page', () => {
     beforeEach(() => {
       const config = {
         showContainerRegistrySettings: true,
-        cleanupPoliciesSettingsPath: 'bar',
+        settingsPath: 'bar',
       };
       mountComponent({ config });
     });
@@ -230,8 +244,7 @@ describe('List Page', () => {
 
   describe('isLoading is true', () => {
     it('shows the skeleton loader', async () => {
-      mountComponent();
-      fireFirstSortUpdate();
+      mountComponent({ sortUpdate: true });
       await nextTick();
 
       expect(findSkeletonLoader().exists()).toBe(true);
@@ -256,8 +269,7 @@ describe('List Page', () => {
     });
 
     it('title has the metadataLoading props set to true', async () => {
-      mountComponent();
-      fireFirstSortUpdate();
+      mountComponent({ sortUpdate: true });
       await nextTick();
 
       expect(findRegistryHeader().props('metadataLoading')).toBe(true);
@@ -266,8 +278,7 @@ describe('List Page', () => {
 
   describe('when mutation is loading', () => {
     beforeEach(async () => {
-      mountComponent();
-      fireFirstSortUpdate();
+      mountComponent({ sortUpdate: true });
       await waitForApolloRequestRender();
       findImageList().vm.$emit('delete', deletedContainerRepository);
       findDeleteModal().vm.$emit('confirmDelete');
@@ -299,19 +310,16 @@ describe('List Page', () => {
     describe('project page', () => {
       const resolver = jest.fn().mockResolvedValue(graphQLEmptyImageListMock);
 
-      it('cli commands are not visible', async () => {
-        mountComponent({ resolver });
-
+      beforeEach(async () => {
+        mountComponent({ resolver, sortUpdate: true });
         await waitForApolloRequestRender();
+      });
 
+      it('cli commands are not visible', () => {
         expect(findCliCommands().exists()).toBe(false);
       });
 
-      it('project empty state is visible', async () => {
-        mountComponent({ resolver });
-
-        await waitForApolloRequestRender();
-
+      it('project empty state is visible', () => {
         expect(findProjectEmptyState().exists()).toBe(true);
       });
     });
@@ -323,28 +331,53 @@ describe('List Page', () => {
         isGroupPage: true,
       };
 
-      it('group empty state is visible', async () => {
-        mountComponent({ resolver, config });
-
+      beforeEach(async () => {
+        mountComponent({ resolver, config, sortUpdate: true });
         await waitForApolloRequestRender();
+      });
 
+      it('group empty state is visible', () => {
         expect(findGroupEmptyState().exists()).toBe(true);
       });
 
-      it('cli commands are not visible', async () => {
-        mountComponent({ resolver, config });
-
-        await waitForApolloRequestRender();
-
+      it('cli commands are not visible', () => {
         expect(findCliCommands().exists()).toBe(false);
       });
 
-      it('link to settings is not visible', async () => {
-        mountComponent({ resolver, config });
-
-        await waitForApolloRequestRender();
-
+      it('link to settings is not visible', () => {
         expect(findSettingsLink().exists()).toBe(false);
+      });
+    });
+  });
+
+  describe('GraphQL query returns null', () => {
+    describe.each`
+      pageType     | config                    | response                                              | emptyStateFinder
+      ${'project'} | ${{ isGroupPage: false }} | ${graphQLImageListNullContainerRepositoriesMock}      | ${findProjectEmptyState}
+      ${'group'}   | ${{ isGroupPage: true }}  | ${graphQLGroupImageListNullContainerRepositoriesMock} | ${findGroupEmptyState}
+    `('$pageType page', ({ pageType, config, response, emptyStateFinder }) => {
+      beforeEach(async () => {
+        mountComponent({
+          config,
+          detailsResolver: jest.fn().mockResolvedValue(response),
+          resolver: jest.fn().mockResolvedValue(response),
+          sortUpdate: true,
+        });
+        await waitForApolloRequestRender();
+      });
+
+      it('cli commands are not visible', () => {
+        expect(findCliCommands().exists()).toBe(false);
+      });
+
+      it(`${pageType} empty state is visible`, () => {
+        expect(emptyStateFinder().exists()).toBe(true);
+      });
+
+      it('createAlert is not called', () => {
+        expect(createAlert).not.toHaveBeenCalledWith({
+          message: FETCH_IMAGES_LIST_ERROR_MESSAGE,
+        });
       });
     });
   });
@@ -352,18 +385,14 @@ describe('List Page', () => {
   describe('list is not empty', () => {
     describe('unfiltered state', () => {
       it('quick start is visible', async () => {
-        mountComponent();
-        fireFirstSortUpdate();
-
+        mountComponent({ sortUpdate: true });
         await waitForApolloRequestRender();
 
         expect(findCliCommands().exists()).toBe(true);
       });
 
       it('list component is visible', async () => {
-        mountComponent();
-        fireFirstSortUpdate();
-
+        mountComponent({ sortUpdate: true });
         await waitForApolloRequestRender();
 
         expect(findImageList().exists()).toBe(true);
@@ -374,8 +403,7 @@ describe('List Page', () => {
           const detailsResolver = jest
             .fn()
             .mockResolvedValue(graphQLProjectImageRepositoriesDetailsMock);
-          mountComponent({ detailsResolver });
-          fireFirstSortUpdate();
+          mountComponent({ detailsResolver, sortUpdate: true });
           jest.runOnlyPendingTimers();
           await waitForPromises();
 
@@ -384,8 +412,7 @@ describe('List Page', () => {
 
         it('does not block the list ui to show', async () => {
           const detailsResolver = jest.fn().mockRejectedValue();
-          mountComponent({ detailsResolver });
-          fireFirstSortUpdate();
+          mountComponent({ detailsResolver, sortUpdate: true });
           await waitForApolloRequestRender();
 
           expect(findImageList().exists()).toBe(true);
@@ -395,8 +422,7 @@ describe('List Page', () => {
           // this is a promise that never resolves, to trick apollo to think that this request is still loading
           const detailsResolver = jest.fn().mockImplementation(() => new Promise(() => {}));
 
-          mountComponent({ detailsResolver });
-          fireFirstSortUpdate();
+          mountComponent({ detailsResolver, sortUpdate: true });
           await waitForApolloRequestRender();
 
           expect(findImageList().props('metadataLoading')).toBe(true);
@@ -452,6 +478,22 @@ describe('List Page', () => {
               DELETE_IMAGE_ERROR_MESSAGE.replace('%{title}', wrapper.vm.itemToDelete.path),
             );
           });
+
+          it('shows an alert with multiple errors', async () => {
+            mountComponent();
+
+            await selectImageForDeletion();
+
+            const errors = [{ message: 'Error 1' }, { message: 'Error 2' }, { message: 'Error 3' }];
+            findDeleteImage().vm.$emit('error', errors);
+            await nextTick();
+
+            expect(findDeleteAlert().exists()).toBe(true);
+            expect(findDeleteAlert().text()).toMatch(/^Something went wrong while scheduling/);
+            expect(findDeleteAlert().text()).toContain('Error 1');
+            expect(findDeleteAlert().text()).toContain('Error 2');
+            expect(findDeleteAlert().text()).toContain('Error 3');
+          });
         });
       });
     });
@@ -470,8 +512,7 @@ describe('List Page', () => {
       };
 
       it('has a persisted search box element', async () => {
-        mountComponent();
-        fireFirstSortUpdate();
+        mountComponent({ sortUpdate: true });
         await waitForApolloRequestRender();
 
         const registrySearch = findPersistedSearch();
@@ -524,8 +565,7 @@ describe('List Page', () => {
 
     describe('pagination', () => {
       it('exists', async () => {
-        mountComponent();
-        fireFirstSortUpdate();
+        mountComponent({ sortUpdate: true });
         await waitForApolloRequestRender();
 
         expect(findPersistedPagination().props('pagination')).toEqual(pageInfo);
@@ -536,8 +576,7 @@ describe('List Page', () => {
         const detailsResolver = jest
           .fn()
           .mockResolvedValue(graphQLProjectImageRepositoriesDetailsMock);
-        mountComponent({ resolver, detailsResolver });
-        fireFirstSortUpdate();
+        mountComponent({ resolver, detailsResolver, sortUpdate: true });
         await waitForApolloRequestRender();
 
         findPersistedPagination().vm.$emit('prev');
@@ -546,14 +585,12 @@ describe('List Page', () => {
         expect(resolver).toHaveBeenCalledWith(
           expect.objectContaining({
             before: pageInfo.startCursor,
-            first: null,
             last: GRAPHQL_PAGE_SIZE,
           }),
         );
         expect(detailsResolver).toHaveBeenCalledWith(
           expect.objectContaining({
             before: pageInfo.startCursor,
-            first: null,
             last: GRAPHQL_PAGE_SIZE,
           }),
         );
@@ -577,7 +614,6 @@ describe('List Page', () => {
           expect.objectContaining({
             sort: 'UPDATED_DESC',
             before: pageInfo.startCursor,
-            first: null,
             last: GRAPHQL_PAGE_SIZE,
           }),
         );
@@ -585,7 +621,6 @@ describe('List Page', () => {
           expect.objectContaining({
             sort: 'UPDATED_DESC',
             before: pageInfo.startCursor,
-            first: null,
             last: GRAPHQL_PAGE_SIZE,
           }),
         );
@@ -596,8 +631,7 @@ describe('List Page', () => {
         const detailsResolver = jest
           .fn()
           .mockResolvedValue(graphQLProjectImageRepositoriesDetailsMock);
-        mountComponent({ resolver, detailsResolver });
-        fireFirstSortUpdate();
+        mountComponent({ resolver, detailsResolver, sortUpdate: true });
         await waitForApolloRequestRender();
 
         findPersistedPagination().vm.$emit('next');
@@ -646,13 +680,68 @@ describe('List Page', () => {
           }),
         );
       });
+
+      describe('with metadata database enabled', () => {
+        it.each`
+          event     | expected
+          ${'prev'} | ${{ before: pageInfo.startCursor, last: GRAPHQL_PAGE_SIZE_METADATA_ENABLED }}
+          ${'next'} | ${{ after: pageInfo.endCursor, first: GRAPHQL_PAGE_SIZE_METADATA_ENABLED }}
+        `('$event event triggers correct page request', async ({ event, expected }) => {
+          const resolver = jest.fn().mockResolvedValue(graphQLImageListMock);
+          const detailsResolver = jest
+            .fn()
+            .mockResolvedValue(graphQLProjectImageRepositoriesDetailsMock);
+          const config = {
+            isMetadataDatabaseEnabled: true,
+            isGroupPage: false,
+          };
+
+          mountComponent({ resolver, detailsResolver, config, sortUpdate: true });
+          await waitForApolloRequestRender();
+
+          findPersistedPagination().vm.$emit(event);
+          await waitForPromises();
+
+          expect(resolver).toHaveBeenCalledWith(expect.objectContaining(expected));
+          expect(detailsResolver).toHaveBeenCalledWith(expect.objectContaining(expected));
+        });
+
+        it.each`
+          cursor                              | expected
+          ${{ before: pageInfo.startCursor }} | ${{ sort: 'UPDATED_DESC', before: pageInfo.startCursor, last: GRAPHQL_PAGE_SIZE_METADATA_ENABLED }}
+          ${{ after: pageInfo.endCursor }}    | ${{ sort: 'UPDATED_DESC', after: pageInfo.endCursor, first: GRAPHQL_PAGE_SIZE_METADATA_ENABLED }}
+        `(
+          'calls resolver correctly when persisted search returns $cursor',
+          async ({ cursor, expected }) => {
+            const resolver = jest.fn().mockResolvedValue(graphQLImageListMock);
+            const detailsResolver = jest
+              .fn()
+              .mockResolvedValue(graphQLProjectImageRepositoriesDetailsMock);
+            const config = {
+              isMetadataDatabaseEnabled: true,
+              isGroupPage: false,
+            };
+
+            mountComponent({ resolver, detailsResolver, config });
+
+            findPersistedSearch().vm.$emit('update', {
+              sort: 'UPDATED_DESC',
+              filters: [],
+              pageInfo: cursor,
+            });
+            await waitForApolloRequestRender();
+
+            expect(resolver).toHaveBeenCalledWith(expect.objectContaining(expected));
+            expect(detailsResolver).toHaveBeenCalledWith(expect.objectContaining(expected));
+          },
+        );
+      });
     });
   });
 
   describe('modal', () => {
     beforeEach(() => {
-      mountComponent();
-      fireFirstSortUpdate();
+      mountComponent({ sortUpdate: true });
     });
 
     it('exists', () => {
@@ -676,8 +765,7 @@ describe('List Page', () => {
 
     beforeEach(() => {
       trackingSpy = mockTracking(undefined, undefined, jest.spyOn);
-      mountComponent();
-      fireFirstSortUpdate();
+      mountComponent({ sortUpdate: true });
     });
 
     afterEach(() => {

@@ -48,9 +48,7 @@ module Users
           LIMIT #{limit}
         SQL
 
-        ::Gitlab::Database::LoadBalancing::Session.current.fallback_to_replicas_for_ambiguous_queries do
-          connection.execute(sql).to_a
-        end
+        connection.select_all(sql).to_a
       end
     end
   end

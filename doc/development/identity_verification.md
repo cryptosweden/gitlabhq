@@ -1,23 +1,11 @@
 ---
-stage: Govern
-group: Anti-Abuse
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Software Supply Chain Security
+group: Authorization
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Identity verification development
 ---
 
-# Identity verification development
-
 For information on this feature that are not development-specific, see the [feature documentation](../security/identity_verification.md).
-
-## Feature flags
-
-Because of the many registration paths and multiple verification stages, identity verification has several feature flags.
-
-Before you enable these features, ensure [hard email confirmation](../security/user_email_confirmation.md) is enabled and [Arkose](../integration/arkose.md#configuration) is configured properly.
-
-| Feature flag name | Description |
-|---------|-------------|
-| `identity_verification_phone_number` | Turns on phone verification for medium risk users for all flows. |
-| `identity_verification_credit_card` | Turns on credit card verification for high risk users for all flows. |
 
 ## Logging
 
@@ -30,7 +18,7 @@ To view logs associated to the [email stage](../security/identity_verification.m
 - Query the GitLab production logs with the following KQL:
 
   ```plaintext
-  KQL: json.controller:"RegistrationsIdentityVerificationController" AND json.username:replace_username_here
+  json.controller:"RegistrationsIdentityVerificationController" AND json.username:replace_username_here
   ```
 
 Valuable debugging information can be found in the `json.action` and `json.location` columns.
@@ -42,7 +30,7 @@ To view logs associated to the [phone stage](../security/identity_verification.m
 - Query the GitLab production logs with the following KQL:
 
   ```plaintext
-  KQL: json.message: "IdentityVerification::Phone" AND json.username:replace_username_here
+  json.message: "IdentityVerification::Phone" AND json.username:replace_username_here
   ```
 
 On rows where `json.event` is `Failed Attempt`, you can find valuable debugging information in the `json.reason` column such as:
@@ -77,7 +65,7 @@ To view logs associated to the [credit card stage](../security/identity_verifica
 - Query the GitLab production logs with the following KQL:
 
   ```plaintext
-  KQL: json.message: "IdentityVerification::CreditCard" AND json.username:replace_username_here
+  json.message: "IdentityVerification::CreditCard" AND json.username:replace_username_here
   ```
 
 On rows where `json.event` is `Failed Attempt`, you can find valuable debugging information in the `json.reason` column such as:
@@ -94,7 +82,7 @@ To view logs associated with the [credit card stage](../security/identity_verifi
 - Query the GitLab production logs with the following KQL:
 
   ```plaintext
-  json.controller:"SubscriptionsController" AND json.action:"payment_form" AND json.params.value:"cc_registration_validation"
+  json.controller:"GitlabSubscriptions::SubscriptionsController" AND json.action:"payment_form" AND json.params.value:"cc_registration_validation"
   ```
 
 ## Code walkthrough
@@ -104,12 +92,15 @@ For a walkthrough and high level explanation of the code, see [Identity Verifica
 
 ## QA Integration
 
-For end-to-end production and staging tests to function properly, GitLab [allows QA users to bypass identity verification](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/117633).
+For end-to-end production and staging tests to function properly, GitLab allows QA users to bypass [Account email Verification](../security/email_verification.md) when:
+
+- The `User-Agent` for the request matches the configured `GITLAB_QA_USER_AGENT`.
+- Disable [email verification](testing_guide/end_to_end/best_practices/users.md#disable-email-verification)
 
 ## Additional resources
 
 <!-- markdownlint-disable MD044 -->
-The [Anti-abuse team](https://handbook.gitlab.com/handbook/engineering/development/sec/govern/anti-abuse/#team-members) owns identity verification. You can join our channel on Slack: [#g_anti-abuse](https://gitlab.slack.com/archives/C03EH5HCLPR).
+The [Anti-abuse team](https://handbook.gitlab.com/handbook/engineering/development/sec/software-supply-chain-security/anti-abuse/#group-members) owns identity verification. You can join our channel on Slack: [#g_anti-abuse](https://gitlab.slack.com/archives/C03EH5HCLPR).
 <!-- markdownlint-enable MD044 -->
 
 For help with Telesign:

@@ -45,7 +45,71 @@ RSpec.shared_examples Integrations::BaseDataFields do
     it 'does not include certain attributes' do
       hash = model.to_database_hash
 
-      expect(hash.keys).not_to include('id', 'service_id', 'integration_id', 'created_at', 'updated_at')
+      expect(hash.keys).not_to include(
+        'id',
+        'service_id',
+        'integration_id',
+        'created_at',
+        'updated_at',
+        'group_id',
+        'project_id',
+        'organization_id'
+      )
+    end
+  end
+
+  describe 'validations' do
+    context 'when integration is present' do
+      before do
+        model.integration = build(:integration)
+        model.organization_id = 1
+      end
+
+      it { is_expected.to be_valid }
+    end
+
+    it 'validates presence correctly' do
+      expect(model.valid?).to eq(false)
+      expect(model.errors.full_messages).to contain_exactly(
+        "Integration can't be blank",
+        'one of project_id, group_id or organization_id must be present'
+      )
+    end
+
+    context 'when sharding key is not set' do
+      it 'validates presence correctly' do
+        model.integration = build(:integration)
+
+        expect(model.valid?).to eq(false)
+        expect(model.errors.full_messages).to contain_exactly(
+          'one of project_id, group_id or organization_id must be present'
+        )
+      end
+    end
+  end
+
+  describe 'set_sharding_key' do
+    context 'when project_id, group_id, or organization_id is already set' do
+      it 'does not set new sharding key' do
+        integration = build(:integration, project_id: 2)
+
+        model.project_id = 1
+        model.integration = integration
+        model.valid?
+
+        expect(model.project_id).to eq(1)
+      end
+    end
+
+    context 'when project_id, group_id, or organization_id are not set' do
+      it 'sets the sharding key based on integration' do
+        integration = build(:integration, project_id: 1)
+
+        model.integration = integration
+        model.valid?
+
+        expect(model.project_id).to eq(1)
+      end
     end
   end
 end

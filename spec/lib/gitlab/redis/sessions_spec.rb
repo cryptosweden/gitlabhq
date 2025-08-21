@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Redis::Sessions do
-  it_behaves_like "redis_new_instance_shared_examples", 'sessions', Gitlab::Redis::SharedState
+RSpec.describe Gitlab::Redis::Sessions, feature_category: :shared do
+  include_examples "redis_new_instance_shared_examples", 'sessions', Gitlab::Redis::SharedState
 
   describe '#store' do
     subject(:store) { described_class.store(namespace: described_class::SESSION_NAMESPACE) }

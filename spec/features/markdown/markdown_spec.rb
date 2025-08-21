@@ -26,7 +26,7 @@ require 'erb'
 #
 # See the MarkdownFeature class for setup details.
 
-RSpec.describe 'GitLab Markdown', :aggregate_failures, feature_category: :team_planning do
+RSpec.describe 'GitLab Markdown', :aggregate_failures, feature_category: :markdown do
   include Capybara::Node::Matchers
   include MarkupHelper
   include MarkdownMatchers
@@ -77,6 +77,16 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures, feature_category: :team_p
 
       aggregate_failures 'parses strikethroughs' do
         expect(doc).to have_selector(%{del:contains("and this text doesn't")})
+      end
+
+      aggregate_failures 'parses definition lists' do
+        expect(doc).to have_selector(%{dt:contains("Fruit")})
+        expect(doc).to have_selector(%{dd:contains("Apple")})
+        expect(doc).to have_selector(%{dd:contains("Orange")})
+
+        expect(doc).to have_selector(%{dt:contains("Vegetables")})
+        expect(doc).to have_selector(%{dd:contains("Tomato")})
+        expect(doc).to have_selector(%{dd:contains("Celery")})
       end
     end
 
@@ -257,10 +267,6 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures, feature_category: :team_p
         expect(doc).to parse_emoji
       end
 
-      aggregate_failures 'TableOfContentsLegacyFilter' do
-        expect(doc).to create_header_links
-      end
-
       aggregate_failures 'TableOfContentsTagFilter' do
         expect(doc).to create_toc
       end
@@ -367,7 +373,7 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures, feature_category: :team_p
 
     it_behaves_like 'all pipelines'
 
-    it 'includes custom filters' do
+    it 'includes custom filters', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/538412' do
       aggregate_failures 'UploadLinkFilter' do
         expect(doc).to parse_upload_links
       end
@@ -378,10 +384,6 @@ RSpec.describe 'GitLab Markdown', :aggregate_failures, feature_category: :team_p
 
       aggregate_failures 'EmojiFilter' do
         expect(doc).to parse_emoji
-      end
-
-      aggregate_failures 'TableOfContentsLegacyFilter' do
-        expect(doc).to create_header_links
       end
 
       aggregate_failures 'TableOfContentsTagFilter' do

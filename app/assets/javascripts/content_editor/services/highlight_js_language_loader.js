@@ -91,6 +91,33 @@ export default {
   gauss: () => import(/* webpackChunkName: 'hl-gauss' */ 'highlight.js/lib/languages/gauss'),
   gcode: () => import(/* webpackChunkName: 'hl-gcode' */ 'highlight.js/lib/languages/gcode'),
   gherkin: () => import(/* webpackChunkName: 'hl-gherkin' */ 'highlight.js/lib/languages/gherkin'),
+  gleam: () => import(/* webpackChunkName: 'hl-gleam' */ '@gleam-lang/highlight.js-gleam'),
+  glimmer: async () => [
+    [
+      'javascript',
+      await import(/* webpackChunkName: 'hl-javascript' */ 'highlight.js/lib/languages/javascript'),
+    ],
+    [
+      'glimmer',
+      {
+        default: (await import(/* webpackChunkName: 'hl-glimmer' */ 'highlightjs-glimmer')).glimmer,
+      },
+    ],
+  ],
+  'glimmer-javascript': async () => [
+    [
+      'javascript',
+      await import(/* webpackChunkName: 'hl-javascript' */ 'highlight.js/lib/languages/javascript'),
+    ],
+    [
+      'glimmer-javascript',
+      {
+        default: (
+          await import(/* webpackChunkName: 'hl-glimmer-javascript' */ 'highlightjs-glimmer')
+        ).glimmerJavascript,
+      },
+    ],
+  ],
   glsl: () => import(/* webpackChunkName: 'hl-glsl' */ 'highlight.js/lib/languages/glsl'),
   gml: () => import(/* webpackChunkName: 'hl-gml' */ 'highlight.js/lib/languages/gml'),
   go: () => import(/* webpackChunkName: 'hl-go' */ 'highlight.js/lib/languages/go'),
@@ -240,6 +267,7 @@ export default {
   twig: () => import(/* webpackChunkName: 'hl-twig' */ 'highlight.js/lib/languages/twig'),
   typescript: () =>
     import(/* webpackChunkName: 'hl-typescript' */ 'highlight.js/lib/languages/typescript'),
+  ts: () => import(/* webpackChunkName: 'hl-typescript' */ 'highlight.js/lib/languages/typescript'),
   vala: () => import(/* webpackChunkName: 'hl-vala' */ 'highlight.js/lib/languages/vala'),
   vbnet: () => import(/* webpackChunkName: 'hl-vbnet' */ 'highlight.js/lib/languages/vbnet'),
   'vbscript-html': () =>
@@ -247,6 +275,7 @@ export default {
   vbscript: () =>
     import(/* webpackChunkName: 'hl-vbscript' */ 'highlight.js/lib/languages/vbscript'),
   verilog: () => import(/* webpackChunkName: 'hl-verilog' */ 'highlight.js/lib/languages/verilog'),
+  veryl: () => import(/* webpackChunkName: 'hl-veryl' */ 'highlightjs-veryl'),
   vhdl: () => import(/* webpackChunkName: 'hl-vhdl' */ 'highlight.js/lib/languages/vhdl'),
   vim: () => import(/* webpackChunkName: 'hl-vim' */ 'highlight.js/lib/languages/vim'),
   wasm: () => import(/* webpackChunkName: 'hl-wasm' */ 'highlight.js/lib/languages/wasm'),

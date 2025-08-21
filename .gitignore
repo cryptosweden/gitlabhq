@@ -8,6 +8,7 @@
 .bundle
 .chef
 .directory
+.history
 .eslintcache
 /.envrc
 eslint-report.html
@@ -45,7 +46,7 @@ eslint-report.html
 /config/redis.yml
 /config/unicorn.rb
 /config/puma.rb
-/config/secrets.yml
+/config/secrets.yml*
 /config/session_store.yml
 /config/sidekiq.yml
 /config/click_house.yml
@@ -125,3 +126,6 @@ config/helpers/tailwind/css_in_js.js
 
 # ruby-lsp
 .index.yml
+
+# Rubocop cop documentation generation
+.yardoc

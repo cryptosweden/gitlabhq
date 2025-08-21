@@ -47,6 +47,8 @@ module DesignManagement
         end
 
         ServiceResponse.success
+      rescue Gitlab::Git::CommandError => ex
+        error(message: ex.message)
       rescue StandardError => error
         log_exception(error)
 
@@ -61,6 +63,14 @@ module DesignManagement
         :temporary_branch, :target_design_collection, :target_issue,
         :target_repository, :target_project, :versions
 
+      # Designs are being copied over to a target repository. Target repository's default branch can be different
+      # from source repository. E.g. we have some old projects where `master` is still the default branch, whereas
+      # newer projects have `main` as repository default branch.
+      #
+      # So we need to make sure we lookup the correct merge branch based on target repository
+      def target_branch
+        target_repository.root_ref || Gitlab::DefaultBranch.value(object: target_project)
+      end
       alias_method :merge_branch, :target_branch
 
       def log_exception(exception)
@@ -118,7 +128,9 @@ module DesignManagement
       def remove_temporary_branch!
         return unless target_repository.branch_exists?(temporary_branch)
 
-        target_repository.rm_branch(git_user, temporary_branch)
+        target_sha = target_repository.commit(temporary_branch).id
+
+        target_repository.rm_branch(git_user, temporary_branch, target_sha: target_sha)
       end
 
       # Merge the temporary branch containing the commits to default branch
@@ -263,12 +275,15 @@ module DesignManagement
       end
       # rubocop: enable CodeReuse/ActiveRecord
 
-      # rubocop: disable CodeReuse/ActiveRecord
       def link_lfs_files!
         oids = blobs.values.flat_map(&:values).map(&:lfs_oid)
         repository_type = LfsObjectsProject.repository_types[:design]
 
-        new_rows = LfsObject.where(oid: oids).find_each(batch_size: 1000).map do |lfs_object|
+        lfs_objects = oids.each_slice(1000).flat_map do |oids_batch|
+          LfsObject.for_oids(oids_batch).not_linked_to_project(target_project, repository_type: repository_type)
+        end
+
+        new_rows = lfs_objects.compact.map do |lfs_object|
           {
             project_id: target_project.id,
             lfs_object_id: lfs_object.id,
@@ -284,7 +299,6 @@ module DesignManagement
           on_conflict: :do_nothing # Upsert
         )
       end
-      # rubocop: enable CodeReuse/ActiveRecord
 
       # Blob data is used to find the oids for LfsObjects and to copy to Git.
       # Blobs are reasonably small in memory, as their data are LFS Pointer files.

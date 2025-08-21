@@ -17,14 +17,6 @@ RSpec.describe Ci::Partitions::CreateService, feature_category: :ci_scaling do
       end
     end
 
-    context 'when ci_partitioning_automation is disabled' do
-      before do
-        stub_feature_flags(ci_partitioning_automation: false)
-      end
-
-      it_behaves_like 'ci_partition not created'
-    end
-
     context 'when ci_partition is nil' do
       let(:ci_partition) { nil }
 
@@ -47,7 +39,7 @@ RSpec.describe Ci::Partitions::CreateService, feature_category: :ci_scaling do
 
     context 'when database_partition sizes are above the threshold' do
       before do
-        stub_const("Ci::Partition::MAX_PARTITION_SIZE", 1.byte)
+        stub_application_setting(ci_partitions_size_limit: 1.byte)
       end
 
       context 'when no more headroom available' do
@@ -57,6 +49,16 @@ RSpec.describe Ci::Partitions::CreateService, feature_category: :ci_scaling do
         end
 
         it_behaves_like 'ci_partition not created'
+      end
+    end
+
+    context 'with default partition threshold' do
+      it 'uses partition threshold' do
+        expect(ci_partition)
+          .to receive(:above_threshold?)
+          .and_call_original
+
+        expect { execute_service }.not_to change { Ci::Partition.count }
       end
     end
   end

@@ -7,12 +7,6 @@ export default {
     NodeViewWrapper,
     NodeViewContent,
   },
-  props: {
-    node: {
-      type: Object,
-      required: true,
-    },
-  },
   data() {
     return {
       open: true,
@@ -21,7 +15,7 @@ export default {
 };
 </script>
 <template>
-  <node-view-wrapper class="gl-display-flex">
+  <node-view-wrapper class="gl-flex">
     <div
       class="details-toggle-icon"
       data-testid="details-toggle-icon"

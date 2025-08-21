@@ -1,11 +1,11 @@
 <script>
 import { GlDisclosureDropdownGroup, GlDisclosureDropdownItem, GlIcon } from '@gitlab/ui';
-import { truncateNamespace } from '~/lib/utils/text_utility';
+import { joinPaths } from '~/lib/utils/url_utility';
 import { TRACKING_UNKNOWN_PANEL } from '~/super_sidebar/constants';
 import { TRACKING_CLICK_COMMAND_PALETTE_ITEM, OVERLAY_GOTO } from '../command_palette/constants';
 import FrequentItem from './frequent_item.vue';
 import FrequentItemSkeleton from './frequent_item_skeleton.vue';
-import SearchResultHoverLayover from './global_search_hover_overlay.vue';
+import SearchResultFocusLayover from './global_search_focus_overlay.vue';
 
 export default {
   name: 'FrequentlyVisitedItems',
@@ -18,7 +18,7 @@ export default {
     GlIcon,
     FrequentItem,
     FrequentItemSkeleton,
-    SearchResultHoverLayover,
+    SearchResultFocusLayover,
   },
   props: {
     loading: {
@@ -65,7 +65,7 @@ export default {
           // The text field satsifies GlDisclosureDropdownItem's prop
           // validator, and the href field ensures it renders a link.
           text: item.name,
-          href: item.webUrl,
+          href: joinPaths(gon.relative_url_root || '/', item.fullPath),
           extraAttrs: {
             'data-track-action': TRACKING_CLICK_COMMAND_PALETTE_ITEM,
             'data-track-label': item.id,
@@ -76,7 +76,7 @@ export default {
         forRenderer: {
           id: item.id,
           title: item.name,
-          subtitle: truncateNamespace(item.namespace),
+          subtitle: item.namespace,
           avatar: item.avatarUrl,
         },
       }));
@@ -106,7 +106,7 @@ export default {
         v-for="item of formattedItems"
         :key="item.forDropdown.id"
         :item="item.forDropdown"
-        class="show-on-focus-or-hover--context show-hover-layover"
+        class="show-on-focus-or-hover--context show-focus-layover"
         @action="$emit('action')"
       >
         <template #list-item><frequent-item :item="item.forRenderer" /></template>
@@ -114,15 +114,15 @@ export default {
     </template>
 
     <gl-disclosure-dropdown-item v-if="showEmptyState" class="gl-cursor-text">
-      <span class="gl-text-gray-500 gl-font-sm gl-my-3 gl-mx-3">{{ emptyStateText }}</span>
+      <span class="gl-mx-3 gl-my-3 gl-text-sm gl-text-subtle">{{ emptyStateText }}</span>
     </gl-disclosure-dropdown-item>
 
-    <gl-disclosure-dropdown-item key="all" :item="viewAllItem" class="show-hover-layover">
+    <gl-disclosure-dropdown-item key="all" :item="viewAllItem" class="show-focus-layover">
       <template #list-item>
-        <search-result-hover-layover :text-message="$options.i18n.OVERLAY_GOTO">
-          <gl-icon :name="viewAllItemsIcon" class="!gl-w-6" />
+        <search-result-focus-layover :text-message="$options.i18n.OVERLAY_GOTO">
+          <gl-icon :name="viewAllItemsIcon" class="!gl-w-5 gl-text-subtle" />
           {{ viewAllItemsText }}
-        </search-result-hover-layover>
+        </search-result-focus-layover>
       </template>
     </gl-disclosure-dropdown-item>
   </gl-disclosure-dropdown-group>

@@ -1,14 +1,16 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Filtering outbound requests
 ---
 
-# Filtering outbound requests
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 To protect against the risk of data loss and exposure, GitLab administrators can now use outbound request filtering controls to restrict certain outbound requests made by the GitLab instance.
 
@@ -53,7 +55,7 @@ To prevent exploitation of insecure internal web services, all webhook and integ
 
 To allow access to these addresses:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Network**.
 1. Expand **Outbound requests**.
 1. Select the **Allow requests to the local network from webhooks and integrations** checkbox.
@@ -66,7 +68,7 @@ Prerequisites:
 
 [System hooks](../administration/system_hooks.md) can make requests to the local network by default. To prevent system hook requests to the local network:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Network**.
 1. Expand **Outbound requests**.
 1. Clear the **Allow requests to the local network from system hooks** checkbox.
@@ -79,14 +81,18 @@ Prerequisites:
 
 [DNS rebinding](https://en.wikipedia.org/wiki/DNS_rebinding) is a technique to make a malicious domain name resolve to an internal network resource to bypass local network access restrictions. GitLab has protection against this attack enabled by default. To disable this protection:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Network**.
 1. Expand **Outbound requests**.
 1. Clear the **Enforce DNS-rebinding attack protection** checkbox.
 
 ## Filter requests
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/377371) in GitLab 15.10.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/377371) in GitLab 15.10.
+
+{{< /history >}}
 
 Prerequisites:
 
@@ -94,7 +100,7 @@ Prerequisites:
 
 To filter requests by blocking many requests:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Network**.
 1. Expand **Outbound requests**.
 1. Select the **Block all requests, except for IP addresses, IP ranges, and domain names defined in the allowlist** checkbox.
@@ -117,7 +123,7 @@ Prerequisites:
 
 To allow outbound requests to certain IP addresses and domains:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Network**.
 1. Expand **Outbound requests**.
 1. In **Local IP addresses and domain names that hooks and integrations can access**, enter your IP addresses and domains.
@@ -165,11 +171,11 @@ Most GitLab instances have their `public_runner_releases_url` set to
 `https://gitlab.com/api/v4/projects/gitlab-org%2Fgitlab-runner/releases`,
 which can prevent you from [filtering requests](#filter-requests).
 
-To resolve this issue, [configure GitLab to no longer fetch runner release version data from GitLab.com](../administration/settings/continuous_integration.md#disable-runner-version-management).
+To resolve this issue, [configure GitLab to no longer fetch runner release version data from GitLab.com](../administration/settings/continuous_integration.md#control-runner-version-management).
 
 ### GitLab subscription management is blocked
 
-When you [filter requests](#filter-requests), [GitLab subscription management](../subscriptions/self_managed/index.md)
+When you [filter requests](#filter-requests), [GitLab subscription management](../subscriptions/self_managed/_index.md)
 is blocked.
 
 To work around this problem, add `customers.gitlab.com:443` to the
@@ -186,12 +192,12 @@ To work around this error:
 
 ### GitLab Duo functionality is blocked
 
-When you [filter requests](#filter-requests), you might see `401` errors when trying to use [GitLab Duo features](../user/ai_features.md).
+When you [filter requests](#filter-requests), you might see `401` errors when trying to use [GitLab Duo features](../user/gitlab_duo/_index.md).
 
 This error can occur when outbound requests to the GitLab cloud server are not allowed. To work around this error:
 
 1. Add `https://cloud.gitlab.com:443` to the [allowlist](#allow-outbound-requests-to-certain-ip-addresses-and-domains).
 1. Select **Save Changes**.
-1. After GitLab has access to the [cloud server](../user/ai_features.md), [manually sychronize your license](../subscriptions/self_managed/index.md#manually-synchronize-your-subscription-details)
+1. After GitLab has access to the [cloud server](../user/gitlab_duo/_index.md), [manually synchronize your license](../subscriptions/manage_subscription.md#manually-synchronize-subscription-data)
 
 For more information, see the [GitLab Duo Code Suggestions troubleshooting documentation](../user/project/repository/code_suggestions/troubleshooting.md).

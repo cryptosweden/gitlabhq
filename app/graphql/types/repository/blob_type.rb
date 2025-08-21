@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module Types
   module Repository
     # rubocop: disable Graphql/AuthorizeTypes
@@ -33,16 +34,16 @@ module Types
         description: 'Web path of the blob.'
 
       field :ide_edit_path, GraphQL::Types::String, null: true,
-        description: 'Web path to edit this blob in the Web IDE.'
+        description: 'Web path to edit the blob in the Web IDE.'
 
       field :fork_and_edit_path, GraphQL::Types::String, null: true,
-        description: 'Web path to edit this blob using a forked project.'
+        description: 'Web path to edit the blob using a forked project.'
 
       field :ide_fork_and_edit_path, GraphQL::Types::String, null: true,
-        description: 'Web path to edit this blob in the Web IDE using a forked project.'
+        description: 'Web path to edit the blob in the Web IDE using a forked project.'
 
       field :fork_and_view_path, GraphQL::Types::String, null: true,
-        description: 'Web path to view this blob using a forked project.'
+        description: 'Web path to view the blob using a forked project.'
 
       field :size, GraphQL::Types::BigInt, null: true,
         description: 'Size (in bytes) of the blob.'
@@ -53,8 +54,8 @@ module Types
       field :raw_blob, GraphQL::Types::String, null: true, method: :data,
         description: 'Raw content of the blob.'
 
-      field :base64_encoded_blob, GraphQL::Types::String, null: true, method: :base64_encoded_blob,
-        alpha: { milestone: '17.1' }, description: 'Content of blob is encoded base64. Returns `null` if the `unicode_escaped_data` feature flag is disabled.'
+      field :base64_encoded_blob, GraphQL::Types::String, null: true,
+        experiment: { milestone: '17.1' }, description: 'Content of blob is encoded base64. Returns `null` if the `unicode_escaped_data` feature flag is disabled.'
 
       field :raw_text_blob, GraphQL::Types::String, null: true, method: :text_only_data,
         description: 'Raw content of the blob, if the blob is text data.'
@@ -62,7 +63,7 @@ module Types
       field :stored_externally, GraphQL::Types::Boolean, null: true, method: :stored_externally?,
         description: "Whether the blob's content is stored externally (for instance, in LFS)."
 
-      field :external_storage, GraphQL::Types::String, null: true, method: :external_storage,
+      field :external_storage, GraphQL::Types::String, null: true,
         description: "External storage being used, if enabled (for instance, 'LFS')."
 
       field :edit_blob_path, GraphQL::Types::String, null: true,
@@ -90,7 +91,7 @@ module Types
         description: 'Web path to blob blame page.'
 
       field :blame, Types::Blame::BlameType, null: true,
-        description: 'Blob blame.', alpha: { milestone: '16.3' }, resolver: Resolvers::BlameResolver
+        description: 'Blob blame.', experiment: { milestone: '16.3' }, resolver: Resolvers::BlameResolver
 
       field :history_path, GraphQL::Types::String, null: true,
         description: 'Web path to blob history page.'
@@ -126,6 +127,9 @@ module Types
       field :can_modify_blob, GraphQL::Types::Boolean, null: true, method: :can_modify_blob?,
         calls_gitaly: true,
         description: 'Whether the current user can modify the blob.'
+
+      field :can_modify_blob_with_web_ide, GraphQL::Types::Boolean, null: false, method: :can_modify_blob_with_web_ide?,
+        description: 'Whether the current user can modify the blob with Web IDE.'
 
       field :can_current_user_push_to_branch, GraphQL::Types::Boolean, null: true, method: :can_current_user_push_to_branch?,
         description: 'Whether the current user can push to the branch.'

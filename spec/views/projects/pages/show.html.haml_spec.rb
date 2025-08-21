@@ -10,7 +10,6 @@ RSpec.describe 'projects/pages/show' do
   let(:domain) { create(:pages_domain, project: project) }
 
   before do
-    stub_feature_flags(new_pages_ui: false)
     allow(project).to receive(:pages_deployed?).and_return(true)
     stub_pages_setting(external_https: true)
     stub_lets_encrypt_settings
@@ -23,8 +22,8 @@ RSpec.describe 'projects/pages/show' do
 
   describe 'validation warning' do
     let(:warning_message) do
-      "#{domain.domain} is not verified. To learn how to verify ownership, "\
-      "visit your domain details."
+      "Domain ownership verification required. Add a TXT record "\
+      "to verify ownership at your domain provider."
     end
 
     it "doesn't show auto ssl error warning" do

@@ -1,6 +1,5 @@
 <script>
 import { GlFormGroup, GlFormInput } from '@gitlab/ui';
-
 import {
   DUPLICATES_SETTING_EXCEPTION_TITLE,
   DUPLICATES_SETTINGS_EXCEPTION_LEGEND,
@@ -21,11 +20,6 @@ export default {
       type: Boolean,
       required: false,
       default: false,
-    },
-    duplicatesAllowed: {
-      type: Boolean,
-      default: false,
-      required: false,
     },
     duplicateExceptionRegex: {
       type: String,
@@ -69,7 +63,7 @@ export default {
   >
     <gl-form-input
       :id="id"
-      :disabled="duplicatesAllowed || loading"
+      :disabled="loading"
       width="lg"
       :value="duplicateExceptionRegex"
       :state="isExceptionRegexValid"

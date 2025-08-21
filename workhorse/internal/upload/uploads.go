@@ -16,7 +16,7 @@ import (
 	"net/http"
 	"net/textproto"
 
-	"github.com/golang-jwt/jwt/v5"
+	jwt "github.com/golang-jwt/jwt/v5"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/api"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/config"
@@ -29,11 +29,6 @@ import (
 // RewrittenFieldsHeader is the HTTP header used to indicate multipart form fields
 // that have been rewritten by GitLab Workhorse.
 const RewrittenFieldsHeader = "Gitlab-Workhorse-Multipart-Fields"
-
-// PreAuthorizer provides methods for pre-authorizing multipart requests.
-type PreAuthorizer interface {
-	PreAuthorizeHandler(next api.HandleFunc, suffix string) http.Handler
-}
 
 // MultipartClaims represents the claims included in a JWT token used for multipart requests.
 type MultipartClaims struct {
@@ -59,7 +54,7 @@ func interceptMultipartFiles(w http.ResponseWriter, r *http.Request, h http.Hand
 	writer := multipart.NewWriter(&body)
 	defer func() {
 		if writerErr := writer.Close(); writerErr != nil {
-			fmt.Fprintln(w, writerErr.Error())
+			_, _ = fmt.Fprintln(w, writerErr.Error())
 		}
 	}()
 
@@ -98,7 +93,7 @@ func interceptMultipartFiles(w http.ResponseWriter, r *http.Request, h http.Hand
 
 	// Close writer
 	if writerErr := writer.Close(); writerErr != nil {
-		fmt.Fprintln(w, writerErr.Error())
+		_, _ = fmt.Fprintln(w, writerErr.Error())
 	}
 
 	// Hijack the request

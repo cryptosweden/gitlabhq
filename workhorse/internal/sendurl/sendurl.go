@@ -2,10 +2,12 @@
 package sendurl
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,9 +15,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/metrics"
+
 	"gitlab.com/gitlab-org/labkit/mask"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/config"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/forwardheaders"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper/fail"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/log"
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/senddata"
@@ -25,21 +30,29 @@ import (
 type entry struct{ senddata.Prefix }
 
 type entryParams struct {
-	URL                   string
-	AllowRedirects        bool
-	DialTimeout           config.TomlDuration
-	ResponseHeaderTimeout config.TomlDuration
-	ErrorResponseStatus   int
-	TimeoutResponseStatus int
-	Body                  string
-	Header                http.Header
-	Method                string
+	URL                              string
+	AllowRedirects                   bool
+	AllowLocalhost                   bool
+	AllowedEndpoints                 []string
+	SSRFFilter                       bool
+	DialTimeout                      config.TomlDuration
+	ResponseHeaderTimeout            config.TomlDuration
+	ErrorResponseStatus              int
+	TimeoutResponseStatus            int
+	Body                             string
+	Header                           http.Header
+	ResponseHeaders                  http.Header
+	Method                           string
+	RestrictForwardedResponseHeaders forwardheaders.Params
 }
 
 type cacheKey struct {
-	requestTimeout  time.Duration
-	responseTimeout time.Duration
-	allowRedirects  bool
+	requestTimeout   time.Duration
+	responseTimeout  time.Duration
+	allowRedirects   bool
+	allowLocalhost   bool
+	ssrfFilter       bool
+	allowedEndpoints string
 }
 
 var httpClients sync.Map
@@ -59,14 +72,14 @@ var rangeHeaderKeys = []string{
 // Keep cache headers from the original response, not the proxied response. The
 // original response comes from the Rails application, which should be the
 // source of truth for caching.
-var preserveHeaderKeys = map[string]bool{
-	"Cache-Control": true,
-	"Expires":       true,
-	"Date":          true, // Support for HTTP 1.0 proxies
-	"Pragma":        true, // Support for HTTP 1.0 proxies
+var preserveHeaderKeys = []string{
+	"Cache-Control",
+	"Expires",
+	"Date",   // Support for HTTP 1.0 proxies
+	"Pragma", // Support for HTTP 1.0 proxies
 }
 
-var httpClientNoRedirect = func(req *http.Request, via []*http.Request) error {
+var httpClientNoRedirect = func(_ *http.Request, _ []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 
@@ -106,9 +119,13 @@ func (e *entry) Inject(w http.ResponseWriter, r *http.Request, sendData string) 
 		fail.Request(w, r, fmt.Errorf("SendURL: unpack sendData: %v", err))
 		return
 	}
-	if params.Method == "" {
-		params.Method = http.MethodGet
+
+	// Get the tracker from context and set flags
+	if tracker, ok := metrics.FromContext(r.Context()); ok {
+		tracker.SetFlag(metrics.KeyFetchedExternalURL, strconv.FormatBool(true))
 	}
+
+	setDefaultMethod(&params)
 
 	log.WithContextFields(r.Context(), log.Fields{
 		"url":  mask.URL(params.URL),
@@ -121,12 +138,46 @@ func (e *entry) Inject(w http.ResponseWriter, r *http.Request, sendData string) 
 		return
 	}
 
-	// create new request and copy range headers
+	newReq, err := e.createNewRequest(w, r, &params)
+	if err != nil {
+		return // Error handling is done in createNewRequest
+	}
+
+	resp, err := cachedClient(params).Do(newReq) //nolint:errcheck
+	if err != nil {
+		e.handleRequestError(w, r, err, &params)
+		return
+	}
+	params.RestrictForwardedResponseHeaders.ForwardResponseHeaders(w, resp, preserveHeaderKeys, params.ResponseHeaders)
+	w.WriteHeader(resp.StatusCode)
+
+	defer func() {
+		if err = resp.Body.Close(); err != nil {
+			fmt.Printf("Error closing response body: %v\n", err)
+		}
+	}()
+
+	if err := e.streamResponse(w, resp.Body); err != nil {
+		sendURLRequestsRequestFailed.Inc()
+		log.WithRequest(r).WithError(fmt.Errorf("SendURL: Copy response: %v", err)).Error()
+		return
+	}
+
+	sendURLRequestsSucceeded.Inc()
+}
+
+func setDefaultMethod(params *entryParams) {
+	if params.Method == "" {
+		params.Method = http.MethodGet
+	}
+}
+
+func (e *entry) createNewRequest(w http.ResponseWriter, r *http.Request, params *entryParams) (*http.Request, error) {
 	newReq, err := http.NewRequest(params.Method, params.URL, strings.NewReader(params.Body))
 	if err != nil {
 		sendURLRequestsInvalidData.Inc()
 		fail.Request(w, r, fmt.Errorf("SendURL: NewRequest: %v", err))
-		return
+		return nil, err
 	}
 	newReq = newReq.WithContext(r.Context())
 
@@ -140,59 +191,40 @@ func (e *entry) Inject(w http.ResponseWriter, r *http.Request, sendData string) 
 		}
 	}
 
-	// execute new request
-	resp, err := cachedClient(params).Do(newReq)
-	if err != nil {
-		status := http.StatusInternalServerError
+	return newReq, nil
+}
 
-		if params.TimeoutResponseStatus != 0 && os.IsTimeout(err) {
-			status = params.TimeoutResponseStatus
-		} else if params.ErrorResponseStatus != 0 {
-			status = params.ErrorResponseStatus
-		}
+func (e *entry) handleRequestError(w http.ResponseWriter, r *http.Request, err error, params *entryParams) {
+	status := http.StatusInternalServerError
+	var allowedIPError *transport.AllowedIPError
 
-		sendURLRequestsRequestFailed.Inc()
-		fail.Request(w, r, fmt.Errorf("SendURL: Do request: %v", err), fail.WithStatus(status))
-		return
+	switch {
+	case params.TimeoutResponseStatus != 0 && os.IsTimeout(err):
+		status = params.TimeoutResponseStatus
+	case errors.As(err, &allowedIPError):
+		status = http.StatusForbidden
+	case params.ErrorResponseStatus != 0:
+		status = params.ErrorResponseStatus
 	}
 
-	// Prevent Go from adding a Content-Length header automatically
-	w.Header().Del("Content-Length")
+	sendURLRequestsRequestFailed.Inc()
+	fail.Request(w, r, fmt.Errorf("SendURL: Do request: %v", err), fail.WithStatus(status))
+}
 
-	// copy response headers and body, except the headers from preserveHeaderKeys
-	for key, value := range resp.Header {
-		if !preserveHeaderKeys[key] {
-			w.Header()[key] = value
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-
-	defer func() {
-		if err = resp.Body.Close(); err != nil {
-			fmt.Printf("Error closing response body: %v\n", err)
-		}
-	}()
-
-	// Flushes the response right after it received.
-	// Important for streaming responses, where content delivered in chunks.
-	// Without flushing the body gets buffered by the HTTP server's internal buffer.
-	n, err := io.Copy(newFlushingResponseWriter(w), resp.Body)
+func (e *entry) streamResponse(w http.ResponseWriter, body io.Reader) error {
+	n, err := io.Copy(newFlushingResponseWriter(w), body)
 	sendURLBytes.Add(float64(n))
-
-	if err != nil {
-		sendURLRequestsRequestFailed.Inc()
-		log.WithRequest(r).WithError(fmt.Errorf("SendURL: Copy response: %v", err)).Error()
-		return
-	}
-
-	sendURLRequestsSucceeded.Inc()
+	return err
 }
 
 func cachedClient(params entryParams) *http.Client {
 	key := cacheKey{
-		requestTimeout:  params.DialTimeout.Duration,
-		responseTimeout: params.ResponseHeaderTimeout.Duration,
-		allowRedirects:  params.AllowRedirects,
+		requestTimeout:   params.DialTimeout.Duration,
+		responseTimeout:  params.ResponseHeaderTimeout.Duration,
+		allowRedirects:   params.AllowRedirects,
+		allowLocalhost:   params.AllowLocalhost,
+		ssrfFilter:       params.SSRFFilter,
+		allowedEndpoints: strings.Join(params.AllowedEndpoints, ","),
 	}
 	cachedClient, found := httpClients.Load(key)
 	if found {
@@ -206,6 +238,9 @@ func cachedClient(params entryParams) *http.Client {
 	}
 	if params.ResponseHeaderTimeout.Duration != 0 {
 		options = append(options, transport.WithResponseHeaderTimeout(params.ResponseHeaderTimeout.Duration))
+	}
+	if params.SSRFFilter {
+		options = append(options, transport.WithSSRFFilter(params.AllowLocalhost, params.AllowedEndpoints))
 	}
 
 	client := &http.Client{
@@ -223,7 +258,7 @@ func cachedClient(params entryParams) *http.Client {
 func newFlushingResponseWriter(w http.ResponseWriter) *httpFlushingResponseWriter {
 	return &httpFlushingResponseWriter{
 		ResponseWriter: w,
-		controller:     http.NewResponseController(w),
+		controller:     http.NewResponseController(w), //nolint:bodyclose
 	}
 }
 

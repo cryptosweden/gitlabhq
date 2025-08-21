@@ -50,7 +50,7 @@ module Projects
       end
 
       def save_export_archive
-        Gitlab::ImportExport::Saver.save(exportable: project, shared: shared)
+        Gitlab::ImportExport::Saver.save(exportable: project, shared: shared, user: current_user)
       end
 
       def version_saver
@@ -64,8 +64,8 @@ module Projects
       end
 
       def cleanup
-        FileUtils.rm_rf(shared.export_path) if File.exist?(shared.export_path)
-        FileUtils.rm_rf(shared.archive_path) if File.exist?(shared.archive_path)
+        FileUtils.rm_rf(shared.export_path)
+        FileUtils.rm_rf(shared.archive_path)
       end
 
       def log_info(message)

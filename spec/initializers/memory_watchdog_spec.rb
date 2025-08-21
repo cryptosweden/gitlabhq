@@ -2,7 +2,7 @@
 
 require 'fast_spec_helper'
 
-RSpec.describe 'memory watchdog', feature_category: :cloud_connector do
+RSpec.describe 'memory watchdog', feature_category: :durability_metrics do
   shared_examples 'starts configured watchdog' do |configure_monitor_method|
     shared_examples 'configures and starts watchdog' do
       it "correctly configures and starts watchdog", :aggregate_failures do
@@ -61,7 +61,7 @@ RSpec.describe 'memory watchdog', feature_category: :cloud_connector do
     end
 
     context 'when runtime is unsupported' do
-      it 'does not register life-cycle hook' do
+      it 'does not register life-cycle hook', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/468232' do
         expect(Gitlab::Cluster::LifecycleEvents).not_to receive(:on_worker_start)
 
         run_initializer

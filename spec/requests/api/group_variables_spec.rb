@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe API::GroupVariables, feature_category: :secrets_management do
+RSpec.describe API::GroupVariables, feature_category: :ci_variables do
   let_it_be(:group) { create(:group) }
   let_it_be(:user) { create(:user) }
 
@@ -61,24 +61,6 @@ RSpec.describe API::GroupVariables, feature_category: :secrets_management do
           expect(json_response['environment_scope']).to eq(variable.environment_scope)
           expect(json_response['description']).to be_nil
         end
-
-        context 'and feature flag `ci_hidden_variables is disabled`' do
-          before do
-            stub_feature_flags(ci_hidden_variables: false)
-          end
-
-          it 'returns group variable details without changes' do
-            get api("/groups/#{group.id}/variables/#{variable.key}", user)
-
-            expect(response).to have_gitlab_http_status(:ok)
-            expect(json_response['value']).to eq(variable.value)
-            expect(json_response['protected']).to eq(variable.protected?)
-            expect(json_response['hidden']).to eq(true)
-            expect(json_response['variable_type']).to eq(variable.variable_type)
-            expect(json_response['environment_scope']).to eq(variable.environment_scope)
-            expect(json_response['description']).to be_nil
-          end
-        end
       end
 
       context 'when variable is not hidden' do
@@ -94,24 +76,6 @@ RSpec.describe API::GroupVariables, feature_category: :secrets_management do
           expect(json_response['variable_type']).to eq(variable.variable_type)
           expect(json_response['environment_scope']).to eq(variable.environment_scope)
           expect(json_response['description']).to be_nil
-        end
-
-        context 'and feature flag `ci_hidden_variables is disabled`' do
-          before do
-            stub_feature_flags(ci_hidden_variables: false)
-          end
-
-          it 'returns group variable details' do
-            get api("/groups/#{group.id}/variables/#{variable.key}", user)
-
-            expect(response).to have_gitlab_http_status(:ok)
-            expect(json_response['value']).to eq(variable.value)
-            expect(json_response['protected']).to eq(variable.protected?)
-            expect(json_response['hidden']).to eq(false)
-            expect(json_response['variable_type']).to eq(variable.variable_type)
-            expect(json_response['environment_scope']).to eq(variable.environment_scope)
-            expect(json_response['description']).to be_nil
-          end
         end
       end
 
@@ -167,20 +131,33 @@ RSpec.describe API::GroupVariables, feature_category: :secrets_management do
           expect(json_response['raw']).to be_truthy
         end
 
-        it 'creates variable with masked and hidden' do
-          expect do
-            post api("/groups/#{group.id}/variables", user), params: { key: 'TEST_VARIABLE_2', value: 'PROTECTED_VALUE_2', protected: true, masked_and_hidden: true, raw: true }
-          end.to change { group.variables.count }.by(1)
+        context 'when masked and hidden is specified' do
+          using RSpec::Parameterized::TableSyntax
 
-          expect(response).to have_gitlab_http_status(:created)
-          expect(json_response['key']).to eq('TEST_VARIABLE_2')
-          expect(json_response['value']).to be_nil
-          expect(json_response['protected']).to be_truthy
-          expect(json_response['hidden']).to eq(true)
-          expect(json_response['masked']).to be_truthy
-          expect(json_response['variable_type']).to eq('env_var')
-          expect(json_response['environment_scope']).to eq('*')
-          expect(json_response['raw']).to be_truthy
+          where(:masked_and_hidden, :expected_masked_and_hidden, :expected_returned_value) do
+            true    | true  | nil                 # masked_and_hidden is set to a boolean `true` and we expect no value to be returned
+            false   | false | 'PROTECTED_VALUE_2' # masked_and_hidden is set to a boolean `false` and we expect a value to be returned
+            'true'  | true  | nil                 # for backwards-compatibility masked_and_hidden is set to a string `"true"` and we expect no value to be returned
+            'false' | false | 'PROTECTED_VALUE_2' # for backwards-compatibility masked_and_hidden is set to a string `"false"` and we expect a value to be returned
+          end
+
+          with_them do
+            it 'creates variable' do
+              expect do
+                post api("/groups/#{group.id}/variables", user), params: { key: 'TEST_VARIABLE_2', value: 'PROTECTED_VALUE_2', protected: true, masked_and_hidden: masked_and_hidden, raw: true }
+              end.to change { group.variables.count }.by(1)
+
+              expect(response).to have_gitlab_http_status(:created)
+              expect(json_response['key']).to eq('TEST_VARIABLE_2')
+              expect(json_response['value']).to eq(expected_returned_value)
+              expect(json_response['protected']).to be_truthy
+              expect(json_response['hidden']).to eq(expected_masked_and_hidden)
+              expect(json_response['masked']).to eq(expected_masked_and_hidden)
+              expect(json_response['variable_type']).to eq('env_var')
+              expect(json_response['environment_scope']).to eq('*')
+              expect(json_response['raw']).to be_truthy
+            end
+          end
         end
 
         it 'masks the new value when logging' do
@@ -212,7 +189,7 @@ RSpec.describe API::GroupVariables, feature_category: :secrets_management do
         it 'does not allow to duplicate variable key' do
           expect do
             post api("/groups/#{group.id}/variables", user), params: { key: variable.key, value: 'VALUE_2' }
-          end.to change { group.variables.count }.by(0)
+          end.not_to change { group.variables.count }
 
           expect(response).to have_gitlab_http_status(:bad_request)
         end
@@ -314,7 +291,7 @@ RSpec.describe API::GroupVariables, feature_category: :secrets_management do
 
           expect(response).to have_gitlab_http_status(:bad_request)
 
-          expected_error_message = 'Updating masked attribute is not allowed on updates for hidden variables.'
+          expected_error_message = 'The visibility setting cannot be changed for masked and hidden variables.'
 
           expect(json_response['message']['base']).to contain_exactly(expected_error_message)
           expect(updated_variable).to be_masked

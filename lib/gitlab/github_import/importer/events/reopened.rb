@@ -13,25 +13,33 @@ module Gitlab
           private
 
           def create_event(issue_event)
-            Event.create!(
+            return if event_outside_cutoff?(issue_event)
+
+            created_event = Event.create!(
               project_id: project.id,
               author_id: author_id(issue_event),
               action: 'reopened',
               target_type: issuable_type(issue_event),
               target_id: issuable_db_id(issue_event),
               created_at: issue_event.created_at,
-              updated_at: issue_event.created_at
+              updated_at: issue_event.created_at,
+              imported_from: imported_from
             )
+
+            push_reference(project, created_event, :author_id, issue_event[:actor]&.id)
           end
 
           def create_state_event(issue_event)
             attrs = {
               user_id: author_id(issue_event),
               state: 'reopened',
-              created_at: issue_event.created_at
+              created_at: issue_event.created_at,
+              imported_from: imported_from
             }.merge(resource_event_belongs_to(issue_event))
 
-            ResourceStateEvent.create!(attrs)
+            state_event = ResourceStateEvent.create!(attrs)
+
+            push_reference(project, state_event, :user_id, issue_event[:actor]&.id)
           end
         end
       end

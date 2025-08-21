@@ -3,14 +3,15 @@
 module Gitlab
   module ImportExport
     class MembersMapper
-      def initialize(exported_members:, user:, importable:)
-        @exported_members = user.admin? ? exported_members : []
+      def initialize(exported_members:, user:, importable:, default_member: true)
         @user = user
         @importable = importable
+        @exported_members = determine_exported_members(exported_members)
 
         # This needs to run first, as second call would be from #map
         # which means Project/Group members already exist.
-        ensure_default_member!
+        # Skip this when importing single relations to avoid destroying project members
+        ensure_default_member! if default_member
       end
 
       def map
@@ -36,6 +37,17 @@ module Gitlab
 
       private
 
+      def determine_exported_members(exported_members)
+        return [] unless @user.admin?
+        return [] unless can_add_members?
+
+        exported_members
+      end
+
+      def can_add_members?
+        ::Import::MemberLimitCheckService.new(@importable).execute.success?
+      end
+
       def missing_keys_tracking_hash
         Hash.new do |_, key|
           default_user_id
@@ -44,6 +56,7 @@ module Gitlab
 
       def ensure_default_member!
         return if user_already_member?
+        return unless can_add_members?
 
         @importable.members.destroy_all # rubocop: disable Cop/DestroyAll
 

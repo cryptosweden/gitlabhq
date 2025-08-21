@@ -1,5 +1,4 @@
 import Vue from 'vue';
-import { parseBoolean } from '~/lib/utils/common_utils';
 import EmailVerification from './components/email_verification.vue';
 
 export default () => {
@@ -9,7 +8,7 @@ export default () => {
     return null;
   }
 
-  const { obfuscatedEmail, verifyPath, resendPath, offerEmailReset, updateEmailPath } = el.dataset;
+  const { username, obfuscatedEmail, verifyPath, resendPath } = el.dataset;
 
   return new Vue({
     el,
@@ -17,11 +16,10 @@ export default () => {
     render(createElement) {
       return createElement(EmailVerification, {
         props: {
+          username,
           obfuscatedEmail,
           verifyPath,
           resendPath,
-          isOfferEmailReset: parseBoolean(offerEmailReset),
-          updateEmailPath,
         },
       });
     },

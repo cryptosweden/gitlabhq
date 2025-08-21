@@ -251,8 +251,8 @@ module Gitlab
       # else # defaults to :include_merges behavior
       #   ['foo_bar.rb', 'bar_baz.rb'],
       #
-      def find_changed_paths(objects, merge_commit_diff_mode: nil)
-        request = find_changed_paths_request(objects, merge_commit_diff_mode)
+      def find_changed_paths(objects, merge_commit_diff_mode: nil, find_renames: false, diff_filters: nil)
+        request = find_changed_paths_request(objects, merge_commit_diff_mode, find_renames, diff_filters)
 
         return [] if request.nil?
 
@@ -262,6 +262,7 @@ module Gitlab
             Gitlab::Git::ChangedPath.new(
               status: path.status,
               path: EncodingHelper.encode!(path.path),
+              old_path: EncodingHelper.encode!(path.old_path),
               old_mode: path.old_mode.to_s(8),
               new_mode: path.new_mode.to_s(8),
               old_blob_id: path.old_blob_id,
@@ -285,13 +286,19 @@ module Gitlab
       end
 
       def list_commits(revisions, params = {})
+        # We want to include the commit ref in the revisions if present.
+        revisions = Array.wrap(params[:ref].presence || []) + Array.wrap(revisions)
+
         request = Gitaly::ListCommitsRequest.new(
           repository: @gitaly_repo,
-          revisions: Array.wrap(revisions),
+          revisions: revisions,
           reverse: !!params[:reverse],
           ignore_case: params[:ignore_case],
           pagination_params: params[:pagination_params]
         )
+
+        request.order = params[:order].upcase if params[:order].present?
+        request.skip = params[:skip].to_i if params[:skip].present?
 
         if params[:commit_message_patterns]
           request.commit_message_patterns += Array.wrap(params[:commit_message_patterns])
@@ -301,7 +308,14 @@ module Gitlab
         request.before = GitalyClient.timestamp(params[:before]) if params[:before]
         request.after = GitalyClient.timestamp(params[:after]) if params[:after]
 
-        response = gitaly_client_call(@repository.storage, :commit_service, :list_commits, request, timeout: GitalyClient.medium_timeout)
+        response = gitaly_client_call(
+          @repository.storage,
+          :commit_service,
+          :list_commits,
+          request,
+          timeout: GitalyClient.medium_timeout
+        )
+
         consume_commits_response(response)
       end
 
@@ -389,12 +403,13 @@ module Gitlab
         response.languages.map { |l| { value: l.share.round(2), label: l.name, color: l.color, highlight: l.color } }
       end
 
-      def raw_blame(revision, path, range:)
+      def raw_blame(revision, path, range:, ignore_revisions_blob: nil)
         request = Gitaly::RawBlameRequest.new(
           repository: @gitaly_repo,
           revision: encode_binary(revision),
           path: encode_binary(path),
-          range: (encode_binary(range) if range)
+          range: (encode_binary(range) if range),
+          ignore_revisions_blob: (encode_binary(ignore_revisions_blob) if ignore_revisions_blob)
         )
 
         response = gitaly_client_call(@repository.storage, :commit_service, :raw_blame, request, timeout: GitalyClient.medium_timeout)
@@ -405,6 +420,10 @@ module Gitlab
         case detailed_error.try(:error)
         when :out_of_range, :path_not_found
           raise ArgumentError, e.details
+        when :invalid_ignore_revs_format
+          raise Gitlab::Git::Blame::IgnoreRevsFormatError, e.details
+        when :resolve_ignore_revs
+          raise Gitlab::Git::Blame::IgnoreRevsFileError, e.details
         else
           raise e
         end
@@ -457,7 +476,8 @@ module Gitlab
           global_options: parse_global_options!(options),
           disable_walk: true, # This option is deprecated. The 'walk' implementation is being removed.
           trailers: options[:trailers],
-          include_referenced_by: options[:include_referenced_by]
+          include_referenced_by: options[:include_referenced_by],
+          message_regex: options[:message_regex]
         )
         request.after    = GitalyClient.timestamp(options[:after]) if options[:after]
         request.before   = GitalyClient.timestamp(options[:before]) if options[:before]
@@ -527,7 +547,9 @@ module Gitlab
           h[k] = {
             signature: +''.b,
             signed_text: +''.b,
-            signer: :SIGNER_UNSPECIFIED
+            signer: :SIGNER_UNSPECIFIED,
+            author_email: +''.b,
+            committer_email: +''.b
           }
         end
 
@@ -538,6 +560,12 @@ module Gitlab
 
           signatures[current_commit_id][:signature] << message.signature
           signatures[current_commit_id][:signed_text] << message.signed_text
+
+          signatures[current_commit_id][:author_email] << message.author.email if message.author&.email.present?
+
+          if Feature.enabled?(:committer_email, repository_container) && message.committer&.email.present?
+            signatures[current_commit_id][:committer_email] << message.committer.email
+          end
 
           # The actual value is send once. All the other chunks send SIGNER_UNSPECIFIED
           signatures[current_commit_id][:signer] = message.signer unless message.signer == :SIGNER_UNSPECIFIED
@@ -647,8 +675,8 @@ module Gitlab
         response.commit
       end
 
-      def find_changed_paths_request(objects, merge_commit_diff_mode)
-        diff_mode = MERGE_COMMIT_DIFF_MODES[merge_commit_diff_mode] if Feature.enabled?(:merge_commit_diff_modes)
+      def find_changed_paths_request(objects, merge_commit_diff_mode, find_renames, diff_filters = nil)
+        diff_mode = MERGE_COMMIT_DIFF_MODES[merge_commit_diff_mode]
 
         requests = objects.filter_map do |object|
           case object
@@ -667,7 +695,16 @@ module Gitlab
 
         return if requests.blank?
 
-        Gitaly::FindChangedPathsRequest.new(repository: @gitaly_repo, requests: requests, merge_commit_diff_mode: diff_mode)
+        request_options = {
+          repository: @gitaly_repo,
+          requests: requests,
+          merge_commit_diff_mode: diff_mode,
+          find_renames: find_renames
+        }
+
+        request_options[:diff_filters] = diff_filters if diff_filters
+
+        Gitaly::FindChangedPathsRequest.new(request_options)
       end
 
       def path_error_message(path_error)

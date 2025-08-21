@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Auth::RequestAuthenticator do
+RSpec.describe Gitlab::Auth::RequestAuthenticator, feature_category: :system_access do
   include DependencyProxyHelpers
 
   let(:env) do
@@ -14,7 +14,7 @@ RSpec.describe Gitlab::Auth::RequestAuthenticator do
 
   let(:request) { ActionDispatch::Request.new(env) }
 
-  subject { described_class.new(request) }
+  subject(:request_authenticator) { described_class.new(request) }
 
   describe '#user' do
     let_it_be(:sessionless_user) { build(:user) }
@@ -90,37 +90,61 @@ RSpec.describe Gitlab::Auth::RequestAuthenticator do
 
       it { is_expected.to be_can_sign_in_bot(user) }
     end
+
+    context 'the user is a service account, for an archive request' do
+      let_it_be(:user) { build(:user, :service_account) }
+
+      before do
+        env['SCRIPT_NAME'] = '/project/-/archive/main/project-main.tar.gz'
+      end
+
+      it { is_expected.to be_can_sign_in_bot(user) }
+    end
+
+    context 'the user is a project bot, for an archive request' do
+      let(:user) { build(:user, :project_bot) }
+
+      before do
+        env['SCRIPT_NAME'] = '/project/-/archive/main/project-main.tar.gz'
+      end
+
+      it { is_expected.to be_can_sign_in_bot(user) }
+    end
   end
 
   describe '#find_authenticated_requester' do
     let_it_be(:api_user) { create(:user) }
-    let_it_be(:deploy_token_user) { create(:user) }
+    let_it_be(:deploy_token) { create(:deploy_token) }
 
-    it 'returns the deploy token if it exists' do
-      allow_next_instance_of(described_class) do |authenticator|
-        expect(authenticator).to receive(:deploy_token_from_request).and_return(deploy_token_user)
-        allow(authenticator).to receive(:user).and_return(nil)
+    context 'when deploy token is present' do
+      it 'returns the deploy token and skips user authentication' do
+        allow_next_instance_of(described_class) do |authenticator|
+          expect(authenticator).to receive(:deploy_token_from_request).and_return(deploy_token)
+          expect(authenticator).not_to receive(:user)
+        end
+
+        expect(subject.find_authenticated_requester([:api])).to eq deploy_token
       end
-
-      expect(subject.find_authenticated_requester([:api])).to eq deploy_token_user
     end
 
-    it 'returns the user id if it exists' do
-      allow_next_instance_of(described_class) do |authenticator|
-        allow(authenticator).to receive(:deploy_token_from_request).and_return(deploy_token_user)
-        expect(authenticator).to receive(:user).and_return(api_user)
+    context 'when deploy token is not present' do
+      it 'falls back to user authentication' do
+        allow_next_instance_of(described_class) do |authenticator|
+          expect(authenticator).to receive(:deploy_token_from_request).and_return(nil)
+          expect(authenticator).to receive(:user).with([:api]).and_return(api_user)
+        end
+
+        expect(subject.find_authenticated_requester([:api])).to eq api_user
       end
 
-      expect(subject.find_authenticated_requester([:api])).to eq api_user
-    end
+      it 'returns nil when no authentication method succeeds' do
+        allow_next_instance_of(described_class) do |authenticator|
+          expect(authenticator).to receive(:deploy_token_from_request).and_return(nil)
+          expect(authenticator).to receive(:user).with([:api]).and_return(nil)
+        end
 
-    it 'rerturns nil if no match is found' do
-      allow_next_instance_of(described_class) do |authenticator|
-        expect(authenticator).to receive(:deploy_token_from_request).and_return(nil)
-        expect(authenticator).to receive(:user).and_return(nil)
+        expect(subject.find_authenticated_requester([:api])).to be_nil
       end
-
-      expect(subject.find_authenticated_requester([:api])).to eq nil
     end
   end
 
@@ -133,6 +157,11 @@ RSpec.describe Gitlab::Auth::RequestAuthenticator do
     let_it_be(:lfs_token_user) { build(:user) }
     let_it_be(:basic_auth_access_token_user) { build(:user) }
     let_it_be(:basic_auth_password_user) { build(:user) }
+
+    it 'raises if the request format is unknown' do
+      expect { request_authenticator.find_sessionless_user(:invalid_request_format) }
+        .to raise_error(ArgumentError, "Unknown request format")
+    end
 
     it 'returns dependency_proxy user first' do
       allow_any_instance_of(described_class).to receive(:find_user_from_dependency_proxy_token)
@@ -378,13 +407,13 @@ RSpec.describe Gitlab::Auth::RequestAuthenticator do
       end
 
       it 'tries to find the user' do
-        expect(subject.find_sessionless_user([:api])).to eq user
+        expect(subject.find_sessionless_user(:api)).to eq user
       end
 
       it 'returns nil if the job is not running' do
         job.status = :success
 
-        expect(subject.find_sessionless_user([:api])).to be_blank
+        expect(subject.find_sessionless_user(:api)).to be_blank
       end
     end
 
@@ -396,7 +425,7 @@ RSpec.describe Gitlab::Auth::RequestAuthenticator do
       it 'does not search for job users' do
         expect(::Ci::Build).not_to receive(:find_by_token)
 
-        expect(subject.find_sessionless_user([:api])).to be_nil
+        expect(subject.find_sessionless_user(:api)).to be_nil
       end
     end
   end
@@ -446,6 +475,13 @@ RSpec.describe Gitlab::Auth::RequestAuthenticator do
           deploy_token_allowed: expected_deploy_token_allowed
         })
       end
+    end
+  end
+
+  describe '#graphql_authorization_scopes' do
+    it 'includes base scopes' do
+      scopes = subject.send(:graphql_authorization_scopes)
+      expect(scopes).to include(:api, :read_api)
     end
   end
 end

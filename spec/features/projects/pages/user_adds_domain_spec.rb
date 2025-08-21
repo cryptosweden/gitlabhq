@@ -10,7 +10,6 @@ RSpec.describe 'User adds pages domain', :js, feature_category: :pages do
   let(:user) { create(:user) }
 
   before do
-    stub_feature_flags(new_pages_ui: false)
     allow(Gitlab.config.pages).to receive(:enabled).and_return(true)
 
     project.add_maintainer(user)
@@ -32,8 +31,9 @@ RSpec.describe 'User adds pages domain', :js, feature_category: :pages do
 
     it 'allows to add new domain' do
       visit project_pages_path(project)
+      click_link('Domains & settings')
 
-      expect(page).to have_content('New domain')
+      expect(page).to have_content('Add domain')
     end
 
     it_behaves_like 'adds new domain'
@@ -60,7 +60,7 @@ RSpec.describe 'User adds pages domain', :js, feature_category: :pages do
         fill_in 'Domain', with: 'my.test.domain.com'
         click_button 'Create new domain'
 
-        expect(page).to have_content('Domain has already been taken')
+        expect(page).to have_content("Domain is already in use by project #{project.full_path}")
       end
     end
   end
@@ -110,14 +110,14 @@ RSpec.describe 'User adds pages domain', :js, feature_category: :pages do
       fill_in 'Domain', with: 'my.test.domain.com'
       click_button 'Create new domain'
 
-      expect(page).to have_content('Domain has already been taken')
+      expect(page).to have_content("Domain is already in use by project #{project.full_path}")
     end
 
     it 'shows warning message if auto ssl is failed' do
       stub_lets_encrypt_settings
       create(:pages_domain, project: project, auto_ssl_failed: true)
 
-      visit project_pages_path(project)
+      visit_domains_tab(project)
 
       expect(page).to have_content("Something went wrong while obtaining the Let's Encrypt certificate")
     end
@@ -130,7 +130,7 @@ RSpec.describe 'User adds pages domain', :js, feature_category: :pages do
       it 'shows the DNS verification record' do
         domain = create(:pages_domain, project: project)
 
-        visit project_pages_path(project)
+        visit_domains_tab(project)
 
         within('#content-body') { click_link 'Edit' }
         expect(page).to have_field :domain_verification, with: "#{domain.verification_domain} TXT #{domain.keyed_verification_code}"
@@ -139,9 +139,10 @@ RSpec.describe 'User adds pages domain', :js, feature_category: :pages do
       it 'shows verification warning if domain is not verified' do
         create(:pages_domain, :unverified, project: project, domain: 'my.test.domain.com')
 
-        visit project_pages_path(project)
+        visit_domains_tab(project)
 
-        expect(page).to have_content('my.test.domain.com is not verified')
+        expect(page).to have_content('DNS check unsuccessful')
+        expect(page).to have_content('Domain ownership verification required.')
       end
     end
 
@@ -151,7 +152,7 @@ RSpec.describe 'User adds pages domain', :js, feature_category: :pages do
       end
 
       it 'allows the certificate to be updated' do
-        visit project_pages_path(project)
+        visit_domains_tab(project)
 
         within('#content-body') { click_link 'Edit' }
         click_button 'Save changes'
@@ -165,7 +166,7 @@ RSpec.describe 'User adds pages domain', :js, feature_category: :pages do
         end
 
         it 'tells the user what the problem is' do
-          visit project_pages_path(project)
+          visit_domains_tab(project)
 
           within('#content-body') { click_link 'Edit' }
 
@@ -178,7 +179,7 @@ RSpec.describe 'User adds pages domain', :js, feature_category: :pages do
       end
 
       it 'allows the certificate to be removed', :js do
-        visit project_pages_path(project)
+        visit_domains_tab(project)
 
         within('#content-body') { click_link 'Edit' }
 
@@ -192,7 +193,7 @@ RSpec.describe 'User adds pages domain', :js, feature_category: :pages do
       end
 
       it 'shows the DNS ALIAS record' do
-        visit project_pages_path(project)
+        visit_domains_tab(project)
 
         within('#content-body') { click_link 'Edit' }
         expect(page).to have_field :domain_dns, with: format(
@@ -203,5 +204,10 @@ RSpec.describe 'User adds pages domain', :js, feature_category: :pages do
         )
       end
     end
+  end
+
+  def visit_domains_tab(project)
+    visit project_pages_path(project)
+    click_link('Domains & settings')
   end
 end

@@ -1,24 +1,33 @@
 import Vue, { nextTick } from 'vue';
-// eslint-disable-next-line no-restricted-imports
-import Vuex from 'vuex';
 import { GlAvatarLink, GlAvatar } from '@gitlab/ui';
 import { clone } from 'lodash';
+import { createTestingPinia } from '@pinia/testing';
+import { PiniaVuePlugin } from 'pinia';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
-import DiffsModule from '~/diffs/store/modules';
 import NoteActions from '~/notes/components/note_actions.vue';
 import NoteBody from '~/notes/components/note_body.vue';
 import NoteHeader from '~/notes/components/note_header.vue';
 import issueNote from '~/notes/components/noteable_note.vue';
-import NotesModule from '~/notes/stores/modules';
 import { NOTEABLE_TYPE_MAPPING } from '~/notes/constants';
 import { createAlert } from '~/alert';
 import { UPDATE_COMMENT_FORM } from '~/notes/i18n';
 import { sprintf } from '~/locale';
+import { confirmAction } from '~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal';
+import { SHOW_CLIENT_SIDE_SECRET_DETECTION_WARNING } from '~/lib/utils/secret_detection';
+import { HTTP_STATUS_UNPROCESSABLE_ENTITY } from '~/lib/utils/http_status';
+import { useMockInternalEventsTracking } from 'helpers/tracking_internal_events_helper';
+import { globalAccessorPlugin } from '~/pinia/plugins';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useNotes } from '~/notes/store/legacy_notes';
 import { noteableDataMock, notesDataMock, note } from '../mock_data';
 
-Vue.use(Vuex);
+Vue.use(PiniaVuePlugin);
+
 jest.mock('~/alert');
+jest.mock('~/lib/utils/confirm_via_gl_modal/confirm_via_gl_modal');
+confirmAction.mockResolvedValueOnce(false);
+const { bindInternalEventDocument } = useMockInternalEventsTracking();
 
 const singleLineNotePosition = {
   line_range: {
@@ -38,7 +47,7 @@ const singleLineNotePosition = {
 };
 
 describe('issue_note', () => {
-  let store;
+  let pinia;
   let wrapper;
 
   const REPORT_ABUSE_PATH = '/abuse_reports/add_category';
@@ -47,24 +56,12 @@ describe('issue_note', () => {
 
   const findMultilineComment = () => wrapper.findByTestId('multiline-comment');
 
-  const createWrapper = (props = {}, storeUpdater = (s) => s) => {
-    store = new Vuex.Store(
-      storeUpdater({
-        modules: {
-          notes: NotesModule(),
-          diffs: DiffsModule(),
-        },
-      }),
-    );
-
-    store.dispatch('setNoteableData', noteableDataMock);
-    store.dispatch('setNotesData', notesDataMock);
-
+  const createWrapper = (props = {}) => {
     // the component overwrites the `note` prop with every action, hence create a copy
     const noteCopy = clone(props.note || note);
 
     wrapper = mountExtended(issueNote, {
-      store,
+      pinia,
       propsData: {
         note: noteCopy,
         ...props,
@@ -81,6 +78,14 @@ describe('issue_note', () => {
       },
     });
   };
+
+  beforeEach(() => {
+    pinia = createTestingPinia({ plugins: [globalAccessorPlugin] });
+    useLegacyDiffs();
+    useNotes().noteableData = noteableDataMock;
+    useNotes().notesData = notesDataMock;
+    useNotes().updateNote.mockResolvedValue();
+  });
 
   describe('mutiline comments', () => {
     beforeEach(() => {
@@ -286,17 +291,6 @@ describe('issue_note', () => {
         '<img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" onload="alert(1)" />';
       const alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => {});
 
-      store.hotUpdate({
-        modules: {
-          notes: {
-            actions: {
-              updateNote() {},
-              setSelectedCommentPositionHover() {},
-            },
-          },
-        },
-      });
-
       findNoteBody().vm.$emit('handleFormUpdate', {
         noteText: noteBody,
         parentElement: null,
@@ -325,41 +319,7 @@ describe('issue_note', () => {
     });
   });
 
-  describe('cancel edit', () => {
-    beforeEach(() => {
-      createWrapper();
-    });
-
-    it('restores content of updated note', async () => {
-      const updatedText = 'updated note text';
-      store.hotUpdate({
-        modules: {
-          notes: {
-            actions: {
-              updateNote() {},
-            },
-          },
-        },
-      });
-
-      findNoteBody().vm.$emit('handleFormUpdate', {
-        noteText: updatedText,
-        parentElement: null,
-        callback: () => {},
-      });
-
-      await nextTick();
-      expect(findNoteBody().props().note.note_html).toBe(`<p dir="auto">${updatedText}</p>\n`);
-
-      findNoteBody().vm.$emit('cancelForm', {});
-      await nextTick();
-
-      expect(findNoteBody().props().note.note_html).toBe(note.note_html);
-    });
-  });
-
   describe('formUpdateHandler', () => {
-    const updateNote = jest.fn();
     const params = {
       noteText: 'updated note text',
       parentElement: null,
@@ -367,30 +327,16 @@ describe('issue_note', () => {
       resolveDiscussion: false,
     };
 
-    const updateActions = () => {
-      store.hotUpdate({
-        modules: {
-          notes: {
-            actions: {
-              updateNote,
-              setSelectedCommentPositionHover() {},
-            },
-          },
-        },
-      });
-    };
-
     beforeEach(() => {
       createWrapper();
-      updateActions();
     });
 
-    afterEach(() => updateNote.mockReset());
-
-    it('emits handleUpdateNote', () => {
+    it('emits handleUpdateNote', async () => {
       const updatedNote = { ...note, note_html: `<p dir="auto">${params.noteText}</p>\n` };
 
       findNoteBody().vm.$emit('handleFormUpdate', params);
+      await nextTick();
+      await waitForPromises();
 
       expect(wrapper.emitted('handleUpdateNote')).toHaveLength(1);
 
@@ -410,22 +356,47 @@ describe('issue_note', () => {
       findNoteBody().vm.$emit('handleFormUpdate', params);
 
       await nextTick();
+      await waitForPromises();
 
       expect(findNoteBody().props().note.note_html).toBe(`<p dir="auto">${params.noteText}</p>\n`);
       expect(findNoteBody().props('isEditing')).toBe(false);
     });
 
-    it('should not update note with sensitive token', () => {
-      const sensitiveMessage = 'token: glpat-1234567890abcdefghij';
-      findNoteBody().vm.$emit('handleFormUpdate', { ...params, noteText: sensitiveMessage });
+    it('should not update note with sensitive token', async () => {
+      const { trackEventSpy } = bindInternalEventDocument();
 
-      expect(updateNote).not.toHaveBeenCalled();
+      const sensitiveMessage = 'token: glpat-1234567890abcdefghij';
+
+      // Ensure initial note content is as expected
+      expect(findNoteBody().props().note.note_html).toBe(note.note_html);
+
+      // Attempt to update note with sensitive content
+      const updatedNote = { ...params, noteText: sensitiveMessage };
+      findNoteBody().vm.$emit('handleFormUpdate', updatedNote);
+
+      await nextTick();
+      await waitForPromises();
+
+      // Expect note content to remain unchanged
+      expect(findNoteBody().props().note.note_html).toBe(note.note_html);
+      expect(confirmAction).toHaveBeenCalledWith(
+        '',
+        expect.objectContaining({ title: 'Warning: Potential secret detected' }),
+      );
+      expect(trackEventSpy).toHaveBeenCalledWith(SHOW_CLIENT_SIDE_SECRET_DETECTION_WARNING, {
+        label: 'comment',
+        property: 'GitLab personal access token',
+        value: 0,
+      });
     });
 
     describe('when updateNote returns errors', () => {
       beforeEach(() => {
-        updateNote.mockRejectedValue({
-          response: { status: 422, data: { errors: 'error 1 and error 2' } },
+        useNotes().updateNote.mockRejectedValue({
+          response: {
+            status: HTTP_STATUS_UNPROCESSABLE_ENTITY,
+            data: { errors: 'error 1 and error 2' },
+          },
         });
       });
 
@@ -448,59 +419,57 @@ describe('issue_note', () => {
 
   describe('diffFile', () => {
     it.each`
-      scenario                         | files        | noteDef
-      ${'the note has no position'}    | ${undefined} | ${note}
-      ${'the Diffs store has no data'} | ${[]}        | ${{ ...note, position: singleLineNotePosition }}
-    `(
-      'returns `null` when $scenario and no diff file is provided as a prop',
-      ({ noteDef, diffs }) => {
-        const storeUpdater = (rawStore) => {
-          const updatedStore = { ...rawStore };
-
-          if (diffs) {
-            updatedStore.modules.diffs.state.diffFiles = diffs;
-          }
-
-          return updatedStore;
-        };
-
-        createWrapper({ note: noteDef, discussionFile: null }, storeUpdater);
-
-        expect(findNoteBody().props().file).toBe(null);
-      },
-    );
+      scenario                         | noteDef
+      ${'the note has no position'}    | ${note}
+      ${'the Diffs store has no data'} | ${{ ...note, position: singleLineNotePosition }}
+    `('returns `null` when $scenario and no diff file is provided as a prop', ({ noteDef }) => {
+      useLegacyDiffs().diffFiles = [];
+      createWrapper({ note: noteDef, discussionFile: null });
+      expect(findNoteBody().props().file).toBe(null);
+    });
 
     it("returns the correct diff file from the Diffs store if it's available", () => {
-      createWrapper(
-        {
-          note: { ...note, position: singleLineNotePosition },
-        },
-        (rawStore) => {
-          const updatedStore = { ...rawStore };
-          updatedStore.modules.diffs.state.diffFiles = [
-            { file_hash: 'abc', testId: 'diffFileTest' },
-          ];
-          return updatedStore;
-        },
-      );
+      useLegacyDiffs().diffFiles = [{ file_hash: 'abc', testId: 'diffFileTest' }];
+      createWrapper({
+        note: { ...note, position: singleLineNotePosition },
+      });
 
       expect(findNoteBody().props().file.testId).toBe('diffFileTest');
     });
 
     it('returns the provided diff file if the more robust getters fail', () => {
-      createWrapper(
-        {
-          note: { ...note, position: singleLineNotePosition },
-          discussionFile: { testId: 'diffFileTest' },
-        },
-        (rawStore) => {
-          const updatedStore = { ...rawStore };
-          updatedStore.modules.diffs.state.diffFiles = [];
-          return updatedStore;
-        },
-      );
+      createWrapper({
+        note: { ...note, position: singleLineNotePosition },
+        discussionFile: { testId: 'diffFileTest' },
+      });
 
       expect(findNoteBody().props().file.testId).toBe('diffFileTest');
+    });
+  });
+
+  describe('editing', () => {
+    it('respects isEditing prop on the note', () => {
+      createWrapper({
+        note: { ...note, isEditing: true },
+      });
+      expect(findNoteBody().props('isEditing')).toBe(true);
+    });
+
+    it('passes down restoreFromAutosave', () => {
+      createWrapper({
+        note: { ...note },
+        restoreFromAutosave: true,
+      });
+      expect(findNoteBody().props('restoreFromAutosave')).toBe(true);
+    });
+
+    it('passes down autosaveKey', () => {
+      const autosaveKey = 'autosave';
+      createWrapper({
+        note: { ...note },
+        autosaveKey,
+      });
+      expect(findNoteBody().props('autosaveKey')).toBe(autosaveKey);
     });
   });
 });

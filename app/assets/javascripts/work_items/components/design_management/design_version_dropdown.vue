@@ -3,6 +3,7 @@ import { GlAvatar, GlCollapsibleListbox } from '@gitlab/ui';
 import defaultAvatarUrl from 'images/no_avatar.png';
 import { TYPENAME_DESIGN_VERSION } from '~/graphql_shared/constants';
 import { convertToGraphQLId } from '~/graphql_shared/utils';
+import { queryToObject } from '~/lib/utils/url_utility';
 import { __, sprintf } from '~/locale';
 import TimeAgo from '~/vue_shared/components/time_ago_tooltip.vue';
 import { findVersionId } from './utils';
@@ -43,7 +44,7 @@ export default {
     },
     dropdownText() {
       if (this.isLatestVersion) {
-        return __('Showing latest version');
+        return __('Latest version');
       }
       // allVersions is sorted in reverse chronological order (the latest first)
       const currentVersionNumber = this.allVersions.length - this.currentVersionIdx;
@@ -84,7 +85,11 @@ export default {
     routeToVersion(versionId) {
       this.$router.push({
         path: this.$route.path,
-        query: { version: this.findVersionId(versionId) },
+        query: {
+          // Retain any existing page params and only append/override `version`.
+          ...queryToObject(window.location.search, { specialOperators: true }),
+          version: this.findVersionId(versionId),
+        },
       });
     },
     versionText(item) {
@@ -115,15 +120,15 @@ export default {
     @select="routeToVersion"
   >
     <template #list-item="{ item }">
-      <span class="gl-flex gl-items-center">
+      <span class="gl-flex gl-items-center gl-gap-3">
         <gl-avatar :alt="getAuthorName(item.author)" :size="32" :src="getAvatarUrl(item)" />
         <span class="gl-flex gl-flex-col">
           <span class="gl-font-bold">{{ versionText(item) }}</span>
-          <span v-if="item.author" class="gl-text-gray-600 gl-mt-1">
+          <span v-if="item.author" class="gl-mt-1 gl-text-subtle">
             <span class="gl-block">{{ getAuthorName(item.author) }}</span>
             <time-ago
               v-if="item.createdAt"
-              class="text-1"
+              class="gl-text-sm"
               :time="item.createdAt"
               tooltip-placement="bottom"
             />

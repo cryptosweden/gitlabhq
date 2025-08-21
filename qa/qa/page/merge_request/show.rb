@@ -7,17 +7,12 @@ module QA
         include Page::Component::Note
         include Page::Component::Issuable::Sidebar
 
-        view 'app/assets/javascripts/batch_comments/components/preview_dropdown.vue' do
-          element 'review-preview-dropdown'
-        end
-
-        view 'app/assets/javascripts/batch_comments/components/review_bar.vue' do
-          element 'review-bar-content'
-        end
-
-        view 'app/assets/javascripts/batch_comments/components/submit_dropdown.vue' do
-          element 'submit-review-dropdown'
+        view 'app/assets/javascripts/batch_comments/components/review_drawer.vue' do
           element 'submit-review-button'
+        end
+
+        view 'app/assets/javascripts/batch_comments/components/submit_review_button.vue' do
+          element 'review-drawer-toggle'
         end
 
         view 'app/assets/javascripts/diffs/components/compare_dropdown_layout.vue' do
@@ -26,6 +21,9 @@ module QA
 
         view 'app/assets/javascripts/diffs/components/compare_versions.vue' do
           element 'target-version-dropdown'
+        end
+
+        view 'app/assets/javascripts/diffs/components/file_browser_toggle.vue' do
           element 'file-tree-button'
         end
 
@@ -90,6 +88,10 @@ module QA
           element 'squash-checkbox'
         end
 
+        view 'app/assets/javascripts/vue_merge_request_widget/components/states/ready_to_merge.vue' do
+          element 'widget_edit_commit_message'
+        end
+
         view 'app/assets/javascripts/vue_merge_request_widget/mr_widget_options.vue' do
           element 'mr-widget-content'
           element 'pipeline-container'
@@ -97,6 +99,10 @@ module QA
 
         view 'app/assets/javascripts/ci/pipelines_page/components/pipelines_artifacts.vue' do
           element 'artifacts-dropdown'
+        end
+
+        view 'app/assets/javascripts/content_editor/components/formatting_toolbar.vue' do
+          element 'code-suggestion'
         end
 
         view 'app/assets/javascripts/vue_shared/components/markdown/apply_suggestion.vue' do
@@ -144,7 +150,12 @@ module QA
           element 'mr-collapsible-title'
         end
 
+        view 'app/helpers/projects_helper.rb' do
+          element 'author-link'
+        end
+
         def start_review
+          has_active_element?('start-review-button', wait: 0.5)
           click_element('start-review-button')
 
           # After clicking the button, wait for it to disappear
@@ -169,17 +180,19 @@ module QA
             end
           end
 
-          within_element('review-bar-content') do
-            click_element('review-preview-dropdown')
-          end
+          retry_until(sleep_interval: 2, max_attempts: 5, message: "Retry closing review drawer") do
+            if has_element?('review-drawer-toggle', wait: 2)
+              all_elements('review-drawer-toggle', minimum: 1).first.click
+            end
 
-          click_element('submit-review-dropdown')
-          click_element('submit-review-button')
+            click_element('submit-review-button')
+            has_no_element?('review-drawer-toggle', wait: 2)
+          end
 
           # After clicking the button, wait for the review bar to disappear
           # before moving on to the next part of the test
           wait_until(reload: false) do
-            has_no_element?('review-bar-content')
+            has_no_element?('draft-note')
           end
         end
 
@@ -194,7 +207,7 @@ module QA
           click_element('dismiss-suggestion-popover-button') if has_element?('dismiss-suggestion-popover-button',
             wait: 1)
 
-          fill_element('reply-field', text)
+          fill_editor_element('reply-field', text)
         end
 
         def click_discussions_tab
@@ -208,8 +221,11 @@ module QA
         end
 
         def click_diffs_tab
-          # Do not wait for spinner due to https://gitlab.com/gitlab-org/gitlab/-/issues/398584
-          click_element('diffs-tab', skip_finished_loading_check: true)
+          click_element('diffs-tab')
+        end
+
+        def has_reports_tab?
+          has_css?('.reports-tab')
         end
 
         def click_pipeline_link
@@ -221,12 +237,6 @@ module QA
           # Change back to regular click_element when moved_mr_sidebar FF is removed
           # Rollout issue: https://gitlab.com/gitlab-org/gitlab/-/issues/385460
           click_by_javascript(find_element('edit-title-button', skip_finished_loading_check: true))
-        end
-
-        def expand_merge_checks
-          within_element('.mr-widget-section') do
-            click_element('chevron-lg-down-icon')
-          end
         end
 
         def has_file?(file_name)
@@ -255,7 +265,7 @@ module QA
         end
 
         def has_merge_button?
-          has_element?('merge-button', wait: 30)
+          has_element?('merge-button', skip_finished_loading_check: true, wait: 30)
         end
 
         def has_no_merge_button?
@@ -278,6 +288,12 @@ module QA
           has_element?('title-content', text: title)
         end
 
+        def has_author?(author_username)
+          within_element('author-link') do
+            has_text?(author_username)
+          end
+        end
+
         def has_description?(description)
           has_element?('description-content', text: description)
         end
@@ -296,6 +312,10 @@ module QA
           check_element('squash-checkbox', true)
         end
 
+        def edit_commit_message
+          check_element('widget_edit_commit_message', true)
+        end
+
         def merge!
           try_to_merge!
           finished_loading?
@@ -307,6 +327,10 @@ module QA
           wait_until_ready_to_merge
 
           click_element('merge-button', text: 'Set to auto-merge')
+        end
+
+        def auto_mergeable?
+          has_element?('merge-button', text: 'Set to auto-merge', wait: 10)
         end
 
         def merged?
@@ -327,7 +351,9 @@ module QA
           end
 
           match_when_negated do |page|
-            page.has_no_element?('merge-button', disabled: false)
+            has_css?('.mr-widget-section', text: 'Merge blocked') || # Merge widget indicates merge is blocked
+              page.has_no_element?('merge-button') ||                # No merge button
+              page.find_element('merge-button').disabled? == true    # There is a merge button, but it is disabled
           end
         end
 
@@ -342,26 +368,26 @@ module QA
         # then check again if it's ready to merge. For example, it will refresh if a new change was pushed and the page
         # needs to be refreshed to show the change.
         #
-        # @param [Boolean] transient_test true if the current test is a transient test (default: false)
-        def wait_until_ready_to_merge(transient_test: false)
+        def wait_until_ready_to_merge
           wait_until(message: "Waiting for ready to merge", sleep_interval: 1) do
             # changes in mr are rendered async, because of that mr can sometimes show no changes and there will be no
             # merge button, in such case we must retry loop otherwise find_element will raise ElementNotFound error
             next false unless has_element?('merge-button', wait: 1)
 
+            # If the widget shows "Merge blocked: new changes were just added" we can refresh the page and check again
+            next false if merge_blocked_by_new_changes?
+
             break true unless find_element('merge-button').disabled?
 
-            # If the widget shows "Merge blocked: new changes were just added" we can refresh the page and check again
-            next false if has_element?('head-mismatch-content', wait: 1)
-
-            # Stop waiting if we're in a transient test. By this point we're in an unexpected state and should let the
-            # test fail so we can investigate. If we're not in a transient test we keep trying until we reach timeout.
-            next true unless transient_test
-
-            QA::Runtime::Logger.debug("MR widget text: #{mr_widget_text}")
+            QA::Runtime::Logger.debug("MR widget text: \"#{mr_widget_text}\"")
 
             false
           end
+        end
+
+        # Returns true when widget shows "Merge blocked: new changes were just added"
+        def merge_blocked_by_new_changes?
+          has_element?('head-mismatch-content', wait: 1)
         end
 
         def rebase!
@@ -391,11 +417,10 @@ module QA
           end
         end
 
-        def try_to_merge!
-          # Revisit after merge page re-architect is done https://gitlab.com/gitlab-org/gitlab/-/issues/300042
-          # To remove page refresh logic if possible
+        def try_to_merge!(wait_for_no_auto_merge: true)
           wait_until_ready_to_merge
-          wait_until { !find_element('merge-button').text.include?('auto-merge') } # rubocop:disable Rails/NegateInclude
+          wait_until { !find_element('merge-button').text.include?('auto-merge') } if wait_for_no_auto_merge # rubocop:disable Rails/NegateInclude -- Wait for text auto-merge to change
+          wait_until { !merge_blocked_by_new_changes? }
 
           click_element('merge-button')
         end
@@ -437,10 +462,20 @@ module QA
         def add_suggestion_to_diff(suggestion, line)
           find("a[data-linenumber='#{line}']").hover
           click_element('left-comment-button')
-          click_element('suggestion-button')
-          initial_content = find_element('reply-field').value
-          fill_element('reply-field', '')
-          fill_element('reply-field', initial_content.gsub(/(```suggestion:-0\+0\n).*(\n```)/, "\\1#{suggestion}\\2"))
+
+          if has_element?('suggestion-button', wait: 0.5)
+            click_element('suggestion-button')
+            initial_content = find_element('reply-field').value
+            fill_editor_element('reply-field', '')
+            fill_editor_element('reply-field',
+              initial_content.gsub(/(```suggestion:-0\+0\n).*(\n```)/, "\\1#{suggestion}\\2"))
+          else
+            click_element('code-suggestion')
+            suggestion_field = find_element('suggestion-field')
+            suggestion_field.set(suggestion)
+            has_active_element?('comment-now-button', wait: 0.5)
+          end
+
           click_element('comment-now-button')
           wait_for_requests
         end
@@ -464,7 +499,7 @@ module QA
 
         def cherry_pick!
           click_element('cherry-pick-button', Page::Component::CommitModal)
-          click_element('submit-commit')
+          submit_commit
         end
 
         def revert_change!
@@ -473,11 +508,13 @@ module QA
           retry_on_exception(reload: true) do
             click_element('revert-button', Page::Component::CommitModal)
           end
-          click_element('submit-commit')
+          submit_commit
         end
 
         def mr_widget_text
           find_element('mr-widget-content').text
+        rescue Capybara::ElementNotFound
+          ""
         end
 
         def has_fork_icon?
@@ -512,6 +549,13 @@ module QA
 
         def has_exposed_artifact_with_name?(name)
           has_link?(name)
+        end
+
+        private
+
+        def submit_commit
+          # There may be two modals due to https://gitlab.com/gitlab-org/gitlab/-/issues/538079
+          all_elements('submit-commit', minimum: 1).last.click
         end
       end
     end

@@ -6,7 +6,7 @@ RSpec.describe Gitlab::QuickActions::Dsl do
   before do
     stub_const('DummyClass', Struct.new(:project))
     DummyClass.class_eval do
-      include Gitlab::QuickActions::Dsl # rubocop:disable RSpec/DescribedClass
+      include Gitlab::QuickActions::Dsl
 
       desc 'A command with no args'
       command :no_args, :none do
@@ -17,6 +17,16 @@ RSpec.describe Gitlab::QuickActions::Dsl do
       explanation 'Static explanation'
       warning 'Possible problem!'
       command :explanation_with_aliases, :once, :first do |arg|
+        arg
+      end
+
+      params 'First argument'
+      explanation 'Some explanation'
+      warning 'A problem!'
+      conditional_aliases_autocompletion :two do
+        project == 'foo'
+      end
+      command :conditional_aliases_autocompletion, :one, :two do |arg|
         arg
       end
 
@@ -66,8 +76,8 @@ RSpec.describe Gitlab::QuickActions::Dsl do
 
   describe '.command_definitions' do
     it 'returns an array with commands definitions' do
-      no_args_def, explanation_with_aliases_def, dynamic_description_def,
-      cc_def, cond_action_def, with_params_parsing_def, substitution_def, has_types =
+      no_args_def, explanation_with_aliases_def, conditional_aliases_autocompletion, dynamic_description_def, cc_def,
+        cond_action_def, with_params_parsing_def, substitution_def, has_types =
         DummyClass.command_definitions
 
       expect(no_args_def.name).to eq(:no_args)
@@ -94,6 +104,20 @@ RSpec.describe Gitlab::QuickActions::Dsl do
       expect(explanation_with_aliases_def.action_block).to be_a_kind_of(Proc)
       expect(explanation_with_aliases_def.parse_params_block).to be_nil
       expect(explanation_with_aliases_def.warning).to eq('Possible problem!')
+
+      expect(conditional_aliases_autocompletion.name).to eq(:conditional_aliases_autocompletion)
+      expect(conditional_aliases_autocompletion.aliases).to match_array([:one, :two])
+      expect(conditional_aliases_autocompletion.description).to eq('')
+      expect(conditional_aliases_autocompletion.explanation).to eq('Some explanation')
+      expect(conditional_aliases_autocompletion.execution_message).to eq('')
+      expect(conditional_aliases_autocompletion.params).to eq(['First argument'])
+      expect(conditional_aliases_autocompletion.condition_block).to be_nil
+      expect(conditional_aliases_autocompletion.types).to eq([])
+      expect(conditional_aliases_autocompletion.action_block).to be_a_kind_of(Proc)
+      expect(conditional_aliases_autocompletion.parse_params_block).to be_nil
+      expect(conditional_aliases_autocompletion.warning).to eq('A problem!')
+      expect(conditional_aliases_autocompletion.conditional_aliases).to eq([:two])
+      expect(conditional_aliases_autocompletion.conditional_aliases_block).to be_a_kind_of(Proc)
 
       expect(dynamic_description_def.name).to eq(:dynamic_description)
       expect(dynamic_description_def.aliases).to eq([])

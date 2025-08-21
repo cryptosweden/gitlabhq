@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Auth::Saml::AuthHash do
+RSpec.describe Gitlab::Auth::Saml::AuthHash, feature_category: :system_access do
   include LoginHelpers
 
   let(:raw_info_attr) { { 'groups' => %w[Developers Freelancers] } }
@@ -103,8 +103,7 @@ RSpec.describe Gitlab::Auth::Saml::AuthHash do
 
     context 'with response_object' do
       before do
-        auth_hash_data[:extra][:response_object] = { document:
-                                                         saml_xml(File.read('spec/fixtures/authentication/saml_response.xml')) }
+        auth_hash_data[:extra][:response_object] = saml_xml(File.read('spec/fixtures/authentication/saml_response.xml'))
       end
 
       it 'can extract authn_context' do
@@ -114,8 +113,7 @@ RSpec.describe Gitlab::Auth::Saml::AuthHash do
 
     context 'with SAML 2.0 response_object' do
       before do
-        auth_hash_data[:extra][:response_object] = { document:
-                                                         saml_xml(File.read('spec/fixtures/authentication/saml2_response.xml')) }
+        auth_hash_data[:extra][:response_object] = saml_xml(File.read('spec/fixtures/authentication/saml2_response.xml'))
       end
 
       it 'can extract authn_context' do
@@ -125,8 +123,7 @@ RSpec.describe Gitlab::Auth::Saml::AuthHash do
 
     context 'with ADFS SAML response_object' do
       before do
-        auth_hash_data[:extra][:response_object] = { document:
-                                                         saml_xml(File.read('spec/fixtures/authentication/adfs_saml_response.xml')) }
+        auth_hash_data[:extra][:response_object] = saml_xml(File.read('spec/fixtures/authentication/adfs_saml_response.xml'))
       end
 
       it 'can extract authn_context' do

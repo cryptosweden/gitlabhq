@@ -8,6 +8,7 @@ const {
 } = require('./__helpers__/fake_date/fake_date');
 const { TEST_HOST } = require('./__helpers__/test_constants');
 const { createGon } = require('./__helpers__/gon_helper');
+const { setupConsoleWatcher } = require('./__helpers__/console_watcher');
 
 class CustomEnvironment extends TestEnvironment {
   constructor({ globalConfig, projectConfig }, context) {
@@ -18,32 +19,71 @@ class CustomEnvironment extends TestEnvironment {
     // https://gitlab.com/gitlab-org/gitlab/-/merge_requests/39496#note_503084332
     setGlobalDateToFakeDate();
 
-    const { error: originalErrorFn } = context.console;
-    Object.assign(context.console, {
-      error(...args) {
-        if (
-          args?.[0]?.includes('[Vue warn]: Missing required prop') ||
-          args?.[0]?.includes('[Vue warn]: Invalid prop')
-        ) {
-          originalErrorFn.apply(context.console, args);
-          return;
-        }
+    this.jestConsoleWatcher = setupConsoleWatcher(this, context.console, {
+      ignores: [
+        /The updateQuery callback for fetchMore is deprecated/,
+        // TODO: Remove this and replace with localized calls to `ignoreVueConsoleWarnings`
+        // https://gitlab.com/gitlab-org/gitlab/-/issues/396779#note_1788506238
+        /^\[Vue warn\]: Missing required prop/,
+        /^\[Vue warn\]: Invalid prop/,
+        // TODO: Implement robust vue-demi switching logic.
+        // https://gitlab.com/groups/gitlab-org/-/epics/15340
+        /^\[Vue warn\]: \(deprecation GLOBAL_PRIVATE_UTIL\)/,
 
-        throw new ErrorWithStack(
-          `Unexpected call of console.error() with:\n\n${args.join(', ')}`,
-          this.error,
-        );
-      },
-
-      warn(...args) {
-        if (args?.[0]?.includes('The updateQuery callback for fetchMore is deprecated')) {
-          return;
-        }
-        throw new ErrorWithStack(
-          `Unexpected call of console.warn() with:\n\n${args.join(', ')}`,
-          this.warn,
-        );
-      },
+        // [`@vue/compat`][1] provides configurable Vue 2 compatible
+        // APIs/behaviors, via flags. Some of these are considered
+        // ["fully compatible"][2], i.e., should still work if the given flag
+        // is enabled.
+        //
+        // When application code makes use of these Vue 2 APIs/behaviours,
+        // `@vue/compat` logs a warning to the console. These do not need to
+        // fail tests, since things should still work.
+        //
+        // [1]: https://v3-migration.vuejs.org/migration-build.html
+        // [2]: https://v3-migration.vuejs.org/migration-build.html#fully-compatible
+        /^\[Vue warn\]: \(deprecation GLOBAL_MOUNT\)/,
+        /^\[Vue warn\]: \(deprecation GLOBAL_EXTEND\)/,
+        /^\[Vue warn\]: \(deprecation GLOBAL_PROTOTYPE\)/,
+        /^\[Vue warn\]: \(deprecation GLOBAL_SET\)/,
+        /^\[Vue warn\]: \(deprecation GLOBAL_DELETE\)/,
+        /^\[Vue warn\]: \(deprecation GLOBAL_OBSERVABLE\)/,
+        /^\[Vue warn\]: \(deprecation CONFIG_KEY_CODES\)/,
+        /^\[Vue warn\]: \(deprecation CONFIG_WHITESPACE\)/,
+        /^\[Vue warn\]: \(deprecation INSTANCE_SET\)/,
+        /^\[Vue warn\]: \(deprecation INSTANCE_DELETE\)/,
+        /^\[Vue warn\]: \(deprecation INSTANCE_EVENT_EMITTER\)/,
+        /^\[Vue warn\]: \(deprecation INSTANCE_EVENT_HOOKS\)/,
+        /^\[Vue warn\]: \(deprecation INSTANCE_CHILDREN\)/,
+        /^\[Vue warn\]: \(deprecation INSTANCE_LISTENERS\)/,
+        /^\[Vue warn\]: \(deprecation INSTANCE_SCOPED_SLOTS\)/,
+        /^\[Vue warn\]: \(deprecation INSTANCE_ATTRS_CLASS_STYLE\)/,
+        /^\[Vue warn\]: \(deprecation OPTIONS_DATA_FN\)/,
+        /^\[Vue warn\]: \(deprecation OPTIONS_DATA_MERGE\)/,
+        /^\[Vue warn\]: \(deprecation OPTIONS_BEFORE_DESTROY\)/,
+        /^\[Vue warn\]: \(deprecation OPTIONS_DESTROYED\)/,
+        /^\[Vue warn\]: \(deprecation WATCH_ARRAY\)/,
+        /^\[Vue warn\]: \(deprecation V_ON_KEYCODE_MODIFIER\)/,
+        /^\[Vue warn\]: \(deprecation CUSTOM_DIR\)/,
+        /^\[Vue warn\]: \(deprecation ATTR_FALSE_VALUE\)/,
+        /^\[Vue warn\]: \(deprecation ATTR_ENUMERATED_COERCION\)/,
+        /^\[Vue warn\]: \(deprecation TRANSITION_GROUP_ROOT\)/,
+        /^\[Vue warn\]: \(deprecation COMPONENT_ASYNC\)/,
+        /^\[Vue warn\]: \(deprecation COMPONENT_FUNCTIONAL\)/,
+        /^\[Vue warn\]: \(deprecation COMPONENT_V_MODEL\)/,
+        /^\[Vue warn\]: \(deprecation RENDER_FUNCTION\)/,
+        /^\[Vue warn\]: \(deprecation FILTERS\)/,
+        /^\[Vue warn\]: \(deprecation COMPILER_IS_ON_ELEMENT\)/,
+        /^\[Vue warn\]: \(deprecation COMPILER_V_BIND_SYNC\)/,
+        /^\[Vue warn\]: \(deprecation COMPILER_V_BIND_PROP\)/,
+        /^\[Vue warn\]: \(deprecation COMPILER_V_BIND_OBJECT_ORDER\)/,
+        /^\[Vue warn\]: \(deprecation COMPILER_V_ON_NATIVE\)/,
+        /^\[Vue warn\]: \(deprecation COMPILER_V_FOR_REF\)/,
+        /^\[Vue warn\]: \(deprecation COMPILER_NATIVE_TEMPLATE\)/,
+        /^\[Vue warn\]: \(deprecation COMPILER_FILTERS\)/,
+      ],
+      // TODO: Remove this and replace with localized calls to `useConsoleWatcherThrowsImmediately`
+      // https://gitlab.com/gitlab-org/gitlab/-/issues/396779#note_1788506238
+      shouldThrowImmediately: true,
     });
 
     const { IS_EE } = projectConfig.testEnvironmentOptions;
@@ -114,11 +154,17 @@ class CustomEnvironment extends TestEnvironment {
       }
       this.global[observer] = NoopObserver;
     });
+
+    // This is used internally by Sentry
+    // https://github.com/getsentry/sentry-javascript/blob/8.26.0/packages/browser/src/tracing/browserTracingIntegration.ts#L221
+    this.global.PerformanceObserver.supportedEntryTypes = ['noop'];
   }
 
   async teardown() {
     // Reset `Date` so that Jest can report timing accurately *roll eyes*...
     setGlobalDateToRealDate();
+
+    this.jestConsoleWatcher.dispose();
 
     // eslint-disable-next-line no-restricted-syntax
     await new Promise(setImmediate);

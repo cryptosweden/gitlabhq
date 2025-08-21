@@ -101,6 +101,11 @@ export default {
       required: false,
       default: null,
     },
+    isWidget: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   data() {
     return {
@@ -245,18 +250,12 @@ export default {
 <template>
   <div>
     <div class="gl-mt-5">
-      <p>
-        <gl-icon name="information-o" class="gl-text-blue-600" />
+      <p v-if="!isWidget" data-testid="runner-token-message">
+        <gl-icon name="information-o" variant="info" />
         <gl-sprintf :message="tokenMessage">
           <template #token>
             <code data-testid="runner-token">{{ token }}</code>
-            <clipboard-button
-              :text="token"
-              :title="__('Copy')"
-              size="small"
-              category="tertiary"
-              class="gl-border-none!"
-            />
+            <clipboard-button :text="token" :title="__('Copy')" size="small" category="tertiary" />
           </template>
           <template #bold="{ content }">
             <span class="gl-font-bold">{{ content }}</span>
@@ -277,11 +276,12 @@ export default {
         </gl-sprintf>
       </p>
     </div>
-    <hr />
+    <hr v-if="!isWidget" />
 
     <!-- start: before you begin -->
     <div>
-      <h2 class="gl-heading-2">{{ $options.i18n.beforeHeading }}</h2>
+      <h3 v-if="isWidget" class="gl-heading-3">{{ $options.i18n.beforeHeading }}</h3>
+      <h2 v-else class="gl-heading-2">{{ $options.i18n.beforeHeading }}</h2>
       <ul>
         <li>
           <gl-sprintf :message="$options.i18n.permissionsText">
@@ -325,7 +325,8 @@ export default {
     <!-- end: before you begin -->
 
     <!-- start: step one -->
-    <h2 class="gl-heading-2">{{ $options.i18n.stepOneHeading }}</h2>
+    <h3 v-if="isWidget" class="gl-heading-3">{{ $options.i18n.stepOneHeading }}</h3>
+    <h2 v-else class="gl-heading-2">{{ $options.i18n.stepOneHeading }}</h2>
     <p>{{ $options.i18n.stepOneDescription }}</p>
 
     <google-cloud-field-group
@@ -507,7 +508,8 @@ export default {
     <!-- end: step one -->
 
     <!-- start: step two -->
-    <h2 class="gl-heading-2">{{ $options.i18n.stepTwoHeading }}</h2>
+    <h3 v-if="isWidget" class="gl-heading-3">{{ $options.i18n.stepTwoHeading }}</h3>
+    <h2 v-else class="gl-heading-2">{{ $options.i18n.stepTwoHeading }}</h2>
     <p>{{ $options.i18n.stepTwoDescription }}</p>
     <gl-alert
       v-if="showAlert"
@@ -539,6 +541,6 @@ export default {
       :apply-terraform-script="applyTerraformScript"
     />
 
-    <hr />
+    <hr v-if="!isWidget" />
   </div>
 </template>

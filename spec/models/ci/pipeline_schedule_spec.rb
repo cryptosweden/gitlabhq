@@ -6,13 +6,15 @@ RSpec.describe Ci::PipelineSchedule, feature_category: :continuous_integration d
   let_it_be_with_reload(:project) { create_default(:project, :repository) }
   let_it_be(:repository) { project.repository }
 
-  subject { build(:ci_pipeline_schedule, project: project) }
+  subject(:schedule) { build(:ci_pipeline_schedule, project: project) }
 
   it { is_expected.to belong_to(:project) }
+  it { is_expected.to validate_presence_of(:project) }
   it { is_expected.to belong_to(:owner) }
 
   it { is_expected.to have_many(:pipelines).dependent(:nullify) }
   it { is_expected.to have_many(:variables) }
+  it { is_expected.to have_many(:inputs) }
 
   it { is_expected.to respond_to(:ref) }
   it { is_expected.to respond_to(:cron) }
@@ -48,6 +50,22 @@ RSpec.describe Ci::PipelineSchedule, feature_category: :continuous_integration d
         project: project)
 
       expect(pipeline_schedule).not_to be_valid
+    end
+
+    it 'does not allow duplicate inputs' do
+      schedule = build(:ci_pipeline_schedule)
+
+      schedule.inputs = build_list(:ci_pipeline_schedule_input, 2, name: 'test_input')
+
+      expect(schedule).not_to be_valid
+      expect(schedule.errors.full_messages).to contain_exactly('Inputs have duplicate values (test_input)')
+    end
+
+    it 'limits the number of inputs' do
+      schedule.inputs = build_list(:ci_pipeline_schedule_input, 21)
+
+      expect(schedule).not_to be_valid
+      expect(schedule.errors.full_messages).to contain_exactly('Inputs exceeds the limit of 20.')
     end
 
     context 'when an short ref record is being updated' do
@@ -218,7 +236,7 @@ RSpec.describe Ci::PipelineSchedule, feature_category: :continuous_integration d
       pipeline_schedule.reload
     end
 
-    it { is_expected.to contain_exactly(*pipeline_schedule_variables.map(&:to_runner_variable)) }
+    it { is_expected.to contain_exactly(*pipeline_schedule_variables.map(&:to_hash_variable)) }
   end
 
   describe '#daily_limit' do
@@ -436,5 +454,18 @@ RSpec.describe Ci::PipelineSchedule, feature_category: :continuous_integration d
         expect(pipeline_schedules).to eq([pipeline1, pipeline4, pipeline2, pipeline3])
       end
     end
+  end
+
+  describe '#inputs_hash' do
+    let_it_be(:pipeline_schedule) { create(:ci_pipeline_schedule, project: project) }
+
+    before_all do
+      create(:ci_pipeline_schedule_input, pipeline_schedule: pipeline_schedule, name: 'input1', value: 'value1')
+      create(:ci_pipeline_schedule_input, pipeline_schedule: pipeline_schedule, name: 'input2', value: 'value2')
+    end
+
+    subject(:inputs_hash) { pipeline_schedule.reload.inputs_hash }
+
+    it { is_expected.to eq({ 'input1' => 'value1', 'input2' => 'value2' }) }
   end
 end

@@ -7,6 +7,9 @@ import {
   InternalEventHandler,
   createInternalEventPayload,
   validateAdditionalProperties,
+  getBaseAdditionalProperties,
+  getCustomAdditionalProperties,
+  isEventEligible,
 } from './utils';
 
 const elementsWithBinding = new WeakMap();
@@ -23,7 +26,19 @@ const InternalEvents = {
    *
    */
   trackEvent(event, additionalProperties = {}, category = undefined) {
+    if (!isEventEligible(event)) {
+      return;
+    }
+
     validateAdditionalProperties(additionalProperties);
+
+    const baseProperties = getBaseAdditionalProperties(additionalProperties);
+    const extra = getCustomAdditionalProperties(additionalProperties);
+
+    const properties = {
+      ...baseProperties,
+      ...(Object.keys(extra).length > 0 && { extra }),
+    };
 
     API.trackInternalEvent(event, additionalProperties);
     Tracking.event(category, event, {
@@ -34,7 +49,7 @@ const InternalEvents = {
           data_source: 'redis_hll',
         },
       },
-      ...additionalProperties,
+      ...properties,
     });
     this.trackBrowserSDK(event, additionalProperties);
   },

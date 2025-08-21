@@ -55,13 +55,13 @@ describe('BranchRuleModal', () => {
 
   it('renders help text', () => {
     expect(findHelpText().text()).toMatchInterpolatedText(
-      `Wildcards such as *-stable or production/ are supported`,
+      `Wildcards such as *-stable or production/* are supported. Branch names are case-sensitive. Learn more.`,
     );
   });
 
   it('renders help link', () => {
     expect(findHelpLink().attributes('href')).toBe(
-      '/help/user/project/protected_branches#protect-multiple-branches-with-wildcard-rules',
+      '/help/user/project/repository/branches/protected#use-wildcard-rules',
     );
   });
 

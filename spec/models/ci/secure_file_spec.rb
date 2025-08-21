@@ -104,7 +104,7 @@ RSpec.describe Ci::SecureFile, factory_default: :keep, feature_category: :mobile
 
     it 'returns nil if there is no file extension' do
       file = build(:ci_secure_file, name: 'file1')
-      expect(file.file_extension).to be nil
+      expect(file.file_extension).to be_nil
     end
   end
 
@@ -144,7 +144,7 @@ RSpec.describe Ci::SecureFile, factory_default: :keep, feature_category: :mobile
 
     it 'returns nil when the file type is not supported by any parsers' do
       file = build(:ci_secure_file, name: 'file1.foo')
-      expect(file.metadata_parser).to be nil
+      expect(file.metadata_parser).to be_nil
     end
   end
 
@@ -200,7 +200,8 @@ RSpec.describe Ci::SecureFile, factory_default: :keep, feature_category: :mobile
 
     it 'logs an error when something goes wrong with the file parsing' do
       corrupt_file = create(:ci_secure_file, name: 'file1.cer', file: CarrierWaveStringFile.new('11111111'))
-      message = 'Validation failed: Metadata must be a valid json schema - PEM_read_bio_X509: no start line.'
+      message = 'Validation failed: Metadata must be a valid json schema ' \
+        '- PEM_read_bio_X509: no start line (Expecting: CERTIFICATE).'
       expect(Gitlab::AppLogger).to receive(:error).with("Secure File Parser Failure (#{corrupt_file.id}): #{message}")
       corrupt_file.update_metadata!
     end
@@ -216,6 +217,28 @@ RSpec.describe Ci::SecureFile, factory_default: :keep, feature_category: :mobile
     it 'returns false when using object storage' do
       secure_file = create(:ci_secure_file, file_store: ObjectStorage::Store::REMOTE)
       expect(secure_file.local?).to be false
+    end
+  end
+
+  it_behaves_like 'object storable' do
+    let(:locally_stored) do
+      ci_secure_file = create(:ci_secure_file)
+
+      if ci_secure_file.file_store == ObjectStorage::Store::REMOTE
+        ci_secure_file.update_column(described_class::STORE_COLUMN, ObjectStorage::Store::LOCAL)
+      end
+
+      ci_secure_file
+    end
+
+    let(:remotely_stored) do
+      ci_secure_file = create(:ci_secure_file)
+
+      if ci_secure_file.file_store == ObjectStorage::Store::LOCAL
+        ci_secure_file.update_column(described_class::STORE_COLUMN, ObjectStorage::Store::REMOTE)
+      end
+
+      ci_secure_file
     end
   end
 end

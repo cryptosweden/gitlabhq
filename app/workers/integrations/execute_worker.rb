@@ -4,7 +4,7 @@ module Integrations
   class ExecuteWorker # rubocop:disable Scalability/IdempotentWorker
     include ApplicationWorker
 
-    data_consistency :always
+    data_consistency :delayed
     sidekiq_options retry: 3
     sidekiq_options dead: false
     feature_category :integrations
@@ -18,6 +18,8 @@ module Integrations
       data = Gitlab::WebHooks.prepare_data(data)
       integration = Integration.find_by_id(hook_id)
       return unless integration
+
+      log_extra_metadata_on_done(:integration_class, integration.class.name)
 
       begin
         integration.execute(data)

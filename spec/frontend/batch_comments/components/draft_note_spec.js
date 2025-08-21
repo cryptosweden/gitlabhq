@@ -1,13 +1,21 @@
 import { nextTick } from 'vue';
 import { GlBadge } from '@gitlab/ui';
+import { createTestingPinia } from '@pinia/testing';
 import { shallowMount } from '@vue/test-utils';
 import { stubComponent } from 'helpers/stub_component';
 import DraftNote from '~/batch_comments/components/draft_note.vue';
 import { createStore } from '~/batch_comments/stores';
 import NoteableNote from '~/notes/components/noteable_note.vue';
+import { clearDraft } from '~/lib/utils/autosave';
+import * as types from '~/batch_comments/stores/modules/batch_comments/mutation_types';
+import { useNotes } from '~/notes/store/legacy_notes';
+import { globalAccessorPlugin } from '~/pinia/plugins';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useBatchComments } from '~/batch_comments/store';
 import { createDraft } from '../mock_data';
 
 jest.mock('~/behaviors/markdown/render_gfm');
+jest.mock('~/lib/utils/autosave');
 
 const NoteableNoteStub = stubComponent(NoteableNote, {
   template: `
@@ -29,34 +37,39 @@ describe('Batch comments draft note component', () => {
     },
   };
 
-  const createComponent = (propsData = { draft }, glFeatures = {}) => {
+  const createComponent = (propsData = { draft }) => {
     wrapper = shallowMount(DraftNote, {
       store,
       propsData,
       stubs: {
         NoteableNote: NoteableNoteStub,
       },
-      provide: {
-        glFeatures,
-      },
     });
 
     jest.spyOn(store, 'dispatch').mockImplementation();
+    jest.spyOn(store, 'commit').mockImplementation();
   };
 
   const findNoteableNote = () => wrapper.findComponent(NoteableNote);
 
   beforeEach(() => {
+    createTestingPinia({ plugins: [globalAccessorPlugin] });
+    useLegacyDiffs();
+    useNotes();
     store = createStore();
     draft = createDraft();
   });
 
   it('renders template', () => {
-    createComponent();
+    const autosaveKey = 'autosave';
+    createComponent({ draft, autosaveKey });
     expect(wrapper.findComponent(GlBadge).exists()).toBe(true);
 
     expect(findNoteableNote().exists()).toBe(true);
     expect(findNoteableNote().props('note')).toEqual(draft);
+    expect(findNoteableNote().props('autosaveKey')).toEqual(
+      `${autosaveKey}/draft-note-${draft.id}`,
+    );
   });
 
   describe('update', () => {
@@ -76,7 +89,7 @@ describe('Batch comments draft note component', () => {
 
       findNoteableNote().vm.$emit('handleUpdateNote', formData);
 
-      expect(store.dispatch).toHaveBeenCalledWith('batchComments/updateDraft', formData);
+      expect(useBatchComments().updateDraft).toHaveBeenCalledWith(formData);
     });
   });
 
@@ -87,7 +100,7 @@ describe('Batch comments draft note component', () => {
 
       findNoteableNote().vm.$emit('handleDeleteNote', draft);
 
-      expect(store.dispatch).toHaveBeenCalledWith('batchComments/deleteDraft', draft);
+      expect(useBatchComments().deleteDraft).toHaveBeenCalledWith(draft);
     });
   });
 
@@ -103,7 +116,7 @@ describe('Batch comments draft note component', () => {
       });
 
       await nextTick();
-      const referencedCommands = wrapper.find('.referenced-commands');
+      const referencedCommands = wrapper.find('.draft-note-referenced-commands');
 
       expect(referencedCommands.exists()).toBe(true);
       expect(referencedCommands.text()).toContain('test command');
@@ -132,6 +145,40 @@ describe('Batch comments draft note component', () => {
       findNoteableNote().trigger('mouseleave');
 
       expect(store.dispatch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('opened state', () => {
+    it(`restores opened state`, () => {
+      draft.isEditing = true;
+      createComponent({ draft });
+      expect(findNoteableNote().props('restoreFromAutosave')).toBe(true);
+    });
+
+    it(`sets opened state`, async () => {
+      createComponent({ draft });
+      await findNoteableNote().vm.$emit('handleEdit');
+      expect(useBatchComments()[types.SET_DRAFT_EDITING]).toHaveBeenCalledWith({
+        draftId: draft.id,
+        isEditing: true,
+      });
+    });
+
+    it(`resets opened state on form close`, async () => {
+      draft.isEditing = true;
+      createComponent({ draft });
+      await findNoteableNote().vm.$emit('cancelForm');
+      expect(findNoteableNote().props('restoreFromAutosave')).toBe(false);
+      expect(useBatchComments()[types.SET_DRAFT_EDITING]).toHaveBeenCalledWith({
+        draftId: draft.id,
+        isEditing: false,
+      });
+    });
+
+    it(`clears autosave key on form cancel`, () => {
+      createComponent({ draft, autosaveKey: 'foo' });
+      findNoteableNote().vm.$emit('cancelForm');
+      expect(clearDraft).toHaveBeenCalledWith(`foo/draft-note-${draft.id}`);
     });
   });
 });

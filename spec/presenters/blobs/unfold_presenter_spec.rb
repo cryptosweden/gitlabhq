@@ -16,11 +16,11 @@ RSpec.describe Blobs::UnfoldPresenter do
       let(:params) { {} }
 
       it 'sets default attributes' do
-        expect(result.full?).to eq(false)
+        expect(result.full?).to be(false)
         expect(result.since).to eq(1)
         expect(result.to).to eq(1)
-        expect(result.bottom).to eq(false)
-        expect(result.unfold).to eq(true)
+        expect(result.bottom).to be(false)
+        expect(result.unfold).to be(true)
         expect(result.offset).to eq(0)
         expect(result.indent).to eq(0)
       end
@@ -30,11 +30,11 @@ RSpec.describe Blobs::UnfoldPresenter do
       let(:params) { { full: false, since: 2, to: 3, bottom: false, offset: 1, indent: 1 } }
 
       it 'sets attributes' do
-        expect(result.full?).to eq(false)
+        expect(result.full?).to be(false)
         expect(result.since).to eq(2)
         expect(result.to).to eq(3)
-        expect(result.bottom).to eq(false)
-        expect(result.unfold).to eq(true)
+        expect(result.bottom).to be(false)
+        expect(result.unfold).to be(true)
         expect(result.offset).to eq(1)
         expect(result.indent).to eq(1)
       end
@@ -44,11 +44,11 @@ RSpec.describe Blobs::UnfoldPresenter do
       let(:params) { { full: true, since: 2, to: 3, bottom: false, offset: 1, indent: 1 } }
 
       it 'sets other attributes' do
-        expect(result.full?).to eq(true)
+        expect(result.full?).to be(true)
         expect(result.since).to eq(1)
         expect(result.to).to eq(blob.lines.size)
-        expect(result.bottom).to eq(false)
-        expect(result.unfold).to eq(false)
+        expect(result.bottom).to be(false)
+        expect(result.unfold).to be(false)
         expect(result.offset).to eq(0)
         expect(result.indent).to eq(0)
       end
@@ -58,11 +58,11 @@ RSpec.describe Blobs::UnfoldPresenter do
       let(:params) { { full: false, since: 2, to: -1, bottom: true, offset: 1, indent: 1 } }
 
       it 'sets other attributes' do
-        expect(result.full?).to eq(false)
+        expect(result.full?).to be(false)
         expect(result.since).to eq(2)
         expect(result.to).to eq(blob.lines.size)
-        expect(result.bottom).to eq(false)
-        expect(result.unfold).to eq(false)
+        expect(result.bottom).to be(false)
+        expect(result.unfold).to be(false)
         expect(result.offset).to eq(0)
         expect(result.indent).to eq(0)
       end
@@ -140,6 +140,8 @@ RSpec.describe Blobs::UnfoldPresenter do
           line = subject.diff_lines.last
 
           expect(line.type).to be_nil
+          expect(line.old_pos).to be_nil
+          expect(line.new_pos).to be_nil
         end
       end
 
@@ -191,6 +193,35 @@ RSpec.describe Blobs::UnfoldPresenter do
         line = subject.diff_lines.last
 
         expect(line.text).to eq(total_lines.to_s)
+      end
+    end
+
+    context 'when include_positions is true' do
+      let(:params) { { since: 2, to: 5 } }
+
+      it 'adds bottom match line' do
+        line = subject.diff_lines(with_positions_and_indent: true)[2]
+
+        expect(line.old_pos).to eq(3)
+        expect(line.new_pos).to eq(3)
+      end
+    end
+
+    context 'when with_positions_and_indent is true' do
+      let(:params) { { since: 10, to: 20, offset: 10, bottom: true } }
+
+      it 'adds old_pos and new_pos to lines' do
+        line = subject.diff_lines(with_positions_and_indent: true).first
+
+        expect(line.type).to be_nil
+        expect(line.old_pos).to eq(0)
+        expect(line.new_pos).to eq(10)
+      end
+
+      it 'indents the line by 1 space by default' do
+        line = subject.diff_lines(with_positions_and_indent: true).first
+
+        expect(line.rich_text[0, 2]).to eq(' <')
       end
     end
   end

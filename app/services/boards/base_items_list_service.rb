@@ -53,13 +53,11 @@ module Boards
     end
 
     # We memoize the query here since the finder methods we use are quite complex. This does not memoize the result of the query.
-    # rubocop: disable CodeReuse/ActiveRecord
     def init_collection
       strong_memoize(:init_collection) do
-        filter(finder.execute).reorder(nil)
+        filter(finder.execute).without_order
       end
     end
-    # rubocop: enable CodeReuse/ActiveRecord
 
     def filter(items)
       # when grouping board issues by epics (used in board swimlanes)
@@ -108,6 +106,7 @@ module Boards
 
     def set_state
       return if params[:all_lists]
+      return if list&.list_type == 'status'
 
       params[:state] = list && list.closed? ? 'closed' : 'opened'
     end
@@ -136,11 +135,9 @@ module Boards
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
-    # rubocop: disable CodeReuse/ActiveRecord
     def label_links(items, label_ids)
       labels_filter.label_link_query(items, label_ids: label_ids)
     end
-    # rubocop: enable CodeReuse/ActiveRecord
 
     # rubocop: disable CodeReuse/ActiveRecord
     def with_list_label(items)
@@ -149,16 +146,8 @@ module Boards
     # rubocop: enable CodeReuse/ActiveRecord
 
     def labels_filter
-      Issuables::LabelFilter.new(params: {}, project: project, group: group)
+      Issuables::LabelFilter.new(params: {}, parent: parent)
     end
     strong_memoize_attr :labels_filter
-
-    def group
-      parent if parent.is_a?(Group)
-    end
-
-    def project
-      parent if parent.is_a?(Project)
-    end
   end
 end

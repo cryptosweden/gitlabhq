@@ -21,26 +21,11 @@ module QA
         true
       end
 
-      ##
-      # Visit a page that belongs to a GitLab instance under given address.
-      #
-      # Example:
-      #
-      # visit(:gitlab, Page::Main::Login)
-      # visit('http://gitlab.example/users/sign_in')
-      #
-      # In case of an address that is a symbol we will try to guess address
-      # based on `Runtime::Scenario#something_address`.
-      #
-      def visit(address, page_class, &block)
-        Browser::Session.new(address, page_class).perform(&block)
+      def self.visit(address, page_class, &)
+        new.visit(address, page_class, &)
       end
 
-      def self.visit(address, page_class, &block)
-        new.visit(address, page_class, &block)
-      end
-
-      def self.configure! # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
+      def self.configure! # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity -- TODO: Break up this method
         return if QA::Runtime::Env.dry_run
         return if @configured
 
@@ -72,6 +57,21 @@ module QA
             # Disable /dev/shm use in CI. See https://gitlab.com/gitlab-org/gitlab/issues/4252
             chrome_options[:args] << 'disable-dev-shm-usage' if QA::Runtime::Env.disable_dev_shm?
 
+            chrome_options[:args] << 'disable-search-engine-choice-screen'
+
+            # Add preferences to auto-allow clipboard access
+            chrome_options[:prefs] = {} if chrome_options[:prefs].nil?
+
+            # Set clipboard permissions to allowed (1)
+            chrome_options[:prefs]['profile.content_settings.exceptions.clipboard'] = {
+              '*': { setting: 1 }
+            }
+
+            # domain name can be blocked by chrome if domain name is similar to another website
+            # https://chromeenterprise.google/policies/#LookalikeWarningAllowlistDomains
+            # https://gitlab.com/gitlab-org/quality/test-governance/request-for-help/-/issues/13
+            apply_lookalike_policy if QA::Runtime::Env.running_in_ci?
+
             # Allows chrome to consider all actions as secure when no ssl is used
             Runtime::Scenario.attributes[:gitlab_address].tap do |address|
               next unless address.start_with?('http://')
@@ -83,10 +83,12 @@ module QA
             # TODO: Set for remote grid as well once Sauce Labs tests are deprecated and Options.chrome is added
             # See https://gitlab.com/gitlab-org/gitlab/-/merge_requests/112258
             unless QA::Runtime::Env.remote_grid
-              chrome_options[:prefs] = {
+              chrome_options[:prefs] = {} unless chrome_options[:prefs]
+
+              chrome_options[:prefs].merge!({
                 'download.default_directory' => File.expand_path(QA::Runtime::Env.chrome_default_download_path),
                 'download.prompt_for_download' => false
-              }
+              })
             end
 
             # Specify the user-agent to allow challenges to be bypassed
@@ -203,10 +205,7 @@ module QA
         end
 
         Capybara::Screenshot.register_filename_prefix_formatter(:rspec) do |example|
-          ::File.join(
-            QA::Runtime::Namespace.name(reset_cache: false),
-            example.full_description.downcase.parameterize(separator: "_")[0..79]
-          )
+          ::File.join("failure_screenshots", example.full_description.downcase.parameterize(separator: "_")[0..79])
         end
 
         Capybara.configure do |config|
@@ -219,12 +218,6 @@ module QA
           # Cabybara 3 does not normalize text by default, so older tests
           # fail because of unexpected line breaks and other white space
           config.default_normalize_ws = true
-        end
-
-        Chemlab.configure do |config|
-          config.browser = Capybara.current_session.driver.browser # reuse Capybara session
-          config.base_url = Runtime::Scenario.attributes[:gitlab_address] # reuse GitLab address
-          config.hide_banner = true
         end
 
         @configured = true
@@ -240,43 +233,44 @@ module QA
         ::File.expand_path('../../tmp/qa-profile', __dir__)
       end
 
+      # Adds GitLab host to allow list to avoid lookalike warnings
+      def self.apply_lookalike_policy
+        gitlab_host = URI.parse(Runtime::Scenario.attributes[:gitlab_address]).host
+        policy_dir = "/etc/opt/chrome/policies/managed"
+        policy_file = File.join(policy_dir, "lookalike-policy.json")
+
+        return if File.exist?(policy_file)
+
+        policy = {
+          "LookalikeWarningAllowlistDomains" => [gitlab_host]
+        }
+
+        FileUtils.mkdir_p(policy_dir)
+        File.write(policy_file, JSON.pretty_generate(policy))
+        QA::Runtime::Logger.info("Chrome LookalikeWarningAllowlistDomains policy created to allow: #{gitlab_host}")
+      rescue StandardError => e
+        QA::Runtime::Logger.info("Chrome policy creation failed: #{e.message}")
+      end
+
+      ##
+      # Visit a page that belongs to a GitLab instance under given address.
+      #
+      # Example:
+      #
+      # visit(:gitlab, Page::Main::Login)
+      # visit('http://gitlab.example/users/sign_in')
+      #
+      # In case of an address that is a symbol we will try to guess address
+      # based on `Runtime::Scenario#something_address`.
+      #
+      def visit(address, page_class, &)
+        Browser::Session.new(address, page_class).perform(&)
+      end
+
       class Session
         include Capybara::DSL
 
         attr_reader :page_class
-
-        def initialize(instance, page_class)
-          @session_address = Runtime::Address.new(instance, page_class)
-          @page_class = page_class
-
-          Session.enable_interception if Runtime::Env.can_intercept?
-        end
-
-        def url
-          @session_address.address
-        end
-
-        def perform(&block)
-          visit(url)
-
-          simulate_slow_connection if Runtime::Env.simulate_slow_connection?
-
-          # Wait until the new page is ready for us to interact with it
-          Support::WaitForRequests.wait_for_requests
-
-          page_class.validate_elements_present! if page_class.respond_to?(:validate_elements_present!)
-
-          if QA::Runtime::Env.qa_cookies
-            browser = Capybara.current_session.driver.browser
-            QA::Runtime::Env.qa_cookies.each do |cookie|
-              name, value = cookie.split("=")
-              value ||= ""
-              browser.manage.add_cookie name: name, value: value
-            end
-          end
-
-          yield.tap { clear! } if block
-        end
 
         # To redirect the browser to a canary or non-canary web node
         #   after loading a subject test page
@@ -300,17 +294,6 @@ module QA
           browser.navigate.refresh
         end
 
-        ##
-        # Selenium allows to reset session cookies for current domain only.
-        #
-        # See gitlab-org/gitlab-qa#102
-        #
-        def clear!
-          visit(url)
-          reset_session!
-          @network_conditions_configured = false
-        end
-
         def self.enable_interception
           script = File.read("#{__dir__}/script_extensions/interceptor.js")
           command = {
@@ -332,7 +315,77 @@ module QA
           Capybara.current_session.driver.browser.send(:bridge).send_command(command)
         end
 
+        def initialize(instance, page_class)
+          @session_address = Runtime::Address.new(instance, page_class)
+          @page_class = page_class
+          Session.enable_interception if Runtime::Env.can_intercept?
+        end
+
+        def url
+          @session_address.address
+        end
+
+        def perform(&block)
+          visit(url)
+
+          simulate_slow_connection if Runtime::Env.simulate_slow_connection?
+
+          # Wait until the new page is ready for us to interact with it
+          Support::WaitForRequests.wait_for_requests
+
+          page_class.validate_elements_present! if page_class.respond_to?(:validate_elements_present!)
+
+          handle_qa_cookies
+
+          yield.tap { clear! } if block
+        end
+
+        ##
+        # Selenium allows to reset session cookies for current domain only.
+        #
+        # See gitlab-org/gitlab-qa#102
+        #
+        def clear!
+          visit(url)
+          reset_session!
+          @network_conditions_configured = false
+        end
+
         private
+
+        def handle_qa_cookies
+          return unless QA::Runtime::Env.qa_cookies
+
+          browser = Capybara.current_session.driver.browser
+          existing_cookies = browser.manage.all_cookies
+
+          QA::Runtime::Env.qa_cookies.each do |cookie|
+            name, value = cookie.split("=", 2)
+            value ||= ""
+
+            # Skip only if it's a _gitlab_session that's already valid
+            if name == '_gitlab_session'
+              existing_session = existing_cookies.find { |c| c[:name] == '_gitlab_session' }
+              if existing_session
+                existing_value = existing_session[:value]
+                next if existing_value && valid_cell_session_cookie?(existing_value)
+              end
+            end
+
+            browser.manage.add_cookie(name: name, value: value)
+          end
+        end
+
+        def valid_cell_session_cookie?(cookie_value)
+          return false if cookie_value.nil? || cookie_value.empty?
+
+          # return false since this cookie pattern indicates that the cookie has not been generated by the server
+          cell_env_var_pattern = /^cell-\d+-please/
+          return false if cookie_value.match?(cell_env_var_pattern)
+
+          cell_pattern = /^cell-\d+-.{32,}/
+          cookie_value.match?(cell_pattern)
+        end
 
         def simulate_slow_connection
           return if @network_conditions_configured

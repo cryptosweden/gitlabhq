@@ -23,8 +23,10 @@ RSpec.describe 'Projects > Settings > Repository > Branch rules settings', featu
   before do
     project.add_role(user, role)
     sign_in(user)
-    stub_licensed_features(merge_request_approvers: true)
-    stub_licensed_features(external_status_checks: true)
+    stub_licensed_features(
+      merge_request_approvers: true,
+      external_status_checks: true
+    )
   end
 
   context 'When viewed by developer' do
@@ -47,25 +49,6 @@ RSpec.describe 'Projects > Settings > Repository > Branch rules settings', featu
     end
   end
 
-  context 'Branch rule details for a predefined rule', :js do
-    let(:role) { :maintainer }
-
-    before do
-      visit_branch_rules_settings
-      wait_for_requests
-
-      click_button 'Add branch rule'
-      click_button 'All branches'
-
-      wait_for_requests
-    end
-
-    it 'does not create a rule if a user leaves it empty' do
-      visit_branch_rules_settings
-      expect(page).not_to have_css '[data-testid="branch-content"]', text: 'All branches'
-    end
-  end
-
   context 'Branch rule details for custom rule', :js do
     let(:role) { :maintainer }
 
@@ -84,7 +67,7 @@ RSpec.describe 'Projects > Settings > Repository > Branch rules settings', featu
 
     it 'renders breadcrumbs' do
       within_testid 'breadcrumb-links' do
-        expect(page).to have_link('Repository Settings', href: project_settings_repository_path(project))
+        expect(page).to have_link('Repository settings', href: project_settings_repository_path(project))
         expect(page).to have_link('Branch rules',
           href: project_settings_repository_path(project, anchor: 'branch-rules'))
         expect(page).to have_link('Details', href: '#')

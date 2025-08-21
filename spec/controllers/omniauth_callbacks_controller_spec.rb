@@ -2,29 +2,60 @@
 
 require 'spec_helper'
 
-RSpec.describe OmniauthCallbacksController, type: :controller, feature_category: :system_access do
+RSpec.describe OmniauthCallbacksController, :with_current_organization, type: :controller, feature_category: :system_access do
   include LoginHelpers
 
-  shared_examples 'store provider2FA value in session' do
-    before do
-      stub_omniauth_setting(allow_bypass_two_factor: true)
-      saml_config.args[:upstream_two_factor_authn_contexts] << "urn:oasis:names:tc:SAML:2.0:ac:classes:Password"
-      sign_in user
-    end
+  shared_examples 'stores value for provider_2FA to session according to saml response' do
+    let(:user) { create(:omniauth_user, extern_uid: 'my-uid', provider: 'saml') }
 
-    it "sets the session variable for provider 2FA" do
-      post :saml, params: { SAMLResponse: mock_saml_response }
-
-      expect(session[:provider_2FA]).to eq(true)
-    end
-
-    context 'when by_pass_two_factor_for_current_session feature flag is false' do
+    context 'with IDP bypass two factor request' do
       before do
-        stub_feature_flags(by_pass_two_factor_for_current_session: false)
+        stub_omniauth_setting(allow_bypass_two_factor: true)
+        saml_config.args[:upstream_two_factor_authn_contexts] << "urn:oasis:names:tc:SAML:2.0:ac:classes:Password"
+        sign_in user
       end
 
-      it "does not set the session variable for provider 2FA" do
+      it "sets the session variable for provider 2FA" do
         post :saml, params: { SAMLResponse: mock_saml_response }
+
+        expect(session[:provider_2FA]).to eq(true)
+      end
+    end
+
+    context 'without IDP bypass two factor request' do
+      before do
+        stub_omniauth_setting(allow_bypass_two_factor: true)
+        sign_in user
+      end
+
+      it "sets the session variable as nil" do
+        post :saml, params: { SAMLResponse: mock_saml_response }
+
+        expect(session[:provider_2FA]).to be_nil
+      end
+    end
+  end
+
+  shared_examples "sets provider_2FA session variable according to bypass_two_factor return value" do
+    context 'when method returns true' do
+      it "sets value as true" do
+        allow_next_instance_of(Gitlab::Auth::OAuth::User) do |instance|
+          allow(instance).to receive(:bypass_two_factor?).and_return(true)
+        end
+
+        post provider
+
+        expect(session[:provider_2FA]).to be(true)
+      end
+    end
+
+    context 'when method returns false' do
+      it "sets value to nil" do
+        allow_next_instance_of(Gitlab::Auth::OAuth::User) do |instance|
+          allow(instance).to receive(:bypass_two_factor?).and_return(false)
+        end
+
+        post provider
 
         expect(session[:provider_2FA]).to be_nil
       end
@@ -92,7 +123,33 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
     end
   end
 
-  describe 'omniauth' do
+  shared_examples 'when user has dismissed broadcast messages' do
+    let_it_be(:message_banner) { create(:broadcast_message, broadcast_type: :banner) }
+    let_it_be(:message_notification) { create(:broadcast_message, broadcast_type: :notification) }
+    let_it_be(:other_message) { create(:broadcast_message, broadcast_type: :banner) }
+
+    before do
+      create(:broadcast_message_dismissal, broadcast_message: message_banner, user: user)
+      create(:broadcast_message_dismissal, broadcast_message: message_notification, user: user)
+      create(:broadcast_message_dismissal, broadcast_message: other_message)
+
+      sign_in user
+    end
+
+    it 'creates dismissed cookies based on db records' do
+      expect(cookies["hide_broadcast_message_#{message_banner.id}"]).to be_nil
+      expect(cookies["hide_broadcast_message_#{message_notification.id}"]).to be_nil
+      expect(cookies["hide_broadcast_message_#{other_message.id}"]).to be_nil
+
+      post_action
+
+      expect(cookies["hide_broadcast_message_#{message_banner.id}"]).to be(true)
+      expect(cookies["hide_broadcast_message_#{message_notification.id}"]).to be(true)
+      expect(cookies["hide_broadcast_message_#{other_message.id}"]).to be_nil
+    end
+  end
+
+  describe 'omniauth', :with_current_organization do
     let(:user) { create(:omniauth_user, extern_uid: extern_uid, provider: provider) }
     let(:omniauth_email) { user.email }
     let(:additional_info) { {} }
@@ -106,7 +163,7 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
       Rails.application.env_config['omniauth.auth'] = @original_env_config_omniauth_auth
     end
 
-    context 'when authentication succeeds' do
+    context 'when authentication succeeds', :prometheus do
       let(:extern_uid) { 'my-uid' }
       let(:provider) { :github }
 
@@ -114,29 +171,43 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
         it 'increments Prometheus counter' do
           expect { post(provider) }.to(
             change do
-              Gitlab::Metrics.registry
-                             .get(:gitlab_omniauth_login_total)
-                             .get(omniauth_provider: 'github', status: 'succeeded')
+              Gitlab::Metrics.client
+                            .get(:gitlab_omniauth_login_total)
+                            &.get(omniauth_provider: 'github', status: 'succeeded')
+                            .to_f
             end.by(1)
           )
         end
+
+        it 'creates an authentication audit event' do
+          expect { post provider }.to change {
+            AuditEvent.where("details LIKE '%authenticated_with_oauth%'").count
+          }.by(1)
+        end
       end
 
-      context 'with signed-in user' do
+      context 'with signed-in user', :prometheus do
         before do
           sign_in user
+        end
+
+        it_behaves_like 'when user has dismissed broadcast messages' do
+          let(:post_action) { post provider }
         end
 
         it 'increments Prometheus counter' do
           expect { post(provider) }.to(
             change do
-              Gitlab::Metrics.registry
+              Gitlab::Metrics.client
                              .get(:gitlab_omniauth_login_total)
-                             .get(omniauth_provider: 'github', status: 'succeeded')
+                             &.get(omniauth_provider: 'github', status: 'succeeded')
+                             .to_f
             end.by(1)
           )
         end
       end
+
+      it_behaves_like "sets provider_2FA session variable according to bypass_two_factor return value"
     end
 
     context 'for a deactivated user' do
@@ -165,15 +236,38 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
       let(:provider) { :github }
       let(:extern_uid) { 'my-uid' }
 
-      it 'renders omniauth error page' do
+      before do
         allow_next_instance_of(Gitlab::Auth::OAuth::User) do |instance|
           allow(instance).to receive(:valid_sign_in?).and_return(false)
         end
 
         post provider
+      end
 
+      it 'renders omniauth error page' do
         expect(response).to render_template("errors/omniauth_error")
         expect(response).to have_gitlab_http_status(:unprocessable_entity)
+      end
+
+      it "does not set provider_2FA in session" do
+        expect(session[:provider_2FA]).to be_nil
+      end
+    end
+
+    context 'when the user is trying to sign-in from restricted country' do
+      let(:extern_uid) { 'my-uid' }
+      let(:provider) { :github }
+      let(:error_message) { "It looks like you are visiting GitLab from Mainland China, Macau, or Hong Kong" }
+
+      before do
+        allow(controller).to receive(:allowed_new_user?).and_raise(OmniauthCallbacksController::SignUpFromRestrictedCountyError)
+
+        post provider
+      end
+
+      it 'redirects to root path with message' do
+        expect(response).to redirect_to new_user_session_path
+        expect(flash[:alert]).to include(error_message)
       end
     end
 
@@ -182,7 +276,7 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
 
       before do
         user.update!(failed_attempts: User.maximum_attempts.pred)
-        subject.response = ActionDispatch::Response.new
+        subject.set_response!(ActionDispatch::Response.new)
       end
 
       context 'when using a form based provider' do
@@ -211,7 +305,7 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
       end
     end
 
-    context 'when sign in fails' do
+    context 'when sign in fails', :prometheus do
       include RoutesHelpers
 
       let(:extern_uid) { 'my-uid' }
@@ -235,9 +329,10 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
         ForgeryProtection.with_forgery_protection do
           expect { post :failure }.to(
             change do
-              Gitlab::Metrics.registry
+              Gitlab::Metrics.client
                              .get(:gitlab_omniauth_login_total)
-                             .get(omniauth_provider: 'saml', status: 'failed')
+                             &.get(omniauth_provider: 'saml', status: 'failed')
+                             .to_f
             end.by(1)
           )
         end
@@ -283,6 +378,46 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
         let(:user) { create(:omniauth_user, :two_factor, extern_uid: extern_uid, provider: provider) }
 
         it_behaves_like 'omniauth sign in that remembers user with two factor enabled'
+      end
+
+      context 'when redirect fragment contains special characters' do
+        before do
+          request.env['omniauth.params'] = { 'redirect_fragment' => 'confirm-merge_request_diff_id-context' }
+        end
+
+        it 'redirects with fragment' do
+          post provider, session: { user_return_to: '/fake/url' }
+
+          expect(response).to redirect_to('/fake/url#confirm-merge_request_diff_id-context')
+        end
+      end
+
+      context 'when stored redirect fragment is malicious' do
+        let(:malicious_redirect_fragment) { '#code=test_code&' }
+
+        before do
+          request.env['omniauth.params'] = { 'redirect_fragment' => malicious_redirect_fragment }
+        end
+
+        it 'fails login and redirects to login path' do
+          post provider, session: { user_return_to: '/fake/url#replaceme' }
+
+          expect(response.redirect?).to be true
+          expect(response).to redirect_to(new_user_session_path)
+          expect(flash[:alert]).to match(/Invalid state/)
+        end
+
+        context 'when fragment has encoded content' do
+          let_it_be(:malicious_redirect_fragment, reload: true) { '#code%3Dtest_code&L90' }
+
+          it 'fails login and redirects to login path' do
+            post provider, session: { user_return_to: '/fake/url#replaceme' }
+
+            expect(response.redirect?).to be true
+            expect(response).to redirect_to(new_user_session_path)
+            expect(flash[:alert]).to match(/Invalid state/)
+          end
+        end
       end
     end
 
@@ -467,19 +602,6 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
             expect(request.env['warden']).to be_authenticated
           end
 
-          it 'sets the username and caller_id in the context' do
-            expect(controller).to receive(:atlassian_oauth2).and_wrap_original do |m, *args|
-              m.call(*args)
-
-              expect(Gitlab::ApplicationContext.current).to include(
-                'meta.user' => user.username,
-                'meta.caller_id' => 'OmniauthCallbacksController#atlassian_oauth2'
-              )
-            end
-
-            post :atlassian_oauth2
-          end
-
           context 'when a user has 2FA enabled' do
             let(:user) { create(:atlassian_user, :two_factor, extern_uid: extern_uid) }
 
@@ -489,9 +611,15 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
 
         context 'for a new user' do
           before do
+            @original_url = Settings.gitlab.url
+            Settings.gitlab.url = 'https://www.example.com:43/gitlab'
             stub_omniauth_setting(enabled: true, auto_link_user: true, allow_single_sign_on: ['atlassian_oauth2'])
 
             user.destroy!
+          end
+
+          after do
+            Settings.gitlab.url = @original_url
           end
 
           it 'denies sign-in if sign-up is enabled, but block_auto_created_users is set' do
@@ -513,7 +641,7 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
 
             post :atlassian_oauth2
 
-            expect(flash[:alert]).to start_with 'Signing in using your Atlassian account without a pre-existing GitLab account is not allowed.'
+            expect(flash[:alert]).to eq('Signing in using your Atlassian account without a pre-existing account in example.com:43/gitlab is not allowed. Create an account in example.com:43/gitlab first, and then <a href="/help/user/profile/_index.md#sign-in-services">connect it to your Atlassian account</a>.')
           end
         end
       end
@@ -620,6 +748,10 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
 
     it_behaves_like 'omniauth sign in that remembers user with two factor disabled'
 
+    it_behaves_like 'when user has dismissed broadcast messages' do
+      let(:post_action) { post provider }
+    end
+
     it 'allows sign in' do
       post provider
 
@@ -630,6 +762,179 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
       let(:user) { create(:omniauth_user, :two_factor, extern_uid: extern_uid, provider: provider) }
 
       it_behaves_like 'omniauth sign in that remembers user with two factor enabled'
+    end
+
+    context 'when multiple OIDC providers are configured' do
+      let(:oidc_providers) do
+        [
+          {
+            'name' => 'openid_connect',
+            'args' => {
+              'name' => 'openid_connect',
+              'strategy_class' => "OmniAuth::Strategies::OpenIDConnect",
+              'client_options' => { 'gitlab' => {} }
+            }
+          },
+          {
+            'name' => 'openid_connect2',
+            'args' => {
+              'name' => 'openid_connect2',
+              'strategy_class' => "OmniAuth::Strategies::OpenIDConnect",
+              'client_options' => { 'gitlab' => {} }
+            }
+          }
+        ]
+      end
+
+      let(:provider_settings) { oidc_providers.map { |provider| GitlabSettings::Options.new(provider) } }
+      let(:provider_names) { provider_settings.map(&:name).map(&:to_s) }
+
+      context 'when a non-default provider is used', :aggregate_failures do
+        let(:provider2) { provider_names[1] }
+        let(:user) { create(:omniauth_user, extern_uid: "my-uid2", provider: provider2.to_sym) }
+
+        controller(described_class) do
+          alias_method :openid_connect2, :handle_omniauth
+        end
+
+        before do
+          prepare_provider_route(provider2)
+          allow(routes).to receive(:generate_extras).and_return(["/users/auth/#{provider2}/callback", []])
+
+          stub_omniauth_setting(
+            enabled: true,
+            block_auto_created_users: false,
+            allow_single_sign_on: provider_names,
+            providers: provider_settings
+          )
+
+          request.env['devise.mapping'] = Devise.mappings[:user]
+          request.env['omniauth.auth'] = Rails.application.env_config['omniauth.auth']
+
+          mock_auth_hash(provider2, "my-uid2", user.email)
+          stub_omniauth_provider(provider2, context: request)
+        end
+
+        it 'authenticates a user with the non-default provider' do
+          prov_names = provider_names.map(&:to_sym)
+
+          expect(controller).to receive(provider2.to_sym).and_call_original
+          expect(AuthHelper.oidc_providers).to match(prov_names)
+
+          post provider2.to_sym
+
+          expect(request.env['warden']).to be_authenticated
+        end
+      end
+    end
+
+    it_behaves_like "sets provider_2FA session variable according to bypass_two_factor return value"
+
+    context 'for step-up authentication' do
+      context 'with different step-up authentication configurations' do
+        using RSpec::Parameterized::TableSyntax
+
+        let(:ommiauth_provider_config_with_step_up_auth) do
+          GitlabSettings::Options.new(
+            name: "openid_connect",
+            step_up_auth: {
+              admin_mode: {
+                id_token: {
+                  required: required_id_token_claims,
+                  included: included_id_token_claims
+                }
+              }
+            }
+          )
+        end
+
+        before do
+          mock_auth_hash(provider, extern_uid, user.email, additional_info: { extra: { raw_info: mock_auth_hash_extra_raw_info } })
+
+          request.env['omniauth.auth'] = Rails.application.env_config['omniauth.auth']
+          session['omniauth_step_up_auth'] = { 'openid_connect' => { 'admin_mode' => { 'state' => 'requested' } } }
+
+          stub_omniauth_setting(enabled: true, auto_link_user: true, block_auto_created_users: false, providers: [ommiauth_provider_config_with_step_up_auth])
+        end
+
+        where(:required_id_token_claims, :included_id_token_claims, :mock_auth_hash_extra_raw_info, :step_up_auth_authenticated) do
+          { claim_1: 'gold' } | nil                          | { claim_1: 'gold' }                         | 'succeeded'
+          { claim_1: 'gold' } | nil                          | { claim_1: 'gold', claim_2: 'mfa' }         | 'succeeded'
+          { claim_1: 'gold' } | nil                          | { claim_1: 'silver' }                       | 'failed'
+          { claim_1: 'gold' } | nil                          | { claim_1: 'silver', claim_2: 'other_amr' } | 'failed'
+          { claim_1: 'gold' } | nil                          | { claim_1: nil }                            | 'failed'
+          { claim_1: 'gold' } | nil                          | { claim_3: 'other_value' }                  | 'failed'
+          { claim_1: 'gold' } | nil                          | {}                                          | 'failed'
+
+          nil                 | { claim_2: %w[mfa fpt] }     | { claim_2: 'mfa', claim_3: 'other_value' }  | 'succeeded'
+          nil                 | { claim_2: %w[mfa fpt] }     | { claim_2: 'fpt' }                          | 'succeeded'
+          nil                 | { claim_2: %w[mfa fpt] }     | { claim_2: 'other_amr' }                    | 'failed'
+
+          { claim_1: 'gold' } | { claim_1: ['gold'] }        | { claim_1: 'gold' }                         | 'succeeded'
+          { claim_1: 'gold' } | { claim_1: %w[gold silver] } | { claim_1: 'gold' }                         | 'succeeded'
+          { claim_1: 'gold' } | { claim_1: %w[gold silver] } | { claim_1: 'silver' }                       | 'failed'
+          { claim_1: 'gold' } | { claim_2: %w[mfa fpt] }     | { claim_1: 'gold', claim_2: 'mfa' }         | 'succeeded'
+          { claim_1: 'gold' } | { claim_2: %w[mfa fpt] }     | { claim_1: 'gold', claim_2: 'other_amr' }   | 'failed'
+          { claim_1: 'gold' } | { claim_2: %w[mfa fpt] }     | { claim_1: 'silver', claim_2: 'mfa' }       | 'failed'
+          { claim_1: 'gold' } | { claim_2: %w[mfa fpt] }     | { claim_1: 'silver', claim_2: 'other_amr' } | 'failed'
+        end
+
+        with_them do
+          context 'when user is signed in' do
+            before do
+              sign_in user
+            end
+
+            it 'evaluates step-up authentication conditions and stores result in session' do
+              get provider
+
+              expect(session.to_h.dig('omniauth_step_up_auth', 'openid_connect', 'admin_mode', 'state'))
+                .to eq step_up_auth_authenticated
+            end
+
+            context 'when feature flag :omniauth_step_up_auth_for_admin_mode disabled' do
+              before do
+                stub_feature_flags(omniauth_step_up_auth_for_admin_mode: false)
+                session.delete 'omniauth_step_up_auth'
+              end
+
+              it 'does not store step-up authentication evaluation result in session' do
+                get provider
+
+                expect(session).not_to include 'omniauth_step_up_auth'
+              end
+            end
+          end
+
+          context 'when user is not signed in' do
+            before do
+              session.delete 'omniauth_step_up_auth'
+            end
+
+            it 'does not store step-up authentication evaluation result in session' do
+              get provider
+
+              expect(session).not_to include 'omniauth_step_up_auth'
+            end
+          end
+        end
+      end
+
+      context 'without step-up authentication configuration' do
+        let(:ommiauth_provider_config_with_step_up_auth) { GitlabSettings::Options.new(name: "openid_connect") }
+
+        it 'does not add session key "step_up_auth"' do
+          get provider
+
+          expect(session).not_to include 'step_up_auth'
+        end
+      end
+    end
+
+    it 'does not log saml_response for debugging' do
+      expect(Gitlab::AuthLogger).not_to receive(:info).with(payload_type: 'saml_response', saml_response: anything)
+
+      get provider
     end
   end
 
@@ -661,7 +966,11 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
       let(:post_action) { post :saml, params: { SAMLResponse: mock_saml_response } }
     end
 
-    context 'for sign up' do
+    it_behaves_like 'when user has dismissed broadcast messages' do
+      let(:post_action) { post :saml, params: { SAMLResponse: mock_saml_response } }
+    end
+
+    context 'for sign up', :with_current_organization do
       before do
         user.destroy!
       end
@@ -679,12 +988,34 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
         expect(request.env['warden']).to be_authenticated
       end
 
-      it 'denies login if sign up is not enabled' do
-        stub_omniauth_setting(allow_single_sign_on: false, block_auto_created_users: false)
+      describe 'when registering a new account is allowed' do
+        before do
+          allow(Gitlab::CurrentSettings).to receive(:allow_signup?).and_return(true)
+        end
 
-        post :saml, params: { SAMLResponse: mock_saml_response }
+        it 'denies login if sign up is not enabled' do
+          stub_omniauth_setting(allow_single_sign_on: false, block_auto_created_users: false)
 
-        expect(flash[:alert]).to start_with 'Signing in using your saml account without a pre-existing GitLab account is not allowed.'
+          post :saml, params: { SAMLResponse: mock_saml_response }
+
+          expect(flash[:alert]).to eq("Signing in using your SAML account without a pre-existing account in #{Gitlab.config.gitlab.host} is not allowed. Create an account in #{Gitlab.config.gitlab.host} first, and then <a href=\"/help/user/profile/_index.md#sign-in-services\">connect it to your SAML account</a>.")
+          expect(response).to redirect_to(new_user_registration_path)
+        end
+      end
+
+      describe 'when registering a new account is not allowed' do
+        before do
+          allow(Gitlab::CurrentSettings).to receive(:allow_signup?).and_return(false)
+        end
+
+        it 'denies login if sign up is not enabled' do
+          stub_omniauth_setting(allow_single_sign_on: false, block_auto_created_users: false)
+
+          post :saml, params: { SAMLResponse: mock_saml_response }
+
+          expect(flash[:alert]).to eq("Signing in using your SAML account without a pre-existing account in #{Gitlab.config.gitlab.host} is not allowed.")
+          expect(response).to redirect_to(new_user_session_path)
+        end
       end
 
       it 'logs saml_response for debugging' do
@@ -741,25 +1072,6 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
       it 'doesn\'t link a new identity to the user' do
         expect { post :saml, params: { SAMLResponse: mock_saml_response } }.not_to change { user.identities.count }
       end
-
-      it 'sets the username and caller_id in the context' do
-        expect(controller).to receive(:saml).and_wrap_original do |m, *args|
-          m.call(*args)
-
-          expect(Gitlab::ApplicationContext.current).to include(
-            'meta.user' => user.username,
-            'meta.caller_id' => 'OmniauthCallbacksController#saml'
-          )
-        end
-
-        post :saml, params: { SAMLResponse: mock_saml_response }
-      end
-
-      context 'with IDP bypass two factor request' do
-        let(:user) { create(:omniauth_user, extern_uid: 'my-uid', provider: 'saml') }
-
-        it_behaves_like 'store provider2FA value in session'
-      end
     end
 
     context 'with a blocked user trying to log in when there are hooks set up' do
@@ -793,10 +1105,20 @@ RSpec.describe OmniauthCallbacksController, type: :controller, feature_category:
 
         expect(request.env['warden']).to be_authenticated
       end
+
+      it 'logs saml_response for debugging' do
+        expect(Gitlab::AuthLogger).to receive(:info).with(payload_type: 'saml_response', saml_response: anything)
+
+        post :saml_okta, params: { SAMLResponse: mock_saml_response }
+      end
     end
 
-    context 'with IDP bypass two factor request' do
-      it_behaves_like 'store provider2FA value in session'
+    it_behaves_like "stores value for provider_2FA to session according to saml response"
+
+    it 'logs saml_response for debugging' do
+      expect(Gitlab::AuthLogger).to receive(:info).with(payload_type: 'saml_response', saml_response: anything)
+
+      post :saml, params: { SAMLResponse: mock_saml_response }
     end
   end
 

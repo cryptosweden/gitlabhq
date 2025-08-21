@@ -40,6 +40,14 @@ class ClusterablePresenter < Gitlab::View::Presenter::Delegated
     polymorphic_path([clusterable, :clusters], action: :create_user)
   end
 
+  def create_cluster_migration_path(cluster)
+    raise NotImplementedError
+  end
+
+  def update_cluster_migration_path(cluster)
+    raise NotImplementedError
+  end
+
   def cluster_status_cluster_path(cluster, params = {})
     raise NotImplementedError
   end
@@ -49,10 +57,6 @@ class ClusterablePresenter < Gitlab::View::Presenter::Delegated
   end
 
   def cluster_path(cluster, params = {})
-    raise NotImplementedError
-  end
-
-  def metrics_dashboard_path(cluster)
     raise NotImplementedError
   end
 
@@ -73,5 +77,3 @@ class ClusterablePresenter < Gitlab::View::Presenter::Delegated
     raise NotImplementedError
   end
 end
-
-ClusterablePresenter.prepend_mod_with('ClusterablePresenter')

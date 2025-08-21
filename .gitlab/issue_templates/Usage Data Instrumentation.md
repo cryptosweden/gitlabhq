@@ -1,6 +1,6 @@
 <!-- Guide for product managers or engineering teams looking to track usage of their features -->
 
-:warning: If GDK is accessible, an alternative to using this guide is to directly establish event/metric definitions using our [internal events generator](https://docs.gitlab.com/ee/development/internal_analytics/internal_event_instrumentation/quick_start.html#defining-event-and-metrics)
+:warning: If GDK is accessible, an alternative to using this guide is to directly establish event/metric definitions using our [internal events generator](https://docs.gitlab.com/development/internal_analytics/internal_event_instrumentation/quick_start/#defining-event-and-metrics)
 
 ## Objective
 
@@ -60,15 +60,15 @@ Metrics:
 
 * [ ] Assign an engineering counterpart from your group to add instrumentation to the code
 * [ ] Explore instrumented data with the help of our [data discovery guide]( https://docs.gitlab.com/ee/development/internal_analytics/#data-discovery). You can also [reach out to product data insights team](https://gitlab.com/gitlab-data/product-analytics/-/issues/new?issuable_template=PI%20Chart%20Help) for help with generating Tableau reports/dashboards.
-* [ ] Your feedback is valuable to us. Please leave us feedback in the comment section of this issue and tag @tjayaramaraju or @basti
+* [ ] Your feedback is valuable to us. Please leave us feedback in the comment section of this issue and tag @tjayaramaraju.
 
 # Important links
 
-:star: [Quick start guide to internal events](https://docs.gitlab.com/ee/development/internal_analytics/internal_event_instrumentation/quick_start.html)
+:star: [Quick start guide to internal events](https://docs.gitlab.com/development/internal_analytics/internal_event_instrumentation/quick_start/)
 
 :question: [Analytics Instrumentation slack channel for questions](https://gitlab.enterprise.slack.com/archives/CL3A7GFPF)
 
 
-:writing_hand: Try our [internal events generator](https://docs.gitlab.com/ee/development/internal_analytics/internal_event_instrumentation/quick_start.html#defining-event-and-metrics). Creating event and metric definition files has never been easier.
+:writing_hand: Try our [internal events generator](https://docs.gitlab.com/development/internal_analytics/internal_event_instrumentation/quick_start/#defining-event-and-metrics). Creating event and metric definition files has never been easier.
 
 /label ~"analytics instrumentation"

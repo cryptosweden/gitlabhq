@@ -15,7 +15,7 @@ RSpec.describe 'projects/hooks/edit' do
   it 'renders webhook page with "Recent events"' do
     render
 
-    expect(rendered).to have_css('h4', text: _('Webhook'))
+    expect(rendered).to have_css('.gl-heading-2', text: _('Webhook'))
     expect(rendered).to have_text(_('Recent events'))
   end
 
@@ -39,7 +39,7 @@ RSpec.describe 'projects/hooks/edit' do
     it 'renders alert' do
       render
 
-      expect(rendered).to have_text(s_('Webhooks|Webhook failed to connect'))
+      expect(rendered).to have_text(s_('Webhooks|Webhook disabled'))
     end
   end
 
@@ -52,7 +52,7 @@ RSpec.describe 'projects/hooks/edit' do
     it 'renders alert' do
       render
 
-      expect(rendered).to have_text(s_('Webhooks|Webhook fails to connect'))
+      expect(rendered).to have_text(s_('Webhooks|Webhook temporarily disabled'))
     end
   end
 end

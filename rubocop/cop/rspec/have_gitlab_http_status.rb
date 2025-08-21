@@ -12,16 +12,16 @@ module RuboCop
       #
       # @example
       #
-      # # bad
-      # expect(response).to have_http_status(200)
-      # expect(response).to have_http_status(:ok)
-      # expect(response).to have_gitlab_http_status(200)
-      # expect(response.status).to eq(200)
-      # expect(response.status).not_to eq(200)
+      #   # bad
+      #   expect(response).to have_http_status(200)
+      #   expect(response).to have_http_status(:ok)
+      #   expect(response).to have_gitlab_http_status(200)
+      #   expect(response.status).to eq(200)
+      #   expect(response.status).not_to eq(200)
       #
-      # # good
-      # expect(response).to have_gitlab_http_status(:ok)
-      # expect(response).not_to have_gitlab_http_status(:ok)
+      #   # good
+      #   expect(response).to have_gitlab_http_status(:ok)
+      #   expect(response).not_to have_gitlab_http_status(:ok)
       #
       class HaveGitlabHttpStatus < RuboCop::Cop::Base
         extend RuboCop::Cop::AutoCorrector
@@ -49,6 +49,7 @@ module RuboCop
         REPLACEMENT_RESPONSE_STATUS =
           'expect(response).%{expectation} have_gitlab_http_status(%{arg})'
 
+        # @!method have_http_status?(node)
         def_node_matcher :have_http_status?, <<~PATTERN
           (send nil?
               { :have_http_status :have_gitlab_http_status }
@@ -56,6 +57,7 @@ module RuboCop
           )
         PATTERN
 
+        # @!method response_status_eq?(node)
         def_node_matcher :response_status_eq?, <<~PATTERN
           (send
             (send nil? :expect
@@ -93,7 +95,7 @@ module RuboCop
         def corrector(node)
           ->(corrector) do
             replacement = replace_matcher(node) || replace_response_status(node)
-            corrector.replace(node.source_range, replacement) if node.source_range.source != replacement
+            corrector.replace(node, replacement) if node.source != replacement
           end
         end
 
@@ -140,7 +142,7 @@ module RuboCop
 
         def extract_numeric_code(node)
           arg_node = argument(node)
-          return unless arg_node&.type == :int
+          return unless arg_node&.int_type?
 
           arg_node.children[0]
         end

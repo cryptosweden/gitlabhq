@@ -13,13 +13,12 @@ RSpec.describe Ci::DeleteObjectsWorker, feature_category: :continuous_integratio
   describe '#perform' do
     it 'executes a service' do
       expect_next_instance_of(Ci::DeleteObjectsService) do |instance|
-        expect(instance).to receive(:execute)
+        expect(instance).to receive(:execute).and_return(ServiceResponse.success)
         expect(instance).to receive(:remaining_batches_count)
           .with(max_batch_count: 20)
           .once
           .and_call_original
       end
-
       worker.perform
     end
   end

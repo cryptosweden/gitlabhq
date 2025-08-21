@@ -1,15 +1,15 @@
 <script>
 import { GlToggle, GlSprintf, GlLink } from '@gitlab/ui';
 import { s__ } from '~/locale';
-import SettingsBlock from '~/packages_and_registries/shared/components/settings_block.vue';
+import SettingsSection from '~/vue_shared/components/settings/settings_section.vue';
 import updateDependencyProxySettings from '~/packages_and_registries/settings/group/graphql/mutations/update_dependency_proxy_settings.mutation.graphql';
 import updateDependencyProxyImageTtlGroupPolicy from '~/packages_and_registries/settings/group/graphql/mutations/update_dependency_proxy_image_ttl_group_policy.mutation.graphql';
 import { updateGroupPackageSettings } from '~/packages_and_registries/settings/group/graphql/utils/cache_update';
+import DockerHubAuthenticationSection from '~/packages_and_registries/settings/group/components/docker_hub_authentication_section.vue';
 import {
   updateGroupDependencyProxySettingsOptimisticResponse,
   updateDependencyProxyImageTtlGroupPolicyOptimisticResponse,
 } from '~/packages_and_registries/settings/group/graphql/utils/optimistic_responses';
-
 import {
   DEPENDENCY_PROXY_HEADER,
   DEPENDENCY_PROXY_DESCRIPTION,
@@ -19,10 +19,11 @@ import {
 export default {
   name: 'DependencyProxySettings',
   components: {
+    DockerHubAuthenticationSection,
     GlToggle,
     GlSprintf,
     GlLink,
-    SettingsBlock,
+    SettingsSection,
   },
   i18n: {
     DEPENDENCY_PROXY_HEADER,
@@ -31,9 +32,9 @@ export default {
     enabledProxyHelpText: s__(
       'DependencyProxy|To see the image prefix and what is in the cache, visit the %{linkStart}Dependency Proxy%{linkEnd}',
     ),
-    ttlPolicyEnabledLabel: s__('DependencyProxy|Clear the Dependency Proxy cache automatically'),
+    ttlPolicyEnabledLabel: s__('DependencyProxy|Automatic cache cleanup'),
     ttlPolicyEnabledHelpText: s__(
-      'DependencyProxy|When enabled, images older than 90 days will be removed from the cache.',
+      'DependencyProxy|Automatically remove cached images older than 90 days.',
     ),
   },
   links: {
@@ -63,6 +64,9 @@ export default {
       set(enabled) {
         this.updateSettings({ enabled });
       },
+    },
+    showDockerHubAuthenticationSection() {
+      return !this.isLoading && this.enabled;
     },
     ttlEnabled: {
       get() {
@@ -129,38 +133,42 @@ export default {
 </script>
 
 <template>
-  <settings-block data-testid="dependency-proxy-settings-content">
-    <template #title> {{ $options.i18n.DEPENDENCY_PROXY_HEADER }} </template>
-    <template #description> {{ $options.i18n.DEPENDENCY_PROXY_DESCRIPTION }} </template>
-    <template #default>
-      <div>
-        <gl-toggle
-          v-model="enabled"
-          :disabled="isLoading"
-          :label="$options.i18n.enabledProxyLabel"
-          data-testid="dependency-proxy-setting-toggle"
-        >
-          <template v-if="enabled" #help>
-            <span class="gl-break-words gl-hyphens-auto gl-max-w-screen gl-display-inline-block">
-              <gl-sprintf :message="$options.i18n.enabledProxyHelpText">
-                <template #link="{ content }">
-                  <gl-link data-testid="toggle-help-link" :href="groupDependencyProxyPath">{{
-                    content
-                  }}</gl-link>
-                </template>
-              </gl-sprintf>
-            </span>
-          </template>
-        </gl-toggle>
-        <gl-toggle
-          v-model="ttlEnabled"
-          :disabled="isLoading"
-          :label="$options.i18n.ttlPolicyEnabledLabel"
-          :help="$options.i18n.ttlPolicyEnabledHelpText"
-          class="gl-mt-6"
-          data-testid="dependency-proxy-ttl-policies-toggle"
-        />
-      </div>
-    </template>
-  </settings-block>
+  <settings-section
+    :heading="$options.i18n.DEPENDENCY_PROXY_HEADER"
+    :description="$options.i18n.DEPENDENCY_PROXY_DESCRIPTION"
+    data-testid="dependency-proxy-settings-content"
+  >
+    <gl-toggle
+      v-model="enabled"
+      :disabled="isLoading"
+      :label="$options.i18n.enabledProxyLabel"
+      data-testid="dependency-proxy-setting-toggle"
+    >
+      <template v-if="enabled" #help>
+        <span class="gl-inline-block gl-max-w-screen gl-hyphens-auto gl-break-words">
+          <gl-sprintf :message="$options.i18n.enabledProxyHelpText">
+            <template #link="{ content }">
+              <gl-link data-testid="toggle-help-link" :href="groupDependencyProxyPath">{{
+                content
+              }}</gl-link>
+            </template>
+          </gl-sprintf>
+        </span>
+      </template>
+    </gl-toggle>
+    <docker-hub-authentication-section
+      v-if="showDockerHubAuthenticationSection"
+      class="gl-mt-5"
+      :form-data="dependencyProxySettings"
+      @success="$emit('success')"
+    />
+    <gl-toggle
+      v-model="ttlEnabled"
+      :disabled="isLoading"
+      :label="$options.i18n.ttlPolicyEnabledLabel"
+      :help="$options.i18n.ttlPolicyEnabledHelpText"
+      class="gl-mt-6"
+      data-testid="dependency-proxy-ttl-policies-toggle"
+    />
+  </settings-section>
 </template>

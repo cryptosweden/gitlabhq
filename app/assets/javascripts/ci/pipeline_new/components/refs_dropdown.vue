@@ -35,6 +35,11 @@ export default {
         sort: 'updated_desc',
       }),
     },
+    toggleAriaLabelledBy: {
+      type: String,
+      required: false,
+      default: null,
+    },
   },
   computed: {
     refShortName() {
@@ -59,7 +64,8 @@ export default {
     :translations="$options.i18n"
     :use-symbolic-ref-names="true"
     :query-params="queryParams"
-    toggle-button-class="!gl-w-auto gl-mb-0!"
+    toggle-button-class="!gl-w-auto !gl-mb-0"
+    :toggle-aria-labelled-by="toggleAriaLabelledBy"
     @input="setRefSelected"
   />
 </template>

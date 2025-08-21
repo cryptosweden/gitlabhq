@@ -1,5 +1,5 @@
 import { GlButton, GlIcon } from '@gitlab/ui';
-import { GlBreakpointInstance as bp } from '@gitlab/ui/dist/utils';
+import { GlBreakpointInstance as bp } from '@gitlab/ui/src/utils';
 import { nextTick } from 'vue';
 import Cookies from '~/lib/utils/cookies';
 import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
@@ -73,7 +73,7 @@ describe('IssuableSidebarRoot', () => {
 
     describe('when collapsing the sidebar', () => {
       it('updates "collapsed_gutter" cookie value and layout classes', async () => {
-        await findToggleSidebarButton().trigger('click');
+        await findToggleSidebarButton().vm.$emit('click');
 
         expect(Cookies.set).toHaveBeenCalledWith(USER_COLLAPSED_GUTTER_COOKIE, true, {
           expires: 365,

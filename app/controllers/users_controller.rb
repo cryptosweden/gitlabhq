@@ -7,6 +7,9 @@ class UsersController < ApplicationController
   include RendersProjectsList
   include ControllerWithCrossProjectAccessCheck
   include Gitlab::NoteableMetadata
+  include SafeFormatHelper
+
+  FOLLOWERS_FOLLOWING_USERS_PER_PAGE = 21
 
   requires_cross_project_access show: false,
     groups: false,
@@ -21,13 +24,24 @@ class UsersController < ApplicationController
   skip_before_action :authenticate_user!
   prepend_before_action(only: [:show]) { authenticate_sessionless_user!(:rss) }
   before_action :user, except: [:exists]
+  before_action :set_legacy_data
   before_action :authorize_read_user_profile!, only: [
     :calendar, :calendar_activities, :groups, :projects, :contributed, :starred, :snippets, :followers, :following
   ]
   before_action only: [:exists] do
     check_rate_limit!(:username_exists, scope: request.ip)
   end
-  before_action only: [:show] do
+  before_action only: [
+    :show,
+    :activity,
+    :groups,
+    :projects,
+    :contributed,
+    :starred,
+    :snippets,
+    :followers,
+    :following
+  ] do
     push_frontend_feature_flag(:profile_tabs_vue, current_user)
   end
 
@@ -52,7 +66,8 @@ class UsersController < ApplicationController
       end
 
       format.json do
-        msg = "This endpoint is deprecated. Use %s instead." % user_activity_path
+        msg = safe_format("This endpoint is deprecated. Use %{user_activity_path} instead.",
+          user_activity_path: user_activity_path)
         render json: { message: msg }, status: :not_found
       end
     end
@@ -73,7 +88,10 @@ class UsersController < ApplicationController
       format.json do
         load_events
 
-        if Feature.enabled?(:profile_tabs_vue, current_user)
+        @is_personal_homepage = params[:is_personal_homepage].present? && Feature.enabled?(:personal_homepage,
+          current_user)
+
+        if Feature.enabled?(:profile_tabs_vue, current_user) && !@is_personal_homepage
           @events = if user.include_private_contributions?
                       @events
                     else
@@ -82,6 +100,8 @@ class UsersController < ApplicationController
 
           render json: ::Profile::EventSerializer.new(current_user: current_user, target_user: user)
                                                  .represent(@events)
+        elsif @is_personal_homepage && @events.empty?
+          # Return an empty response so that the personal homepage renders its empty state
         else
           pager_json("events/_events", @events.count, events: @events)
         end
@@ -129,13 +149,13 @@ class UsersController < ApplicationController
 
   def followers
     present_users do
-      @user_followers = user.followers.page(params[:page])
+      @user_followers = user.followers.page(params[:page]).per(FOLLOWERS_FOLLOWING_USERS_PER_PAGE)
     end
   end
 
   def following
     present_users do
-      @user_following = user.followees.page(params[:page])
+      @user_following = user.followees.page(params[:page]).per(FOLLOWERS_FOLLOWING_USERS_PER_PAGE)
     end
   end
 
@@ -150,7 +170,15 @@ class UsersController < ApplicationController
       format.json do
         projects = yield
 
-        pager_json("shared/projects/_list", projects.count, projects: projects, skip_pagination: skip_pagination, skip_namespace: skip_namespace, compact_mode: compact_mode, card_mode: card_mode)
+        pager_json(
+          "shared/projects/_list",
+          projects.count,
+          projects: projects,
+          skip_pagination: skip_pagination,
+          skip_namespace: skip_namespace,
+          compact_mode: compact_mode,
+          card_mode: card_mode
+        )
       end
     end
   end
@@ -178,14 +206,16 @@ class UsersController < ApplicationController
     rescue StandardError
       Date.today
     end
+
     @events = contributions_calendar.events_by_date(@calendar_date).map(&:present)
+    Events::RenderService.new(current_user).execute(@events)
 
     render 'calendar_activities', layout: false
   end
 
   def exists
     if Gitlab::CurrentSettings.signup_enabled? || current_user
-      render json: { exists: !!Namespace.without_project_namespaces.find_by_path_or_name(params[:username]) }
+      render json: { exists: Namespace.username_reserved?(params[:username]) }
     else
       render json: { error: _('You must be authenticated to access this path.') }, status: :unauthorized
     end
@@ -228,7 +258,9 @@ class UsersController < ApplicationController
   end
 
   def contributed_projects
-    ContributedProjectsFinder.new(user).execute(current_user, order_by: 'latest_activity_desc')
+    ContributedProjectsFinder.new(
+      user: user, current_user: current_user, params: { sort: 'latest_activity_desc' }
+    ).execute
   end
 
   def starred_projects
@@ -267,7 +299,7 @@ class UsersController < ApplicationController
 
   def load_groups
     groups = JoinedGroupsFinder.new(user).execute(current_user)
-    @groups = groups.page(params[:page]).without_count
+    @groups = groups.with_namespace_details.page(params[:page]).without_count
 
     prepare_groups_for_rendering(@groups)
   end
@@ -306,6 +338,12 @@ class UsersController < ApplicationController
       # don't display projects marked for deletion
       not_aimed_for_deletion: true
     }
+  end
+
+  def set_legacy_data
+    controller_action = params[:action]
+    @action = controller_action.gsub('show', 'overview')
+    @endpoint = request.path
   end
 end
 

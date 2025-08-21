@@ -13,7 +13,6 @@ describe('moreActionsDropdown', () => {
     title: 'Milestone 1',
     isActive: true,
     showDelete: true,
-    canReadMilestone: true,
     milestoneUrl: '/milestone-url',
     editUrl: '/edit-url',
     closeUrl: '/close-url',
@@ -23,6 +22,7 @@ describe('moreActionsDropdown', () => {
     issueCount: 1,
     mergeRequestCount: 2,
     isDetailPage: false,
+    size: 'medium',
   };
 
   const createComponent = ({ provideData = {}, propsData = {} } = {}) => {
@@ -220,7 +220,6 @@ describe('moreActionsDropdown', () => {
     const provideData = {
       issueCount: 1,
       mergeRequestCount: 2,
-      milestoneId: 1,
       milestoneTitle: 'Milestone 1',
       milestoneUrl: '/milestone-url',
     };
@@ -233,7 +232,6 @@ describe('moreActionsDropdown', () => {
         visible: false,
         issueCount: provideData.issueCount,
         mergeRequestCount: provideData.mergeRequestCount,
-        milestoneId: provideData.milestoneId,
         milestoneTitle: provideData.milestoneTitle,
         milestoneUrl: provideData.milestoneUrl,
       });
@@ -251,7 +249,6 @@ describe('moreActionsDropdown', () => {
         visible: true,
         issueCount: provideData.issueCount,
         mergeRequestCount: provideData.mergeRequestCount,
-        milestoneId: provideData.milestoneId,
         milestoneTitle: provideData.milestoneTitle,
         milestoneUrl: provideData.milestoneUrl,
       });
@@ -269,25 +266,6 @@ describe('moreActionsDropdown', () => {
       showDropdown();
 
       expect(findMilestoneIdItem().text()).toBe('Copy milestone ID: 22');
-    });
-
-    it('renders if `canReadMilestone` is true', () => {
-      createComponent({
-        provideData: {
-          canReadMilestone: true,
-        },
-      });
-      expect(findMilestoneIdItem().exists()).toBe(true);
-    });
-
-    it('does not render if `canReadMilestone` is false', () => {
-      createComponent({
-        provideData: {
-          canReadMilestone: false,
-        },
-      });
-
-      expect(findMilestoneIdItem().exists()).toBe(false);
     });
   });
 });

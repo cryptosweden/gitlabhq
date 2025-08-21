@@ -1,17 +1,22 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Verify
+group: Pipeline Execution
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Mock CI
 ---
 
-# Mock CI
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-NOTE:
+{{< /details >}}
+
+{{< alert type="note" >}}
+
 This integration is only available in a development environment.
+
+{{< /alert >}}
 
 To set up the mock CI service server, respond to the following endpoints:
 

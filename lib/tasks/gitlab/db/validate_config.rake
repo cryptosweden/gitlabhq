@@ -97,6 +97,11 @@ namespace :gitlab do
         end
       end
 
+      # Ensure when Sec is enabled that CI is, as well.
+      if named_connections['sec'] && named_connections['ci'].nil?
+        warnings << "- The 'sec' connection is expecting 'ci' to be enabled"
+      end
+
       if warnings.any?
         warnings.unshift("Database config validation failure:")
 
@@ -129,16 +134,14 @@ namespace :gitlab do
     def insert_db_identifier(db_config)
       ActiveRecord::Base.establish_connection(db_config) # rubocop: disable Database/EstablishConnection
 
-      if ActiveRecord::InternalMetadata.table_exists?
-        ts = Time.zone.now
+      internal_metadata =
+        if ::Gitlab.next_rails?
+          ActiveRecord::Base.connection_pool.internal_metadata # rubocop: disable Database/MultipleDatabases
+        else
+          ActiveRecord::Base.connection.internal_metadata # rubocop: disable Database/MultipleDatabases
+        end
 
-        ActiveRecord::InternalMetadata.upsert(
-          { key: DB_CONFIG_NAME_KEY,
-            value: db_config.name,
-            created_at: ts,
-            updated_at: ts }
-        )
-      end
+      internal_metadata[DB_CONFIG_NAME_KEY] = db_config.name if internal_metadata.table_exists?
     rescue ActiveRecord::ConnectionNotEstablished, PG::ConnectionBad => err
       warn "WARNING: Could not establish database connection for #{db_config.name}: #{err.message}"
     rescue ActiveRecord::NoDatabaseError
@@ -151,8 +154,15 @@ namespace :gitlab do
     def get_db_identifier(db_config)
       ActiveRecord::Base.establish_connection(db_config) # rubocop: disable Database/EstablishConnection
 
+      internal_metadata =
+        if ::Gitlab.next_rails?
+          ActiveRecord::Base.connection_pool.internal_metadata # rubocop: disable Database/MultipleDatabases
+        else
+          ActiveRecord::Base.connection.internal_metadata # rubocop: disable Database/MultipleDatabases
+        end
+
       # rubocop:disable Database/MultipleDatabases
-      if ActiveRecord::InternalMetadata.table_exists?
+      if internal_metadata.table_exists?
         ActiveRecord::Base.connection.select_one(
           DB_IDENTIFIER_WITH_DB_CONFIG_NAME_SQL, nil, [DB_CONFIG_NAME_KEY])
       else

@@ -1,14 +1,17 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Migrating from Perforce Helix
+description: "Migrate from Perforce Helix to Git."
 ---
 
-# Migrating from Perforce Helix
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 [Perforce Helix](https://www.perforce.com/) provides a set of tools which also
 include a centralized, proprietary version control system similar to Git.

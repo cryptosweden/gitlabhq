@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 
-require 'fast_spec_helper'
+# NOTE: Do not remove the parentheses from this require statement!
+#       They are necessary so it doesn't match the regex in `scripts/run-fast-specs.sh`,
+#       and make the "fast" portion of that suite run slow.
+require('fast_spec_helper') # NOTE: Do not remove the parentheses from this require statement!
 
 PatternsList = Struct.new(:name, :patterns)
 
-RSpec.describe '.gitlab/ci/rules.gitlab-ci.yml', feature_category: :tooling do
+RSpec.describe '.gitlab/ci/rules.gitlab-ci.yml', :unlimited_max_formatted_output_length, feature_category: :tooling do
   config = YAML.safe_load_file(
     File.expand_path('../../.gitlab/ci/rules.gitlab-ci.yml', __dir__),
     aliases: true
@@ -21,31 +24,6 @@ RSpec.describe '.gitlab/ci/rules.gitlab-ci.yml', feature_category: :tooling do
         # https://docs.gitlab.com/ee/development/pipelines/internals.html#avoid-force_gitlab_ci
         it "#{name} has corresponding if" do
           expect(rule).to include('if')
-        end
-      end
-    end
-  end
-
-  describe '.qa:rules:manual-e2e' do
-    let(:base_rules) { config.dig('.qa:rules:manual-e2e', 'rules') }
-
-    context 'with .qa:rules:follow-up-e2e' do
-      let(:derived_rules) { config.dig('.qa:rules:follow-up-e2e', 'rules') }
-
-      it 'has the same rules as the base, but with manual jobs changed to automatic' do
-        base_rules.zip(derived_rules).each do |(base, derived)|
-          # Exception:
-          #
-          # - !reference [".qa:rules:code-merge-request-manual", rules] becomes
-          # - !reference [".qa:rules:code-merge-request-allowed-to-fail", rules]
-          #
-          # This is because we want the rules to be automatic, but still allowed to fail
-          if base.is_a?(Array) && base.first == '.qa:rules:code-merge-request-manual'
-            expect(derived.first).to eq('.qa:rules:code-merge-request-allowed-to-fail')
-            next
-          end
-
-          expect(derived).to eq(base)
         end
       end
     end
@@ -84,6 +62,14 @@ RSpec.describe '.gitlab/ci/rules.gitlab-ci.yml', feature_category: :tooling do
           # exception: `.if-merge-request-labels-pipeline-expedite` should both be set to "never",
           #            because when we set this label on an MR, we don't want to run either jobs.
           if base['if'] == config['.if-merge-request-labels-pipeline-expedite']['if']
+            expect(derived).to eq(base)
+            expect(derived['when']).to eq('never')
+            next
+          end
+
+          # exception: `.if-default-branch-schedule-weekly` should both be set to "never"
+          #            because the weekly job is a small subset of tests. We don't want to run either jobs.
+          if base['if'] == config['.if-default-branch-schedule-weekly']['if']
             expect(derived).to eq(base)
             expect(derived['when']).to eq('never')
             next
@@ -157,46 +143,14 @@ RSpec.describe '.gitlab/ci/rules.gitlab-ci.yml', feature_category: :tooling do
     end
   end
 
-  describe 'start-as-if-foss' do
-    let(:base_rules) { config.dig('.as-if-foss:rules:start-as-if-foss', 'rules') }
-
-    context 'with .as-if-foss:rules:start-as-if-foss:allow-failure:manual' do
-      let(:derived_rules) { config.dig('.as-if-foss:rules:start-as-if-foss:allow-failure:manual', 'rules') }
-
-      it 'has the same rules as the base and also allow-failure and manual' do
-        base_rules.zip(derived_rules).each do |(base, derived)|
-          # !references should be the same. Stop rules should be the same.
-          if base.is_a?(Array) || base['when'] == 'never'
-            expect(base).to eq(derived)
-          else
-            expect(derived).to eq(
-              base.merge('allow_failure' => true, 'when' => 'manual'))
-          end
-        end
-      end
-    end
-
-    context 'with .as-if-foss:rules:start-as-if-foss:allow-failure' do
-      let(:derived_rules) { config.dig('.as-if-foss:rules:start-as-if-foss:allow-failure', 'rules') }
-
-      it 'has the same rules as the base and also allow-failure' do
-        base_rules.zip(derived_rules).each do |(base, derived)|
-          # !references should be the same. Stop rules should be the same.
-          if base.is_a?(Array) || base['when'] == 'never'
-            expect(base).to eq(derived)
-          else
-            expect(derived).to eq(base.merge('allow_failure' => true))
-          end
-        end
-      end
-    end
-  end
-
   describe 'patterns' do
     foss_context = !Gitlab.ee?
     no_matching_needed_files = (
       [
         '.byebug_history',
+        '.devfile.yaml',
+        '.devfile/ci_runner.yaml',
+        '.devfile/search.yaml',
         '.editorconfig',
         '.eslintcache',
         '.git-blame-ignore-revs',
@@ -206,6 +160,8 @@ RSpec.describe '.gitlab/ci/rules.gitlab-ci.yml', feature_category: :tooling do
         '.gitlab/agents/review-apps/config.yaml',
         '.gitlab/changelog_config.yml',
         '.gitlab/CODEOWNERS',
+        '.gitlab/lint/unused_helper_methods/excluded_methods.yml',
+        '.gitlab/lint/unused_helper_methods/potential_methods_to_remove.yml',
         '.gitleaksignore',
         '.gitpod.yml',
         '.graphqlrc',
@@ -214,19 +170,17 @@ RSpec.describe '.gitlab/ci/rules.gitlab-ci.yml', feature_category: :tooling do
         '.mailmap',
         '.prettierignore',
         '.projections.json.example',
-        '.rubocop_revert_ignores.txt',
-        '.ruby-version',
         '.solargraph.yml.example',
         '.solargraph.yml',
         '.test_license_encryption_key.pub',
-        '.tool-versions',
         '.vale.ini',
         '.vscode/extensions.json',
         'ee/lib/ee/gitlab/background_migration/.rubocop.yml',
         'ee/LICENSE',
-        'Gemfile.checksum',
         'gems/error_tracking_open_api/.openapi-generator/FILES',
         'gems/error_tracking_open_api/.openapi-generator/VERSION',
+        'gems/openbao_client/.openapi-generator/FILES',
+        'gems/openbao_client/.openapi-generator/VERSION',
         'Guardfile',
         'INSTALLATION_TYPE',
         'lib/gitlab/background_migration/.rubocop.yml',
@@ -234,13 +188,15 @@ RSpec.describe '.gitlab/ci/rules.gitlab-ci.yml', feature_category: :tooling do
         'LICENSE',
         'Pipfile.lock',
         'storybook/.env.template',
+        'storybook/.babelrc.json',
         'yarn-error.log'
       ] +
       Dir.glob('.bundle/**/*') +
       Dir.glob('.github/*') +
+      Dir.glob('.gitlab/duo/**/*') +
       Dir.glob('.gitlab/{issue,merge_request}_templates/**/*') +
       Dir.glob('.gitlab/*.toml') +
-      Dir.glob('{,**/}.{DS_Store,eslintrc.yml,gitignore,gitkeep,keep}', File::FNM_DOTMATCH) +
+      Dir.glob('{,**/}.{DS_Store,gitignore,gitkeep,keep}', File::FNM_DOTMATCH) +
       Dir.glob('{,vendor/}gems/*/.*') +
       Dir.glob('{.git,.lefthook,.ruby-lsp}/**/*') +
       Dir.glob('{file_hooks,log}/**/*') +
@@ -252,10 +208,13 @@ RSpec.describe '.gitlab/ci/rules.gitlab-ci.yml', feature_category: :tooling do
       Dir.glob('node_modules/**/*', File::FNM_DOTMATCH) +
       Dir.glob('patches/*') +
       Dir.glob('public/assets/**/.*') +
+      Dir.glob('qa/{,**/}.*') +
       Dir.glob('qa/.{,**/}*') +
       Dir.glob('qa/**/.gitlab-ci.yml') +
       Dir.glob('shared/**/*') +
-      Dir.glob('workhorse/.*')
+      Dir.glob('workhorse/.*') +
+      Dir.glob('.idea/**/*', File::FNM_DOTMATCH) +
+      Dir.glob('.yarn-cache/**/*', File::FNM_DOTMATCH)
     ).freeze
     no_matching_needed_files_ci_specific = (
       [
@@ -277,7 +236,14 @@ RSpec.describe '.gitlab/ci/rules.gitlab-ci.yml', feature_category: :tooling do
       next unless name.end_with?('patterns')
 
       # Ignore EE-only patterns list when in FOSS context
-      relevant_patterns = foss_context ? patterns.reject { |pattern| pattern =~ %r|^{?ee/| } : patterns
+      relevant_patterns = if foss_context
+                            patterns.reject do |pattern|
+                              pattern =~ %r|^{?ee/| || pattern == '.tool-versions'
+                            end
+                          else
+                            patterns
+                          end
+
       next if relevant_patterns.empty?
       next if foss_context && name == '.custom-roles-patterns'
 

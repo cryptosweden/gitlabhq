@@ -76,7 +76,7 @@ RSpec.describe Backup::Targets::Repositories, feature_category: :backup_restore 
       end
 
       create_list(:project, 2, :repository)
-      create_list(:snippet, 2, :repository)
+      create_list(:personal_snippet, 2, :repository)
 
       # Number of expected queries are 2 more than control.count
       # to account for the queries for project.design_management_repository
@@ -233,7 +233,23 @@ RSpec.describe Backup::Targets::Repositories, feature_category: :backup_restore 
       expect(strategy).to have_received(:finish!)
     end
 
+    it 'logs an error if gitaly-backup exits with non-zero error code' do
+      expect(strategy).to receive(:finish!).and_raise(::Backup::Error, 'gitaly-backup exit status 1')
+
+      allow(repositories).to receive(:logger).and_return(Gitlab::BackupLogger)
+
+      expect(Gitlab::BackupLogger).to receive(:error).with('gitaly-backup exit status 1')
+      repositories.restore(destination, backup_id)
+    end
+
     context 'when restoring object pools' do
+      let(:pool_result) { ::Backup::Restore::PoolRepositories::Result }
+      let(:mock_scheduled) { pool_result.new(disk_path: 'aa/bb/repo1.git', status: :scheduled, error_message: nil) }
+      let(:mock_skipped) { pool_result.new(disk_path: 'cc/dd/repo2.git', status: :skipped, error_message: nil) }
+      let(:mock_failed) do
+        pool_result.new(disk_path: 'ee/ff/repo3.git', status: :failed, error_message: 'Error message')
+      end
+
       it 'schedules restoring of the pool', :sidekiq_might_not_need_inline do
         pool_repository = create(:pool_repository, :failed)
         pool_repository.delete_object_pool
@@ -253,6 +269,22 @@ RSpec.describe Backup::Targets::Repositories, feature_category: :backup_restore 
 
         pool_repository.reload
         expect(pool_repository).to be_obsolete
+      end
+
+      it 'displays operation status', :sidekiq_might_not_need_inline do
+        expect(::Backup::Restore::PoolRepositories).to receive(:reinitialize_pools!)
+                                                         .and_yield(mock_scheduled)
+                                                         .and_yield(mock_skipped)
+                                                         .and_yield(mock_failed)
+
+        logger = repositories.send(:logger)
+
+        expect(logger).to receive(:info).with("Object pool aa/bb/repo1.git...")
+        expect(logger).to receive(:info).with("Object pool cc/dd/repo2.git... [SKIPPED]")
+        expect(logger).to receive(:info).with("Object pool ee/ff/repo3.git... [FAILED]")
+        expect(logger).to receive(:error).with("Object pool ee/ff/repo3.git failed to reinitialize (Error message)")
+
+        repositories.restore(destination, backup_id)
       end
     end
 

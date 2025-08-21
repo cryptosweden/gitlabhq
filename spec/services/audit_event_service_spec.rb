@@ -10,6 +10,89 @@ RSpec.describe AuditEventService, :with_license, feature_category: :audit_events
   let(:service) { described_class.new(user, project, { action: :destroy }) }
   let(:logger) { instance_double(Gitlab::AuditJsonLogger) }
 
+  describe '#initialize' do
+    context 'when scope is valid' do
+      where(:entity_type) do
+        [
+          [:group],
+          [:project],
+          [:user]
+        ]
+      end
+
+      with_them do
+        let(:entity) do
+          case entity_type
+          when :group then create(:group)
+          when :project then create(:project)
+          when :user then create(:user)
+          end
+        end
+
+        it 'initializes without error' do
+          expect { described_class.new(user, entity) }.not_to raise_error
+        end
+      end
+    end
+
+    context 'with invalid scope' do
+      let(:entity) { create(:user_namespace) }
+
+      it 'raises ArgumentError' do
+        expect { described_class.new(user, entity) }.to raise_error(
+          ArgumentError,
+          "Invalid scope class: Namespaces::UserNamespace"
+        )
+      end
+    end
+
+    context 'initialization logging' do
+      let(:entity) { project }
+      let(:details) { { action: :create, target_id: 123 } }
+
+      it 'logs initialization with all parameters' do
+        expect(Gitlab::AppLogger).to receive(:info).with(
+          message: "AuditEventService initialized",
+          author_class: "User",
+          author_id: user.id,
+          entity_class: "Project",
+          entity_id: project.id,
+          save_type: :database_and_stream,
+          details: details
+        )
+
+        described_class.new(user, entity, details)
+      end
+
+      context 'with custom save type' do
+        it 'logs the custom save type' do
+          expect(Gitlab::AppLogger).to receive(:info).with(
+            hash_including(
+              message: "AuditEventService initialized",
+              save_type: :stream
+            )
+          )
+
+          described_class.new(user, entity, details, :stream)
+        end
+      end
+
+      context 'with unauthenticated author' do
+        it 'logs with unauthenticated author class' do
+          expect(Gitlab::AppLogger).to receive(:info).with(
+            hash_including(
+              message: "AuditEventService initialized",
+              author_id: -1,
+              author_class: "Gitlab::Audit::UnauthenticatedAuthor"
+            )
+          )
+
+          described_class.new("deploy-token", entity, details)
+        end
+      end
+    end
+  end
+
   describe '#security_event' do
     it 'creates an event and logs to a file' do
       expect(service).to receive(:file_logger).and_return(logger)
@@ -21,6 +104,19 @@ RSpec.describe AuditEventService, :with_license, feature_category: :audit_events
                                               created_at: anything })
 
       expect { service.security_event }.to change(AuditEvent, :count).by(1)
+    end
+
+    it 'creates audit event in project audit events' do
+      expect { service.security_event }.to change(AuditEvents::ProjectAuditEvent, :count).by(1)
+
+      event = AuditEvents::ProjectAuditEvent.last
+      audit_event = AuditEvent.last
+
+      expect(event).to have_attributes(
+        id: audit_event.id,
+        project_id: project.id,
+        author_id: user.id,
+        author_name: user.name)
     end
 
     it 'formats from and to fields' do
@@ -88,16 +184,18 @@ RSpec.describe AuditEventService, :with_license, feature_category: :audit_events
         audit_service.for_authentication.security_event
       end
 
-      it 'tracks exceptions when the event cannot be created' do
-        allow_next_instance_of(AuditEvent) do |event|
-          allow(event).to receive(:valid?).and_return(false)
+      context 'when the event cannot be created' do
+        let(:user) { create(:user, current_sign_in_ip: "not-an-ip-address") }
+
+        before do
+          allow(Gitlab::RequestContext.instance).to receive(:client_ip).and_return("not-an-ip-address")
         end
 
-        expect(Gitlab::ErrorTracking).to(
-          receive(:track_and_raise_for_dev_exception)
-        )
+        it 'tracks exceptions' do
+          expect(Gitlab::ErrorTracking).to receive(:track_and_raise_for_dev_exception)
 
-        audit_service.for_authentication.security_event
+          audit_service.for_authentication.security_event
+        end
       end
 
       context 'with IP address', :request_store do
@@ -110,7 +208,6 @@ RSpec.describe AuditEventService, :with_license, feature_category: :audit_events
 
         with_them do
           let(:user) { create(:user, current_sign_in_ip: from_author_sign_in) }
-          let(:audit_service) { described_class.new(user, user, with: 'standard') }
 
           before do
             allow(Gitlab::RequestContext.instance).to receive(:client_ip).and_return(from_context)

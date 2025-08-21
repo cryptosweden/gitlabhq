@@ -1,14 +1,16 @@
 ---
-stage: Data Stores
-group: Database
+stage: Data Access
+group: Database Frameworks
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Database Load Balancing
 ---
 
-# Database Load Balancing
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 With Database Load Balancing, read-only queries can be distributed across
 multiple PostgreSQL nodes to increase performance.
@@ -19,41 +21,42 @@ without any external dependencies:
 
 ```plantuml
 @startuml
-card "**Internal Load Balancer**" as ilb #9370DB
+!theme plain
+card "**Internal Load Balancer**" as ilb
 skinparam linetype ortho
 
 together {
-  collections "**GitLab Rails** x3" as gitlab #32CD32
-  collections "**Sidekiq** x4" as sidekiq #ff8dd1
+  collections "**GitLab Rails** x3" as gitlab
+  collections "**Sidekiq** x4" as sidekiq
 }
 
-collections "**Consul** x3" as consul #e76a9b
+collections "**Consul** x3" as consul
 
 card "Database" as database {
-  collections "**PGBouncer x3**\n//Consul//" as pgbouncer #4EA7FF
+  collections "**PGBouncer x3**\n//Consul//" as pgbouncer
 
-  card "**PostgreSQL** //Primary//\n//Patroni//\n//PgBouncer//\n//Consul//" as postgres_primary #4EA7FF
-  collections "**PostgreSQL** //Secondary// **x2**\n//Patroni//\n//PgBouncer//\n//Consul//" as postgres_secondary #4EA7FF
+  card "**PostgreSQL** //Primary//\n//Patroni//\n//PgBouncer//\n//Consul//" as postgres_primary
+  collections "**PostgreSQL** //Secondary// **x2**\n//Patroni//\n//PgBouncer//\n//Consul//" as postgres_secondary
 
-  pgbouncer -[#4EA7FF]-> postgres_primary
-  postgres_primary .[#4EA7FF]r-> postgres_secondary
+  pgbouncer --> postgres_primary
+  postgres_primary .r-> postgres_secondary
 }
 
-gitlab -[#32CD32]-> ilb
+gitlab --> ilb
 gitlab -[hidden]-> pgbouncer
-gitlab .[#32CD32,norank]-> postgres_primary
-gitlab .[#32CD32,norank]-> postgres_secondary
+gitlab .[norank]-> postgres_primary
+gitlab .[norank]-> postgres_secondary
 
-sidekiq -[#ff8dd1]-> ilb
+sidekiq --> ilb
 sidekiq -[hidden]-> pgbouncer
-sidekiq .[#ff8dd1,norank]-> postgres_primary
-sidekiq .[#ff8dd1,norank]-> postgres_secondary
+sidekiq .[norank]-> postgres_primary
+sidekiq .[norank]-> postgres_secondary
 
-ilb -[#9370DB]-> pgbouncer
+ilb --> pgbouncer
 
-consul -[#e76a9b]r-> pgbouncer
-consul .[#e76a9b,norank]r-> postgres_primary
-consul .[#e76a9b,norank]r-> postgres_secondary
+consul -r-> pgbouncer
+consul .[norank]r-> postgres_primary
+consul .[norank]r-> postgres_secondary
 @enduml
 ```
 
@@ -95,12 +98,15 @@ nodes for each environment you want to balance:
 
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation).
 
-NOTE:
+{{< alert type="note" >}}
+
 Adding the primary to the hosts list is optional, but recommended.
 This makes the primary eligible for load-balanced read queries, improving system performance
 when the primary has capacity for these queries.
 Very high-traffic instances may not have capacity on the primary for it to serve as a read replica.
 The primary will be used for write queries whether or not it is present in this list.
+
+{{< /alert >}}
 
 ### Service Discovery
 
@@ -116,17 +122,17 @@ record. For example:
 
 1. On each GitLab Rails / Sidekiq node, edit `/etc/gitlab/gitlab.rb` and add the following:
 
-  ```ruby
-  gitlab_rails['db_load_balancing'] = { 'discover' => {
-      'nameserver' => 'localhost'
-      'record' => 'postgresql-ha.service.consul'
-      'record_type' => 'A'
-      'port' => '8600'
-      'interval' => '60'
-      'disconnect_timeout' => '120'
-    }
-  }
-  ```
+   ```ruby
+   gitlab_rails['db_load_balancing'] = { 'discover' => {
+       'nameserver' => 'localhost'
+       'record' => 'postgresql-ha.service.consul'
+       'record_type' => 'A'
+       'port' => '8600'
+       'interval' => '60'
+       'disconnect_timeout' => '120'
+     }
+   }
+   ```
 
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation) for the changes to take effect.
 
@@ -134,21 +140,21 @@ record. For example:
 |----------------------|---------------------------------------------------------------------------------------------------|-----------|
 | `nameserver`         | The nameserver to use for looking up the DNS record.                                              | localhost |
 | `record`             | The record to look up. This option is required for service discovery to work.                     |           |
-| `record_type`        | Optional record type to look up. Can be either `A` or `SRV`.           | `A`       |
+| `record_type`        | Optional record type to look up. Can be either `A` or `SRV`.                                      | `A`       |
 | `port`               | The port of the nameserver.                                                                       | 8600      |
 | `interval`           | The minimum time in seconds between checking the DNS record.                                      | 60        |
 | `disconnect_timeout` | The time in seconds after which an old connection is closed, after the list of hosts was updated. | 120       |
 | `use_tcp`            | Lookup DNS resources using TCP instead of UDP                                                     | false     |
-| `max_replica_pools`  | The maximum number of replicas each Rails process connects to. This is useful if you run a lot of Postgres replicas and a lot of Rails processes because without this limit every Rails process connects to every replica by default. The default behavior is unlimited if not set.                                            | nil     |
+| `max_replica_pools`  | The maximum number of replicas each Rails process connects to. This is useful if you run a lot of Postgres replicas and a lot of Rails processes because without this limit every Rails process connects to every replica by default. The default behavior is unlimited if not set. | nil     |
 
 If `record_type` is set to `SRV`, then GitLab continues to use round-robin algorithm
-and ignores the `weight` and `priority` in the record. Since `SRV` records usually
+and ignores the `weight` and `priority` in the record. Because `SRV` records usually
 return hostnames instead of IPs, GitLab needs to look for the IPs of returned hostnames
 in the additional section of the `SRV` response. If no IP is found for a hostname, GitLab
 needs to query the configured `nameserver` for `ANY` record for each such hostname looking for `A` or `AAAA`
 records, eventually dropping this hostname from rotation if it can't resolve its IP.
 
-The `interval` value specifies the _minimum_ time between checks. If the `A`
+The `interval` value specifies the minimum time between checks. If the `A`
 record has a TTL greater than this value, then service discovery honors said
 TTL. For example, if the TTL of the `A` record is 90 seconds, then service
 discovery waits at least 90 seconds before checking the `A` record again.
@@ -159,7 +165,11 @@ upper limit on the time it takes to terminate all old database connections.
 
 ### Handling stale reads
 
-> - [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/327902) from GitLab Premium to GitLab Free in 14.0.
+{{< history >}}
+
+- [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/327902) from GitLab Premium to GitLab Free in 14.0.
+
+{{< /history >}}
 
 To prevent reading from an outdated secondary the load balancer checks if it
 is in sync with the primary. If the data is recent enough, the
@@ -190,7 +200,7 @@ gitlab_rails['db_load_balancing'] = {
 ## Logging
 
 The load balancer logs various events in
-[`database_load_balancing.log`](../logs/index.md#database_load_balancinglog), such as
+[`database_load_balancing.log`](../logs/_index.md#database_load_balancinglog), such as
 
 - When a host is marked as offline
 - When a host comes back online
@@ -246,4 +256,4 @@ without it immediately leading to errors being presented to the users.
 ### Development guide
 
 For detailed development guide on database load balancing,
-see [the development documentation](../../development/database/load_balancing.md).
+see the development documentation.

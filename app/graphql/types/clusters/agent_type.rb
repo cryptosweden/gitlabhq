@@ -7,6 +7,10 @@ module Types
 
       authorize :read_cluster_agent
 
+      def self.authorization_scopes
+        super + [:ai_workflows]
+      end
+
       connection_type_class Types::CountableConnectionType
 
       field :created_at,
@@ -21,15 +25,17 @@ module Types
 
       field :id, GraphQL::Types::ID,
         null: false,
-        description: 'ID of the cluster agent.'
+        description: 'ID of the cluster agent.',
+        scopes: [:api, :read_api, :ai_workflows]
 
       field :name,
         GraphQL::Types::String,
         null: true,
-        description: 'Name of the cluster agent.'
+        description: 'Name of the cluster agent.',
+        scopes: [:api, :read_api, :ai_workflows]
 
       field :project, Types::ProjectType,
-        description: 'Project this cluster agent is associated with.',
+        description: 'Project the cluster agent is associated with.',
         null: true,
         authorize: :read_project
 
@@ -46,7 +52,8 @@ module Types
       field :web_path,
         GraphQL::Types::String,
         null: true,
-        description: 'Web path of the cluster agent.'
+        description: 'Web path of the cluster agent.',
+        scopes: [:api, :read_api, :ai_workflows]
 
       field :connections,
         Types::Kas::AgentConnectionType.connection_type,
@@ -60,6 +67,11 @@ module Types
         null: true,
         description: 'Recent activity for the cluster agent.',
         resolver: Resolvers::Clusters::AgentActivityEventsResolver
+
+      field :user_access_authorizations,
+        Clusters::Agents::Authorizations::UserAccessType,
+        null: true,
+        description: 'User access config for the cluster agent.'
 
       def project
         Gitlab::Graphql::Loaders::BatchModelLoader.new(Project, object.project_id).find

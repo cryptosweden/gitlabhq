@@ -2,16 +2,18 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Troubleshooting problems with repository mirroring for GitLab projects."
+description: Troubleshooting problems with repository mirroring for GitLab projects.
+title: Troubleshooting repository mirroring
 ---
 
-# Troubleshooting repository mirroring
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-When mirroring fails, project maintainers can see a link similar to **{warning-solid}** **Pull mirroring failed 1 hour ago.**
+{{< /details >}}
+
+When mirroring fails, project maintainers can see a link similar to {{< icon name="warning-solid" >}} **Pull mirroring failed 1 hour ago**.
 on the project details page. Select this link to go directly to the mirroring settings,
 where GitLab displays an **Error** badge for the mirrored repository. You can hover your mouse cursor
 over the badge to display the text of the error:
@@ -33,13 +35,13 @@ One of these issues might be occurring:
    - Set your GitHub email address to public.
    - Disable the [Block command line pushes that expose my email](https://github.com/settings/emails)
      setting.
-1. Your repository exceeds GitHub's file size limit of 100 MB. To fix this problem,
+1. Your repository exceeds the GitHub file size limit of 100 MB. To fix this problem,
    check the file size limit configured for on GitHub, and consider using
    [Git Large File Storage](https://git-lfs.com/) to manage large files.
 
 ## Deadline Exceeded
 
-When upgrading GitLab, a change in how usernames are represented means that you
+When you upgrade GitLab, a change in how usernames are represented means that you
 must update your mirroring username and password to ensure that `%40` characters are replaced with `@`.
 
 ## Connection blocked: server only allows public key authentication
@@ -54,7 +56,7 @@ This error can occur when a firewall performs a `Deep SSH Inspection` on outgoin
 ## Could not read username: terminal prompts disabled
 
 If you receive this error after creating a new project using
-[GitLab CI/CD for external repositories](../../../../ci/ci_cd_for_external_repos/index.md):
+[GitLab CI/CD for external repositories](../../../../ci/ci_cd_for_external_repos/_index.md):
 
 - In Bitbucket Cloud:
 
@@ -63,7 +65,7 @@ If you receive this error after creating a new project using
   terminal prompts disabled\n": exit status 128."
   ```
 
-- In Bitbucket Server (self-managed):
+- In Bitbucket Server (self-hosted):
 
   ```plaintext
   "2:fetch remote: "fatal: could not read Username for 'https://lab.example.com':
@@ -84,22 +86,35 @@ Check if the repository owner is specified in the URL of your mirrored repositor
      https://OWNER@bitbucket.org/ACCOUNTNAME/REPONAME.git
      ```
 
-   - In Bitbucket Server (self-managed):
+   - In Bitbucket Server (self-hosted):
 
      ```plaintext
      https://OWNER@lab.example.com/PATH_TO_REPO/REPONAME.git
      ```
 
-When connecting to the Cloud or self-managed Bitbucket repository for mirroring, the repository owner is required in the string.
+When connecting to the Cloud or self-hosted Bitbucket repository for mirroring, the repository owner is required in the string.
+
+## Push mirror: `LFS objects are missing`
+
+You might get an error that states:
+
+```plaintext
+GitLab: GitLab: LFS objects are missing. Ensure LFS is properly set up or try a manual "git lfs push --all".
+```
+
+This issue occurs when you use an SSH repository URL for push mirroring.
+Push mirroring to transfer LFS files over SSH is not supported.
+
+The workaround is to use an HTTPS repository URL instead of SSH for your push mirror.
+
+An [issue exists](https://gitlab.com/gitlab-org/gitlab/-/issues/249587) to fix this problem.
 
 ## Pull mirror is missing LFS files
 
-In some cases, pull mirroring does not transfer LFS files. This issue occurs when:
+In some cases, pull mirroring does not transfer LFS files.
+This issue occurs when you use an SSH repository URL.
 
-- You use an SSH repository URL. The workaround is to use an HTTPS repository URL instead.
-  An issue exists [to fix this problem for SSH URLs](https://gitlab.com/gitlab-org/gitlab/-/issues/11997).
-- You mirror an external repository using object storage.
-  An issue exists [to fix this problem](https://gitlab.com/gitlab-org/gitlab/-/issues/335495).
+The workaround is to use an HTTPS repository URL instead.
 
 ## Pull mirroring is not triggering pipelines
 
@@ -111,14 +126,14 @@ Pipelines might not run for multiple reasons:
   [is not displayed](https://gitlab.com/gitlab-org/gitlab/-/issues/346630)
   when checking the project afterwards.
 
-  When mirroring is set up using [CI/CD for external repositories](../../../../ci/ci_cd_for_external_repos/index.md)
+  When mirroring is set up using [CI/CD for external repositories](../../../../ci/ci_cd_for_external_repos/_index.md)
   this setting is enabled by default. If repository mirroring is manually reconfigured, triggering pipelines
   is off by default and this could be why pipelines stop running.
-- [`rules`](../../../../ci/yaml/index.md#rules) configuration prevents any jobs from
+- [`rules`](../../../../ci/yaml/_index.md#rules) configuration prevents any jobs from
   being added to the pipeline.
 - Pipelines are triggered using [the account that set up the pull mirror](https://gitlab.com/gitlab-org/gitlab/-/issues/13697).
   If the account is no longer valid, pipelines do not run.
-- [Branch protection](../../protected_branches.md#run-pipelines-on-protected-branches)
+- [Branch protection](../branches/protected.md#cicd-on-protected-branches)
   might prevent the account that set up mirroring from running pipelines.
 
 ## `The repository is being updated`, but neither fails nor succeeds visibly
@@ -147,13 +162,13 @@ fail nor succeed. They also do not leave a clear log. To check for this problem:
 
 1. After you run the command, the [background jobs page](../../../../administration/admin_area.md#background-jobs)
    should show new mirroring jobs being scheduled, especially when
-   [triggered manually](index.md#update-a-mirror).
+   [triggered manually](_index.md#update-a-mirror).
 
 ## Invalid URL
 
-If you receive this error while setting up mirroring over [SSH](index.md#ssh-authentication), make sure the URL is in a valid format.
+If you receive this error while setting up mirroring over [SSH](_index.md#ssh-authentication), make sure the URL is in a valid format.
 
-Mirroring **does not** support SCP-like clone URLs in the form of
+Mirroring does not support SCP-like clone URLs in the form of
 `git@gitlab.com:gitlab-org/gitlab.git`, with host and project path separated using `:`.
 It requires a [standard URL](https://git-scm.com/docs/git-clone#_git_urls)
 that includes the `ssh://` protocol, like `ssh://git@gitlab.com/gitlab-org/gitlab.git`.
@@ -161,25 +176,9 @@ that includes the `ssh://` protocol, like `ssh://git@gitlab.com/gitlab-org/gitla
 ## Host key verification failed
 
 This error is returned when the target host public SSH key changes.
-Public SSH keys rarely, if ever, change. If host key verification fails,
-but you suspect the key is still valid, you can refresh the key's information.
-
-Prerequisites:
-
-- You must have at least the Maintainer role for a project.
-
-To resolve the issue:
-
-1. [Verify the host key](index.md#verify-a-host-key).
-1. On the left sidebar, select **Search or go to** and find your project.
-1. Select **Settings > Repository**.
-1. Expand **Mirroring repositories**.
-1. To refresh the keys, either:
-
-   - Select **Detect host keys** for GitLab to fetch the host keys from the server, and display the fingerprints.
-   - Select **Input host keys manually**, and enter the host key into the **SSH host key** field.
-
-- Select **Mirror repository**.
+Public SSH keys rarely change. If host key verification fails,
+but you suspect the key is still valid, you must delete the repository mirror
+and create it again. For more information, see [Create a repository mirror](_index.md#create-a-repository-mirror).
 
 ## Transfer mirror users and tokens to a single service account
 
@@ -189,8 +188,11 @@ Use case: If you have multiple users using their own GitHub credentials to set u
 repository mirroring, mirroring breaks when people leave the company. Use this
 script to migrate disparate mirroring users and tokens into a single service account:
 
-WARNING:
+{{< alert type="warning" >}}
+
 Commands that change data can cause damage if not run correctly or under the right conditions. Always run commands in a test environment first and have a backup instance ready to restore.
+
+{{< /alert >}}
 
 ```ruby
 svc_user = User.find_by(username: 'ourServiceUser')
@@ -251,7 +253,7 @@ The error can be avoided by:
 
 ## Pull or push mirror fails to update: `The project is not mirrored`
 
-Pull and push mirrors fail to update when [GitLab Silent Mode](../../../../administration/silent_mode/index.md) is enabled.
+Pull and push mirrors fail to update when [GitLab Silent Mode](../../../../administration/silent_mode/_index.md) is enabled.
 When this happens, the option to allow mirroring on the UI is disabled.
 
 An administrator can check to confirm that GitLab Silent Mode is disabled.
@@ -261,7 +263,8 @@ When mirroring fails due to Silent Mode the following are the debug steps:
 - [Triggering the mirror using the API](pull.md#trigger-pipelines-for-mirror-updates) shows: `The project is not mirrored`.
 
 - If pull or push mirror was already set up but there are no further updates on the mirrored repository,
-  confirm the [project's pull and push mirror details ans status](../../../../api/projects.md#get-a-projects-pull-mirror-details) are not recent as shown below. This indicates mirroring was paused and disabling GitLab Silent Mode restarts it automatically.
+  confirm the [project's pull and push mirror details ans status](../../../../api/project_pull_mirroring.md#get-a-projects-pull-mirror-details)
+  are not recent as shown below. This indicates mirroring was paused and disabling GitLab Silent Mode restarts it automatically.
 
 For example, if Silent Mode is what is impeding your imports, the output is similar to the following:
 
@@ -274,3 +277,91 @@ For example, if Silent Mode is what is impeding your imports, the output is simi
 "last_update_started_at": "2023-12-12T00:01:02.222Z",
 "last_successful_update_at": null
 ```
+
+## Initial mirroring fails: `Unable to pull mirror repo: Unable to get pack index`
+
+You might get an error that states something similar to the following:
+
+```plaintext
+13:fetch remote: "error: Unable to open local file /var/opt/gitlab/git-data/repositories/+gitaly/tmp/quarantine-[OMITTED].idx.temp.temp\nerror: Unable to get pack index https://git.example.org/ebtables/objects/pack/pack-[OMITTED].idx\nerror: Unable to find fcde2b2edba56bf408601fb721fe9b5c338d10ee under https://git.example.org/ebtables
+Cannot obtain needed object fcde2b2edba56bf408601fb721fe9b5c338d10ee
+while processing commit 2c26b46b68ffc68ff99b453c1d30413413422d70.
+error: fetch failed.\n": exit status 128.
+```
+
+This issue occurs because Gitaly does not support mirroring or importing repositories over the "dumb" HTTP protocol.
+
+To determine if a server is "smart" or "dumb", use cURL to start a reference discovery for the
+`git-upload-pack` service and emulate a Git "smart" client:
+
+```shell
+$GIT_URL="https://git.example.org/project"
+curl --silent --dump-header - "$GIT_URL/info/refs?service=git-upload-pack"\
+  -o /dev/null | grep -Ei "$content-type:"
+```
+
+- A ["smart" server](https://www.git-scm.com/docs/http-protocol#_smart_server_response)
+  reports `application/x-git-upload-pack-advertisement` in the `Content-Type` response header.
+- A "dumb" server reports `text/plain` in the `Content-Type` response header.
+
+For more information, see the [Git documentation on discovering references](https://www.git-scm.com/docs/http-protocol#_discovering_references).
+
+To resolve this, you can do either of the following:
+
+- Migrate the source repository to a "smart" server.
+- Mirror the repository using the [SSH protocol](_index.md#ssh-authentication) (requires authentication).
+
+## Error: `File directory conflict`
+
+You might get an error that states something similar to the following:
+
+```plaintext
+13:preparing reference update: file directory conflict
+```
+
+This error occurs when a tag or branch name conflict exists between the source and
+mirror repositories. For example:
+
+- A tag or branch named `x/y` exists in the mirror repository.
+- A tag or branch named `x` exists in the source repository.
+
+To resolve this issue, delete the conflicting tag or branch.
+If you cannot identify the conflicting tag or branch, delete all tags from your mirror repository.
+An alternative option is to [overwrite diverged branches](pull.md#overwrite-diverged-branches).
+
+{{< alert type="note" >}}
+
+Deleting tags could be destructive for any work done in the mirror repository.
+
+{{< /alert >}}
+
+To delete and remove all tags from the mirror repository:
+
+1. On a local copy of your mirrored repository, run:
+
+   ```shell
+   git tag -l | xargs -n 1 git push --delete origin
+   ```
+
+1. On the left sidebar, select **Settings > Repository**.
+1. Expand **Mirroring repositories**.
+1. Select **Update now** ({{< icon name="retry" >}}).
+
+## Push mirroring stuck with large LFS files
+
+You might encounter timeout issues when push mirroring a project that contains large LFS objects.
+This issue occurs when Git LFS operations exceed the default activity timeout.
+This error appears in the mirroring logs:
+
+```plaintext
+push to mirror: git push: exit status 1, stderr: "remote: GitLab: LFS objects are missing. Ensure LFS is properly set up or try a manual \"git lfs push --all\""
+```
+
+To resolve this issue, increase the LFS activity timeout value before configuring the mirror:
+
+```shell
+git config lfs.activitytimeout 240
+```
+
+This command sets the timeout to `240` seconds. You can adjust this value based on your
+file sizes and network conditions.

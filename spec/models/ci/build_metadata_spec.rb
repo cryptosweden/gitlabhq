@@ -29,120 +29,36 @@ RSpec.describe Ci::BuildMetadata, feature_category: :continuous_integration do
   describe '#update_timeout_state' do
     subject { metadata }
 
-    shared_examples 'sets timeout' do |source, timeout|
-      it 'sets project_timeout_source' do
-        expect { subject.update_timeout_state }.to change { subject.reload.timeout_source }.to(source)
-      end
+    let(:calculator) { instance_double(::Ci::Builds::TimeoutCalculator) }
 
-      it 'sets project timeout' do
-        expect { subject.update_timeout_state }.to change { subject.reload.timeout }.to(timeout)
-      end
+    before do
+      allow(::Ci::Builds::TimeoutCalculator).to receive(:new).with(job).and_return(calculator)
     end
 
-    context 'when job, project and runner timeouts are set' do
-      context 'when job timeout is lower then runner timeout' do
-        before do
-          runner.update!(maximum_timeout: 4000)
-          job.update!(options: { job_timeout: 3000 })
-        end
-
-        it_behaves_like 'sets timeout', 'job_timeout_source', 3000
-      end
-
-      context 'when runner timeout is lower then job timeout' do
-        before do
-          runner.update!(maximum_timeout: 2000)
-          job.update!(options: { job_timeout: 3000 })
-        end
-
-        it_behaves_like 'sets timeout', 'runner_timeout_source', 2000
-      end
-    end
-
-    context 'when job, project timeout values are set and runner is assigned' do
-      context 'when runner has no timeout set' do
-        before do
-          runner.update!(maximum_timeout: nil)
-          job.update!(options: { job_timeout: 3000 })
-        end
-
-        it_behaves_like 'sets timeout', 'job_timeout_source', 3000
-      end
-    end
-
-    context 'when only job and project timeouts are defined' do
-      context 'when job timeout is lower then project timeout' do
-        before do
-          job.update!(options: { job_timeout: 1000 })
-        end
-
-        it_behaves_like 'sets timeout', 'job_timeout_source', 1000
-      end
-
-      context 'when project timeout is lower then job timeout' do
-        before do
-          job.update!(options: { job_timeout: 3000 })
-        end
-
-        it_behaves_like 'sets timeout', 'job_timeout_source', 3000
-      end
-    end
-
-    context 'when only project and runner timeouts are defined' do
+    context 'when no timeouts defined anywhere' do
       before do
-        runner.update!(maximum_timeout: 1900)
+        allow(calculator).to receive(:applicable_timeout).and_return(nil)
       end
 
-      context 'when runner timeout is lower then project timeout' do
-        it_behaves_like 'sets timeout', 'runner_timeout_source', 1900
-      end
-
-      context 'when project timeout is lower then runner timeout' do
-        before do
-          runner.update!(maximum_timeout: 2100)
-        end
-
-        it_behaves_like 'sets timeout', 'project_timeout_source', 2000
+      it 'does not change anything' do
+        expect { subject.update_timeout_state }
+          .to not_change { subject.reload.timeout_source }
+          .and not_change { subject.reload.timeout }
       end
     end
 
-    context 'when only job and runner timeouts are defined' do
-      context 'when runner timeout is lower them job timeout' do
-        before do
-          job.update!(options: { job_timeout: 2000 })
-          runner.update!(maximum_timeout: 1900)
-        end
-
-        it_behaves_like 'sets timeout', 'runner_timeout_source', 1900
-      end
-
-      context 'when job timeout is lower them runner timeout' do
-        before do
-          job.update!(options: { job_timeout: 1000 })
-          runner.update!(maximum_timeout: 1900)
-        end
-
-        it_behaves_like 'sets timeout', 'job_timeout_source', 1000
-      end
-    end
-
-    context 'when only job timeout is defined and runner is assigned, but has no timeout set' do
+    context 'when at least a timeout is defined' do
       before do
-        job.update!(options: { job_timeout: 1000 })
-        runner.update!(maximum_timeout: nil)
+        allow(calculator)
+          .to receive(:applicable_timeout)
+          .and_return(
+            ::Ci::Builds::Timeout.new(25, ::Ci::BuildMetadata.timeout_sources.fetch(:job_timeout_source)))
       end
 
-      it_behaves_like 'sets timeout', 'job_timeout_source', 1000
-    end
-
-    context 'when only one timeout value is defined' do
-      context 'when only project timeout value is defined' do
-        before do
-          job.update!(options: { job_timeout: nil })
-          runner.update!(maximum_timeout: nil)
-        end
-
-        it_behaves_like 'sets timeout', 'project_timeout_source', 2000
+      it 'sets the timeout' do
+        expect { subject.update_timeout_state }
+          .to change { subject.reload.timeout_source }.to('job_timeout_source')
+          .and change { subject.reload.timeout }.to(25)
       end
     end
   end
@@ -183,17 +99,188 @@ RSpec.describe Ci::BuildMetadata, feature_category: :continuous_integration do
         end
       end
     end
-  end
 
-  describe 'set_cancel_gracefully' do
-    it 'sets cancel_gracefully' do
-      job.set_cancel_gracefully
+    describe 'config_options schema edge validation' do
+      context 'with invalid edge cases' do
+        it 'rejects non-string or object in services' do
+          metadata.config_options = {
+            script: ['echo "Hello"'],
+            services: [123]
+          }
+          expect(metadata).to be_invalid
+        end
 
-      expect(job.cancel_gracefully?).to be true
+        it 'rejects wrong type for reports.junit' do
+          metadata.config_options = {
+            script: ['echo'],
+            artifacts: {
+              reports: {
+                junit: 123
+              }
+            }
+          }
+          expect(metadata).to be_invalid
+        end
+
+        it 'rejects missing coverage_format in coverage_report' do
+          metadata.config_options = {
+            script: ['echo'],
+            artifacts: {
+              reports: {
+                coverage_report: {
+                  path: 'coverage.xml'
+                }
+              }
+            }
+          }
+          expect(metadata).to be_invalid
+        end
+
+        it 'rejects invalid environment.action enum value' do
+          metadata.config_options = {
+            script: ['echo'],
+            environment: {
+              name: 'production',
+              action: 'launch'
+            }
+          }
+          expect(metadata).to be_invalid
+        end
+
+        it 'rejects retry object missing required keys' do
+          metadata.config_options = {
+            script: ['echo'],
+            retry: {
+              when: ['script_failure']
+            }
+          }
+          expect(metadata).to be_invalid
+        end
+
+        it 'rejects parallel.matrix missing required keys' do
+          metadata.config_options = {
+            script: ['echo'],
+            parallel: {
+              foo: 'bar'
+            }
+          }
+          expect(metadata).to be_invalid
+        end
+
+        it 'rejects bridge_needs missing required keys' do
+          metadata.config_options = {
+            script: ['echo'],
+            bridge_needs: {
+              artifacts: true
+            }
+          }
+          expect(metadata).to be_invalid
+        end
+
+        it 'rejects invalid image format' do
+          metadata.config_options = {
+            script: ['echo'],
+            image: { entrypoint: ['/bin/bash'] }
+          }
+          expect(metadata).to be_invalid
+        end
+
+        it 'rejects artifacts when paths is not an array' do
+          metadata.config_options = {
+            script: ['echo'],
+            artifacts: {
+              paths: 'not-an-array'
+            }
+          }
+          expect(metadata).to be_invalid
+        end
+
+        it 'rejects allow_failure_criteria with wrong exit_codes type' do
+          metadata.config_options = {
+            script: ['echo'],
+            allow_failure_criteria: {
+              exit_codes: 'not-an-integer-or-array'
+            }
+          }
+          expect(metadata).to be_invalid
+        end
+
+        it 'rejects invalid hooks' do
+          metadata.config_options = {
+            script: ['echo'],
+            hooks: {
+              pre_get_sources_script: 'not-an-array'
+            }
+          }
+          expect(metadata).to be_invalid
+        end
+      end
+
+      context 'when ci_validate_config_options feature flag is disabled' do
+        before do
+          stub_feature_flags(ci_validate_config_options: false)
+        end
+
+        context 'with invalid edge cases' do
+          it 'does not validate when feature flag is disabled' do
+            metadata.config_options = {
+              script: ['echo "Hello"'],
+              services: [123]
+            }
+
+            expect(metadata).to be_valid
+            expect(metadata.errors[:config_options]).to be_empty
+          end
+
+          it 'accepts invalid artifacts structure' do
+            metadata.config_options = {
+              script: ['echo'],
+              artifacts: {
+                paths: 'not-an-array'
+              }
+            }
+
+            expect(metadata).to be_valid
+          end
+        end
+      end
     end
 
-    it 'returns false' do
-      expect(job.cancel_gracefully?).to be false
+    describe '#validate_config_options_schema logging and error behavior' do
+      let(:invalid_options) do
+        {
+          script: ['echo'],
+          services: '123'
+        }
+      end
+
+      let(:valid_options) do
+        {
+          script: ['echo'],
+          services: [123]
+        }
+      end
+
+      context 'when ci_validate_config_options feature flag is disabled' do
+        before do
+          stub_feature_flags(ci_validate_config_options: false)
+        end
+
+        it 'does not log warnings' do
+          metadata.config_options = valid_options
+
+          expect(Gitlab::AppJsonLogger).not_to receive(:warn)
+
+          expect(metadata).to be_valid
+        end
+
+        it 'does not raise errors in production' do
+          allow(Rails.env).to receive(:production?).and_return(true)
+          metadata.config_options = invalid_options
+
+          expect(metadata).to be_valid
+        end
+      end
     end
   end
 

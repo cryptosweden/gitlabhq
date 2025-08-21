@@ -79,9 +79,9 @@ export default {
           action: () => {
             this.openModal();
           },
+          variant: 'danger',
           extraAttrs: {
             'data-testid': 'delete-merged-branches-button',
-            class: 'gl-text-red-500!',
           },
         },
       ];
@@ -115,18 +115,8 @@ export default {
       category="tertiary"
       no-caret
       placement="bottom-end"
-      class="gl-hidden md:!gl-block"
       :items="dropdownItems"
     />
-    <gl-button
-      data-testid="delete-merged-branches-button"
-      category="secondary"
-      variant="danger"
-      class="gl-block md:!gl-hidden"
-      @click="openModal"
-    >
-      {{ $options.i18n.deleteButtonText }}
-    </gl-button>
     <gl-modal
       ref="modal"
       size="sm"
@@ -180,9 +170,7 @@ export default {
       </form>
 
       <template #modal-footer>
-        <div
-          class="gl-display-flex gl-flex-direction-row gl-justify-content-end gl-flex-wrap gl-m-0 gl-mr-3"
-        >
+        <div class="gl-m-0 gl-mr-3 gl-flex gl-flex-row gl-flex-wrap gl-justify-end">
           <gl-button data-testid="delete-merged-branches-cancel-button" @click="closeModal">
             {{ $options.i18n.cancelButtonText }}
           </gl-button>

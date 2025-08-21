@@ -36,7 +36,6 @@ export default {
   },
   data() {
     return {
-      isLoading: false,
       count: this.starCount,
       isStarred: this.starred,
     };
@@ -102,7 +101,7 @@ export default {
 </script>
 
 <template>
-  <gl-button-group :vertical="false">
+  <gl-button-group>
     <gl-button
       v-gl-tooltip
       class="star-btn"

@@ -10,14 +10,14 @@ module Ci
 
       pipeline.ensure_scheduling_type!
 
-      builds_relation(pipeline).find_each do |build|
-        next unless can_be_retried?(build)
+      builds_relation(pipeline).find_each do |job|
+        next unless can_be_retried?(job)
 
-        Ci::RetryJobService.new(project, current_user).clone!(build)
+        Ci::RetryJobService.new(project, current_user).clone!(job)
       end
 
       pipeline.processables.latest.skipped.find_each do |skipped|
-        retry_optimistic_lock(skipped, name: 'ci_retry_pipeline') { |build| build.process(current_user) }
+        retry_optimistic_lock(skipped, name: 'ci_retry_pipeline') { |job| job.process(current_user) }
       end
 
       pipeline.reset_source_bridge!(current_user)
@@ -44,11 +44,11 @@ module Ci
     private
 
     def builds_relation(pipeline)
-      pipeline.retryable_builds.preload_needs
+      pipeline.retryable_builds.preload_needs.preload_job_definition_instances
     end
 
-    def can_be_retried?(build)
-      can?(current_user, :update_build, build)
+    def can_be_retried?(job)
+      can?(current_user, :update_build, job) && job.retryable?
     end
 
     def start_pipeline(pipeline)

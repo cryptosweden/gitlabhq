@@ -6,44 +6,54 @@ module Gitlab
     class ProjectConfig
       # The order of sources is important:
       # - EE uses Compliance first since it must be used first if compliance templates are enabled.
-      #   (see ee/lib/ee/gitlab/ci/project_config.rb)
       # - Parameter is used by on-demand security scanning which passes the actual CI YAML to use as argument.
       # - Bridge is used for downstream pipelines since the config is defined in the bridge job. If lower in priority,
       #   it would evaluate the project's YAML file instead.
-      # - Repository / ExternalProject / Remote: their order is not important between each other.
+      # - ProjectSetting takes care of CI config coming defined in a project.
+      #   This can be the project itself, remote or external.
       # - AutoDevops is used as default option if nothing else is found and if AutoDevops is enabled.
-      SOURCES = [
+      # - EE uses SecurityPolicyDefault and it should come last. It is only necessary if no other source is available.
+      #   Based on the policy configuration different source can be used.
+      STANDARD_SOURCES = [
+        ProjectConfig::Compliance,
         ProjectConfig::Parameter,
         ProjectConfig::Bridge,
-        ProjectConfig::Repository,
-        ProjectConfig::ExternalProject,
-        ProjectConfig::Remote,
+        ProjectConfig::ProjectSetting,
         ProjectConfig::AutoDevops
       ].freeze
 
-      def initialize(
-        project:, sha:, custom_content: nil, pipeline_source: nil, pipeline_source_bridge: nil,
-        triggered_for_branch: nil, ref: nil, has_execution_policy_pipelines: nil)
-        @config = nil
+      FALLBACK_POLICY_SOURCE = ProjectConfig::SecurityPolicyDefault
 
-        sources.each do |source|
-          source_config = source.new(project: project,
+      def initialize( # rubocop:disable Metrics/ParameterLists -- we need all these parameters
+        project:, sha:, custom_content: nil, pipeline_source: nil, pipeline_source_bridge: nil,
+        triggered_for_branch: nil, ref: nil, source_branch: nil, pipeline_policy_context: nil, inputs: nil)
+
+        unless pipeline_policy_context&.pipeline_execution_context&.applying_config_override?
+          @config = find_source(project: project,
             sha: sha,
             custom_content: custom_content,
             pipeline_source: pipeline_source,
             pipeline_source_bridge: pipeline_source_bridge,
             triggered_for_branch: triggered_for_branch,
             ref: ref,
-            has_execution_policy_pipelines: has_execution_policy_pipelines)
+            inputs: inputs
+          )
 
-          if source_config.exists?
-            @config = source_config
-            break
-          end
+          return if @config
         end
+
+        fallback_config = FALLBACK_POLICY_SOURCE.new(
+          project: project,
+          pipeline_source: pipeline_source,
+          triggered_for_branch: triggered_for_branch,
+          source_branch: source_branch,
+          pipeline_policy_context: pipeline_policy_context
+        )
+
+        @config = fallback_config if fallback_config.exists?
       end
 
-      delegate :content, :source, :url, to: :@config, allow_nil: true
+      delegate :content, :source, :url, :inputs_for_pipeline_creation, to: :@config, allow_nil: true
       delegate :internal_include_prepended?, to: :@config
 
       def exists?
@@ -52,11 +62,27 @@ module Gitlab
 
       private
 
-      def sources
-        SOURCES
+      def find_source(
+        project:, sha:, custom_content:, pipeline_source:, pipeline_source_bridge:, triggered_for_branch:, ref:,
+        inputs:)
+        STANDARD_SOURCES.each do |source|
+          source_config = source.new(project: project,
+            sha: sha,
+            custom_content: custom_content,
+            pipeline_source: pipeline_source,
+            pipeline_source_bridge: pipeline_source_bridge,
+            triggered_for_branch: triggered_for_branch,
+            ref: ref,
+            inputs: inputs
+          )
+
+          return source_config if source_config.exists?
+        end
+
+        nil
       end
     end
   end
 end
 
-Gitlab::Ci::ProjectConfig.prepend_mod_with('Gitlab::Ci::ProjectConfig')
+Gitlab::Ci::ProjectConfig.prepend_mod

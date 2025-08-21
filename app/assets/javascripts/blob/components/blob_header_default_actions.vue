@@ -103,9 +103,9 @@ export default {
 };
 </script>
 <template>
-  <gl-button-group data-testid="default-actions-container">
+  <gl-button-group class="gl-hidden sm:gl-inline-flex" data-testid="default-actions-container">
     <gl-button
-      v-if="showCopyButton"
+      v-if="!isEmpty && showCopyButton"
       v-gl-tooltip.hover
       :aria-label="$options.BTN_COPY_CONTENTS_TITLE"
       :title="$options.BTN_COPY_CONTENTS_TITLE"
@@ -119,7 +119,7 @@ export default {
       @click="onCopy"
     />
     <gl-button
-      v-if="!isBinary"
+      v-if="!isEmpty && !isBinary"
       v-gl-tooltip.hover
       :aria-label="$options.BTN_RAW_TITLE"
       :title="$options.BTN_RAW_TITLE"

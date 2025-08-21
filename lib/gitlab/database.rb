@@ -4,6 +4,7 @@ module Gitlab
   module Database
     MAIN_DATABASE_NAME = 'main'
     CI_DATABASE_NAME = 'ci'
+    SEC_DATABASE_NAME = 'sec'
     DEFAULT_POOL_HEADROOM = 10
 
     # This constant is used when renaming tables concurrently.
@@ -16,11 +17,12 @@ module Gitlab
 
     # Minimum PostgreSQL version requirement per documentation:
     # https://docs.gitlab.com/ee/install/requirements.html#postgresql-requirements
-    MINIMUM_POSTGRES_VERSION = 14
+    MINIMUM_POSTGRES_VERSION = 16
 
     # https://www.postgresql.org/docs/9.2/static/datatype-numeric.html
     MAX_INT_VALUE = 2147483647
     MIN_INT_VALUE = -2147483648
+    MAX_SMALLINT_VALUE = 32767
 
     # The max value between MySQL's TIMESTAMP and PostgreSQL's timestampz:
     # https://www.postgresql.org/docs/9.1/static/datatype-datetime.html
@@ -31,9 +33,6 @@ module Gitlab
     # The maximum number of characters for text fields, to avoid DoS attacks via parsing huge text fields
     # https://gitlab.com/gitlab-org/gitlab-foss/issues/61974
     MAX_TEXT_SIZE_LIMIT = 1_000_000
-
-    # Migrations before this version may have been removed
-    MIN_SCHEMA_GITLAB_VERSION = '16.11'
 
     # Schema we store dynamically managed partitions in (e.g. for time partitioning)
     DYNAMIC_PARTITIONS_SCHEMA = :gitlab_partitions_dynamic
@@ -53,6 +52,8 @@ module Gitlab
     MODE_SINGLE_DATABASE = "single-database"
     MODE_SINGLE_DATABASE_CI_CONNECTION = "single-database-ci-connection"
     MODE_MULTIPLE_DATABASES = "multiple-databases"
+
+    MAX_INDEXES_ALLOWED_PER_TABLE = 15
 
     def self.all_database_connection_files
       Dir.glob(Rails.root.join("db/database_connections/*.yaml"))
@@ -116,6 +117,16 @@ module Gitlab
           .compact.with_indifferent_access.freeze
     end
 
+    # Returns the application record that created the given connection.
+    # In single database mode, this always returns ApplicationRecord.
+    def self.application_record_for_connection(connection)
+      @gitlab_base_models ||=
+        database_base_models
+          .transform_values { |v| v == ActiveRecord::Base ? ApplicationRecord : v }
+
+      @gitlab_base_models[db_config_name(connection)]
+    end
+
     # This returns a list of base models with connection associated for a given gitlab_schema
     def self.schemas_to_base_models
       @schemas_to_base_models ||=
@@ -142,6 +153,18 @@ module Gitlab
       Gitlab::Runtime.max_threads + headroom
     end
 
+    # Expose path information so that we can use it to make sure migrations are
+    # healthy
+    def self.upgrade_path
+      path_data = YAML.safe_load_file(Rails.root.join('config/upgrade_path.yml'))
+      Gitlab::Utils::UpgradePath.new(path_data, Gitlab.version_info)
+    end
+
+    # Migrations before this version may have been removed.
+    def self.min_schema_gitlab_version
+      upgrade_path.last_required_stop
+    end
+
     # Database configured. Returns true even if the database is shared
     def self.has_config?(database_name)
       ActiveRecord::Base.configurations
@@ -156,9 +179,12 @@ module Gitlab
     end
 
     def self.database_mode
-      if !has_config?(CI_DATABASE_NAME)
+      secondary_databases = Gitlab::Database.all_database_connections.select { |_, db| db.has_gitlab_shared? }.keys
+      secondary_databases -= [MAIN_DATABASE_NAME]
+
+      if secondary_databases.none? { |db| has_config?(db) }
         MODE_SINGLE_DATABASE
-      elsif has_database?(CI_DATABASE_NAME)
+      elsif secondary_databases.any? { |db| has_database?(db) }
         MODE_MULTIPLE_DATABASES
       else
         MODE_SINGLE_DATABASE_CI_CONNECTION
@@ -205,10 +231,10 @@ module Gitlab
       # Calls to #uncached only disable caching for the current connection. Since the load balancer
       # can potentially upgrade from read to read-write mode (using a different connection), we specify
       # up-front that we'll explicitly use the primary for the duration of the operation.
-      Gitlab::Database::LoadBalancing::Session.current.use_primary do
-        base_models = database_base_models_using_load_balancing.values
-        base_models.reduce(block) { |blk, model| -> { model.uncached(&blk) } }.call
-      end
+      base_models = database_base_models_using_load_balancing.values
+      base_models.reduce(block) do |blk, model|
+        -> { Gitlab::Database::LoadBalancing::SessionMap.current(model.load_balancer).use_primary { model.uncached(&blk) } }
+      end.call
     end
 
     def self.allow_cross_joins_across_databases(url:)
@@ -257,7 +283,10 @@ module Gitlab
       return unless db_config
 
       db_config_name = db_config.name.delete_suffix(LoadBalancing::LoadBalancer::REPLICA_SUFFIX)
-      primary_model = self.database_base_models.fetch(db_config_name.to_sym)
+
+      primary_model = self.database_base_models[db_config_name.to_sym]
+
+      return unless primary_model
 
       self.schemas_to_base_models.select do |_, child_models|
         child_models.any? do |child_model|
@@ -282,7 +311,14 @@ module Gitlab
       return unless connection.respond_to?(:pool) &&
         connection.pool.respond_to?(:db_config)
 
-      connection.pool.db_config
+      db_config = connection.pool.db_config
+      db_config unless empty_config?(db_config)
+    end
+
+    def self.empty_config?(db_config)
+      return true unless db_config
+
+      db_config.is_a?(ActiveRecord::ConnectionAdapters::NullPool::NullConfig)
     end
 
     # At the moment, the connection can only be retrieved by
@@ -295,6 +331,11 @@ module Gitlab
     def self.db_config_name(connection)
       db_config = db_config_for_connection(connection)
       db_config&.name || 'unknown'
+    end
+
+    def self.db_config_database(connection)
+      db_config = db_config_for_connection(connection)
+      db_config&.database || 'unknown'
     end
 
     # If the `database_tasks: false` is being used,
@@ -353,11 +394,7 @@ module Gitlab
 
           ::Gitlab::Database::Metrics.subtransactions_increment(self.name) if transaction_type == :sub_transaction
 
-          payload = { connection: connection, transaction_type: transaction_type }
-
-          ActiveSupport::Notifications.instrument('transaction.active_record', payload) do
-            super(**options, &block)
-          end
+          super(**options, &block)
         end
 
         private

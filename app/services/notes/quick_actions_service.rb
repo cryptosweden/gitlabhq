@@ -37,10 +37,13 @@ module Notes
       @interpret_service = QuickActions::InterpretService.new(
         container: note.resource_parent,
         current_user: current_user,
-        params: options
+        params: options.merge(discussion_id: note.discussion_id)
       )
 
-      interpret_service.execute(note.note, note.noteable)
+      # NOTE: old_note would be nil if the note hasn't changed or it is a new record
+      old_note, _ = note.note_change
+
+      interpret_service.execute_with_original_text(note.note, note.noteable, original_text: old_note)
     end
 
     # Applies updates extracted to note#noteable
@@ -54,10 +57,26 @@ module Notes
         update_params[:spend_time][:note_id] = note.id
       end
 
-      execute_update_service(note, update_params)
+      service_response = execute_update_service(note, update_params)
+      execute_triggers(note, update_params)
+
+      service_response
     end
 
     private
+
+    def execute_triggers(note, params)
+      trigger_work_item_updated(note, params)
+    end
+
+    def trigger_work_item_updated(note, params)
+      GraphqlTriggers.work_item_updated(note.noteable) if quick_action_requires_subscription_update?(params) &&
+        note.for_work_item?
+    end
+
+    def quick_action_requires_subscription_update?(update_params)
+      update_params.has_key?(:subscription_event)
+    end
 
     def execute_update_service(note, params)
       service_response = noteable_update_service(note, params).execute(note.noteable)

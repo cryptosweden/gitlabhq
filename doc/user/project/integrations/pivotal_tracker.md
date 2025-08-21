@@ -1,14 +1,16 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Plan
+group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Pivotal Tracker
 ---
 
-# Pivotal Tracker
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 The Pivotal Tracker integration adds commit messages as comments to Pivotal Tracker stories.
 
@@ -33,7 +35,7 @@ Read more about the
 [Source Commits endpoint](https://www.pivotaltracker.com/help/api/rest/v5#Source_Commits) in
 the Pivotal Tracker API documentation.
 
-See also the [Pivotal Tracker integration API documentation](../../../api/integrations.md#pivotal-tracker).
+See also the [Pivotal Tracker integration API documentation](../../../api/project_integrations.md#pivotal-tracker).
 
 ## Set up Pivotal Tracker
 

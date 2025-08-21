@@ -1,6 +1,6 @@
 <script>
 import { GlForm, GlFormFields, GlButton } from '@gitlab/ui';
-import { formValidators } from '@gitlab/ui/dist/utils';
+import { formValidators } from '@gitlab/ui/src/utils';
 import { n__, s__, __ } from '~/locale';
 import MarkdownField from '~/vue_shared/components/markdown/field.vue';
 import { RESTRICTED_TOOLBAR_ITEMS_BASIC_EDITING_ONLY } from '~/vue_shared/components/markdown/constants';
@@ -85,7 +85,7 @@ export default {
           },
           inputAttrs: {
             class: 'gl-md-form-input-lg',
-            placeholder: s__('ProjectsNewEdit|My awesome project'),
+            placeholder: s__('ProjectsNewEdit|My project'),
           },
         },
         [FORM_FIELD_ID]: {
@@ -115,13 +115,13 @@ export default {
 
       if (remainingCharacters >= 0) {
         return {
-          class: 'gl-text-gray-500',
+          class: 'gl-text-subtle',
           text: this.$options.i18n.charactersRemaining(remainingCharacters),
         };
       }
 
       return {
-        class: 'gl-text-red-500',
+        class: 'gl-text-danger',
         text: this.$options.i18n.charactersOverLimit(Math.abs(remainingCharacters)),
       };
     },
@@ -136,7 +136,7 @@ export default {
       :form-id="$options.formId"
       :fields="fields"
       :server-validations="serverValidations"
-      class="gl-display-flex gl-gap-x-5 gl-flex-wrap"
+      class="gl-flex gl-flex-wrap gl-gap-x-5"
       @submit="$emit('submit', formValues)"
       @input-field="$emit('input-field', $event)"
     >
@@ -168,7 +168,7 @@ export default {
         </div>
       </template>
     </gl-form-fields>
-    <div class="gl-display-flex gl-gap-3">
+    <div class="gl-flex gl-gap-3">
       <gl-button
         type="submit"
         variant="confirm"

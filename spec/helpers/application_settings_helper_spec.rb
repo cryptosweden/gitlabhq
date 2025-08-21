@@ -2,10 +2,10 @@
 
 require 'spec_helper'
 
-RSpec.describe ApplicationSettingsHelper do
+RSpec.describe ApplicationSettingsHelper, feature_category: :shared do
   include Devise::Test::ControllerHelpers
 
-  let_it_be(:current_user) { create(:admin) }
+  let_it_be(:current_user) { build_stubbed(:admin) }
 
   before do
     allow(helper).to receive(:current_user).and_return(current_user)
@@ -47,7 +47,17 @@ RSpec.describe ApplicationSettingsHelper do
 
   describe '.visible_attributes' do
     it 'contains tracking parameters' do
-      expect(helper.visible_attributes).to include(*%i[snowplow_collector_hostname snowplow_cookie_domain snowplow_enabled snowplow_app_id])
+      expect(helper.visible_attributes)
+        .to include(*%i[snowplow_collector_hostname snowplow_cookie_domain snowplow_enabled snowplow_app_id])
+    end
+
+    it 'contains product usage data setting' do
+      expect(helper.visible_attributes)
+        .to include(:gitlab_product_usage_data_enabled)
+    end
+
+    it 'contains :resource_usage_limits' do
+      expect(helper.visible_attributes).to include(:resource_usage_limits)
     end
 
     it 'contains :deactivate_dormant_users' do
@@ -56,6 +66,10 @@ RSpec.describe ApplicationSettingsHelper do
 
     it 'contains :deactivate_dormant_users_period' do
       expect(helper.visible_attributes).to include(:deactivate_dormant_users_period)
+    end
+
+    it 'contains :can_create_organization' do
+      expect(helper.visible_attributes).to include(:can_create_organization)
     end
 
     it 'contains rate limit parameters' do
@@ -68,8 +82,27 @@ RSpec.describe ApplicationSettingsHelper do
           members_delete_limit downstream_pipeline_trigger_limit_per_project_user_sha
           group_api_limit group_projects_api_limit groups_api_limit project_api_limit projects_api_limit
           user_contributed_projects_api_limit user_projects_api_limit user_starred_projects_api_limit
+          users_api_limit_followers users_api_limit_following users_api_limit_status users_api_limit_ssh_keys
+          users_api_limit_ssh_key users_api_limit_gpg_keys users_api_limit_gpg_key
           group_shared_groups_api_limit
+          group_archive_unarchive_api_limit
+          group_invited_groups_api_limit
+          project_invited_groups_api_limit
+          create_organization_api_limit
+          top_level_group_creation_enabled
         ])
+    end
+
+    it 'contains search parameters' do
+      expected_fields = %i[
+        global_search_snippet_titles_enabled
+        global_search_users_enabled
+        global_search_issues_enabled
+        global_search_merge_requests_enabled
+        global_search_block_anonymous_searches_enabled
+        anonymous_searches_allowed
+      ]
+      expect(helper.visible_attributes).to include(*expected_fields)
     end
 
     it 'contains GitLab for Slack app parameters' do
@@ -89,6 +122,20 @@ RSpec.describe ApplicationSettingsHelper do
         ])
     end
 
+    it 'contains anti abuse settings' do
+      expect(helper.visible_attributes).to include(
+        *%i[
+          enforce_email_subaddress_restrictions
+        ])
+    end
+
+    it 'contains sign_in_restrictions values' do
+      expect(visible_attributes).to include(*%i[
+        disable_password_authentication_for_users_with_sso_identities
+        root_moved_permanently_redirection
+      ])
+    end
+
     context 'when on SaaS', :saas do
       it 'does not contain :deactivate_dormant_users' do
         expect(helper.visible_attributes).not_to include(:deactivate_dormant_users)
@@ -97,6 +144,10 @@ RSpec.describe ApplicationSettingsHelper do
       it 'does not contain :deactivate_dormant_users_period' do
         expect(helper.visible_attributes).not_to include(:deactivate_dormant_users_period)
       end
+    end
+
+    it 'contains :inactive_resource_access_tokens_delete_after_days' do
+      expect(helper.visible_attributes).to include(:inactive_resource_access_tokens_delete_after_days)
     end
   end
 
@@ -124,8 +175,9 @@ RSpec.describe ApplicationSettingsHelper do
 
     before do
       helper.instance_variable_set(:@application_setting, application_setting)
-      stub_storage_settings({ 'default': {}, 'storage_1': {}, 'storage_2': {} })
-      stub_application_setting(repository_storages_weighted: { 'default' => 100, 'storage_1' => 50, 'storage_2' => nil })
+      stub_storage_settings({ default: {}, storage_1: {}, storage_2: {} })
+      stub_application_setting(
+        repository_storages_weighted: { 'default' => 100, 'storage_1' => 50, 'storage_2' => nil })
     end
 
     it 'returns storage objects with assigned weights' do
@@ -324,12 +376,13 @@ RSpec.describe ApplicationSettingsHelper do
     subject { helper.instance_clusters_enabled? }
 
     before do
-      allow(helper).to receive(:can?).with(current_user, :read_cluster, instance_of(Clusters::Instance)).and_return(true)
+      allow(helper).to receive(:can?)
+        .with(current_user, :read_cluster, instance_of(Clusters::Instance)).and_return(true)
     end
 
     it { is_expected.to be_truthy }
 
-    context ':certificate_based_clusters feature flag is disabled' do
+    context 'when certificate_based_clusters feature flag is disabled' do
       before do
         stub_feature_flags(certificate_based_clusters: false)
       end
@@ -338,8 +391,33 @@ RSpec.describe ApplicationSettingsHelper do
     end
   end
 
+  describe '#global_search_settings_checkboxes', feature_category: :global_search do
+    let_it_be(:application_setting) { build(:application_setting) }
+
+    before do
+      application_setting.global_search_issues_enabled = true
+      application_setting.global_search_merge_requests_enabled = false
+      application_setting.global_search_users_enabled = false
+      application_setting.global_search_snippet_titles_enabled = true
+      application_setting.global_search_block_anonymous_searches_enabled = true
+      helper.instance_variable_set(:@application_setting, application_setting)
+    end
+
+    it 'returns correctly checked checkboxes' do
+      helper.gitlab_ui_form_for(application_setting, url: search_admin_application_settings_path) do |form|
+        result = helper.global_search_settings_checkboxes(form)
+        expect(result[0]).to have_checked_field('Allow unauthenticated users to use search', with: 1)
+        expect(result[1]).to have_checked_field('Restrict global search to authenticated users only', with: 1)
+        expect(result[2]).to have_checked_field('Show issues in global search results', with: 1)
+        expect(result[3]).not_to have_checked_field('Show merge requests in global search results', with: 1)
+        expect(result[4]).to have_checked_field('Show snippets in global search results', with: 1)
+        expect(result[5]).not_to have_checked_field('Show users in global search results', with: 1)
+      end
+    end
+  end
+
   describe '#restricted_level_checkboxes' do
-    let_it_be(:application_setting) { create(:application_setting) }
+    let_it_be(:application_setting) { build_stubbed(:application_setting) }
 
     before do
       allow(current_user).to receive(:can_admin_all_resources?).and_return(true)
@@ -361,7 +439,7 @@ RSpec.describe ApplicationSettingsHelper do
         expect(result[0]).to have_content(
           s_(
             'AdminSettings|If selected, only administrators are able to create private groups, projects, and ' \
-            'snippets.'
+              'snippets.'
           )
         )
 
@@ -370,7 +448,7 @@ RSpec.describe ApplicationSettingsHelper do
         expect(result[1]).to have_content(
           s_(
             'AdminSettings|If selected, only administrators are able to create internal groups, projects, and ' \
-            'snippets.'
+              'snippets.'
           )
         )
 
@@ -379,10 +457,48 @@ RSpec.describe ApplicationSettingsHelper do
         expect(result[2]).to have_content(
           s_(
             'AdminSettings|If selected, only administrators are able to create public groups, projects, ' \
-            'and snippets. Also, profiles are only visible to authenticated users.'
+              'and snippets. Also, profiles are only visible to authenticated users.'
           )
         )
       end
+    end
+  end
+
+  describe '.deletion_protection_data' do
+    let_it_be(:application_setting) { build(:application_setting) }
+
+    before do
+      application_setting.deletion_adjourned_period = 1
+
+      helper.instance_variable_set(:@application_setting, application_setting)
+    end
+
+    subject { helper.deletion_protection_data }
+
+    it { is_expected.to eq({ deletion_adjourned_period: 1 }) }
+  end
+
+  describe '#vscode_extension_marketplace_settings_view' do
+    let(:feature_flag) { true }
+    let(:application_setting) { build(:application_setting) }
+    let(:vscode_extension_marketplace) { { "enabled" => false } }
+
+    before do
+      application_setting.vscode_extension_marketplace = vscode_extension_marketplace
+      helper.instance_variable_set(:@application_setting, application_setting)
+    end
+
+    it 'returns hash of view properties' do
+      expect(helper.vscode_extension_marketplace_settings_view).to match({
+        title: _('VS Code Extension Marketplace'),
+        description: _('Enable VS Code Extension Marketplace and configure the extensions registry for Web IDE.'),
+        view_model: {
+          initialSettings: vscode_extension_marketplace,
+          presets: [
+            hash_including("key" => "open_vsx")
+          ]
+        }
+      })
     end
   end
 end

@@ -15,7 +15,6 @@ RSpec
   let(:project) { create(:project, :repository, namespace: namespace, path: 'merge-requests-project') }
   let(:user) { project.first_owner }
 
-  # rubocop: disable Layout/TrailingWhitespace
   let(:description) do
     <<~MARKDOWN.strip_heredoc
     - [ ] Task List Item
@@ -23,7 +22,6 @@ RSpec
     - [ ] Task List Item 2
     MARKDOWN
   end
-  # rubocop: enable Layout/TrailingWhitespace
 
   let(:merge_request) do
     create(
@@ -67,7 +65,7 @@ RSpec
   it 'merge_requests/merge_request_with_single_assignee_feature.html' do
     stub_licensed_features(multiple_merge_request_assignees: false)
 
-    render_merge_request(merge_request)
+    render_merge_request_edit(merge_request)
   end
 
   it 'merge_requests/merge_request_of_current_user.html' do
@@ -127,17 +125,6 @@ RSpec
     it 'merge_requests/merge_request_with_mentions.html' do
       render_merge_request(merge_request)
     end
-  end
-
-  it 'merge_requests/merge_request_list.html' do
-    create(:merge_request, source_project: project, target_project: project)
-
-    get :index, params: {
-      namespace_id: project.namespace.to_param,
-      project_id: project
-    }
-
-    expect(response).to be_successful
   end
 
   describe GraphQL::Query, type: :request do
@@ -232,6 +219,16 @@ RSpec
 
   def render_merge_request(merge_request)
     get :show, params: {
+      namespace_id: project.namespace.to_param,
+      project_id: project,
+      id: merge_request.to_param
+    }, format: :html
+
+    expect(response).to be_successful
+  end
+
+  def render_merge_request_edit(merge_request)
+    get :edit, params: {
       namespace_id: project.namespace.to_param,
       project_id: project,
       id: merge_request.to_param

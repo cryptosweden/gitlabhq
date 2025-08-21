@@ -19,7 +19,7 @@ describe('Environment Breadcrumb', () => {
     },
   ];
 
-  const mountComponent = ($route) => {
+  const mountComponent = ($route, props = { staticBreadcrumbs: [] }) => {
     wrapper = mount(EnvironmentBreadcrumb, {
       mocks: {
         $route,
@@ -32,6 +32,7 @@ describe('Environment Breadcrumb', () => {
       stubs: {
         RouterLink: RouterLinkStub,
       },
+      propsData: props,
     });
   };
 
@@ -41,7 +42,7 @@ describe('Environment Breadcrumb', () => {
     });
 
     it('contains only a single router-link to list', () => {
-      const links = wrapper.findAll('a');
+      const links = wrapper.findAllComponents(RouterLinkStub);
 
       expect(links).toHaveLength(1);
       expect(links.at(0).props('to')).toEqual(routes[0].path);
@@ -58,7 +59,7 @@ describe('Environment Breadcrumb', () => {
     });
 
     it('contains two router-links to list and details', () => {
-      const links = wrapper.findAll('a');
+      const links = wrapper.findAllComponents(RouterLinkStub);
 
       expect(links).toHaveLength(2);
       expect(links.at(0).props('to')).toEqual(routes[0].path);
@@ -68,6 +69,22 @@ describe('Environment Breadcrumb', () => {
     it('the last link text is podName', () => {
       const lastLink = wrapper.findAll('a').at(1);
       expect(lastLink.text()).toContain(routes[1].params.podName);
+    });
+  });
+
+  describe('when staticBreadcrumbs are provided', () => {
+    beforeEach(() => {
+      mountComponent(routes[0], {
+        staticBreadcrumbs: [{ text: 'static', href: '/static' }],
+      });
+    });
+
+    it('contains the static breadcrumbs', () => {
+      const links = wrapper.findAll('a');
+
+      expect(links).toHaveLength(2);
+      expect(links.at(0).text()).toContain('static');
+      expect(links.at(1).text()).toContain(environmentName);
     });
   });
 });

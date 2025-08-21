@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe InstanceClusterablePresenter do
+RSpec.describe InstanceClusterablePresenter, feature_category: :environment_management do
   include Gitlab::Routing.url_helpers
 
   let(:presenter) { described_class.new(instance) }
@@ -21,15 +21,31 @@ RSpec.describe InstanceClusterablePresenter do
     it { is_expected.to eq(clear_cache_admin_cluster_path(cluster)) }
   end
 
-  describe '#metrics_dashboard_path' do
-    subject { presenter.metrics_dashboard_path(cluster) }
+  describe '#create_cluster_migration_path' do
+    subject { presenter.create_cluster_migration_path(cluster) }
 
-    it { is_expected.to eq(metrics_dashboard_admin_cluster_path(cluster)) }
+    it { is_expected.to eq(migrate_admin_cluster_path(cluster)) }
+  end
+
+  describe '#update_cluster_migration_path' do
+    subject { presenter.update_cluster_migration_path(cluster) }
+
+    it { is_expected.to eq(update_migration_admin_cluster_path(cluster)) }
+  end
+
+  describe '#sidebar_text' do
+    subject { presenter.sidebar_text }
+
+    it 'renders correct sidebar text' do
+      is_expected.to eq(s_('ClusterIntegration|Adding a Kubernetes cluster will automatically share ' \
+        'the cluster across all projects. Use review apps, deploy your applications, ' \
+        'and easily run your pipelines for all projects using the same cluster.'))
+    end
   end
 
   describe '#learn_more_link' do
     subject { presenter.learn_more_link }
 
-    it { is_expected.to include('user/instance/clusters/index') }
+    it { is_expected.to include('user/instance/clusters/_index') }
   end
 end

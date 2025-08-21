@@ -1,19 +1,24 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: '`NOT NULL` constraints'
 ---
-
-# `NOT NULL` constraints
 
 All attributes that should not have `NULL` as a value, should be defined as `NOT NULL`
 columns in the database.
 
-Depending on the application logic, `NOT NULL` columns should either have a `presence: true`
-validation defined in their Model or have a default value as part of their database definition.
+Depending on the application logic, `NOT NULL` columns should either have a [presence validation defined in their Model](#add-validation-to-the-model-next-release)
+or have a default value as part of their database definition.
 As an example, the latter can be true for boolean attributes that should always have a non-`NULL`
 value, but have a well defined default value that the application does not need to enforce each
 time (for example, `active=true`).
+
+For foreign key columns that are part of a `belongs_to` association, prefer using `optional: false`
+on the association instead of a separate `presence: true` validation. This approach is more
+semantically correct and leverages Rails' built-in association validation. Note that GitLab has
+[config.active_record.belongs_to_required_by_default = false](https://gitlab.com/gitlab-org/gitlab/blob/bb49c1beceb3615bcff8993085e5f2b89c844599/config/application.rb#L259-259)
+in `config/application.rb`, so `belongs_to` associations are optional by default and must be explicitly marked as required.
 
 ## Create a new table with `NOT NULL` columns
 
@@ -69,9 +74,12 @@ The steps required are:
          examples of methods to look out for.
    1. Add a post-deployment migration to fix the existing records.
 
-     NOTE:
+     {{< alert type="note" >}}
+
      Depending on the size of the table, a background migration for cleanup could be required in the next release.
      See the [`NOT NULL` constraints on large tables](not_null_constraints.md#not-null-constraints-on-large-tables) section for more information.
+
+     {{< /alert >}}
 
 1. Release `N.M+1` (next release)
 
@@ -89,9 +97,12 @@ Considering a given release milestone, such as 13.0.
 After checking our production database, we know that there are `epics` with `NULL` descriptions,
 so we cannot add and validate the constraint in one step.
 
-NOTE:
+{{< alert type="note" >}}
+
 Even if we did not have any epic with a `NULL` description, another instance of GitLab could have
 such records, so we would follow the same process either way.
+
+{{< /alert >}}
 
 #### Prevent new invalid records (current release)
 
@@ -133,7 +144,7 @@ class CleanupEpicsWithNullDescription < Gitlab::Database::Migration[2.1]
 
   disable_ddl_transaction!
 
-  class Epic < ActiveRecord::Base
+  class Epic < MigrationRecord
     include EachBatch
 
     self.table_name = 'epics'
@@ -155,7 +166,7 @@ end
 
 #### Check if all records are fixed (next release)
 
-Use postgres.ai to [create a thin clone](https://handbook.gitlab.com/handbook/engineering/infrastructure/core-platform/data_stores/database/doc/gitlab-com-database/#use-postgresai-to-work-with-a-thin-clone-of-the-database-includes-direct-psql-access-to-the-thin-clone)
+Use postgres.ai to [create a thin clone](https://handbook.gitlab.com/handbook/engineering/infrastructure-platforms/data-access/database-framework/doc/gitlab-com-database/#use-postgresai-to-work-with-a-thin-clone-of-the-database-includes-direct-psql-access-to-the-thin-clone)
 of the production database and check if all records on GitLab.com have the attribute set.
 If not go back to [Prevent new invalid records](#prevent-new-invalid-records-current-release) step and figure out where
 in the code the attribute is explicitly set to `nil`. Fix the code path then reschedule the migration to fix the existing
@@ -168,6 +179,25 @@ If the migration was done using a background migration then [finalize the migrat
 #### Add validation to the model (next release)
 
 Add a validation for the attribute to the model to prevent records with `nil` attribute as now all existing and new records should be valid.
+
+For foreign key columns that are part of a `belongs_to` association, prefer using `optional: false`:
+
+```ruby
+class Epic < ApplicationRecord
+  belongs_to :group, optional: false
+end
+```
+
+This is preferred over:
+
+```ruby
+class Epic < ApplicationRecord
+  belongs_to :group
+  validates :group, presence: true
+end
+```
+
+For regular attributes:
 
 ```ruby
 class Epic < ApplicationRecord
@@ -215,7 +245,7 @@ scheduled after the background migration has completed, which could be several r
      # db/post_migrate/
      class QueueBackfillMergeRequestDiffsProjectId < Gitlab::Database::Migration[2.2]
        milestone '16.7'
-       restrict_gitlab_migration gitlab_schema: :gitlab_main
+       restrict_gitlab_migration gitlab_schema: :gitlab_main_org
 
        MIGRATION = 'BackfillMergeRequestDiffsProjectId'
        DELAY_INTERVAL = 2.minutes
@@ -224,8 +254,7 @@ scheduled after the background migration has completed, which could be several r
          queue_batched_background_migration(
            MIGRATION,
            :merge_request_diffs,
-           :id,
-           job_interval: DELAY_INTERVAL
+           :id
          )
        end
 
@@ -245,7 +274,7 @@ scheduled after the background migration has completed, which could be several r
      class FinalizeMergeRequestDiffsProjectIdBackfill < Gitlab::Database::Migration[2.2]
        disable_ddl_transaction!
        milestone '16.10'
-       restrict_gitlab_migration gitlab_schema: :gitlab_main
+       restrict_gitlab_migration gitlab_schema: :gitlab_main_org
 
        MIGRATION = 'BackfillMergeRequestDiffsProjectId'
 
@@ -318,22 +347,50 @@ scheduled after the background migration has completed, which could be several r
      end
      ```
 
-1. **Optional.** If the constraint was validated asynchronously, validate the `NOT NULL` constraint once validation is complete:
+   - **Optional.** For partitioned table, use:
 
-   ```ruby
-   # db/post_migrate/
-   class ValidateMergeRequestDiffsProjectIdNullConstraint < Gitlab::Database::Migration[2.2]
-     milestone '16.10'
+     ```ruby
+     # db/post_migrate/
 
+     PARTITIONED_TABLE_NAME = :p_ci_builds
+     CONSTRAINT_NAME = 'check_9aa9432137'
+
+     # Partitioned check constraint to be validated in https://gitlab.com/gitlab-org/gitlab/-/issues/XXXXX
      def up
-       validate_not_null_constraint :merge_request_diffs, :project_id
+       prepare_partitioned_async_check_constraint_validation PARTITIONED_TABLE_NAME, name: CONSTRAINT_NAME
      end
 
      def down
-       # no-op
+       unprepare_partitioned_async_check_constraint_validation PARTITIONED_TABLE_NAME, name: CONSTRAINT_NAME
      end
-   end
-   ```
+     ```
+
+     {{< alert type="note" >}}
+
+     `prepare_partitioned_async_check_constraint_validation` only validates the existing `NOT VALID` check constraint asynchronously for all the partitions.
+     It doesn't create or validate the check constraint for the partitioned table.
+
+     {{< /alert >}}
+
+1. **Optional.** If the constraint was validated asynchronously, validate the `NOT NULL` constraint once validation is complete:
+   - Use [Database Lab](database_lab.md) to check if the validation was successful.
+   Run the command `\d+ table_name` and ensure that `NOT VALID` has been removed from the check constraint definition.
+   - Add the migration to validate the `NOT NULL` constraint:
+
+     ```ruby
+     # db/post_migrate/
+     class ValidateMergeRequestDiffsProjectIdNullConstraint < Gitlab::Database::Migration[2.2]
+       milestone '16.10'
+
+       def up
+         validate_not_null_constraint :merge_request_diffs, :project_id
+       end
+
+       def down
+         # no-op
+       end
+     end
+     ```
 
 For these cases, consult the database team early in the update cycle. The `NOT NULL`
 constraint may not be required or other options could exist that do not affect really large
@@ -404,3 +461,154 @@ CREATE TABLE labels (
     CONSTRAINT check_45e873b2a8 CHECK ((num_nonnulls(group_id, project_id) > 0))
 );
 ```
+
+## Dropping a `NOT NULL` constraint on a column in an existing table
+
+Dropping a `NOT NULL` constraint from an existing database column requires a multistep migration process:
+
+1. A schema migration to drop the `NOT NULL` constraint.
+1. A separate data migration to ensure data integrity after a potential rollback. This migration may:
+   - Remove invalid records.
+   - Update invalid records with a default value.
+
+Multiple migrations are required as combining data modifications (DML) and schema changes (DDL) in a single migration is not
+allowed.
+
+### Dropping a `NOT NULL` constraint with a check constraint on the column
+
+First, verify there's a constraint in place on the column. You can do this in several ways:
+
+- Query the [`Gitlab::Database::PostgresConstraint`](https://gitlab.com/gitlab-org/gitlab/-/blob/71892a3c97f52ddcef819dd210ab32864e90c85c/lib/gitlab/database/postgres_constraint.rb) view in rails console
+- Use `psql` to check the table itself: `\d+ table_name`
+- Check `structure.sql`:
+
+```sql
+CREATE TABLE labels (
+    ...
+   CONSTRAINT check_061f6f1c91 CHECK ((project_view IS NOT NULL))
+);
+```
+
+#### Example
+
+{{< alert type="note" >}}
+
+The milestone number is just an example. Use the correct version.
+
+{{< /alert >}}
+
+```ruby
+# frozen_string_literal: true
+
+class DropNotNullConstraintFromLabelsProjectView< Gitlab::Database::Migration[2.2]
+  disable_ddl_transaction!
+  milestone '16.7'
+
+  def up
+    remove_not_null_constraint :labels, :project_view
+  end
+
+  def down
+    add_not_null_constraint :labels, :project_view
+  end
+end
+```
+
+```ruby
+# frozen_string_literal: true
+
+class CleanupRecordsWithNullProjectViewValuesFromLabels < Gitlab::Database::Migration[2.2]
+  disable_ddl_transaction!
+  milestone '16.7'
+
+  BATCH_SIZE = 1000
+
+  class Label < MigrationRecord
+    include EachBatch
+
+    self.table_name = 'labels'
+  end
+
+  def up
+    # no-op - this migration is required to allow a rollback of `DropNotNullConstraintFromLabelsProjectView`
+  end
+
+  def down
+    Label.each_batch(of: BATCH_SIZE) do |relation|
+      relation.
+        where('project_view IS NULL').
+        delete_all
+    end
+  end
+end
+```
+
+### Dropping a `NOT NULL` constraint without a check constraint on the column
+
+If `NOT NULL` is just defined on the column and without a check constraint then we can use `change_column_null`.
+
+Example in `structure.sql`:
+
+```sql
+CREATE TABLE labels (
+    ...
+   projects_limit integer NOT NULL
+);
+```
+
+#### Example
+
+{{< alert type="note" >}}
+
+The milestone number is just an example. Use the correct version.
+
+{{< /alert >}}
+
+```ruby
+# frozen_string_literal: true
+
+class DropNotNullConstraintFromLabelsProjectsLimit < Gitlab::Database::Migration[2.2]
+  milestone '16.7'
+
+  def up
+    change_column_null :labels, :projects_limit, true
+  end
+
+  def down
+    change_column_null :labels, :projects_limit, false
+  end
+end
+```
+
+```ruby
+# frozen_string_literal: true
+
+class CleanupRecordsWithNullProjectsLimitValuesFromLabels < Gitlab::Database::Migration[2.2]
+  disable_ddl_transaction!
+  milestone '16.7'
+
+  BATCH_SIZE = 1000
+
+  class Label < MigrationRecord
+    include EachBatch
+
+    self.table_name = 'labels'
+  end
+
+  def up
+    # no-op - this migration is required to allow a rollback of `DropNotNullConstraintFromLabelsProjectsLimit`
+  end
+
+  def down
+    Label.each_batch(of: BATCH_SIZE) do |relation|
+      relation.
+        where('projects_limit IS NULL').
+        delete_all
+    end
+  end
+end
+```
+
+### Dropping a `NOT NULL` constraint on a partition table
+
+Important note: we cannot drop the `NOT NULL` constraint from an individual partition if it exists on the parent table because all the partitions inherit the constraint from the parent table. For this reason, we need to drop the constraint from the parent table instead which cascades to all the child partitions.

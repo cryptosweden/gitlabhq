@@ -26,14 +26,15 @@ module MergeRequests
       create_note(merge_request, source)
       close_issues(merge_request)
       notification_service.merge_mr(merge_request, current_user)
-      invalidate_cache_counts(merge_request, users: merge_request.assignees | merge_request.reviewers)
-      merge_request.update_project_counter_caches
+      invalidate_all_users_cache_count(merge_request)
+      merge_request.invalidate_project_counter_caches
       delete_non_latest_diffs(merge_request)
       cancel_review_app_jobs!(merge_request)
       cleanup_environments(merge_request)
       cleanup_refs(merge_request)
       deactivate_pages_deployments(merge_request)
       cancel_auto_merges_targeting_source_branch(merge_request)
+      trigger_user_merge_request_updated(merge_request)
 
       execute_hooks(merge_request, 'merge')
     end
@@ -53,22 +54,35 @@ module MergeRequests
     def close_issues(merge_request)
       return unless merge_request.target_branch == project.default_branch
 
-      closed_issues = merge_request.visible_closing_issues_for(current_user)
-
-      closed_issues.each do |issue|
-        # We are intentionally only closing Issues asynchronously (excluding ExternalIssues)
-        # as the worker only supports finding an Issue. We are also only experiencing
-        # SQL timeouts when closing an Issue.
-        if issue.is_a?(Issue)
-          MergeRequests::CloseIssueWorker.perform_async(
-            project.id,
-            current_user.id,
-            issue.id,
-            merge_request.id
-          )
-        else
-          Issues::CloseService.new(container: project, current_user: current_user).execute(issue, commit: merge_request)
+      if merge_request.target_project.has_external_issue_tracker?
+        merge_request.closes_issues(current_user).each do |issue|
+          close_issue(issue, merge_request)
         end
+      else
+        merge_request.merge_requests_closing_issues.preload_issue.find_each(batch_size: 100) do |closing_issue| # rubocop:disable CodeReuse/ActiveRecord -- Would require exact redefinition of the method
+          close_issue(closing_issue.issue, merge_request, !closing_issue.from_mr_description)
+        end
+      end
+    end
+
+    def close_issue(issue, merge_request, skip_authorization = false)
+      # We are intentionally only closing Issues asynchronously (excluding ExternalIssues)
+      # as the worker only supports finding an Issue. We are also only experiencing
+      # SQL timeouts when closing an Issue.
+      if issue.is_a?(Issue)
+        # Doing this check here only to save a scheduled worker. The worker will also do this policy check.
+        return if !skip_authorization && !current_user.can?(:update_issue, issue)
+        return unless issue.autoclose_by_merged_closing_merge_request?
+
+        MergeRequests::CloseIssueWorker.perform_async(
+          project.id,
+          current_user.id,
+          issue.id,
+          merge_request.id,
+          { skip_authorization: skip_authorization }
+        )
+      else
+        Issues::CloseService.new(container: project, current_user: current_user).execute(issue, commit: merge_request)
       end
     end
 
@@ -90,7 +104,6 @@ module MergeRequests
     end
 
     def cancel_auto_merges_targeting_source_branch(merge_request)
-      return unless Feature.enabled?(:merge_when_checks_pass, merge_request.project)
       return unless params[:delete_source_branch]
 
       merge_request.source_project

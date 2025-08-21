@@ -2,6 +2,7 @@
 
 module Mutations
   class BaseMutation < GraphQL::Schema::RelayClassicMutation
+    include Gitlab::Graphql::VersionFilter::FutureFieldFallback
     include Gitlab::Graphql::Authorize::AuthorizeResource
     prepend Gitlab::Graphql::CopyFieldDescription
 
@@ -12,7 +13,8 @@ module Mutations
 
     field :errors, [GraphQL::Types::String],
       null: false,
-      description: 'Errors encountered during execution of the mutation.'
+      description: 'Errors encountered during the mutation.',
+      scopes: [:api, :read_api, :ai_workflows]
 
     def current_user
       context[:current_user]

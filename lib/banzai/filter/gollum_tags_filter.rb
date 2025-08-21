@@ -3,7 +3,7 @@
 module Banzai
   module Filter
     # HTML Filter for parsing Gollum's tags in HTML.
-    # Only used for the ascii_doc pipeline or the older cmark parser.
+    # Only used for the ascii_doc pipeline.
     #
     # It's only parses the following tags:
     #
@@ -35,13 +35,14 @@ module Banzai
       IGNORED_ANCESTOR_TAGS = %w[pre code tt].to_set
 
       def call
-        return doc if MarkdownFilter.glfm_markdown?(context) && context[:pipeline] != :ascii_doc
+        return doc if context[:pipeline] != :ascii_doc
 
         doc.xpath('descendant-or-self::text()').each do |node|
           next if has_ancestor?(node, IGNORED_ANCESTOR_TAGS)
           next unless TAGS_PATTERN_UNTRUSTED_REGEX.match?(node.content)
 
-          html = TAGS_PATTERN_UNTRUSTED_REGEX.replace_gsub(CGI.escapeHTML(node.content)) do |match|
+          html = TAGS_PATTERN_UNTRUSTED_REGEX
+            .replace_gsub(CGI.escapeHTML(node.content), limit: Banzai::Filter::FILTER_ITEM_LIMIT) do |match|
             process_tag(CGI.unescapeHTML(match[1]))&.to_s || match[0]
           end
 
@@ -76,6 +77,7 @@ module Banzai
       def sanitized_content_tag(name, content, options = {})
         html = content_tag(name, content, options)
         node = Banzai::Filter::SanitizationFilter.new(html).call
+        node = Banzai::Filter::SanitizeLinkFilter.new(node).call
 
         node&.children&.first
       end

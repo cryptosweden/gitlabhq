@@ -9,10 +9,10 @@ module RuboCop
       OBSERVED_METHOD = :perform
 
       def on_def(node)
-        return if node.method_name != OBSERVED_METHOD
+        return unless node.method?(OBSERVED_METHOD)
 
         node.arguments.each do |argument|
-          if argument.type == :kwarg || argument.type == :kwoptarg
+          if argument.type?(:kwarg, :kwoptarg)
             add_offense(node)
           end
         end

@@ -1,3 +1,4 @@
-import { mountWorkItemsListApp } from '~/work_items/list';
+import { WORKSPACE_GROUP } from '~/issues/constants';
+import { initWorkItemsRoot } from '~/work_items';
 
-mountWorkItemsListApp();
+initWorkItemsRoot({ workspaceType: WORKSPACE_GROUP, withTabs: false });

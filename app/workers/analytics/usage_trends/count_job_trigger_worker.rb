@@ -6,7 +6,7 @@ module Analytics
       extend ::Gitlab::Utils::Override
       include ApplicationWorker
 
-      data_consistency :always
+      data_consistency :sticky
 
       include CronjobQueue # rubocop:disable Scalability/CronWorkerContext
 
@@ -25,7 +25,7 @@ module Analytics
           recorded_at: recorded_at
         ).execute
 
-        perform_in = DEFAULT_DELAY.minutes.from_now
+        perform_in = DEFAULT_DELAY.from_now
         worker_arguments.each do |args|
           CounterJobWorker.perform_in(perform_in, *args)
 

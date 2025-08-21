@@ -1,10 +1,9 @@
 ---
-stage: Systems
+stage: Data Access
 group: Gitaly
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting monorepo performance
 ---
-
-# Troubleshooting monorepo performance
 
 Review these suggestions for performance problems with monorepos.
 
@@ -15,7 +14,7 @@ There are a few key causes of slowness with clones and fetches.
 ### High CPU utilization
 
 If the CPU utilization on your Gitaly nodes is high, you can also check
-how much CPU is taken up from clones by [filtering on certain values](../../../../user/project/repository/monorepos/observability.md#cpu-and-memory).
+how much CPU is taken up from clones by [filtering on certain values](observability.md#cpu-and-memory).
 
 In particular, the `command.cpu_time_ms` field can indicate how
 much CPU is being taken up by clones and fetches.
@@ -28,7 +27,7 @@ High CPU utilization is a common cause of slow performance.
 The following non-mutually exclusive causes are possible:
 
 - [Too many clones for Gitaly to handle](#cause-too-many-large-clones).
-- [Poor read distribution on Gitaly Cluster](#cause-poor-read-distribution).
+- [Poor read distribution on Gitaly Cluster (Praefect)](#cause-poor-read-distribution).
 
 #### Cause: too many large clones
 
@@ -44,18 +43,18 @@ such as:
 
 - Turn on [pack-objects-cache](../../../../administration/gitaly/configure_gitaly.md#pack-objects-cache)
   to reduce the work that `git-pack-objects` has to do.
-- Change [Git strategy](../../../../user/project/repository/monorepos/index.md#git-strategy)
+- Change [Git strategy](_index.md#use-git-fetch-in-cicd-operations)
   in CI/CD settings from `clone` to `fetch` or `none`.
-- [Stop fetching tags](../../../../user/project/repository/monorepos/index.md#git-fetch-extra-flags),
+- [Stop fetching tags](_index.md#change-git-fetch-behavior-with-flags),
   unless your tests require them.
-- [Use shallow clones](../../../../user/project/repository/monorepos/index.md#shallow-cloning)
+- [Use shallow clones](_index.md#use-shallow-clones-in-cicd-processes)
   whenever possible.
 
 The other option is to increase CPU capacity on Gitaly servers.
 
 #### Cause: poor read distribution
 
-You might have poor read distribution on Gitaly Cluster.
+You might have poor read distribution on Gitaly Cluster (Praefect).
 
 To observe if most read traffic is going to the primary Gitaly node instead of
 getting distributed across the cluster, use the
@@ -68,7 +67,7 @@ a monorepo.
 Monorepos are often both large and busy. This leads to two effects. Firstly,
 monorepos are pushed to often and have lots of CI jobs running. There can be
 times when write operations such as deleting a branch fails a proxy call to the
-secondary nodes. This triggers a replication job in Gitaly Cluster so that
+secondary nodes. This triggers a replication job in Gitaly Cluster (Praefect) so that
 the secondary node will catch up eventually.
 
 The replication job is essentially a `git fetch` from the secondary node to the
@@ -86,7 +85,7 @@ delete to fail when concurrent deletes happen.
 
 Engineers at GitLab have developed mitigations to try to batch reference deletions.
 
-Turn on the following [feature flags](../../../../administration/feature_flags.md) to allow GitLab to batch ref deletions.
+Turn on the following [feature flags](../../../../administration/feature_flags/_index.md) to allow GitLab to batch ref deletions.
 These feature flags do not need downtime to enable.
 
 - `merge_request_cleanup_ref_worker_async`

@@ -17,10 +17,6 @@ export default {
     GlModal: GlModalDirective,
   },
   props: {
-    hasSections: {
-      type: Boolean,
-      required: true,
-    },
     isSaving: {
       type: Boolean,
       required: false,
@@ -47,7 +43,11 @@ export default {
       );
     },
     showResetButton() {
-      return this.isInstanceOrGroupLevel && this.propsSource.resetPath;
+      return (
+        this.isInstanceOrGroupLevel &&
+        this.propsSource.resetPath &&
+        this.propsSource.manualActivation
+      );
     },
     showTestButton() {
       return this.propsSource.canTest;
@@ -70,8 +70,8 @@ export default {
 };
 </script>
 <template>
-  <section class="lg:gl-flex gl-justify-content-space-between">
-    <div>
+  <section class="gl-flex gl-flex-wrap gl-justify-between gl-gap-3">
+    <div class="gl-flex gl-flex-wrap gl-gap-3">
       <template v-if="isInstanceOrGroupLevel">
         <gl-button
           v-gl-modal.confirmSaveIntegration

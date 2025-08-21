@@ -6,11 +6,33 @@ import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import { stubComponent } from 'helpers/stub_component';
 import { convertToGraphQLId } from '~/graphql_shared/utils';
+import { newDate } from '~/lib/utils/datetime_utility';
 import CreateTimelogForm from '~/sidebar/components/time_tracking/create_timelog_form.vue';
 import createTimelogMutation from '~/sidebar/queries/create_timelog.mutation.graphql';
 import { TYPENAME_ISSUE, TYPENAME_MERGE_REQUEST } from '~/graphql_shared/constants';
 import updateWorkItemMutation from '~/work_items/graphql/update_work_item.mutation.graphql';
 import { updateWorkItemMutationResponse } from 'jest/work_items/mock_data';
+
+import {
+  WORK_ITEM_TYPE_NAME_EPIC,
+  WORK_ITEM_TYPE_NAME_INCIDENT,
+  WORK_ITEM_TYPE_NAME_ISSUE,
+  WORK_ITEM_TYPE_NAME_KEY_RESULT,
+  WORK_ITEM_TYPE_NAME_OBJECTIVE,
+  WORK_ITEM_TYPE_NAME_REQUIREMENTS,
+  WORK_ITEM_TYPE_NAME_TASK,
+  WORK_ITEM_TYPE_NAME_TEST_CASE,
+  WORK_ITEM_TYPE_NAME_TICKET,
+} from '~/work_items/constants';
+
+import {
+  TYPE_ISSUE,
+  TYPE_EPIC,
+  TYPE_MERGE_REQUEST,
+  TYPE_ALERT,
+  TYPE_INCIDENT,
+  TYPE_TEST_CASE,
+} from '~/issues/constants';
 
 const mockMutationErrorMessage = 'Example error message';
 
@@ -163,6 +185,27 @@ describe('Create Timelog Form', () => {
       expect(modalCloseMock).toHaveBeenCalled();
     });
 
+    it('calls the mutation passing the spentAt field set to null when not specified by the user', async () => {
+      const timeSpent = '2d';
+
+      mountComponent({}, resolvedMutationWithoutErrorsMock);
+      await findGlFormInput().vm.$emit('input', timeSpent);
+
+      submitForm();
+
+      await waitForPromises();
+      await nextTick();
+
+      expect(resolvedMutationWithoutErrorsMock).toHaveBeenCalledWith({
+        input: {
+          timeSpent,
+          spentAt: null,
+          summary: '',
+          issuableId: convertToGraphQLId(TYPENAME_ISSUE, '1'),
+        },
+      });
+    });
+
     it.each`
       issuableType       | typeConstant
       ${'issue'}         | ${TYPENAME_ISSUE}
@@ -171,7 +214,7 @@ describe('Create Timelog Form', () => {
       'calls the mutation with all the fields when the the form is submitted and issuable type is $issuableType',
       async ({ issuableType, typeConstant }) => {
         const timeSpent = '2d';
-        const spentAt = '2022-11-20T21:53:00+0000';
+        const spentAt = newDate('2022-11-20T00:00:00+0000');
         const summary = 'Example';
 
         mountComponent({ providedProps: { issuableType } });
@@ -184,7 +227,12 @@ describe('Create Timelog Form', () => {
         await waitForPromises();
 
         expect(rejectedMutationMock).toHaveBeenCalledWith({
-          input: { timeSpent, spentAt, summary, issuableId: convertToGraphQLId(typeConstant, '1') },
+          input: {
+            timeSpent,
+            spentAt: '2022-11-20T12:00:00Z',
+            summary,
+            issuableId: convertToGraphQLId(typeConstant, '1'),
+          },
         });
       },
     );
@@ -231,6 +279,51 @@ describe('Create Timelog Form', () => {
     });
   });
 
+  describe('when type is coming from legacy issues type', () => {
+    it.each`
+      type                  | typeDescription
+      ${TYPE_ISSUE}         | ${'issue'}
+      ${TYPE_EPIC}          | ${'epic'}
+      ${TYPE_MERGE_REQUEST} | ${'merge request'}
+      ${TYPE_ALERT}         | ${'alert'}
+      ${TYPE_INCIDENT}      | ${'incident'}
+      ${TYPE_TEST_CASE}     | ${'test case'}
+    `('the description mentions the correct issuable type', ({ type, typeDescription }) => {
+      mountComponent({
+        providedProps: { issuableType: type },
+      });
+
+      expect(wrapper.text()).toContain(`Track time spent on this ${typeDescription}.`);
+    });
+  });
+
+  describe('when type is coming from workItemType', () => {
+    it.each`
+      type                                | typeDescription
+      ${TYPE_ISSUE}                       | ${'issue'}
+      ${TYPE_EPIC}                        | ${'epic'}
+      ${TYPE_ALERT}                       | ${'alert'}
+      ${TYPE_INCIDENT}                    | ${'incident'}
+      ${TYPE_TEST_CASE}                   | ${'test case'}
+      ${WORK_ITEM_TYPE_NAME_EPIC}         | ${'epic'}
+      ${WORK_ITEM_TYPE_NAME_INCIDENT}     | ${'incident'}
+      ${WORK_ITEM_TYPE_NAME_ISSUE}        | ${'issue'}
+      ${WORK_ITEM_TYPE_NAME_KEY_RESULT}   | ${'key result'}
+      ${WORK_ITEM_TYPE_NAME_OBJECTIVE}    | ${'objective'}
+      ${WORK_ITEM_TYPE_NAME_REQUIREMENTS} | ${'requirement'}
+      ${WORK_ITEM_TYPE_NAME_TASK}         | ${'task'}
+      ${WORK_ITEM_TYPE_NAME_TEST_CASE}    | ${'test case'}
+      ${WORK_ITEM_TYPE_NAME_TICKET}       | ${'ticket'}
+    `('the description mentions the correct work item type', ({ type, typeDescription }) => {
+      mountComponent({
+        props: { workItemId: 'gid://gitlab/WorkItem/1', workItemType: type },
+        providedProps: { issuableType: null },
+      });
+
+      expect(wrapper.text()).toContain(`Track time spent on this ${typeDescription}.`);
+    });
+  });
+
   describe('with work item task', () => {
     beforeEach(() => {
       mountComponent({
@@ -239,11 +332,7 @@ describe('Create Timelog Form', () => {
       });
     });
 
-    it('mentions the correct work item type', () => {
-      expect(wrapper.text()).toContain('Track time spent on this task.');
-    });
-
-    it('calls mutation to update work item when adding time entry', async () => {
+    it('calls mutation to update work item when adding time entry when to spent at is not provided', async () => {
       findGlFormInput().vm.$emit('input', '2d');
       submitForm();
       await waitForPromises();
@@ -253,7 +342,27 @@ describe('Create Timelog Form', () => {
           id: 'gid://gitlab/WorkItem/1',
           timeTrackingWidget: {
             timelog: {
-              spentAt: '2020-07-06T00:00:00+0000',
+              spentAt: null,
+              summary: '',
+              timeSpent: '2d',
+            },
+          },
+        },
+      });
+    });
+
+    it('calls mutation to update work item when adding time entry when to spent at is provided', async () => {
+      findGlFormInput().vm.$emit('input', '2d');
+      findGlDatepicker().vm.$emit('input', newDate('2020-07-06T00:00:00.000'));
+      submitForm();
+      await waitForPromises();
+
+      expect(updateWorkItemMutationHandler).toHaveBeenCalledWith({
+        input: {
+          id: 'gid://gitlab/WorkItem/1',
+          timeTrackingWidget: {
+            timelog: {
+              spentAt: '2020-07-06T12:00:00Z',
               summary: '',
               timeSpent: '2d',
             },

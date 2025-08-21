@@ -6,7 +6,11 @@ RSpec.describe 'search/show', feature_category: :global_search do
   let(:search_term) { nil }
   let(:user) { build(:user) }
   let(:search_service_presenter) do
-    instance_double(SearchServicePresenter, without_count?: false, advanced_search_enabled?: false)
+    instance_double(SearchServicePresenter,
+      without_count?: false,
+      advanced_search_enabled?: false,
+      zoekt_enabled?: false
+    )
   end
 
   before do
@@ -29,12 +33,6 @@ RSpec.describe 'search/show', feature_category: :global_search do
   end
 
   context 'when the search page is opened' do
-    it 'does not render the results partial' do
-      render
-
-      expect(rendered).not_to render_template('search/_results')
-    end
-
     it 'does render the sidebar' do
       render
 
@@ -42,7 +40,7 @@ RSpec.describe 'search/show', feature_category: :global_search do
     end
   end
 
-  context 'unfurling support' do
+  context 'for unfurling support' do
     let(:group) { build(:group) }
     let(:search_results) do
       instance_double(Gitlab::GroupSearchResults).tap do |double|
@@ -56,9 +54,13 @@ RSpec.describe 'search/show', feature_category: :global_search do
       assign(:group, group)
     end
 
-    context 'search with full count' do
+    context 'for search with full count' do
       let(:search_service_presenter) do
-        instance_double(SearchServicePresenter, without_count?: false, advanced_search_enabled?: false)
+        instance_double(SearchServicePresenter,
+          without_count?: false,
+          advanced_search_enabled?: false,
+          zoekt_enabled?: false
+        )
       end
 
       it 'renders meta tags for a group' do
@@ -79,9 +81,13 @@ RSpec.describe 'search/show', feature_category: :global_search do
       end
     end
 
-    context 'search without full count' do
+    context 'for search without full count' do
       let(:search_service_presenter) do
-        instance_double(SearchServicePresenter, without_count?: true, advanced_search_enabled?: false)
+        instance_double(SearchServicePresenter,
+          without_count?: true,
+          advanced_search_enabled?: false,
+          zoekt_enabled?: false
+        )
       end
 
       it 'renders meta tags for a group' do

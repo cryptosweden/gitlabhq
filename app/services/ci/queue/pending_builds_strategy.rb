@@ -21,13 +21,11 @@ module Ci
 
         new_builds_relation = new_builds.where("ci_pending_builds.namespace_traversal_ids && '{?}'", runner.namespace_ids)
 
-        return order(new_builds_relation) if ::Feature.enabled?(:order_builds_for_group_runner)
-
-        new_builds_relation
+        order(new_builds_relation)
       end
 
       def builds_matching_tag_ids(relation, ids)
-        relation.for_tags(runner.tags_ids)
+        relation.for_tags(ids)
       end
 
       def builds_with_any_tags(relation)

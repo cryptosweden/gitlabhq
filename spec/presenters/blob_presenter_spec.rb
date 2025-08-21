@@ -119,6 +119,31 @@ RSpec.describe BlobPresenter do
     end
   end
 
+  describe '#can_modify_blob_with_web_ide?' do
+    before do
+      allow(blob).to receive(:stored_externally?).and_return(false)
+      allow(presenter).to receive(:can_collaborate_with_project?).with(project).and_return(false)
+    end
+
+    it { expect(presenter.can_modify_blob_with_web_ide?).to be_falsey }
+
+    context 'when blob is stored externally' do
+      before do
+        allow(blob).to receive(:stored_externally?).and_return(true)
+      end
+
+      it { expect(presenter.can_modify_blob_with_web_ide?).to be_falsey }
+    end
+
+    context 'when user can collaborate with the project' do
+      before do
+        allow(presenter).to receive(:can_collaborate_with_project?).with(project).and_return(true)
+      end
+
+      it { expect(presenter.can_modify_blob_with_web_ide?).to be_truthy }
+    end
+  end
+
   describe '#can_current_user_push_to_branch?' do
     context 'when ref is a branch' do
       let(:ref) { 'feature' }
@@ -138,6 +163,15 @@ RSpec.describe BlobPresenter do
 
   describe '#archived?' do
     it { expect(presenter.archived?).to eq(project.archived) }
+
+    context 'with archived group' do
+      let_it_be(:group) { create(:group).tap { |group| group.update!(archived: true) } }
+      let_it_be(:project) { create(:project, :repository, group: group) }
+
+      it 'returns true' do
+        expect(presenter.archived?).to be_truthy
+      end
+    end
   end
 
   describe '#pipeline_editor_path' do
@@ -247,7 +281,7 @@ RSpec.describe BlobPresenter do
   end
 
   describe '#code_owners' do
-    it { expect(presenter.code_owners).to match_array([]) }
+    it { expect(presenter.code_owners).to be_empty }
   end
 
   describe '#ide_edit_path' do
@@ -401,16 +435,6 @@ RSpec.describe BlobPresenter do
     it 'encodes the raw blob base 64' do
       expect(presenter.base64_encoded_blob).to include("cmVxdWlyZSAnZmlsZXV0")
       expect(presenter.base64_encoded_blob).to include("R1cwogIGVuZAplbmQK\n")
-    end
-
-    context 'when ff unicode_escaped_blob is disabled' do
-      before do
-        stub_feature_flags(unicode_escaped_blob: false)
-      end
-
-      it 'returns nil' do
-        expect(presenter.base64_encoded_blob).to be_nil
-      end
     end
   end
 

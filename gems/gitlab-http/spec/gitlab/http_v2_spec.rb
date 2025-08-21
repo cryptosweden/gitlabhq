@@ -246,6 +246,76 @@ RSpec.describe Gitlab::HTTP_V2, feature_category: :shared do
     end
   end
 
+  describe 'response size limits' do
+    before do
+      stub_full_request('http://example.org', method: :any).to_return(status: 200, body: 'hello world')
+    end
+
+    it 'logs and raises an error if response size is greater than max_bytes' do
+      expect(described_class.configuration).to receive(:log_with_level)
+        .with(:error, { message: "Gitlab::HTTP - Response size too large", size: 11 })
+
+      expect do
+        described_class.get('http://example.org', max_bytes: 1.byte)
+      end.to raise_error(Gitlab::HTTP_V2::ResponseSizeTooLarge)
+    end
+
+    it 'returns the response if size is less than max_bytes' do
+      expect(described_class.configuration).not_to receive(:log_with_level)
+
+      result = described_class.put('http://example.org', max_bytes: 16.bytes)
+
+      expect(result.body).to eq('hello world')
+    end
+
+    it 'returns the response if max_bytes is not provided' do
+      result = described_class.put('http://example.org')
+
+      expect(result.body).to eq('hello world')
+    end
+
+    it 'returns the response if max_bytes is 0' do
+      result = described_class.put('http://example.org', max_bytes: 0)
+
+      expect(result.body).to eq('hello world')
+    end
+
+    context 'when the request is async' do
+      it 'logs and raises an error if response size is greater than max_bytes' do
+        expect(described_class.configuration).to receive(:log_with_level)
+          .with(:error, { message: "Gitlab::HTTP - Response size too large", size: 11 })
+
+        expect do
+          described_class.get('http://example.org', max_bytes: 1.byte, async: true).execute.value
+        end.to raise_error(Gitlab::HTTP_V2::ResponseSizeTooLarge)
+      end
+
+      it 'returns the response if size is less than max_bytes' do
+        expect(described_class.configuration).not_to receive(:log_with_level)
+
+        result = described_class.put('http://example.org', max_bytes: 16.bytes, async: true)
+
+        expect(result.execute.value.body).to eq('hello world')
+      end
+
+      it 'returns the response if max_bytes is not provided' do
+        expect(described_class.configuration).not_to receive(:log_with_level)
+
+        result = described_class.put('http://example.org', async: true)
+
+        expect(result.execute.value.body).to eq('hello world')
+      end
+
+      it 'returns the response if max_bytes is 0' do
+        expect(described_class.configuration).not_to receive(:log_with_level)
+
+        result = described_class.put('http://example.org', max_bytes: 0, async: true)
+
+        expect(result.execute.value.body).to eq('hello world')
+      end
+    end
+  end
+
   describe '.try_get' do
     let(:path) { 'http://example.org' }
     let(:default_timeout_options) { described_class::Client::DEFAULT_TIMEOUT_OPTIONS }

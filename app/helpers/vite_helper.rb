@@ -8,19 +8,12 @@ module ViteHelper
     Gitlab::Utils.to_boolean(ViteRuby.env['VITE_ENABLED'], default: false)
   end
 
-  def vite_hmr_websocket_url
-    ViteRuby.env['VITE_HMR_WS_URL']
-  end
-
-  def vite_hmr_http_url
-    ViteRuby.env['VITE_HMR_HTTP_URL']
-  end
-
-  def vite_page_entrypoint_paths
-    action = case controller.action_name
+  def vite_page_entrypoint_paths(custom_action_name = nil)
+    action_name = custom_action_name || controller.action_name
+    action = case action_name
              when 'create' then 'new'
              when 'update' then 'edit'
-             else controller.action_name
+             else action_name
              end
 
     parts = (controller.controller_path.split('/') << action)
@@ -32,7 +25,12 @@ module ViteHelper
   def universal_stylesheet_link_tag(path, **options)
     return stylesheet_link_tag(path, **options) unless vite_enabled?
 
-    vite_stylesheet_tag("stylesheets/styles.#{path}.scss", **options)
+    options[:extname] = false
+
+    stylesheet_link_tag(
+      ViteRuby.instance.manifest.path_for("stylesheets/styles.#{path}.scss", type: :stylesheet),
+      **options
+    )
   end
 
   def universal_path_to_stylesheet(path, **options)

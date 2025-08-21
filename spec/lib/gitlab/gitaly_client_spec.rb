@@ -27,7 +27,7 @@ RSpec.describe Gitlab::GitalyClient, feature_category: :gitaly do
   end
 
   describe '.long_timeout' do
-    context 'default case' do
+    context 'default case', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/467676' do
       it { expect(subject.long_timeout).to eq(6.hours) }
     end
 
@@ -394,6 +394,26 @@ RSpec.describe Gitlab::GitalyClient, feature_category: :gitaly do
       expect(results[:metadata]).to include('gitaly-session-id')
     end
 
+    context 'with gitaly_context' do
+      let(:gitaly_context) { { key: :value } }
+
+      it 'passes context as "gitaly-client-context-bin"' do
+        kwargs = described_class.request_kwargs('default', timeout: 1, gitaly_context: gitaly_context)
+
+        expect(kwargs[:metadata]['gitaly-client-context-bin']).to eq(gitaly_context.to_json)
+      end
+
+      context 'when empty context' do
+        let(:gitaly_context) { {} }
+
+        it 'does not provide "gitaly-client-context-bin"' do
+          kwargs = described_class.request_kwargs('default', timeout: 1, gitaly_context: gitaly_context)
+
+          expect(kwargs[:metadata]).not_to have_key('gitaly-client-context-bin')
+        end
+      end
+    end
+
     context 'when RequestStore is not enabled' do
       it 'sets a different gitaly-session-id per request' do
         gitaly_session_id = described_class.request_kwargs('default', timeout: 1)[:metadata]['gitaly-session-id']
@@ -591,7 +611,7 @@ RSpec.describe Gitlab::GitalyClient, feature_category: :gitaly do
         allow(Gitlab::RequestContext.instance).to receive(:request_deadline).and_return(request_deadline)
       end
 
-      it 'includes the deadline information' do
+      it 'includes the deadline information', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/450626' do
         kword_args = described_class.request_kwargs('default', timeout: 2)
 
         expect(kword_args[:deadline])
@@ -606,7 +626,7 @@ RSpec.describe Gitlab::GitalyClient, feature_category: :gitaly do
         expect(kword_args[:metadata][:deadline_type]).to eq("limited")
       end
 
-      it 'does not limit calls in sidekiq' do
+      it 'does not limit calls in sidekiq', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/465260' do
         expect(Sidekiq).to receive(:server?).and_return(true)
 
         kword_args = described_class.request_kwargs('default', timeout: 6.hours.to_i)
@@ -624,7 +644,7 @@ RSpec.describe Gitlab::GitalyClient, feature_category: :gitaly do
         expect(kword_args[:metadata][:deadline_type]).to be_nil
       end
 
-      it 'includes only the deadline specified by the timeout when there was no deadline' do
+      it 'includes only the deadline specified by the timeout when there was no deadline', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/524657' do
         allow(Gitlab::RequestContext.instance).to receive(:request_deadline).and_return(nil)
         kword_args = described_class.request_kwargs('default', timeout: 6.hours.to_i)
 
@@ -873,6 +893,54 @@ RSpec.describe Gitlab::GitalyClient, feature_category: :gitaly do
     end
   end
 
+  describe '.unwrap_detailed_error' do
+    let(:wrapped_detailed_error) do
+      new_detailed_error(GRPC::Core::StatusCodes::INVALID_ARGUMENT,
+        "error message",
+        Gitaly::UpdateReferencesError.new(invalid_format: Gitaly::InvalidRefFormatError.new(refs: ['\invali.\d/1', '\.invali/d/2'])))
+    end
+
+    let(:detailed_error) do
+      new_detailed_error(GRPC::Core::StatusCodes::INVALID_ARGUMENT,
+        "error message",
+        Gitaly::InvalidRefFormatError.new)
+    end
+
+    let(:error_without_details) do
+      error_code = GRPC::Core::StatusCodes::INVALID_ARGUMENT
+      error_message = "error message"
+
+      status_error = Google::Rpc::Status.new(
+        code: error_code,
+        message: error_message,
+        details: nil
+      )
+
+      GRPC::BadStatus.new(
+        error_code,
+        error_message,
+        { "grpc-status-details-bin" => Google::Rpc::Status.encode(status_error) })
+    end
+
+    context 'unwraps detailed errors' do
+      using RSpec::Parameterized::TableSyntax
+
+      where(:error, :result) do
+        wrapped_detailed_error | Gitaly::InvalidRefFormatError.new(refs: ['\invali.\d/1', '\.invali/d/2'])
+        detailed_error | Gitaly::InvalidRefFormatError.new
+        error_without_details | nil
+        StandardError.new | nil
+        nil | nil
+      end
+
+      with_them do
+        it 'returns unwrapped detailed error' do
+          expect(described_class.unwrap_detailed_error(error)).to eq(result)
+        end
+      end
+    end
+  end
+
   describe '.with_feature_flag_actor', :request_store do
     shared_examples 'with_feature_flag_actor' do
       let(:repository_actor) { double(:actor) }
@@ -911,11 +979,35 @@ RSpec.describe Gitlab::GitalyClient, feature_category: :gitaly do
     end
   end
 
+  describe '.call' do
+    subject(:call) do
+      described_class.call(storage, service, rpc, request, remote_storage: remote_storage, timeout: timeout, gitaly_context: gitaly_context)
+    end
+
+    let(:storage) { 'default' }
+    let(:service) { :ref_service }
+    let(:rpc) { :find_local_branches }
+    let(:request) { Gitaly::FindLocalBranchesRequest.new }
+    let(:remote_storage) { nil }
+    let(:timeout) { 10.seconds }
+    let(:gitaly_context) { { key: :value } }
+
+    it 'inits Gitlab::GitalyClient::Call instance with provided arguments' do
+      expect(Gitlab::GitalyClient::Call).to receive(:new).with(
+        storage, service, rpc, request, remote_storage, timeout, gitaly_context: gitaly_context
+      ).and_call_original
+
+      call
+    end
+  end
+
   describe '.execute' do
     subject(:execute) do
       described_class.execute('default', :ref_service, :find_local_branches, Gitaly::FindLocalBranchesRequest.new,
-        remote_storage: nil, timeout: 10.seconds)
+        remote_storage: nil, timeout: 10.seconds, gitaly_context: gitaly_context)
     end
+
+    let(:gitaly_context) { {} }
 
     it 'raises an exception when running within a concurrent Ruby thread' do
       Thread.current[:restrict_within_concurrent_ruby] = true
@@ -924,6 +1016,18 @@ RSpec.describe Gitlab::GitalyClient, feature_category: :gitaly do
         "Cannot run 'gitaly' if running from `Concurrent::Promise`.")
 
       Thread.current[:restrict_within_concurrent_ruby] = nil
+    end
+
+    context 'with gitaly_context' do
+      let(:gitaly_context) { { key: :value } }
+
+      it 'passes the gitaly_context to .request_kwargs' do
+        expect(described_class).to receive(:request_kwargs).with(
+          'default', timeout: 10.seconds, remote_storage: nil, gitaly_context: gitaly_context
+        ).and_call_original
+
+        execute
+      end
     end
   end
 end

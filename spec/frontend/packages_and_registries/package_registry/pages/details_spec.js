@@ -1,4 +1,4 @@
-import { GlEmptyState, GlModal, GlTabs, GlTab, GlSprintf, GlLink } from '@gitlab/ui';
+import { GlAlert, GlEmptyState, GlModal, GlTabs, GlTab, GlSprintf, GlLink } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
 import VueApollo from 'vue-apollo';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
@@ -22,11 +22,17 @@ import {
   FETCH_PACKAGE_DETAILS_ERROR_MESSAGE,
   PACKAGE_TYPE_COMPOSER,
   DELETE_ALL_PACKAGE_FILES_MODAL_CONTENT,
+  PACKAGE_DEPRECATED_STATUS,
   PACKAGE_TYPE_NUGET,
   PACKAGE_TYPE_MAVEN,
   PACKAGE_TYPE_CONAN,
   PACKAGE_TYPE_PYPI,
   PACKAGE_TYPE_NPM,
+  PACKAGE_TYPE_RUBYGEMS,
+  PACKAGE_TYPE_GENERIC,
+  PACKAGE_TYPE_DEBIAN,
+  PACKAGE_TYPE_HELM,
+  PACKAGE_TYPE_ML_MODEL,
 } from '~/packages_and_registries/package_registry/constants';
 
 import getPackageDetails from '~/packages_and_registries/package_registry/graphql/queries/get_package_details.query.graphql';
@@ -72,6 +78,7 @@ describe('PackagesApp', () => {
     groupSettingsResolver = jest.fn().mockResolvedValue(groupPackageSettingsQuery()),
     routeId = '1',
     stubs = {},
+    provide: customProvide,
   } = {}) {
     const requestHandlers = [
       [getPackageDetails, resolver],
@@ -81,10 +88,12 @@ describe('PackagesApp', () => {
 
     wrapper = shallowMountExtended(PackagesApp, {
       apolloProvider,
-      provide,
+      provide: customProvide || provide,
       stubs: {
         PackageTitle,
+        PackageFiles,
         DeletePackages,
+        PackageVersionsList,
         GlModal: stubComponent(GlModal, {
           methods: {
             show: showMock,
@@ -105,6 +114,7 @@ describe('PackagesApp', () => {
     });
   }
 
+  const findAlert = () => wrapper.findComponent(GlAlert);
   const findEmptyState = () => wrapper.findComponent(GlEmptyState);
   const findPackageTitle = () => wrapper.findComponent(PackageTitle);
   const findPackageHistory = () => wrapper.findComponent(PackageHistory);
@@ -122,6 +132,8 @@ describe('PackagesApp', () => {
   const findDeletePackageModal = () => wrapper.findAllComponents(DeletePackages).at(1);
   const findDeletePackages = () => wrapper.findComponent(DeletePackages);
   const findLink = () => wrapper.findComponent(GlLink);
+  const findInstallButton = () => wrapper.findByTestId('install-button');
+  const findInstallationModal = () => wrapper.findByTestId('installation-instructions-modal');
 
   it('renders an empty state component', async () => {
     createComponent({ resolver: jest.fn().mockResolvedValue(emptyPackageDetailsQuery) });
@@ -270,6 +282,7 @@ describe('PackagesApp', () => {
         });
 
         await waitForPromises();
+        await nextTick();
 
         expect(findAdditionalMetadata().exists()).toBe(visible);
 
@@ -283,25 +296,103 @@ describe('PackagesApp', () => {
     );
   });
 
-  it('renders installation commands and has the right props', async () => {
-    createComponent();
+  describe('deprecation alert', () => {
+    it('is not rendered by default', async () => {
+      createComponent({
+        stubs: {
+          PackageFiles: stubComponent(PackageFiles),
+          PackageVersionsList: stubComponent(PackageVersionsList),
+        },
+      });
 
-    await waitForPromises();
+      await waitForPromises();
 
-    expect(findInstallationCommands().exists()).toBe(true);
-    expect(findInstallationCommands().props()).toMatchObject({
-      packageEntity: expect.objectContaining(packageWithoutTypename),
+      expect(findAlert().exists()).toBe(false);
+    });
+
+    describe('when package has deprecated status', () => {
+      beforeEach(async () => {
+        createComponent({
+          resolver: jest
+            .fn()
+            .mockResolvedValue(
+              packageDetailsQuery({ extendPackage: { status: PACKAGE_DEPRECATED_STATUS } }),
+            ),
+        });
+
+        await waitForPromises();
+      });
+
+      it('renders alert', () => {
+        expect(findAlert().props('variant')).toBe('warning');
+        expect(findAlert().props('dismissible')).toBe(false);
+      });
+
+      it('renders alert with the deprecated text', () => {
+        expect(findAlert().text()).toBe('This package version has been deprecated.');
+      });
     });
   });
 
-  it('calls the appropriate function to set the breadcrumbState', async () => {
-    const { name, version } = packageData();
-    createComponent();
+  it.each`
+    packageType              | groupListUrl | shouldShowInstallationElements | shouldShowText
+    ${PACKAGE_TYPE_COMPOSER} | ${'url'}     | ${true}                        | ${'show'}
+    ${PACKAGE_TYPE_COMPOSER} | ${null}      | ${false}                       | ${'not show'}
+    ${PACKAGE_TYPE_CONAN}    | ${'url'}     | ${true}                        | ${'show'}
+    ${PACKAGE_TYPE_CONAN}    | ${null}      | ${true}                        | ${'show'}
+    ${PACKAGE_TYPE_DEBIAN}   | ${'url'}     | ${false}                       | ${'not show'}
+    ${PACKAGE_TYPE_DEBIAN}   | ${null}      | ${false}                       | ${'not show'}
+    ${PACKAGE_TYPE_GENERIC}  | ${'url'}     | ${false}                       | ${'not show'}
+    ${PACKAGE_TYPE_GENERIC}  | ${null}      | ${false}                       | ${'not show'}
+    ${PACKAGE_TYPE_HELM}     | ${'url'}     | ${false}                       | ${'not show'}
+    ${PACKAGE_TYPE_HELM}     | ${null}      | ${false}                       | ${'not show'}
+    ${PACKAGE_TYPE_MAVEN}    | ${'url'}     | ${true}                        | ${'show'}
+    ${PACKAGE_TYPE_MAVEN}    | ${null}      | ${true}                        | ${'show'}
+    ${PACKAGE_TYPE_ML_MODEL} | ${'url'}     | ${false}                       | ${'not show'}
+    ${PACKAGE_TYPE_ML_MODEL} | ${null}      | ${false}                       | ${'not show'}
+    ${PACKAGE_TYPE_NPM}      | ${'url'}     | ${true}                        | ${'show'}
+    ${PACKAGE_TYPE_NPM}      | ${null}      | ${true}                        | ${'show'}
+    ${PACKAGE_TYPE_NUGET}    | ${'url'}     | ${true}                        | ${'show'}
+    ${PACKAGE_TYPE_NUGET}    | ${null}      | ${true}                        | ${'show'}
+    ${PACKAGE_TYPE_PYPI}     | ${'url'}     | ${true}                        | ${'show'}
+    ${PACKAGE_TYPE_PYPI}     | ${null}      | ${true}                        | ${'show'}
+    ${PACKAGE_TYPE_RUBYGEMS} | ${'url'}     | ${false}                       | ${'not show'}
+    ${PACKAGE_TYPE_RUBYGEMS} | ${null}      | ${false}                       | ${'not show'}
+  `(
+    'when package type is $packageType and groupListUrl is $groupListUrl, installation elements should $shouldShowText',
+    async ({ packageType, groupListUrl, shouldShowInstallationElements }) => {
+      const testProvide = {
+        ...provide,
+        groupListUrl,
+      };
 
-    await waitForPromises();
+      createComponent({
+        resolver: jest.fn().mockResolvedValue(
+          packageDetailsQuery({
+            extendPackage: {
+              packageType,
+            },
+          }),
+        ),
+        provide: testProvide,
+      });
 
-    expect(breadCrumbState.updateName).toHaveBeenCalledWith(`${name} v${version}`);
-  });
+      await waitForPromises();
+      await nextTick();
+
+      expect(findInstallButton().exists()).toBe(shouldShowInstallationElements);
+      expect(findInstallationModal().exists()).toBe(shouldShowInstallationElements);
+      expect(findInstallationCommands().exists()).toBe(shouldShowInstallationElements);
+
+      if (shouldShowInstallationElements) {
+        expect(findInstallationCommands().props('packageEntity')).toMatchObject({
+          id: packageWithoutTypename.id,
+          name: packageWithoutTypename.name,
+          packageType,
+        });
+      }
+    },
+  );
 
   describe('delete package', () => {
     const originalReferrer = document.referrer;

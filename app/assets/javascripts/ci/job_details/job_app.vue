@@ -1,11 +1,13 @@
 <script>
 import { GlLoadingIcon, GlIcon, GlAlert } from '@gitlab/ui';
-import { GlBreakpointInstance as bp } from '@gitlab/ui/dist/utils';
+import { GlBreakpointInstance as bp } from '@gitlab/ui/src/utils';
 import { throttle, isEmpty } from 'lodash';
 // eslint-disable-next-line no-restricted-imports
 import { mapGetters, mapState, mapActions } from 'vuex';
-import JobLogTopBar from 'ee_else_ce/ci/job_details/components/job_log_top_bar.vue';
+import JobLogTopBar from '~/ci/job_details/components/job_log_top_bar.vue';
+import RootCauseAnalysisButton from 'ee_else_ce/ci/job_details/components/root_cause_analysis_button.vue';
 import SafeHtml from '~/vue_shared/directives/safe_html';
+import glAbilitiesMixin from '~/vue_shared/mixins/gl_abilities_mixin';
 import { isScrolledToBottom } from '~/lib/utils/scroll_utils';
 import { __, sprintf } from '~/locale';
 import delayedJobMixin from '~/ci/mixins/delayed_job_mixin';
@@ -29,6 +31,7 @@ export default {
     GlIcon,
     Log,
     JobLogTopBar,
+    RootCauseAnalysisButton,
     StuckBlock,
     UnmetPrerequisitesBlock,
     Sidebar,
@@ -39,7 +42,7 @@ export default {
   directives: {
     SafeHtml,
   },
-  mixins: [delayedJobMixin],
+  mixins: [delayedJobMixin, glAbilitiesMixin()],
   props: {
     artifactHelpUrl: {
       type: String,
@@ -89,10 +92,8 @@ export default {
       'fullScreenEnabled',
     ]),
     ...mapGetters([
-      'headerTime',
       'hasUnmetPrerequisitesFailure',
       'shouldRenderCalloutMessage',
-      'shouldRenderTriggeredLabel',
       'hasEnvironment',
       'shouldRenderSharedRunnerLimitWarning',
       'hasJobLog',
@@ -104,7 +105,7 @@ export default {
     ]),
 
     shouldRenderContent() {
-      return !this.isLoading && !this.hasError;
+      return (!this.isLoading && !this.hasError) || this.hasJobLog;
     },
 
     emptyStateTitle() {
@@ -131,6 +132,14 @@ export default {
     },
     jobConfirmationMessage() {
       return this.job.status?.action?.confirmation_message;
+    },
+    jobFailed() {
+      const failedGroups = ['failed', 'failed-with-warnings'];
+
+      return failedGroups.includes(this.job.status.group);
+    },
+    displayStickyFooter() {
+      return this.jobFailed && this.glAbilities.troubleshootJobWithAi;
     },
   },
   watch: {
@@ -226,16 +235,7 @@ export default {
       <div class="build-page" data-testid="job-content">
         <!-- Header Section -->
         <header>
-          <div class="build-header gl-display-flex">
-            <job-header
-              :status="job.status"
-              :time="headerTime"
-              :user="job.user"
-              :should-render-triggered-label="shouldRenderTriggeredLabel"
-              :name="jobName"
-              @clickedSidebarButton="toggleSidebar"
-            />
-          </div>
+          <job-header :job-id="job.id" :user="job.user" @clickedSidebarButton="toggleSidebar" />
           <gl-alert
             v-if="shouldRenderHeaderCallout"
             variant="danger"
@@ -283,8 +283,8 @@ export default {
 
         <div
           v-if="job.archived"
-          class="gl-mt-3 gl-py-2 gl-px-3 gl-align-items-center gl-z-1 gl-m-auto archived-job"
-          :class="{ 'sticky-top gl-border-bottom-0': hasJobLog }"
+          class="archived-job gl-z-1 gl-m-auto gl-mt-3 gl-items-center gl-px-3 gl-py-2"
+          :class="{ 'sticky-top gl-border-b-0': hasJobLog }"
           data-testid="archived-job"
         >
           <gl-icon name="lock" class="gl-align-bottom" />
@@ -313,7 +313,25 @@ export default {
             @enterFullscreen="enterFullscreen"
             @exitFullscreen="exitFullscreen"
           />
-          <log :search-results="searchResults" />
+
+          <log :search-results="searchResults" @toggleCollapsibleLine="updateScroll" />
+
+          <nav
+            v-if="displayStickyFooter"
+            :class="[
+              'rca-bar-component gl-fixed gl-px-5 gl-py-2 xl:gl-px-6',
+              { 'rca-bar-component-fullscreen': fullScreenEnabled },
+            ]"
+            data-testid="rca-bar-component"
+          >
+            <div class="gl-flex gl-w-full">
+              <root-cause-analysis-button
+                :job-id="job.id"
+                :job-status-group="job.status.group"
+                :can-troubleshoot-job="glAbilities.troubleshootJobWithAi"
+              />
+            </div>
+          </nav>
         </div>
         <!-- EO job log -->
 
@@ -321,7 +339,6 @@ export default {
         <empty-state
           v-if="!hasJobLog || showUpdateVariablesState"
           :illustration-path="emptyStateIllustration.image"
-          :illustration-size-class="emptyStateIllustration.size"
           :is-retryable="isJobRetryable"
           :job-id="job.id"
           :job-name="jobName"
@@ -341,6 +358,7 @@ export default {
           :class="{
             'right-sidebar-expanded': isSidebarOpen,
             'right-sidebar-collapsed': !isSidebarOpen,
+            '!gl-bottom-8': displayStickyFooter,
           }"
           :artifact-help-url="artifactHelpUrl"
           data-testid="job-sidebar"

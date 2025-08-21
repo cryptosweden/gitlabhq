@@ -9,7 +9,7 @@ module MergeRequests
       self.merge_request = MergeRequest.new
       # TODO: this should handle all quick actions that don't have side effects
       # https://gitlab.com/gitlab-org/gitlab-foss/issues/53658
-      merge_quick_actions_into_params!(merge_request, only: [:target_branch])
+      merge_quick_actions_into_params!(merge_request, params: params, only: [:target_branch])
 
       # Assign the projects first so we can use policies for `filter_params`
       merge_request.author = current_user
@@ -51,6 +51,7 @@ module MergeRequests
       :draft_title,
       :description,
       :first_multiline_commit,
+      :first_multiline_commit_description,
       :errors,
       to: :merge_request
 
@@ -66,16 +67,12 @@ module MergeRequests
       # merge_request.assign_attributes(...) below is a Rails
       # method that only work if all the params it is passed have
       # corresponding fields in the database. As there are no fields
-      # in the database for :add_label_ids, :remove_label_ids,
-      # :add_assignee_ids and :remove_assignee_ids, we
+      # in the database for :add_assignee_ids and :remove_assignee_ids, we
       # need to remove them from the params before the call to
       # merge_request.assign_attributes(...)
       #
-      # IssuableBaseService#process_label_ids and
-      # IssuableBaseService#process_assignee_ids take care
+      # IssuableBaseService#process_assignee_ids takes care
       # of the removal.
-      params[:label_ids] = process_label_ids(params, issuable: merge_request, extra_label_ids: merge_request.label_ids.to_a)
-
       params[:assignee_ids] = process_assignee_ids(params, extra_assignee_ids: merge_request.assignee_ids.to_a)
 
       merge_request.assign_attributes(params.to_h.compact)
@@ -92,7 +89,6 @@ module MergeRequests
       filter_params(merge_request)
 
       # Filter out the following from params:
-      #  - :add_label_ids and :remove_label_ids
       #  - :add_assignee_ids and :remove_assignee_ids
       filter_id_params
     end
@@ -202,7 +198,27 @@ module MergeRequests
     end
 
     def source_branch_exists?
-      source_branch.blank? || source_project.branch_exists?(source_branch)
+      source_branch.blank? || source_project.branch_exists?(source_branch) || ref_exists_in_gitaly?
+    end
+
+    def ref_exists_in_gitaly?
+      # The following check acts as a fallback if there is a mismatch between
+      # the cache and repository state. If the branch ref does not exist in the cache
+      # then we validate the repository state with Gitaly to avoid an inconsistent response.
+      exists = source_project.ref_exists?("refs/heads/#{source_branch}")
+
+      return false unless exists
+
+      # Only log when we find a ref that exists in Gitaly but was not found elsewhere
+      Gitlab::AppJsonLogger.info(
+        class: self.class.to_s,
+        method: __method__,
+        project_id: project.id,
+        source_branch: source_branch,
+        **Gitlab::ApplicationContext.current
+      )
+
+      true
     end
 
     def target_branch_exists?
@@ -233,7 +249,7 @@ module MergeRequests
       replace_variables_in_description
       assign_title_and_description_from_commits
       merge_request.title ||= title_from_issue if target_project.issues_enabled? || target_project.external_issue_tracker
-      merge_request.title ||= source_branch.titleize.humanize
+      merge_request.title ||= branch_name_to_title(source_branch)
       set_draft_title_if_needed
 
       append_closes_description
@@ -292,6 +308,18 @@ module MergeRequests
 
       title_parts << "\"#{branch_title}\"" if branch_title.present?
       title_parts.join(' ')
+    end
+
+    def branch_name_to_title(branch_name)
+      # Replicate Rails titleize.humanize behavior without using ActiveSupport::Inflector
+      # to avoid acronym-based word splitting (like EE)
+      # Note: Rails preserves slashes, only converts underscores and hyphens to spaces
+      # Rails also preserves the number of spaces (doesn't squeeze multiple spaces)
+
+      branch_name
+        .tr('_-', ' ')                    # Convert underscores and hyphens to spaces
+        .lstrip                           # Remove leading spaces only (like Rails lstrip)
+        .humanize                         # Convert to humanized format (capitalize first letter, lowercase others)
     end
 
     def assign_description_from_repository_template

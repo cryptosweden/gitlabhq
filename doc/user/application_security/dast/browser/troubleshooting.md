@@ -1,11 +1,10 @@
 ---
-stage: Secure
+type: reference, howto
+stage: Application Security Testing
 group: Dynamic Analysis
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-type: reference, howto
+title: Troubleshooting DAST scans
 ---
-
-# Troubleshooting
 
 The following troubleshooting scenarios have been collected from customer support cases. If you
 experience a problem not addressed here, or the information here does not fix your problem, create a
@@ -75,15 +74,24 @@ may require additional configuration settings.
 
 ### What is DAST doing?
 
-Logging remains the best way to understand what DAST is doing:
+{{< history >}}
 
-- [Browser-based analyzer logging](#browser-based-analyzer-logging), useful for understanding what the analyzer is doing.
+- Concise logs introduced in GitLab [18.3](https://gitlab.com/gitlab-org/gitlab/-/issues/553625).
+
+{{< /history >}}
+
+The job console (CI/CD job log) provides a concise summary of what DAST is doing.
+For more detailed diagnostic information, you can configure the log file to produce granular output.
+
+The following logging options are available:
+
+- [Diagnostic logs](#diagnostic-logs), useful for understanding what the analyzer is doing.
 - [Chromium DevTools logging](#chromium-devtools-logging), useful to inspect the communication between DAST and Chromium.
 - [Chromium Logs](#chromium-logs), useful for logging errors when Chromium crashes unexpectedly.
 
-## Browser-based analyzer logging
+## Diagnostic logs
 
-The analyzer log is one of the most useful tools to help diagnose problems with a scan. Different parts of the analyzer can be logged at different levels.
+Use the analyzer log file to diagnose scan issues. You can log different parts of the analyzer at different levels.
 
 ### Log message format
 
@@ -91,15 +99,14 @@ Log messages have the format `[time] [log level] [log module] [message] [additio
 
 For example, the following log entry has level `INFO`, is part of the `CRAWL` log module, has the message `Crawled path` and the additional properties `nav_id` and `path`.
 
-```txt
+```plaintext
 2021-04-21T00:34:04.000 INF CRAWL Crawled path nav_id=0cc7fd path="LoadURL [https://my.site.com:8090]"
 ```
 
 ### Log destination
 
-Logs are sent either to file or to console (the CI/CD job log). You can configure each destination to accept different logs using
-the environment variables `DAST_LOG_CONFIG` for console logs and `DAST_LOG_FILE_CONFIG` for file logs.
-
+Logs are sent to the log file artifact. You can configure each destination to accept different logs using
+the environment variable `DAST_LOG_FILE_CONFIG`.
 For example:
 
 ```yaml
@@ -109,9 +116,11 @@ include:
 dast:
   variables:
     DAST_BROWSER_SCAN: "true"
-    DAST_LOG_CONFIG: "auth:debug"                               # console log defaults to INFO level, logs AUTH module at DEBUG
     DAST_LOG_FILE_CONFIG: "loglevel:debug,cache:warn"           # file log defaults to DEBUG level, logs CACHE module at WARN
 ```
+
+By default, the file log is a job artifact called `gl-dast-scan.log`.
+To [configure this path](configuration/variables.md), modify the `DAST_LOG_FILE_PATH` CI/CD variable.
 
 ### Log levels
 
@@ -153,6 +162,39 @@ The modules that can be configured for logging are as follows:
 | `STAT`     | Used for general statistics while running the scan.                                               |
 | `VLDFN`    | Used for loading and parsing vulnerability definitions.                                           |
 | `WEBGW`    | Used to log messages sent to the target application when running active checks.                   |
+| `SCOPE`    | Used to log messages related to [scope management](configuration/customize_settings.md#managing-scope). |
+
+### SECURE_LOG_LEVEL
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/524632) in GitLab 17.11.
+
+{{< /history >}}
+
+As a simpler alternative to configuring log modules with `DAST_LOG_FILE_CONFIG`, you can set `SECURE_LOG_LEVEL`:
+
+- To any of the [supported log levels](#log-levels).
+  When you do this, the specified level becomes the default log level in the log file for all modules.
+- To `debug` or `trace` to enable the [auth report](configuration/authentication.md#configure-the-authentication-report).
+- To `trace` to enable [DevTools logging](#chromium-devtools-logging).
+
+For example:
+
+```yaml
+include:
+  - template: DAST.gitlab-ci.yml
+
+dast:
+  variables:
+    SECURE_LOG_LEVEL: "trace"
+    # is equivalent to:
+    # DAST_LOG_FILE_CONFIG: "loglevel:trace"
+    # DAST_LOG_DEVTOOLS_CONFIG: "Default:messageAndBody,truncate:2000"
+    # DAST_AUTH_REPORT: "true"
+```
+
+Settings from `DAST_LOG_FILE_CONFIG`, `DAST_LOG_DEVTOOLS_CONFIG`, `DAST_AUTH_REPORT` override the settings from `SECURE_LOG_LEVEL`.
 
 ### Example - log crawled paths
 
@@ -182,9 +224,12 @@ For example, the following output shows that four anchor links we discovered dur
 
 ## Chromium DevTools logging
 
-WARNING:
+{{< alert type="warning" >}}
+
 Logging DevTools messages is a security risk. The output contains secrets such as usernames, passwords and authentication tokens.
 The output is uploaded to the GitLab server and may be visible in job logs.
+
+{{< /alert >}}
 
 The DAST Browser-based scanner orchestrates a Chromium browser using the [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/).
 Logging DevTools messages helps provide transparency into what the browser is doing. For example, if selecting a button does not work, a DevTools message might show that the cause is a CORS error in a browser console log.
@@ -244,6 +289,23 @@ dast:
     DAST_LOG_DEVTOOLS_CONFIG: "Default:suppress;Fetch:messageAndBody,truncate:2000;Network:messageAndBody,truncate:2000;Log:messageAndBody,truncate:2000;Console:messageAndBody,truncate:2000"
 ```
 
+### Override the job console output
+
+By default, the job console displays a concise summary of DAST activity.
+To output the full diagnostic log to the job console, set both the `DAST_FF_DIAGNOSTIC_JOB_OUTPUT` and `DAST_LOG_CONFIG` variables:
+
+```yaml
+include:
+  - template: DAST.gitlab-ci.yml
+
+dast:
+  variables:
+    DAST_FF_DIAGNOSTIC_JOB_OUTPUT: "true"
+    DAST_LOG_CONFIG: "crawl:debug"                               # console log defaults to INFO level, logs AUTH module at DEBUG
+```
+
+[Issue 552171](https://gitlab.com/gitlab-org/gitlab/-/issues/552171) proposes to remove this option in GitLab 19.0.
+
 ## Chromium logs
 
 In the rare event that Chromium crashes, it can be helpful to write the Chromium process `STDOUT` and `STDERR` to log.
@@ -279,9 +341,6 @@ An example log is as follows, where DAST blocked the JavaScript file found at `h
 This can be changed using the configuration `DAST_PAGE_MAX_RESPONSE_SIZE_MB`. For example,
 
 ```yaml
-include:
-  - template: DAST.gitlab-ci.yml
-
 dast:
   variables:
     DAST_PAGE_MAX_RESPONSE_SIZE_MB: "25"
@@ -289,4 +348,17 @@ dast:
 
 ### Crawler doesn't reach expected pages
 
-If DAST incorrectly caches your application pages, it can lead to DAST being unable to properly crawl your application. If you see that some pages are unexpectedly not found by the crawler, try setting `DAST_USE_CACHE: "false"` variable to see if that helps. Note that it can significantly decrease the performance of the scan. Make sure to only disable cache when absolutely necessary. If you have a subscription, [create a support ticket](https://about.gitlab.com/support/) to investigate why cache is preventing your website from being crawled.
+#### Try disabling the cache
+
+If DAST incorrectly caches your application pages, it can lead to DAST being unable to properly crawl your application. If you see that some pages are unexpectedly not found by the crawler, try setting `DAST_USE_CACHE: "false"` variable to see if that helps. This can significantly decrease the performance of the scan. Make sure to only disable cache when absolutely necessary. If you have a subscription, [create a support ticket](https://about.gitlab.com/support/) to investigate why cache is preventing your website from being crawled.
+
+#### Specifying target paths directly
+
+The crawler typically begins at the defined target URL and attempts to find further pages by interacting with the site. However, there are two ways to specify paths directly for the crawler to start from:
+
+- Using a sitemap.xml: [Sitemap](https://www.sitemaps.org/protocol.html) is a well defined protocol to specify the pages in a website. DAST's crawler looks for a sitemap.xml file at `<target URL>/sitemap.xml` and takes all specified URLs as a starting point for the crawler. [Sitemap Index](https://www.sitemaps.org/protocol.html#index) files are not supported.
+- Using `DAST_TARGET_PATHS`: This configuration variable allows specifying input paths for the crawler. Example: `DAST_TARGET_PATHS: /,/page/1.html,/page/2.html`.
+
+#### Make sure requests are not getting blocked
+
+By default DAST only allows requests to the target URL's domain. If your website makes requests to domains other than the target's, use `DAST_SCOPE_ALLOW_HOSTS` to specify such hosts. Example: "example.com" makes an authentication request to "auth.example.com" to renew the authentication token. Because the domain is not allowed, the request gets blocked and the crawler fails to find new pages.

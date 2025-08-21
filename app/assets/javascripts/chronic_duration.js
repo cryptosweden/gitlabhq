@@ -205,6 +205,7 @@ function cleanup(string, opts) {
   return filterThroughWhiteList(res, opts);
 }
 
+// eslint-disable-next-line max-params
 function humanizeTimeUnit(number, unit, pluralize, keepZero) {
   if (number === '0' && !keepZero) {
     return null;
@@ -228,6 +229,17 @@ export function parseChronicDuration(string, opts = {}) {
 // Given an integer and an optional format,
 // returns a formatted string representing elapsed time
 export function outputChronicDuration(seconds, opts = {}) {
+  if (opts.hoursOnly) {
+    const decimalHours = seconds / 3600;
+    const hours = Math.floor(decimalHours);
+    if (decimalHours % 1 !== 0) {
+      const minutes = Math.round((decimalHours % 1) * 60);
+      // eslint-disable-next-line @gitlab/require-i18n-strings
+      return `${hours}h ${minutes}m`;
+    }
+    return `${hours}h`;
+  }
+
   const units = {
     years: 0,
     months: 0,

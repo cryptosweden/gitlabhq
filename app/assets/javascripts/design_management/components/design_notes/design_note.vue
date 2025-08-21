@@ -19,7 +19,6 @@ import ImportedBadge from '~/vue_shared/components/imported_badge.vue';
 import TimelineEntryItem from '~/vue_shared/components/notes/timeline_entry_item.vue';
 import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 import EmojiPicker from '~/emoji/components/picker.vue';
-import { TYPE_COMMENT } from '~/import/constants';
 import getDesignQuery from '../../graphql/queries/get_design.query.graphql';
 import updateNoteMutation from '../../graphql/mutations/update_note.mutation.graphql';
 import designNoteAwardEmojiToggleMutation from '../../graphql/mutations/design_note_award_emoji_toggle.mutation.graphql';
@@ -161,9 +160,7 @@ export default {
           action: () => {
             this.$emit('delete-note', this.note);
           },
-          extraAttrs: {
-            class: 'gl-text-red-500!',
-          },
+          variant: 'danger',
         },
       ];
     },
@@ -266,7 +263,6 @@ export default {
     },
   },
   updateNoteMutation,
-  TYPE_COMMENT,
 };
 </script>
 
@@ -276,12 +272,12 @@ export default {
       :href="author.webUrl"
       :data-user-id="authorId"
       :data-username="author.username"
-      class="gl-float-left gl-mr-3 link-inherit-color js-user-link"
+      class="link-inherit-color js-user-link gl-float-left gl-mr-3"
     >
       <gl-avatar :size="32" :src="author.avatarUrl" :entity-name="author.username" />
     </gl-avatar-link>
 
-    <div class="gl-display-flex gl-justify-content-space-between">
+    <div class="gl-flex gl-justify-between">
       <div>
         <gl-link
           v-if="hasAuthor"
@@ -300,15 +296,15 @@ export default {
         <span class="note-headline-light note-headline-meta">
           <span class="system-note-message"> <slot></slot> </span>
           <gl-link
-            class="note-timestamp system-note-separator gl-display-inline-block gl-mb-2 gl-font-sm link-inherit-color"
+            class="note-timestamp system-note-separator link-inherit-color gl-mb-2 gl-inline-block gl-text-sm"
             :href="`#note_${noteAnchorId}`"
           >
             <time-ago-tooltip :time="note.createdAt" tooltip-placement="bottom" />
           </gl-link>
-          <imported-badge v-if="isImported" :importable-type="$options.TYPE_COMMENT" />
+          <imported-badge v-if="isImported" />
         </span>
       </div>
-      <div class="gl-display-flex gl-align-items-flex-start -gl-mt-2 -gl-mr-2">
+      <div class="-gl-mr-2 -gl-mt-2 gl-flex gl-items-start">
         <slot name="resolve-discussion"></slot>
         <emoji-picker
           v-if="canAwardEmoji"

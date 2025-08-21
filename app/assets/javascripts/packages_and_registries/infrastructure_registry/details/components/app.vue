@@ -24,6 +24,7 @@ import {
   SHOW_DELETE_SUCCESS_ALERT,
 } from '~/packages_and_registries/shared/constants';
 import { TRACK_CATEGORY } from '~/packages_and_registries/infrastructure_registry/shared/constants';
+import Markdown from '~/vue_shared/components/markdown/markdown_content.vue';
 import PackageFiles from './package_files.vue';
 import PackageHistory from './package_history.vue';
 
@@ -42,7 +43,7 @@ export default {
     PackageHistory,
     TerraformInstallation,
     PackageFiles,
-    Markdown: () => import('~/vue_shared/components/markdown/markdown_content.vue'),
+    Markdown,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -189,7 +190,7 @@ export default {
 
         <template v-else-if="hasVersions">
           <ul class="gl-pl-0">
-            <li v-for="v in packageEntity.versions" :key="v.id" class="gl-list-style-none">
+            <li v-for="v in packageEntity.versions" :key="v.id" class="gl-list-none">
               <package-list-row
                 :package-entity="packageEntityWithName(v)"
                 :package-link="v.id.toString()"

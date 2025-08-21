@@ -6,33 +6,16 @@ RSpec.describe Projects::Packages::PackagesController, feature_category: :packag
   let_it_be(:project) { create(:project, :public) }
 
   describe 'GET #index' do
-    let(:get_namespace_project_packages_path) do
+    subject do
       get namespace_project_packages_path(namespace_id: project.namespace, project_id: project)
+      response
     end
 
-    subject { response.body }
-
-    context 'when feature flag "packages_protected_packages" is enabled' do
-      before do
-        get_namespace_project_packages_path
-      end
-
-      it { is_expected.to have_pushed_frontend_feature_flags(packagesProtectedPackages: true) }
-    end
-
-    context 'when feature flag "packages_protected_packages" is disabled' do
-      before do
-        stub_feature_flags(packages_protected_packages: false)
-
-        get_namespace_project_packages_path
-      end
-
-      it { is_expected.to have_pushed_frontend_feature_flags(packagesProtectedPackages: false) }
-    end
+    it { is_expected.to have_gitlab_http_status(:ok) }
   end
 
   describe 'GET #show' do
-    let_it_be(:package) { create(:package, project: project) }
+    let_it_be(:package) { create(:generic_package, project: project) }
 
     subject do
       get namespace_project_package_path(namespace_id: project.namespace, project_id: project, id: package.id)
@@ -40,17 +23,5 @@ RSpec.describe Projects::Packages::PackagesController, feature_category: :packag
     end
 
     it { is_expected.to have_gitlab_http_status(:ok) }
-
-    it { is_expected.to have_attributes(body: have_pushed_frontend_feature_flags(packagesProtectedPackages: true)) }
-
-    context 'when feature flag "packages_protected_packages" is disabled' do
-      before do
-        stub_feature_flags(packages_protected_packages: false)
-      end
-
-      it { is_expected.to have_gitlab_http_status(:ok) }
-
-      it { is_expected.to have_attributes(body: have_pushed_frontend_feature_flags(packagesProtectedPackages: false)) }
-    end
   end
 end

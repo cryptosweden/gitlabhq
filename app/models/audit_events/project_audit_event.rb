@@ -3,9 +3,13 @@
 module AuditEvents
   class ProjectAuditEvent < ApplicationRecord
     self.table_name = "project_audit_events"
-    include PartitionedTable
 
-    self.primary_key = :id
-    partitioned_by :created_at, strategy: :monthly
+    include AuditEvents::CommonModel
+
+    validates :project_id, presence: true
+
+    scope :by_project, ->(project_id) { where(project_id: project_id) }
   end
 end
+
+AuditEvents::ProjectAuditEvent.prepend_mod_with('AuditEvents::ProjectAuditEvent')

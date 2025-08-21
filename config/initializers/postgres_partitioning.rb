@@ -17,20 +17,33 @@ Gitlab::Database::Partitioning.register_models(
     Ci::BuildMetadata,
     Ci::BuildExecutionConfig,
     Ci::BuildName,
+    Ci::BuildTag,
+    Ci::BuildTraceMetadata,
     Ci::BuildSource,
-    Ci::Catalog::Resources::Components::Usage,
     Ci::Catalog::Resources::SyncEvent,
+    Ci::FinishedPipelineChSyncEvent,
     Ci::JobAnnotation,
     Ci::JobArtifact,
+    Ci::JobArtifactReport,
+    Ci::JobDefinition,
+    Ci::JobDefinitionInstance,
+    Ci::JobInput,
+    Ci::JobMessage,
+    Ci::Pipeline,
     Ci::PipelineVariable,
     Ci::RunnerManagerBuild,
     Ci::Stage,
+    Ci::Workloads::Workload,
+    Ci::Workloads::VariableInclusions,
     CommitStatus,
     Gitlab::Database::BackgroundMigration::BatchedJobTransitionLog,
     LooseForeignKeys::DeletedRecord,
+    PartitionedSentNotification,
     Users::GroupVisit,
     Users::ProjectVisit,
-    WebHookLog
+    MergeRequest::CommitsMetadata,
+    WebHookLog,
+    MergeRequests::GeneratedRefCommit
   ])
 
 if Gitlab.ee?
@@ -41,7 +54,20 @@ if Gitlab.ee?
       Security::Finding,
       Analytics::ValueStreamDashboard::Count,
       Ci::FinishedBuildChSyncEvent,
-      Search::Zoekt::Task
+      Search::Zoekt::Task,
+      Ai::CodeSuggestionEvent,
+      Ai::DuoChatEvent,
+      Ai::TroubleshootJobEvent,
+      Ai::UsageEvent,
+      Vulnerabilities::Archive,
+      Vulnerabilities::ArchivedRecord,
+      Vulnerabilities::ArchiveExport,
+      Ai::ActiveContext::Code::EnabledNamespace,
+      Ai::ActiveContext::Code::Repository,
+      Ai::KnowledgeGraph::EnabledNamespace,
+      Ai::KnowledgeGraph::Replica,
+      Ai::KnowledgeGraph::Task,
+      Ai::DuoWorkflows::Checkpoint
     ])
 else
   Gitlab::Database::Partitioning.register_tables(
@@ -73,29 +99,4 @@ unless Gitlab.jh?
     ])
 end
 
-# Enable partition management for the backfill table during merge_request_diff_commits partitioning.
-# This way new partitions will be created as the trigger syncs new rows across to this table.
-#
-Gitlab::Database::Partitioning.register_tables(
-  [
-    {
-      limit_connection_names: %i[main],
-      table_name: 'merge_request_diff_commits_b5377a7a34',
-      partitioned_column: :merge_request_diff_id, strategy: :int_range, partition_size: 200_000_000
-    }
-  ]
-)
-
-# Enable partition management for the backfill table during merge_request_diff_files partitioning.
-# This way new partitions will be created as the trigger syncs new rows across to this table.
-#
-Gitlab::Database::Partitioning.register_tables(
-  [
-    {
-      limit_connection_names: %i[main],
-      table_name: 'merge_request_diff_files_99208b8fac',
-      partitioned_column: :merge_request_diff_id, strategy: :int_range, partition_size: 200_000_000
-    }
-  ]
-)
 Gitlab::Database::Partitioning.sync_partitions_ignore_db_error

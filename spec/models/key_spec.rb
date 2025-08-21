@@ -2,11 +2,12 @@
 
 require 'spec_helper'
 
-RSpec.describe Key, :mailer do
+RSpec.describe Key, :mailer, feature_category: :system_access do
   it_behaves_like 'having unique enum values'
 
   describe "Associations" do
     it { is_expected.to belong_to(:user) }
+    it { is_expected.to have_many(:todos).dependent(:destroy) }
   end
 
   describe "Validation" do
@@ -170,6 +171,32 @@ RSpec.describe Key, :mailer do
         key.update_last_used_at
       end
     end
+
+    describe '#readable_by?' do
+      subject { key.readable_by?(user) }
+
+      context 'when key belongs to user' do
+        let(:key) { build(:key, user: user) }
+
+        it { is_expected.to eq true }
+      end
+
+      context 'when key does not belong to user' do
+        let(:key) { build(:key, user_id: non_existing_record_id) }
+
+        it { is_expected.to eq false }
+      end
+    end
+
+    describe '#to_reference' do
+      # This method is only needed to support the Key target for the *Haml* to-do app.
+      # TODO: Remove this test and method when deleting the old Haml to-do app's code.
+      let(:key) { build(:key, user: user) }
+
+      it 'returns the SSH key\'s fingerprint' do
+        expect(key.to_reference).to eq key.fingerprint
+      end
+    end
   end
 
   describe 'scopes' do
@@ -186,6 +213,25 @@ RSpec.describe Key, :mailer do
       end
     end
 
+    describe 'created at scopes', :time_freeze do
+      let!(:created_last_month_key) { create(:key, :expired, created_at: 1.month.ago) }
+      let!(:created_next_month_key) { create(:key, created_at: 1.month.from_now) }
+      let!(:created_two_months_key) { create(:key, created_at: 2.months.from_now) }
+
+      describe '.created_before' do
+        it 'finds keys that expire before or on date' do
+          expect(described_class.created_before(1.month.ago)).to contain_exactly(created_last_month_key)
+        end
+      end
+
+      describe '.created_after' do
+        it 'finds keys that created after or on date' do
+          expect(described_class.created_after(1.month.from_now.beginning_of_hour))
+            .to contain_exactly(created_next_month_key, created_two_months_key)
+        end
+      end
+    end
+
     describe '.order_last_used_at_desc' do
       it 'sorts by last_used_at descending, with null values at last' do
         key_1 = create(:personal_key, last_used_at: 7.days.ago)
@@ -197,7 +243,7 @@ RSpec.describe Key, :mailer do
       end
     end
 
-    context 'expiration scopes' do
+    context 'expiration scopes', :time_freeze do
       let_it_be(:user) { create(:user) }
       let_it_be(:expired_today_not_notified) { create(:key, :expired_today, user: user) }
       let_it_be(:expired_today_already_notified) { create(:key, :expired_today, user: user, expiry_notification_delivered_at: Time.current) }
@@ -215,6 +261,20 @@ RSpec.describe Key, :mailer do
       describe '.expiring_soon_and_not_notified' do
         it 'returns keys that will expire soon' do
           expect(described_class.expiring_soon_and_not_notified).to contain_exactly(expiring_soon_unotified)
+        end
+      end
+
+      describe '.expires_before' do
+        it 'finds keys that expire before or on date' do
+          expect(described_class.expires_before(1.day.from_now))
+            .to contain_exactly(expired_today_not_notified, expired_today_already_notified, expired_yesterday)
+        end
+      end
+
+      describe '.expires_after' do
+        it 'finds keys that expires after or on date' do
+          expect(described_class.expires_after(3.days.from_now.beginning_of_hour))
+            .to contain_exactly(expiring_soon_unotified, expiring_soon_notified, future_expiry)
         end
       end
     end
@@ -243,6 +303,10 @@ RSpec.describe Key, :mailer do
         expect(described_class.regular_keys).to match_array([personal_key, key])
       end
     end
+  end
+
+  describe 'modules' do
+    it { expect(described_class.included_modules).to include(Todoable) }
   end
 
   context 'validation of uniqueness (based on fingerprint uniqueness)' do
@@ -379,13 +443,13 @@ RSpec.describe Key, :mailer do
         key.save!
 
         # Check after the fact so we have access to Key#id
-        expect(AuthorizedKeysWorker).to have_received(:perform_async).with(:add_key, key.shell_id, key.key)
+        expect(AuthorizedKeysWorker).to have_received(:perform_async).with('add_key', key.shell_id, key.key)
       end
 
       it 'removes key from authorized_file' do
         key.save!
 
-        expect(AuthorizedKeysWorker).to receive(:perform_async).with(:remove_key, key.shell_id)
+        expect(AuthorizedKeysWorker).to receive(:perform_async).with('remove_key', key.shell_id)
 
         key.destroy!
       end

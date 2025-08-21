@@ -9,7 +9,7 @@ module QA
   # pipeline created (Sidekiq read/write) ->
   # runner picks up pipeline (API read/write) ->
   # User views pipeline succeeds (Web read)
-  RSpec.describe 'Verify', :runner, product_group: :pipeline_security do
+  RSpec.describe 'Verify', feature_category: :pipeline_composition do
     context 'Endpoint Coverage' do
       let!(:project) { create(:project, name: 'endpoint-coverage') }
       let!(:runner) { create(:project_runner, project: project, name: project.name, tags: [project.name]) }
@@ -24,7 +24,7 @@ module QA
       end
 
       it(
-        'spans r/w postgres web sidekiq git api', :blocking,
+        'spans r/w postgres web sidekiq git api',
         testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/360837'
       ) do
         # create a CI variable via UI
@@ -54,13 +54,8 @@ module QA
           push.commit_message = 'Commit .gitlab-ci.yml'
         end
 
-        # observe pipeline creation
-        project.visit!
-        Flow::Pipeline.visit_latest_pipeline
-
-        Page::Project::Pipeline::Show.perform do |show|
-          show.click_job('test')
-        end
+        Flow::Pipeline.wait_for_pipeline_creation_via_api(project: project)
+        project.visit_job('test')
 
         Page::Project::Job::Show.perform do |show|
           # user views job succeeding

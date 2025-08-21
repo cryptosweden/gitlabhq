@@ -50,12 +50,6 @@ RSpec.describe Tooling::Danger::StableBranch, feature_category: :delivery do
 
         it_behaves_like 'without a failure'
       end
-
-      context 'with only docs changes' do
-        let(:changes_by_category_response) { { docs: ['foo.md'] } }
-
-        it_behaves_like 'without a failure'
-      end
     end
 
     context 'when not applicable' do
@@ -82,9 +76,12 @@ RSpec.describe Tooling::Danger::StableBranch, feature_category: :delivery do
       let(:source_branch) { 'my_bug_branch' }
       let(:feature_label_present) { false }
       let(:bug_label_present) { true }
+      let(:maintenance_label_present) { true }
+      let(:tier_3_label_present) { false }
       let(:pipeline_expedite_label_present) { false }
       let(:flaky_test_label_present) { false }
       let(:response_success) { true }
+      let(:mr_title) { 'Backport' }
 
       let(:changes_by_category_response) do
         {
@@ -95,7 +92,7 @@ RSpec.describe Tooling::Danger::StableBranch, feature_category: :delivery do
       let(:pipeline_bridges_response) do
         [
           {
-            'name' => 'e2e:package-and-test-ee',
+            'name' => 'e2e:test-on-omnibus-ee',
             'status' => pipeline_bridge_state,
             'downstream_pipeline' => {
               'id' => '123',
@@ -129,6 +126,18 @@ RSpec.describe Tooling::Danger::StableBranch, feature_category: :delivery do
         )
       end
 
+      let(:mr_description_response) do
+        %(
+        <!--
+        Please don't remove this comment...
+
+        template sourced from
+        https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/merge_request_templates/Stable%20Branch.md
+        -->
+        ## What does this MR do and why?
+        )
+      end
+
       before do
         allow(fake_helper).to receive(:mr_target_branch).and_return(target_branch)
         allow(fake_helper).to receive(:mr_source_branch).and_return(source_branch)
@@ -136,12 +145,14 @@ RSpec.describe Tooling::Danger::StableBranch, feature_category: :delivery do
         allow(fake_helper).to receive(:mr_target_project_id).and_return(1)
         allow(fake_helper).to receive(:mr_has_labels?).with('type::feature').and_return(feature_label_present)
         allow(fake_helper).to receive(:mr_has_labels?).with('type::bug').and_return(bug_label_present)
+        allow(fake_helper).to receive(:mr_has_labels?).with('type::maintenance').and_return(maintenance_label_present)
         allow(fake_helper).to receive(:mr_has_labels?).with('pipeline::expedited')
           .and_return(pipeline_expedite_label_present)
         allow(fake_helper).to receive(:mr_has_labels?).with('pipeline:expedite')
           .and_return(pipeline_expedite_label_present)
         allow(fake_helper).to receive(:mr_has_labels?).with('failure::flaky-test')
           .and_return(flaky_test_label_present)
+        allow(fake_helper).to receive(:mr_has_labels?).with('pipeline::tier-3').and_return(tier_3_label_present)
         allow(fake_helper).to receive(:changes_by_category).and_return(changes_by_category_response)
         allow(HTTParty).to receive(:get).with(/page=1/).and_return(version_response)
         allow(fake_helper).to receive(:api).and_return(fake_api)
@@ -150,6 +161,8 @@ RSpec.describe Tooling::Danger::StableBranch, feature_category: :delivery do
         allow(gitlab_gem_client).to receive(:api).and_return(fake_api)
         allow(fake_api).to receive(:pipeline_bridges).with(1, '1')
           .and_return(pipeline_bridges_response)
+        allow(fake_helper).to receive(:mr_description).and_return(mr_description_response)
+        allow(fake_helper).to receive(:mr_title).and_return(mr_title)
       end
 
       # the stubbed behavior above is the success path
@@ -161,17 +174,12 @@ RSpec.describe Tooling::Danger::StableBranch, feature_category: :delivery do
         it_behaves_like 'with a failure', described_class::FEATURE_ERROR_MESSAGE
       end
 
-      context 'without a bug label' do
+      context 'without a bug or maintenance label' do
         let(:bug_label_present) { false }
+        let(:maintenance_label_present) { false }
 
-        it_behaves_like 'with a failure', described_class::BUG_ERROR_MESSAGE
-      end
-
-      context 'with only documentation changes and no bug label' do
-        let(:bug_label_present) { false }
-        let(:changes_by_category_response) { { docs: ['foo.md'] } }
-
-        it_behaves_like 'without a failure'
+        it_behaves_like 'with a failure', described_class::BUG_MAINTENANCE_ERROR_MESSAGE
+        it_behaves_like 'bypassing when flaky test or docs only'
       end
 
       context 'with a pipeline::expedited label' do
@@ -181,111 +189,125 @@ RSpec.describe Tooling::Danger::StableBranch, feature_category: :delivery do
         it_behaves_like 'bypassing when flaky test or docs only'
       end
 
-      context 'when no package-and-test bridge is found' do
-        let(:pipeline_bridges_response) { nil }
+      context 'with a default MR title' do
+        let(:mr_title) { "Merge branch '#{source_branch}' into '#{target_branch}'" }
 
-        it_behaves_like 'with a failure', described_class::NEEDS_PACKAGE_AND_TEST_MESSAGE
-        it_behaves_like 'bypassing when flaky test or docs only'
+        it_behaves_like 'with a failure', described_class::NONDESCRIPTIVE_TITLE_MESSAGE
       end
 
-      context 'when package-and-test bridge is created' do
-        let(:pipeline_bridge_state) { 'created' }
-
-        it_behaves_like 'with a warning', described_class::WARN_PACKAGE_AND_TEST_MESSAGE
-        it_behaves_like 'bypassing when flaky test or docs only'
-      end
-
-      context 'when package-and-test bridge has been canceled and no downstream pipeline is generated' do
-        let(:pipeline_bridge_state) { 'canceled' }
-
-        let(:pipeline_bridges_response) do
-          [
-            {
-              'name' => 'e2e:package-and-test-ee',
-              'status' => pipeline_bridge_state,
-              'downstream_pipeline' => nil
-            }
-          ]
-        end
-
-        it_behaves_like 'with a failure', described_class::NEEDS_PACKAGE_AND_TEST_MESSAGE
-        it_behaves_like 'bypassing when flaky test or docs only'
-      end
-
-      context 'when package-and-test job is in a non-successful state' do
-        let(:package_and_qa_state) { 'running' }
-
-        it_behaves_like 'with a warning', described_class::WARN_PACKAGE_AND_TEST_MESSAGE
-        it_behaves_like 'bypassing when flaky test or docs only'
-      end
-
-      context 'when package-and-test job is in manual state' do
-        let(:package_and_qa_state) { 'manual' }
-
-        it_behaves_like 'with a failure', described_class::NEEDS_PACKAGE_AND_TEST_MESSAGE
-        it_behaves_like 'bypassing when flaky test or docs only'
-      end
-
-      context 'when package-and-test job is canceled' do
-        let(:package_and_qa_state) { 'canceled' }
-
-        it_behaves_like 'with a failure', described_class::NEEDS_PACKAGE_AND_TEST_MESSAGE
-        it_behaves_like 'bypassing when flaky test or docs only'
-      end
-
-      context 'when no pipeline is found' do
-        before do
-          allow(gitlab_gem_client).to receive(:mr_json).and_return({})
-        end
-
-        it_behaves_like 'with a failure', described_class::NEEDS_PACKAGE_AND_TEST_MESSAGE
-        it_behaves_like 'bypassing when flaky test or docs only'
-      end
-
-      context 'when not an applicable version' do
-        let(:target_branch) { '15-0-stable-ee' }
-
-        it 'warns about the package-and-test pipeline and the version' do
-          expect(stable_branch).to receive(:warn).with(described_class::WARN_PACKAGE_AND_TEST_MESSAGE)
-          expect(stable_branch).to receive(:warn).with(described_class::VERSION_WARNING_MESSAGE)
-
-          subject
-        end
-      end
-
-      context 'with multiple package-and-test pipelines' do
-        let(:pipeline_bridges_response) do
-          [
-            {
-              'name' => 'e2e:package-and-test-ee',
-              'status' => 'success',
-              'downstream_pipeline' => {
-                'id' => '123',
-                'status' => package_and_qa_state
-              }
-            },
-            {
-              'name' => 'follow-up:e2e:package-and-test-ee',
-              'status' => 'failed',
-              'downstream_pipeline' => {
-                'id' => '456',
-                'status' => 'failed'
-              }
-            }
-          ]
-        end
-
+      context 'without a pipeline::tier-3 label' do
         it_behaves_like 'without a failure'
       end
 
-      context 'when the version API request fails' do
-        let(:response_success) { false }
+      context 'with a pipeline::tier-3 label' do
+        let(:tier_3_label_present) { true }
 
-        it 'warns about the package-and-test pipeline and the version request' do
-          expect(stable_branch).to receive(:warn).with(described_class::WARN_PACKAGE_AND_TEST_MESSAGE)
-          expect(stable_branch).to receive(:warn).with(described_class::FAILED_VERSION_REQUEST_MESSAGE)
+        context 'when no test-on-omnibus bridge is found' do
+          let(:pipeline_bridges_response) { nil }
 
-          subject
+          it_behaves_like 'with a failure', described_class::NEEDS_PACKAGE_AND_TEST_MESSAGE
+          it_behaves_like 'bypassing when flaky test or docs only'
+        end
+
+        context 'when test-on-omnibus bridge is created' do
+          let(:pipeline_bridge_state) { 'created' }
+
+          it_behaves_like 'with a warning', described_class::WARN_PACKAGE_AND_TEST_MESSAGE
+          it_behaves_like 'bypassing when flaky test or docs only'
+        end
+
+        context 'when test-on-omnibus bridge has been canceled and no downstream pipeline is generated' do
+          let(:pipeline_bridge_state) { 'canceled' }
+
+          let(:pipeline_bridges_response) do
+            [
+              {
+                'name' => 'e2e:test-on-omnibus-ee',
+                'status' => pipeline_bridge_state,
+                'downstream_pipeline' => nil
+              }
+            ]
+          end
+
+          it_behaves_like 'with a failure', described_class::NEEDS_PACKAGE_AND_TEST_MESSAGE
+          it_behaves_like 'bypassing when flaky test or docs only'
+        end
+
+        context 'when test-on-omnibus job is in a non-successful state' do
+          let(:package_and_qa_state) { 'running' }
+
+          it_behaves_like 'with a warning', described_class::WARN_PACKAGE_AND_TEST_MESSAGE
+          it_behaves_like 'bypassing when flaky test or docs only'
+        end
+
+        context 'when test-on-omnibus job is in manual state' do
+          let(:package_and_qa_state) { 'manual' }
+
+          it_behaves_like 'with a failure', described_class::NEEDS_PACKAGE_AND_TEST_MESSAGE
+          it_behaves_like 'bypassing when flaky test or docs only'
+        end
+
+        context 'when test-on-omnibus job is canceled' do
+          let(:package_and_qa_state) { 'canceled' }
+
+          it_behaves_like 'with a failure', described_class::NEEDS_PACKAGE_AND_TEST_MESSAGE
+          it_behaves_like 'bypassing when flaky test or docs only'
+        end
+
+        context 'when no pipeline is found' do
+          before do
+            allow(gitlab_gem_client).to receive(:mr_json).and_return({})
+          end
+
+          it_behaves_like 'with a failure', described_class::NEEDS_PACKAGE_AND_TEST_MESSAGE
+          it_behaves_like 'bypassing when flaky test or docs only'
+        end
+
+        context 'when not an applicable version' do
+          let(:target_branch) { '15-0-stable-ee' }
+
+          it 'warns about the test-on-omnibus pipeline and the version' do
+            expect(stable_branch).to receive(:warn).with(described_class::WARN_PACKAGE_AND_TEST_MESSAGE)
+            expect(stable_branch).to receive(:warn).with(described_class::VERSION_WARNING_MESSAGE)
+
+            subject
+          end
+        end
+
+        context 'with multiple test-on-omnibus pipelines' do
+          let(:pipeline_bridges_response) do
+            [
+              {
+                'name' => 'e2e:test-on-omnibus-ee',
+                'status' => 'success',
+                'downstream_pipeline' => {
+                  'id' => '123',
+                  'status' => package_and_qa_state
+                }
+              },
+              {
+                'name' => 'follow-up:e2e:test-on-omnibus-ee',
+                'status' => 'failed',
+                'downstream_pipeline' => {
+                  'id' => '456',
+                  'status' => 'failed'
+                }
+              }
+            ]
+          end
+
+          it_behaves_like 'without a failure'
+        end
+
+        context 'when the version API request fails' do
+          let(:response_success) { false }
+
+          it 'warns about the test-on-omnibus pipeline and the version request' do
+            expect(stable_branch).to receive(:warn).with(described_class::WARN_PACKAGE_AND_TEST_MESSAGE)
+            expect(stable_branch).to receive(:warn).with(described_class::FAILED_VERSION_REQUEST_MESSAGE)
+
+            subject
+          end
         end
       end
 
@@ -326,13 +348,23 @@ RSpec.describe Tooling::Danger::StableBranch, feature_category: :delivery do
 
         it_behaves_like 'without a failure'
       end
+
+      context 'when the MR body does not contain the template source' do
+        let(:mr_description_response) { 'some description' }
+
+        it 'fails about missing template source' do
+          expect(stable_branch).to receive(:fail).with(described_class::NEEDS_STABLE_BRANCH_TEMPLATE_MESSAGE)
+
+          subject
+        end
+      end
     end
   end
 
   describe '#encourage_package_and_qa_execution?' do
     subject { stable_branch.encourage_package_and_qa_execution? }
 
-    where(:stable_branch?, :security_mr?, :documentation?, :flaky?, :result) do
+    where(:stable_branch?, :security_mr?, :allowed_changes?, :flaky?, :result) do
       # security merge requests
       true  | true  | true  | true  | false
       true  | true  | true  | false | false
@@ -357,11 +389,11 @@ RSpec.describe Tooling::Danger::StableBranch, feature_category: :delivery do
           .and_return(security_mr?)
 
         allow(fake_helper)
-          .to receive(:has_only_documentation_changes?)
-          .and_return(documentation?)
+          .to receive(:allowed_backport_changes?)
+          .and_return(allowed_changes?)
 
         changes_by_category =
-          if documentation?
+          if allowed_changes?
             { docs: ['foo.md'] }
           else
             { graphql: ['bar.rb'] }

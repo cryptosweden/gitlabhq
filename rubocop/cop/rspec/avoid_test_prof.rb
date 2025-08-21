@@ -5,7 +5,12 @@ require 'rubocop-rspec'
 module RuboCop
   module Cop
     module RSpec
-      # This cop checks for the usage of TestProf methods in migration specs.
+      # Checks for the usage of TestProf methods in migration specs.
+      #
+      # TestProf methods like `let_it_be` and `before_all` rely on specs running
+      # within a database transaction for proper cleanup and isolation. However,
+      # migration specs run outside of a transaction, which can lead to data
+      # persistence issues and test pollution between examples.
       #
       # @example
       #
@@ -45,6 +50,7 @@ module RuboCop
         FORBIDDEN_METHODS = ALTERNATIVES.keys.map(&:inspect).join(' ')
         RESTRICT_ON_SEND = ALTERNATIVES.keys
 
+        # @!method forbidden_method_usage(node)
         def_node_matcher :forbidden_method_usage, <<~PATTERN
           (send nil? ${#{FORBIDDEN_METHODS}} ...)
         PATTERN

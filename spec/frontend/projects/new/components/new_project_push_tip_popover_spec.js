@@ -8,7 +8,6 @@ describe('New project push tip popover', () => {
   let wrapper;
   const targetId = 'target';
   const pushToCreateProjectCommand = 'command';
-  const projectHelpPath = 'path';
 
   const findPopover = () => wrapper.findComponent(GlPopover);
   const findClipboardButton = () => wrapper.findComponent(ClipboardButton);
@@ -16,17 +15,17 @@ describe('New project push tip popover', () => {
   const findHelpLink = () => wrapper.find('a');
   const findTarget = () => document.getElementById(targetId);
 
-  const buildWrapper = () => {
+  const buildWrapper = ({ stubs = {} } = {}) => {
     wrapper = shallowMount(NewProjectPushTipPopover, {
       propsData: {
         target: findTarget(),
       },
       stubs: {
         GlFormInputGroup,
+        ...stubs,
       },
       provide: {
         pushToCreateProjectCommand,
-        projectHelpPath,
       },
     });
   };
@@ -41,8 +40,10 @@ describe('New project push tip popover', () => {
   });
 
   it('renders popover that targets the specified target', () => {
+    // jest29 bug with recursive objects in toMatchObject https://github.com/jestjs/jest/issues/14734
+    expect(findPopover().props('target')).toEqual(findTarget());
+
     expect(findPopover().props()).toMatchObject({
-      target: findTarget(),
       triggers: 'click blur',
       placement: 'top',
       title: 'Push to create a project',
@@ -50,6 +51,8 @@ describe('New project push tip popover', () => {
   });
 
   it('renders a readonly form input with the push to create command', () => {
+    buildWrapper({ stubs: { GlFormInputGroup: true } });
+
     expect(findFormInput().props()).toMatchObject({
       value: pushToCreateProjectCommand,
       selectOnClick: true,
@@ -69,8 +72,6 @@ describe('New project push tip popover', () => {
   });
 
   it('displays a link to open the push command help page reference', () => {
-    expect(findHelpLink().attributes().href).toBe(
-      `${projectHelpPath}#create-a-new-project-with-git-push`,
-    );
+    expect(findHelpLink().attributes().href).toBe('/help/topics/git/project.md');
   });
 });

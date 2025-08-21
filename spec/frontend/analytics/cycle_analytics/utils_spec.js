@@ -25,7 +25,7 @@ describe('Value stream analytics utils', () => {
     describe('transforms the data as expected', () => {
       it('returns an array of stages', () => {
         expect(Array.isArray(response)).toBe(true);
-        expect(response.length).toBe(stages.length);
+        expect(response).toHaveLength(stages.length);
       });
 
       it('selects the correct stage', () => {
@@ -93,7 +93,7 @@ describe('Value stream analytics utils', () => {
     const createdBefore = '2021-11-06';
     const groupPath = 'groups/fake-group';
     const namespaceName = 'Fake project';
-    const namespaceFullPath = 'fake-group/fake-project';
+    const namespaceRestApiRequestPath = 'fake-group/fake-project';
     const labelsPath = '/fake-group/fake-project/-/labels.json';
     const milestonesPath = '/fake-group/fake-project/-/milestones.json';
     const requestPath = '/fake-group/fake-project/-/value_stream_analytics';
@@ -103,7 +103,7 @@ describe('Value stream analytics utils', () => {
       createdBefore,
       createdAfter,
       namespaceName,
-      namespaceFullPath,
+      namespaceRestApiRequestPath,
       requestPath,
       labelsPath,
       milestonesPath,
@@ -126,7 +126,7 @@ describe('Value stream analytics utils', () => {
 
       it('sets the namespace', () => {
         expect(res.namespace.name).toBe(namespaceName);
-        expect(res.namespace.fullPath).toBe(namespaceFullPath);
+        expect(res.namespace.restApiRequestPath).toBe(namespaceRestApiRequestPath);
       });
 
       it('sets the endpoints', () => {
@@ -135,10 +135,6 @@ describe('Value stream analytics utils', () => {
 
       it('returns null when there is no stage', () => {
         expect(res.selectedStage).toBeNull();
-      });
-
-      it('returns false for missing features', () => {
-        expect(res.features.cycleAnalyticsForGroups).toBe(false);
       });
     });
 
@@ -152,21 +148,6 @@ describe('Value stream analytics utils', () => {
 
         expect(stage.id).toBe('fakeStage');
         expect(stage.title).toBe('fakeStage');
-      });
-    });
-
-    describe('with features set', () => {
-      const fakeFeatures = { cycleAnalyticsForGroups: true };
-
-      beforeEach(() => {
-        window.gon = { licensed_features: fakeFeatures };
-      });
-
-      it('sets the feature flags', () => {
-        res = buildCycleAnalyticsInitialData({
-          ...rawData,
-        });
-        expect(res.features).toMatchObject(fakeFeatures);
       });
     });
   });

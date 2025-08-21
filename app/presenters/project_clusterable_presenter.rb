@@ -15,6 +15,16 @@ class ProjectClusterablePresenter < ClusterablePresenter
     clear_cache_project_cluster_path(clusterable, cluster)
   end
 
+  override :create_cluster_migration_path
+  def create_cluster_migration_path(cluster)
+    migrate_project_cluster_path(clusterable, cluster)
+  end
+
+  override :update_cluster_migration_path
+  def update_cluster_migration_path(cluster)
+    update_migration_project_cluster_path(clusterable, cluster)
+  end
+
   override :cluster_path
   def cluster_path(cluster, params = {})
     project_cluster_path(clusterable, cluster, params)
@@ -27,12 +37,6 @@ class ProjectClusterablePresenter < ClusterablePresenter
 
   override :learn_more_link
   def learn_more_link
-    ApplicationController.helpers.link_to(s_('ClusterIntegration|Learn more about Kubernetes.'), help_page_path('user/project/clusters/index'), target: '_blank', rel: 'noopener noreferrer')
-  end
-
-  def metrics_dashboard_path(cluster)
-    metrics_dashboard_project_cluster_path(clusterable, cluster)
+    ApplicationController.helpers.link_to(s_('ClusterIntegration|Learn more about Kubernetes.'), help_page_path('user/project/clusters/_index.md'), target: '_blank', rel: 'noopener noreferrer')
   end
 end
-
-ProjectClusterablePresenter.prepend_mod_with('ProjectClusterablePresenter')

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::PipelineSchedules::VariablesUpdateService, feature_category: :continuous_integration do
+RSpec.describe Ci::PipelineSchedules::VariablesUpdateService, feature_category: :ci_variables do
   let_it_be(:reporter) { create(:user) }
   let_it_be_with_reload(:user) { create(:user) }
   let_it_be_with_reload(:developer) { create(:user) }
@@ -14,6 +14,10 @@ RSpec.describe Ci::PipelineSchedules::VariablesUpdateService, feature_category: 
   let(:pipeline_schedule_variable) { create(:ci_pipeline_schedule_variable, pipeline_schedule: pipeline_schedule) }
 
   subject(:service) { described_class.new(pipeline_schedule_variable, user, params) }
+
+  before do
+    project.update!(ci_pipeline_variables_minimum_override_role: :maintainer)
+  end
 
   describe 'execute' do
     context 'when user does not have permission' do
@@ -37,7 +41,7 @@ RSpec.describe Ci::PipelineSchedules::VariablesUpdateService, feature_category: 
       subject(:service) { described_class.new(pipeline_schedule_variable, developer, {}) }
 
       before do
-        project.update!(restrict_user_defined_variables: true)
+        project.update!(ci_pipeline_variables_minimum_override_role: :maintainer)
       end
 
       it 'returns ServiceResponse.error' do

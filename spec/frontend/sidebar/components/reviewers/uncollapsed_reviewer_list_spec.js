@@ -3,6 +3,7 @@ import { nextTick } from 'vue';
 import { TEST_HOST } from 'helpers/test_constants';
 import ReviewerAvatarLink from '~/sidebar/components/reviewers/reviewer_avatar_link.vue';
 import UncollapsedReviewerList from '~/sidebar/components/reviewers/uncollapsed_reviewer_list.vue';
+import { createAlert } from '~/alert';
 
 const userDataMock = ({ approved = true, reviewState = 'UNREVIEWED' } = {}) => ({
   id: 1,
@@ -19,6 +20,8 @@ const userDataMock = ({ approved = true, reviewState = 'UNREVIEWED' } = {}) => (
     reviewState,
   },
 });
+
+jest.mock('~/alert');
 
 describe('UncollapsedReviewerList component', () => {
   let wrapper;
@@ -37,6 +40,7 @@ describe('UncollapsedReviewerList component', () => {
     const propsData = {
       users: [],
       rootPath: TEST_HOST,
+      canRerequest: true,
       ...props,
     };
 
@@ -66,6 +70,32 @@ describe('UncollapsedReviewerList component', () => {
       await findAllRerequestButtons().at(0).vm.$emit('click');
 
       expect(findAllRerequestButtons().at(0).props('loading')).toBe(true);
+    });
+  });
+
+  describe('when reviewer status is unapproved', () => {
+    beforeEach(() => {
+      const user = userDataMock();
+
+      createComponent({
+        users: [
+          {
+            ...user,
+            id: 2,
+            name: 'nonrooty-nonrootersen',
+            username: 'hello-world',
+            mergeRequestInteraction: {
+              ...user.mergeRequestInteraction,
+              approved: false,
+              reviewState: 'UNAPPROVED',
+            },
+          },
+        ],
+      });
+    });
+
+    it('renders re-request review button', () => {
+      expect(findAllRerequestButtons().exists()).toBe(true);
     });
   });
 
@@ -200,14 +230,14 @@ describe('UncollapsedReviewerList component', () => {
 
   describe('reviewer state icons', () => {
     it.each`
-      reviewState            | approved | icon
-      ${'UNREVIEWED'}        | ${false} | ${'dash-circle'}
-      ${'REVIEWED'}          | ${true}  | ${'check-circle'}
-      ${'REVIEWED'}          | ${false} | ${'comment-lines'}
-      ${'REQUESTED_CHANGES'} | ${false} | ${'error'}
+      reviewState            | approved | icon               | iconClass
+      ${'UNREVIEWED'}        | ${false} | ${'dash-circle'}   | ${'gl-fill-icon-default'}
+      ${'REVIEWED'}          | ${true}  | ${'check-circle'}  | ${'gl-fill-icon-success'}
+      ${'REVIEWED'}          | ${false} | ${'comment-lines'} | ${'gl-fill-icon-info'}
+      ${'REQUESTED_CHANGES'} | ${false} | ${'error'}         | ${'gl-fill-icon-danger'}
     `(
       'renders $icon for reviewState:$reviewState and approved:$approved',
-      ({ reviewState, approved, icon }) => {
+      ({ reviewState, approved, icon, iconClass }) => {
         const user = userDataMock({ approved, reviewState });
 
         createComponent({
@@ -215,7 +245,70 @@ describe('UncollapsedReviewerList component', () => {
         });
 
         expect(wrapper.find('[data-testid="reviewer-state-icon"]').props('name')).toBe(icon);
+        expect(wrapper.find('[data-testid="reviewer-state-icon"]').classes()).toEqual([iconClass]);
       },
     );
+  });
+
+  describe('re-requesting review', () => {
+    it.each`
+      description          | reviewState     | canRerequest | expectedButtonVisibility
+      ${'should show'}     | ${'UNAPPROVED'} | ${true}      | ${true}
+      ${'should not show'} | ${'UNAPPROVED'} | ${false}     | ${false}
+      ${'should show'}     | ${'UNREVIEWED'} | ${true}      | ${true}
+      ${'should not show'} | ${'UNREVIEWED'} | ${false}     | ${false}
+    `(
+      '$description re-request button for users with state:$reviewState when canRerequest:$canRerequest',
+      ({ reviewState, canRerequest, expectedButtonVisibility }) => {
+        createComponent({
+          users: [userDataMock({ reviewState })],
+          canRerequest,
+        });
+        expect(findAllRerequestButtons().exists()).toBe(expectedButtonVisibility);
+      },
+    );
+  });
+
+  describe('handling review request with error messages', () => {
+    const user = userDataMock();
+
+    beforeAll(() => {
+      createAlert.mockImplementation(jest.fn());
+    });
+
+    afterAll(() => {
+      createAlert.mockRestore();
+    });
+
+    beforeEach(() => {
+      createAlert.mockClear();
+
+      createComponent({
+        users: [user],
+      });
+    });
+
+    it('shows an alert when requestReviewComplete receives an error message', async () => {
+      await findAllRerequestButtons().at(0).vm.$emit('click');
+
+      const errorMessage = "Your account doesn't have GitLab Duo access.";
+      wrapper.vm.requestReviewComplete(user.id, false, errorMessage);
+
+      expect(createAlert).toHaveBeenCalledWith({
+        message: errorMessage,
+      });
+
+      expect(wrapper.vm.loadingStates[user.id]).toBeNull();
+    });
+
+    it('does not show an alert when requestReviewComplete fails without an error message', async () => {
+      await findAllRerequestButtons().at(0).vm.$emit('click');
+
+      wrapper.vm.requestReviewComplete(user.id, false);
+
+      expect(createAlert).not.toHaveBeenCalled();
+
+      expect(wrapper.vm.loadingStates[user.id]).toBeNull();
+    });
   });
 });

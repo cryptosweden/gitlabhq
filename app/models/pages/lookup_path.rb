@@ -4,22 +4,21 @@ module Pages
   class LookupPath
     include Gitlab::Utils::StrongMemoize
 
-    def initialize(deployment:, domain: nil, trim_prefix: nil)
+    def initialize(deployment:, root_namespace_id:, domain: nil, trim_prefix: nil, access_control: false)
       @deployment = deployment
       @project = deployment.project
+      @root_namespace_id = root_namespace_id
       @domain = domain
       @trim_prefix = trim_prefix || @project.full_path
+      @access_control = access_control
     end
+
+    attr_accessor :access_control
 
     def project_id
       project.id
     end
     strong_memoize_attr :project_id
-
-    def access_control
-      project.private_pages?
-    end
-    strong_memoize_attr :access_control
 
     def https_only
       domain_https = domain ? domain.https? : true
@@ -57,7 +56,7 @@ module Pages
       # https://gitlab.com/gitlab-org/gitlab/-/issues/426435
       return if domain.present?
 
-      url_builder.unique_host
+      project.pages_url_builder.unique_host
     end
     strong_memoize_attr :unique_host
 
@@ -68,17 +67,17 @@ module Pages
     end
     strong_memoize_attr :root_directory
 
+    def primary_domain
+      project&.project_setting&.pages_primary_domain
+    end
+    strong_memoize_attr :primary_domain
+
     private
 
-    attr_reader :project, :deployment, :trim_prefix, :domain
-
-    def url_builder
-      Gitlab::Pages::UrlBuilder.new(project)
-    end
-    strong_memoize_attr :url_builder
+    attr_reader :project, :root_namespace_id, :deployment, :trim_prefix, :domain
 
     def prefix_value
-      return deployment.path_prefix if url_builder.namespace_pages?
+      return deployment.path_prefix if project.pages_url_builder.is_namespace_homepage?
 
       [project.full_path.delete_prefix(trim_prefix), deployment.path_prefix].compact.join('/')
     end

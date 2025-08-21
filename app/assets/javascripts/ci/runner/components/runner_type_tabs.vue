@@ -86,6 +86,7 @@ export default {
     },
 
     // Component API
+    // eslint-disable-next-line vue/no-unused-properties
     refetch() {
       // Refresh all of the counts here, can be called by parent component
       this.$refs[TAB_COUNT_REF].forEach((countComponent) => {
@@ -97,7 +98,12 @@ export default {
 };
 </script>
 <template>
-  <gl-tabs v-bind="$attrs" data-testid="runner-type-tabs">
+  <gl-tabs
+    class="gl-w-full"
+    content-class="gl-hidden"
+    nav-class="!gl-border-none"
+    data-testid="runner-type-tabs"
+  >
     <gl-tab
       v-for="tab in tabs"
       :key="`${tab.runnerType}`"

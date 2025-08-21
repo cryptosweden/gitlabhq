@@ -8,6 +8,7 @@ module API
 
     feature_category :importers
     urgency :low
+    helpers Helpers::BulkImports::AuditHelpers
 
     params do
       requires :id, type: String, desc: 'The ID of a group'
@@ -29,9 +30,9 @@ module API
       get ':id/export/download' do
         check_rate_limit! :group_download_export, scope: [current_user, user_group]
 
-        if user_group.export_file_exists?
-          if user_group.export_archive_exists?
-            present_carrierwave_file!(user_group.export_file)
+        if user_group.export_file_exists?(current_user)
+          if user_group.export_archive_exists?(current_user)
+            present_carrierwave_file!(user_group.export_file(current_user))
           else
             render_api_error!('The group export file is not available yet', 404)
           end
@@ -94,6 +95,13 @@ module API
             .execute
 
           if response.success?
+            log_direct_transfer_audit_event(
+              ::Import::BulkImports::Audit::Events::EXPORT_INITIATED,
+              'Direct Transfer relations export initiated',
+              current_user,
+              user_group
+            )
+
             accepted!
           else
             render_api_error!(message: 'Group relations export could not be started.')
@@ -120,7 +128,7 @@ module API
           all_or_none_of :batched, :batch_number
         end
         get ':id/export_relations/download' do
-          export = user_group.bulk_import_exports.find_by_relation(params[:relation])
+          export = user_group.bulk_import_exports.for_user_and_relation(current_user, params[:relation]).first
 
           break render_api_error!('Export not found', 404) unless export
 
@@ -132,12 +140,26 @@ module API
             break render_api_error!('Batch not found', 404) unless batch
             break render_api_error!('Batch file not found', 404) unless batch_file
 
+            log_direct_transfer_audit_event(
+              ::Import::BulkImports::Audit::Events::EXPORT_BATCH_DOWNLOADED,
+              'Direct Transfer relation export batch downloaded',
+              current_user,
+              user_group
+            )
+
             present_carrierwave_file!(batch_file)
           else
             file = export&.upload&.export_file
 
             break render_api_error!('Export is batched', 400) if export.batched?
             break render_api_error!('Export file not found', 404) unless file
+
+            log_direct_transfer_audit_event(
+              ::Import::BulkImports::Audit::Events::EXPORT_DOWNLOADED,
+              'Direct Transfer relation export downloaded',
+              current_user,
+              user_group
+            )
 
             present_carrierwave_file!(file)
           end
@@ -160,13 +182,13 @@ module API
         end
         get ':id/export_relations/status' do
           if params[:relation]
-            export = user_group.bulk_import_exports.find_by_relation(params[:relation])
+            export = user_group.bulk_import_exports.for_user_and_relation(current_user, params[:relation]).first
 
             break render_api_error!('Export not found', 404) unless export
 
             present export, with: Entities::BulkImports::ExportStatus
           else
-            present user_group.bulk_import_exports, with: Entities::BulkImports::ExportStatus
+            present user_group.bulk_import_exports.for_user(current_user), with: Entities::BulkImports::ExportStatus
           end
         end
       end

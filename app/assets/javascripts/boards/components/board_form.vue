@@ -36,6 +36,15 @@ export default {
     deleteErrorMessage: s__('Boards|Failed to delete board. Please try again.'),
     saveErrorMessage: __('Unable to save your changes. Please try again.'),
     deleteConfirmationMessage: s__('Boards|Are you sure you want to delete this board?'),
+    lastBoardDefaultMessage: s__(
+      'Boards|Because this is the only board here, when this board is deleted, a new default Development board will be created.',
+    ),
+    lastBoardGroupMessage: s__(
+      'Boards|Because this is the only board in this group, when this board is deleted, a new default Development board will be created.',
+    ),
+    lastBoardProjectMessage: s__(
+      'Boards|Because this is the only board in this project, when this board is deleted, a new default Development board will be created.',
+    ),
     titleFieldLabel: __('Title'),
     titleFieldPlaceholder: s__('Boards|Enter board name'),
   },
@@ -84,19 +93,26 @@ export default {
       type: String,
       required: true,
     },
-    showDelete: {
+    isLastBoard: {
       type: Boolean,
       required: false,
       default: false,
+    },
+    parentType: {
+      type: String,
+      required: false,
+      default: null,
     },
   },
   data() {
     return {
       board: { ...boardDefaults, ...this.currentBoard },
       isLoading: false,
+      isDisabled: false,
     };
   },
   apollo: {
+    // eslint-disable-next-line @gitlab/vue-no-undef-apollo-properties
     error: {
       query: errorQuery,
       update: (data) => data.boardsAppError,
@@ -132,7 +148,7 @@ export default {
       return !this.canAdminBoard;
     },
     submitDisabled() {
-      return this.isLoading || this.board.name.length === 0;
+      return this.isLoading || this.board.name.length === 0 || this.isDisabled;
     },
     primaryProps() {
       return {
@@ -178,7 +194,16 @@ export default {
       return this.baseMutationVariables;
     },
     canDelete() {
-      return this.canAdminBoard && this.showDelete && this.isEditForm;
+      return this.canAdminBoard && this.isEditForm;
+    },
+    lastBoardMessage() {
+      if (this.parentType === 'group') {
+        return this.$options.i18n.lastBoardGroupMessage;
+      }
+      if (this.parentType === 'project') {
+        return this.$options.i18n.lastBoardProjectMessage;
+      }
+      return this.$options.i18n.lastBoardDefaultMessage;
     },
   },
   mounted() {
@@ -195,6 +220,10 @@ export default {
     },
     cancel() {
       this.$emit('cancel');
+    },
+    close() {
+      // This calls cancel after the modal has been hidden
+      this.$refs.modal.hide();
     },
     async createOrUpdateBoard() {
       const response = await this.$apollo.mutate({
@@ -226,10 +255,12 @@ export default {
         try {
           await this.deleteBoard();
           visitUrl(this.boardBaseUrl);
+          this.close();
         } catch (error) {
           setError({ error, message: this.$options.i18n.deleteErrorMessage });
         } finally {
           this.isLoading = false;
+          this.isDisabled = true;
         }
       } else {
         try {
@@ -239,11 +270,12 @@ export default {
           } else {
             this.$emit('addBoard', board);
           }
-          this.cancel();
+          this.close();
         } catch (error) {
           setError({ error, message: this.$options.i18n.saveErrorMessage });
         } finally {
           this.isLoading = false;
+          this.isDisabled = true;
         }
       }
     },
@@ -297,6 +329,7 @@ export default {
 
 <template>
   <gl-modal
+    ref="modal"
     modal-id="board-config-modal"
     modal-class="board-config-modal"
     content-class="gl-absolute gl-top-7"
@@ -306,10 +339,9 @@ export default {
     :title="title"
     :action-primary="primaryProps"
     :action-cancel="cancelProps"
-    @primary="submit"
-    @cancel="cancel"
-    @close="cancel"
-    @hide.prevent
+    :no-close-on-backdrop="true"
+    @primary.prevent="submit"
+    @hidden="cancel"
   >
     <gl-alert
       v-if="error"
@@ -320,12 +352,17 @@ export default {
     >
       {{ error }}
     </gl-alert>
-    <p v-if="isDeleteForm" data-testid="delete-confirmation-message">
-      {{ $options.i18n.deleteConfirmationMessage }}
-    </p>
+    <div v-if="isDeleteForm">
+      <p data-testid="delete-confirmation-message">
+        {{ $options.i18n.deleteConfirmationMessage }}
+      </p>
+      <p v-if="isLastBoard" data-testid="delete-last-board-message">
+        {{ lastBoardMessage }}
+      </p>
+    </div>
     <gl-form v-else data-testid="board-form-wrapper" @submit.prevent="submit">
       <div v-if="!readonly" class="gl-mb-5" data-testid="board-form">
-        <label class="gl-font-bold gl-font-lg" for="board-new-name">
+        <label class="gl-text-lg gl-font-bold" for="board-new-name">
           {{ $options.i18n.titleFieldLabel }}
         </label>
         <input
@@ -359,7 +396,7 @@ export default {
       />
     </gl-form>
     <template v-if="canDelete" #modal-footer>
-      <div class="gl-display-flex gl-justify-content-space-between gl-w-full gl-m-0">
+      <div class="gl-m-0 gl-flex gl-w-full gl-justify-between">
         <gl-button
           category="secondary"
           variant="danger"
@@ -368,9 +405,9 @@ export default {
         >
           {{ $options.i18n.deleteButtonText }}</gl-button
         >
-        <div>
-          <gl-button @click="cancel">{{ cancelProps.text }}</gl-button>
-          <gl-button v-bind="primaryProps.attributes" @click="submit">{{
+        <div class="gl-flex gl-gap-3">
+          <gl-button class="!gl-m-0" @click="close">{{ cancelProps.text }}</gl-button
+          ><gl-button v-bind="primaryProps.attributes" class="!gl-m-0" @click="submit">{{
             primaryProps.text
           }}</gl-button>
         </div>

@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Guidelines for reusing abstractions
 ---
-
-# Guidelines for reusing abstractions
 
 As GitLab has grown, different patterns emerged across the codebase. Service
 classes, serializers, and presenters are just a few. These patterns made it easy
@@ -95,7 +94,7 @@ This is just a sketch, but it shows the general idea: we would use whatever the
 
 ## End goal
 
-The guidelines in this document are meant to foster _better_ code reuse, by
+The guidelines in this document are meant to foster better code reuse, by
 clearly defining what can be reused where, and what to do when you cannot reuse
 something. Clearly separating abstractions makes it harder to use the wrong one,
 makes it easier to debug the code, and (hopefully) results in fewer performance
@@ -207,8 +206,9 @@ which consists of only a single reusable `CommonService` class. It also uses
 [functional patterns with stateless singleton class methods](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/lib/remote_development/README.md#functional-patterns).
 See the Remote Development [service layer code example](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/lib/remote_development/README.md#service-layer-code-example) for more details.
 However, even though the invocation signature of services via this pattern is different,
-it still respects the standard Service Class contract of always returning all results via a
-[`ServiceResponse`](#serviceresponse) object.
+it still respects the standard Service layer contracts of always returning all results via a
+[`ServiceResponse`](#serviceresponse) object, and performing
+[defense-in-depth authorization](permissions/authorizations.md#where-should-permissions-be-checked).
 
 Classes that are not service objects should be
 [created elsewhere](software_design.md#use-namespaces-to-define-bounded-contexts),

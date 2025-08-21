@@ -11,28 +11,21 @@ module Gitlab
 
           log_info(import_stage: 'import_issues', message: 'importing issues')
 
-          issues = client.issues(project.import_source)
-
           labels = build_labels_hash
 
-          issues.each_with_index do |issue, index|
-            job_waiter.jobs_remaining += 1
-
-            next if already_enqueued?(issue)
-
-            allocate_issues_internal_id! if index == 0
-
+          is_first = true
+          each_object_to_import do |object|
             job_delay = calculate_job_delay(job_waiter.jobs_remaining)
 
-            issue_hash = issue.to_hash.merge({ issue_type_id: default_issue_type_id, label_id: labels[issue.kind] })
-            sidekiq_worker_class.perform_in(job_delay, project.id, issue_hash, job_waiter.key)
+            if is_first
+              allocate_issues_internal_id!
+              is_first = false
+            end
 
-            mark_as_enqueued(issue)
+            issue_hash = object.to_hash.merge({ issue_type_id: default_issue_type_id, label_id: labels[object[:kind]] })
+            sidekiq_worker_class.perform_in(job_delay, project.id, issue_hash, job_waiter.key)
           end
 
-          job_waiter
-        rescue StandardError => e
-          track_import_failure!(project, exception: e)
           job_waiter
         end
 
@@ -46,8 +39,16 @@ module Gitlab
           :issues
         end
 
+        def collection_options
+          { raw: true }
+        end
+
+        def representation_type
+          :issue
+        end
+
         def id_for_already_enqueued_cache(object)
-          object.iid
+          object[:iid]
         end
 
         def default_issue_type_id

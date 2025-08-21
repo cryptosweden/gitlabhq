@@ -20,21 +20,20 @@ export default {
 </script>
 
 <template>
-  <ul class="gl-display-contents">
-    <li
-      v-if="mergeRequest.upvotes"
-      v-gl-tooltip
-      class="gl-hidden sm:gl-block"
-      :title="$options.i18n.upvotes"
-      data-testid="issuable-upvotes"
-    >
-      <gl-icon name="thumb-up" />
-      {{ mergeRequest.upvotes }}
+  <ul class="gl-list-none gl-gap-3 gl-p-0">
+    <li v-if="mergeRequest.upvotes" data-testid="issuable-upvotes">
+      <button
+        v-gl-tooltip
+        :title="$options.i18n.upvotes"
+        :aria-label="$options.i18n.upvotes"
+        class="!gl-cursor-default gl-border-none gl-bg-transparent gl-p-0 focus-visible:gl-focus-inset"
+      >
+        <gl-icon name="thumb-up" /> {{ mergeRequest.upvotes }}
+      </button>
     </li>
     <li
       v-if="mergeRequest.downvotes"
       v-gl-tooltip
-      class="gl-hidden sm:gl-block"
       :title="$options.i18n.downvotes"
       data-testid="issuable-downvotes"
     >

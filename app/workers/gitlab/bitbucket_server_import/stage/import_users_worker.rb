@@ -6,17 +6,13 @@ module Gitlab
       class ImportUsersWorker
         include StageMethods
 
+        resumes_work_when_interrupted!
+
         idempotent!
 
         private
 
-        def import(project)
-          importer = importer_class.new(project)
-
-          importer.execute
-
-          ImportPullRequestsWorker.perform_async(project.id)
-        end
+        def import(project); end
 
         def importer_class
           Importers::UsersImporter

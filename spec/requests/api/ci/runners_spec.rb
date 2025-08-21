@@ -2,24 +2,27 @@
 
 require 'spec_helper'
 
-RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_visibility do
+RSpec.describe API::Ci::Runners, :aggregate_failures, factory_default: :keep, feature_category: :fleet_visibility do
   using RSpec::Parameterized::TableSyntax
 
-  let_it_be(:admin) { create(:user, :admin) }
-  let_it_be(:user) { create(:user) }
-  let_it_be(:user2) { create(:user) }
+  let_it_be(:organization) { create_default(:organization) }
+  let_it_be(:admin) { create(:user, :admin, last_activity_on: Time.current) }
+  let_it_be(:users) { create_list(:user, 2) }
   let_it_be(:group_guest) { create(:user, guest_of: group) }
   let_it_be(:group_reporter) { create(:user, reporter_of: group) }
   let_it_be(:group_developer) { create(:user, developer_of: group) }
   let_it_be(:group_maintainer) { create(:user, maintainer_of: group) }
 
-  let_it_be(:project) { create(:project, creator_id: user.id, maintainers: user, reporters: user2) }
-  let_it_be(:project2) { create(:project, creator_id: user.id, maintainers: user) }
-
-  let_it_be(:group) { create(:group, owners: user) }
+  let_it_be(:group) { create(:group, owners: users.first) }
   let_it_be(:subgroup) { create(:group, parent: group) }
 
-  let_it_be(:shared_runner, reload: true) { create(:ci_runner, :instance, description: 'Shared runner') }
+  let_it_be(:project) do
+    create(:project, creator_id: users.first.id, maintainers: users.first, reporters: users.second)
+  end
+
+  let_it_be(:project2) { create(:project, creator_id: users.first.id, maintainers: users.first) }
+
+  let_it_be(:shared_runner, reload: true) { create(:ci_runner, :instance, :with_runner_manager, description: 'Shared runner') }
   let_it_be(:project_runner, reload: true) { create(:ci_runner, :project, description: 'Project runner', projects: [project]) }
   let_it_be(:two_projects_runner) { create(:ci_runner, :project, description: 'Two projects runner', projects: [project, project2]) }
   let_it_be(:group_runner_a) { create(:ci_runner, :group, description: 'Group runner A', groups: [group]) }
@@ -31,7 +34,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
 
   shared_context 'access token setup' do
     let(:current_user) { nil }
-    let(:pat_user) { user }
+    let(:pat_user) { users.first }
     let(:pat) { create(:personal_access_token, user: pat_user, scopes: [scope]) }
     let(:extra_query_parts) { { private_token: pat.token } }
   end
@@ -66,7 +69,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
     subject(:perform_request) { get api(path, current_user) }
 
     context 'authorized user' do
-      let(:current_user) { user }
+      let(:current_user) { users.first }
 
       it 'returns response status and headers' do
         perform_request
@@ -96,7 +99,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         let(:query) { { scope: :paused } }
 
         before_all do
-          create(:ci_runner, :project, :inactive, description: 'Inactive project runner', projects: [project])
+          create(:ci_runner, :project, :paused, description: 'Paused project runner', projects: [project])
         end
 
         it 'filters runners by scope' do
@@ -106,7 +109,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
           expect(response).to include_pagination_headers
 
           expect(json_response).to match_array [
-            a_hash_including('description' => 'Inactive project runner')
+            a_hash_including('description' => 'Paused project runner')
           ]
         end
 
@@ -148,9 +151,9 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         end
       end
 
-      context 'with an inactive runner' do
+      context 'with a paused runner' do
         let_it_be(:runner) do
-          create(:ci_runner, :project, :inactive, description: 'Inactive project runner', projects: [project])
+          create(:ci_runner, :project, :paused, description: 'Paused project runner', projects: [project])
         end
 
         context 'when filtering by paused' do
@@ -159,7 +162,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
           it 'filters runners by paused state' do
             perform_request
 
-            expect(json_response).to contain_exactly(a_hash_including('description' => 'Inactive project runner'))
+            expect(json_response).to contain_exactly(a_hash_including('description' => 'Paused project runner'))
           end
         end
 
@@ -169,7 +172,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
           it 'filters runners by status' do
             perform_request
 
-            expect(json_response).to contain_exactly(a_hash_including('description' => 'Inactive project runner'))
+            expect(json_response).to contain_exactly(a_hash_including('description' => 'Paused project runner'))
           end
         end
 
@@ -200,10 +203,125 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
           end
         end
       end
+
+      context 'job_execution_status attribute' do
+        context 'when no executing builds present for runners' do
+          it 'returns "idle" as job execution status' do
+            perform_request
+
+            expect(json_response.find { |runner| runner['id'] == project_runner.id }['job_execution_status']).to eq 'idle'
+          end
+        end
+
+        context 'when executing build present' do
+          before do
+            create(:ci_build, :running, runner: project_runner, project: project)
+          end
+
+          it 'returns "active" as job execution status' do
+            perform_request
+
+            expect(json_response.find { |runner| runner['id'] == project_runner.id }['job_execution_status']).to eq 'active'
+          end
+        end
+
+        context 'N+1 query performance' do
+          it 'does not trigger N+1 query for job_execution_status', :use_sql_query_cache do
+            control = ActiveRecord::QueryRecorder.new(skip_cached: false) { get api(path, current_user) }
+            create_list(:ci_runner, 5, :project, projects: [project], creator: users.first)
+
+            expect do
+              perform_request
+
+              expect(json_response).to all(include('job_execution_status'))
+            end.not_to exceed_query_limit(control)
+          end
+        end
+      end
     end
 
     context 'unauthorized user' do
       let(:current_user) { nil }
+
+      it 'does not return runners' do
+        perform_request
+
+        expect(response).to have_gitlab_http_status(:unauthorized)
+      end
+    end
+  end
+
+  describe 'GET /runners/:id/managers' do
+    let(:path) { "/runners/#{runner.id}/managers" }
+
+    subject(:perform_request) { get api(path, current_user) }
+
+    context 'authorized user' do
+      let(:current_user) { users.first }
+
+      context 'when runner has managers' do
+        let(:runner) { shared_runner }
+        let(:manager) { runner.runner_managers.first }
+
+        before do
+          create(:ci_build, :running, runner_manager: manager, runner: shared_runner)
+        end
+
+        it 'returns all managers of the runner' do
+          perform_request
+
+          expect(response).to have_gitlab_http_status(:ok)
+
+          expect(json_response).to contain_exactly(
+            a_hash_including('id' => manager.id, 'version' => manager.version, 'architecture' => manager.architecture,
+              'job_execution_status' => 'active')
+          )
+        end
+
+        context 'job_execution_status' do
+          before do
+            create(:ci_build, :running, runner_manager: manager, project: project)
+          end
+
+          it 'returns job execution status' do
+            perform_request
+
+            expect(json_response).to all(include('job_execution_status'))
+            expect(json_response.find { |runner_manager| runner_manager['id'] == manager.id }['job_execution_status']).to eq 'active'
+          end
+
+          context 'N+1 query performance' do
+            it 'does not trigger N+1 query for job_execution_status', :use_sql_query_cache do
+              control = ActiveRecord::QueryRecorder.new(skip_cached: false) { get api(path, current_user) }
+              create_list(:ci_runner_machine, 5, runner: runner)
+
+              expect do
+                perform_request
+
+                expect(json_response).to all(include('job_execution_status'))
+              end.not_to exceed_query_limit(control)
+            end
+          end
+        end
+      end
+
+      context 'when runner does not have managers' do
+        let(:runner) { project_runner }
+
+        it 'returns no managers' do
+          perform_request
+
+          expect(response).to have_gitlab_http_status(:ok)
+
+          expect(json_response).to be_empty
+        end
+      end
+    end
+
+    context 'unauthorized user' do
+      let(:current_user) { nil }
+
+      let(:runner) { shared_runner }
 
       it 'does not return runners' do
         perform_request
@@ -241,6 +359,30 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
             a_hash_including('description' => 'Group runner B', 'is_shared' => false, 'runner_type' => 'group_type'),
             a_hash_including('description' => 'Shared runner', 'is_shared' => true, 'runner_type' => 'instance_type')
           ]
+        end
+
+        context 'created_by' do
+          let_it_be(:runner_with_creator) { create(:ci_runner, :project, creator: admin, projects: [project]) }
+
+          it 'returns created_at and created_by in the response' do
+            perform_request
+
+            expect(json_response.find { |runner| runner['id'] == runner_with_creator.id }['created_by']['username'])
+              .to eq(admin.username)
+            expect(json_response).to all(include('created_at'))
+          end
+
+          it 'does not trigger N+1 query for creator', :use_sql_query_cache do
+            control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
+              get api(path, current_user)
+            end
+
+            create_list(:ci_runner, 5, :project, projects: [project], creator: users.first)
+
+            expect do
+              perform_request
+            end.not_to exceed_query_limit(control)
+          end
         end
 
         context 'with request authorized with access token' do
@@ -337,8 +479,8 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
           end
         end
 
-        context 'with an inactive runner' do
-          let_it_be(:runner) { create(:ci_runner, :project, :inactive, description: 'Inactive project runner', projects: [project]) }
+        context 'with an paused runner' do
+          let_it_be(:runner) { create(:ci_runner, :project, :paused, description: 'Paused project runner', projects: [project]) }
 
           context 'when filtering runners by paused status' do
             let(:query) { { paused: true } }
@@ -346,7 +488,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
             it 'filters runners by status' do
               perform_request
 
-              expect(json_response).to contain_exactly(a_hash_including('description' => 'Inactive project runner'))
+              expect(json_response).to contain_exactly(a_hash_including('description' => 'Paused project runner'))
             end
           end
 
@@ -356,7 +498,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
             it 'filters runners by status' do
               perform_request
 
-              expect(json_response).to contain_exactly(a_hash_including('description' => 'Inactive project runner'))
+              expect(json_response).to contain_exactly(a_hash_including('description' => 'Paused project runner'))
             end
 
             context 'and status is invalid' do
@@ -390,8 +532,8 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
 
         describe 'with ci_runner_machines' do
           before_all do
-            version_ci_runner = create(:ci_runner, :project, description: 'Runner with machine')
-            version_16_ci_runner = create(:ci_runner, :project, description: 'Runner with machine version 16')
+            version_ci_runner = create(:ci_runner, description: 'Runner with machine')
+            version_16_ci_runner = create(:ci_runner, description: 'Runner with machine version 16')
             create(:ci_runner_machine, runner: version_ci_runner, version: '15.0.3')
             create(:ci_runner_machine, runner: version_16_ci_runner, version: '16.0.1')
           end
@@ -429,7 +571,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
               it 'filters runners by version_prefix' do
                 perform_request
 
-                expect(json_response).to match_array []
+                expect(json_response).to be_empty
               end
             end
 
@@ -447,7 +589,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
       end
 
       context 'without admin privileges' do
-        let(:current_user) { user }
+        let(:current_user) { users.first }
 
         it 'does not return runners list' do
           perform_request
@@ -548,7 +690,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
       end
 
       context "runner project's administrative user" do
-        let(:current_user) { user }
+        let(:current_user) { users.first }
 
         context 'when runner is not shared' do
           let(:runner) { project_runner }
@@ -575,7 +717,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
     end
 
     context 'authorized user' do
-      let(:current_user) { user }
+      let(:current_user) { users.first }
 
       it_behaves_like 'an endpoint returning expected results'
 
@@ -597,7 +739,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
     end
 
     context 'other authorized user' do
-      let(:current_user) { user2 }
+      let(:current_user) { users.second }
       let(:runner) { project_runner }
 
       it "does not return project runner's details" do
@@ -849,7 +991,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
     end
 
     context 'authorized user' do
-      let(:current_user) { user }
+      let(:current_user) { users.first }
       let(:params) { { description: 'test' } }
 
       context 'when runner is shared' do
@@ -896,7 +1038,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         end
 
         context 'when user does not have access to runner' do
-          let(:current_user) { user2 }
+          let(:current_user) { users.second }
 
           it 'does not update runner' do
             perform_request
@@ -1010,7 +1152,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
     end
 
     context 'authorized user' do
-      let(:current_user) { user }
+      let(:current_user) { users.first }
 
       context 'when runner is shared' do
         let(:runner) { shared_runner }
@@ -1032,7 +1174,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         let(:runner) { project_runner }
 
         context 'when user does not have access to runner' do
-          let(:current_user) { user2 }
+          let(:current_user) { users.second }
 
           it 'does not delete runner without access to it' do
             perform_request
@@ -1130,7 +1272,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         end
 
         context 'when user has owner access' do
-          let(:current_user) { user }
+          let(:current_user) { users.first }
 
           it 'deletes runner' do
             expect do
@@ -1168,7 +1310,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         let(:runner) { group_runner_b }
 
         context 'when user has owner access' do
-          let(:current_user) { user }
+          let(:current_user) { users.first }
 
           it 'deletes group runner' do
             expect do
@@ -1280,7 +1422,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         let(:runner) { project_runner }
 
         context 'when user does not have access to runner' do
-          let(:current_user) { user2 }
+          let(:current_user) { users.second }
 
           it 'does not reset runner' do
             expect do
@@ -1292,7 +1434,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
 
           context 'with request authorized with access token' do
             include_context 'access token setup' do
-              let(:pat_user) { user2 }
+              let(:pat_user) { users.second }
             end
 
             it_behaves_like 'when scope is forbidden', forbidden_scopes: %i[manage_runner create_runner read_api]
@@ -1300,7 +1442,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         end
 
         context 'when user has access to runner' do
-          let(:current_user) { user }
+          let(:current_user) { users.first }
 
           it_behaves_like 'a runner accepting authentication token reset'
 
@@ -1370,7 +1512,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         end
 
         context 'when user has owner access' do
-          let(:current_user) { user }
+          let(:current_user) { users.first }
 
           it_behaves_like 'a runner accepting authentication token reset'
 
@@ -1427,15 +1569,17 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
     let_it_be(:jobs) do
       project_runner_manager1 = create(:ci_runner_machine, runner: project_runner, system_xid: 'id1')
       project_runner_manager2 = create(:ci_runner_machine, runner: two_projects_runner, system_xid: 'id1')
+      pipeline_args = { pipeline: create(:ci_pipeline, project: project) }
+      pipeline2_args = { pipeline: create(:ci_pipeline, project: project2) }
 
       [
-        create(:ci_build),
-        create(:ci_build, :running, runner_manager: shared_runner_manager1, project: project),
-        create(:ci_build, :failed, runner_manager: shared_runner_manager1, project: project),
-        create(:ci_build, :running, runner_manager: project_runner_manager1, project: project),
-        create(:ci_build, :failed, runner_manager: project_runner_manager1, project: project),
-        create(:ci_build, :running, runner_manager: project_runner_manager2, project: project),
-        create(:ci_build, :running, runner_manager: project_runner_manager2, project: project2)
+        create(:ci_build, pipeline: create(:ci_pipeline)),
+        create(:ci_build, :running, runner_manager: shared_runner_manager1, **pipeline_args),
+        create(:ci_build, :failed, runner_manager: shared_runner_manager1, **pipeline_args),
+        create(:ci_build, :running, runner_manager: project_runner_manager1, **pipeline_args),
+        create(:ci_build, :failed, runner_manager: project_runner_manager1, **pipeline_args),
+        create(:ci_build, :running, runner_manager: project_runner_manager2, **pipeline_args),
+        create(:ci_build, :running, runner_manager: project_runner_manager2, **pipeline2_args)
       ]
     end
 
@@ -1537,11 +1681,11 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
 
           context 'when user does not have authorization to see all jobs' do
             let(:runner) { two_projects_runner }
-            let(:current_user) { user2 }
+            let(:current_user) { users.second }
 
             before_all do
-              project.add_guest(user2)
-              project2.add_maintainer(user2)
+              project.add_guest(users.second)
+              project2.add_maintainer(users.second)
             end
 
             it 'shows only jobs it has permission to see' do
@@ -1554,7 +1698,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
 
             context 'with request authorized with access token' do
               include_context 'access token setup' do
-                let(:pat_user) { user2 }
+                let(:pat_user) { users.second }
               end
 
               it_behaves_like 'when scope is forbidden', forbidden_scopes: %i[create_runner]
@@ -1653,20 +1797,21 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
       end
 
       describe 'eager loading' do
-        let(:runner) { shared_runner }
+        let!(:runner) { shared_runner }
 
-        it 'avoids N+1 DB queries' do
-          get api(path, current_user)
+        it 'avoids N+1 DB queries', :use_sql_query_cache, :freeze_time do
+          another_admin = create(:admin, last_activity_on: Time.current) # Avoid noise from Users::ActivityService
+          pipeline = create(:ci_pipeline, project: project2, sha: 'ddd0f15ae83993f5cb66a927a28673882e99100b')
 
-          control = ActiveRecord::QueryRecorder.new do
+          control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
             get api(path, current_user)
           end
 
-          create(:ci_build, :failed, runner: shared_runner, project: project)
+          create(:ci_build, :failed, runner: shared_runner, project: project2, pipeline: pipeline)
 
           expect do
-            get api(path, current_user)
-          end.not_to exceed_query_limit(control.count)
+            get api(path, another_admin)
+          end.not_to exceed_all_query_limit(control)
         end
 
         it 'batches loading of commits' do
@@ -1706,7 +1851,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
     end
 
     context "runner project's administrative user" do
-      let(:current_user) { user }
+      let(:current_user) { users.first }
 
       context 'when runner exists' do
         context 'when runner is shared' do
@@ -1772,7 +1917,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
       end
 
       context 'other authorized user' do
-        let(:current_user) { user2 }
+        let(:current_user) { users.second }
         let(:runner) { shared_runner }
 
         it 'does not return jobs' do
@@ -1796,7 +1941,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
 
     context 'with system_id param' do
       let(:extra_query_parts) { { system_id: 'id1' } }
-      let(:current_user) { user }
+      let(:current_user) { users.first }
 
       context 'with project runner' do
         let(:runner) { project_runner }
@@ -1831,7 +1976,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
 
   shared_examples_for 'unauthorized access to runners list' do
     context 'authorized user without maintainer privileges' do
-      let(:current_user) { user2 }
+      let(:current_user) { users.second }
 
       it "does not return group's runners" do
         perform_request
@@ -1868,7 +2013,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
     end
 
     context 'authorized user with maintainer privileges' do
-      let(:current_user) { user }
+      let(:current_user) { users.first }
 
       it 'returns all runners' do
         perform_request
@@ -1889,10 +2034,10 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
 
-          expect(json_response).to match_array [
+          expect(json_response).to contain_exactly(
             a_hash_including('description' => 'Project runner'),
             a_hash_including('description' => 'Two projects runner')
-          ]
+          )
         end
 
         context 'and scope is unknown' do
@@ -1912,10 +2057,10 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         it 'filters runners by type' do
           perform_request
 
-          expect(json_response).to match_array [
+          expect(json_response).to contain_exactly(
             a_hash_including('description' => 'Project runner'),
             a_hash_including('description' => 'Two projects runner')
-          ]
+          )
         end
 
         context 'and type is invalid' do
@@ -1929,8 +2074,8 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         end
       end
 
-      context 'with an inactive runner' do
-        let_it_be(:runner) { create(:ci_runner, :project, :inactive, description: 'Inactive project runner', projects: [project]) }
+      context 'with a paused runner' do
+        let_it_be(:runner) { create(:ci_runner, :project, :paused, description: 'Paused project runner', projects: [project]) }
 
         context 'when filtering by paused status' do
           let(:query) { { paused: true } }
@@ -1939,7 +2084,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
             perform_request
 
             expect(json_response).to contain_exactly(
-              a_hash_including('description' => 'Inactive project runner')
+              a_hash_including('description' => 'Paused project runner')
             )
           end
         end
@@ -1951,7 +2096,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
             perform_request
 
             expect(json_response).to contain_exactly(
-              a_hash_including('description' => 'Inactive project runner')
+              a_hash_including('description' => 'Paused project runner')
             )
           end
 
@@ -2014,7 +2159,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
     subject(:perform_request) { get api(path, current_user) }
 
     context 'authorized user with maintainer privileges' do
-      let(:current_user) { user }
+      let(:current_user) { users.first }
 
       it 'returns all runners' do
         perform_request
@@ -2071,8 +2216,8 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         end
       end
 
-      context 'with an inactive runner' do
-        let_it_be(:runner) { create(:ci_runner, :group, :inactive, description: 'Inactive group runner', groups: [group]) }
+      context 'with a paused runner' do
+        let_it_be(:runner) { create(:ci_runner, :group, :paused, description: 'Paused group runner', groups: [group]) }
 
         context 'when filtering by paused status' do
           let(:query) { { paused: true } }
@@ -2080,7 +2225,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
           it 'filters runners by status' do
             perform_request
 
-            expect(json_response).to contain_exactly(a_hash_including('description' => 'Inactive group runner'))
+            expect(json_response).to contain_exactly(a_hash_including('description' => 'Paused group runner'))
           end
         end
 
@@ -2090,7 +2235,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
           it 'returns runners by valid status' do
             perform_request
 
-            expect(json_response).to contain_exactly(a_hash_including('description' => 'Inactive group runner'))
+            expect(json_response).to contain_exactly(a_hash_including('description' => 'Paused group runner'))
           end
 
           context 'and status is invalid' do
@@ -2151,7 +2296,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
     subject(:perform_request) { post api(path, current_user), params: params }
 
     it_behaves_like 'POST request permissions for admin mode' do
-      let!(:new_project_runner) { create(:ci_runner, :project) }
+      let!(:new_project_runner) { create(:ci_runner, :project, projects: [project2]) }
       let(:params) { { runner_id: new_project_runner.id } }
       let(:failed_status_code) { :not_found }
     end
@@ -2159,53 +2304,53 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
     context 'authorized user' do
       let_it_be(:project_runner2) { create(:ci_runner, :project, projects: [project2]) }
 
-      let(:current_user) { user }
+      let(:current_user) { users.first }
       let(:runner) { project_runner2 }
 
-      it 'enables project runner' do
+      it 'assigns project runner' do
         expect { perform_request }.to change { project.runners.count }.by(+1)
 
         expect(response).to have_gitlab_http_status(:created)
       end
 
-      context 'when enabling already enabled runner' do
+      context 'when assigning already assigned runner' do
         let(:runner) { project_runner }
 
         it 'avoids changes' do
-          expect { perform_request }.to change { project.runners.count }.by(0)
+          expect { perform_request }.not_to change { project.runners.count }
 
           expect(response).to have_gitlab_http_status(:bad_request)
         end
       end
 
-      context 'when enabling locked runner' do
+      context 'when assigning locked runner' do
         let(:runner) { project_runner2 }
 
         before_all do
           project_runner2.update!(locked: true)
         end
 
-        it 'does not enable runner' do
+        it 'does not assign runner' do
           expect { perform_request }.not_to change { project.runners.count }
 
           expect(response).to have_gitlab_http_status(:forbidden)
         end
       end
 
-      context 'when enabling shared runner' do
+      context 'when assigning shared runner' do
         let(:runner) { shared_runner }
 
-        it 'does not enable runner' do
+        it 'does not assign runner' do
           perform_request
 
           expect(response).to have_gitlab_http_status(:forbidden)
         end
       end
 
-      context 'when enabling group runner' do
+      context 'when assigning group runner' do
         let(:runner) { group_runner_a }
 
-        it 'does not enable runner' do
+        it 'does not assign runner' do
           perform_request
 
           expect(response).to have_gitlab_http_status(:forbidden)
@@ -2216,10 +2361,10 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         let(:current_user) { admin }
 
         context 'when project runner is used' do
-          let!(:new_project_runner) { create(:ci_runner, :project) }
+          let!(:new_project_runner) { create(:ci_runner, :project, projects: [project2]) }
           let(:runner) { new_project_runner }
 
-          it 'enables any project runner' do
+          it 'assigns any project runner' do
             expect { perform_request }.to change { project.runners.count }.by(+1)
 
             expect(response).to have_gitlab_http_status(:created)
@@ -2230,7 +2375,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
               create(:plan_limits, :default_plan, ci_registered_project_runners: 1)
             end
 
-            it 'does not enable runner' do
+            it 'does not assign runner' do
               expect { perform_request }.not_to change { project.runners.count }
 
               expect(response).to have_gitlab_http_status(:bad_request)
@@ -2258,10 +2403,10 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
       end
 
       context 'when user does not have permissions' do
-        let(:current_user) { user2 }
+        let(:current_user) { users.second }
         let(:runner) { project_runner }
 
-        it 'does not enable runner' do
+        it 'does not assign runner' do
           perform_request
 
           expect(response).to have_gitlab_http_status(:forbidden)
@@ -2270,11 +2415,12 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
     end
 
     context 'user is not admin and does not have access to project runner' do
-      let!(:new_project_runner) { create(:ci_runner, :project) }
-      let(:runner) { new_project_runner }
-      let(:current_user) { user }
+      let_it_be(:new_project_runner) { create(:ci_runner, :project, projects: [project]) }
 
-      it 'does not enable runner' do
+      let(:runner) { new_project_runner }
+      let(:current_user) { create(:user, guest_of: project) }
+
+      it 'does not assign runner' do
         perform_request
 
         expect(response).to have_gitlab_http_status(:forbidden)
@@ -2285,7 +2431,7 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
       let(:current_user) { nil }
       let(:runner) { project_runner }
 
-      it 'does not enable runner' do
+      it 'does not assign runner' do
         perform_request
 
         expect(response).to have_gitlab_http_status(:unauthorized)
@@ -2294,21 +2440,32 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
   end
 
   describe 'DELETE /projects/:id/runners/:runner_id' do
-    let(:runner_id) { runner.id }
-    let(:path) { "/projects/#{project.id}/runners/#{runner_id}" }
+    let(:runner_id) { two_projects_runner.id }
+    let(:project_to_delete_from) { project2 }
+    let(:path) { "/projects/#{project_to_delete_from.id}/runners/#{runner_id}" }
 
     subject(:perform_request) { delete api(path, current_user) }
 
     context 'authorized user' do
-      let(:current_user) { user }
+      let(:current_user) { users.first }
 
-      context 'when runner have more than one associated projects' do
-        let(:runner) { two_projects_runner }
+      context 'when runner have more than one associated project' do
+        let(:runner_id) { two_projects_runner.id }
 
-        it "disables project's runner" do
-          expect { perform_request }.to change { project.runners.count }.by(-1)
+        it "unassigns project's runner", :aggregate_failures do
+          expect { perform_request }.to change { project_to_delete_from.runners.count }.by(-1)
 
           expect(response).to have_gitlab_http_status(:no_content)
+        end
+
+        context 'when runner is unassigned from project owner' do
+          let(:project_to_delete_from) { project }
+
+          it "does not unassign project's runner" do
+            expect { perform_request }.not_to change { project_to_delete_from.runners.count }
+
+            expect(response).to have_gitlab_http_status(:forbidden)
+          end
         end
 
         it_behaves_like '412 response' do
@@ -2322,11 +2479,12 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
         end
       end
 
-      context 'when runner have one associated projects' do
-        let(:runner) { project_runner }
+      context 'when runner have a single associated project' do
+        let(:runner_id) { project_runner.id }
+        let(:project_to_delete_from) { project }
 
-        it "does not disable project's runner" do
-          expect { perform_request }.not_to change { project.runners.count }
+        it "does not unassign project's runner" do
+          expect { perform_request }.not_to change { project_to_delete_from.runners.count }
 
           expect(response).to have_gitlab_http_status(:forbidden)
         end
@@ -2344,10 +2502,9 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
     end
 
     context 'authorized user without permissions' do
-      let(:current_user) { user2 }
-      let(:runner) { project_runner }
+      let(:current_user) { create(:user, developer_of: project_to_delete_from) }
 
-      it "does not disable project's runner" do
+      it "does not unassign project's runner" do
         perform_request
 
         expect(response).to have_gitlab_http_status(:forbidden)
@@ -2356,9 +2513,8 @@ RSpec.describe API::Ci::Runners, :aggregate_failures, feature_category: :fleet_v
 
     context 'unauthorized user' do
       let(:current_user) { nil }
-      let(:runner) { project_runner }
 
-      it "does not disable project's runner" do
+      it "does not unassign project's runner" do
         perform_request
 
         expect(response).to have_gitlab_http_status(:unauthorized)

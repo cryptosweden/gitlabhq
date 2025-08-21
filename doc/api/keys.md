@@ -1,16 +1,21 @@
 ---
 stage: Create
 group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Keys API
 ---
 
-# Keys API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-If using a SHA256 fingerprint in an API call, you should URL-encode the fingerprint.
+{{< /details >}}
+
+Use the keys API to identify the user associated with a SSH key, or its fingerprint. Queries about
+deploy key fingerprints also retrieve information about the projects using that key.
+
+If you use a SHA256 fingerprint in an API call, you should URL-encode the fingerprint.
 
 ## Get SSH key with user by ID of an SSH key
 
@@ -28,7 +33,7 @@ Example request:
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" \
-  "https://gitlab.example.com/api/v4/keys/1"
+  --url "https://gitlab.example.com/api/v4/keys/1"
 ```
 
 ```json
@@ -38,6 +43,7 @@ curl --header "PRIVATE-TOKEN: <your_access_token>" \
   "key": "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIEAiPWx6WM4lhHNedGfBpPJNPpZ7yKu+dnn1SJejgt1256k6YjzGGphH2TUxwKzxcKDKKezwkpfnxPkSMkuEspGRt/aZZ9wa++Oi7Qkr8prgHc4soW6NUlfDzpvZK2H5E7eQaSeP3SAwGmQKUFHCddNaP0L+hM7zhFNzjFvpaMgJw0=",
   "created_at": "2015-09-03T07:24:44.627Z",
   "expires_at": "2020-05-05T00:00:00.000Z",
+  "last_used_at": "2020-04-07T00:00:00.000Z",
   "usage_type": "auth",
   "user": {
     "name": "John Smith",
@@ -50,7 +56,6 @@ curl --header "PRIVATE-TOKEN: <your_access_token>" \
     "bio": null,
     "location": null,
     "public_email": "john@example.com",
-    "skype": "",
     "linkedin": "",
     "twitter": "",
     "website_url": "",
@@ -89,7 +94,7 @@ Example request:
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" \
-  "https://gitlab.example.com/api/v4/keys?fingerprint=ba:81:59:68:d7:6c:cd:02:02:bf:6a:9b:55:4e:af:d1"
+  --url "https://gitlab.example.com/api/v4/keys?fingerprint=ba:81:59:68:d7:6c:cd:02:02:bf:6a:9b:55:4e:af:d1"
 ```
 
 Example response:
@@ -101,6 +106,7 @@ Example response:
   "key": "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIEAiPWx6WM4lhHNedGfBpPJNPpZ7yKu+dnn1SJejgt1016k6YjzGGphH2TUxwKzxcKDKKezwkpfnxPkSMkuEspGRt/aZZ9wa++Oi7Qkr8prgHc4soW6NUlfDzpvZK2H5E7eQaSeP3SAwGmQKUFHCddNaP0L+hM7zhFNzjFvpaMgJw0=",
   "created_at": "2019-11-14T15:11:13.222Z",
   "expires_at": "2020-05-05T00:00:00.000Z",
+  "last_used_at": "2020-04-07T00:00:00.000Z",
   "usage_type": "auth",
   "user": {
     "id": 1,
@@ -113,7 +119,6 @@ Example response:
     "bio": null,
     "location": null,
     "public_email": "",
-    "skype": "",
     "linkedin": "",
     "twitter": "",
     "website_url": "",
@@ -148,14 +153,14 @@ Example request with an MD5 fingerprint:
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" \
-  "https://gitlab.example.com/api/v4/keys?fingerprint=ba:81:59:68:d7:6c:cd:02:02:bf:6a:9b:55:4e:af:d1"
+  --url "https://gitlab.example.com/api/v4/keys?fingerprint=ba:81:59:68:d7:6c:cd:02:02:bf:6a:9b:55:4e:af:d1"
 ```
 
 In this SHA256 example, `/` is represented by `%2F` and `:` is represented by`%3A`:
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" \
-  "https://gitlab.example.com/api/v4/keys?fingerprint=SHA256%3AnUhzNyftwADy8AH3wFY31tAKs7HufskYTte2aXo%2FlCg"
+  --url "https://gitlab.example.com/api/v4/keys?fingerprint=SHA256%3AnUhzNyftwADy8AH3wFY31tAKs7HufskYTte2aXo%2FlCg"
 ```
 
 Example response:
@@ -166,6 +171,8 @@ Example response:
   "title": "Sample key 1",
   "key": "ssh-rsa AAAAB3NzaC1yc2EAAAABJQAAAIEAiPWx6WM4lhHNedGfBpPJNPpZ7yKu+dnn1SJejgt1016k6YjzGGphH2TUxwKzxcKDKKezwkpfnxPkSMkuEspGRt/aZZ9wa++Oi7Qkr8prgHc4soW6NUlfDzpvZK2H5E7eQaSeP3SAwGmQKUFHCddNaP0L+hM7zhFNzjFvpaMgJw0=",
   "created_at": "2019-11-14T15:11:13.222Z",
+  "expires_at": "2020-05-05T00:00:00.000Z",
+  "last_used_at": "2020-04-07T00:00:00.000Z",
   "usage_type": "auth",
   "user": {
     "id": 1,
@@ -178,7 +185,6 @@ Example response:
     "bio": null,
     "location": null,
     "public_email": "",
-    "skype": "",
     "linkedin": "",
     "twitter": "",
     "website_url": "",

@@ -1,10 +1,9 @@
 <script>
-import { GlIcon, GlBadge, GlLoadingIcon, GlTooltipDirective } from '@gitlab/ui';
-// eslint-disable-next-line no-restricted-imports
-import { mapActions } from 'vuex';
+import { GlBadge, GlLoadingIcon, GlTooltipDirective } from '@gitlab/ui';
+import { getActivePinia } from 'pinia';
 import { isGid, getIdFromGraphQLId } from '~/graphql_shared/utils';
 import { TYPE_ACTIVITY, TYPE_COMMENT } from '~/import/constants';
-import { __, s__ } from '~/locale';
+import { s__ } from '~/locale';
 import ImportedBadge from '~/vue_shared/components/imported_badge.vue';
 import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
 
@@ -12,7 +11,6 @@ export default {
   components: {
     ImportedBadge,
     TimeAgoTooltip,
-    GlIcon,
     GlBadge,
     GlLoadingIcon,
   },
@@ -44,16 +42,6 @@ export default {
       type: String,
       required: false,
       default: '',
-    },
-    includeToggle: {
-      type: Boolean,
-      required: false,
-      default: false,
-    },
-    expanded: {
-      type: Boolean,
-      required: false,
-      default: true,
     },
     showSpinner: {
       type: Boolean,
@@ -98,9 +86,6 @@ export default {
     authorHref() {
       return this.author.path || this.author.webUrl;
     },
-    toggleChevronIconName() {
-      return this.expanded ? 'chevron-up' : 'chevron-down';
-    },
     noteTimestampLink() {
       if (this.noteUrl) return this.noteUrl;
 
@@ -143,14 +128,10 @@ export default {
     },
   },
   methods: {
-    ...mapActions(['setTargetNoteHash']),
-    handleToggle() {
-      this.$emit('toggleHandler');
-    },
-    updateTargetNoteHash() {
-      if (this.$store) {
-        this.setTargetNoteHash(this.noteTimestampLink);
-      }
+    async updateTargetNoteHash() {
+      if (!getActivePinia()) return;
+      const { useNotes } = await import('~/notes/store/legacy_notes');
+      useNotes().setTargetNoteHash(this.noteTimestampLink);
     },
     handleUsernameMouseEnter() {
       this.$refs.authorNameLink.dispatchEvent(new Event('mouseenter'));
@@ -161,31 +142,11 @@ export default {
       this.isUsernameLinkHovered = false;
     },
   },
-  i18n: {
-    showThread: __('Show thread'),
-    hideThread: __('Hide thread'),
-  },
 };
 </script>
 
 <template>
   <div class="note-header-info">
-    <div v-if="includeToggle" ref="discussionActions" class="discussion-actions">
-      <button
-        class="note-action-button discussion-toggle-button js-vue-toggle-button"
-        type="button"
-        data-testid="thread-toggle"
-        @click="handleToggle"
-      >
-        <gl-icon ref="chevronIcon" :name="toggleChevronIconName" />
-        <template v-if="expanded">
-          {{ $options.i18n.hideThread }}
-        </template>
-        <template v-else>
-          {{ $options.i18n.showThread }}
-        </template>
-      </button>
-    </div>
     <template v-if="hasAuthor">
       <span
         v-if="emailParticipant"
@@ -209,15 +170,15 @@ export default {
       </a>
       <span
         v-if="!isSystemNote && !emailParticipant"
-        class="text-nowrap author-username gl-text-truncate"
+        class="text-nowrap author-username -gl-m-2 gl-mr-0 gl-hidden gl-truncate gl-p-2 md:gl-inline"
       >
         <a
           ref="authorUsernameLink"
-          class="author-username-link"
+          class="author-username-link focus:gl-focus"
           :href="authorHref"
           @mouseenter="handleUsernameMouseEnter"
           @mouseleave="handleUsernameMouseLeave"
-          ><span class="note-headline-light gl-hidden md:gl-inline">@{{ author.username }}</span>
+          ><span class="note-headline-light">@{{ author.username }}</span>
         </a>
         <slot name="note-header-info"></slot>
       </span>
@@ -227,28 +188,33 @@ export default {
     </template>
     <span v-else>{{ __('A deleted user') }}</span>
     <span class="note-headline-light note-headline-meta">
-      <span class="system-note-message" data-testid="system-note-content">
+      <span
+        v-if="$scopedSlots.default"
+        class="system-note-message"
+        :class="!isSystemNote && !emailParticipant && 'md:-gl-ml-2'"
+        data-testid="system-note-content"
+      >
         <slot></slot>
       </span>
       <template v-if="createdAt">
         <span ref="actionText" class="system-note-separator">
           <template v-if="actionText">{{ actionText }}</template>
         </span>
-        <a
+        <time-ago-tooltip
           v-if="noteTimestampLink"
           ref="noteTimestampLink"
           :href="noteTimestampLink"
           class="note-timestamp system-note-separator"
+          :time="createdAt"
+          tooltip-placement="bottom"
           @click="updateTargetNoteHash"
-        >
-          <time-ago-tooltip :time="createdAt" tooltip-placement="bottom" />
-        </a>
+        />
         <time-ago-tooltip v-else ref="noteTimestamp" :time="createdAt" tooltip-placement="bottom" />
       </template>
 
       <template v-if="isImported">
         <span v-if="isSystemNote">&middot;</span>
-        <imported-badge :text-only="isSystemNote" :importable-type="importableType" />
+        <imported-badge :text-only="isSystemNote" />
       </template>
 
       <gl-badge

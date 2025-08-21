@@ -1,25 +1,34 @@
 ---
-stage: Data Stores
-group: Tenant Scale
+stage: Tenant Scale
+group: Authentication
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Achievements
 ---
 
-# Achievements
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
-**Status:** Experiment
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed
+- Status: Experiment
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/113156) in GitLab 15.10 [with a flag](../../administration/feature_flags.md) named `achievements`. Disabled by default.
+{{< /details >}}
 
-FLAG:
-On self-managed GitLab, by default this feature is not available. To make it available,
-an administrator can [enable the feature flag](../../administration/feature_flags.md) named `achievements`.
-This feature is not ready for production use.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/113156) in GitLab 15.10 [with a flag](../../administration/feature_flags/_index.md) named `achievements`. Disabled by default.
+
+{{< /history >}}
+
+{{< alert type="flag" >}}
+
+On GitLab Self-Managed, by default this feature is not available. To make it available,
+an administrator can [enable the feature flag](../../administration/feature_flags/_index.md) named `achievements`.
+
+{{< /alert >}}
 
 Achievements are a way to reward users for their activity on GitLab.
-As a namespace maintainer or owner, you can create custom achievements for specific contributions, which you can award to or revoke from users based on your criteria.
+As a namespace maintainer or owner, you can create custom achievements for specific contributions. You can award these
+achievements to users or revoke them based on defined criteria.
 
 As a user, you can collect achievements to highlight your contributions to different projects or groups on your profile.
 An achievement consists of a name, a description, and an avatar.
@@ -42,6 +51,14 @@ Practically, you can differentiate between achievements that are awarded:
 - Once and revocable. For example, a "Core team member" achievement.
 - Multiple times. For example, a "Contributor of the month" achievement.
 
+## View group achievements
+
+To view all available and awarded achievements for a group:
+
+- Go to `https://gitlab.com/groups/<group-path>/-/achievements`.
+
+The page displays a list of achievements and the members who were awarded the achievement.
+
 ## View a user's achievements
 
 You can view a user's achievements on their profile page.
@@ -62,7 +79,7 @@ To view a user's achievements:
    - Date when the achievement was awarded to the user
    - Namespace that awarded the achievement if the user is a member of the namespace or the namespace is public
 
-To retrieve a list of a user's achievements, query the [`user` GraphQL type](../../api/graphql/reference/index.md#user).
+To retrieve a list of a user's achievements, query the [`user` GraphQL type](../../api/graphql/reference/_index.md#user).
 
 ```graphql
 query {
@@ -92,44 +109,52 @@ Prerequisites:
 
 - You must have the Maintainer or Owner role for the namespace.
 
-To create an achievement, call the [`achievementsCreate` GraphQL mutation](../../api/graphql/reference/index.md#mutationachievementscreate).
+To create an achievement:
 
-```graphql
-mutation achievementsCreate($file: Upload!) {
-  achievementsCreate(
-    input: {
-      namespaceId: "gid://gitlab/Namespace/<namespace id>",
-      name: "<name>",
-      description: "<description>",
-      avatar: $file}
-  ) {
-    errors
-    achievement {
-      id
-      name
-      description
-      avatarUrl
+- In the UI:
+  1. On the [Achievements page](#view-group-achievements), select **New achievement**.
+  1. Enter a name for the achievement.
+  1. Optional. Enter a description and upload an avatar for the achievement.
+  1. Select **Save changes**.
+
+- With the GraphQL API, call the [`achievementsCreate` GraphQL mutation](../../api/graphql/reference/_index.md#mutationachievementscreate):
+
+  ```graphql
+  mutation achievementsCreate($file: Upload!) {
+    achievementsCreate(
+      input: {
+        namespaceId: "gid://gitlab/Namespace/<namespace id>",
+        name: "<name>",
+        description: "<description>",
+        avatar: $file}
+    ) {
+      errors
+      achievement {
+        id
+        name
+        description
+        avatarUrl
+      }
     }
   }
-}
-```
+  ```
 
-To supply the avatar file, call the mutation using `curl`:
+  To supply the avatar file, call the mutation using `curl`:
 
-```shell
-curl "https://gitlab.com/api/graphql" \
-  -H "Authorization: Bearer <your-pat-token>" \
-  -H "Content-Type: multipart/form-data" \
-  -F operations='{ "query": "mutation ($file: Upload!) { achievementsCreate(input: { namespaceId: \"gid://gitlab/Namespace/<namespace-id>\", name: \"<name>\", description: \"<description>\", avatar: $file }) { achievement { id name description avatarUrl } } }", "variables": { "file": null } }' \
-  -F map='{ "0": ["variables.file"] }' \
-  -F 0='@/path/to/your/file.jpg'
-```
+  ```shell
+  curl "https://gitlab.com/api/graphql" \
+    -H "Authorization: Bearer <your-pat-token>" \
+    -H "Content-Type: multipart/form-data" \
+    -F operations='{ "query": "mutation ($file: Upload!) { achievementsCreate(input: { namespaceId: \"gid://gitlab/Namespace/<namespace-id>\", name: \"<name>\", description: \"<description>\", avatar: $file }) { achievement { id name description avatarUrl } } }", "variables": { "file": null } }' \
+    -F map='{ "0": ["variables.file"] }' \
+    -F 0='@/path/to/your/file.jpg'
+  ```
 
-When successful, the response returns the achievement ID:
+  When successful, the response returns the achievement ID:
 
-```shell
-{"data":{"achievementsCreate":{"achievement":{"id":"gid://gitlab/Achievements::Achievement/1","name":"<name>","description":"<description>","avatarUrl":"https://gitlab.com/uploads/-/system/achievements/achievement/avatar/1/file.jpg"}}}}
-```
+  ```shell
+  {"data":{"achievementsCreate":{"achievement":{"id":"gid://gitlab/Achievements::Achievement/1","name":"<name>","description":"<description>","avatarUrl":"https://gitlab.com/uploads/-/system/achievements/achievement/avatar/1/file.jpg"}}}}
+  ```
 
 ## Update an achievement
 
@@ -139,7 +164,7 @@ Prerequisites:
 
 - You must have the Maintainer or Owner role for the namespace.
 
-To update an achievement, call the [`achievementsUpdate` GraphQL mutation](../../api/graphql/reference/index.md#mutationachievementsupdate).
+To update an achievement, call the [`achievementsUpdate` GraphQL mutation](../../api/graphql/reference/_index.md#mutationachievementsupdate).
 
 ```graphql
 mutation achievementsUpdate($file: Upload!) {
@@ -170,7 +195,7 @@ Prerequisites:
 
 - You must have the Maintainer or Owner role for the namespace.
 
-To award an achievement to a user, call the [`achievementsAward` GraphQL mutation](../../api/graphql/reference/index.md#mutationachievementsaward).
+To award an achievement to a user, call the [`achievementsAward` GraphQL mutation](../../api/graphql/reference/_index.md#mutationachievementsaward).
 
 ```graphql
 mutation {
@@ -201,7 +226,7 @@ Prerequisites:
 
 - You must have the Maintainer or Owner role for the namespace.
 
-To revoke an achievement, call the [`achievementsRevoke` GraphQL mutation](../../api/graphql/reference/index.md#mutationachievementsrevoke).
+To revoke an achievement, call the [`achievementsRevoke` GraphQL mutation](../../api/graphql/reference/_index.md#mutationachievementsrevoke).
 
 ```graphql
 mutation {
@@ -232,7 +257,7 @@ Prerequisites:
 
 - You must have the Owner role for the namespace.
 
-To delete an awarded achievement, call the [`userAchievementsDelete` GraphQL mutation](../../api/graphql/reference/index.md#mutationuserachievementsdelete).
+To delete an awarded achievement, call the [`userAchievementsDelete` GraphQL mutation](../../api/graphql/reference/_index.md#mutationuserachievementsdelete).
 
 ```graphql
 mutation {
@@ -263,7 +288,7 @@ Prerequisites:
 
 - You must have the Maintainer or Owner role for the namespace.
 
-To delete an achievement, call the [`achievementsDelete` GraphQL mutation](../../api/graphql/reference/index.md#mutationachievementsdelete).
+To delete an achievement, call the [`achievementsDelete` GraphQL mutation](../../api/graphql/reference/_index.md#mutationachievementsdelete).
 
 ```graphql
 mutation {
@@ -287,11 +312,40 @@ If you don't want to display achievements on your profile, you can opt out. To d
 1. In the **Main settings** section, clear the **Display achievements on your profile** checkbox.
 1. Select **Update profile settings**.
 
+## Change visibility of specific achievements
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/161225) in GitLab 17.3.
+
+{{< /history >}}
+
+If you don't want to display all achievements on your profile, you can change the visibility of specific achievements.
+
+To hide one of your achievements, call the [`userAchievementsUpdate` GraphQL mutation](../../api/graphql/reference/_index.md#mutationuserachievementsupdate).
+
+```graphql
+mutation {
+  userAchievementsUpdate(input: {
+    userAchievementId: "gid://gitlab/Achievements::UserAchievement/<user achievement id>"
+    showOnProfile: false
+  }) {
+    userAchievement {
+      id
+      showOnProfile
+    }
+    errors
+  }
+}
+```
+
+To show one of your achievements again, call the same mutation with the value `true` for the `showOnProfile` argument.
+
 ## Reorder achievements
 
 By default, achievements on your profile are displayed in ascending order by awarded date.
 
-To change the order of your achievements, call the [`userAchievementPrioritiesUpdate` GraphQL mutation](../../api/graphql/reference/index.md#mutationuserachievementprioritiesupdate)
+To change the order of your achievements, call the [`userAchievementPrioritiesUpdate` GraphQL mutation](../../api/graphql/reference/_index.md#mutationuserachievementprioritiesupdate)
 with an ordered list of all prioritized achievements.
 
 ```graphql

@@ -24,7 +24,7 @@ RSpec.describe BulkImports::Common::Pipelines::UploadsPipeline, feature_category
   end
 
   after do
-    FileUtils.remove_entry(tmpdir) if Dir.exist?(tmpdir)
+    FileUtils.rm_rf(tmpdir)
   end
 
   shared_examples 'uploads import' do
@@ -88,12 +88,12 @@ RSpec.describe BulkImports::Common::Pipelines::UploadsPipeline, feature_category
         expect(BulkImports::FileDownloadService)
           .to receive(:new)
           .with(
-            configuration: context.configuration,
+            context: context,
             relative_url: "/#{entity.pluralized_name}/#{CGI.escape(entity.source_full_path)}/export_relations/download?relation=uploads",
             tmpdir: tmpdir,
             filename: 'uploads.tar.gz')
           .and_return(download_service)
-        expect(BulkImports::FileDecompressionService).to receive(:new).with(tmpdir: tmpdir, filename: 'uploads.tar.gz').and_return(decompression_service)
+        expect(BulkImports::FileDecompressionService).to receive(:new).with(tmpdir: tmpdir, filename: 'uploads.tar.gz', context: context).and_return(decompression_service)
         expect(BulkImports::ArchiveExtractionService).to receive(:new).with(tmpdir: tmpdir, filename: 'uploads.tar').and_return(extraction_service)
 
         expect(download_service).to receive(:execute)
@@ -166,22 +166,12 @@ RSpec.describe BulkImports::Common::Pipelines::UploadsPipeline, feature_category
       end
 
       it 'removes tmp dir' do
-        allow(FileUtils).to receive(:remove_entry).and_call_original
-        expect(FileUtils).to receive(:remove_entry).with(tmpdir).and_call_original
+        allow(FileUtils).to receive(:rm_rf).and_call_original
+        expect(FileUtils).to receive(:rm_rf).with(tmpdir).and_call_original
 
         pipeline.after_run(nil)
 
         expect(Dir.exist?(tmpdir)).to eq(false)
-      end
-
-      context 'when dir does not exist' do
-        it 'does not attempt to remove tmpdir' do
-          FileUtils.remove_entry(tmpdir)
-
-          expect(FileUtils).not_to receive(:remove_entry).with(tmpdir)
-
-          pipeline.after_run(nil)
-        end
       end
     end
   end

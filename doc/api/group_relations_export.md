@@ -1,20 +1,23 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Group relations export API
+description: "Export group relations with the REST API."
 ---
 
-# Group relations export API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 The group relations export API partially exports a group's structure as separate files for each
 top-level
 relation (for example, milestones, boards, and labels).
 
-The group relations export API is primarily used in [group migration by direct transfer](../user/group/import/index.md)
+The group relations export API is primarily used in [group migration by direct transfer](../user/group/import/_index.md)
 and your GitLab instance must meet [certain prerequisites](../user/group/import/direct_transfer_migrations.md#prerequisites).
 
 This API can't be used with the [group import and export API](group_import_export.md).
@@ -29,11 +32,13 @@ POST /groups/:id/export_relations
 
 | Attribute | Type           | Required | Description                                      |
 |-----------|----------------|----------|--------------------------------------------------|
-| `id`      | integer/string | yes      | ID of the group owned by the authenticated user. |
+| `id`      | integer/string | yes      | ID of the group. |
 | `batched` | boolean        | no       | Whether to export in batches.                    |
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/1/export_relations"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/1/export_relations"
 ```
 
 ```json
@@ -52,12 +57,13 @@ GET /groups/:id/export_relations/status
 
 | Attribute  | Type           | Required | Description                                      |
 |------------|----------------|----------|--------------------------------------------------|
-| `id`       | integer/string | yes      | ID of the group owned by the authenticated user. |
+| `id`       | integer/string | yes      | ID of the group. |
 | `relation` | string         | no       | Name of the project top-level relation to view.  |
 
 ```shell
-curl --request GET --header "PRIVATE-TOKEN: <your_access_token>" \
-     "https://gitlab.example.com/api/v4/groups/1/export_relations/status"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/1/export_relations/status"
 ```
 
 The status can be one of the following:
@@ -106,14 +112,16 @@ GET /groups/:id/export_relations/download
 
 | Attribute      | Type           | Required | Description                                       |
 |----------------|----------------|----------|---------------------------------------------------|
-| `id`           | integer/string | yes      | ID of the group owned by the authenticated user.  |
+| `id`           | integer/string | yes      | ID of the group.  |
 | `relation`     | string         | yes      | Name of the group top-level relation to download. |
 | `batched`      | boolean        | no       | Whether the export is batched.                    |
 | `batch_number` | integer        | no       | Number of export batch to download.               |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" --remote-header-name \
-     --remote-name "https://gitlab.example.com/api/v4/groups/1/export_relations/download?relation=labels"
+curl --request GET \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --remote-header-name \
+  --remote-name "https://gitlab.example.com/api/v4/groups/1/export_relations/download?relation=labels"
 ```
 
 ```shell

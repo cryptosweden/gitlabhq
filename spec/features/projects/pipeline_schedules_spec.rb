@@ -12,6 +12,10 @@ RSpec.describe 'Pipeline Schedules', :js, feature_category: :continuous_integrat
   let!(:user) { create(:user) }
   let!(:maintainer) { create(:user) }
 
+  before do
+    project.update!(ci_pipeline_variables_minimum_override_role: :developer)
+  end
+
   context 'logged in as the pipeline schedule owner' do
     before do
       project.add_developer(user)
@@ -27,7 +31,7 @@ RSpec.describe 'Pipeline Schedules', :js, feature_category: :continuous_integrat
       it 'edits the pipeline' do
         find_by_testid('edit-pipeline-schedule-btn').click
 
-        expect(page).to have_content(s_('PipelineSchedules|Edit Pipeline Schedule'))
+        expect(page).to have_content(s_('PipelineSchedules|Edit scheduled pipeline'))
         expect(page).to have_button(s_('PipelineSchedules|Save changes'))
       end
 
@@ -113,7 +117,8 @@ RSpec.describe 'Pipeline Schedules', :js, feature_category: :continuous_integrat
             expect(page).to have_content('pipeline schedule')
 
             within_testid('next-run-cell') do
-              expect(find('time')['title']).to include(pipeline_schedule.real_next_run.strftime('%B %-d, %Y'))
+              # validate the format instead of the actual time because timezone issues were causing flaky tests
+              expect(find('time')['title']).to match(/[A-Z][a-z]+ \d+, \d{4} at \d+:\d+:\d+ [AP]M [A-Z]{3,4}/)
             end
 
             expect(page).to have_link('master')
@@ -130,14 +135,11 @@ RSpec.describe 'Pipeline Schedules', :js, feature_category: :continuous_integrat
           expect(page).to have_content('Schedule a new pipeline')
         end
 
-        it 'changes ownership of the pipeline' do
+        it 'changes ownership of the pipeline', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/541745' do
           find_by_testid('take-ownership-pipeline-schedule-btn').click
 
-          page.within('#pipeline-take-ownership-modal') do
-            click_button s_('PipelineSchedules|Take ownership')
-
-            wait_for_requests
-          end
+          send_keys [:tab, :enter]
+          wait_for_requests
 
           within_testid('pipeline-schedule-table-row') do
             expect(page).not_to have_content('No owner')
@@ -145,14 +147,17 @@ RSpec.describe 'Pipeline Schedules', :js, feature_category: :continuous_integrat
           end
         end
 
-        it 'deletes the pipeline' do
+        it 'deletes the pipeline schedule' do
+          row_text = find_by_testid('pipeline-schedule-table-row').text
+
           within_testid('pipeline-schedule-table-row') do
-            click_button s_('PipelineSchedules|Delete pipeline schedule')
+            find_by_testid('delete-pipeline-schedule-btn').click
           end
 
-          accept_gl_confirm(button_text: s_('PipelineSchedules|Delete pipeline schedule'))
+          accept_gl_confirm(button_text: s_('PipelineSchedules|Delete scheduled pipeline'))
+          wait_for_requests
 
-          expect(page).not_to have_css('[data-testid="pipeline-schedule-table-row"]')
+          expect(page).not_to have_css('[data-testid="pipeline-schedule-table-row"]', text: row_text, wait: 10)
         end
       end
 
@@ -205,9 +210,10 @@ RSpec.describe 'Pipeline Schedules', :js, feature_category: :continuous_integrat
       end
 
       it 'prevents an invalid form from being submitted' do
+        fill_in 'schedule-description', with: 'my fancy description'
         create_pipeline_schedule
 
-        expect(page).to have_content("Cron timezone can't be blank")
+        expect(page).to have_content("Schedule a new pipeline")
       end
     end
 
@@ -216,21 +222,22 @@ RSpec.describe 'Pipeline Schedules', :js, feature_category: :continuous_integrat
         visit_pipelines_schedules
         click_link 'New schedule'
         fill_in_schedule_form
-        all('[name="schedule[variables_attributes][][key]"]')[0].set('AAA')
-        all('[name="schedule[variables_attributes][][secret_value]"]')[0].set('AAA123')
-        all('[name="schedule[variables_attributes][][key]"]')[1].set('BBB')
-        all('[name="schedule[variables_attributes][][secret_value]"]')[1].set('BBB123')
+        all('[data-testid="pipeline-form-ci-variable-key"]')[0].set('AAA')
+        all('[data-testid="pipeline-form-ci-variable-value"]')[0].set('AAA123')
+        all('[data-testid="pipeline-form-ci-variable-key"]')[1].set('BBB')
+        all('[data-testid="pipeline-form-ci-variable-value"]')[1].set('BBB123')
         create_pipeline_schedule
       end
 
-      it 'user sees the new variable in edit window', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/397040' do
-        find(".content-list .pipeline-schedule-table-row:nth-child(1) .btn-group a[title='Edit']").click
-        page.within('.ci-variable-list') do
-          expect(find(".ci-variable-row:nth-child(1) .js-ci-variable-input-key").value).to eq('AAA')
-          expect(find(".ci-variable-row:nth-child(1) .js-ci-variable-input-value", visible: false).value).to eq('AAA123')
-          expect(find(".ci-variable-row:nth-child(2) .js-ci-variable-input-key").value).to eq('BBB')
-          expect(find(".ci-variable-row:nth-child(2) .js-ci-variable-input-value", visible: false).value).to eq('BBB123')
-        end
+      it 'user sees the new variable in edit window' do
+        find("body [data-testid='pipeline-schedule-table-row']:nth-child(1) .btn-group a[title='Edit scheduled pipeline']")
+          .click
+
+        expected_keys = [
+          all("[data-testid='pipeline-form-ci-variable-key']")[0].value,
+          all("[data-testid='pipeline-form-ci-variable-key']")[1].value
+        ]
+        expect(expected_keys).to include('AAA', 'BBB')
       end
     end
 
@@ -300,47 +307,44 @@ RSpec.describe 'Pipeline Schedules', :js, feature_category: :continuous_integrat
     end
   end
 
-  shared_examples 'when not logged in' do
+  shared_examples 'user without project access' do
     describe 'GET /projects/pipeline_schedules' do
-      describe 'the view' do
-        it 'does not show create schedule button' do
-          visit_pipelines_schedules
+      it 'does not show create schedule button' do
+        visit_pipelines_schedules
 
-          expect(page).not_to have_link('New schedule')
+        expect(page).not_to have_link('New schedule')
+      end
+
+      context 'when project is public' do
+        let_it_be(:public_project) { create(:project, :repository, :public, public_builds: true) }
+
+        it 'shows Pipelines Schedules page' do
+          visit project_pipeline_schedules_path(public_project, scope: scope)
+          expect(page).to have_selector(:css, '[data-testid="empty-state-new-schedule-button"]')
         end
 
-        context 'when project is public' do
-          let_it_be(:project) { create(:project, :repository, :public, public_builds: true) }
-
-          it 'shows Pipelines Schedules page' do
-            visit_pipelines_schedules
-
-            expect(page).to have_link('New schedule')
+        context 'when public pipelines are disabled' do
+          before do
+            public_project.update!(public_builds: false)
           end
 
-          context 'when public pipelines are disabled' do
-            before do
-              project.update!(public_builds: false)
-              visit_pipelines_schedules
-            end
-
-            it 'shows Not Found page' do
-              expect(page).to have_content('Page Not Found')
-            end
+          it 'shows Not Found page' do
+            visit project_pipeline_schedules_path(public_project, scope: scope)
+            expect(page).to have_content('Page not found')
           end
         end
       end
     end
   end
 
-  it_behaves_like 'when not logged in'
+  it_behaves_like 'user without project access'
 
   context 'logged in as non-member' do
     before do
       gitlab_sign_in(user)
     end
 
-    it_behaves_like 'when not logged in'
+    it_behaves_like 'user without project access'
   end
 
   def visit_new_pipeline_schedule

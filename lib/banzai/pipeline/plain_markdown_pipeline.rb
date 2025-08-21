@@ -5,13 +5,9 @@ module Banzai
     class PlainMarkdownPipeline < BasePipeline
       def self.filters
         FilterArray[
-          Filter::MarkdownPreEscapeLegacyFilter,
-          Filter::DollarMathPreLegacyFilter,
-          Filter::BlockquoteFenceLegacyFilter,
+          Filter::IncludeFilter,
           Filter::MarkdownFilter,
           Filter::ConvertTextToDocFilter,
-          Filter::DollarMathPostLegacyFilter,
-          Filter::MarkdownPostEscapeLegacyFilter
         ]
       end
     end

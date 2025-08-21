@@ -10,6 +10,9 @@ class ApplicationRecord < ActiveRecord::Base
   include Gitlab::SensitiveSerializableHash
   include ResetOnColumnErrors
   include HasCheckConstraints
+  include IgnorableColumns
+  include PopulatesShardingKey
+  include EachBatch
 
   self.abstract_class = true
 
@@ -18,6 +21,15 @@ class ApplicationRecord < ActiveRecord::Base
   MAX_PLUCK = 1_000
 
   alias_method :reset, :reload
+
+  class << self
+    # It is strongly suggested use the `.ids` method instead.
+    #
+    #     User.ids # => returns all the user IDs
+    #     User.where(...).ids # => returns the IDs of records matching the where clause.
+    #
+    alias_method :pluck_primary_key, :ids
+  end
 
   def self.without_order
     reorder(nil)
@@ -37,10 +49,6 @@ class ApplicationRecord < ActiveRecord::Base
 
   def self.id_not_in(ids)
     where.not(id: ids)
-  end
-
-  def self.pluck_primary_key
-    where(nil).pluck(primary_key)
   end
 
   def self.safe_ensure_unique(retries: 0)
@@ -69,7 +77,7 @@ class ApplicationRecord < ActiveRecord::Base
   # to allow callers gracefully handling the errors to still complete within
   # the 5s target duration of a low urgency request.
   def self.with_fast_read_statement_timeout(timeout_ms = 4500)
-    ::Gitlab::Database::LoadBalancing::Session.current.fallback_to_replicas_for_ambiguous_queries do
+    ::Gitlab::Database::LoadBalancing::SessionMap.current(load_balancer).fallback_to_replicas_for_ambiguous_queries do
       transaction(requires_new: true) do # rubocop:disable Performance/ActiveRecordSubtransactions
         connection.exec_query("SET LOCAL statement_timeout = #{timeout_ms}")
 
@@ -88,8 +96,18 @@ class ApplicationRecord < ActiveRecord::Base
     # When calling this method on an association, just calling `self.create` would call `ActiveRecord::Persistence.create`
     # and that skips some code that adds the newly created record to the association.
     transaction(requires_new: true) { all.create(*args, &block) } # rubocop:disable Performance/ActiveRecordSubtransactions
-  rescue ActiveRecord::RecordNotUnique
-    find_by(*args)
+  rescue ActiveRecord::RecordNotUnique => e
+    find_by(*args).tap do |result|
+      # It's unusual if the find_by was not able to find the record that the
+      # database claimed already existed. There could be some underlying issue,
+      # such as a database trigger that inserts a record into another table.
+      # Log this error so that the full database error can be investigated.
+      Gitlab::ErrorTracking.track_exception(e, args: args) unless result
+    end
+  end
+
+  def self.current_transaction
+    connection.current_transaction
   end
 
   def create_or_load_association(association_name)
@@ -111,7 +129,7 @@ class ApplicationRecord < ActiveRecord::Base
   end
 
   def self.declarative_enum(enum_mod)
-    enum(enum_mod.key => enum_mod.values)
+    enum enum_mod.key, enum_mod.values
   end
 
   def self.cached_column_list
@@ -138,7 +156,7 @@ class ApplicationRecord < ActiveRecord::Base
   end
 
   def readable_by?(user)
-    Ability.allowed?(user, "read_#{to_ability_name}".to_sym, self)
+    Ability.allowed?(user, :"read_#{to_ability_name}", self)
   end
 
   def to_ability_name

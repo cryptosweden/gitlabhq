@@ -10,29 +10,35 @@ RSpec.describe Resolvers::ProjectsResolver, feature_category: :source_code_manag
 
     let_it_be(:user) { create(:user, :with_namespace) }
     let_it_be(:group) { create(:group, name: 'public-group') }
-    let_it_be(:private_group) { create(:group, name: 'private-group') }
-    let_it_be(:project) { create(:project, :public, topic_list: %w[ruby javascript]) }
+    let_it_be(:private_group) { create(:group, name: 'private-group', developers: user) }
+    let_it_be(:project) { create(:project, :public, topic_list: %w[ruby javascript], developers: user) }
     let_it_be(:other_project) { create(:project, :public) }
+    let_it_be(:archived_project) { create(:project, :public, :archived, developers: user) }
     let_it_be(:group_project) { create(:project, :public, group: group) }
-    let_it_be(:private_project) { create(:project, :private) }
+    let_it_be(:private_project) { create(:project, :private, developers: user) }
     let_it_be(:other_private_project) { create(:project, :private) }
     let_it_be(:private_group_project) { create(:project, :private, group: private_group) }
     let_it_be(:private_personal_project) { create(:project, :private, namespace: user.namespace) }
+    let_it_be(:other_org) { create(:organization, :private) }
+    let_it_be(:other_org_project) { create(:project, organization: other_org, topic_list: ['postgres']) }
+    let_it_be(:marked_for_deletion_on) { Date.yesterday }
+    let_it_be(:project_marked_for_deletion) do
+      create(:project, name: project.name, marked_for_deletion_at: marked_for_deletion_on, developers: user)
+    end
 
     let(:filters) { {} }
 
-    before_all do
-      project.add_developer(user)
-      private_project.add_developer(user)
-      private_group.add_developer(user)
+    before do
+      ::Current.organization = organization
     end
 
     context 'when user is not logged in' do
       let(:current_user) { nil }
+      let(:organization) { project.organization }
 
       context 'when no filters are applied' do
         it 'returns all public projects' do
-          is_expected.to contain_exactly(project, other_project, group_project)
+          is_expected.to contain_exactly(project, other_project, group_project, archived_project)
         end
 
         context 'when search filter is provided' do
@@ -75,11 +81,36 @@ RSpec.describe Resolvers::ProjectsResolver, feature_category: :source_code_manag
           end
         end
 
+        context 'when filtering topics from another organization' do
+          let(:filters) { { topics: %w[postgres] } }
+
+          it 'returns no matching project' do
+            is_expected.to be_empty
+          end
+        end
+
         context 'when personal filter is provided' do
           let(:filters) { { personal: true } }
 
           it 'returns all public projects' do
+            is_expected.to contain_exactly(project, other_project, group_project, archived_project)
+          end
+        end
+
+        context 'when active filter is true' do
+          let(:filters) { { active: true } }
+
+          it 'returns only non-archived projects' do
             is_expected.to contain_exactly(project, other_project, group_project)
+            is_expected.not_to include(archived_project)
+          end
+        end
+
+        context 'when active filter is false' do
+          let(:filters) { { active: false } }
+
+          it 'returns only archived projects' do
+            is_expected.to contain_exactly(archived_project)
           end
         end
       end
@@ -87,7 +118,13 @@ RSpec.describe Resolvers::ProjectsResolver, feature_category: :source_code_manag
 
     context 'when user is logged in' do
       let(:current_user) { user }
+      let(:organization) { user.organization }
       let(:visible_projects) do
+        [project, other_project, group_project, private_project, private_group_project, private_personal_project,
+          project_marked_for_deletion, archived_project]
+      end
+
+      let(:visible_non_archived_projects) do
         [project, other_project, group_project, private_project, private_group_project, private_personal_project]
       end
 
@@ -96,11 +133,31 @@ RSpec.describe Resolvers::ProjectsResolver, feature_category: :source_code_manag
           is_expected.to match_array(visible_projects)
         end
 
+        context 'when aimedForDeletion filter is true' do
+          let(:filters) { { aimed_for_deletion: true } }
+
+          it { is_expected.to contain_exactly(project_marked_for_deletion) }
+        end
+
+        context 'with markedForDeletion filters', :freeze_time do
+          context 'when a project has been marked for deletion on the given date' do
+            let(:filters) { { marked_for_deletion_on: marked_for_deletion_on } }
+
+            it { is_expected.to contain_exactly(project_marked_for_deletion) }
+          end
+
+          context 'when no projects have been marked for deletion on the given date' do
+            let(:filters) { { marked_for_deletion_on: (marked_for_deletion_on - 2.days) } }
+
+            it { is_expected.to be_empty }
+          end
+        end
+
         context 'when search filter is provided' do
           let(:filters) { { search: project.name } }
 
           it 'returns matching project' do
-            is_expected.to contain_exactly(project)
+            is_expected.to contain_exactly(project, project_marked_for_deletion)
           end
         end
 
@@ -108,7 +165,9 @@ RSpec.describe Resolvers::ProjectsResolver, feature_category: :source_code_manag
           let(:filters) { { membership: true } }
 
           it 'returns projects that user is member of' do
-            is_expected.to contain_exactly(project, private_project, private_group_project, private_personal_project)
+            is_expected.to contain_exactly(
+              project, private_project, private_group_project, private_personal_project, project_marked_for_deletion,
+              archived_project)
           end
         end
 
@@ -165,11 +224,36 @@ RSpec.describe Resolvers::ProjectsResolver, feature_category: :source_code_manag
           end
         end
 
+        context 'when filtering topics from another organization' do
+          let(:filters) { { topics: %w[postgres] } }
+
+          it 'returns no matching project' do
+            is_expected.to be_empty
+          end
+        end
+
         context 'when personal filter is provided' do
           let(:filters) { { personal: true } }
 
           it 'returns matching project' do
             is_expected.to contain_exactly(private_personal_project)
+          end
+        end
+
+        context 'when active filter is true' do
+          let(:filters) { { active: true } }
+
+          it 'returns only non-archived projects' do
+            is_expected.to match_array(visible_non_archived_projects)
+            is_expected.not_to include(archived_project)
+          end
+        end
+
+        context 'when active filter is false' do
+          let(:filters) { { active: false } }
+
+          it 'returns only archived and marked for deletion projects' do
+            is_expected.to contain_exactly(archived_project, project_marked_for_deletion)
           end
         end
       end

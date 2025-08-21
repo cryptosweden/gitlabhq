@@ -4,9 +4,9 @@ require 'spec_helper'
 
 RSpec.describe Ci::EnqueueJobService, '#execute', feature_category: :continuous_integration do
   let_it_be(:project) { create(:project) }
-  let(:user) { create(:user, developer_of: project) }
-  let(:pipeline) { create(:ci_pipeline, project: project) }
-  let(:build) { create(:ci_build, :manual, pipeline: pipeline) }
+  let_it_be(:user) { create(:user, maintainer_of: project) }
+  let_it_be_with_reload(:pipeline) { create(:ci_pipeline, project: project, created_at: 1.day.ago) }
+  let_it_be_with_reload(:build) { create(:ci_build, :manual, pipeline: pipeline) }
 
   let(:service) do
     described_class.new(build, current_user: user)
@@ -31,14 +31,14 @@ RSpec.describe Ci::EnqueueJobService, '#execute', feature_category: :continuous_
     execute
   end
 
-  it 'returns the job' do
+  it 'returns a service response with a job payload' do
     expect(execute).to eq(build)
   end
 
   context 'when variables are supplied' do
     let(:job_variables) do
       [{ key: 'first', secret_value: 'first' },
-       { key: 'second', secret_value: 'second' }]
+        { key: 'second', secret_value: 'second' }]
     end
 
     let(:service) do
@@ -63,26 +63,10 @@ RSpec.describe Ci::EnqueueJobService, '#execute', feature_category: :continuous_
     end
   end
 
-  context 'when a transition block is supplied' do
-    let(:bridge) { create(:ci_bridge, :playable, pipeline: pipeline) }
-
-    let(:service) do
-      described_class.new(bridge, current_user: user)
-    end
-
-    subject(:execute) { service.execute(&:pending!) }
-
-    it 'calls the transition block instead of enqueue!' do
-      expect(bridge).to receive(:pending!)
-      expect(bridge).not_to receive(:enqueue!)
-      execute
-    end
-  end
-
   context 'when the job is manually triggered another user' do
     let(:job_variables) do
       [{ key: 'third', secret_value: 'third' },
-       { key: 'fourth', secret_value: 'fourth' }]
+        { key: 'fourth', secret_value: 'fourth' }]
     end
 
     let(:service) do
@@ -90,19 +74,10 @@ RSpec.describe Ci::EnqueueJobService, '#execute', feature_category: :continuous_
     end
 
     it 'assigns the user and variables to the job', :aggregate_failures do
-      called = false
-      service.execute do
-        unless called
-          called = true
-          raise ActiveRecord::StaleObjectError
-        end
-
-        build.enqueue!
-      end
+      service.execute
 
       build.reload
 
-      expect(called).to be true # ensure we actually entered the failure path
       expect(build.user).to eq(user)
       expect(build.job_variables.map(&:key)).to contain_exactly('third', 'fourth')
     end

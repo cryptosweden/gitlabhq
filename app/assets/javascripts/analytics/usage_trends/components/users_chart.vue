@@ -1,6 +1,6 @@
 <script>
 import { GlAlert } from '@gitlab/ui';
-import { GlAreaChart } from '@gitlab/ui/dist/charts';
+import { GlAreaChart } from '@gitlab/ui/src/charts';
 import produce from 'immer';
 import { sortBy } from 'lodash';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
@@ -16,14 +16,6 @@ export default {
   name: 'UsersChart',
   components: { GlAlert, GlAreaChart, ChartSkeletonLoader },
   props: {
-    startDate: {
-      type: Date,
-      required: true,
-    },
-    endDate: {
-      type: Date,
-      required: true,
-    },
     totalDataPoints: {
       type: Number,
       required: true,

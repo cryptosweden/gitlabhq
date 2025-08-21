@@ -1,20 +1,19 @@
 ---
 stage: Plan
 group: Knowledge
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
-description: "GitLab's development guidelines for Wikis"
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+description: Development guidelines for Wikis
+title: Wikis development guidelines
 ---
-
-# Wikis development guidelines
 
 The wiki functionality in GitLab is based on [Gollum 4.x](https://github.com/gollum/gollum/).
 It's used in the [Gitaly](gitaly.md) Ruby service, and accessed from the Rails app through Gitaly RPC calls.
 
 Wikis use Git repositories as storage backend, and can be accessed through:
 
-- The [Web UI](../user/project/wiki/index.md)
+- The [Web UI](../user/project/wiki/_index.md)
 - The [REST API](../api/wikis.md)
-- [Git itself](../user/project/wiki/index.md#create-or-edit-wiki-pages-locally)
+- [Git itself](../user/project/wiki/_index.md#create-or-edit-wiki-pages-locally)
 
 ## Involved Gems
 
@@ -30,7 +29,7 @@ We only use Gollum as a storage abstraction layer, to handle the mapping between
 
 When rendering wiki pages, we don't use Gollum at all and instead go through a
 [custom Banzai pipeline](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/banzai/pipeline/wiki_pipeline.rb).
-This adds some [wiki-specific markup](../user/markdown.md#wiki-specific-markdown), such as the Gollum `[[link]]` syntax.
+This adds some [wiki-specific markup](../user/project/wiki/markdown.md), such as the Gollum `[[link]]` syntax.
 
 Because we do not make use of most of the Gollum features, we plan to move away from it entirely at some point.
 [See this epic](https://gitlab.com/groups/gitlab-org/-/epics/2381) for reference.

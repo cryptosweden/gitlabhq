@@ -11,7 +11,7 @@ RSpec.describe ::SystemNotes::MergeRequestsService, feature_category: :code_revi
 
   let(:noteable) { create(:merge_request, source_project: project, target_project: project) }
 
-  let(:service) { described_class.new(noteable: noteable, project: project, author: author) }
+  let(:service) { described_class.new(noteable: noteable, container: project, author: author) }
 
   describe '.merge_when_checks_pass' do
     let(:pipeline) { build(:ci_pipeline) }
@@ -49,43 +49,19 @@ RSpec.describe ::SystemNotes::MergeRequestsService, feature_category: :code_revi
     it "posts the 'abort auto merge' system note" do
       expect(subject.note).to eq "aborted the automatic merge because merge request was closed"
     end
-  end
 
-  describe '.merge_when_pipeline_succeeds' do
-    let(:pipeline) { build(:ci_pipeline) }
+    context "when reason is upcased" do
+      subject { service.abort_auto_merge(::Ci::Pipeline.workflow_rules_failure_message) }
 
-    subject { service.merge_when_pipeline_succeeds(pipeline.sha) }
+      let(:expected_note) do
+        reason = ::Ci::Pipeline.workflow_rules_failure_message
+        reason[0] = reason[0].downcase
+        "aborted the automatic merge because #{reason}"
+      end
 
-    it_behaves_like 'a system note' do
-      let(:action) { 'merge' }
-    end
-
-    it "posts the 'merge when pipeline succeeds' system note" do
-      expect(subject.note).to match(%r{enabled an automatic merge when the pipeline for (\w+/\w+@)?\h{40} succeeds})
-    end
-  end
-
-  describe '.cancel_merge_when_pipeline_succeeds' do
-    subject { service.cancel_merge_when_pipeline_succeeds }
-
-    it_behaves_like 'a system note' do
-      let(:action) { 'merge' }
-    end
-
-    it "posts the 'merge when pipeline succeeds' system note" do
-      expect(subject.note).to eq "canceled the automatic merge"
-    end
-  end
-
-  describe '.abort_merge_when_pipeline_succeeds' do
-    subject { service.abort_merge_when_pipeline_succeeds('merge request was closed') }
-
-    it_behaves_like 'a system note' do
-      let(:action) { 'merge' }
-    end
-
-    it "posts the 'merge when pipeline succeeds' system note" do
-      expect(subject.note).to eq "aborted the automatic merge because merge request was closed"
+      it "formats the system note correctly" do
+        expect(subject.note).to eq expected_note
+      end
     end
   end
 
@@ -147,12 +123,11 @@ RSpec.describe ::SystemNotes::MergeRequestsService, feature_category: :code_revi
     let(:discussion) { create(:diff_note_on_merge_request, project: project).to_discussion }
     let(:merge_request) { discussion.noteable }
     let(:change_position) { discussion.position }
+    let(:service) { described_class.new(container: project, author: author) }
 
     def reloaded_merge_request
       MergeRequest.find(merge_request.id)
     end
-
-    let(:service) { described_class.new(project: project, author: author) }
 
     subject { service.diff_discussion_outdated(discussion, change_position) }
 
@@ -200,6 +175,19 @@ RSpec.describe ::SystemNotes::MergeRequestsService, feature_category: :code_revi
 
       it 'does not create a link' do
         expect(subject.note).to eq('changed this line in version 1 of the diff')
+      end
+    end
+
+    context 'when change position is nil' do
+      let(:change_position) { nil }
+
+      it 'creates a new note in the discussion' do
+        # we need to completely rebuild the merge request object, or the `@discussions` on the merge request are not reloaded.
+        expect { subject }.to change { reloaded_merge_request.discussions.first.notes.size }.by(1)
+      end
+
+      it 'does not create a link' do
+        expect(subject.note).to eq('changed this file in version 1 of the diff')
       end
     end
   end
@@ -321,7 +309,7 @@ RSpec.describe ::SystemNotes::MergeRequestsService, feature_category: :code_revi
   end
 
   describe '#approve_mr' do
-    subject { described_class.new(noteable: noteable, project: project, author: author).approve_mr }
+    subject { described_class.new(noteable: noteable, container: project, author: author).approve_mr }
 
     it_behaves_like 'a system note' do
       let(:action) { 'approved' }
@@ -335,7 +323,7 @@ RSpec.describe ::SystemNotes::MergeRequestsService, feature_category: :code_revi
   end
 
   describe '#requested_changes' do
-    subject { described_class.new(noteable: noteable, project: project, author: author).requested_changes }
+    subject { described_class.new(noteable: noteable, container: project, author: author).requested_changes }
 
     it_behaves_like 'a system note' do
       let(:action) { 'requested_changes' }
@@ -344,6 +332,20 @@ RSpec.describe ::SystemNotes::MergeRequestsService, feature_category: :code_revi
     context 'when the user has requested changes' do
       it 'sets the note text' do
         expect(subject.note).to eq "requested changes"
+      end
+    end
+  end
+
+  describe '#reviewed' do
+    subject { described_class.new(noteable: noteable, container: project, author: author).reviewed }
+
+    it_behaves_like 'a system note' do
+      let(:action) { 'reviewed' }
+    end
+
+    context 'when the user submits the review without approving or requesting changes' do
+      it 'sets the note text' do
+        expect(subject.note).to eq "left review comments"
       end
     end
   end

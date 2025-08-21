@@ -1,7 +1,8 @@
 <script>
-import { GlButton, GlTooltipDirective, GlIcon } from '@gitlab/ui';
+import { GlButton, GlTooltipDirective, GlIcon, GlAnimatedLoaderIcon } from '@gitlab/ui';
 import { TYPE_ISSUE } from '~/issues/constants';
 import { __, sprintf, s__ } from '~/locale';
+import { createAlert } from '~/alert';
 import ReviewerAvatarLink from './reviewer_avatar_link.vue';
 
 const LOADING_STATE = 'loading';
@@ -11,32 +12,40 @@ const JUST_APPROVED = 'approved';
 const REVIEW_STATE_ICONS = {
   APPROVED: {
     name: 'check-circle',
-    class: 'gl-text-green-500',
-    title: __('Reviewer approved changes'),
+    iconClass: 'gl-fill-icon-success',
+    title: s__('MergeRequest|Reviewer approved changes'),
   },
   REQUESTED_CHANGES: {
     name: 'error',
-    class: 'gl-text-red-500',
-    title: __('Reviewer requested changes'),
+    iconClass: 'gl-fill-icon-danger',
+    title: s__('MergeRequest|Reviewer requested changes'),
   },
   REVIEWED: {
     name: 'comment-lines',
-    class: 'gl-text-blue-500',
-    title: __('Reviewer commented'),
+    iconClass: 'gl-fill-icon-info',
+    title: s__('MergeRequest|Reviewer commented'),
   },
   UNREVIEWED: {
     name: 'dash-circle',
-    title: __('Awaiting review'),
+    iconClass: 'gl-fill-icon-default',
+    title: s__('MergeRequest|Awaiting review'),
+  },
+  REVIEW_STARTED: {
+    name: 'comment-dots',
+    iconClass: 'gl-fill-icon-default',
+    title: s__('MergeRequest|Reviewer started review'),
   },
 };
 
 export default {
   i18n: {
     reRequestReview: __('Re-request review'),
+    removeReviewer: s__('MergeRequest|Remove reviewer'),
   },
   components: {
     GlButton,
     GlIcon,
+    GlAnimatedLoaderIcon,
     ReviewerAvatarLink,
   },
   directives: {
@@ -55,6 +64,16 @@ export default {
       type: String,
       required: false,
       default: TYPE_ISSUE,
+    },
+    isEditable: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    canRerequest: {
+      type: Boolean,
+      required: true,
+      default: false,
     },
   },
   data() {
@@ -105,10 +124,17 @@ export default {
     },
     reRequestReview(userId) {
       this.loadingStates[userId] = LOADING_STATE;
+      this.$root.$emit('bv::hide::tooltip');
       this.$emit('request-review', { userId, callback: this.requestReviewComplete });
     },
-
-    requestReviewComplete(userId, success) {
+    removeReviewer(userId) {
+      this.loadingStates[userId] = LOADING_STATE;
+      this.$emit('remove-reviewer', {
+        userId,
+        done: () => this.requestRemovalComplete(userId),
+      });
+    },
+    requestReviewComplete(userId, success, errorMessage) {
       if (success) {
         this.loadingStates[userId] = SUCCESS_STATE;
 
@@ -117,16 +143,20 @@ export default {
         }, 1500);
       } else {
         this.loadingStates[userId] = null;
+
+        if (errorMessage) {
+          createAlert({ message: errorMessage });
+        }
       }
+    },
+    requestRemovalComplete(userId) {
+      delete this.loadingStates[userId];
     },
     reviewStateIcon(user) {
       if (user.mergeRequestInteraction.approved) {
         return {
           ...REVIEW_STATE_ICONS.APPROVED,
-          class: [
-            REVIEW_STATE_ICONS.APPROVED.class,
-            this.loadingStates[user.id] === JUST_APPROVED && 'merge-request-approved-icon',
-          ],
+          class: [this.loadingStates[user.id] === JUST_APPROVED && 'merge-request-approved-icon'],
         };
       }
       return (
@@ -135,11 +165,15 @@ export default {
       );
     },
     showRequestReviewButton(user) {
-      if (!user.mergeRequestInteraction.approved) {
-        return !['UNREVIEWED', 'UNAPPROVED'].includes(user.mergeRequestInteraction.reviewState);
+      if (this.canRerequest) {
+        if (!user.mergeRequestInteraction.approved) {
+          return !['UNREVIEWED'].includes(user.mergeRequestInteraction.reviewState);
+        }
+
+        return true;
       }
 
-      return true;
+      return false;
     },
   },
   LOADING_STATE,
@@ -155,27 +189,27 @@ export default {
       :class="{
         'gl-mb-3': index !== users.length - 1,
       }"
-      class="gl-display-grid gl-align-items-center reviewer-grid gl-mr-2"
+      class="reviewer-grid gl-mr-2 gl-grid gl-items-center"
       data-testid="reviewer"
     >
       <reviewer-avatar-link
         :user="user"
         :root-path="rootPath"
         :issuable-type="issuableType"
-        class="gl-break-anywhere gl-mr-2"
+        class="gl-mr-2 gl-break-anywhere"
         data-css-area="user"
       >
-        <div class="gl-ml-3 gl-leading-normal gl-display-grid gl-align-items-center">
+        <div class="gl-ml-3 gl-grid gl-items-center gl-leading-normal">
           {{ user.name }}
         </div>
       </reviewer-avatar-link>
       <gl-button
-        v-if="user.mergeRequestInteraction.canUpdate && showRequestReviewButton(user)"
+        v-if="showRequestReviewButton(user)"
         v-gl-tooltip.left
         :title="$options.i18n.reRequestReview"
         :aria-label="$options.i18n.reRequestReview"
         :loading="loadingStates[user.id] === $options.LOADING_STATE"
-        class="gl-float-right gl-text-gray-500! gl-mr-2"
+        class="gl-float-right gl-mr-2 !gl-text-subtle"
         size="small"
         icon="redo"
         variant="link"
@@ -185,15 +219,38 @@ export default {
       <span
         v-gl-tooltip.top.viewport
         :title="reviewStateIcon(user).title"
+        class="gl-float-right gl-my-2 gl-ml-auto gl-shrink-0"
         :class="reviewStateIcon(user).class"
-        class="gl-float-right gl-my-2 gl-ml-auto gl-flex-shrink-0"
         data-testid="reviewer-state-icon-parent"
       >
+        <gl-animated-loader-icon
+          v-if="
+            user.type === 'DUO_CODE_REVIEW_BOT' &&
+            user.mergeRequestInteraction.reviewState === 'REVIEW_STARTED'
+          "
+          is-on
+        />
         <gl-icon
+          v-else
           :size="reviewStateIcon(user).size || 16"
           :name="reviewStateIcon(user).name"
+          :class="reviewStateIcon(user).iconClass"
           :aria-label="reviewStateIcon(user).title"
           data-testid="reviewer-state-icon"
+        />
+      </span>
+      <span v-if="isEditable" class="gl-inline-flex gl-h-6 gl-w-6">
+        <gl-button
+          v-gl-tooltip.top.viewport
+          :title="$options.i18n.removeReviewer"
+          :aria-label="$options.i18n.removeReviewer"
+          :loading="loadingStates[user.id] === $options.LOADING_STATE"
+          class="gl-float-right gl-ml-2 !gl-text-subtle"
+          size="small"
+          icon="close"
+          variant="link"
+          data-testid="remove-request-button"
+          @click="removeReviewer(user.id)"
         />
       </span>
     </div>

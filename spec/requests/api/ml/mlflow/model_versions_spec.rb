@@ -11,6 +11,7 @@ RSpec.describe API::Ml::Mlflow::ModelVersions, feature_category: :mlops do
   let_it_be(:version) { '0.0.1' }
   let_it_be(:model) { create(:ml_models, project: project, name: name) }
   let_it_be(:model_version) { create(:ml_model_versions, project: project, model: model, version: version) }
+  let_it_be(:candidate) { create(:ml_candidates, project: project) }
 
   let_it_be(:tokens) do
     {
@@ -44,7 +45,7 @@ RSpec.describe API::Ml::Mlflow::ModelVersions, feature_category: :mlops do
       is_expected.to have_gitlab_http_status(:ok)
       expect(json_response['model_version']).not_to be_nil
       expect(json_response['model_version']['name']).to eq(name)
-      expect(json_response['model_version']['version']).to eq(version)
+      expect(json_response['model_version']['version']).to eq(model_version.id.to_s)
     end
 
     describe 'Error States' do
@@ -96,7 +97,7 @@ RSpec.describe API::Ml::Mlflow::ModelVersions, feature_category: :mlops do
       is_expected.to have_gitlab_http_status(:ok)
       expect(json_response['model_version']).not_to be_nil
       expect(json_response['model_version']['name']).to eq(name)
-      expect(json_response['model_version']['version']).to eq(version)
+      expect(json_response['model_version']['version']).to eq(model_version.id.to_s)
     end
 
     describe 'Error States' do
@@ -145,16 +146,47 @@ RSpec.describe API::Ml::Mlflow::ModelVersions, feature_category: :mlops do
     let(:params) { { name: model_name, description: 'description-text' } }
     let(:request) { post api(route), params: params, headers: headers }
 
-    it 'returns the model', :aggregate_failures do
+    it 'returns the model version', :aggregate_failures do
       is_expected.to have_gitlab_http_status(:ok)
       is_expected.to match_response_schema('ml/get_model_version')
     end
 
+    describe 'version from run id' do
+      context 'with wrong eid' do
+        let(:params) do
+          {
+            'name' => model_name,
+            'description' => 'description-text',
+            'run_id' => 'wrong eid'
+          }
+        end
+
+        it 'returns error', :aggregate_failures do
+          expect(json_response).to include("message" => ["Run with eid not found"])
+        end
+      end
+
+      context 'with correct eid' do
+        let(:params) do
+          {
+            'name' => model_name,
+            'description' => 'description-text',
+            'run_id' => candidate.eid
+          }
+        end
+
+        it 'returns error', :aggregate_failures do
+          is_expected.to have_gitlab_http_status(:ok)
+          is_expected.to match_response_schema('ml/get_model_version')
+        end
+      end
+    end
+
     it 'increments the version if a model version already exists' do
-      create(:ml_model_versions, model: model, version: '1.0.0')
+      m = create(:ml_model_versions, model: model, version: '1.0.0')
 
       is_expected.to have_gitlab_http_status(:ok)
-      expect(json_response["model_version"]["version"]).to eq('2.0.0')
+      expect(json_response["model_version"]["version"]).to eq((m.id + 1).to_s)
     end
 
     describe 'user assigned version' do
@@ -168,7 +200,6 @@ RSpec.describe API::Ml::Mlflow::ModelVersions, feature_category: :mlops do
 
       it 'assigns the supplied version string via the gitlab tag' do
         is_expected.to have_gitlab_http_status(:ok)
-        expect(json_response["model_version"]["version"]).to eq('1.2.3')
         expect(json_response["model_version"]["tags"]).to match_array([{ "key" => 'gitlab.version',
                                                                          "value" => '1.2.3' }])
       end
@@ -209,6 +240,21 @@ RSpec.describe API::Ml::Mlflow::ModelVersions, feature_category: :mlops do
 
       it_behaves_like 'MLflow|an authenticated resource'
       it_behaves_like 'MLflow|a read/write model registry resource'
+    end
+  end
+
+  describe 'GET /projects/:id/ml/mlflow/api/2.0/mlflow/model-versions/get-download-uri' do
+    let(:route) do
+      "/projects/#{project_id}/ml/mlflow/api/2.0/mlflow/model-versions/get-download-uri?name=#{name}
+&version=#{model_version.id}"
+    end
+
+    it 'returns the download-uri', :aggregate_failures do
+      is_expected.to have_gitlab_http_status(:ok)
+      expect(json_response).not_to be_nil
+      expect(json_response.keys).to contain_exactly('artifact_uri')
+      expect(json_response['artifact_uri']).not_to be_nil
+      expect(json_response['artifact_uri']).to eq("mlflow-artifacts:/#{model_version.id}")
     end
   end
 end

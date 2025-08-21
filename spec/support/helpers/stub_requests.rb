@@ -24,7 +24,7 @@ module StubRequests
 
     # See Gitlab::HTTP_V2::UrlBlocker
     allow(Addrinfo).to receive(:getaddrinfo)
-                         .with(url.hostname, url.port, nil, :STREAM)
+                         .with(url.hostname, url.port, anything, :STREAM, any_args)
                          .and_return([addr])
   end
 
@@ -37,7 +37,7 @@ module StubRequests
     # See Gitlab::HTTP_V2::UrlBlocker
     allow(Addrinfo).to receive(:getaddrinfo).and_call_original
     allow(Addrinfo).to receive(:getaddrinfo)
-      .with(url.hostname, anything, nil, :STREAM)
+      .with(url.hostname, anything, anything, :STREAM, any_args)
       .and_return([addr])
   end
 
@@ -45,6 +45,13 @@ module StubRequests
     url = parse_url(url)
     url.hostname = hostname
     url.to_s
+  end
+
+  def request_for_url(input_url)
+    env = Rack::MockRequest.env_for(input_url)
+    env['action_dispatch.parameter_filter'] = Gitlab::Application.config.filter_parameters
+
+    ActionDispatch::Request.new(env)
   end
 
   private

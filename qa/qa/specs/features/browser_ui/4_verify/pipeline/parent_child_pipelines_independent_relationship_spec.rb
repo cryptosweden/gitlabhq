@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Verify', :runner, :blocking, product_group: :pipeline_execution do
+  RSpec.describe 'Verify', feature_category: :continuous_integration do
     describe 'Parent-child pipelines independent relationship' do
       let!(:project) { create(:project, name: 'pipeline-independent-relationship') }
       let!(:runner) { create(:project_runner, project: project, name: project.name, tags: [project.name]) }
@@ -19,7 +19,7 @@ module QA
         testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/358059'
       ) do
         add_ci_files(success_child_ci_file)
-        Flow::Pipeline.visit_latest_pipeline
+        project.visit_latest_pipeline
 
         Page::Project::Pipeline::Show.perform do |parent_pipeline|
           expect(parent_pipeline).to have_child_pipeline
@@ -32,7 +32,7 @@ module QA
         testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/358060'
       ) do
         add_ci_files(fail_child_ci_file)
-        Flow::Pipeline.visit_latest_pipeline
+        project.visit_latest_pipeline
 
         Page::Project::Pipeline::Show.perform do |parent_pipeline|
           expect(parent_pipeline).to have_child_pipeline
@@ -97,7 +97,9 @@ module QA
         create(:commit,
           project: project,
           commit_message: 'Add parent and child pipelines CI files.',
-          actions: [child_ci_file, parent_ci_file]).project.visit!
+          actions: [child_ci_file, parent_ci_file]
+        )
+        Flow::Pipeline.wait_for_pipeline_creation_via_api(project: project)
       end
     end
   end

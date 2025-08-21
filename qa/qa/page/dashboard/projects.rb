@@ -4,10 +4,6 @@ module QA
   module Page
     module Dashboard
       class Projects < Page::Base
-        view 'app/views/shared/projects/_search_form.html.haml' do
-          element 'project-filter-form-container', required: true
-        end
-
         view 'app/views/shared/projects/_project.html.haml' do
           element 'project-content'
           element 'user-access-role'
@@ -35,9 +31,11 @@ module QA
         end
 
         def filter_by_name(name)
-          within_element('project-filter-form-container') do
-            fill_in :name, with: name
-          end
+          filter_input = find_element('filtered-search-term-input')
+          filter_input.click
+          filter_input.set(name)
+          click_element 'search-button'
+          wait_for_requests
         end
 
         def go_to_project(name)
@@ -50,12 +48,23 @@ module QA
           click_element('new-project-button', Page::Project::New)
         end
 
+        def click_member_tab
+          # Because project authorization updates are async it is possible that we get to this page before
+          # project authorizations have been updated and therefore the empty state is shown.
+          # Retry until project authorizations have been updated.
+          retry_on_exception(max_attempts: 30, reload: true, sleep_interval: 2) do
+            click_link('Member')
+          end
+          wait_for_requests
+        end
+
         def self.path
           '/'
         end
 
         def clear_project_filter
-          fill_element('project-filter-form-container', "")
+          click_element 'filtered-search-clear-button'
+          wait_for_requests
         end
 
         private

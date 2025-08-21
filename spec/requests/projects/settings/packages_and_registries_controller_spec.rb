@@ -5,6 +5,7 @@ require 'spec_helper'
 RSpec.describe Projects::Settings::PackagesAndRegistriesController, feature_category: :package_registry do
   let_it_be(:user) { create(:user) }
   let_it_be(:project, reload: true) { create(:project, namespace: user.namespace) }
+  let_it_be(:maintainer) { create(:user) }
 
   let(:container_registry_enabled) { true }
   let(:container_registry_enabled_on_project) { ProjectFeature::ENABLED }
@@ -17,51 +18,21 @@ RSpec.describe Projects::Settings::PackagesAndRegistriesController, feature_cate
   end
 
   describe 'GET #show' do
+    subject { get namespace_project_settings_packages_and_registries_path(user.namespace, project) }
+
+    before do
+      allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(true)
+    end
+
     context 'when user is authorized' do
       let(:user) { project.creator }
 
-      subject { get namespace_project_settings_packages_and_registries_path(user.namespace, project) }
-
       before do
         sign_in(user)
-        allow(ContainerRegistry::GitlabApiClient).to receive(:supports_gitlab_api?).and_return(true)
       end
 
-      it 'pushes the feature flag "packages_protected_packages" to the view' do
-        subject
-
-        expect(response.body).to have_pushed_frontend_feature_flags(packagesProtectedPackages: true)
-      end
-
-      context 'when feature flag "packages_protected_packages" is disabled' do
-        before do
-          stub_feature_flags(packages_protected_packages: false)
-        end
-
-        it 'does not push the feature flag "packages_protected_packages" to the view' do
-          subject
-
-          expect(response.body).not_to have_pushed_frontend_feature_flags(packagesProtectedPackages: true)
-        end
-      end
-
-      it 'pushes the feature flag "container_registry_protected_containers" to the view' do
-        subject
-
-        expect(response.body).to have_pushed_frontend_feature_flags(containerRegistryProtectedContainers: true)
-      end
-
-      context 'when feature flag "container_registry_protected_containers" is disabled' do
-        before do
-          stub_feature_flags(container_registry_protected_containers: false)
-        end
-
-        it 'does not push the feature flag "container_registry_protected_containers" to the view' do
-          subject
-
-          expect(response.body).not_to have_pushed_frontend_feature_flags(containerRegistryProtectedContainers: true)
-        end
-      end
+      it_behaves_like 'pushed feature flag', :packages_protected_packages_delete
+      it_behaves_like 'pushed feature flag', :container_registry_protected_containers_delete
     end
   end
 

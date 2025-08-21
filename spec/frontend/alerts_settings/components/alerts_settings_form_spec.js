@@ -1,17 +1,7 @@
-import {
-  GlForm,
-  GlFormSelect,
-  GlFormInput,
-  GlToggle,
-  GlFormTextarea,
-  GlTab,
-  GlLink,
-  GlModal,
-} from '@gitlab/ui';
-import { mount } from '@vue/test-utils';
+import { GlForm, GlToggle, GlFormTextarea, GlTab, GlLink, GlModal } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
 import VueApollo from 'vue-apollo';
-import { extendedWrapper } from 'helpers/vue_test_utils_helper';
+import { mountExtended } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import MappingBuilder from '~/alerts_settings/components/alert_mapping_builder.vue';
 import AlertsSettingsForm from '~/alerts_settings/components/alerts_settings_form.vue';
@@ -58,31 +48,29 @@ describe('AlertsSettingsForm', () => {
       mockResolvers,
     );
 
-    wrapper = extendedWrapper(
-      mount(AlertsSettingsForm, {
-        apolloProvider,
-        propsData: {
-          loading: false,
-          canAddIntegration: true,
-          ...props,
+    wrapper = mountExtended(AlertsSettingsForm, {
+      apolloProvider,
+      propsData: {
+        loading: false,
+        canAddIntegration: true,
+        ...props,
+      },
+      provide: {
+        multiIntegrations,
+      },
+      mocks: {
+        $toast: {
+          show: mockToastShow,
         },
-        provide: {
-          multiIntegrations,
-        },
-        mocks: {
-          $toast: {
-            show: mockToastShow,
-          },
-        },
-      }),
-    );
+      },
+    });
 
     await waitForPromises();
   };
 
   const findForm = () => wrapper.findComponent(GlForm);
-  const findSelect = () => wrapper.findComponent(GlFormSelect);
-  const findFormFields = () => wrapper.findAllComponents(GlFormInput);
+  const findSelect = () => wrapper.find('select');
+  const findNameField = () => wrapper.findByTestId('integration-name-field');
   const findFormToggle = () => wrapper.findComponent(GlToggle);
   const findSamplePayloadSection = () => wrapper.findByTestId('sample-payload-section');
   const findResetPayloadModal = () => wrapper.findComponent(GlModal);
@@ -101,7 +89,7 @@ describe('AlertsSettingsForm', () => {
 
   const enableIntegration = (index, value = '') => {
     if (value !== '') {
-      findFormFields().at(index).setValue(value);
+      findNameField().setValue(value);
     }
 
     findFormToggle().vm.$emit('change', true);
@@ -120,27 +108,20 @@ describe('AlertsSettingsForm', () => {
       expect(findForm().exists()).toBe(true);
       expect(findSelect().exists()).toBe(true);
       expect(findMultiSupportText().exists()).toBe(false);
-      expect(findFormFields()).toHaveLength(0);
+      expect(findNameField().exists()).toBe(false);
     });
 
     it('shows the rest of the form when the dropdown is used', async () => {
       await selectOptionAtIndex(1);
 
-      expect(findFormFields().at(0).isVisible()).toBe(true);
+      expect(findNameField().exists()).toBe(true);
     });
 
     it('disables the dropdown and shows help text when multi integrations are not supported', async () => {
       await createComponent({ props: { canAddIntegration: false } });
 
-      expect(findSelect().attributes('disabled')).toBeDefined();
+      expect(findSelect().attributes('disabled')).toBe('disabled');
       expect(findMultiSupportText().exists()).toBe(true);
-    });
-
-    it('hides the name input when the selected value is prometheus', async () => {
-      await createComponent();
-      await selectOptionAtIndex(2);
-
-      expect(findFormFields()).toHaveLength(0);
     });
 
     it('verify pricing link url', async () => {
@@ -191,8 +172,8 @@ describe('AlertsSettingsForm', () => {
         findForm().trigger('submit');
 
         expect(wrapper.emitted('create-new-integration')[0][0]).toMatchObject({
-          type: typeSet.http,
           variables: {
+            type: typeSet.http,
             name: integrationName,
             active: true,
             payloadAttributeMappings: sampleMapping,
@@ -219,8 +200,8 @@ describe('AlertsSettingsForm', () => {
         await findSubmitButton().trigger('click');
 
         expect(wrapper.emitted('update-integration')[0][0]).toMatchObject({
-          type: typeSet.http,
           variables: {
+            type: typeSet.http,
             name: updatedIntegrationName,
             active: true,
             payloadAttributeMappings: [],
@@ -234,7 +215,9 @@ describe('AlertsSettingsForm', () => {
       it('create', async () => {
         await createComponent();
         await selectOptionAtIndex(2);
-        enableIntegration(0);
+
+        const integrationName = 'Prometheus';
+        enableIntegration(0, integrationName);
 
         expect(findSubmitButton().exists()).toBe(true);
         expect(findSubmitButton().text()).toBe('Save integration');
@@ -242,8 +225,13 @@ describe('AlertsSettingsForm', () => {
         findForm().trigger('submit');
 
         expect(wrapper.emitted('create-new-integration')[0][0]).toMatchObject({
-          type: typeSet.prometheus,
-          variables: { active: true },
+          variables: {
+            type: typeSet.prometheus,
+            name: integrationName,
+            active: true,
+            payloadAttributeMappings: [],
+            payloadExample: '{}',
+          },
         });
       });
 
@@ -254,7 +242,8 @@ describe('AlertsSettingsForm', () => {
         };
         await createComponent({ currentIntegration });
 
-        enableIntegration(0);
+        const updatedIntegrationName = 'Test prometheus post';
+        enableIntegration(0, updatedIntegrationName);
 
         expect(findSubmitButton().exists()).toBe(true);
         expect(findSubmitButton().text()).toBe('Save integration');
@@ -262,8 +251,13 @@ describe('AlertsSettingsForm', () => {
         findForm().trigger('submit');
 
         expect(wrapper.emitted('update-integration')[0][0]).toMatchObject({
-          type: typeSet.prometheus,
-          variables: { active: true },
+          variables: {
+            type: typeSet.prometheus,
+            name: updatedIntegrationName,
+            active: true,
+            payloadAttributeMappings: [],
+            payloadExample: '{}',
+          },
         });
       });
     });
@@ -419,7 +413,7 @@ describe('AlertsSettingsForm', () => {
     describe.each`
       alertFieldsProvided | multiIntegrations | integrationOption | visible
       ${true}             | ${true}           | ${1}              | ${true}
-      ${true}             | ${true}           | ${2}              | ${false}
+      ${true}             | ${true}           | ${2}              | ${true}
       ${true}             | ${false}          | ${1}              | ${false}
       ${false}            | ${true}           | ${1}              | ${false}
     `(
@@ -458,13 +452,13 @@ describe('AlertsSettingsForm', () => {
 
     it('should not be able to submit when HTTP integration form is invalid', async () => {
       await selectOptionAtIndex(1);
-      await findFormFields().at(0).vm.$emit('input', '');
+      await findNameField().vm.$emit('input', '');
       expect(findSubmitButton().attributes('disabled')).toBeDefined();
     });
 
     it('should be able to submit when HTTP integration  form is valid', async () => {
       await selectOptionAtIndex(1);
-      await findFormFields().at(0).vm.$emit('input', 'Name');
+      await findNameField().vm.$emit('input', 'Name');
       expect(findSubmitButton().attributes('disabled')).toBe(undefined);
     });
 
@@ -478,7 +472,7 @@ describe('AlertsSettingsForm', () => {
       const currentIntegration = { type: typeSet.http, name: 'Existing integration' };
       await createComponent({ currentIntegration });
 
-      await findFormFields().at(0).vm.$emit('input', 'Updated name');
+      await findNameField().vm.$emit('input', 'Updated name');
       expect(findSubmitButton().attributes('disabled')).toBe(undefined);
     });
 

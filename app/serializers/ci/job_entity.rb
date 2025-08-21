@@ -6,11 +6,13 @@ module Ci
 
     expose :id
     expose :name
+    expose :test_suite_name
 
     expose :started?, as: :started
     expose :started_at, if: ->(job) { job.started? }
     expose :complete?, as: :complete
     expose :archived?, as: :archived
+    expose :source, if: ->(job, options) { job.is_a?(Ci::Build) && options[:enable_source] }
 
     # bridge jobs don't have build details pages
     expose :build_path, if: ->(job) { !job.is_a?(Ci::Bridge) } do |job|
@@ -26,6 +28,14 @@ module Ci
         :cancel_namespace_project_job,
         job,
         { continue: { to: job_path(job) } }
+      )
+    end
+
+    expose :force_cancel_path, if: ->(*) { force_cancelable? } do |job|
+      path_to(
+        :cancel_namespace_project_job,
+        job,
+        { continue: { to: job_path(job) }, force: true }
       )
     end
 
@@ -56,6 +66,14 @@ module Ci
       job.cancelable? && can?(request.current_user, :cancel_build, job)
     end
 
+    def authorized_to_force_cancel?
+      can?(request.current_user, :cancel_build, job) && can?(request.current_user, :maintainer_access, job)
+    end
+
+    def force_cancelable?
+      job.force_cancelable? && authorized_to_force_cancel?
+    end
+
     def retryable?
       job.retryable? && can?(request.current_user, :update_build, job)
     end
@@ -73,7 +91,9 @@ module Ci
     end
 
     def path_to(route, job, params = {})
-      send("#{route}_path", job.project.namespace, job.project, job, params) # rubocop:disable GitlabSecurity/PublicSend
+      # rubocop:disable GitlabSecurity/PublicSend -- needs send
+      send("#{route}_path", job.project.namespace, job.project, job, params)
+      # rubocop:enable GitlabSecurity/PublicSend
     end
 
     def job_path(job)

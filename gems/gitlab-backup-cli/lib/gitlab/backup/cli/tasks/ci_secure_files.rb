@@ -7,14 +7,14 @@ module Gitlab
         class CiSecureFiles < Task
           def self.id = 'ci_secure_files'
 
-          def human_name = _('ci secure files')
+          def human_name = 'CI Secure Files'
 
           def destination_path = 'ci_secure_files.tar.gz'
 
           private
 
-          def target
-            ::Backup::Targets::Files.new(nil, storage_path, options: options, excludes: ['tmp'])
+          def local
+            Gitlab::Backup::Cli::Targets::Files.new(context, storage_path, excludes: ['tmp'])
           end
 
           def storage_path = context.ci_secure_files_path

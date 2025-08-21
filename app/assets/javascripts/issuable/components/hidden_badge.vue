@@ -1,36 +1,23 @@
 <script>
-import { GlBadge, GlIcon, GlTooltipDirective } from '@gitlab/ui';
-import { issuableTypeText } from '~/issues/constants';
-import { __, sprintf } from '~/locale';
+import { GlBadge, GlTooltipDirective } from '@gitlab/ui';
 
 export default {
   components: {
     GlBadge,
-    GlIcon,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
-  },
-  props: {
-    issuableType: {
-      type: String,
-      required: false,
-      default: '',
-    },
-  },
-  computed: {
-    title() {
-      return sprintf(__('This %{issuable} is hidden because its author has been banned.'), {
-        issuable: issuableTypeText[this.issuableType],
-      });
-    },
   },
 };
 </script>
 
 <template>
-  <gl-badge v-gl-tooltip :title="title" variant="warning" class="gl-shrink-0">
-    <gl-icon name="spam" />
-    <span class="gl-sr-only">{{ __('Hidden') }}</span>
-  </gl-badge>
+  <gl-badge
+    v-gl-tooltip
+    icon="spam"
+    :title="s__('WorkItem|This item is hidden because its author has been banned.')"
+    :aria-label="__('Hidden')"
+    variant="warning"
+    class="gl-shrink-0"
+  />
 </template>

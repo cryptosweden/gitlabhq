@@ -13,8 +13,6 @@ module RuboCop
     #
     #   # good
     #   class User < ApplicationRecord
-    #     include IgnorableColumns
-    #
     #     ignore_column :name, remove_after: '2023-05-22', remove_with: '16.0'
     #     ignore_column :full_name, remove_after: '2023-05-22', remove_with: '16.0'
     #   end
@@ -28,14 +26,17 @@ module RuboCop
 
       RESTRICT_ON_SEND = %i[ignored_columns ignored_columns= ignore_column ignore_columns].freeze
 
+      # @!method ignored_columns_add?(node)
       def_node_matcher :ignored_columns_add?, <<~PATTERN
         (send (self) :ignored_columns)
       PATTERN
 
+      # @!method ignored_columns_set?(node)
       def_node_matcher :ignored_columns_set?, <<~PATTERN
         (send (self) :ignored_columns= ...)
       PATTERN
 
+      # @!method using_ignore_columns?(node)
       def_node_matcher :using_ignore_columns?, <<~PATTERN
         (send nil? {:ignore_columns :ignore_column}...)
       PATTERN

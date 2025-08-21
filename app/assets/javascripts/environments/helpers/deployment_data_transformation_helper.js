@@ -69,7 +69,10 @@ export const getRollbackActionFromDeploymentNode = (deploymentNode, environment)
     return null;
   }
   const isLastDeployment = id === environment.lastDeployment?.id;
-  const { webPath } = job;
+  const { retryPath, webPath } = job;
+  // Note: the retryFromWebPath is a fallback for backwards compatibility. It should be removed after %18.4
+  const retryFromWebPath = webPath ? `${webPath}/retry` : '';
+  const retryUrl = retryPath || retryFromWebPath;
   return {
     id,
     name: environment.name,
@@ -77,7 +80,7 @@ export const getRollbackActionFromDeploymentNode = (deploymentNode, environment)
       commit: deploymentNode.commit,
       isLast: isLastDeployment,
     },
-    retryUrl: `${webPath}/retry`,
+    retryUrl,
   };
 };
 
@@ -122,17 +125,24 @@ const getDeploymentApprovalFromDeploymentNode = (deploymentNode, environment) =>
 export const convertToDeploymentTableRow = (deploymentNode, environment) => {
   const { lastDeployment } = environment;
   const commit = getCommitFromDeploymentNode(deploymentNode);
+  const { job } = deploymentNode;
+  const pipeline = job?.downstreamPipeline ? job?.downstreamPipeline : job?.deploymentPipeline;
+
   return {
     status: deploymentNode.status.toLowerCase(),
     id: deploymentNode.iid,
     triggerer: deploymentNode.triggerer,
     commit,
-    job: deploymentNode.job && {
-      webPath: deploymentNode.job.webPath,
-      label: `${deploymentNode.job.name} (#${getIdFromGraphQLId(deploymentNode.job.id)})`,
+    job: job && {
+      webPath: job.webPath,
+      label: `${job.name} (#${getIdFromGraphQLId(job.id)})`,
+      pipeline: pipeline?.path && {
+        path: pipeline?.path,
+        label: `#${getIdFromGraphQLId(pipeline.id)}`,
+      },
     },
     created: deploymentNode.createdAt || '',
-    deployed: deploymentNode.finishedAt || '',
+    finished: deploymentNode.finishedAt || '',
     actions: getActionsFromDeploymentNode(deploymentNode, lastDeployment?.job?.name),
     rollback: getRollbackActionFromDeploymentNode(deploymentNode, environment),
     deploymentApproval: getDeploymentApprovalFromDeploymentNode(deploymentNode, environment),

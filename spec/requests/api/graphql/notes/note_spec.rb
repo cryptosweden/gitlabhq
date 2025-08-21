@@ -30,7 +30,7 @@ RSpec.describe 'Query.note(id)', feature_category: :team_planning do
     it 'returns nil' do
       post_graphql(query, current_user: current_user)
 
-      expect(note_data).to be nil
+      expect(note_data).to be_nil
     end
 
     context 'when it is a system note' do
@@ -39,7 +39,7 @@ RSpec.describe 'Query.note(id)', feature_category: :team_planning do
       it 'returns nil' do
         post_graphql(query, current_user: current_user)
 
-        expect(note_data).to be nil
+        expect(note_data).to be_nil
       end
     end
   end
@@ -85,6 +85,7 @@ RSpec.describe 'Query.note(id)', feature_category: :team_planning do
           expect(note_data['id']).to eq(global_id_of(issue_email_participants_system_note).to_s)
           expect(note_data['body']).to include(obfuscated_email)
           expect(note_data['bodyHtml']).to include(obfuscated_email)
+          expect(note_data['bodyFirstLineHtml']).to include(obfuscated_email)
         end
 
         context 'when user has at least the reporter role in project' do
@@ -94,6 +95,7 @@ RSpec.describe 'Query.note(id)', feature_category: :team_planning do
             expect(note_data['id']).to eq(global_id_of(issue_email_participants_system_note).to_s)
             expect(note_data['body']).to include(email)
             expect(note_data['bodyHtml']).to include(email)
+            expect(note_data['bodyFirstLineHtml']).to include(email)
           end
         end
       end
@@ -108,7 +110,7 @@ RSpec.describe 'Query.note(id)', feature_category: :team_planning do
       it 'returns nil' do
         post_graphql(query, current_user: current_user)
 
-        expect(note_data).to be nil
+        expect(note_data).to be_nil
       end
     end
 
@@ -118,7 +120,7 @@ RSpec.describe 'Query.note(id)', feature_category: :team_planning do
       it 'returns nil' do
         post_graphql(query, current_user: current_user)
 
-        expect(note_data).to be nil
+        expect(note_data).to be_nil
       end
 
       context 'and user can read confidential notes' do

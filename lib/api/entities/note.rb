@@ -13,7 +13,6 @@ module API
         NotePresenter.new(note, current_user: options[:current_user]).note
       end
 
-      expose :attachment_identifier, as: :attachment
       expose :author, using: Entities::UserBasic
       expose :created_at, :updated_at
       expose :system?, as: :system
@@ -30,6 +29,10 @@ module API
       expose :resolved_by, using: Entities::UserBasic, if: ->(note, options) { note.resolvable? }
       expose :resolved_at, if: ->(note, options) { note.resolvable? }
 
+      expose :suggestions,
+        if: ->(note, options) { note.noteable_type == "MergeRequest" && note.is_a?(DiffNote) },
+        using: Entities::Suggestion
+
       expose :confidential?, as: :confidential
       expose :confidential?, as: :internal
       expose :imported?, as: :imported
@@ -44,7 +47,7 @@ module API
     # To be returned if the note was command-only
     class NoteCommands < Grape::Entity
       expose(:commands_changes) { |note| note.commands_changes || {} }
-      expose(:summary) { |note| note.errors[:commands_only] }
+      expose(:summary) { |note| note.quick_actions_status.messages }
     end
   end
 end

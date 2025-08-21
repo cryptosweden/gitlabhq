@@ -1,14 +1,16 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Build
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Packages and images from the Linux package
 ---
 
-# Packages and images from the Linux package
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 Below you can find some basic information on why GitLab provides packages and
 a Docker image that come with bundled dependencies.
@@ -30,7 +32,7 @@ application is more complex and has multiple components. If these components are
 not present or are incorrectly configured, GitLab does not work or it works
 unpredictably.
 
-The [GitLab Architecture Overview](../../development/architecture.md#gitlab-architecture-overview) shows some of these components and how they
+The GitLab Architecture Overview in the GitLab development documentation shows some of these components and how they
 interact. Each of these components needs to be configured and kept up to date.
 
 Most of the components also have external dependencies. For example, the Rails
@@ -41,7 +43,7 @@ System in order for them to function correctly.
 Furthermore, GitLab has a monthly release cycle requiring frequent maintenance
 to stay up to date.
 
-All the things listed above present a challenge for the user maintaining the GitLab
+All the things listed previously present a challenge for the user maintaining the GitLab
 installation.
 
 ## External Software Dependencies
@@ -79,14 +81,14 @@ Some drawbacks of a package with bundled dependencies:
 ## Why would you install a package from the Linux package when you can use a system package?
 
 The answer can be simplified to: less maintenance required. Instead of handling
-multiple packages that *can* break existing functionality if the versions are
+multiple packages that can break existing functionality if the versions are
 not compatible, only handle one.
 
 Multiple packages require correct configuration in multiple locations.
 Keeping configuration in sync can be error prone.
 
 If you have the skill set to maintain all current dependencies and enough time
-to handle any future dependencies that might get introduced, the above listed
+to handle any future dependencies that might get introduced, the previous
 reasons might not be good enough for you to not use a package from the Linux package.
 
 There are two things to keep in mind before going down this route:
@@ -104,13 +106,13 @@ might be a better fit when the application has a number of moving parts.
 
 ## Docker image with multiple services
 
-[GitLab Docker image](../../install/docker.md) is based on the Linux package.
+[GitLab Docker image](../../install/docker/_index.md) is based on the Linux package.
 
 Considering that container spawned from this image contains multiple processes,
 these types of containers are also referred to as 'fat containers'.
 
 There are reasons for and against an image like this, but they are similar to
-what was noted above:
+what was noted previously:
 
 1. Very simple to get started.
 1. Upgrading to the latest version is extremely simple.

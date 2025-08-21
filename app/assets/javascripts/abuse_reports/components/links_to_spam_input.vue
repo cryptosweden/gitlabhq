@@ -11,7 +11,6 @@ export default {
   },
   i18n: {
     label: s__('ReportAbuse|Link to spam'),
-    description: s__('ReportAbuse|URL of this user posting spam'),
     addAnotherText: s__('ReportAbuse|Add another link'),
   },
   props: {
@@ -38,16 +37,9 @@ export default {
     <template v-for="(link, index) in links">
       <div :key="index" class="row">
         <div class="col-lg-8">
-          <gl-form-group class="gl-mt-5">
-            <template #label>
-              <div class="gl-pb-2">
-                {{ $options.i18n.label }}
-              </div>
-              <div class="gl-font-normal">
-                {{ $options.i18n.description }}
-              </div>
-            </template>
+          <gl-form-group :label="$options.i18n.label" :label-for="`spam-link-${index}`">
             <gl-form-input
+              :id="`spam-link-${index}`"
               v-model.trim="links[index]"
               type="url"
               name="abuse_report[links_to_spam][]"

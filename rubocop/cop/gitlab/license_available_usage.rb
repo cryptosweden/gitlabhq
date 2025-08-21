@@ -11,6 +11,7 @@ module RuboCop
 
         RESTRICT_ON_SEND = [:feature_available?].freeze
 
+        # @!method license_feature_available?(node)
         def_node_matcher :license_feature_available?, <<~PATTERN
           (send
             (const nil? :License) :feature_available?
@@ -18,7 +19,7 @@ module RuboCop
         PATTERN
 
         def on_send(node)
-          add_offense(node, message: MSG) if license_feature_available?(node)
+          add_offense(node) if license_feature_available?(node)
         end
       end
     end

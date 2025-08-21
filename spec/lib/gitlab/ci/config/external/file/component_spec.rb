@@ -202,12 +202,34 @@ RSpec.describe Gitlab::Ci::Config::External::File::Component, feature_category: 
       end
 
       let(:params) do
-        { component: 'gitlab.com/acme/components/my-component@1.0', with: { env: 'production' } }
+        { component: 'gitlab.com/acme/components/my-component@1.0', inputs: { env: 'production' } }
       end
 
       it 'correctly interpolates the content' do
         expect(external_resource.to_hash).to eq({ deploy: { script: 'deploy production' } })
       end
+    end
+  end
+
+  describe '#load_and_validate_expanded_hash!' do
+    let(:logger) { instance_double(::Gitlab::Ci::Pipeline::Logger, :instrument) }
+
+    let(:context_params) do
+      {
+        project: context_project,
+        sha: 'context_sha',
+        user: user,
+        variables: project_variables,
+        logger: logger
+      }
+    end
+
+    it 'tracks the content load time' do
+      expect(logger).to receive(:instrument).once.ordered.with(:config_component_fetch_content_hash).and_yield
+      expect(logger).to receive(:instrument).once.ordered.with(:config_file_fetch_content_hash).and_yield
+      expect(logger).to receive(:instrument).once.ordered.with(:config_file_expand_content_includes).and_yield
+
+      external_resource.load_and_validate_expanded_hash!
     end
   end
 end

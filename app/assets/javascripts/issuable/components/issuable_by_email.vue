@@ -7,12 +7,12 @@ import {
   GlSprintf,
   GlLink,
   GlFormInputGroup,
-  GlIcon,
 } from '@gitlab/ui';
 import { TYPE_ISSUE } from '~/issues/constants';
 import axios from '~/lib/utils/axios_utils';
 import { sprintf, __ } from '~/locale';
 import ModalCopyButton from '~/vue_shared/components/modal_copy_button.vue';
+import HelpIcon from '~/vue_shared/components/help_icon/help_icon.vue';
 
 export default {
   i18n: {
@@ -25,7 +25,7 @@ export default {
     GlSprintf,
     GlLink,
     GlFormInputGroup,
-    GlIcon,
+    HelpIcon,
     ModalCopyButton,
   },
   directives: {
@@ -50,23 +50,6 @@ export default {
     },
     resetPath: {
       default: '',
-    },
-  },
-  props: {
-    buttonClass: {
-      type: String,
-      required: false,
-      default: null,
-    },
-    variant: {
-      type: String,
-      required: false,
-      default: 'link',
-    },
-    text: {
-      type: String,
-      required: false,
-      default: __('Email a new %{name} to this project'),
     },
   },
   data() {
@@ -107,8 +90,8 @@ export default {
 
 <template>
   <div>
-    <gl-button v-gl-modal="$options.modalId" :class="buttonClass" :variant="variant"
-      ><gl-sprintf :message="text"
+    <gl-button v-gl-modal="$options.modalId" variant="link"
+      ><gl-sprintf :message="__('Email a new %{name} to this project')"
         ><template #name>{{ issuableName }}</template></gl-sprintf
       ></gl-button
     >
@@ -145,10 +128,11 @@ export default {
         <gl-sprintf
           :message="
             __(
-              'The subject will be used as the title of the new issue, and the message will be the description. %{quickActionsLinkStart}Quick actions%{quickActionsLinkEnd} and styling with %{markdownLinkStart}Markdown%{markdownLinkEnd} are supported.',
+              'The subject will be used as the title of the new %{name}, and the message will be the description. %{quickActionsLinkStart}Quick actions%{quickActionsLinkEnd} and styling with %{markdownLinkStart}Markdown%{markdownLinkEnd} are supported.',
             )
           "
         >
+          <template #name>{{ issuableName }}</template>
           <template #quickActionsLink="{ content }">
             <gl-link :href="quickActionsHelpPath" target="_blank">{{ content }}</gl-link>
           </template>
@@ -167,7 +151,7 @@ export default {
         >
           <template #helpIcon>
             <gl-link :href="emailsHelpPagePath" target="_blank">
-              <gl-icon class="gl-text-blue-600" name="question-o" />
+              <help-icon />
             </gl-link>
           </template>
           <template #resetLink="{ content }">

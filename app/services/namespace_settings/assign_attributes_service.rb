@@ -20,6 +20,10 @@ module NamespaceSettings
         user_policy: :change_prevent_sharing_groups_outside_hierarchy
       )
       validate_settings_param_for_root_group(
+        param_key: :seat_control,
+        user_policy: :change_seat_control
+      )
+      validate_settings_param_for_root_group(
         param_key: :new_user_signups_cap,
         user_policy: :change_new_user_signups_cap
       )
@@ -36,8 +40,10 @@ module NamespaceSettings
         user_policy: :update_git_access_protocol
       )
 
+      handle_default_branch_name
       handle_default_branch_protection unless settings_params[:default_branch_protection].blank?
       handle_early_access_program_participation
+      handle_jwt_ci_cd_job_token_enabled
 
       if group.namespace_settings
         group.namespace_settings.attributes = settings_params
@@ -47,6 +53,17 @@ module NamespaceSettings
     end
 
     private
+
+    def handle_default_branch_name
+      default_branch_key = :default_branch_name
+
+      return if settings_params[default_branch_key].blank?
+
+      unless Gitlab::GitRefValidator.validate(settings_params[default_branch_key])
+        settings_params.delete(default_branch_key)
+        group.namespace_settings.errors.add(default_branch_key, _('is invalid.'))
+      end
+    end
 
     def handle_default_branch_protection
       # We are migrating default_branch_protection from an integer
@@ -65,6 +82,19 @@ module NamespaceSettings
 
       not_participant = !group.namespace_settings&.early_access_program_participant
       settings_params[:early_access_program_joined_by_id] = current_user.id if not_participant
+    end
+
+    def handle_jwt_ci_cd_job_token_enabled
+      return if settings_params[:jwt_ci_cd_job_token_enabled].nil?
+
+      unless group.root?
+        settings_params.delete(:jwt_ci_cd_job_token_enabled)
+        group.namespace_settings.errors.add(:jwt_ci_cd_job_token_enabled, _('only available on top-level groups.'))
+        return
+      end
+
+      jwt_enabled = Gitlab::Utils.to_boolean(settings_params[:jwt_ci_cd_job_token_enabled])
+      settings_params[:jwt_ci_cd_job_token_opted_out] = !jwt_enabled
     end
 
     def validate_resource_access_token_creation_allowed_param

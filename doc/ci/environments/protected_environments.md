@@ -2,15 +2,17 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Protected environments
 ---
 
-# Protected environments
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-[Environments](../environments/index.md) can be used for both testing and
+{{< /details >}}
+
+[Environments](_index.md) can be used for both testing and
 production reasons.
 
 Because deploy jobs can be raised by different users with different roles, it's
@@ -20,8 +22,11 @@ unauthorized users.
 By default, a protected environment ensures that only people with the
 appropriate privileges can deploy to it, keeping the environment safe.
 
-NOTE:
+{{< alert type="note" >}}
+
 GitLab administrators can use all environments, including protected environments.
+
+{{< /alert >}}
 
 To protect, update, or unprotect an environment, you need to have at least the
 Maintainer role.
@@ -30,8 +35,10 @@ Maintainer role.
 
 Prerequisites:
 
-- When granting the **Allowed to deploy** permission to a group or subgroup, the user configuring the protected environment must be a **direct member** of the group or subgroup to be added. Otherwise, the group or subgroup does not show up in the dropdown list. For more information see [issue #345140](https://gitlab.com/gitlab-org/gitlab/-/issues/345140).
-- When granting **Allowed to deploy** permissions to a group or project by using the settings UI, only direct members of the group or project receive these permissions. To grant these permissions to inherited members also, [use the API](../../api/protected_environments.md#group-inheritance-types). For more information see [issue #422392](https://gitlab.com/gitlab-org/gitlab/-/issues/422392).
+- When granting the **Allowed to deploy** permission to an approver group, the user configuring the protected environment must be a **direct member** of the approver group to be added. Otherwise, the group or subgroup does not show up in the dropdown list. For more information see [issue #345140](https://gitlab.com/gitlab-org/gitlab/-/issues/345140).
+- When granting **Approvers** permissions to an approver group or project, by default only direct members of the approver group or project receive these permissions. To also grant these permissions to inherited members of the approver group or project:
+  - Select the **Enable group inheritance** checkbox.
+  - [Use the API](../../api/protected_environments.md#group-inheritance-types).
 
 To protect an environment:
 
@@ -45,7 +52,7 @@ To protect an environment:
    - There are two roles to choose from:
      - **Maintainers**: Allows access to all of the project's users with the Maintainer role.
      - **Developers**: Allows access to all of the project's users with the Maintainer and Developer role.
-   - You can also select groups that are already [invited](../../user/project/members/share_project_with_groups.md#share-a-project-with-a-group) to the project. Invited groups added to the project with the Reporter role appear in the dropdown list for [deployment-only access](#deployment-only-access-to-protected-environments).
+   - You can also select groups that are already [invited](../../user/project/members/sharing_projects_groups.md#invite-a-group-to-a-project) to the project. Invited groups added to the project with the Reporter role appear in the dropdown list for [deployment-only access](#deployment-only-access-to-protected-environments).
    - You can also select specific users. The users must have at least the Developer role to appear in
      the **Allowed to deploy** list.
 1. In the **Approvers** list, select the role, users, or groups you
@@ -54,7 +61,7 @@ To protect an environment:
    - There are two roles to choose from:
      - **Maintainers**: Allows access to all of the project's users with the Maintainer role.
      - **Developers**: Allows access to all of the project's users with the Maintainer and Developer role.
-   - You can only select groups that are already [invited](../../user/project/members/share_project_with_groups.md#share-a-project-with-a-group) to the project.
+   - You can only select groups that are already [invited](../../user/project/members/sharing_projects_groups.md#invite-a-group-to-a-project) to the project.
    - Users must have at least the Developer role to appear in
      the **Approvers** list.
 
@@ -93,11 +100,11 @@ Alternatively, you can use the API to protect an environment:
        name: ${CI_JOB_NAME}
    ```
 
-1. Use the UI to [create a new group](../../user/group/index.md#create-a-group).
+1. Use the UI to [create a new group](../../user/group/_index.md#create-a-group).
    For example, this group is called `protected-access-group` and has the group ID `9899826`. Note
    that the rest of the examples in these steps use this group.
 
-   ![Group Access](img/protected_access_group_v13_6.png)
+   ![Protected access group interface showing the New project button](img/protected_access_group_v13_6.png)
 
 1. Use the API to add a user to the group as a reporter:
 
@@ -128,7 +135,7 @@ The group now has access and can be seen in the UI.
 
 ## Environment access by group membership
 
-A user may be granted access to protected environments as part of [group membership](../../user/group/index.md). Users
+A user may be granted access to protected environments as part of [group membership](../../user/group/_index.md). Users
 with the Reporter role can only be granted access to protected environments with this
 method.
 
@@ -143,21 +150,21 @@ access to a protected environment through any of these methods:
 If the user also has push or merge access to the branch deployed on production,
 they have the following privileges:
 
-- [Stop an environment](index.md#stopping-an-environment).
-- [Delete an environment](index.md#delete-an-environment).
-- [Create an environment terminal](index.md#web-terminals-deprecated).
+- [Stop an environment](_index.md#stopping-an-environment).
+- [Delete an environment](_index.md#delete-an-environment).
+- [Create an environment terminal](_index.md#web-terminals-deprecated).
 
 ## Deployment-only access to protected environments
 
 Users granted access to a protected environment, but not push or merge access
 to the branch deployed to it, are only granted access to deploy the environment.
-[Invited groups](../../user/project/members/share_project_with_groups.md#share-a-project-with-a-group) added
+[Invited groups](../../user/project/members/sharing_projects_groups.md#invite-a-group-to-a-project) added
 to the project with [Reporter role](../../user/permissions.md#project-members-permissions), appear in the dropdown list for deployment-only access.
 
 To add deployment-only access:
 
 1. Create a group with members who are granted to access to the protected environment, if it doesn't exist yet.
-1. [Invite the group](../../user/project/members/share_project_with_groups.md#share-a-project-with-a-group) to the project with the Reporter role.
+1. [Invite the group](../../user/project/members/sharing_projects_groups.md#invite-a-group-to-a-project) to the project with the Reporter role.
 1. Follow the steps in [Protecting Environments](#protecting-environments).
 
 ## Modifying and unprotecting environments
@@ -170,6 +177,10 @@ Maintainers can:
 
 After an environment is unprotected, all access entries are deleted and must
 be re-entered if the environment is re-protected.
+
+After an approval rule is deleted, previously approved deployments do not show who approved the deployment.
+Information on who approved a deployment is still available in the [project audit events](../../user/compliance/audit_events.md#project-audit-events).
+If a new rule is added, previous deployments show the new rules without the option to approve the deployment. [Issue 506687](https://gitlab.com/gitlab-org/gitlab/-/issues/506687) proposes to show the full approval history of deployments, even if an approval rule is deleted.
 
 For more information, see [Deployment safety](deployment_safety.md).
 
@@ -187,8 +198,8 @@ The permissions of deployments can be illustrated in the following table:
 
 | Environment | Developer  | Operator | Category |
 |-------------|------------|----------|----------|
-| Development | Allowed    | Allowed  | Lower environment  |
-| Testing     | Allowed    | Allowed  | Lower environment  |
+| Development | Allowed    | Allowed  | Lower environment |
+| Testing     | Allowed    | Allowed  | Lower environment |
 | Staging     | Disallowed | Allowed  | Higher environment |
 | Production  | Disallowed | Allowed  | Higher environment |
 
@@ -197,7 +208,7 @@ _(Reference: [Deployment environments on Wikipedia](https://en.wikipedia.org/wik
 ### Group-level protected environments names
 
 Contrary to project-level protected environments, group-level protected
-environments use the [deployment tier](index.md#deployment-tier-of-environments)
+environments use the [deployment tier](_index.md#deployment-tier-of-environments)
 as their name.
 
 A group may consist of many project environments that have unique names.
@@ -208,11 +219,15 @@ and are protected at the same time.
 
 ### Configure group-level memberships
 
-> - Operators are required to have Owner+ role from the original Maintainer+ role and this role change is introduced from GitLab 15.3 [with a flag](https://gitlab.com/gitlab-org/gitlab/-/issues/369873) named `group_level_protected_environment_settings_permission`. Enabled by default.
-> - [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/369873) in GitLab 15.4.
+{{< history >}}
+
+- Operators are required to have Owner+ role from the original Maintainer+ role and this role change is introduced from GitLab 15.3 [with a flag](https://gitlab.com/gitlab-org/gitlab/-/issues/369873) named `group_level_protected_environment_settings_permission`. Enabled by default.
+- [Feature flag removed](https://gitlab.com/gitlab-org/gitlab/-/issues/369873) in GitLab 15.4.
+
+{{< /history >}}
 
 To maximize the effectiveness of group-level protected environments,
-[group-level memberships](../../user/group/index.md) must be correctly
+[group-level memberships](../../user/group/_index.md) must be correctly
 configured:
 
 - Operators should be given the Owner role
@@ -220,17 +235,17 @@ configured:
   the higher environments (such as production) in the group-level settings page,
   which includes group-level protected environments,
   [group-level runners](../runners/runners_scope.md#group-runners), and
-  [group-level clusters](../../user/group/clusters/index.md). Those
+  [group-level clusters](../../user/group/clusters/_index.md). Those
   configurations are inherited to the child projects as read-only entries.
   This ensures that only operators can configure the organization-wide
   deployment ruleset.
 - Developers should be given no more than the Developer role
   for the top-level group, or explicitly given the Owner role for a child project.
-  They do *not* have access to the CI/CD configurations in the
+  They do not have access to the CI/CD configurations in the
   top-level group, so operators can ensure that the critical configuration won't
   be accidentally changed by the developers.
 - For subgroups and child projects:
-  - Regarding [subgroups](../../user/group/subgroups/index.md), if a higher
+  - Regarding [subgroups](../../user/group/subgroups/_index.md), if a higher
     group has configured the group-level protected environment, the lower groups
     cannot override it.
   - [Project-level protected environments](#protecting-environments) can be
@@ -251,17 +266,21 @@ Having this configuration in place:
 ### Protect critical environments under a group
 
 To protect a group-level environment, make sure your environments have the correct
-[`deployment_tier`](index.md#deployment-tier-of-environments) defined in `.gitlab-ci.yml`.
+[`deployment_tier`](_index.md#deployment-tier-of-environments) defined in `.gitlab-ci.yml`.
 
 #### Using the UI
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/325249) in GitLab 15.1.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/325249) in GitLab 15.1.
+
+{{< /history >}}
 
 1. On the left sidebar, select **Search or go to** and find your group.
 1. Select **Settings > CI/CD**.
 1. Expand **Protected environments**.
-1. From the **Environment** list, select the [deployment tier of environments](index.md#deployment-tier-of-environments) you want to protect.
-1. In the **Allowed to deploy** list, select the [subgroups](../../user/group/subgroups/index.md) you want to give deploy access to.
+1. From the **Environment** list, select the [deployment tier of environments](_index.md#deployment-tier-of-environments) you want to protect.
+1. In the **Allowed to deploy** list, select the [subgroups](../../user/group/subgroups/_index.md) you want to give deploy access to.
 1. Select **Protect**.
 
 #### Using the API
@@ -276,6 +295,6 @@ Protected environments can also be used to require manual approvals before deplo
 
 ### Reporter can't run a trigger job that deploys to a protected environment in downstream pipeline
 
-A user who has [deployment-only access to protected environments](#deployment-only-access-to-protected-environments) might **not** be able to run a job if it's with a [`trigger`](../yaml/index.md#trigger) keyword. This is because the job is missing the [`environment`](../yaml/index.md#environment) keyword definition to associate the job with the protected environment, therefore the job is recognized as a standard job that uses [regular CI/CD permission model](../../user/permissions.md#gitlab-cicd-permissions).
+A user who has [deployment-only access to protected environments](#deployment-only-access-to-protected-environments) might **not** be able to run a job if it's with a [`trigger`](../yaml/_index.md#trigger) keyword. This is because the job is missing the [`environment`](../yaml/_index.md#environment) keyword definition to associate the job with the protected environment, therefore the job is recognized as a standard job that uses [regular CI/CD permission model](../../user/permissions.md#cicd).
 
 See [this issue](https://gitlab.com/groups/gitlab-org/-/epics/8483) for more information about supporting `environment` keyword with `trigger` keyword.

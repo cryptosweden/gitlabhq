@@ -4,13 +4,6 @@ require 'rubocop_spec_helper'
 require_relative '../../../../rubocop/cop/gitlab/feature_available_usage'
 
 RSpec.describe RuboCop::Cop::Gitlab::FeatureAvailableUsage do
-  context 'no arguments given' do
-    it 'does not flag the use of Gitlab::Sourcegraph.feature_available? with no arguments' do
-      expect_no_offenses('Gitlab::Sourcegraph.feature_available?')
-      expect_no_offenses('subject { described_class.feature_available? }')
-    end
-  end
-
   context 'one argument given' do
     it 'does not flag the use of License.feature_available?' do
       expect_no_offenses('License.feature_available?(:push_rules)')
@@ -21,45 +14,45 @@ RSpec.describe RuboCop::Cop::Gitlab::FeatureAvailableUsage do
     end
 
     it 'flags the use with a dynamic feature as nil' do
-      expect_offense(<<~SOURCE)
+      expect_offense(<<~RUBY)
         feature_available?(nil)
         ^^^^^^^^^^^^^^^^^^^^^^^ `feature_available?` should not be called for features that can be licensed (`nil` given), use `licensed_feature_available?(feature)` instead.
-      SOURCE
-      expect_offense(<<~SOURCE)
+      RUBY
+      expect_offense(<<~RUBY)
         project.feature_available?(nil)
         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `feature_available?` should not be called for features that can be licensed (`nil` given), use `licensed_feature_available?(feature)` instead.
-      SOURCE
+      RUBY
     end
 
     it 'flags the use with an OSS project feature' do
-      expect_offense(<<~SOURCE)
+      expect_offense(<<~RUBY)
         project.feature_available?(:issues)
         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `feature_available?` should be called with two arguments: `feature` and `user`.
-      SOURCE
-      expect_offense(<<~SOURCE)
+      RUBY
+      expect_offense(<<~RUBY)
         feature_available?(:issues)
         ^^^^^^^^^^^^^^^^^^^^^^^^^^^ `feature_available?` should be called with two arguments: `feature` and `user`.
-      SOURCE
+      RUBY
     end
 
     it 'flags the use with a feature that is not a project feature' do
-      expect_offense(<<~SOURCE)
+      expect_offense(<<~RUBY)
         feature_available?(:foo)
         ^^^^^^^^^^^^^^^^^^^^^^^^ `feature_available?` should not be called for features that can be licensed (`:foo` given), use `licensed_feature_available?(feature)` instead.
-      SOURCE
-      expect_offense(<<~SOURCE)
+      RUBY
+      expect_offense(<<~RUBY)
         project.feature_available?(:foo)
         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `feature_available?` should not be called for features that can be licensed (`:foo` given), use `licensed_feature_available?(feature)` instead.
-      SOURCE
-      expect_offense(<<~SOURCE)
+      RUBY
+      expect_offense(<<~RUBY)
         feature_available?(foo)
         ^^^^^^^^^^^^^^^^^^^^^^^ `feature_available?` should not be called for features that can be licensed (`foo` isn't a literal so we cannot say if it's legit or not), using `licensed_feature_available?(feature)` may be more appropriate.
-      SOURCE
-      expect_offense(<<~SOURCE)
+      RUBY
+      expect_offense(<<~RUBY)
         foo = :feature
         feature_available?(foo)
         ^^^^^^^^^^^^^^^^^^^^^^^ `feature_available?` should not be called for features that can be licensed (`foo` isn't a literal so we cannot say if it's legit or not), using `licensed_feature_available?(feature)` may be more appropriate.
-      SOURCE
+      RUBY
     end
   end
 
@@ -75,22 +68,22 @@ RSpec.describe RuboCop::Cop::Gitlab::FeatureAvailableUsage do
     end
 
     it 'flags the use with a dynamic feature as a method call with two args' do
-      expect_offense(<<~SOURCE)
+      expect_offense(<<~RUBY)
         feature_available?(:foo, current_user)
         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `feature_available?` should not be called for features that can be licensed (`:foo` given), use `licensed_feature_available?(feature)` instead.
-      SOURCE
-      expect_offense(<<~SOURCE)
+      RUBY
+      expect_offense(<<~RUBY)
         project.feature_available?(:foo, current_user)
         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `feature_available?` should not be called for features that can be licensed (`:foo` given), use `licensed_feature_available?(feature)` instead.
-      SOURCE
-      expect_offense(<<~SOURCE)
+      RUBY
+      expect_offense(<<~RUBY)
         feature_available?(foo, current_user)
         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `feature_available?` should not be called for features that can be licensed (`foo` isn't a literal so we cannot say if it's legit or not), using `licensed_feature_available?(feature)` may be more appropriate.
-      SOURCE
-      expect_offense(<<~SOURCE)
+      RUBY
+      expect_offense(<<~RUBY)
         project.feature_available?(foo, current_user)
         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `feature_available?` should not be called for features that can be licensed (`foo` isn't a literal so we cannot say if it's legit or not), using `licensed_feature_available?(feature)` may be more appropriate.
-      SOURCE
+      RUBY
     end
   end
 end

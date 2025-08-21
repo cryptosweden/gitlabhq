@@ -1,14 +1,16 @@
 ---
-stage: Monitor
-group: Respond
+stage: Analytics
+group: Platform Insights
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: On-call Schedule Management
 ---
 
-# On-call Schedule Management
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Use on-call schedule management to create schedules for responders to rotate on-call
 responsibilities. Maintain the availability of your software services by putting your teams on-call.
@@ -47,7 +49,7 @@ To update a schedule:
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Monitor > On-call Schedules**.
-1. Select **Edit schedule** (**{pencil}**).
+1. Select **Edit schedule** ({{< icon name="pencil" >}}).
 1. Edit the information.
 1. Select **Save changes**.
 
@@ -60,7 +62,7 @@ To delete a schedule:
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Monitor > On-call Schedules**.
-1. Select **Delete escalation policy** (**{remove}**).
+1. Select **Delete escalation policy** ({{< icon name="remove" >}}).
 1. On the confirmation dialog, select **Delete schedule**.
 
 ## Rotations
@@ -74,13 +76,13 @@ To create a rotation:
 1. Select the **Add a rotation** link.
 1. Enter the following information:
 
-   - **Name:** Your rotation's name.
-   - **Participants:** The people you want in the rotation.
-   - **Rotation length:** The rotation's duration.
-   - **Starts on:** The date and time the rotation begins.
-   - **Enable end date:** With the toggle on, you can select the date and time your rotation
+   - **Name**: Your rotation's name.
+   - **Participants**: The people you want in the rotation.
+   - **Rotation length**: The rotation's duration.
+   - **Starts on**: The date and time the rotation begins.
+   - **Enable end date**: With the toggle on, you can select the date and time your rotation
      ends.
-   - **Restrict to time intervals:** With the toggle on, you can restrict your rotation to the
+   - **Restrict to time intervals**: With the toggle on, you can restrict your rotation to the
      time period you select.
 
 ### Edit a rotation
@@ -89,7 +91,7 @@ To edit a rotation:
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Monitor > On-call Schedules**.
-1. In the **Rotations** section, select **Edit rotation** (**{pencil}**).
+1. In the **Rotations** section, select **Edit rotation** ({{< icon name="pencil" >}}).
 1. Edit the information.
 1. Select **Save changes**.
 
@@ -99,7 +101,7 @@ To delete a rotation:
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Monitor > On-call Schedules**.
-1. In the **Rotations** section, select **Delete rotation** (**{remove}**).
+1. In the **Rotations** section, select **Delete rotation** ({{< icon name="remove" >}}).
 1. On the confirmation dialog, select **Delete rotation**.
 
 ## View schedule rotations

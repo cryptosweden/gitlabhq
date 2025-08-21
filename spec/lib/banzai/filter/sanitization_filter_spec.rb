@@ -2,15 +2,13 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::SanitizationFilter, feature_category: :team_planning do
+RSpec.describe Banzai::Filter::SanitizationFilter, feature_category: :markdown do
   include FilterSpecHelper
+  using RSpec::Parameterized::TableSyntax
 
   it_behaves_like 'default allowlist'
 
   describe 'custom allowlist' do
-    it_behaves_like 'XSS prevention'
-    it_behaves_like 'sanitize link'
-
     it 'customizes the allowlist only once' do
       instance = described_class.new('Foo')
       control_count = instance.allowlist[:transformers].size
@@ -41,6 +39,19 @@ RSpec.describe Banzai::Filter::SanitizationFilter, feature_category: :team_plann
     it 'sanitizes `class` attribute from non-highlight spans' do
       act = %q(<span class="k">def</span>)
       expect(filter(act).to_html).to eq %q(<span>def</span>)
+    end
+
+    it 'allows `data-table-*` attributes on `table` elements' do
+      html = <<-HTML
+        <table data-table-fields="foo" data-table-filter="true" data-table-markdown="true">
+        </table>
+      HTML
+
+      doc = filter(html)
+
+      expect(doc.at_css('table')['data-table-fields']).to eq 'foo'
+      expect(doc.at_css('table')['data-table-filter']).to eq 'true'
+      expect(doc.at_css('table')['data-table-markdown']).to eq 'true'
     end
 
     it 'allows `text-align` property in `style` attribute on table elements' do
@@ -138,6 +149,24 @@ RSpec.describe Banzai::Filter::SanitizationFilter, feature_category: :team_plann
       expect(filter(html).to_html).to eq(output)
     end
 
+    it 'allows `data-placeholder` attributes on `span`, `a` and `img` elements' do
+      html = <<-HTML
+      <span class="code" data-placeholder="true">something</span>
+      <a href="example.com" class="code" data-placeholder="true">something</a>
+      <img src="example.com" class="code" data-placeholder="true" />
+      <div data-placeholder-text="true" data-placeholder="true">something</div>
+      HTML
+
+      output = <<-HTML
+      <span data-placeholder="true">something</span>
+      <a href="example.com" data-placeholder="true">something</a>
+      <img src="example.com" data-placeholder="true">
+      <div>something</div>
+      HTML
+
+      expect(filter(html).to_html).to eq(output)
+    end
+
     it 'allows the `data-sourcepos` attribute globally' do
       exp = %q(<p data-sourcepos="1:1-1:10">foo/bar.md</p>)
       act = filter(exp)
@@ -214,18 +243,49 @@ RSpec.describe Banzai::Filter::SanitizationFilter, feature_category: :team_plann
 
         expect(act.to_html).to eq exp
       end
+    end
 
-      it 'removes class property for non-anchor links' do
-        exp = %q(<a href="#this-is-a-header"></a>)
-        act = filter(%q(<a href="#this-is-a-header" class="some-other-class anchor"></a>))
+    describe 'remove_unsafe_classes' do
+      # rubocop:disable Layout/LineLength -- keep table rows on one line
+      where(:html, :sanitized) do
+        %q(<a href="#this-is-a-header" class="anchor"></a>) | %q(<a href="#this-is-a-header" class="anchor"></a>)
+        %q(<a href="#this-is-a-header" class="some-other-class anchor"></a>) | %q(<a href="#this-is-a-header"></a>)
 
-        expect(act.to_html).to eq exp
+        %q(<div class="markdown-alert markdown-alert-note"></div>) | %q(<div class="markdown-alert markdown-alert-note"></div>)
+        %q(<div class="markdown-alert markdown-alert-tip"></div>) | %q(<div class="markdown-alert markdown-alert-tip"></div>)
+        %q(<div class="markdown-alert markdown-alert-important"></div>) | %q(<div class="markdown-alert markdown-alert-important"></div>)
+        %q(<div class="markdown-alert markdown-alert-warning"></div>) | %q(<div class="markdown-alert markdown-alert-warning"></div>)
+        %q(<div class="markdown-alert markdown-alert-caution"></div>) | %q(<div class="markdown-alert markdown-alert-caution"></div>)
+        %q(<div class="other_class markdown-alert markdown-alert-caution"></div>) | %q(<div></div>)
+
+        %q(<p class="markdown-alert-title"></p>) | %q(<p class="markdown-alert-title"></p>)
+        %q(<p class="markdown-alert-title other_class"></p>) | %q(<p></p>)
+
+        %q(<span class="idiff left right deletion addition"></span>) | %q(<span class="idiff left right deletion addition"></span>)
+        %q(<span class="idiff left addition"></span>) | %q(<span class="idiff left addition"></span>)
+        %q(<span class="idiff left addition other_class"></span>) | %q(<span></span>)
+        %q(<span class="left addition"></span>) | %q(<span></span>)
+
+        %q(<code class="idiff"></code>) | %q(<code class="idiff"></code>)
+        %q(<code class="other_class"></code>) | %q(<code></code>)
+      end
+      # rubocop:enable Layout/LineLength
+
+      with_them do
+        it 'removes classes' do
+          act = filter(html)
+
+          expect(act.to_html).to eq sanitized
+        end
       end
     end
   end
 
+  it_behaves_like 'does not use pipeline timing check'
+
   it_behaves_like 'a filter timeout' do
     let(:text) { 'text' }
     let(:expected_result) { described_class::COMPLEX_MARKDOWN_MESSAGE }
+    let(:expected_timeout) { described_class::SANITIZATION_RENDER_TIMEOUT }
   end
 end

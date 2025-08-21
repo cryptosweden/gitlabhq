@@ -1,10 +1,11 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+type: reference, howto
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+description: Database access for engineers and related parties.
+title: Database Lab and Postgres.ai
 ---
-
-# Database Lab and Postgres.ai
 
 Internal users at GitLab have access to the Database Lab Engine (DLE) and
 [postgres.ai](https://console.postgres.ai/) for testing performance of database queries
@@ -16,7 +17,7 @@ schema changes, like additional indexes or columns, in an isolated copy of produ
 
 1. [Visit the console](https://console.postgres.ai/).
 1. Select **Sign in with Google**. (Not GitLab, as you need Google SSO to connect with our project.)
-1. After you sign in, select the GitLab organization and then visit "Ask Joe" in the sidebar.
+1. After signing in, select the GitLab organization, select "Joe Bot" in the sidebar, and then visit "Ask Joe".
 1. Select the database you're testing against:
    - Most queries for the GitLab project run against `gitlab-production-main`.
    - If the query is for a CI table, select `gitlab-production-ci`.
@@ -37,21 +38,24 @@ To access the DLE's services, you can:
   provides `EXPLAIN` (analyze, buffers) plans for queries executed there.
 - Migration testing by triggering a job as a part of a merge request.
 - Direct `psql` access to DLE instead of a production replica. Available to authorized users only.
-  To request `psql` access, file an [access request](https://handbook.gitlab.com/handbook/business-technology/end-user-services/onboarding-access-requests/access-requests/#individual-or-bulk-access-request).
+  To request `psql` access, file an [access request](https://handbook.gitlab.com/handbook/it/end-user-services/onboarding-access-requests/access-requests/#individual-or-bulk-access-request).
 
 For more assistance, use the `#database` Slack channel.
 
-NOTE:
+{{< alert type="note" >}}
+
 If you need only temporary access to a production replica, instead of a Database Lab
 clone, follow the runbook procedure for connecting to the
 [database console with Teleport](https://gitlab.com/gitlab-com/runbooks/-/blob/master/docs/teleport/Connect_to_Database_Console_via_Teleport.md).
 This procedure is similar to [Rails console access with Teleport](https://gitlab.com/gitlab-com/runbooks/-/blob/master/docs/teleport/Connect_to_Rails_Console_via_Teleport.md#how-to-use-teleport-to-connect-to-rails-console).
 
+{{< /alert >}}
+
 ### Query testing
 
 You can access Database Lab's query analysis features either:
 
-- In [the Postgres.ai web console](https://console.postgres.ai/GitLab/joe-instances).
+- In [the Postgres.ai web console](https://console.postgres.ai/gitlab/joe-instances).
   Shows only the commands you run.
 
 #### Generate query plans
@@ -130,26 +134,35 @@ For information on testing migrations, review our
 
 ### Access the console with `psql`
 
-NOTE:
+{{< alert type="note" >}}
+
 You must have `AllFeaturesUser` [`psql` access](#access-database-lab-engine) to access the console with `psql`.
+
+{{< /alert >}}
 
 To access the database lab instances, you must:
 
-- File an [access request](https://handbook.gitlab.com/handbook/business-technology/end-user-services/onboarding-access-requests/access-requests/#individual-or-bulk-access-request).
+- File an [access request](https://handbook.gitlab.com/handbook/it/end-user-services/onboarding-access-requests/access-requests/#individual-or-bulk-access-request), requesting the following:
+  - `AllFeaturesUser` role in Postgres.ai
+  - `db-lab` role in `chef-repo`
 - Have a user data bag entry in [chef-repo](https://gitlab.com/gitlab-com/gl-infra/chef-repo) with your SSH key and the `db-lab` role.
 - Configure `ssh` as follows:
 
 ```plaintext
 Host lb-bastion.db-lab.gitlab.com
-  User ${USER}
-  IdentitiesOnly yes
+  # Typically, the username is `name` in `name@gitlab.com`
+  # or your GitLab's username.
+  # Check with the access provisioner if it is not working.
+  # If not provided, defaults to your system username.
+  User YOUR_USERNAME_HERE
+
+  # Path to your SSH key. Adjust or remove if using a different key or SSH agent.
   IdentityFile ~/.ssh/id_ed25519
 
 Host *.gitlab-db-lab.internal
-  User ${USER}
+  User YOUR_USERNAME_HERE  # Same as above.
   PreferredAuthentications publickey
-  IdentitiesOnly yes
-  IdentityFile ~/.ssh/id_ed25519
+  IdentityFile ~/.ssh/id_ed25519  # Same as above.
   ProxyCommand ssh lb-bastion.db-lab.gitlab.com -W %h:%p
 ```
 
@@ -167,6 +180,12 @@ To connect to a clone using `psql`:
       Clones are removed after 12 hours.
 1. In the **Clone details** page of the Postgres.ai web interface, copy and run
    the command to start SSH port forwarding for the clone.
+    1. You may notice that it's suggested to run the command with the `-N` flag, meaning no shell will be started,
+    so you should not expect any output if it runs successfully.
+    1. Optionally, you can add `LogLevel DEBUG3` to your `~/.ssh/config`
+    to output detailed debugging information.
+    1. After running the command, leave it running to keep the port forwarding active,
+    and then you can open a new terminal tab to do the next step.
 1. In the **Clone details** page of the Postgres.ai web interface, copy and run the `psql` connection string.
    Use the password provided at setup and set the `dbname` to `gitlabhq_dblab` (or check what databases are available by using `psql -l` with the same query string but `dbname=postgres`).
 
@@ -174,8 +193,5 @@ After you connect, use clone like you would any `psql` console in production, bu
 the added benefit and safety of an isolated writeable environment.
 
 #### Simplified access through `pgai` Ruby gem
-
-WARNING:
-The `pgai` gem has not yet been updated to use the new database lab instances so you will only be able to access the legacy instance using this tool.
 
 For instructions on using the `pgai` Ruby gem, see: [Database Lab access using the pgai Ruby gem](database_lab_pgai.md).

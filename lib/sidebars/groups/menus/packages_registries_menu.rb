@@ -35,7 +35,7 @@ module Sidebars
           return nil_menu_item(:packages_registry) unless context.group.packages_feature_enabled?
 
           ::Sidebars::MenuItem.new(
-            title: _('Package Registry'),
+            title: _('Package registry'),
             link: group_packages_path(context.group),
             super_sidebar_parent: ::Sidebars::Groups::SuperSidebarMenus::DeployMenu,
             active_routes: { controller: 'groups/packages' },
@@ -49,7 +49,7 @@ module Sidebars
           end
 
           ::Sidebars::MenuItem.new(
-            title: _('Container Registry'),
+            title: _('Container registry'),
             link: group_container_registries_path(context.group),
             super_sidebar_parent: ::Sidebars::Groups::SuperSidebarMenus::DeployMenu,
             active_routes: { controller: 'groups/registry/repositories' },
@@ -107,3 +107,5 @@ module Sidebars
     end
   end
 end
+
+Sidebars::Groups::Menus::PackagesRegistriesMenu.prepend_mod_with('Sidebars::Groups::Menus::PackagesRegistriesMenu')

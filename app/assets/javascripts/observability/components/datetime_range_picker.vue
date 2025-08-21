@@ -40,6 +40,11 @@ export default {
       required: false,
       default: null,
     },
+    state: {
+      type: Boolean,
+      required: false,
+      default: null,
+    },
   },
   data() {
     return {
@@ -84,7 +89,8 @@ export default {
       }
     },
   },
-  TIME_INPUT_CLASS: 'gl-flex gl-items-center gl-justify-center !gl-py-2 gl-min-w-fit gl-w-15',
+  TIME_INPUT_CLASS:
+    'gl-flex gl-items-center gl-justify-center !gl-py-2 gl-min-w-fit gl-w-15 !gl-h-7',
 };
 </script>
 
@@ -98,6 +104,8 @@ export default {
     :default-min-date="defaultMinDate"
     :max-date-range="maxDateRange"
     :same-day-selection="true"
+    :start-picker-state="state"
+    :end-picker-state="state"
     @input="onDateRangeChange"
   >
     <template #after-start>
@@ -106,6 +114,7 @@ export default {
         :class="$options.TIME_INPUT_CLASS"
         type="time"
         step="10"
+        :state="state"
         @blur="onTimeInputBlur"
       />
     </template>
@@ -115,6 +124,7 @@ export default {
         :class="$options.TIME_INPUT_CLASS"
         type="time"
         step="10"
+        :state="state"
         @blur="onTimeInputBlur"
       />
     </template>

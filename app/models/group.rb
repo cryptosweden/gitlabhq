@@ -19,8 +19,9 @@ class Group < Namespace
   include BulkUsersByEmailLoad
   include ChronicDurationAttribute
   include RunnerTokenExpirationInterval
-  include Todoable
   include Importable
+  include IdInOrdered
+  include Members::Enumerable
 
   extend ::Gitlab::Utils::Override
 
@@ -40,6 +41,11 @@ class Group < Namespace
   has_many :all_owner_members, -> { non_request.all_owners }, as: :source, class_name: 'GroupMember'
   has_many :group_members, -> { non_request.non_minimal_access }, dependent: :destroy, as: :source # rubocop:disable Cop/ActiveRecordDependent
   has_many :non_invite_group_members, -> { non_request.non_minimal_access.non_invite }, class_name: 'GroupMember', as: :source
+  has_many :non_invite_owner_members, -> { non_request.non_invite.all_owners }, class_name: 'GroupMember', as: :source
+  has_many :request_group_members, -> do
+    request.non_minimal_access
+  end, inverse_of: :group, class_name: 'GroupMember', as: :source
+
   has_many :namespace_members, -> { non_request.non_minimal_access.unscope(where: %i[source_id source_type]) },
     foreign_key: :member_namespace_id, inverse_of: :group, class_name: 'GroupMember'
   alias_method :members, :group_members
@@ -57,31 +63,28 @@ class Group < Namespace
 
   has_many :milestones
   has_many :integrations
-  has_many :shared_group_links, foreign_key: :shared_with_group_id, class_name: 'GroupGroupLink'
-  has_many :shared_with_group_links, foreign_key: :shared_group_id, class_name: 'GroupGroupLink' do
-    def of_ancestors
-      group = proxy_association.owner
 
-      return GroupGroupLink.none unless group.has_parent?
+  with_options class_name: 'GroupGroupLink' do
+    has_many :shared_group_links, foreign_key: :shared_with_group_id
 
-      GroupGroupLink.where(shared_group_id: group.ancestors.reorder(nil).select(:id))
-    end
-
-    def of_ancestors_and_self
-      group = proxy_association.owner
-
-      source_ids =
-        if group.has_parent?
-          group.self_and_ancestors.reorder(nil).select(:id)
-        else
-          group.id
-        end
-
-      GroupGroupLink.where(shared_group_id: source_ids)
+    with_options foreign_key: :shared_group_id do
+      has_many :shared_with_group_links
+      has_many :shared_with_group_links_of_ancestors, ->(group) do
+        unscope(where: :shared_group_id).where(shared_group: group.ancestors)
+      end
+      has_many :shared_with_group_links_of_ancestors_and_self, ->(group) do
+        unscope(where: :shared_group_id).where(shared_group: group.self_and_ancestors)
+      end
     end
   end
+
   has_many :shared_groups, through: :shared_group_links, source: :shared_group
-  has_many :shared_with_groups, through: :shared_with_group_links, source: :shared_with_group
+  with_options source: :shared_with_group do
+    has_many :shared_with_groups, through: :shared_with_group_links
+    has_many :shared_with_groups_of_ancestors, through: :shared_with_group_links_of_ancestors
+    has_many :shared_with_groups_of_ancestors_and_self, through: :shared_with_group_links_of_ancestors_and_self
+  end
+
   has_many :project_group_links, dependent: :destroy # rubocop:disable Cop/ActiveRecordDependent
   has_many :shared_projects, through: :project_group_links, source: :project
 
@@ -100,6 +103,9 @@ class Group < Namespace
   # AR defaults to nullify when trying to delete via has_many associations unless we set dependent: :delete_all
   has_many :crm_organizations, class_name: 'CustomerRelations::Organization', inverse_of: :group, dependent: :delete_all # rubocop:disable Cop/ActiveRecordDependent
   has_many :contacts, class_name: 'CustomerRelations::Contact', inverse_of: :group, dependent: :delete_all # rubocop:disable Cop/ActiveRecordDependent
+  has_one :crm_settings, class_name: 'Group::CrmSettings', inverse_of: :group
+  # Groups for which this is the source of CRM contacts/organizations
+  has_many :crm_targets, class_name: 'Group::CrmSettings', inverse_of: :source_group, foreign_key: 'source_group_id'
 
   has_many :cluster_groups, class_name: 'Clusters::Group'
   has_many :clusters, through: :cluster_groups, class_name: 'Clusters::Cluster'
@@ -108,7 +114,7 @@ class Group < Namespace
 
   has_many :todos
 
-  has_one :import_export_upload
+  has_many :import_export_uploads, dependent: :destroy, inverse_of: :group # rubocop:disable Cop/ActiveRecordDependent -- Previously was has_one association, dependent: :destroy to be removed in a separate issue and cascade FK will be added
 
   has_many :import_failures, inverse_of: :group
 
@@ -121,14 +127,41 @@ class Group < Namespace
   has_many :group_deploy_keys, through: :group_deploy_keys_groups
   has_many :group_deploy_tokens
   has_many :deploy_tokens, through: :group_deploy_tokens
-  has_many :oauth_applications, class_name: 'Doorkeeper::Application', as: :owner, dependent: :destroy # rubocop:disable Cop/ActiveRecordDependent
+  has_many :oauth_applications, class_name: 'Authn::OauthApplication', as: :owner, dependent: :destroy # rubocop:disable Cop/ActiveRecordDependent
 
   has_one :dependency_proxy_setting, class_name: 'DependencyProxy::GroupSetting'
   has_one :dependency_proxy_image_ttl_policy, class_name: 'DependencyProxy::ImageTtlGroupPolicy'
   has_many :dependency_proxy_blobs, class_name: 'DependencyProxy::Blob'
   has_many :dependency_proxy_manifests, class_name: 'DependencyProxy::Manifest'
 
+  has_one :observability_group_o11y_setting, class_name: 'Observability::GroupO11ySetting', inverse_of: :group
+
+  has_one :deletion_schedule, class_name: 'GroupDeletionSchedule'
+  delegate :deleting_user, :marked_for_deletion_on, to: :deletion_schedule, allow_nil: true
+
+  scope :aimed_for_deletion, -> { where.associated(:deletion_schedule) }
+  scope :self_or_ancestors_aimed_for_deletion, -> { where(self_or_ancestors_deletion_schedule_subquery.exists) }
+
+  scope :not_aimed_for_deletion, -> { where.missing(:deletion_schedule) }
+  scope :self_and_ancestors_not_aimed_for_deletion, -> { where.not(self_or_ancestors_deletion_schedule_subquery.exists) }
+
+  scope :with_deletion_schedule, -> { preload(deletion_schedule: :deleting_user) }
+  scope :with_deletion_schedule_only, -> { preload(:deletion_schedule) }
+
+  scope :marked_for_deletion_before, ->(date) do
+    joins(:deletion_schedule)
+      .where('group_deletion_schedules.marked_for_deletion_on <= ?', date)
+  end
+
+  scope :marked_for_deletion_on, ->(date) do
+    joins(:deletion_schedule)
+      .where(group_deletion_schedules: { marked_for_deletion_on: date })
+  end
+
+  scope :with_integrations, -> { joins(:integrations) }
+
   has_one :harbor_integration, class_name: 'Integrations::Harbor'
+  has_one :jira_integration, class_name: 'Integrations::Jira'
 
   # debian_distributions and associated component_files must be destroyed by ruby code in order to properly remove carrierwave uploads
   has_many :debian_distributions, class_name: 'Packages::Debian::GroupDistribution', dependent: :destroy # rubocop:disable Cop/ActiveRecordDependent
@@ -139,18 +172,45 @@ class Group < Namespace
 
   has_one :group_feature, inverse_of: :group, class_name: 'Groups::FeatureSetting'
 
-  delegate :prevent_sharing_groups_outside_hierarchy, :new_user_signups_cap, :setup_for_company, :jobs_to_be_done, to: :namespace_settings
-  delegate :runner_token_expiration_interval, :runner_token_expiration_interval=, :runner_token_expiration_interval_human_readable, :runner_token_expiration_interval_human_readable=, to: :namespace_settings, allow_nil: true
-  delegate :subgroup_runner_token_expiration_interval, :subgroup_runner_token_expiration_interval=, :subgroup_runner_token_expiration_interval_human_readable, :subgroup_runner_token_expiration_interval_human_readable=, to: :namespace_settings, allow_nil: true
-  delegate :project_runner_token_expiration_interval, :project_runner_token_expiration_interval=, :project_runner_token_expiration_interval_human_readable, :project_runner_token_expiration_interval_human_readable=, to: :namespace_settings, allow_nil: true
+  delegate(
+    :default_branch_name,
+    :jobs_to_be_done,
+    :new_user_signups_cap,
+    :prevent_sharing_groups_outside_hierarchy,
+    :require_dpop_for_manage_api_endpoints,
+    :require_dpop_for_manage_api_endpoints?,
+    :require_dpop_for_manage_api_endpoints=,
+    :seat_control,
+    :setup_for_company,
+    to: :namespace_settings
+  )
 
-  has_one :crm_settings, class_name: 'Group::CrmSettings', inverse_of: :group
+  delegate(
+    :force_pages_access_control,
+    :force_pages_access_control=,
+    :model_prompt_cache_enabled,
+    :model_prompt_cache_enabled=,
+    :project_runner_token_expiration_interval_human_readable,
+    :project_runner_token_expiration_interval_human_readable=,
+    :project_runner_token_expiration_interval,
+    :project_runner_token_expiration_interval=,
+    :runner_token_expiration_interval_human_readable,
+    :runner_token_expiration_interval_human_readable=,
+    :runner_token_expiration_interval,
+    :runner_token_expiration_interval=,
+    :subgroup_runner_token_expiration_interval_human_readable,
+    :subgroup_runner_token_expiration_interval_human_readable=,
+    :subgroup_runner_token_expiration_interval,
+    :subgroup_runner_token_expiration_interval=,
+    to: :namespace_settings, allow_nil: true
+  )
 
   accepts_nested_attributes_for :variables, allow_destroy: true
   accepts_nested_attributes_for :group_feature, update_only: true
 
   validate :visibility_level_allowed_by_projects
   validate :visibility_level_allowed_by_sub_groups
+  validate :visibility_level_allowed_by_organization, if: :should_validate_visibility_level?
   validate :visibility_level_allowed_by_parent
   validate :two_factor_authentication_allowed
   validates :variables, nested_attributes_duplicates: { scope: :environment_scope }
@@ -167,6 +227,8 @@ class Group < Namespace
 
   validates :group_feature, presence: true
 
+  validate :top_level_group_name_not_assigned_to_pages_unique_domain, if: :path_changed?
+
   add_authentication_token_field :runners_token,
     encrypted: :required,
     format_with_prefix: :runners_token_prefix,
@@ -180,11 +242,27 @@ class Group < Namespace
 
   scope :with_users, -> { includes(:users) }
 
-  scope :with_onboarding_progress, -> { joins(:onboarding_progress) }
+  scope :active, -> { non_archived.not_aimed_for_deletion }
+  scope :self_and_ancestors_active, -> { self_and_ancestors_non_archived.self_and_ancestors_not_aimed_for_deletion }
+
+  scope :inactive, -> do
+    joins(:namespace_settings)
+      .left_joins(:deletion_schedule)
+      .where(<<~SQL)
+        #{reflections['namespace_settings'].table_name}.archived = TRUE
+        OR #{reflections['deletion_schedule'].table_name}.#{reflections['deletion_schedule'].foreign_key} IS NOT NULL
+      SQL
+  end
+  scope :self_or_ancestors_inactive, -> { self_or_ancestors_archived.or(self_or_ancestors_aimed_for_deletion) }
 
   scope :with_non_archived_projects, -> { includes(:non_archived_projects) }
 
   scope :with_non_invite_group_members, -> { includes(:non_invite_group_members) }
+  scope :with_request_group_members, -> { includes(:request_group_members) }
+
+  scope :in_accessible_sub_namespaces, -> do
+    where('id IN (SELECT id FROM accessible_sub_namespace_ids)')
+  end
 
   scope :by_id, ->(groups) { where(id: groups) }
 
@@ -222,26 +300,28 @@ class Group < Namespace
   end
 
   scope :excluding_restricted_visibility_levels_for_user, ->(user) do
-    user.can_admin_all_resources? ? all : where.not(visibility_level: Gitlab::CurrentSettings.restricted_visibility_levels)
+    return all if user.can_admin_all_resources?
+
+    levels = Array.wrap(Gitlab::CurrentSettings.restricted_visibility_levels).sort
+
+    case levels
+    when [Gitlab::VisibilityLevel::PRIVATE, Gitlab::VisibilityLevel::PUBLIC],
+         [Gitlab::VisibilityLevel::PRIVATE]
+      where.not(visibility_level: Gitlab::VisibilityLevel::PRIVATE)
+    when [Gitlab::VisibilityLevel::PRIVATE, Gitlab::VisibilityLevel::INTERNAL]
+      where.not(visibility_level: [Gitlab::VisibilityLevel::PRIVATE, Gitlab::VisibilityLevel::INTERNAL])
+    when Gitlab::VisibilityLevel.values
+      none
+    else
+      all
+    end
   end
 
   scope :project_creation_allowed, ->(user) do
-    project_creation_allowed_on_levels = [
-      ::Gitlab::Access::DEVELOPER_MAINTAINER_PROJECT_ACCESS,
-      ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS,
-      nil
-    ]
+    project_creation_levels_for_user = project_creation_levels_for_user(user)
 
-    # When the value of application_settings.default_project_creation is set to `NO_ONE_PROJECT_ACCESS`,
-    # it means that a `nil` value for `groups.project_creation_level` is telling us:
-    # do not allow project creation in such groups.
-    # ie, `nil` is a placeholder value for inheriting the value from the ApplicationSetting.
-    # So we remove `nil` from the list when the application_setting's value is `NO_ONE_PROJECT_ACCESS`
-    if ::Gitlab::CurrentSettings.default_project_creation == ::Gitlab::Access::NO_ONE_PROJECT_ACCESS
-      project_creation_allowed_on_levels.delete(nil)
-    end
-
-    with_project_creation_levels(project_creation_allowed_on_levels).excluding_restricted_visibility_levels_for_user(user)
+    with_project_creation_levels(project_creation_levels_for_user)
+      .excluding_restricted_visibility_levels_for_user(user)
   end
 
   scope :shared_into_ancestors, ->(group) do
@@ -286,9 +366,40 @@ class Group < Namespace
     end
   end
 
+  # .sorted_by_similarity_desc can generate poorly performing queries.
+  # Only apply this scope in combination with other filters, ideally on sets of
+  # less than 100,000 records.
+  scope :sorted_by_similarity_desc, ->(search) do
+    order_expression = Gitlab::Database::SimilarityScore.build_expression(
+      search: search,
+      rules: [
+        { column: arel_table["path"], multiplier: 1 },
+        { column: arel_table["name"], multiplier: 0.7 }
+      ])
+
+    order = Gitlab::Pagination::Keyset::Order.build(
+      [
+        Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
+          attribute_name: 'similarity',
+          column_expression: order_expression,
+          order_expression: order_expression.desc,
+          order_direction: :desc,
+          add_to_projections: true
+        ),
+        # Tie-breaker for if two results have the same similarity score.
+        Gitlab::Pagination::Keyset::ColumnOrderDefinition.new(
+          attribute_name: 'id',
+          order_expression: Namespace.arel_table['id'].asc
+        )
+      ])
+
+    order.apply_cursor_conditions(reorder(order))
+  end
+
   scope :order_path_asc, -> { reorder(self.arel_table['path'].asc) }
   scope :order_path_desc, -> { reorder(self.arel_table['path'].desc) }
   scope :in_organization, ->(organization) { where(organization: organization) }
+  scope :by_min_access_level, ->(user, access_level) { joins(:group_members).where(members: { user: user }).where('members.access_level >= ?', access_level) }
 
   class << self
     def sort_by_attribute(method)
@@ -390,7 +501,64 @@ class Group < Namespace
     end
 
     def with_api_scopes
-      preload(:namespace_settings, :group_feature, :parent)
+      preload(
+        :namespace_settings,
+        :namespace_settings_with_ancestors_inherited_settings,
+        :namespace_details,
+        :group_feature,
+        :parent,
+        :deletion_schedule
+      )
+    end
+
+    # Handle project creation permissions based on application setting and group setting. The `default_project_creation`
+    # application setting is the default value and can be overridden by the `project_creation_level` group setting.
+    # `nil` value of namespaces.project_creation_level` means that allowed creation level has not been explicitly set by
+    # the group owner and is a placeholder value for inheriting the value from the ApplicationSetting.
+    def project_creation_levels_for_user(user)
+      project_creation_allowed_on_levels = [
+        ::Gitlab::Access::DEVELOPER_PROJECT_ACCESS,
+        ::Gitlab::Access::MAINTAINER_PROJECT_ACCESS,
+        ::Gitlab::Access::OWNER_PROJECT_ACCESS,
+        nil
+      ]
+
+      if user.can_admin_all_resources?
+        project_creation_allowed_on_levels << ::Gitlab::Access::ADMINISTRATOR_PROJECT_ACCESS
+      end
+
+      default_project_creation = ::Gitlab::CurrentSettings.default_project_creation
+      prevent_project_creation_by_default = prevent_project_creation?(user, default_project_creation)
+
+      # Remove nil (i.e. inherited `default_project_creation`) when the application setting is:
+      # 1. NO_ONE_PROJECT_ACCESS
+      # 2. ADMINISTRATOR_PROJECT_ACCESS and the user is not an admin
+      #
+      # To prevent showing groups in the namespaces dropdown on the project creation page that have no explicit group
+      # setting for `project_creation_level`.
+      project_creation_allowed_on_levels.delete(nil) if prevent_project_creation_by_default
+
+      project_creation_allowed_on_levels
+    end
+
+    def prevent_project_creation?(user, project_creation_setting)
+      return true if project_creation_setting == ::Gitlab::Access::NO_ONE_PROJECT_ACCESS
+      return false if Ability.allowed?(user, :admin_all_resources)
+
+      project_creation_setting == ::Gitlab::Access::ADMINISTRATOR_PROJECT_ACCESS
+    end
+
+    def self_or_ancestors_deletion_schedule_subquery
+      deletion_schedule_reflection = reflect_on_association(:deletion_schedule)
+      deletion_schedule_table = Arel::Table.new(deletion_schedule_reflection.table_name)
+      traversal_ids_ref = "#{arel_table.name}.#{arel_table[:traversal_ids].name}"
+
+      deletion_schedule_table
+        .project(1)
+        .where(
+          deletion_schedule_table[deletion_schedule_reflection.foreign_key]
+            .eq(Arel.sql("ANY (#{traversal_ids_ref})"))
+        )
     end
 
     private
@@ -444,10 +612,6 @@ class Group < Namespace
     notification_settings.find { |n| n.notification_email.present? }&.notification_email
   end
 
-  def web_url(only_path: nil)
-    Gitlab::UrlBuilder.build(self, only_path: only_path)
-  end
-
   def dependency_proxy_image_prefix
     # The namespace path can include uppercase letters, which
     # Docker doesn't allow. The proxy expects it to be downcased.
@@ -459,6 +623,18 @@ class Group < Namespace
 
   def human_name
     full_name
+  end
+
+  def to_human_reference(from = nil)
+    return unless cross_namespace_reference?(from)
+
+    human_name
+  end
+
+  def visibility_level_allowed_by_organization?(level = self.visibility_level)
+    return true unless organization
+
+    level <= organization.visibility_level
   end
 
   def visibility_level_allowed_by_parent?(level = self.visibility_level)
@@ -476,7 +652,8 @@ class Group < Namespace
   end
 
   def visibility_level_allowed?(level = self.visibility_level)
-    visibility_level_allowed_by_parent?(level) &&
+    visibility_level_allowed_by_organization?(level) &&
+      visibility_level_allowed_by_parent?(level) &&
       visibility_level_allowed_by_projects?(level) &&
       visibility_level_allowed_by_sub_groups?(level)
   end
@@ -491,7 +668,7 @@ class Group < Namespace
   def owned_by?(user)
     return false unless user
 
-    all_owner_members.non_invite.exists?(user: user)
+    non_invite_owner_members.exists?(user: user)
   end
 
   def add_members(users, access_level, current_user: nil, expires_at: nil)
@@ -510,6 +687,10 @@ class Group < Namespace
 
   def add_guest(user, current_user = nil)
     add_member(user, :guest, current_user: current_user)
+  end
+
+  def add_planner(user, current_user = nil)
+    add_member(user, :planner, current_user: current_user)
   end
 
   def add_reporter(user, current_user = nil)
@@ -560,25 +741,33 @@ class Group < Namespace
   def last_owner?(user)
     return false unless user
 
-    all_owners = member_owners_excluding_project_bots
+    all_owners = member_owners_excluding_project_bots_and_service_accounts
+    last_owner_in_list?(user, all_owners)
+  end
+
+  # This is used in BillableMember Entity to
+  # avoid multiple "member_owners_excluding_project_bots_and_service_accounts" calls
+  # for each billable members
+  def last_owner_in_list?(user, all_owners)
+    return false unless user
 
     all_owners.size == 1 && all_owners.first.user_id == user.id
   end
 
   # Excludes non-direct owners for top-level group
   # Excludes project_bots
-  def member_owners_excluding_project_bots
-    members_from_hiearchy = if root?
-                              members.non_minimal_access.without_invites_and_requests
-                            else
-                              members_with_parents(only_active_users: false)
-                            end
+  # Excludes service accounts
+  def member_owners_excluding_project_bots_and_service_accounts
+    members_from_hierarchy = if root?
+                               members.non_minimal_access.without_invites_and_requests
+                             else
+                               members_with_parents(only_active_users: false)
+                             end
 
     owners = []
-
-    members_from_hiearchy.all_owners.non_invite.each_batch do |relation|
+    members_from_hierarchy.all_owners.non_invite.each_batch do |relation|
       owners += relation.preload(:user, :source).load.reject do |member|
-        member.user.nil? || member.user.project_bot?
+        member.user.nil? || member.user.project_bot? || member.user.service_account?
       end
     end
 
@@ -650,6 +839,11 @@ class Group < Namespace
     end
   end
 
+  def self_and_ancestors_asc
+    self_and_ancestors(hierarchy_order: :asc)
+  end
+  strong_memoize_attr :self_and_ancestors_asc
+
   # Only for direct and not requested members with higher access level than MIMIMAL_ACCESS
   # It returns true for non-active users
   def has_user?(user)
@@ -682,21 +876,21 @@ class Group < Namespace
   def members_with_descendants
     GroupMember
       .active_without_invites_and_requests
-      .where(source_id: self_and_descendants.reorder(nil).select(:id))
+      .where(source_id: self_and_descendants.without_order.select(:id))
   end
 
   # Returns all members that are part of the group, it's subgroups, and ancestor groups
   def hierarchy_members
     GroupMember
       .active_without_invites_and_requests
-      .where(source_id: self_and_hierarchy.reorder(nil).select(:id))
+      .where(source_id: self_and_hierarchy.without_order.select(:id))
   end
 
   def hierarchy_members_with_inactive
     GroupMember
       .non_request
       .non_invite
-      .where(source_id: self_and_hierarchy.reorder(nil).select(:id))
+      .where(source_id: self_and_hierarchy.without_order.select(:id))
   end
 
   def descendant_project_members_with_inactive
@@ -708,8 +902,8 @@ class Group < Namespace
 
   def users_with_descendants
     User
-      .where(id: members_with_descendants.select(:user_id))
-      .reorder(nil)
+      .id_in(members_with_descendants.select(:user_id))
+      .without_order
   end
 
   def users_count
@@ -808,25 +1002,29 @@ class Group < Namespace
     false
   end
 
-  def export_file_exists?
-    import_export_upload&.export_file_exists?
+  def import_export_upload_by_user(user)
+    import_export_uploads.find_by(user_id: user.id)
   end
 
-  def export_file
-    import_export_upload&.export_file
+  def export_file_exists?(user)
+    import_export_upload_by_user(user)&.export_file_exists?
   end
 
-  def export_archive_exists?
-    import_export_upload&.export_archive_exists?
+  def export_file(user)
+    import_export_upload_by_user(user)&.export_file
   end
 
-  def adjourned_deletion?
-    false
+  def export_archive_exists?(user)
+    import_export_upload_by_user(user)&.export_archive_exists?
   end
 
   def execute_hooks(data, hooks_scope)
     # NOOP
     # TODO: group hooks https://gitlab.com/gitlab-org/gitlab/-/issues/216904
+  end
+
+  def find_or_initialize_integration(integration)
+    Integration.find_or_initialize_non_project_specific_integration(integration, group_id: id)
   end
 
   def execute_integrations(data, hooks_scope)
@@ -863,12 +1061,12 @@ class Group < Namespace
   def parent_allows_two_factor_authentication?
     return true unless has_parent?
 
-    ancestor_settings = ancestors.find_by(parent_id: nil).namespace_settings
+    ancestor_settings = ancestors.find_top_level.namespace_settings
     ancestor_settings.allow_mfa_for_subgroups
   end
 
   def has_project_with_service_desk_enabled?
-    Gitlab::ServiceDesk.supported? && all_projects.service_desk_enabled.exists?
+    ::ServiceDesk.supported? && all_projects.service_desk_enabled.exists?
   end
   strong_memoize_attr :has_project_with_service_desk_enabled?
 
@@ -931,8 +1129,44 @@ class Group < Namespace
     feature_flag_enabled_for_self_or_ancestor?(:work_items_alpha)
   end
 
-  def work_items_rolledup_dates_feature_flag_enabled?
-    feature_flag_enabled_for_self_or_ancestor?(:work_items_rolledup_dates)
+  def work_items_project_issues_list_feature_flag_enabled?
+    feature_flag_enabled_for_self_or_ancestor?(:work_items_project_issues_list, type: :beta)
+  end
+
+  def work_item_status_feature_available?
+    feature_flag_enabled_for_self_or_ancestor?(:work_item_status_feature_flag, type: :beta) &&
+      licensed_feature_available?(:work_item_status)
+  end
+
+  def work_items_list_parent_filter_feature_flag_enabled?
+    feature_flag_enabled_for_self_or_ancestor?(:work_items_list_parent_filter, type: :beta)
+  end
+
+  def markdown_placeholders_feature_flag_enabled?
+    feature_flag_enabled_for_self_or_ancestor?(:markdown_placeholders, type: :gitlab_com_derisk)
+  end
+
+  def glql_load_on_click_feature_flag_enabled?
+    feature_flag_enabled_for_self_or_ancestor?(:glql_load_on_click, type: :ops)
+  end
+
+  # overriden in EE
+  def supports_group_work_items?
+    false
+  end
+
+  # overriden in EE
+  def has_active_hooks?(hooks_scope = :push_hooks)
+    false
+  end
+
+  # overriden in EE
+  def enterprise_user_settings_available?(user = nil)
+    false
+  end
+
+  def create_group_level_work_items_feature_flag_enabled?
+    ::Feature.enabled?(:create_group_level_work_items, self, type: :wip) && supports_group_work_items?
   end
 
   def supports_lock_on_merge?
@@ -951,6 +1185,9 @@ class Group < Namespace
   # NOTE: We still want to keep this after removing `Namespace#feature_available?`.
   override :feature_available?
   def feature_available?(feature, user = nil)
+    # when we check the :issues feature at group level we need to check the `epics` license feature instead
+    feature = feature == :issues ? :epics : feature
+
     if ::Groups::FeatureSetting.available_features.include?(feature)
       group_feature.feature_available?(feature, user) # rubocop:disable Gitlab/FeatureAvailableUsage
     else
@@ -981,10 +1218,68 @@ class Group < Namespace
   end
   strong_memoize_attr :readme_project
 
+  def notification_group
+    self
+  end
+
   def group_readme
     readme_project&.repository&.readme
   end
   strong_memoize_attr :group_readme
+
+  def hook_attrs
+    {
+      group_name: name,
+      group_path: path,
+      group_id: id,
+      full_path: full_path
+    }
+  end
+
+  def crm_group
+    Group.id_in_ordered(traversal_ids.reverse)
+      .joins(:crm_settings)
+      .where.not(crm_settings: { source_group_id: nil })
+      .first&.crm_settings&.source_group || root_ancestor
+  end
+  strong_memoize_attr :crm_group
+
+  def crm_group?
+    return true if root? && crm_settings&.source_group_id.nil?
+
+    crm_targets.present?
+  end
+  strong_memoize_attr :crm_group?
+
+  def duo_remote_flows_enabled
+    false
+  end
+
+  def has_issues_with_contacts?
+    CustomerRelations::IssueContact.joins(:issue).where(issue: { project_id: Project.where(namespace_id: self_and_descendant_ids) }).exists?
+  end
+
+  def delete_contacts
+    CustomerRelations::Contact.where(group_id: id).delete_all
+  end
+
+  def delete_organizations
+    CustomerRelations::Organization.where(group_id: id).delete_all
+  end
+
+  def cluster_agents
+    ::Clusters::Agent.for_projects(all_projects)
+  end
+
+  def active?
+    self_and_ancestors.inactive.none?
+  end
+
+  def pending_delete?
+    return false unless deletion_schedule
+
+    deletion_schedule.marked_for_deletion_on.future?
+  end
 
   private
 
@@ -1019,6 +1314,16 @@ class Group < Namespace
     system_hook_service.execute_hooks_for(self, :rename)
   end
 
+  def should_validate_visibility_level?
+    new_record? || changes.has_key?(:visibility_level)
+  end
+
+  def visibility_level_allowed_by_organization
+    return if visibility_level_allowed_by_organization?
+
+    errors.add(:visibility_level, "#{visibility} is not allowed since the organization has a #{organization.visibility} visibility.")
+  end
+
   def visibility_level_allowed_by_parent
     return if visibility_level_allowed_by_parent?
 
@@ -1048,6 +1353,21 @@ class Group < Namespace
 
   def runners_token_prefix
     RunnersTokenPrefixable::RUNNERS_TOKEN_PREFIX
+  end
+
+  def top_level_group_name_not_assigned_to_pages_unique_domain
+    return unless parent_id.nil?
+
+    return unless ProjectSetting.unique_domain_exists?(path)
+
+    # We cannot disclose the Pages unique domain, hence returning generic error message
+    errors.add(:path, _('has already been taken'))
+  end
+
+  # Overriding of Namespaces::AdjournedDeletable method
+  override :all_scheduled_for_deletion_in_hierarchy_chain
+  def all_scheduled_for_deletion_in_hierarchy_chain
+    self_and_ancestors(hierarchy_order: :asc).joins(:deletion_schedule)
   end
 end
 

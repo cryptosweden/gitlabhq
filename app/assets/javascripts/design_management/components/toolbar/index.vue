@@ -4,7 +4,6 @@ import { GlButton, GlIcon, GlTooltipDirective, GlSkeletonLoader } from '@gitlab/
 import permissionsQuery from 'shared_queries/design_management/design_permissions.query.graphql';
 import { isLoggedIn } from '~/lib/utils/common_utils';
 import { __, s__, sprintf } from '~/locale';
-import { TYPE_DESIGN } from '~/import/constants';
 import timeagoMixin from '~/vue_shared/mixins/timeago';
 import ImportedBadge from '~/vue_shared/components/imported_badge.vue';
 import { DESIGNS_ROUTE_NAME } from '../../router/constants';
@@ -130,43 +129,33 @@ export default {
     },
   },
   DESIGNS_ROUTE_NAME,
-  TYPE_DESIGN,
 };
 </script>
 
 <template>
   <header
-    class="gl-display-flex gl-flex-direction-column gl-md-flex-direction-row gl-md-align-items-center gl-justify-content-space-between gl-max-w-full gl-bg-white gl-py-4 gl-pl-5 gl-border-b js-design-header"
+    class="js-design-header gl-border-b gl-flex gl-max-w-full gl-flex-col gl-justify-between gl-bg-default gl-py-4 gl-pl-5 md:gl-flex-row md:gl-items-center"
   >
-    <div
-      class="gl-display-flex gl-flex-direction-row gl-align-items-center gl-mb-3 gl-md-mb-0 gl-overflow-hidden"
-    >
-      <div class="gl-overflow-hidden gl-display-flex gl-mr-3">
+    <div class="gl-mb-3 gl-flex gl-flex-row gl-items-center gl-overflow-hidden md:gl-mb-0">
+      <div class="gl-mr-3 gl-flex gl-overflow-hidden">
         <gl-skeleton-loader v-if="isLoading" :lines="1" />
-        <h2
-          v-else
-          class="gl-display-flex gl-align-items-center gl-overflow-hidden gl-m-0 gl-font-base"
-        >
-          <span class="gl-text-truncate gl-text-gray-900 gl-text-decoration-none">
+        <h2 v-else class="gl-m-0 gl-flex gl-items-center gl-overflow-hidden gl-text-base">
+          <span class="gl-truncate gl-text-heading gl-no-underline">
             {{ issueTitle }}
           </span>
-          <gl-icon name="chevron-right" class="gl-text-gray-200 gl-flex-shrink-0" />
-          <span class="gl-text-truncate gl-font-normal">{{ filename }}</span>
-          <imported-badge
-            v-if="isImported"
-            :importable-type="$options.TYPE_DESIGN"
-            class="gl-ml-2"
-          />
+          <gl-icon name="chevron-right" class="gl-shrink-0" variant="disabled" />
+          <span class="gl-truncate gl-font-normal">{{ filename }}</span>
+          <imported-badge v-if="isImported" class="gl-ml-2" />
         </h2>
-        <small v-if="updatedAt" class="gl-text-gray-500">{{ updatedText }}</small>
+        <small v-if="updatedAt" class="gl-text-subtle">{{ updatedText }}</small>
       </div>
-      <close-button class="md:gl-hidden gl-ml-auto" />
+      <close-button class="gl-ml-auto md:gl-hidden" />
     </div>
-    <div class="gl-display-flex gl-md-flex-direction-row gl-flex-shrink-0 gl-md-ml-auto gl-mr-5">
+    <div class="gl-mr-5 gl-flex gl-shrink-0 md:gl-ml-auto md:gl-flex-row">
       <design-todo-button
         v-if="isLoggedIn"
         :design="design"
-        class="gl-ml-0 gl-md-ml-3"
+        class="gl-ml-0 md:gl-ml-3"
         @error="$emit('todoError', $event)"
       />
       <gl-button

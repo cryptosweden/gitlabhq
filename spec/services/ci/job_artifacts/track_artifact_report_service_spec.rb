@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::JobArtifacts::TrackArtifactReportService, feature_category: :build_artifacts do
+RSpec.describe Ci::JobArtifacts::TrackArtifactReportService, feature_category: :pipeline_reports do
   describe '#execute', :clean_gitlab_redis_shared_state do
     let_it_be(:group) { create(:group, :private) }
     let_it_be(:project) { create(:project, group: group) }
@@ -19,7 +19,7 @@ RSpec.describe Ci::JobArtifacts::TrackArtifactReportService, feature_category: :
     subject(:track_artifact_report) { described_class.new.execute(pipeline) }
 
     context 'when pipeline has test reports' do
-      let_it_be(:pipeline) { create(:ci_pipeline, project: project, user: user1) }
+      let_it_be(:pipeline) { create(:ci_pipeline, :success, project: project, user: user1) }
 
       before do
         2.times do
@@ -108,7 +108,7 @@ RSpec.describe Ci::JobArtifacts::TrackArtifactReportService, feature_category: :
     end
 
     context 'when pipeline has coverage test reports' do
-      let_it_be(:pipeline) { create(:ci_pipeline, project: project, user: user1) }
+      let_it_be(:pipeline) { create(:ci_pipeline, :success, project: project, user: user1) }
 
       before do
         2.times do

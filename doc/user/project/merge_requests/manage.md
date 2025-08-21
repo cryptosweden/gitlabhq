@@ -2,10 +2,9 @@
 stage: Create
 group: Code Review
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Use merge request reviews to discuss and improve code before it is merged into your project."
+description: Use merge request reviews to discuss and improve code before it is merged into your project.
+title: Manage merge requests
 ---
-
-# Manage merge requests
 
 GitLab provides tools for managing merge requests for your project and group.
 
@@ -25,9 +24,17 @@ To delete a merge request:
 1. Select **Edit**.
 1. Scroll to the bottom of the page, and select **Delete merge request**.
 
-## Bulk edit merge requests at the project level
+{{< alert type="note" >}}
 
-You can update these attributes on multiple merge requests at the same time:
+Deleting a merge request does not completely erase all data.
+Some information persists to maintain project history and to support recovery processes.
+For more information, see [Handle sensitive information](../../../topics/git/undo.md#handle-sensitive-information).
+
+{{< /alert >}}
+
+## Bulk edit merge requests in a project
+
+These attributes are editable when bulk editing merge requests:
 
 - Status (open/closed)
 - Assignee
@@ -48,20 +55,23 @@ To do this:
 1. Select the appropriate fields and their values from the sidebar.
 1. Select **Update selected**.
 
-## Bulk edit merge requests at the group level
+## Bulk edit merge requests in a group
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+{{< details >}}
 
-When bulk editing merge requests in a group, you can edit the following attributes:
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+These attributes are editable when you bulk edit merge requests for a group:
 
 - Milestone
 - Labels
 
 Prerequisites:
 
-- You must have at least the Developer role in the project.
+- You must have at least the Developer role for the project.
 
 To update multiple group merge requests at the same time:
 

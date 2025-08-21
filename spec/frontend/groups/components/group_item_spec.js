@@ -3,7 +3,7 @@ import waitForPromises from 'helpers/wait_for_promises';
 import GroupFolder from '~/groups/components/group_folder.vue';
 import GroupItem from 'jh_else_ce/groups/components/group_item.vue';
 import ItemActions from '~/groups/components/item_actions.vue';
-import VisibilityIcon from '~/vue_shared/components/visibility_icon.vue';
+import VisibilityIconButton from '~/vue_shared/components/visibility_icon_button.vue';
 import eventHub from '~/groups/event_hub';
 import { getGroupItemMicrodata } from '~/groups/store/utils';
 import * as urlUtilities from '~/lib/utils/url_utility';
@@ -55,7 +55,7 @@ describe('GroupItemComponent', () => {
         const classes = ['is-open', 'has-children', 'has-description', 'being-removed'];
         const { rowClass } = wrapper.vm;
 
-        expect(Object.keys(rowClass).length).toBe(classes.length);
+        expect(Object.keys(rowClass)).toHaveLength(classes.length);
         Object.keys(rowClass).forEach((className) => {
           expect(classes.indexOf(className)).toBeGreaterThan(-1);
         });
@@ -67,33 +67,17 @@ describe('GroupItemComponent', () => {
         const group = { ...mockParentGroupItem };
 
         group.childrenCount = 5;
+        group.hasChildren = true;
         wrapper = createComponent({ group });
 
         expect(wrapper.vm.hasChildren).toBe(true);
         wrapper.destroy();
 
         group.childrenCount = 0;
+        group.hasChildren = false;
         wrapper = createComponent({ group });
 
         expect(wrapper.vm.hasChildren).toBe(false);
-        wrapper.destroy();
-      });
-    });
-
-    describe('hasAvatar', () => {
-      it('should return boolean value representing if group has any avatar present', () => {
-        const group = { ...mockParentGroupItem };
-
-        group.avatarUrl = null;
-        wrapper = createComponent({ group });
-
-        expect(wrapper.vm.hasAvatar).toBe(false);
-        wrapper.destroy();
-
-        group.avatarUrl = '/uploads/group_avatar.png';
-        wrapper = createComponent({ group });
-
-        expect(wrapper.vm.hasAvatar).toBe(true);
         wrapper.destroy();
       });
     });
@@ -118,7 +102,7 @@ describe('GroupItemComponent', () => {
     });
   });
 
-  describe('visibilityIcon', () => {
+  describe('visibilityIconButton', () => {
     describe('if item represents a group', () => {
       it('should display the visibility icon with appropriate props', () => {
         const group = { ...mockParentGroupItem };
@@ -127,7 +111,7 @@ describe('GroupItemComponent', () => {
         group.visibility = VISIBILITY_LEVEL_PRIVATE_STRING;
         wrapper = createComponent({ group });
 
-        expect(wrapper.findComponent(VisibilityIcon).props()).toEqual({
+        expect(wrapper.findComponent(VisibilityIconButton).props()).toEqual({
           isGroup: true,
           tooltipPlacement: 'bottom',
           visibilityLevel: VISIBILITY_LEVEL_PRIVATE_STRING,
@@ -144,7 +128,7 @@ describe('GroupItemComponent', () => {
         group.visibility = VISIBILITY_LEVEL_PRIVATE_STRING;
         wrapper = createComponent({ group });
 
-        expect(wrapper.findComponent(VisibilityIcon).props()).toEqual({
+        expect(wrapper.findComponent(VisibilityIconButton).props()).toEqual({
           isGroup: false,
           tooltipPlacement: 'bottom',
           visibilityLevel: VISIBILITY_LEVEL_PRIVATE_STRING,
@@ -186,6 +170,7 @@ describe('GroupItemComponent', () => {
         jest.spyOn(urlUtilities, 'visitUrl').mockImplementation();
         const group = { ...mockParentGroupItem };
         group.childrenCount = 0;
+        group.hasChildren = false;
         wrapper = createComponent({ group });
         jest.spyOn(eventHub, '$emit').mockImplementation(() => {});
 
@@ -202,7 +187,7 @@ describe('GroupItemComponent', () => {
 
     describe('for a group pending deletion', () => {
       beforeEach(() => {
-        group = { ...mockParentGroupItem, pendingRemoval: true };
+        group = { ...mockParentGroupItem, markedForDeletion: true };
         wrapper = createComponent({ group });
       });
 
@@ -216,7 +201,7 @@ describe('GroupItemComponent', () => {
 
     describe('for a group not scheduled for deletion', () => {
       beforeEach(() => {
-        group = { ...mockParentGroupItem, pendingRemoval: false };
+        group = { ...mockParentGroupItem, markedForDeletion: false };
         wrapper = createComponent({ group });
       });
 
@@ -382,11 +367,7 @@ describe('GroupItemComponent', () => {
 
               expect(
                 popover.findByRole('link', { name: GroupItem.i18n.learnMore }).attributes('href'),
-              ).toBe(
-                helpPagePath('user/project/members/share_project_with_groups', {
-                  anchor: 'sharing-projects-with-groups-of-a-higher-restrictive-visibility-level',
-                }),
-              );
+              ).toBe(helpPagePath('user/project/members/sharing_projects_groups'));
             });
           } else {
             itDoesNotRenderVisibilityWarningPopover();

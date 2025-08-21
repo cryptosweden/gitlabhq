@@ -15,13 +15,16 @@ module WebIdeCSP
 
     base_uri = URI(request.url)
     base_uri.path = ::Gitlab.config.gitlab.relative_url_root || '/'
-    # `.path +=` handles combining `x/` and `/foo`
+    # note: `.path +=` handles combining trailing and leading slashes (e.g. `x/` and `/foo`)
     base_uri.path += '/assets/webpack/'
+    # note: this fixes a browser console warning where CSP included query params
+    base_uri.query = nil
     webpack_url = base_uri.to_s
 
     default_src = Array(request.content_security_policy.directives['default-src'] || [])
     request.content_security_policy.directives['frame-src'] ||= default_src
-    request.content_security_policy.directives['frame-src'].concat([webpack_url, 'https://*.web-ide.gitlab-static.net/'])
+    request.content_security_policy.directives['frame-src'].concat([webpack_url, 'https://*.web-ide.gitlab-static.net/',
+      ide_oauth_redirect_url, oauth_authorization_url])
 
     request.content_security_policy.directives['worker-src'] ||= default_src
     request.content_security_policy.directives['worker-src'].concat([webpack_url])

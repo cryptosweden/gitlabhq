@@ -9,14 +9,15 @@ RSpec.describe ::Ci::Runners::CreateRunnerService, "#execute", feature_category:
 
   let_it_be(:admin) { create(:admin) }
   let_it_be(:non_admin_user) { create(:user) }
-  let_it_be(:anonymous) { nil }
   let_it_be(:group_owner) { create(:user) }
+  let_it_be(:anonymous) { nil }
 
-  let_it_be(:group) { create(:group) }
+  let_it_be(:group) { create(:group, owners: group_owner, developers: non_admin_user) }
+  let_it_be(:project) { create(:project, namespace: group) }
 
   shared_examples 'it can create a runner' do
     it 'creates a runner of the specified type', :aggregate_failures do
-      is_expected.to be_success
+      expect(execute).to be_success
       expect(runner.runner_type).to eq expected_type
     end
 
@@ -127,10 +128,14 @@ RSpec.describe ::Ci::Runners::CreateRunnerService, "#execute", feature_category:
 
   shared_examples 'it cannot create a runner' do
     it 'runner payload is nil' do
-      expect(runner).to be nil
+      expect(runner).to be_nil
     end
 
     it { is_expected.to be_error }
+
+    it 'does not track runner creation' do
+      expect { execute }.not_to trigger_internal_events('create_ci_runner')
+    end
   end
 
   shared_examples 'it can return an error' do
@@ -145,6 +150,29 @@ RSpec.describe ::Ci::Runners::CreateRunnerService, "#execute", feature_category:
 
       it 'returns error message' do
         expect(execute.errors).not_to be_empty
+      end
+    end
+  end
+
+  shared_examples 'runner creation transaction behavior' do
+    context 'when runner save fails' do
+      before do
+        allow_next_instance_of(Ci::Runner) do |r|
+          r.errors.add(:base, "Runner validation failed")
+          allow(r).to receive(:save!).and_raise(ActiveRecord::RecordInvalid.new(r))
+        end
+      end
+
+      it 'returns error response with runner validation messages' do
+        response = execute
+
+        expect(response).to be_error
+        expect(response.reason).to eq(:save_error)
+        expect(response.message).to include("Runner validation failed")
+      end
+
+      it 'does not create any records', :aggregate_failures do
+        expect { execute }.not_to change { Ci::Runner.count }
       end
     end
   end
@@ -173,6 +201,33 @@ RSpec.describe ::Ci::Runners::CreateRunnerService, "#execute", feature_category:
       context 'when admin mode is enabled', :enable_admin_mode do
         it_behaves_like 'it can create a runner'
         it_behaves_like 'it can return an error'
+        it_behaves_like 'runner creation transaction behavior'
+
+        it 'tracks internal events', :clean_gitlab_redis_shared_state do
+          expect { execute }
+            .to trigger_internal_events('create_ci_runner')
+            .with(user: current_user, additional_properties: {
+              label: expected_type,
+              property: 'authenticated_user'
+            }).and increment_usage_metrics(
+              'redis_hll_counters.count_distinct_user_id_from_create_ci_runner_monthly',
+              'redis_hll_counters.count_distinct_user_id_from_create_ci_runner_weekly'
+            )
+        end
+
+        it 'does not track runner creation with maintenance note' do
+          expect { execute }.not_to trigger_internal_events('set_runner_maintenance_note')
+        end
+
+        context 'when maintenance note is specified' do
+          let(:params) { { runner_type: 'instance_type', maintenance_note: 'a note' } }
+
+          it 'tracks runner creation with maintenance note' do
+            expect { execute }
+              .to trigger_internal_events('set_runner_maintenance_note')
+              .with(user: current_user, additional_properties: { label: 'instance_type' })
+          end
+        end
 
         context 'with unexpected scope param specified' do
           let(:params) { { runner_type: 'instance_type', scope: group } }
@@ -198,11 +253,6 @@ RSpec.describe ::Ci::Runners::CreateRunnerService, "#execute", feature_category:
     let(:expected_type) { 'group_type' }
     let(:params) { { runner_type: 'group_type', scope: group } }
 
-    before do
-      group.add_developer(non_admin_user)
-      group.add_owner(group_owner)
-    end
-
     context 'when anonymous user' do
       let(:current_user) { anonymous }
 
@@ -219,6 +269,33 @@ RSpec.describe ::Ci::Runners::CreateRunnerService, "#execute", feature_category:
       let(:current_user) { group_owner }
 
       it_behaves_like 'it can create a runner'
+      it_behaves_like 'runner creation transaction behavior'
+
+      it 'tracks internal events', :clean_gitlab_redis_shared_state do
+        expect { execute }
+          .to trigger_internal_events('create_ci_runner')
+          .with(namespace: group, user: current_user, additional_properties: {
+            label: expected_type,
+            property: 'authenticated_user'
+          }).and increment_usage_metrics(
+            'redis_hll_counters.count_distinct_namespace_id_from_create_ci_runner_monthly',
+            'redis_hll_counters.count_distinct_namespace_id_from_create_ci_runner_weekly'
+          )
+      end
+
+      it 'does not track runner creation with maintenance note' do
+        expect { execute }.not_to trigger_internal_events('set_runner_maintenance_note')
+      end
+
+      context 'when maintenance note is specified' do
+        let(:params) { { runner_type: 'group_type', scope: group, maintenance_note: 'a note' } }
+
+        it 'tracks runner creation with maintenance note' do
+          expect { execute }
+            .to trigger_internal_events('set_runner_maintenance_note')
+            .with(user: current_user, namespace: group, additional_properties: { label: 'group_type' })
+        end
+      end
 
       context 'with missing scope param' do
         let(:params) { { runner_type: 'group_type' } }
@@ -240,15 +317,8 @@ RSpec.describe ::Ci::Runners::CreateRunnerService, "#execute", feature_category:
   end
 
   context 'with :runner_type param set to project_type' do
-    let_it_be(:project) { create(:project, namespace: group) }
-
     let(:expected_type) { 'project_type' }
     let(:params) { { runner_type: 'project_type', scope: project } }
-
-    before do
-      group.add_developer(non_admin_user)
-      group.add_owner(group_owner)
-    end
 
     context 'when anonymous user' do
       let(:current_user) { anonymous }
@@ -260,6 +330,17 @@ RSpec.describe ::Ci::Runners::CreateRunnerService, "#execute", feature_category:
       let(:current_user) { group_owner }
 
       it_behaves_like 'it can create a runner'
+      it_behaves_like 'runner creation transaction behavior'
+
+      context 'when maintenance note is specified' do
+        let(:params) { { runner_type: 'project_type', scope: project, maintenance_note: 'a note' } }
+
+        it 'tracks runner creation with maintenance note' do
+          expect { execute }
+            .to trigger_internal_events('set_runner_maintenance_note')
+            .with(user: current_user, project: project, additional_properties: { label: 'project_type' })
+        end
+      end
 
       context 'with missing scope param' do
         let(:params) { { runner_type: 'project_type' } }
@@ -279,6 +360,18 @@ RSpec.describe ::Ci::Runners::CreateRunnerService, "#execute", feature_category:
         end
 
         it_behaves_like 'it can create a runner'
+
+        it 'tracks internal events', :clean_gitlab_redis_shared_state do
+          expect { execute }
+            .to trigger_internal_events('create_ci_runner')
+            .with(project: project, user: current_user, additional_properties: {
+              label: expected_type,
+              property: 'authenticated_user'
+            }).and increment_usage_metrics(
+              'redis_hll_counters.count_distinct_project_id_from_create_ci_runner_monthly',
+              'redis_hll_counters.count_distinct_project_id_from_create_ci_runner_weekly'
+            )
+        end
       end
     end
 

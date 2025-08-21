@@ -2,11 +2,19 @@
 
 require 'spec_helper'
 
-RSpec.describe PreferencesHelper do
+RSpec.describe PreferencesHelper, feature_category: :shared do
   let_it_be(:user) { build(:user) }
 
   before do
     allow(helper).to receive(:current_user).and_return(user)
+  end
+
+  describe '#dashboard_value' do
+    it 'returns dashboard of current user' do
+      allow(user).to receive(:dashboard).and_return('your_activity')
+
+      expect(helper.dashboard_value).to eq('your_activity')
+    end
   end
 
   describe '#dashboard_choices' do
@@ -26,10 +34,11 @@ RSpec.describe PreferencesHelper do
       expect { helper.dashboard_choices }.to raise_error(KeyError)
     end
 
-    it 'provides better option descriptions' do
+    it 'returns expected options' do
       expect(helper.dashboard_choices).to match_array [
-        { text: "Your Projects (default)", value: 'projects' },
+        { text: "Your Contributed Projects (default)", value: 'projects' },
         { text: "Starred Projects", value: 'stars' },
+        { text: "Member Projects", value: 'member_projects' },
         { text: "Your Activity", value: 'your_activity' },
         { text: "Your Projects' Activity", value: 'project_activity' },
         { text: "Starred Projects' Activity", value: 'starred_project_activity' },
@@ -39,6 +48,16 @@ RSpec.describe PreferencesHelper do
         { text: "Assigned issues", value: 'issues' },
         { text: "Assigned merge requests", value: 'merge_requests' }
       ]
+    end
+
+    context 'with `personal_homepage` feature flag enabled' do
+      before do
+        stub_feature_flags(personal_homepage: true)
+      end
+
+      it 'has an additional option' do
+        expect(helper.dashboard_choices).to include({ text: "Personal homepage", value: 'homepage' })
+      end
     end
   end
 
@@ -110,16 +129,52 @@ RSpec.describe PreferencesHelper do
     end
   end
 
+  describe '#user_application_light_mode?' do
+    context 'with a user' do
+      it "returns true if user's selected light mode" do
+        stub_user(color_mode_id: Gitlab::ColorModes::APPLICATION_LIGHT)
+
+        expect(helper.user_application_light_mode?).to eq true
+      end
+
+      it "returns false if user's selected dark mode" do
+        stub_user(color_mode_id: Gitlab::ColorModes::APPLICATION_DARK)
+
+        expect(helper.user_application_light_mode?).to eq false
+      end
+
+      it "returns false if user's selected auto mode" do
+        stub_user(color_mode_id: Gitlab::ColorModes::APPLICATION_SYSTEM)
+
+        expect(helper.user_application_light_mode?).to eq false
+      end
+    end
+
+    context 'without a user' do
+      it 'returns false' do
+        stub_user
+
+        expect(helper.user_application_light_mode?).to eq false
+      end
+    end
+  end
+
   describe '#user_application_dark_mode?' do
     context 'with a user' do
       it "returns true if user's selected dark mode" do
-        stub_user(color_mode_id: 2)
+        stub_user(color_mode_id: Gitlab::ColorModes::APPLICATION_DARK)
 
         expect(helper.user_application_dark_mode?).to eq true
       end
 
       it "returns false if user's selected light mode" do
-        stub_user(color_mode_id: 1)
+        stub_user(color_mode_id: Gitlab::ColorModes::APPLICATION_LIGHT)
+
+        expect(helper.user_application_dark_mode?).to eq false
+      end
+
+      it "returns false if user's selected auto mode" do
+        stub_user(color_mode_id: Gitlab::ColorModes::APPLICATION_SYSTEM)
 
         expect(helper.user_application_dark_mode?).to eq false
       end
@@ -134,18 +189,52 @@ RSpec.describe PreferencesHelper do
     end
   end
 
+  describe '#user_application_system_mode?' do
+    context 'with a user' do
+      it "returns true if user's selected auto mode" do
+        stub_user(color_mode_id: Gitlab::ColorModes::APPLICATION_SYSTEM)
+
+        expect(helper.user_application_system_mode?).to eq true
+      end
+
+      it "returns false if user's selected light mode" do
+        stub_user(color_mode_id: Gitlab::ColorModes::APPLICATION_LIGHT)
+
+        expect(helper.user_application_system_mode?).to eq false
+      end
+
+      it "returns false if user's selected dark mode" do
+        stub_user(color_mode_id: Gitlab::ColorModes::APPLICATION_DARK)
+
+        expect(helper.user_application_system_mode?).to eq false
+      end
+    end
+
+    context 'without a user' do
+      it 'returns true' do
+        stub_user
+
+        expect(helper.user_application_system_mode?).to eq true
+      end
+    end
+  end
+
   describe '#user_color_scheme' do
     context 'with a user' do
       it "returns user's scheme's css_class" do
         allow(helper).to receive(:current_user)
-          .and_return(double(color_scheme_id: 3))
+          .and_return(double(color_scheme_id: 3, color_mode_id: Gitlab::ColorModes::APPLICATION_LIGHT))
 
         expect(helper.user_color_scheme).to eq 'solarized-light'
       end
 
       it 'returns the default when id is invalid' do
         allow(helper).to receive(:current_user)
-          .and_return(double(color_scheme_id: Gitlab::ColorSchemes.count + 5))
+          .and_return(double(color_scheme_id: Gitlab::ColorSchemes.count + 5,
+            color_mode_id: Gitlab::ColorModes::APPLICATION_LIGHT))
+
+        expect(helper.user_color_scheme)
+          .to eq Gitlab::ColorSchemes.default.css_class
       end
     end
 
@@ -215,7 +304,7 @@ RSpec.describe PreferencesHelper do
       it 'returns no classes' do
         stub_user
 
-        expect(helper.custom_diff_color_classes).to match_array([])
+        expect(helper.custom_diff_color_classes).to be_empty
       end
     end
   end
@@ -253,8 +342,30 @@ RSpec.describe PreferencesHelper do
     end
 
     context 'on default' do
-      it 'does not include integration views' do
+      it 'includes integration views' do
         expect(helper.integration_views).to be_empty
+      end
+
+      context 'when Web IDE Extension Marketplace feature is enabled' do
+        before do
+          allow(::WebIde::ExtensionMarketplace).to receive(:feature_enabled_from_application_settings?)
+            .and_return(true)
+        end
+
+        it 'includes extension marketplace integration' do
+          expect(helper.integration_views).to include(
+            a_hash_including({
+              name: 'extensions_marketplace',
+              message: 'Uses %{linkStart}https://open-vsx.org%{linkEnd} as the extension marketplace ' \
+                'for the Web IDE.',
+              message_url: 'https://open-vsx.org'
+            })
+          )
+        end
+      end
+
+      it 'does not include extensions_marketplace' do
+        expect(helper.integration_views).not_to match(a_hash_including(name: 'extensions_marketplace'))
       end
     end
 
@@ -275,22 +386,6 @@ RSpec.describe PreferencesHelper do
             a_hash_including({ name: 'gitpod', message_url: 'https://gitpod.io/' })
           )
         end
-      end
-    end
-
-    context 'when WebIdeExtensionsMarketplace is enabled' do
-      before do
-        allow(Gitlab::WebIde::ExtensionsMarketplace).to receive(:feature_enabled?).with(user: user).and_return(true)
-      end
-
-      it 'includes extension marketplace integration' do
-        expect(helper.integration_views).to include(
-          a_hash_including({
-            name: 'extensions_marketplace',
-            message: 'Uses %{linkStart}https://open-vsx.org%{linkEnd} as the extension marketplace for the Web IDE.',
-            message_url: 'https://open-vsx.org'
-          })
-        )
       end
     end
   end

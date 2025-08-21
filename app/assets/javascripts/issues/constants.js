@@ -1,8 +1,14 @@
 import { __ } from '~/locale';
 import {
-  WORK_ITEM_TYPE_VALUE_KEY_RESULT,
-  WORK_ITEM_TYPE_VALUE_OBJECTIVE,
-  WORK_ITEM_TYPE_VALUE_TASK,
+  WORK_ITEM_TYPE_NAME_EPIC,
+  WORK_ITEM_TYPE_NAME_INCIDENT,
+  WORK_ITEM_TYPE_NAME_ISSUE,
+  WORK_ITEM_TYPE_NAME_KEY_RESULT,
+  WORK_ITEM_TYPE_NAME_OBJECTIVE,
+  WORK_ITEM_TYPE_NAME_REQUIREMENTS,
+  WORK_ITEM_TYPE_NAME_TASK,
+  WORK_ITEM_TYPE_NAME_TEST_CASE,
+  WORK_ITEM_TYPE_NAME_TICKET,
 } from '~/work_items/constants';
 
 export const STATUS_ALL = 'all';
@@ -47,7 +53,51 @@ export const issuableTypeText = {
   [TYPE_ALERT]: __('alert'),
   [TYPE_INCIDENT]: __('incident'),
   [TYPE_TEST_CASE]: __('test case'),
-  [WORK_ITEM_TYPE_VALUE_KEY_RESULT]: __('key result'),
-  [WORK_ITEM_TYPE_VALUE_OBJECTIVE]: __('objective'),
-  [WORK_ITEM_TYPE_VALUE_TASK]: __('task'),
+
+  [WORK_ITEM_TYPE_NAME_EPIC]: __('epic'),
+  [WORK_ITEM_TYPE_NAME_INCIDENT]: __('incident'),
+  [WORK_ITEM_TYPE_NAME_ISSUE]: __('issue'),
+  [WORK_ITEM_TYPE_NAME_KEY_RESULT]: __('key result'),
+  [WORK_ITEM_TYPE_NAME_OBJECTIVE]: __('objective'),
+  [WORK_ITEM_TYPE_NAME_REQUIREMENTS]: __('requirement'),
+  [WORK_ITEM_TYPE_NAME_TASK]: __('task'),
+  [WORK_ITEM_TYPE_NAME_TEST_CASE]: __('test case'),
+  [WORK_ITEM_TYPE_NAME_TICKET]: __('ticket'),
 };
+
+const SHIFT_KEY = 16;
+const CTRL_KEY = 17;
+const ALT_KEY = 18;
+const ESC_KEY = 27;
+const LEFT_ARROW_KEY = 37;
+const UP_ARROW_KEY = 38;
+const RIGHT_ARROW_KEY = 39;
+const DOWN_ARROW_KEY = 40;
+const WIN_CMD_KEY = 91;
+const CONTEXT_MENU_KEY = 93;
+
+export const NON_INPUT_KEY_EVENTS = [
+  { keyCode: SHIFT_KEY, label: 'shift' },
+  { keyCode: CTRL_KEY, label: 'control' },
+  { keyCode: ALT_KEY, label: 'alt' },
+  { keyCode: ESC_KEY, label: 'escape' },
+  { keyCode: LEFT_ARROW_KEY, label: 'left' },
+  { keyCode: UP_ARROW_KEY, label: 'up' },
+  { keyCode: RIGHT_ARROW_KEY, label: 'right' },
+  { keyCode: DOWN_ARROW_KEY, label: 'down' },
+  { keyCode: WIN_CMD_KEY, label: 'Windows/Command' },
+  { keyCode: CONTEXT_MENU_KEY, label: 'ContextMenu' },
+];
+
+export const NON_INPUT_KEYS = [
+  SHIFT_KEY,
+  CTRL_KEY,
+  ALT_KEY,
+  ESC_KEY,
+  LEFT_ARROW_KEY,
+  UP_ARROW_KEY,
+  RIGHT_ARROW_KEY,
+  DOWN_ARROW_KEY,
+  WIN_CMD_KEY,
+  CONTEXT_MENU_KEY,
+];

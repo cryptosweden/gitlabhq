@@ -3,30 +3,11 @@
 require 'rubocop_spec_helper'
 require_relative '../../../../rubocop/cop/migration/prevent_index_creation'
 
-RSpec.describe RuboCop::Cop::Migration::PreventIndexCreation do
+RSpec.describe RuboCop::Cop::Migration::PreventIndexCreation, feature_category: :database do
+  include RuboCop::MigrationHelpers
+
   let(:forbidden_tables) do
-    %w[
-      ci_builds
-      namespaces
-      projects
-      users
-      merge_requests
-      merge_request_metrics
-      merge_request_diffs
-      merge_request_diff_commits
-      notes
-      web_hook_logs
-      events
-      project_statistics
-      sent_notifications
-      issues
-      issue_search_data
-      packages_packages
-      vulnerability_occurrences
-      sbom_occurrences
-      security_findings
-      deployments
-    ].freeze
+    (described_class::FORBIDDEN_TABLES + large_or_over_limit_tables).uniq
   end
 
   context 'when in migration' do
@@ -70,6 +51,15 @@ RSpec.describe RuboCop::Cop::Migration::PreventIndexCreation do
           end
         end
 
+        it "registers an offense when add_concurrent_partitioned_index is used", :aggregate_failures do
+          expect_offense(<<~RUBY)
+            def change
+              add_concurrent_partitioned_index :p_ci_builds, :protected
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ #{offense}
+            end
+          RUBY
+        end
+
         it "registers an offense when prepare_async_index is used", :aggregate_failures do
           forbidden_tables.each do |table_name|
             expect_offense(<<~RUBY)
@@ -79,6 +69,15 @@ RSpec.describe RuboCop::Cop::Migration::PreventIndexCreation do
               end
             RUBY
           end
+        end
+
+        it "registers an offense when prepare_partitioned_async_index is used", :aggregate_failures do
+          expect_offense(<<~RUBY)
+            def change
+              prepare_partitioned_async_index :p_ci_builds, :protected
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ #{offense}
+            end
+          RUBY
         end
       end
 
@@ -118,10 +117,21 @@ RSpec.describe RuboCop::Cop::Migration::PreventIndexCreation do
       end
 
       context 'when table_name is a constant' do
+        it "registers an offense when add_concurrent_partitioned_index is used", :aggregate_failures do
+          expect_offense(<<~RUBY)
+            TABLE_NAME = :p_ci_builds
+
+            def change
+              add_concurrent_partitioned_index TABLE_NAME, :protected
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ #{offense}
+            end
+          RUBY
+        end
+
         it "registers an offense when add_concurrent_index is used", :aggregate_failures do
           expect_offense(<<~RUBY)
             INDEX_NAME = "index_name"
-            TABLE_NAME = :ci_builds
+            TABLE_NAME = :projects
             disable_ddl_transaction!
 
             def change
@@ -134,12 +144,24 @@ RSpec.describe RuboCop::Cop::Migration::PreventIndexCreation do
         it "registers an offense when prepare_async_index is used", :aggregate_failures do
           expect_offense(<<~RUBY)
             INDEX_NAME = "index_name"
-            TABLE_NAME = :ci_builds
+            TABLE_NAME = :projects
             disable_ddl_transaction!
 
             def change
               prepare_async_index TABLE_NAME, :protected
               ^^^^^^^^^^^^^^^^^^^ #{offense}
+            end
+          RUBY
+        end
+
+        it "registers an offense when prepare_partitioned_async_index is used", :aggregate_failures do
+          expect_offense(<<~RUBY)
+            TABLE_NAME = :p_ci_builds
+            COLUMNS = [:project_id, :name, :ref, :id]
+
+            def up
+              prepare_partitioned_async_index(TABLE_NAME, COLUMNS, order: { id: :desc })
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ #{offense}
             end
           RUBY
         end
@@ -150,7 +172,7 @@ RSpec.describe RuboCop::Cop::Migration::PreventIndexCreation do
       it 'does not register an offense' do
         expect_no_offenses(<<~RUBY)
           def change
-            add_index :ci_pipelines, :locked
+            add_index :epics, :locked
           end
         RUBY
       end
@@ -174,7 +196,7 @@ RSpec.describe RuboCop::Cop::Migration::PreventIndexCreation do
       it 'does not register an offense' do
         expect_no_offenses(<<~RUBY)
           def change
-            prepare_async_index :ci_pipelines, :locked
+            prepare_async_index :epics, :locked
           end
         RUBY
       end

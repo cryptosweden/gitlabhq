@@ -1,19 +1,21 @@
 ---
-stage: Govern
-group: Authentication
+stage: Plan
+group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Proxying assets
 ---
 
-# Proxying assets
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 A possible security concern when managing a public-facing GitLab instance is
 the ability to steal a user's IP address by referencing images in issues and comments.
 
-For example, adding `![Example image](http://example.com/example.png)` to
+For example, adding `![An example image.](http://example.com/example.png)` to
 an issue description causes the image to be loaded from the external
 server to be displayed. However, this also allows the external server
 to log the IP address of the user.
@@ -37,7 +39,14 @@ To install a Camo server as an asset proxy:
 1. Deploy a `go-camo` server. Helpful instructions can be found in
    [building cactus/go-camo](https://github.com/cactus/go-camo#building).
 
-1. Make sure your instance of GitLab is running, and that you have created a private API token.
+   {{< alert type="warning" >}}
+
+   Asset Proxy servers should be configured to use correct Content Security Policy headers,
+   such as `form-action 'none'` (alongside default `go-camo` headers).
+
+   {{< /alert >}}
+
+1. Make sure your GitLab instance is running, and that you have created a private API token.
    Using the API, configure the asset proxy settings on your GitLab instance. For example:
 
    ```shell
@@ -69,7 +78,7 @@ references an external source are proxied to the Camo server.
 For example, the following is a link to an image in Markdown:
 
 ```markdown
-![logo](https://about.gitlab.com/images/press/logo/jpg/gitlab-icon-rgb.jpg)
+![A GitLab logo.](https://about.gitlab.com/images/press/logo/jpg/gitlab-icon-rgb.jpg)
 ```
 
 The following is an example of a source link that could result:

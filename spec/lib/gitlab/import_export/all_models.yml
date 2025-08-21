@@ -5,6 +5,7 @@ issues:
 - own_award_emoji
 - author
 - assignees
+- assignees_by_name_and_id
 - updated_by
 - milestone
 - iteration
@@ -23,7 +24,12 @@ issues:
 - own_label_links
 - labels
 - own_labels
+- own_notes
+- own_resource_state_events
+- own_resource_label_events
 - own_description_versions
+- own_events
+- own_subscriptions
 - sync_object
 - last_edited_by
 - todos
@@ -40,6 +46,7 @@ issues:
 - issuable_severity
 - issuable_sla
 - issue_assignees
+- issue_stage_events
 - search_data
 - closed_by
 - epic_issue
@@ -49,9 +56,6 @@ issues:
 - designs
 - design_versions
 - description_versions
-- prometheus_alerts
-- prometheus_alert_events
-- self_managed_prometheus_alert_events
 - zoom_meetings
 - vulnerability_links
 - related_vulnerabilities
@@ -76,22 +80,28 @@ issues:
 - email
 - issuable_resource_links
 - synced_epic
+- observability_metrics
+- observability_logs
+- observability_traces
+- dates_source
+- current_status
 work_item_type:
 - issues
 - namespace
-- work_items
 - widget_definitions
 - enabled_widget_definitions
 - child_restrictions
 - parent_restrictions
 - allowed_child_types_by_name
 - allowed_parent_types_by_name
+- user_preferences
 events:
 - author
 - project
 - group
 - target
 - push_event_payload
+- personal_namespace
 notes:
 - award_emoji
 - project
@@ -145,6 +155,8 @@ label:
 - priorities
 - epic_board_labels
 - epic_lists
+- group
+- organization
 milestone:
 - group
 - project
@@ -221,6 +233,8 @@ merge_requests:
 - merge_head_diff
 - merge_request_context_commits
 - merge_request_context_commit_diff_files
+- merge_request_stage_events
+- merge_schedule
 - events
 - merge_requests_closing_issues
 - cached_closes_issues
@@ -244,6 +258,9 @@ merge_requests:
 - approver_users
 - approver_groups
 - approved_by_users
+- v2_approval_rules
+- v2_approval_rules_projects
+- v2_approval_rules_merge_requests
 - draft_notes
 - merge_train_car
 - blocks_as_blocker
@@ -265,6 +282,15 @@ merge_requests:
 - scan_result_policy_violations
 - applicable_post_merge_approval_rules
 - requested_changes
+- change_requesters
+- scan_result_policy_reads_through_violations
+- security_policies_through_violations
+- scan_result_policy_reads_through_approval_rules
+- running_scan_result_policy_violations
+- failed_scan_result_policy_violations
+- approval_metrics
+- approval_policy_merge_request_bypass_events
+- generated_ref_commits
 external_pull_requests:
 - project
 merge_request_diff:
@@ -273,11 +299,15 @@ merge_request_diff:
 - merge_request_diff_detail
 - merge_request_diff_files
 - merge_request_diff_llm_summary
-- merge_request_review_llm_summaries
 merge_request_diff_commits:
 - merge_request_diff
 - commit_author
 - committer
+- merge_request_commits_metadata
+merge_request_commits_metadata:
+- commit_author
+- committer
+- merge_request_diff_commits
 merge_request_diff_detail:
 - merge_request_diff
 merge_request_diff_files:
@@ -285,9 +315,11 @@ merge_request_diff_files:
 merge_request_context_commits:
 - merge_request
 - diff_files
+merge_schedule:
+- merge_request
 cleanup_schedule:
 - merge_request
-ci_pipelines:
+ci_pipelines: &pipeline_definition
 - project
 - user
 - ci_ref
@@ -304,13 +336,14 @@ ci_pipelines:
 - bridges
 - processables
 - generic_commit_statuses
-- trigger_requests
+- trigger
 - variables
 - auto_canceled_by
 - auto_canceled_pipelines
 - auto_canceled_jobs
 - pending_builds
 - failed_builds
+- limited_failed_builds
 - retryable_builds
 - cancelable_statuses
 - manual_actions
@@ -322,6 +355,7 @@ ci_pipelines:
 - external_pull_request
 - deployments
 - environments
+- job_environments
 - chat_data
 - source_pipeline
 - ref_status
@@ -335,9 +369,7 @@ ci_pipelines:
 - parent_pipeline
 - downstream_bridges
 - job_artifacts
-- vulnerabilities_finding_pipelines
 - vulnerability_findings
-- vulnerability_state_transitions
 - pipeline_config
 - security_scans
 - security_findings
@@ -358,6 +390,8 @@ ci_pipelines:
 - build_trace_chunks
 - pipeline_metadata
 - build_execution_configs
+- project_mirror
+- workload
 pipeline_metadata:
 - project
 - pipeline
@@ -396,15 +430,17 @@ builds:
 - resource_group
 - metadata
 - runner
-- trigger_request
+- trigger
 - erased_by
 - deployment
+- job_environment
 - pending_state
 - queuing_entry
 - runtime_metadata
 - trace_chunks
 - report_results
 - namespace
+- inputs
 - job_artifacts
 - job_variables
 - sourced_pipelines
@@ -426,6 +462,7 @@ builds:
 - job_artifacts_lsif
 - job_artifacts_dotenv
 - job_artifacts_cobertura
+- job_artifacts_jacoco
 - job_artifacts_terraform
 - job_artifacts_accessibility
 - job_artifacts_cluster_applications
@@ -439,6 +476,9 @@ builds:
 - job_artifacts_cyclonedx
 - job_artifacts_requirements_v2
 - job_artifacts_repository_xray
+- job_definition
+- job_definition_instance
+- job_messages
 - runner_manager
 - runner_manager_build
 - runner_session
@@ -446,8 +486,10 @@ builds:
 - terraform_state_versions
 - taggings
 - base_tags
+- tag_links
 - tag_taggings
 - tags
+- simple_tags
 - security_scans
 - dast_site_profiles_build
 - dast_site_profile
@@ -456,18 +498,23 @@ builds:
 - job_annotations
 - job_artifacts_annotations
 - project_mirror
+- build_source
 bridges:
 - user
 - pipeline
 - auto_canceled_by
 - ci_stage
+- job_definition
+- job_definition_instance
 - needs
 - resource
 - sourced_pipeline
 - deployment
+- job_environment
+- job_messages
 - resource_group
 - metadata
-- trigger_request
+- trigger
 - downstream_pipeline
 - upstream_pipeline
 generic_commit_statuses:
@@ -480,7 +527,6 @@ variables:
 - project
 triggers:
 - project
-- trigger_requests
 - owner
 pipeline_schedules:
 - project
@@ -488,6 +534,7 @@ pipeline_schedules:
 - pipelines
 - last_pipeline
 - variables
+- inputs
 pipeline_schedule:
 - pipelines
 pipeline_schedule_variables:
@@ -520,6 +567,8 @@ protected_branches:
 - approval_project_rules_with_unique_policies
 - external_status_checks
 - required_code_owners_sections
+- squash_option
+- merge_request_approval_setting
 protected_tags:
 - project
 - create_access_levels
@@ -537,15 +586,20 @@ create_access_levels:
 - protected_tag
 - group
 - deploy_key
+squash_option:
+- protected_branch
 container_repositories:
 - project
 - name
 project:
+- ai_flow_triggers
+- instance_runner_monthly_usages
+- hosted_runner_monthly_usages
 - catalog_resource
 - catalog_resource_sync_events
 - catalog_resource_versions
 - ci_components
-- ci_component_usages
+- ci_component_last_usages
 - external_status_checks
 - base_tags
 - project_topics
@@ -557,6 +611,7 @@ project:
 - ci_access_project_authorizations
 - cluster_project
 - workspaces
+- workspace_agentk_states
 - creator
 - cycle_analytics_stages
 - value_streams
@@ -583,6 +638,7 @@ project:
 - alert_hooks_integrations
 - incident_hooks_integrations
 - vulnerability_hooks_integrations
+- ready_active_context_code_repository
 - apple_app_store_integration
 - google_cloud_platform_artifact_registry_integration
 - google_cloud_platform_workload_identity_federation_integration
@@ -595,6 +651,7 @@ project:
 - google_play_integration
 - pipelines_email_integration
 - mattermost_slash_commands_integration
+- matrix_integration
 - slack_slash_commands_integration
 - harbor_integration
 - irker_integration
@@ -616,6 +673,7 @@ project:
 - teamcity_integration
 - pushover_integration
 - jira_integration
+- jira_cloud_app_integration
 - zentao_integration
 # dingtalk_integration JiHu-specific, see https://jihulab.com/gitlab-cn/gitlab/-/merge_requests/417
 - dingtalk_integration
@@ -628,6 +686,7 @@ project:
 - ewm_integration
 - clickup_integration
 - external_wiki_integration
+- linear_integration
 - mock_ci_integration
 - mock_monitoring_integration
 - squash_tm_integration
@@ -645,6 +704,7 @@ project:
 - notes
 - snippets
 - hooks
+- all_protected_branches
 - protected_branches
 - protected_tags
 - project_members
@@ -675,6 +735,7 @@ project:
 - stages
 - ci_refs
 - builds
+- bridges
 - processables
 - runner_projects
 - runners
@@ -699,6 +760,7 @@ project:
 - container_repositories
 - container_registry_data_repair_detail
 - container_registry_protection_rules
+- container_registry_protection_tag_rules
 - uploads
 - file_uploads
 - import_state
@@ -719,13 +781,14 @@ project:
 - settings
 - ci_cd_settings
 - project_settings
-- import_export_upload
+- import_export_uploads
 - repository_languages
 - pool_repository
 - kubernetes_namespaces
 - error_tracking_setting
 - gitlab_slack_application_integration
 - github_integration
+- amazon_q_integration
 - git_guardian_integration
 - protected_environments
 - mirror_user
@@ -738,6 +801,9 @@ project:
 - approval_merge_request_rules
 - approval_merge_request_rule_sources
 - approval_project_rules
+- v2_approval_rules
+- v2_approval_rules_projects
+- v2_approval_rules_merge_requests
 - approvers
 - approver_users
 - audit_events
@@ -747,8 +813,8 @@ project:
 - wiki_repository_state
 - source_pipelines
 - sourced_pipelines
-- prometheus_metrics
 - vulnerabilities
+- vulnerability_archives
 - vulnerability_exports
 - vulnerability_findings
 - vulnerability_feedback
@@ -763,9 +829,6 @@ project:
 - operations_feature_flags
 - operations_feature_flags_client
 - operations_feature_flags_user_lists
-- prometheus_alerts
-- prometheus_alert_events
-- self_managed_prometheus_alert_events
 - software_license_policies
 - software_licenses
 - custom_software_licenses
@@ -775,6 +838,7 @@ project:
 - package_protection_rules
 - rpm_repository_files
 - npm_metadata_caches
+- helm_metadata_caches
 - packages_cleanup_policy
 - dependency_proxy_packages_setting
 - alerting_setting
@@ -807,7 +871,6 @@ project:
 - jira_imports
 - compliance_framework_settings
 - compliance_management_frameworks
-- metrics_users_starred_dashboards
 - alert_management_alerts
 - repository_storage_moves
 - freeze_periods
@@ -817,6 +880,7 @@ project:
 - build_report_results
 - vulnerability_statistic
 - vulnerability_historical_statistics
+- vulnerability_namespace_historical_statistics
 - vulnerability_remediations
 - product_analytics_events
 - pipeline_artifacts
@@ -856,6 +920,7 @@ project:
 - design_management_repository
 - design_management_repository_state
 - compliance_standards_adherence
+- compliance_requirements
 - scan_result_policy_reads
 - scan_result_policy_violations
 - project_state
@@ -865,20 +930,35 @@ project:
 - dora_performance_scores
 - xray_reports
 - member_approvals
-- zoekt_repository
+- zoekt_repositories
 - security_policy_management_project_linked_configurations
 - security_policy_project_linked_projects
 - security_policy_project_linked_namespaces
+- security_policy_project_linked_groups
 - relation_import_trackers
 - saved_replies
+- security_policy_project_links
+- security_policies
+- approval_policy_rule_project_links
+- approval_policy_rules
+- security_pipeline_execution_config_links
+- secrets_manager
+- observability_metrics
+- observability_traces
+- observability_logs
+- security_exclusions
+- security_statistics
+- vulnerability_management_policies
+- project_control_compliance_statuses
+- approval_policies
+- project_requirement_compliance_statuses
+- analyzer_statuses
+- configured_ai_catalog_items
 award_emoji:
 - awardable
 - user
 priorities:
 - label
-prometheus_metrics:
-- project
-- prometheus_alerts
 timelogs:
 - issue
 - merge_request
@@ -915,6 +995,7 @@ resource_label_events:
 - merge_request
 - epic
 - label
+- namespace
 error_tracking_setting:
 - project
 suggestions:
@@ -934,17 +1015,11 @@ unprotect_access_levels:
 - user
 - protected_branch
 - group
-prometheus_alerts:
-- project
-- prometheus_alert_events
-prometheus_alert_events:
-- project
-self_managed_prometheus_alert_events:
-- project
 epic_issues:
 - issue
 - epic
 - work_item
+- work_item_parent_link
 feature_flag_issues:
 - issue
 - feature_flag
@@ -979,6 +1054,9 @@ lists:
 - board
 - label
 - list_user_preferences
+- group
+- project
+- custom_status
 milestone_releases:
 - milestone
 - release
@@ -1004,6 +1082,7 @@ versions: &version
 - issue
 - designs
 - actions
+- namespace
 zoom_meetings:
 - issue
 sentry_issue:
@@ -1026,7 +1105,11 @@ epic:
 - own_label_links
 - labels
 - own_labels
+- own_notes
+- own_resource_state_events
+- own_resource_label_events
 - own_description_versions
+- own_events
 - sync_object
 - todos
 - metrics
@@ -1049,10 +1132,13 @@ epic:
 - boards_epic_user_preferences
 - epic_board_positions
 - work_item
+- own_subscriptions
+- work_item_parent_link
 epic_issue:
 - epic
 - issue
 - work_item
+- work_item_parent_link
 system_note_metadata:
 - note
 - description_version
@@ -1078,6 +1164,7 @@ resource_milestone_events:
   - work_item
   - merge_request
   - milestone
+  - namespace
 resource_state_events:
   - user
   - issue
@@ -1085,6 +1172,7 @@ resource_state_events:
   - merge_request
   - source_merge_request
   - epic
+  - namespace
 iteration:
   - group
   - iterations_cadence
@@ -1097,6 +1185,8 @@ resource_iteration_events:
   - work_item
   - merge_request
   - iteration
+  - triggered_by_work_item
+  - namespace
 iterations_cadence:
   - group
   - iterations
@@ -1122,6 +1212,7 @@ approval_rules:
   - approval_project_rules_users
   - approval_project_rules_protected_branches
   - scan_result_policy_read
+  - approval_policy_rule
 approval_project_rules_users:
   - user
   - approval_project_rule
@@ -1135,3 +1226,62 @@ timelog_category:
   - billing_rate
 note_diff_file:
   - diff_note
+vulnerabilities:
+  - vulnerability_finding
+  - findings
+  - vulnerability_read
+  - award_emoji
+  - author
+  - resolved_by
+  - dismissed_by
+  - confirmed_by
+  - group
+  - representation_information
+  - dismissed_findings
+  - merge_request_links
+  - merge_requests
+  - external_issue_links
+  - issue_links
+  - related_issues
+  - latest_severity_override
+  - severity_overrides
+  - state_transitions
+  - notes
+  - user_mentions
+  - sbom_occurrences_vulnerabilities
+  - sbom_occurrences
+vulnerability_finding:
+  - scanner
+  - primary_identifier
+  - vulnerability
+  - one_vulnerability
+  - state_transitions
+  - issue_links
+  - external_issue_links
+  - merge_request_links
+  - finding_identifiers
+  - identifiers
+  - finding_links
+  - finding_remediations
+  - remediations
+  - initial_finding_pipeline
+  - latest_finding_pipeline
+  - signatures
+  - vulnerability_flags
+  - feedbacks
+  - finding_evidence
+  - security_findings
+  - finding_token_status
+scanner:
+  - findings
+  - security_findings
+identifiers: &identifiers_definition
+  - finding_identifiers
+  - findings
+  - primary_findings
+primary_identifier: *identifiers_definition
+initial_finding_pipeline: *pipeline_definition
+latest_finding_pipeline: *pipeline_definition
+vulnerability_read:
+  - vulnerability
+  - scanner

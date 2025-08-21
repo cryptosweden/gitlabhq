@@ -1,16 +1,18 @@
 <script>
 import { GlTooltipDirective } from '@gitlab/ui';
-import { sprintf, s__ } from '~/locale';
-import CiIcon from '~/vue_shared/components/ci_icon/ci_icon.vue';
+import { sprintf, n__ } from '~/locale';
+import DownstreamPipelineDropdown from './downstream_pipeline_dropdown.vue';
+
 /**
  * Renders the downstream portion of the pipeline mini graph.
  */
 export default {
+  name: 'DownstreamPipelines',
   directives: {
     GlTooltip: GlTooltipDirective,
   },
   components: {
-    CiIcon,
+    DownstreamPipelineDropdown,
   },
   props: {
     pipelines: {
@@ -45,14 +47,16 @@ export default {
       return `+${this.pipelines.length - this.maxRenderedPipelines}`;
     },
     counterTooltipText() {
-      return sprintf(s__('Pipelines|%{counterLabel} more downstream pipelines'), {
-        counterLabel: this.counterLabel,
-      });
-    },
-  },
-  methods: {
-    pipelineTooltipText(pipeline) {
-      return `${pipeline?.project?.name} - ${pipeline?.detailedStatus?.label}`;
+      return sprintf(
+        n__(
+          'Pipelines|%{counterLabel} more downstream pipeline',
+          'Pipelines|%{counterLabel} more downstream pipelines',
+          this.counterLabel,
+        ),
+        {
+          counterLabel: this.counterLabel,
+        },
+      );
     },
   },
 };
@@ -60,14 +64,11 @@ export default {
 
 <template>
   <span v-if="pipelines" class="gl-inline-flex gl-gap-2 gl-align-middle">
-    <ci-icon
+    <downstream-pipeline-dropdown
       v-for="pipeline in pipelinesTrimmed"
       :key="pipeline.id"
-      v-gl-tooltip.hover
-      :title="pipelineTooltipText(pipeline)"
-      :status="pipeline.detailedStatus"
-      :show-tooltip="false"
-      data-testid="downstream-pipelines"
+      :pipeline="pipeline"
+      @jobActionExecuted="$emit('jobActionExecuted')"
     />
 
     <a
@@ -75,7 +76,7 @@ export default {
       v-gl-tooltip="{ title: counterTooltipText }"
       :title="counterTooltipText"
       :href="pipelinePath"
-      class="gl-align-items-center gl-bg-gray-50 gl-inline-flex gl-font-sm gl-h-6 gl-justify-content-center gl-rounded-pill gl-text-decoration-none gl-text-gray-500 gl-w-7"
+      class="gl-inline-flex gl-h-6 gl-w-7 gl-items-center gl-justify-center gl-rounded-pill gl-bg-strong gl-text-sm gl-text-subtle gl-no-underline"
       data-testid="downstream-pipeline-counter"
     >
       {{ counterLabel }}

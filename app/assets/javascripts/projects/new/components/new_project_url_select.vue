@@ -116,7 +116,7 @@ export default {
       return [];
     },
     dropdownPlaceholderClass() {
-      return this.selectedNamespace.id ? '' : 'gl-text-gray-500!';
+      return this.selectedNamespace.id ? '' : '!gl-text-subtle';
     },
     dropdownText() {
       if (this.selectedNamespace && this.selectedNamespace?.fullPath) {
@@ -151,12 +151,20 @@ export default {
       const namespace = this.allItems.find((item) => item.id === namespaceId);
 
       if (namespace) {
-        eventHub.$emit('update-visibility', {
+        const eventData = {
           name: namespace.name,
           visibility: namespace.visibility,
           showPath: namespace.webUrl,
-          editPath: joinPaths(namespace.webUrl, '-', 'edit'),
-        });
+        };
+
+        // Only add editPath for group namespaces, not user namespaces
+        // User namespace can be identified by checking if it matches the current user's namespace
+        const isUserNamespace = namespace.id === this.userNamespace.id;
+        if (!isUserNamespace) {
+          eventData.editPath = joinPaths(namespace.webUrl, '-', 'edit');
+        }
+
+        eventHub.$emit('update-visibility', eventData);
       }
       this.setNamespace(namespace);
     },
@@ -193,19 +201,16 @@ export default {
 
 <template>
   <gl-button-group class="gl-w-full">
-    <gl-button
-      class="js-group-namespace-button gl-text-truncate gl-flex-grow-0!"
-      label
-      :title="rootUrl"
-      >{{ rootUrl }}</gl-button
-    >
+    <gl-button class="js-group-namespace-button !gl-grow-0 gl-truncate" label :title="rootUrl">{{
+      rootUrl
+    }}</gl-button>
 
     <gl-collapsible-listbox
       searchable
       fluid-width
       :searching="loading"
       :items="items"
-      class="js-group-namespace-dropdown group-namespace-dropdown gl-flex-grow-1"
+      class="js-group-namespace-dropdown group-namespace-dropdown gl-grow"
       :toggle-text="dropdownText"
       :no-results-text="$options.i18n.emptySearchResult"
       data-testid="select-namespace-dropdown"
@@ -216,16 +221,16 @@ export default {
     >
       <template #toggle>
         <gl-button
-          class="gl-flex-basis-full! gl-rounded-left-none! gl-w-20"
+          class="gl-w-20 !gl-basis-full !gl-rounded-l-none"
           :class="dropdownPlaceholderClass"
         >
           <gl-truncate
             :text="dropdownText"
             position="start"
-            class="gl-overflow-hidden gl-mr-auto"
+            class="gl-mr-auto gl-overflow-hidden"
             with-tooltip
           />
-          <gl-icon class="gl-button-icon dropdown-chevron gl-mr-0! gl-ml-2!" name="chevron-down" />
+          <gl-icon class="gl-button-icon dropdown-chevron !gl-ml-2 !gl-mr-0" name="chevron-down" />
         </gl-button>
       </template>
       <template #search-summary-sr-only>
@@ -237,6 +242,7 @@ export default {
     <input
       :id="inputId"
       type="hidden"
+      :data-testid="inputName"
       :name="inputName"
       :value="selectedNamespace.id || userNamespaceUniqueId"
     />

@@ -9,7 +9,6 @@ class ProjectsController < Projects::ApplicationController
   include ImportUrlParams
   include FiltersEvents
   include SourcegraphDecorator
-  include PlanningHierarchy
 
   REFS_LIMIT = 100
 
@@ -37,37 +36,36 @@ class ProjectsController < Projects::ApplicationController
   before_action :check_export_rate_limit!, only: [:export, :download_export, :generate_new_export]
 
   before_action do
+    push_frontend_feature_flag(:inline_blame, @project)
     push_frontend_feature_flag(:remove_monitor_metrics, @project)
-    push_frontend_feature_flag(:explain_code_chat, current_user)
     push_frontend_feature_flag(:issue_email_participants, @project)
-    push_frontend_feature_flag(:service_desk_tickets_confidentiality, @project)
     push_frontend_feature_flag(:edit_branch_rules, @project)
     # TODO: We need to remove the FF eventually when we rollout page_specific_styles
     push_frontend_feature_flag(:page_specific_styles, current_user)
     push_licensed_feature(:file_locks) if @project.present? && @project.licensed_feature_available?(:file_locks)
+    push_frontend_feature_flag(:directory_code_dropdown_updates, current_user)
+    push_frontend_feature_flag(:repository_file_tree_browser, @project)
 
     if @project.present? && @project.licensed_feature_available?(:security_orchestration_policies)
       push_licensed_feature(:security_orchestration_policies)
     end
 
-    push_force_frontend_feature_flag(:work_items, @project&.work_items_feature_flag_enabled?)
-    push_force_frontend_feature_flag(:work_items_beta, @project&.work_items_beta_feature_flag_enabled?)
-    push_force_frontend_feature_flag(:work_items_alpha, @project&.work_items_alpha_feature_flag_enabled?)
-    push_frontend_feature_flag(:namespace_level_work_items, @project&.group)
+    push_force_frontend_feature_flag(:work_items, !!@project&.work_items_feature_flag_enabled?)
+    push_force_frontend_feature_flag(:work_items_beta, !!@project&.work_items_beta_feature_flag_enabled?)
+    push_force_frontend_feature_flag(:work_items_alpha, !!@project&.work_items_alpha_feature_flag_enabled?)
   end
 
   layout :determine_layout
 
   feature_category :groups_and_projects, [
     :index, :show, :new, :create, :edit, :update, :transfer,
-    :destroy, :archive, :unarchive, :toggle_star, :activity
+    :destroy, :archive, :unarchive, :toggle_star, :activity, :restore
   ]
 
   feature_category :source_code_management, [:remove_fork, :housekeeping, :refs]
   feature_category :team_planning, [:preview_markdown, :new_issuable_address]
   feature_category :importers, [:export, :remove_export, :generate_new_export, :download_export]
-  feature_category :code_review_workflow, [:unfoldered_environment_names]
-  feature_category :portfolio_management, [:planning_hierarchy]
+  feature_category :continuous_delivery, [:unfoldered_environment_names]
 
   urgency :low, [:export, :remove_export, :generate_new_export, :download_export]
   urgency :low, [:preview_markdown, :new_issuable_address]
@@ -110,7 +108,7 @@ class ProjectsController < Projects::ApplicationController
     if @project.saved?
       redirect_to(
         project_path(@project, custom_import_params),
-        notice: _("Project '%{project_name}' was successfully created.") % { project_name: @project.name }
+        notice: safe_format(_("Project '%{project_name}' was successfully created."), project_name: @project.name)
       )
     else
       render 'new'
@@ -172,7 +170,7 @@ class ProjectsController < Projects::ApplicationController
     end
 
     if @project.pending_delete?
-      flash.now[:alert] = _("Project '%{project_name}' queued for deletion.") % { project_name: @project.name }
+      flash.now[:alert] = safe_format(_("Project '%{project_name}' queued for deletion."), project_name: @project.name)
     end
 
     @ref_type = 'heads'
@@ -194,12 +192,35 @@ class ProjectsController < Projects::ApplicationController
   def destroy
     return access_denied! unless can?(current_user, :remove_project, @project)
 
-    ::Projects::DestroyService.new(@project, current_user, {}).async_execute
-    flash[:toast] = format(_("Project '%{project_name}' is being deleted."), project_name: @project.full_name)
+    return destroy_immediately if @project.self_deletion_scheduled? && params[:permanently_delete].present?
 
-    redirect_to dashboard_projects_path, status: :found
-  rescue Projects::DestroyService::DestroyError => e
-    redirect_to edit_project_path(@project), status: :found, alert: e.message
+    result = ::Projects::MarkForDeletionService.new(@project, current_user).execute
+
+    if result.success?
+      redirect_to project_path(@project), status: :found
+    else
+      flash.now[:alert] = result.message
+
+      render_edit
+    end
+  end
+
+  def restore
+    return access_denied! unless can?(current_user, :remove_project, @project)
+
+    result = ::Projects::RestoreService.new(@project, current_user, {}).execute
+
+    if result.success?
+      flash[:notice] = format(
+        _("Project '%{project_name}' has been successfully restored."), project_name: @project.full_name
+      )
+
+      redirect_to(edit_project_path(@project))
+    else
+      flash.now[:alert] = result.message
+
+      render_edit
+    end
   end
 
   def new_issuable_address
@@ -210,7 +231,7 @@ class ProjectsController < Projects::ApplicationController
   end
 
   def archive
-    ::Projects::UpdateService.new(@project, current_user, archived: true).execute
+    ::Projects::ArchiveService.new(project: @project, current_user: current_user).execute
 
     respond_to do |format|
       format.html { redirect_to project_path(@project) }
@@ -218,7 +239,7 @@ class ProjectsController < Projects::ApplicationController
   end
 
   def unarchive
-    ::Projects::UpdateService.new(@project, current_user, archived: false).execute
+    ::Projects::UnarchiveService.new(project: @project, current_user: current_user).execute
 
     respond_to do |format|
       format.html { redirect_to project_path(@project) }
@@ -269,9 +290,10 @@ class ProjectsController < Projects::ApplicationController
   end
 
   def download_export
-    if @project.export_file_exists?
-      if @project.export_archive_exists?
-        send_upload(@project.export_file, attachment: @project.export_file.filename)
+    if @project.export_file_exists?(current_user)
+      if @project.export_archive_exists?(current_user)
+        export_file = @project.export_file(current_user)
+        send_upload(export_file, attachment: export_file.filename)
       else
         redirect_to(
           edit_project_path(@project, anchor: 'js-project-advanced-settings'),
@@ -287,7 +309,7 @@ class ProjectsController < Projects::ApplicationController
   end
 
   def remove_export
-    if @project.remove_exports
+    if @project.remove_export_for_user(current_user)
       flash[:notice] = _("Project export has been deleted.")
     else
       flash[:alert] = _("Project export could not be deleted.")
@@ -297,7 +319,7 @@ class ProjectsController < Projects::ApplicationController
   end
 
   def generate_new_export
-    if @project.remove_exports
+    if @project.remove_export_for_user(current_user)
       export
     else
       redirect_to(
@@ -371,6 +393,13 @@ class ProjectsController < Projects::ApplicationController
   end
 
   private
+
+  def destroy_immediately
+    ::Projects::DestroyService.new(@project, current_user, {}).async_execute
+    flash[:toast] = safe_format(_("Project '%{project_name}' is being deleted."), project_name: @project.full_name)
+
+    redirect_to dashboard_projects_path, status: :found
+  end
 
   def refs_params
     params.permit(:search, :sort, :ref, find: [])
@@ -459,15 +488,21 @@ class ProjectsController < Projects::ApplicationController
   end
 
   def project_setting_attributes
-    %i[
+    attributes = %i[
       show_default_award_emojis
       show_diff_preview_in_email
       squash_option
       mr_default_target_self
       warn_about_potentially_unwanted_characters
       enforce_auth_checks_on_uploads
+      merge_request_title_regex
+      merge_request_title_regex_description
       emails_enabled
     ]
+
+    attributes << :extended_prat_expiry_webhooks_execute if can?(current_user, :admin_project, project)
+
+    attributes
   end
 
   def project_params_attributes
@@ -502,6 +537,7 @@ class ProjectsController < Projects::ApplicationController
       :template_project_id,
       :merge_method,
       :initialize_with_sast,
+      :initialize_with_secret_detection,
       :initialize_with_readme,
       :ci_separated_caches,
       :suggestion_commit_message,
@@ -509,6 +545,8 @@ class ProjectsController < Projects::ApplicationController
       :service_desk_enabled,
       :merge_commit_template_or_default,
       :squash_commit_template_or_default,
+      :merge_request_title_regex,
+      :merge_request_title_regex_description,
       { project_setting_attributes: project_setting_attributes,
         project_feature_attributes: project_feature_attributes }
     ]
@@ -567,11 +605,18 @@ class ProjectsController < Projects::ApplicationController
   def redirect_git_extension
     return unless params[:format] == 'git'
 
+    git_extension_regex = %r{\.git/?\Z}
+    return unless request.path.match?(git_extension_regex)
+
     # `project` calls `find_routable!`, so this will trigger the usual not-found
     # behaviour when the user isn't authorized to see the project
     return if project.nil? || performed?
 
-    redirect_to(request.original_url.sub(%r{\.git/?\Z}, ''))
+    uri = URI(request.original_url)
+    # Strip the '.git' part from the path
+    uri.path = uri.path.sub(git_extension_regex, '')
+
+    redirect_to(uri.to_s)
   end
 
   def disable_query_limiting
@@ -583,11 +628,11 @@ class ProjectsController < Projects::ApplicationController
   end
 
   def check_export_rate_limit!
-    prefixed_action = "project_#{params[:action]}".to_sym
+    prefixed_action = :"project_#{params[:action]}"
 
-    group_scope = params[:action] == 'download_export' ? @project.namespace : nil
+    project_scope = params[:action] == 'download_export' ? @project : nil
 
-    check_rate_limit!(prefixed_action, scope: [current_user, group_scope].compact)
+    check_rate_limit!(prefixed_action, scope: [current_user, project_scope].compact)
   end
 
   def render_edit

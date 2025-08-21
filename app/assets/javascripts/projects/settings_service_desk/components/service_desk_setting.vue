@@ -34,7 +34,7 @@ export default {
           'ServiceDesk|On public projects, tickets are always confidential by default.',
         ),
         confidential: s__(
-          'ServiceDesk|Only project members with at least the Reporter role can view new tickets.',
+          'ServiceDesk|Only project members with at least the Planner role can view new tickets.',
         ),
         nonConfidential: s__('ServiceDesk|Any project member can view new tickets.'),
       },
@@ -163,9 +163,6 @@ export default {
     };
   },
   computed: {
-    showAreTicketsConfidentialByDefault() {
-      return this.glFeatures.serviceDeskTicketsConfidentiality;
-    },
     showAddExternalParticipantsFromCC() {
       return this.glFeatures.issueEmailParticipants;
     },
@@ -189,8 +186,8 @@ export default {
       });
     },
     issuesHelpPagePath() {
-      return helpPagePath('user/project/settings/index.md', {
-        anchor: 'configure-project-visibility-features-and-permissions',
+      return helpPagePath('user/project/settings/_index', {
+        anchor: 'configure-project-features-and-permissions',
       });
     },
     areTicketsConfidentialByDefaultHelp() {
@@ -256,7 +253,7 @@ export default {
       id="service-desk-checkbox"
       :value="isEnabled"
       :disabled="!isIssueTrackerEnabled"
-      class="!gl-inline-block align-middle mr-1"
+      class="align-middle mr-1 !gl-inline-block"
       :label="$options.i18n.toggleLabel"
       label-position="hidden"
       @change="onCheckboxToggle"
@@ -328,7 +325,7 @@ export default {
             </gl-sprintf>
           </template>
           <template v-else #description>
-            <span class="gl-text-gray-900">
+            <span class="gl-text-default">
               <gl-sprintf
                 :message="
                   __(
@@ -382,10 +379,7 @@ export default {
           </template>
         </gl-form-group>
 
-        <div
-          v-if="showAreTicketsConfidentialByDefault"
-          data-testid="service-desk-are-tickets-confidential-by-default-wrapper"
-        >
+        <div data-testid="service-desk-are-tickets-confidential-by-default-wrapper">
           <h5>{{ $options.i18n.headlines.ticketVisibility }}</h5>
 
           <gl-form-checkbox

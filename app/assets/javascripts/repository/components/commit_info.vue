@@ -1,5 +1,5 @@
 <script>
-import { GlTooltipDirective, GlLink, GlButton } from '@gitlab/ui';
+import { GlTooltipDirective, GlLink, GlButton, GlSprintf } from '@gitlab/ui';
 import { __, sprintf } from '~/locale';
 import SafeHtml from '~/vue_shared/directives/safe_html';
 import defaultAvatarUrl from 'images/no_avatar.png';
@@ -15,6 +15,7 @@ export default {
     GlButton,
     GlLink,
     UserAvatarImage,
+    GlSprintf,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -51,6 +52,12 @@ export default {
     truncateAuthorName() {
       return typeof this.span === 'number' && this.span < 3;
     },
+    isCommitterDifferentFromAuthor() {
+      return (
+        this.commit.authorName !== this.commit.committerName ||
+        this.commit.authorEmail !== this.commit.committerEmail
+      );
+    },
   },
   methods: {
     toggleShowDescription() {
@@ -63,33 +70,36 @@ export default {
   },
   i18n: {
     toggleCommitDescription: __('Toggle commit description'),
-    authored: __('authored'),
+    authoredOnly: __('%{author} authored %{authoredDate}'),
+    authoredAndCommitted: __(
+      '%{author} authored %{authoredDate} and %{committer} committed %{committedDate}',
+    ),
   },
 };
 </script>
 
 <template>
-  <div class="well-segment commit gl-min-h-8 gl-p-2 gl-w-full gl-display-flex">
+  <div class="well-segment commit gl-flex gl-w-full !gl-px-5 !gl-py-4">
     <user-avatar-link
       v-if="commit.author"
       :link-href="commit.author.webPath"
       :img-src="commit.author.avatarUrl"
       :img-alt="avatarLinkAltText"
       :img-size="32"
-      class="gl-my-2 gl-mr-4"
+      class="gl-my-2 gl-mr-3"
     />
     <user-avatar-image
       v-else
-      class="gl-my-2 gl-mr-4"
+      class="gl-my-2 gl-mr-3"
       :img-src="commit.authorGravatar || $options.defaultAvatarUrl"
       :size="32"
     />
-    <div class="commit-detail flex-list gl-display-flex gl-flex-grow-1 gl-min-w-0">
+    <div class="commit-detail flex-list gl-flex gl-min-w-0 gl-grow">
       <div
-        class="commit-content gl-w-full gl-inline-flex gl-flex-wrap gl-align-items-baseline"
+        class="commit-content gl-inline-flex gl-w-full gl-flex-wrap gl-items-baseline"
         data-testid="commit-content"
       >
-        <div class="gl-flex-basis-full gl-inline-flex gl-align-items-center gl-gap-x-3">
+        <div class="gl-inline-flex gl-basis-full gl-items-center gl-gap-x-3">
           <gl-link
             v-safe-html:[$options.safeHtmlConfig]="commit.titleHtml"
             :href="commit.webPath"
@@ -103,29 +113,70 @@ export default {
             :title="$options.i18n.toggleCommitDescription"
             :aria-label="$options.i18n.toggleCommitDescription"
             :selected="showDescription"
-            class="text-expander gl-ml-0!"
+            class="!gl-ml-0"
             icon="ellipsis_h"
             @click="toggleShowDescription"
           />
         </div>
         <div
-          class="committer gl-flex-basis-full"
+          class="committer gl-basis-full gl-truncate gl-text-sm"
           :class="{ 'gl-inline-flex': truncateAuthorName }"
           data-testid="committer"
         >
-          <gl-link
-            v-if="commit.author"
-            :href="commit.author.webPath"
-            class="commit-author-link js-user-link"
-            :class="{ 'gl-display-inline-block gl-text-truncate': truncateAuthorName }"
+          <gl-sprintf
+            v-if="commit.committerName && isCommitterDifferentFromAuthor"
+            :message="$options.i18n.authoredAndCommitted"
           >
-            {{ commit.author.name }}</gl-link
-          >
-          <template v-else>
-            {{ commit.authorName }}
-          </template>
-          {{ $options.i18n.authored }}
-          <timeago-tooltip :time="commit.authoredDate" tooltip-placement="bottom" />
+            <template #author>
+              <gl-link
+                v-if="commit.author"
+                :href="commit.author.webPath"
+                class="commit-author-link js-user-link"
+                :class="{ 'gl-inline-block gl-truncate': truncateAuthorName }"
+              >
+                {{ commit.author.name }}</gl-link
+              >
+              <template v-else>
+                {{ commit.authorName }}
+              </template>
+            </template>
+
+            <template #authoredDate>
+              <timeago-tooltip :time="commit.authoredDate" tooltip-placement="bottom" />
+            </template>
+
+            <template #committer>
+              <user-avatar-image
+                v-if="commit.committerAvatarUrl"
+                class="gl-mx-1 gl-my-2"
+                :img-src="commit.committerAvatarUrl"
+                :size="16"
+              />
+              {{ commit.committerName }}
+            </template>
+
+            <template #committedDate>
+              <timeago-tooltip :time="commit.committedDate" tooltip-placement="bottom" />
+            </template>
+          </gl-sprintf>
+
+          <gl-sprintf v-else :message="$options.i18n.authoredOnly">
+            <template #author>
+              <gl-link
+                v-if="commit.author"
+                :href="commit.author.webPath"
+                class="commit-author-link js-user-link"
+                :class="{ 'gl-inline-block gl-truncate': truncateAuthorName }"
+              >
+                {{ commit.author.name }}</gl-link
+              >
+              <template v-else>{{ commit.authorName }}</template>
+            </template>
+
+            <template #authoredDate>
+              <timeago-tooltip :time="commit.authoredDate" tooltip-placement="bottom" />
+            </template>
+          </gl-sprintf>
         </div>
         <pre
           v-if="commitDescription"
@@ -134,7 +185,7 @@ export default {
           class="commit-row-description gl-mb-3 gl-whitespace-pre-wrap"
         ></pre>
       </div>
-      <div class="gl-flex-grow-1"></div>
+      <div class="gl-grow"></div>
       <slot></slot>
     </div>
     <div

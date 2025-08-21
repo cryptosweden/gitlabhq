@@ -46,7 +46,7 @@ module Operations
 
     scope :new_version_only, -> { where(version: :new_version_flag) }
 
-    enum version: {
+    enum :version, {
       new_version_flag: 2
     }
 
@@ -102,6 +102,10 @@ module Operations
         .includes(preload)
 
       Ability.issues_readable_by_user(issues, current_user)
+    end
+
+    def path
+      Gitlab::Routing.url_helpers.edit_project_feature_flag_path(project, self)
     end
 
     def hook_attrs

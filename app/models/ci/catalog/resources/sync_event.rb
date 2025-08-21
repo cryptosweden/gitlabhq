@@ -9,7 +9,6 @@ module Ci
       # (DB function name: `insert_catalog_resource_sync_event`).
       class SyncEvent < ::ApplicationRecord
         include PartitionedTable
-        include IgnorableColumns
 
         PARTITION_DURATION = 1.day
 
@@ -29,7 +28,7 @@ module Ci
         scope :unprocessed_events, -> { select_with_partition.status_pending }
         scope :preload_synced_relation, -> { preload(catalog_resource: :project) }
 
-        enum status: { pending: 1, processed: 2 }, _prefix: :status
+        enum :status, { pending: 1, processed: 2 }, prefix: :status
 
         partitioned_by :partition_id, strategy: :sliding_list,
           next_partition_if: ->(active_partition) do

@@ -5,6 +5,7 @@ module BulkImports
     include ApplicationWorker
     include ExclusiveLeaseGuard
     include Gitlab::Utils::StrongMemoize
+    include Sidekiq::InterruptionsExhausted
 
     FILE_EXTRACTION_PIPELINE_PERFORM_DELAY = 10.seconds
 
@@ -12,9 +13,10 @@ module BulkImports
 
     DEFER_ON_HEALTH_DELAY = 5.minutes
 
-    data_consistency :always
+    data_consistency :sticky
     feature_category :importers
     sidekiq_options dead: false, retry: 6
+    sidekiq_options max_retries_after_interruption: 20
     worker_has_external_dependencies!
     deduplicate :until_executing
     worker_resource_boundary :memory
@@ -22,8 +24,12 @@ module BulkImports
 
     version 2
 
-    sidekiq_retries_exhausted do |msg, exception|
-      new.perform_failure(msg['args'][0], msg['args'][2], exception)
+    sidekiq_retries_exhausted do |job, exception|
+      new.perform_failure(job['args'][0], job['args'][2], exception)
+    end
+
+    sidekiq_interruptions_exhausted do |job|
+      new.perform_failure(job['args'][0], job['args'][2], Import::Exceptions::SidekiqExhaustedInterruptionsError.new)
     end
 
     defer_on_database_health_signal(:gitlab_main, [], DEFER_ON_HEALTH_DELAY) do |job_args, schema, tables|
@@ -41,7 +47,7 @@ module BulkImports
       [schema, tables]
     end
 
-    def self.defer_on_database_health_signal?
+    def self.defer_on_database_health_signal?(**_kwargs)
       Feature.enabled?(:bulk_import_deferred_workers)
     end
 
@@ -56,6 +62,13 @@ module BulkImports
         if pipeline_tracker.enqueued? || pipeline_tracker.started?
           logger.info(log_attributes(message: 'Pipeline starting'))
           run
+        elsif pipeline_tracker.created?
+          Gitlab::ErrorTracking.log_exception(
+            Pipeline::FailedError.new('Pipeline in invalid status'),
+            log_attributes
+          )
+        else
+          logger.warn(log_attributes(message: 'Pipeline in invalid status'))
         end
       end
     end
@@ -73,8 +86,7 @@ module BulkImports
 
     def run
       return if pipeline_tracker.canceled?
-      return skip_tracker if entity.failed?
-      return cancel_tracker if entity.canceled?
+      return if invalid_entity_status?
 
       raise(Pipeline::FailedError, "Export from source instance failed: #{export_status.error}") if export_failed?
       raise(Pipeline::ExpiredError, 'Empty export status on source instance') if empty_export_timeout?
@@ -179,16 +191,22 @@ module BulkImports
       re_enqueue(exception.retry_delay)
     end
 
-    def skip_tracker
-      logger.info(log_attributes(message: 'Skipping pipeline due to failed entity'))
-
-      pipeline_tracker.update!(status_event: 'skip', jid: jid)
+    def invalid_entity_status?
+      if entity.failed?
+        handle_invalid_status('skip', 'Skipping pipeline due to failed entity')
+      elsif entity.timeout?
+        handle_invalid_status('cleanup_stale', 'Timeout pipeline due to timeout entity')
+      elsif entity.canceled?
+        handle_invalid_status('cancel', 'Canceling pipeline due to canceled entity')
+      else
+        false
+      end
     end
 
-    def cancel_tracker
-      logger.info(log_attributes(message: 'Canceling pipeline due to canceled entity'))
-
-      pipeline_tracker.update!(status_event: 'cancel', jid: jid)
+    def handle_invalid_status(status_event, message)
+      logger.info(log_attributes(message: message))
+      pipeline_tracker.update!(status_event: status_event, jid: jid)
+      true
     end
 
     def log_attributes(extra = {})
@@ -209,6 +227,16 @@ module BulkImports
       next_batch.numbers.each do |batch_number|
         batch = pipeline_tracker.batches.create!(batch_number: batch_number)
 
+        export_batch = export_status.batch(batch_number)
+
+        # Mark the batch tracker as failed if the corresponding export batch on the source instance has failed.
+        if export_batch&.dig('status') == BulkImports::ExportBatch::STATE_VALUES[:failed]
+          fail_batch_tracker(batch, export_batch)
+        end
+
+        # Enqueue the worker for all batches regardless of status.
+        # PipelineBatchWorker will only process batches in 'started' or 'created' states
+        # and will ensure FinishBatchedPipelineWorker gets triggered eventually.
         with_context(bulk_import_entity_id: entity.id) do
           ::BulkImports::PipelineBatchWorker.perform_async(batch.id)
         end
@@ -255,6 +283,21 @@ module BulkImports
 
     def lease_key
       "gitlab:bulk_imports:pipeline_worker:#{pipeline_tracker.id}"
+    end
+
+    def fail_batch_tracker(batch, export_batch)
+      batch.fail_op!
+      exception_message =
+        "Batch export #{export_batch&.dig('batch_number')} from source instance failed: #{export_batch&.dig('error')}"
+
+      BulkImports::Failure.create(
+        bulk_import_entity_id: entity.id,
+        pipeline_class: pipeline_tracker.pipeline_name,
+        pipeline_step: 'pipeline_worker_run',
+        exception_class: '',
+        exception_message: exception_message,
+        correlation_id_value: Labkit::Correlation::CorrelationId.current_or_new_id
+      )
     end
   end
 end

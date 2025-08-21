@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Ruby style guide
 ---
-
-# Ruby style guide
 
 This is a GitLab-specific style guide for Ruby code. Everything documented in this page can be [reopened for discussion](https://handbook.gitlab.com/handbook/values/#disagree-commit-and-disagree).
 
@@ -23,13 +22,13 @@ Some styles we have decided [no one should not have a strong opinion on](#styles
 See also:
 
 - [Guidelines for reusing abstractions](../reusing_abstractions.md).
-- [Test-specific style guides and best practices](../testing_guide/index.md).
+- [Test-specific style guides and best practices](../testing_guide/_index.md).
 
 ## Styles we have no rule for
 
 These styles are not backed by a RuboCop rule.
 
-For every style added to this section, link the discussion from the section's [history note](../documentation/versions.md#add-a-history-item) to provide context and serve as a reference.
+For every style added to this section, link the discussion from the section's [history note](../documentation/styleguide/availability_details.md#history) to provide context and serve as a reference.
 
 ### Instance variable access using `attr_reader`
 
@@ -158,7 +157,11 @@ def method
 end
 ```
 
-## Avoid ActiveRecord callbacks
+## Rails / ActiveRecord
+
+This section contains GitLab-specific guidelines for Rails and ActiveRecord usage.
+
+### Avoid ActiveRecord callbacks
 
 [ActiveRecord callbacks](https://guides.rubyonrails.org/active_record_callbacks.html) allow
 you to "trigger logic before or after an alteration of an object's state."
@@ -169,7 +172,7 @@ thoroughly understand the reasons for doing so.
 When adding new lifecycle events for ActiveRecord objects, it is preferable to
 add the logic to a service class instead of a callback.
 
-## Why callbacks should be avoided
+#### Why callbacks should be avoided
 
 In general, callbacks should be avoided because:
 
@@ -194,7 +197,7 @@ The GitLab codebase relies heavily on callbacks and it is hard to refactor them
 once added due to invisible dependencies. As a result, this guideline does not
 call for removing all existing callbacks.
 
-### When to use callbacks
+#### When to use callbacks
 
 Callbacks can be used in special cases. Some examples of cases where adding a
 callback makes sense:
@@ -204,7 +207,7 @@ callback makes sense:
 - Incrementing cache counts.
 - Data normalization that only relates to data on the current model.
 
-### Example of moving from a callback to a service
+#### Example of moving from a callback to a service
 
 There is a project with the following basic data model:
 
@@ -297,6 +300,56 @@ approach. But we already some benefits:
   than needing to refactor to `Project` and `Repository` classes.
 - Each instance of a `Project` factory does not create a second (`Repository`) object.
 
+### ApplicationRecord / ActiveRecord model scopes
+
+When creating a new scope, consider the following prefixes.
+
+#### `for_`
+
+For scopes which filter `where(belongs_to: record)`.
+For example:
+
+```ruby
+scope :for_project, ->(project) { where(project: project) }
+Timelogs.for_project(project)
+```
+
+#### `with_`
+
+For scopes which `joins`, `includes`, or filters `where(has_one: record)` or `where(has_many: record)` or `where(boolean condition)`
+For example:
+
+```ruby
+scope :with_labels, -> { includes(:labels) }
+AbuseReport.with_labels
+
+scope :with_status, ->(status) { where(status: status) }
+Clusters::AgentToken.with_status(:active)
+
+scope :with_due_date, -> { where.not(due_date: nil) }
+Issue.with_due_date
+```
+
+It is also fine to use custom scope names, for example:
+
+```ruby
+scope :undeleted, -> { where('policy_index >= 0') }
+Security::Policy.undeleted
+```
+
+#### `order_by_`
+
+For scopes which `order`.
+For example:
+
+```ruby
+scope :order_by_name, -> { order(:name) }
+Namespace.order_by_name
+
+scope :order_by_updated_at, ->(direction = :asc) { order(updated_at: direction) }
+Project.order_by_updated_at(:desc)
+```
+
 ## Styles we have no opinion on
 
 If a RuboCop rule is proposed and we choose not to add it, we should document that decision in this guide so it is more discoverable and link the relevant discussion as a reference.
@@ -312,12 +365,17 @@ Previous discussions include:
 - <https://gitlab.com/gitlab-org/gitlab-foss/-/issues/36076>
 - <https://gitlab.com/gitlab-org/gitlab/-/issues/198046>
 
+Individual groups may [choose to have an opinion](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/lib/remote_development/README.md#coding-standards-for-remote-development-domain) on consistency of quoting styles within the [bounded contexts](../software_design.md#bounded-contexts) they own, but these decisions only apply to code within that context.
+
 ### Type safety
 
 Now that we've upgraded to Ruby 3, we have more options available
 to enforce [type safety](https://en.wikipedia.org/wiki/Type_safety).
 
 Some of these options are supported as part of the Ruby syntax and do not require the use of specific type safety tools like [Sorbet](https://sorbet.org/) or [RBS](https://github.com/ruby/rbs). However, we might consider these tools in the future as well.
+
+For now, we can use [YARD annotations](../code_comments.md#class-and-method-documentation) to define types.
+IDEs such as RubyMine provide support for YARD when showing type-based inspection errors.
 
 For more information, see [Type safety](https://gitlab.com/gitlab-org/gitlab/-/tree/master/ee/lib/remote_development#type-safety) in the `remote_development` domain README.
 

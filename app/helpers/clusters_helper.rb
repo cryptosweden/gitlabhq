@@ -2,19 +2,19 @@
 
 module ClustersHelper
   def display_cluster_agents?(clusterable)
-    clusterable.is_a?(Project)
+    clusterable.is_a?(Project) || clusterable.is_a?(Group)
   end
 
   def js_clusters_list_data(clusterable)
     {
-      ancestor_help_path: help_page_path('user/group/clusters/index', anchor: 'cluster-precedence'),
+      ancestor_help_path: help_page_path('user/group/clusters/_index.md', anchor: 'cluster-precedence'),
       endpoint: clusterable.index_path(format: :json),
       img_tags: {
         aws: { path: image_path('illustrations/logos/amazon_eks.svg'), text: s_('ClusterIntegration|Amazon EKS') },
         default: { path: image_path('illustrations/logos/kubernetes.svg'), text: _('Kubernetes Cluster') },
         gcp: { path: image_path('illustrations/logos/google_gke.svg'), text: s_('ClusterIntegration|Google GKE') }
       },
-      clusters_empty_state_image: image_path('illustrations/empty-state/empty-state-clusters.svg'),
+      clusters_empty_state_image: image_path('illustrations/empty-state/empty-cloud-md.svg'),
       empty_state_image: image_path('illustrations/empty-state/empty-environment-md.svg'),
       empty_state_help_text: clusterable.empty_state_help_text,
       add_cluster_path: clusterable.connect_path,
@@ -24,7 +24,8 @@ module ClustersHelper
       display_cluster_agents: display_cluster_agents?(clusterable).to_s,
       certificate_based_clusters_enabled: clusterable.certificate_based_clusters_enabled?.to_s,
       default_branch_name: default_branch_name(clusterable),
-      project_path: clusterable_project_path(clusterable),
+      full_path: clusterable_full_path(clusterable),
+      is_group: clusterable.is_a?(Group).to_s,
       kas_address: Gitlab::Kas.external_url,
       kas_install_version: Gitlab::Kas.install_version_info,
       kas_check_version: Gitlab::Kas.display_version_info
@@ -37,8 +38,8 @@ module ClustersHelper
       editable: can_edit.to_s,
       environment_scope: cluster.environment_scope,
       base_domain: cluster.base_domain,
-      auto_devops_help_path: help_page_path('topics/autodevops/index'),
-      external_endpoint_help_path: help_page_path('user/project/clusters/gitlab_managed_clusters', anchor: 'base-domain')
+      auto_devops_help_path: help_page_path('topics/autodevops/_index.md'),
+      external_endpoint_help_path: help_page_path('user/project/clusters/gitlab_managed_clusters.md', anchor: 'base-domain')
     }
   end
 
@@ -59,6 +60,8 @@ module ClustersHelper
       render 'applications'
     when 'settings'
       render 'advanced_settings_container'
+    when 'migrate'
+      render 'migrate'
     else
       render('details', expanded: expanded)
     end
@@ -99,13 +102,43 @@ module ClustersHelper
     can?(user, :admin_cluster, cluster)
   end
 
+  def migration_alert_config(migration)
+    return unless migration
+
+    status = migration.agent_install_status.to_sym
+    config = migration_alert_configs[status]
+
+    return config unless config && status == :error && migration.agent_install_message.present?
+
+    config.merge(details: migration.agent_install_message)
+  end
+
   private
 
   def default_branch_name(clusterable)
     clusterable.default_branch if clusterable.is_a?(Project)
   end
 
-  def clusterable_project_path(clusterable)
-    clusterable.full_path if clusterable.is_a?(Project)
+  def clusterable_full_path(clusterable)
+    clusterable.full_path if clusterable.is_a?(Group) || clusterable.is_a?(Project)
+  end
+
+  def migration_alert_configs
+    {
+      in_progress: {
+        variant: :info,
+        message: s_('ClusterIntegration|Installing agent in progress.')
+      },
+      success: {
+        variant: :success,
+        message: s_('ClusterIntegration|The agent connection is set up.')
+      },
+      error: {
+        variant: :warning,
+        title: s_('ClusterIntegration|Agent setup failed'),
+        message: s_('ClusterIntegration|The agent was not installed in the cluster.'),
+        show_help: true
+      }
+    }.freeze
   end
 end

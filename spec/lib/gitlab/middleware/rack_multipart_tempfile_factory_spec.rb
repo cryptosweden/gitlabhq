@@ -6,7 +6,7 @@ require 'tempfile'
 
 RSpec.describe Gitlab::Middleware::RackMultipartTempfileFactory do
   let(:app) do
-    lambda do |env|
+    ->(env) do
       params = Rack::Request.new(env).params
 
       if params['file']
@@ -46,13 +46,13 @@ RSpec.describe Gitlab::Middleware::RackMultipartTempfileFactory do
     it 'immediately unlinks the temporary file' do
       tempfile = Tempfile.new('foo')
 
-      expect(tempfile.path).not_to be(nil)
+      expect(tempfile.path).not_to be_nil
       expect(Rack::Multipart::Parser::TEMPFILE_FACTORY).to receive(:call).and_return(tempfile)
       expect(tempfile).to receive(:unlink).and_call_original
 
       subject.call(env)
 
-      expect(tempfile.path).to be(nil)
+      expect(tempfile.path).to be_nil
     end
 
     it 'processes the request as normal' do

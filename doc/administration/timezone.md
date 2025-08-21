@@ -1,57 +1,124 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Operate
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Change your time zone
+description: Change the time zone for an instance.
 ---
 
-# Changing your time zone
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-The global time zone configuration parameter can be changed in `config/gitlab.yml`:
+{{< /details >}}
 
-```plaintext
-# time_zone: 'UTC'
-```
+{{< alert type="note" >}}
 
-Uncomment and customize if you want to change the default time zone of the GitLab application.
+Users can set their [time zone in their profile](../user/profile/_index.md#set-your-time-zone).
+New users do not have a default time zone and must
+explicitly set it before it displays on their profile.
+On GitLab.com, the default time zone is UTC.
 
-## Viewing available time zones
+{{< /alert >}}
 
-To see all available time zones, run `bundle exec rake time:zones:all`.
+The default time zone in GitLab is UTC, but you can change it to your liking.
 
-For Linux package installations, run `gitlab-rake time:zones:all`.
+To update the time zone of your GitLab instance:
 
-NOTE:
-This Rake task does not list time zones in TZInfo format required by a Linux package installation during a reconfigure. For more information,
-see [issue 27209](https://gitlab.com/gitlab-org/gitlab/-/issues/27209).
+1. The specified time zone must be in
+   [tz format](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
+   You can use the `timedatectl` command to see the available time zones:
 
-## Changing time zone in Linux package installations
+   ```shell
+   timedatectl list-timezones
+   ```
 
-GitLab defaults its time zone to UTC. It has a global time zone configuration parameter in `/etc/gitlab/gitlab.rb`.
+1. Change the time zone, for example to `America/New_York`.
 
-To obtain a list of time zones, sign in to your GitLab application server and run a command that generates a list of time zones in TZInfo format for the server. For example, install `timedatectl` and run `timedatectl list-timezones`.
+{{< tabs >}}
 
-To update, add the time zone that best applies to your location. For example:
+{{< tab title="Linux package (Omnibus)" >}}
 
-```ruby
-gitlab_rails['time_zone'] = 'America/New_York'
-```
+1. Edit `/etc/gitlab/gitlab.rb`:
 
-After adding the configuration parameter, reconfigure and restart your GitLab instance:
+   ```ruby
+   gitlab_rails['time_zone'] = 'America/New_York'
+   ```
 
-```shell
-gitlab-ctl reconfigure
-gitlab-ctl restart
-```
+1. Save the file, then reconfigure and restart GitLab:
 
-## Changing time zone per user
+   ```shell
+   sudo gitlab-ctl reconfigure
+   sudo gitlab-ctl restart
+   ```
 
-Users can set their time zone in their profile. On GitLab.com, the default time zone is UTC.
+{{< /tab >}}
 
-New users do not have a default time zone. New users must
-explicitly set their time zone before it displays on their profile.
+{{< tab title="Helm chart (Kubernetes)" >}}
 
-For more information, see [Set your time zone](../user/profile/index.md#set-your-time-zone).
+1. Export the Helm values:
+
+   ```shell
+   helm get values gitlab > gitlab_values.yaml
+   ```
+
+1. Edit `gitlab_values.yaml`:
+
+   ```yaml
+   global:
+     time_zone: 'America/New_York'
+   ```
+
+1. Save the file and apply the new values:
+
+   ```shell
+   helm upgrade -f gitlab_values.yaml gitlab gitlab/gitlab
+   ```
+
+{{< /tab >}}
+
+{{< tab title="Docker" >}}
+
+1. Edit `docker-compose.yml`:
+
+   ```yaml
+   version: "3.6"
+   services:
+     gitlab:
+       environment:
+         GITLAB_OMNIBUS_CONFIG: |
+           gitlab_rails['time_zone'] = 'America/New_York'
+   ```
+
+1. Save the file and restart GitLab:
+
+   ```shell
+   docker compose up -d
+   ```
+
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
+
+1. Edit `/home/git/gitlab/config/gitlab.yml`:
+
+   ```yaml
+   production: &base
+     gitlab:
+       time_zone: 'America/New_York'
+   ```
+
+1. Save the file and restart GitLab:
+
+   ```shell
+   # For systems running systemd
+   sudo systemctl restart gitlab.target
+
+   # For systems running SysV init
+   sudo service gitlab restart
+   ```
+
+{{< /tab >}}
+
+{{< /tabs >}}

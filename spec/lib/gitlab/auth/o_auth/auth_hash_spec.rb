@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
+# This spec requires many let statements to properly test OAuth auth_hash attributes
+# and their various encodings (ASCII and UTF-8).
+# rubocop:disable RSpec/MultipleMemoizedHelpers -- Complex OAuth attribute testing requires multiple let statements
 require 'spec_helper'
 
-RSpec.describe Gitlab::Auth::OAuth::AuthHash, feature_category: :user_management do
+RSpec.describe Gitlab::Auth::OAuth::AuthHash, :aggregate_failures, feature_category: :user_management do
   let(:provider) { 'openid_connect' }
   let(:auth_hash) do
     described_class.new(
@@ -29,6 +32,8 @@ RSpec.describe Gitlab::Auth::OAuth::AuthHash, feature_category: :user_management
   let(:last_name_raw) { +"K\xC3\xBC\xC3\xA7\xC3\xBCk" }
   let(:name_raw) { +"Onur K\xC3\xBC\xC3\xA7\xC3\xBCk" }
   let(:username_claim_raw) { +'onur.partner' }
+  let(:organization_raw) { +'GitLab' }
+  let(:job_title_raw) { +'Software Engineer' }
 
   let(:uid_ascii) { uid_raw.force_encoding(Encoding::ASCII_8BIT) }
   let(:email_ascii) { email_raw.force_encoding(Encoding::ASCII_8BIT) }
@@ -36,6 +41,8 @@ RSpec.describe Gitlab::Auth::OAuth::AuthHash, feature_category: :user_management
   let(:first_name_ascii) { first_name_raw.force_encoding(Encoding::ASCII_8BIT) }
   let(:last_name_ascii) { last_name_raw.force_encoding(Encoding::ASCII_8BIT) }
   let(:name_ascii) { name_raw.force_encoding(Encoding::ASCII_8BIT) }
+  let(:organization_ascii) { organization_raw.force_encoding(Encoding::ASCII_8BIT) }
+  let(:job_title_ascii) { job_title_raw.force_encoding(Encoding::ASCII_8BIT) }
 
   let(:uid_utf8) { uid_ascii.force_encoding(Encoding::UTF_8) }
   let(:email_utf8) { email_ascii.force_encoding(Encoding::UTF_8) }
@@ -43,6 +50,8 @@ RSpec.describe Gitlab::Auth::OAuth::AuthHash, feature_category: :user_management
   let(:name_utf8) { name_ascii.force_encoding(Encoding::UTF_8) }
   let(:first_name_utf8) { first_name_ascii.force_encoding(Encoding::UTF_8) }
   let(:username_claim_utf8) { username_claim_raw.force_encoding(Encoding::ASCII_8BIT) }
+  let(:organization_utf8) { organization_ascii.force_encoding(Encoding::UTF_8) }
+  let(:job_title_utf8) { job_title_ascii.force_encoding(Encoding::UTF_8) }
 
   let(:info_hash) do
     {
@@ -55,7 +64,9 @@ RSpec.describe Gitlab::Auth::OAuth::AuthHash, feature_category: :user_management
       address: {
         locality: 'some locality',
         country: 'some country'
-      }
+      },
+      organization: organization_ascii,
+      job_title: job_title_ascii
     }
   end
 
@@ -67,6 +78,9 @@ RSpec.describe Gitlab::Auth::OAuth::AuthHash, feature_category: :user_management
     it { expect(auth_hash.name).to eql name_utf8 }
     it { expect(auth_hash.password).not_to be_empty }
     it { expect(auth_hash.location).to eq 'some locality, some country' }
+    it { expect(auth_hash.organization).to eq organization_utf8 }
+    it { expect(auth_hash.job_title).to eq job_title_utf8 }
+    it { expect(auth_hash.errors).to be_empty }
   end
 
   context 'email not provided' do
@@ -75,7 +89,7 @@ RSpec.describe Gitlab::Auth::OAuth::AuthHash, feature_category: :user_management
     end
 
     it 'generates a temp email' do
-      expect( auth_hash.email).to start_with('temp-email-for-oauth')
+      expect(auth_hash.email).to start_with('temp-email-for-oauth')
     end
   end
 
@@ -182,6 +196,68 @@ RSpec.describe Gitlab::Auth::OAuth::AuthHash, feature_category: :user_management
     it 'forces utf8 encoding on password' do
       expect(auth_hash.password.encoding).to eql Encoding::UTF_8
     end
+
+    it 'forces utf8 encoding on organization' do
+      expect(auth_hash.organization.encoding).to eql Encoding::UTF_8
+    end
+
+    it 'forces utf8 encoding on job_title' do
+      expect(auth_hash.job_title.encoding).to eql Encoding::UTF_8
+    end
+  end
+
+  context 'for email address length validation prior to generating a username' do
+    let(:info_hash) do
+      {
+        email: email,
+        name: 'GitLab test',
+        uid: uid_ascii
+      }
+    end
+
+    context 'when the email address is not too long' do
+      let(:local_part) { generate(:username) }
+      let(:email) { "#{local_part}@example.com" }
+
+      it 'normalizes the string' do
+        expect(auth_hash).to receive(:mb_chars_unicode_normalize).and_call_original
+
+        expect(auth_hash.username).to eq(local_part)
+        expect(auth_hash.errors).to eq({})
+      end
+    end
+
+    context 'when the whole email address is longer than 254 characters' do
+      # Email with unicode characters
+      def long_email_local_part
+        "longemail𒐫" * 300
+      end
+
+      let(:email) { "#{long_email_local_part}@example.com" }
+
+      it 'produces an error and does not normalize the string' do
+        expect(auth_hash).not_to receive(:mb_chars_unicode_normalize).and_call_original
+
+        expect(auth_hash.username).to be_empty
+        expect(auth_hash.errors).to eq({ identity_provider_email: _("must be 254 characters or less.") })
+      end
+    end
+
+    context 'when the local part of the email address is longer than 254 characters after normalization' do
+      # Email with unicode characters that normalize to multiple characters
+      def long_email_local_part
+        "email℀℀℀℀℀" * 24
+      end
+
+      let(:email) { "#{long_email_local_part}@example.com" }
+
+      it 'normalizes the string and produces an error' do
+        expect(auth_hash).to receive(:mb_chars_unicode_normalize).and_call_original
+
+        expect(auth_hash.username).to be_empty
+        expect(auth_hash.errors).to eq({ identity_provider_email: _("must be 254 characters or less.") })
+      end
+    end
   end
 
   describe '#get_from_auth_hash_or_info' do
@@ -246,3 +322,4 @@ RSpec.describe Gitlab::Auth::OAuth::AuthHash, feature_category: :user_management
     end
   end
 end
+# rubocop:enable RSpec/MultipleMemoizedHelpers

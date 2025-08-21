@@ -1,9 +1,15 @@
 ---
 stage: Plan
 group: Project Management
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Work items and work item types
 ---
-# Work items and work item types
+
+Work items introduce a flexible model that standardizes and extends issue tracking capabilities in GitLab.
+With work items, you can define different types that can be customized with various widgets to meet
+specific needs - whether you're tracking bugs, incidents, test cases, or other units of work.
+This architectural documentation covers the development details and implementation strategies for
+work items and work item types.
 
 ## Challenges
 
@@ -64,7 +70,20 @@ Some terms have been used in the past but have since become confusing and are no
 | ---               | ---         | ---               | ---       |
 | issue type        | A former way to refer to classes of work item | _Tasks are an **issue type**_ | _Tasks are a **work item type**_ |
 
-### Migration strategy
+## Work items development
+
+During development, work items progress through three stages, managed by using feature flags:
+
+1. `work_items_alpha` for internal team testing ([`gitlab-org/plan-stage`](https://gitlab.com/gitlab-org/plan-stage)).
+1. `work_items_beta` for broader internal GitLab testing ([`gitlab-org`](https://gitlab.com/gitlab-org) and [`gitlab-com`](https://gitlab.com/gitlab-com)).
+1. `work_items`, enabled by default for SaaS and self-managed environments.
+
+_Other groups may be included. For the latest information, query the feature flags within [chatops](feature_flags/controls.md)._
+
+For more information about these feature flags, see
+[Work Items Architecture Blueprint](https://handbook.gitlab.com/handbook/engineering/architecture/design-documents/work_items/#feature-flags).
+
+## Migration strategy
 
 WI model will be built on top of the existing `Issue` model and we'll gradually migrate `Issue`
 model code to the WI model.
@@ -90,11 +109,14 @@ move the `issue_type` to a separate table: `work_item_types`. The migration proc
 to `work_item_types` will involve creating the set of WITs for all root-level groups as described in
 [this epic](https://gitlab.com/groups/gitlab-org/-/epics/6536).
 
-NOTE:
+{{< alert type="note" >}}
+
 At first, defining a WIT will only be possible at the root-level group, which would then be inherited by subgroups.
 We will investigate the possibility of defining new WITs at subgroup levels at a later iteration.
 
-### Introducing `work_item_types` table
+{{< /alert >}}
+
+## Introducing `work_item_types` table
 
 For example, suppose there are three root-level groups with IDs: `11`, `12`, and `13`. Also,
 assume the following base types: `issue: 0`, `incident: 1`, `test_case: 2`.
@@ -119,7 +141,7 @@ What we will do to achieve this:
 1. Ensure we write to both `issues#issue_type` and `issues#work_item_type_id` columns for
    new or updated issues.
 1. Backfill the `work_item_type_id` column to point to the `work_item_types#id` corresponding
-   to issue's project root groups. For example:
+   to issue's project top-level groups. For example:
 
    ```ruby
    issue.project.root_group.work_item_types.where(base_type: issue.issue_type).first.id.
@@ -139,7 +161,7 @@ To introduce a new WIT there are two options:
   is created only when a customer opts in. However, this implies a lower discoverability
   of the newly introduced work item type.
 
-### Work item type widgets
+## Work item type widgets
 
 A widget is a single component that can exist on a work item. This component can be used on one or
 many work item types and can be lightly customized at the point of implementation.
@@ -162,7 +184,9 @@ Because any WIT can have any widget, we only need to define which widget is acti
 specific WIT. So, after switching the type of a specific work item, we display a different set
 of widgets.
 
-### Widgets metadata
+Read more about [work item widgets](work_items_widgets.md) and how to create a new one.
+
+## Widgets metadata
 
 In order to customize each WIT with corresponding active widgets we will need a data
 structure to map each WIT to specific widgets.
@@ -193,7 +217,7 @@ Until the architecture of WIT widgets is finalized, we are holding off on the cr
 types. If a new work item type is absolutely necessary, reach out to a
 member of the [Project Management Engineering Team](https://gitlab.com/gitlab-org/gitlab/-/issues/370599).
 
-### Creating a new work item type in the database
+## Creating a new work item type in the database
 
 We have completed the removal of the `issue_type` column from the issues table, in favor of using the new
 `work_item_types` table as described in [this epic](https://gitlab.com/groups/gitlab-org/-/epics/6536)).
@@ -209,13 +233,13 @@ The following MRs demonstrate how to introduce new `work_item_types`:
 - [MR example 1](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/127482)
 - [MR example 2](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/127917)
 
-#### Write a database migration
+### Write a database migration
 
 First, write a database migration that creates the new record in the `work_item_types` table.
 
 Keep the following in mind when you write your migration:
 
-- **Important:** Exclude new type from existing APIs.
+- **Important**: Exclude new type from existing APIs.
   - We probably want to exclude newly created work items of this type from showing
     up in existing features (like issue lists) until we fully release a feature. For this reason,
     we have to add a new type to
@@ -230,7 +254,7 @@ Keep the following in mind when you write your migration:
     This way, follow-up MRs that depend on the type being created can assume it exists right away,
     instead of having to wait for the next release.
 
-    **Important:** Because we use a regular migration, we need to make sure it does two things:
+    **Important**: Because we use a regular migration, we need to make sure it does two things:
 
     1. Don't exceed the [time guidelines](migration_style_guide.md#how-long-a-migration-should-take) of regular migrations.
     1. Make sure the migration is [backwards-compatible](multi_version_compatibility.md).
@@ -271,7 +295,7 @@ Keep the following in mind when you write your migration:
   There are different shared examples you should use for the different migration types (new work item type, new widget definition, etc) in
   [`add_work_item_widget_shared_examples.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/14c0a4df57a562a7c2dd4baed98f26d208a2e6ce/spec/support/shared_examples/migrations/add_work_item_widget_shared_examples.rb).
 
-##### Example of adding a ticket work item
+#### Example of adding a ticket work item
 
 The `Ticket` work item type already exists in the database, but we'll use it as an example migration.
 Note that for a new type you need to use a new name and ENUM value.
@@ -279,7 +303,7 @@ Note that for a new type you need to use a new name and ENUM value.
 ```ruby
 class AddTicketWorkItemType < Gitlab::Database::Migration[2.1]
   disable_ddl_transaction!
-  restrict_gitlab_migration gitlab_schema: :gitlab_main
+  restrict_gitlab_migration gitlab_schema: :gitlab_main_org
 
   ISSUE_ENUM_VALUE = 0
   # Enum value comes from the model where the enum is defined in
@@ -369,20 +393,24 @@ end
 ```
 
 <!-- markdownlint-disable-next-line MD044 -->
-#### Update Gitlab::DatabaseImporters::WorkItems::BaseTypeImporter
+### Update Gitlab::DatabaseImporters::WorkItems::BaseTypeImporter
 
-The [BaseTypeImporter](https://gitlab.com/gitlab-org/gitlab/-/blob/f816a369d7d6bbd1d8d53d6c0bca4ca3389fdba7/lib/gitlab/database_importers/work_items/base_type_importer.rb)
+The [BaseTypeImporter](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/database_importers/work_items/base_type_importer.rb)
 is where we can clearly visualize the structure of the types we have and what widgets are associated with each of them.
 `BaseTypeImporter` is the single source of truth for fresh GitLab installs and also our test suite. This should always
 reflect what we change with migrations.
 
-### Custom work item types
+Similarly, the single sources of truth for hierarchy and linked item restrictions are defined in [HierarchyRestrictionsImporter](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/database_importers/work_items/hierarchy_restrictions_importer.rb) and [RelatedLinksRestrictionsImporter](https://gitlab.com/gitlab-org/gitlab/-/tree/master/lib/gitlab/database_importers/work_items/related_links_restrictions_importer.rb), respectively.
+
+**Important**: These importers should be updated whenever the corresponding database tables are modified.
+
+## Custom work item types
 
 With the WIT widget metadata and the workflow around mapping WIT to specific
 widgets, we will be able to expose custom WITs to the users. Users will be able
 to create their own WITs and customize them with widgets from the predefined pool.
 
-### Custom widgets
+## Custom widgets
 
 The end goal is to allow users to define custom widgets and use these custom
 widgets on any WIT. But this is a much further iteration and requires additional

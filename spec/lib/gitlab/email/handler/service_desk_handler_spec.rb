@@ -4,6 +4,7 @@ require 'spec_helper'
 
 RSpec.describe Gitlab::Email::Handler::ServiceDeskHandler, feature_category: :service_desk do
   include ServiceDeskHelper
+  include EmailHelpers
   include_context 'email shared context'
 
   before do
@@ -29,7 +30,7 @@ RSpec.describe Gitlab::Email::Handler::ServiceDeskHandler, feature_category: :se
     let(:confidential_ticket) { true }
 
     before do
-      allow(Gitlab::ServiceDesk).to receive(:supported?).and_return(true)
+      allow(::ServiceDesk).to receive(:supported?).and_return(true)
     end
 
     shared_examples 'a new issue request' do
@@ -108,16 +109,6 @@ RSpec.describe Gitlab::Email::Handler::ServiceDeskHandler, feature_category: :se
           end
 
           it_behaves_like 'a new issue request'
-
-          context 'when feature flag service_desk_tickets_confidentiality is disabled' do
-            let(:confidential_ticket) { true }
-
-            before do
-              stub_feature_flags(service_desk_tickets_confidentiality: false)
-            end
-
-            it_behaves_like 'a new issue request'
-          end
         end
       end
 
@@ -177,7 +168,7 @@ RSpec.describe Gitlab::Email::Handler::ServiceDeskHandler, feature_category: :se
 
         # Original email contains two CC email addresses
         let(:issue_email_participants_count) { 3 }
-        let(:to_address) { project.service_desk_incoming_address }
+        let(:to_address) { ::ServiceDesk::Emails.new(project).send(:incoming_address) }
 
         it_behaves_like 'a new issue request'
 
@@ -230,7 +221,7 @@ RSpec.describe Gitlab::Email::Handler::ServiceDeskHandler, feature_category: :se
         end
 
         context 'when service desk system address is in CC' do
-          let(:cc_address) { project.service_desk_incoming_address }
+          let(:cc_address) { ::ServiceDesk::Emails.new(project).send(:incoming_address) }
           let(:email_raw) do
             <<~EMAIL
             From: from@example.com
@@ -245,7 +236,7 @@ RSpec.describe Gitlab::Email::Handler::ServiceDeskHandler, feature_category: :se
           it_behaves_like 'does not add CC address'
 
           context 'when service_desk_email is part of CC' do
-            let(:cc_address) { project.service_desk_alias_address }
+            let(:cc_address) { ::ServiceDesk::Emails.new(project).alias_address }
 
             it_behaves_like 'does not add CC address'
           end
@@ -253,7 +244,7 @@ RSpec.describe Gitlab::Email::Handler::ServiceDeskHandler, feature_category: :se
           context 'when custom email is part of CC' do
             let!(:credential) { create(:service_desk_custom_email_credential, project: project) }
             let!(:verification) { create(:service_desk_custom_email_verification, :finished, project: project) }
-            let(:cc_address) { project.service_desk_custom_address }
+            let(:cc_address) { ::ServiceDesk::Emails.new(project).send(:custom_address) }
 
             before do
               project.reset
@@ -466,15 +457,11 @@ RSpec.describe Gitlab::Email::Handler::ServiceDeskHandler, feature_category: :se
             expect(note.author).to eq(Users::Internal.support_bot)
           end
 
-          it 'does not send warning note email' do
-            ActionMailer::Base.deliveries = []
-
-            perform_enqueued_jobs do
-              expect { receiver.execute }.to change { ActionMailer::Base.deliveries.size }.by(1)
-            end
-
-            # Only sends created issue email
-            expect(ActionMailer::Base.deliveries.last.text_part.body).to include("Thank you for your support request!")
+          it 'does not send warning note email', :sidekiq_inline do
+            expect do
+              receiver.execute
+            end.to enqueue_mail_with(Notify, :service_desk_thank_you_email)
+              .and(not_enqueue_mail_with(Notify, :service_desk_new_note_email))
           end
         end
       end
@@ -585,7 +572,9 @@ RSpec.describe Gitlab::Email::Handler::ServiceDeskHandler, feature_category: :se
 
           context 'with valid service desk settings' do
             let_it_be(:user) { create(:user) }
-            let_it_be(:credentials) { create(:service_desk_custom_email_credential, project: project) }
+            let_it_be(:credentials) do
+              build(:service_desk_custom_email_credential, project: project).save!(validate: false)
+            end
 
             let_it_be_with_reload(:verification) do
               create(:service_desk_custom_email_verification, project: project, token: 'ZROT4ZZXA-Y6', triggerer: user)
@@ -668,7 +657,7 @@ RSpec.describe Gitlab::Email::Handler::ServiceDeskHandler, feature_category: :se
 
           context 'with valid service desk settings' do
             let_it_be(:user) { create(:user) }
-            let_it_be(:credentials) { create(:service_desk_custom_email_credential, project: project) }
+            let_it_be(:credentials) { build(:service_desk_custom_email_credential, project: project).save!(validate: false) }
 
             let_it_be_with_reload(:verification) do
               create(:service_desk_custom_email_verification, project: project, token: 'ZROT4ZZXA-Y6', triggerer: user)
@@ -822,7 +811,7 @@ RSpec.describe Gitlab::Email::Handler::ServiceDeskHandler, feature_category: :se
 
     context 'when service desk is not enabled for project' do
       before do
-        allow(Gitlab::ServiceDesk).to receive(:enabled?).and_return(false)
+        allow(::ServiceDesk).to receive(:enabled?).and_return(false)
       end
 
       it 'does not create an issue' do

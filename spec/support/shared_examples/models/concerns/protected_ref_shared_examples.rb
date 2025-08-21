@@ -7,6 +7,11 @@ RSpec.shared_examples 'protected ref' do
   subject(:described_instance) { build(factory, project: project) }
 
   describe 'Associations' do
+    # One purpose of touching the project is cache keys. We have endpoints that
+    # use the project in the cache key. This calls the project.cache_key method
+    # which uses the timestamp as part of the key. If we remove `touch: true`
+    # we will need to update the cache keys to use a different mechanism to
+    # expire the cache.
     it { is_expected.to belong_to(:project).touch(true) }
   end
 
@@ -59,5 +64,15 @@ RSpec.shared_examples 'protected ref' do
 
       it { is_expected.to be_nil }
     end
+  end
+end
+
+RSpec.shared_examples 'protected ref with access levels for' do |type|
+  describe 'protected_ref_access_levels(*types)' do
+    let(:type_access_levels) { :"#{type}_access_levels" }
+
+    it { is_expected.to have_many(type_access_levels).inverse_of(described_class.model_name.singular) }
+
+    it { is_expected.to accept_nested_attributes_for(type_access_levels).allow_destroy(true) }
   end
 end

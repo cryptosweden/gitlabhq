@@ -2,7 +2,6 @@ import MockAdapter from 'axios-mock-adapter';
 import Api, { DEFAULT_PER_PAGE } from '~/api';
 import axios from '~/lib/utils/axios_utils';
 import {
-  HTTP_STATUS_ACCEPTED,
   HTTP_STATUS_CREATED,
   HTTP_STATUS_INTERNAL_SERVER_ERROR,
   HTTP_STATUS_NO_CONTENT,
@@ -29,7 +28,15 @@ describe('Api', () => {
   });
 
   describe('buildUrl', () => {
-    it('adds URL root and fills in API version', () => {
+    describe('when input is an absolute URL', () => {
+      it('fills in API version but does not add relative URL root', () => {
+        const input = 'https://gitlab.com/api/:version/foo/bar';
+
+        expect(Api.buildUrl(input)).toEqual(`https://gitlab.com/api/${dummyApiVersion}/foo/bar`);
+      });
+    });
+
+    it('adds relative URL root and fills in API version', () => {
       const input = '/api/:version/foo/bar';
       const expectedOutput = `${dummyUrlRoot}/api/${dummyApiVersion}/foo/bar`;
 
@@ -205,6 +212,33 @@ describe('Api', () => {
     });
   });
 
+  describe('groupServiceAccounts', () => {
+    it('fetches group service accounts', () => {
+      const groupId = '54321';
+      const expectedUrl = `${dummyUrlRoot}/api/${dummyApiVersion}/groups/${groupId}/service_accounts`;
+      const expectedData = [{ username: 'username', name: 'user' }];
+      mock.onGet(expectedUrl).reply(HTTP_STATUS_OK, expectedData);
+
+      return Api.groupServiceAccounts(groupId).then(({ data }) => {
+        expect(data).toEqual(expectedData);
+      });
+    });
+  });
+
+  describe('groupServiceAccountsTokens', () => {
+    it('fetches group service accounts personal access tokens', () => {
+      const groupId = '54321';
+      const accountId = '123';
+      const expectedUrl = `${dummyUrlRoot}/api/${dummyApiVersion}/groups/${groupId}/service_accounts/${accountId}/personal_access_tokens`;
+      const expectedData = [{ id: '1', name: 'token' }];
+      mock.onGet(expectedUrl).reply(HTTP_STATUS_OK, expectedData);
+
+      return Api.groupServiceAccountsTokens(groupId, accountId).then(({ data }) => {
+        expect(data).toEqual(expectedData);
+      });
+    });
+  });
+
   describe('groupSubgroups', () => {
     it('fetches group subgroups', () => {
       const groupId = '54321';
@@ -281,7 +315,7 @@ describe('Api', () => {
 
       return new Promise((resolve) => {
         Api.groups(query, options, (response) => {
-          expect(response.length).toBe(1);
+          expect(response).toHaveLength(1);
           expect(response[0].name).toBe('test');
           resolve();
         });
@@ -302,7 +336,7 @@ describe('Api', () => {
       ]);
 
       return Api.groupLabels(expectedGroup, options).then((res) => {
-        expect(res.length).toBe(1);
+        expect(res).toHaveLength(1);
         expect(res[0].name).toBe('Foo Label');
       });
     });
@@ -319,8 +353,8 @@ describe('Api', () => {
       ]);
 
       return new Promise((resolve) => {
-        Api.namespaces(query, (response) => {
-          expect(response.length).toBe(1);
+        Api.namespaces(query, {}, (response) => {
+          expect(response).toHaveLength(1);
           expect(response[0].name).toBe('test');
           resolve();
         });
@@ -342,7 +376,7 @@ describe('Api', () => {
 
       return new Promise((resolve) => {
         Api.projects(query, options, (response) => {
-          expect(response.length).toBe(1);
+          expect(response).toHaveLength(1);
           expect(response[0].name).toBe('test');
           resolve();
         });
@@ -361,7 +395,7 @@ describe('Api', () => {
 
       return new Promise((resolve) => {
         Api.projects(query, options, (response) => {
-          expect(response.length).toBe(1);
+          expect(response).toHaveLength(1);
           expect(response[0].name).toBe('test');
           resolve();
         });
@@ -394,7 +428,7 @@ describe('Api', () => {
       ]);
 
       return Api.projectUsers('gitlab-org/gitlab-ce', query, options).then((response) => {
-        expect(response.length).toBe(1);
+        expect(response).toHaveLength(1);
         expect(response[0].name).toBe('test');
       });
     });
@@ -408,7 +442,7 @@ describe('Api', () => {
       const mockData = [{ source_branch: 'foo' }, { source_branch: 'bar' }];
       mock.onGet(expectedUrl).reply(HTTP_STATUS_OK, mockData);
       return Api.projectMergeRequests(projectPath).then(({ data }) => {
-        expect(data.length).toEqual(2);
+        expect(data).toHaveLength(2);
         expect(data[0].source_branch).toBe('foo');
         expect(data[1].source_branch).toBe('bar');
       });
@@ -422,7 +456,7 @@ describe('Api', () => {
       mock.onGet(expectedUrl, { params }).reply(HTTP_STATUS_OK, mockData);
 
       return Api.projectMergeRequests(projectPath, params).then(({ data }) => {
-        expect(data.length).toEqual(1);
+        expect(data).toHaveLength(1);
         expect(data[0].source_branch).toBe('bar');
       });
     });
@@ -470,7 +504,7 @@ describe('Api', () => {
       ]);
 
       return Api.projectMergeRequestVersions(projectPath, mergeRequestId).then(({ data }) => {
-        expect(data.length).toBe(1);
+        expect(data).toHaveLength(1);
         expect(data[0].id).toBe(123);
       });
     });
@@ -499,6 +533,7 @@ describe('Api', () => {
         group_id: sharedGroupId,
         group_access: 10,
         expires_at: undefined,
+        member_role_id: 88,
       };
 
       jest.spyOn(axios, 'post');
@@ -528,7 +563,7 @@ describe('Api', () => {
       ]);
 
       return Api.projectMilestones(projectId, options).then(({ data }) => {
-        expect(data.length).toBe(1);
+        expect(data).toHaveLength(1);
         expect(data[0].title).toBe('milestone1');
       });
     });
@@ -640,7 +675,7 @@ describe('Api', () => {
       ]);
 
       return Api.groupProjects(groupId, query, {}).then((response) => {
-        expect(response.data.length).toBe(1);
+        expect(response.data).toHaveLength(1);
         expect(response.data[0].name).toBe('test');
       });
     });
@@ -752,7 +787,7 @@ describe('Api', () => {
 
       return new Promise((resolve) => {
         Api.issueTemplates(namespace, project, templateType, (_, response) => {
-          expect(response.length).toBe(1);
+          expect(response).toHaveLength(1);
           const { key, name, content } = response[0];
           expect(key).toBe('Template1');
           expect(name).toBe('Template 1');
@@ -822,7 +857,7 @@ describe('Api', () => {
       ]);
 
       return Api.users(query, options).then(({ data }) => {
-        expect(data.length).toBe(1);
+        expect(data).toHaveLength(1);
         expect(data[0].name).toBe('test');
       });
     });
@@ -883,7 +918,7 @@ describe('Api', () => {
 
       return new Promise((resolve) => {
         Api.userProjects(userId, query, options, (response) => {
-          expect(response.length).toBe(1);
+          expect(response).toHaveLength(1);
           expect(response[0].name).toBe('test');
           resolve();
         });
@@ -903,30 +938,10 @@ describe('Api', () => {
       ]);
 
       return Api.commitPipelines(projectId, commitSha).then(({ data }) => {
-        expect(data.length).toBe(1);
+        expect(data).toHaveLength(1);
         expect(data[0].name).toBe('test');
       });
     });
-  });
-
-  describe('pipelineJobs', () => {
-    it.each([undefined, {}, { foo: true }])(
-      'fetches the jobs for a given pipeline given %p params',
-      async (params) => {
-        const projectId = 123;
-        const pipelineId = 456;
-        const expectedUrl = `${dummyUrlRoot}/api/${dummyApiVersion}/projects/${projectId}/pipelines/${pipelineId}/jobs`;
-        const payload = [
-          {
-            name: 'test',
-          },
-        ];
-        mock.onGet(expectedUrl, { params }).reply(HTTP_STATUS_OK, payload);
-
-        const { data } = await Api.pipelineJobs(projectId, pipelineId, params);
-        expect(data).toEqual(payload);
-      },
-    );
   });
 
   describe('createBranch', () => {
@@ -947,6 +962,31 @@ describe('Api', () => {
       return Api.createBranch(dummyProjectPath, { ref, branch }).then(({ data }) => {
         expect(data.name).toBe(branch);
         expect(axios.post).toHaveBeenCalledWith(expectedUrl, { ref, branch });
+      });
+    });
+  });
+
+  describe('postMergeRequestPipeline', () => {
+    const dummyProjectId = 5;
+    const dummyMergeRequestIid = 123;
+    const expectedUrl = `${dummyUrlRoot}/api/${dummyApiVersion}/projects/5/merge_requests/123/pipelines`;
+
+    beforeEach(() => {
+      mock = new MockAdapter(axios);
+    });
+
+    it('creates a merge request pipeline async', () => {
+      jest.spyOn(axios, 'post');
+
+      mock.onPost(expectedUrl).replyOnce(HTTP_STATUS_OK, {
+        id: 456,
+      });
+
+      return Api.postMergeRequestPipeline(dummyProjectId, {
+        mergeRequestId: dummyMergeRequestIid,
+      }).then(({ data }) => {
+        expect(data.id).toBe(456);
+        expect(axios.post).toHaveBeenCalledWith(expectedUrl, { async: true });
       });
     });
   });
@@ -1332,7 +1372,7 @@ describe('Api', () => {
       ]);
 
       return Api.tags(projectId, query, options).then(({ data }) => {
-        expect(data.length).toBe(1);
+        expect(data).toHaveLength(1);
         expect(data[0].name).toBe('test');
       });
     });
@@ -1564,15 +1604,6 @@ describe('Api', () => {
           });
         });
       });
-
-      describe('when internal event is called with unallowed additionalProperties', () => {
-        it('throws an error', () => {
-          expect(() => {
-            const unallowedProperties = { new_key: 'unallowed' };
-            Api.trackInternalEvent(event, unallowedProperties);
-          }).toThrow(/Disallowed additional properties were provided:/);
-        });
-      });
     });
   });
 
@@ -1671,18 +1702,6 @@ describe('Api', () => {
       mock.onDelete(expectedUrl).reply(HTTP_STATUS_NO_CONTENT, '');
       const { data } = await Api.deleteProjectSecureFile(projectId, secureFileId);
       expect(data).toEqual('');
-    });
-  });
-
-  describe('dependency proxy cache', () => {
-    it('schedules the cache list for deletion', async () => {
-      const groupId = 1;
-      const expectedUrl = `${dummyUrlRoot}/api/${dummyApiVersion}/groups/${groupId}/dependency_proxy/cache`;
-
-      mock.onDelete(expectedUrl).reply(HTTP_STATUS_ACCEPTED);
-      const { status } = await Api.deleteDependencyProxyCacheList(groupId, {});
-
-      expect(status).toBe(HTTP_STATUS_ACCEPTED);
     });
   });
 

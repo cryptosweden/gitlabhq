@@ -113,6 +113,23 @@ RSpec.describe Projects::AutocompleteService, feature_category: :groups_and_proj
         end
       end
     end
+
+    context 'when search param is given' do
+      let_it_be(:issue_8) { create(:issue, project: project, iid: 8) }
+      let_it_be(:issue_80) { create(:issue, project: project, iid: 80) }
+      let_it_be(:issue_800) { create(:issue, project: project, iid: 800) }
+      let_it_be(:issue_8000) { create(:issue, project: project, iid: 8000) }
+      let_it_be(:issue_80000) { create(:issue, project: project, iid: 80000) }
+      let_it_be(:issue_90000) { create(:issue, project: project, title: 'gitlab issue 8', iid: 90000) }
+
+      it 'returns limited list of matching issues' do
+        autocomplete = described_class.new(project, owner, { search: '8' })
+
+        issue_iids = autocomplete.issues.map(&:iid)
+
+        expect(issue_iids).to eq([90000, 80000, 8000, 800, 80])
+      end
+    end
   end
 
   describe '#milestones' do
@@ -161,19 +178,25 @@ RSpec.describe Projects::AutocompleteService, feature_category: :groups_and_proj
     let_it_be(:group) { create(:group, :public) }
     let_it_be(:project) { create(:project, :public, group: group) }
     let_it_be(:wiki) { create(:project_wiki, project: project) }
-
-    before do
-      create(:wiki_page, wiki: wiki, title: 'page1', content: 'content1')
-      create(:wiki_page, wiki: wiki, title: 'templates/page2', content: 'content2')
-    end
+    let_it_be(:page1) { create(:wiki_page, wiki: wiki, title: 'page1', content: 'content1') }
+    let_it_be(:page2_template) { create(:wiki_page, wiki: wiki, title: 'templates/page2', content: 'content2') }
+    let_it_be(:page3) { create(:wiki_page, wiki: wiki, title: 'page3', content: "---\ntitle: Real title\n---\ncontent3") }
 
     context 'when user can read wiki' do
       it 'returns wiki pages (except templates)' do
         service = described_class.new(project, user)
         results = service.wikis
 
-        expect(results.size).to eq(1)
+        expect(results.size).to eq(2)
         expect(results.first).to include(path: "/#{project.full_path}/-/wikis/page1", slug: 'page1', title: 'page1')
+      end
+
+      it 'loads real title of the page from frontmatter if present' do
+        service = described_class.new(project, user)
+        results = service.wikis
+
+        expect(results.size).to eq(2)
+        expect(results.last).to include(path: "/#{project.full_path}/-/wikis/page3", slug: 'page3', title: 'Real title')
       end
     end
 
@@ -241,7 +264,7 @@ RSpec.describe Projects::AutocompleteService, feature_category: :groups_and_proj
   describe '#labels_as_hash' do
     def expect_labels_to_equal(labels, expected_labels)
       expect(labels.size).to eq(expected_labels.size)
-      extract_title = lambda { |label| label['title'] }
+      extract_title = ->(label) { label['title'] }
       expect(labels.map(&extract_title)).to match_array(expected_labels.map(&extract_title))
     end
 
@@ -287,6 +310,30 @@ RSpec.describe Projects::AutocompleteService, feature_category: :groups_and_proj
           else
             expect(hash.key?(:set)).to eq(false)
           end
+        end
+      end
+    end
+
+    context 'with archived labels' do
+      let!(:archived_label) { create(:label, :archived, project: project) }
+
+      subject(:results) { described_class.new(project, user).labels_as_hash(nil) }
+
+      it 'does not return archived labels' do
+        expected_labels = [label1, label2, parent_group_label]
+
+        expect_labels_to_equal(results, expected_labels)
+      end
+
+      context 'with feature flag labels_archive disabled' do
+        before do
+          stub_feature_flags(labels_archive: false)
+        end
+
+        it 'returns archived labels as well' do
+          expected_labels = [label1, label2, parent_group_label, archived_label]
+
+          expect_labels_to_equal(results, expected_labels)
         end
       end
     end

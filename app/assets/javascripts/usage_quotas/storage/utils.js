@@ -1,75 +1,47 @@
-import { parseBoolean } from '~/lib/utils/common_utils';
-import { numberToHumanSize } from '~/lib/utils/number_utils';
+import Vue from 'vue';
+import VueApollo from 'vue-apollo';
 import { __ } from '~/locale';
-import { storageTypeHelpPaths } from './constants';
+import createDefaultClient from '~/lib/graphql';
 
-/**
- * This method parses the results from `getNamespaceStorageStatistics`
- * call.
- *
- * `rootStorageStatistics` will be sent as null until an
- * event happens to trigger the storage count.
- * For that reason we have to verify if `storageSize` is sent or
- * if we should render 'Not applicable.'
- *
- * @param {Object} data graphql result
- * @returns {Object}
- */
-export const parseGetStorageResults = (data) => {
-  const {
-    namespace: {
-      storageSizeLimit,
-      totalRepositorySize,
-      containsLockedProjects,
-      totalRepositorySizeExcess,
-      rootStorageStatistics = {},
-      actualRepositorySizeLimit,
-      additionalPurchasedStorageSize,
-      repositorySizeExcessProjectCount,
-    },
-  } = data || {};
+export const getStorageTabMetadata = ({
+  vueComponent,
+  parseProvideData,
+  includeEl = false,
+  customApolloProvider = null,
+} = {}) => {
+  let apolloProvider;
+  const el = document.querySelector('#js-storage-usage-app');
 
-  const totalUsage = rootStorageStatistics?.storageSize
-    ? numberToHumanSize(rootStorageStatistics.storageSize)
-    : __('Not applicable.');
+  if (!el) return false;
 
-  return {
-    additionalPurchasedStorageSize,
-    actualRepositorySizeLimit,
-    containsLockedProjects,
-    repositorySizeExcessProjectCount,
-    totalRepositorySize,
-    totalRepositorySizeExcess,
-    totalUsage,
-    rootStorageStatistics,
-    limit: storageSizeLimit,
-  };
-};
+  Vue.use(VueApollo);
 
-export const parseNamespaceProvideData = (el) => {
-  if (!el) {
-    return {};
+  if (customApolloProvider) {
+    apolloProvider = customApolloProvider;
+  } else {
+    apolloProvider = new VueApollo({
+      defaultClient: createDefaultClient(),
+    });
   }
 
-  const { namespaceId, namespacePath, userNamespace, defaultPerPage } = el.dataset;
-
-  return {
-    namespaceId,
-    namespacePath,
-    userNamespace: parseBoolean(userNamespace),
-    defaultPerPage: Number(defaultPerPage),
-    helpLinks: storageTypeHelpPaths,
-    // only used in EE
-    purchaseStorageUrl: '',
-    buyAddonTargetAttr: '',
-    namespacePlanName: '',
-    isInNamespaceLimitsPreEnforcement: false,
-    perProjectStorageLimit: false,
-    namespaceStorageLimit: false,
-    totalRepositorySizeExcess: false,
-    isUsingProjectEnforcementWithLimits: false,
-    isUsingProjectEnforcementWithNoLimits: false,
-    isUsingNamespaceEnforcement: false,
-    customSortKey: null,
+  const storageTabMetadata = {
+    title: __('Storage'),
+    hash: '#storage-quota-tab',
+    testid: 'storage-tab',
+    featureCategory: 'consumables_cost_management',
+    component: {
+      name: 'NamespaceStorageTab',
+      provide: parseProvideData(el),
+      apolloProvider,
+      render(createElement) {
+        return createElement(vueComponent);
+      },
+    },
   };
+
+  if (includeEl) {
+    storageTabMetadata.component.el = el;
+  }
+
+  return storageTabMetadata;
 };

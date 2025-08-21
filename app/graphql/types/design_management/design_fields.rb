@@ -7,7 +7,7 @@ module Types
 
       field_class Types::BaseField
 
-      field :id, GraphQL::Types::ID, description: 'ID of this design.', null: false
+      field :id, GraphQL::Types::ID, description: 'ID of the design.', null: false
       field :project, Types::ProjectType, null: false, description: 'Project the design belongs to.'
       field :issue, Types::IssueType, null: false, description: 'Issue the design belongs to.'
       field :filename, GraphQL::Types::String, null: false, description: 'Filename of the design.'
@@ -18,21 +18,21 @@ module Types
         null: true,
         extras: [:parent],
         description: 'The URL of the design resized to fit within the bounds of 432x230. ' \
-                     'This will be `null` if the image has not been generated'
+          'This will be `null` if the image has not been generated'
       field :diff_refs, Types::DiffRefsType,
         null: false,
         calls_gitaly: true,
         extras: [:parent],
-        description: 'Diff refs for this design.'
+        description: 'Diff refs for the design.'
       field :event, Types::DesignManagement::DesignVersionEventEnum,
         null: false,
         extras: [:parent],
-        description: 'How this design was changed in the current version.'
+        description: 'How the design was changed in the current version.'
       field :notes_count,
         GraphQL::Types::Int,
         null: false,
         method: :user_notes_count,
-        description: 'Total count of user-created notes for this design.'
+        description: 'Total count of user-created notes for the design.'
 
       def diff_refs(parent:)
         version = cached_stateful_version(parent)

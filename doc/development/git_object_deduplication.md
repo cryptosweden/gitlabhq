@@ -1,10 +1,9 @@
 ---
-stage: Systems
+stage: Data Access
 group: Gitaly
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: How Git object deduplication works in GitLab
 ---
-
-# How Git object deduplication works in GitLab
 
 When a GitLab user [forks a project](../user/project/repository/forking_workflow.md),
 GitLab creates a new Project with an associated Git repository that is a
@@ -35,10 +34,13 @@ own refs and configuration. Objects in A that are not in B remain in A. For this
 configuration to work, **objects must not be deleted from repository B** because
 repository A might need them.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Do not run `git prune` or `git gc` in object pool repositories, which are
 stored in the `@pools` directory. This can cause data loss in the regular
 repositories that depend on the object pool.
+
+{{< /alert >}}
 
 The danger lies in `git prune`, and `git gc` calls `git prune`. The
 problem is that `git prune`, when running in a pool repository, cannot
@@ -98,9 +100,6 @@ are as follows:
 
 ### Assumptions
 
-- All repositories in a pool must use [hashed storage](../administration/repository_storage_paths.md).
-  This is so that we don't have to ever worry about updating paths in
-  `object/info/alternates` files.
 - All repositories in a pool must be on the same Gitaly storage shard.
   The Git alternates mechanism relies on direct disk access across
   multiple repositories, and we can only assume direct disk access to

@@ -6,7 +6,7 @@ RSpec.describe API::Helpers::PackagesHelpers, feature_category: :package_registr
   let_it_be(:helper) { Class.new.include(API::Helpers).include(described_class).new }
   let_it_be(:project) { create(:project) }
   let_it_be(:group) { create(:group) }
-  let_it_be(:package) { create(:package) }
+  let_it_be(:package) { create(:generic_package) }
 
   describe 'authorize_packages_access!' do
     subject { helper.authorize_packages_access!(project) }
@@ -61,7 +61,7 @@ RSpec.describe API::Helpers::PackagesHelpers, feature_category: :package_registr
     where(:subject, :expected_class) do
       ref(:project) | ::Packages::Policies::Project
       ref(:group)   | ::Packages::Policies::Group
-      ref(:package) | ::Packages::Package
+      ref(:package) | ::Packages::Generic::Package
     end
 
     with_them do
@@ -114,17 +114,25 @@ RSpec.describe API::Helpers::PackagesHelpers, feature_category: :package_registr
   end
 
   describe '#authorize_workhorse!' do
-    let_it_be(:headers) { {} }
+    let_it_be(:headers) { { 'HTTP_GITLAB_WORKHORSE' => 1 } }
     let_it_be(:params) { { subject: project } }
+
+    let(:env) { headers }
+    let(:request) { ActionDispatch::Request.new(env) }
 
     subject { helper.authorize_workhorse!(**params) }
 
     shared_examples 'workhorse authorize' do
+      before do
+        allow(helper).to receive(:request).and_return(request)
+        allow(helper).to receive(:env).and_return(env)
+      end
+
       it 'authorizes workhorse' do
-        expect(helper).to receive(:authorize_upload!).with(project)
+        expect(helper).to receive(:authorize_create_package!).with(project)
         expect(helper).to receive(:status).with(200)
         expect(helper).to receive(:content_type).with(Gitlab::Workhorse::INTERNAL_API_CONTENT_TYPE)
-        expect(Gitlab::Workhorse).to receive(:verify_api_request!).with(headers)
+        expect(Gitlab::Workhorse).to receive(:verify_api_request!).with(request.headers)
         expect(::Packages::PackageFileUploader).to receive(:workhorse_authorize).with(workhorse_authorize_params)
 
         expect(subject).to eq nil
@@ -153,7 +161,7 @@ RSpec.describe API::Helpers::PackagesHelpers, feature_category: :package_registr
       let(:params) { super().merge(use_final_store_path: true) }
 
       it_behaves_like 'workhorse authorize' do
-        let(:workhorse_authorize_params) { { has_length: true, use_final_store_path: true, final_store_path_root_id: project.id } }
+        let(:workhorse_authorize_params) { { has_length: true, use_final_store_path: true, final_store_path_config: { root_hash: project.id } } }
       end
     end
   end
@@ -254,10 +262,8 @@ RSpec.describe API::Helpers::PackagesHelpers, feature_category: :package_registr
             project.add_guest(user)
           end
 
-          it 'returns Forbidden' do
-            expect(helper).to receive(:render_api_error!).with('403 Forbidden', 403)
-
-            is_expected.to be_nil
+          it 'returns project' do
+            is_expected.to eq(project)
           end
         end
       end
@@ -306,6 +312,28 @@ RSpec.describe API::Helpers::PackagesHelpers, feature_category: :package_registr
       end
     end
 
+    context 'with internal event event' do
+      let(:user) { project.creator }
+      let(:category) { described_class.name }
+      let(:namespace) { project.namespace }
+
+      it 'calls internal events' do
+        expect(Gitlab::InternalEvents).to receive(:track_event)
+          .with('pull_package_from_registry',
+            additional_properties: {
+              label: 'terraform_module',
+              property: 'user'
+            },
+            user: user,
+            project: project,
+            namespace: namespace
+          )
+
+        args = { category: category, user: user, project: project, namespace: namespace }
+        helper.track_package_event('pull_package', :terraform_module, **args)
+      end
+    end
+
     context 'when using deploy token and action is push package' do
       let(:user) { create(:deploy_token, write_registry: true, projects: [project]) }
       let(:scope) { :rubygems }
@@ -314,7 +342,7 @@ RSpec.describe API::Helpers::PackagesHelpers, feature_category: :package_registr
       let(:label) { 'counts.package_events_i_package_push_package_by_deploy_token' }
       let(:property) { 'i_package_push_package_by_deploy_token' }
       let(:service_ping_context) do
-        [Gitlab::Usage::MetricDefinition.context_for('counts.package_events_i_package_push_package_by_deploy_token').to_h]
+        [Gitlab::Tracking::ServicePingContext.new(data_source: :redis, event: 'package_pushed_using_deploy_token').to_h]
       end
 
       it 'logs a snowplow event' do
@@ -342,7 +370,7 @@ RSpec.describe API::Helpers::PackagesHelpers, feature_category: :package_registr
       let(:label) { 'counts.package_events_i_package_pull_package_by_guest' }
       let(:property) { 'i_package_pull_package_by_guest' }
       let(:service_ping_context) do
-        [Gitlab::Usage::MetricDefinition.context_for('counts.package_events_i_package_pull_package_by_guest').to_h]
+        [Gitlab::Tracking::ServicePingContext.new(data_source: :redis, event: 'package_pulled_by_guest').to_h]
       end
 
       it 'logs a snowplow event' do
@@ -360,6 +388,75 @@ RSpec.describe API::Helpers::PackagesHelpers, feature_category: :package_registr
           project: project
         )
       end
+    end
+  end
+
+  describe '#protect_package!' do
+    using RSpec::Parameterized::TableSyntax
+
+    let_it_be(:project_developer) { create(:user, developer_of: project) }
+    let_it_be(:project_owner) { project.owner }
+    let_it_be(:project_deploy_token) { create(:deploy_token, :all_scopes, projects: [project]) }
+    let_it_be(:package) { create(:maven_package) }
+
+    let_it_be(:package_protection_rule_maven) do
+      create(:package_protection_rule,
+        project: project,
+        package_type: package.package_type,
+        package_name_pattern: "#{package.name}*",
+        minimum_access_level_for_push: :maintainer)
+    end
+
+    before do
+      allow(helper).to receive(:user_project).and_return(project)
+      allow(helper).to receive(:current_user).and_return(current_user)
+    end
+
+    subject { helper.protect_package!(package_name, package_type) }
+
+    shared_examples 'success response because package not protected' do
+      it { is_expected.to be_nil }
+
+      it 'does not render any error' do
+        expect(helper).not_to receive(:bad_request!)
+        expect(helper).not_to receive(:forbidden!)
+
+        subject
+      end
+    end
+
+    shared_examples 'forbidden response because package protected' do
+      it 'renders forbidden error' do
+        expect(helper).to receive(:forbidden!).with('Package protected.')
+
+        subject
+      end
+    end
+
+    shared_examples 'bad_request response' do
+      it 'renders bad_request error' do
+        expect(helper).to receive(:bad_request!)
+
+        subject
+      end
+    end
+
+    where(:package_name, :package_type, :current_user, :expected_shared_example) do
+      lazy { package.name } | :maven   | ref(:project_developer)    | 'forbidden response because package protected'
+      lazy { package.name } | :pypi    | ref(:project_developer)    | 'success response because package not protected'
+      lazy { package.name } | :maven   | ref(:project_owner)        | 'success response because package not protected'
+      lazy { package.name } | :pypi    | ref(:project_owner)        | 'success response because package not protected'
+      lazy { package.name } | :maven   | ref(:project_deploy_token) | 'forbidden response because package protected'
+      lazy { package.name } | :pypi    | ref(:project_deploy_token) | 'success response because package not protected'
+      lazy { package.name } | :maven   | nil                        | 'forbidden response because package protected'
+      ''                    | :maven   | ref(:project_developer)    | 'success response because package not protected'
+      nil                   | :maven   | ref(:project_developer)    | 'success response because package not protected'
+      nil                   | :no_type | ref(:project_developer)    | 'bad_request response'
+      nil                   | nil      | ref(:project_developer)    | 'bad_request response'
+    end
+
+    with_them do
+      it_behaves_like params[:expected_shared_example]
     end
   end
 end

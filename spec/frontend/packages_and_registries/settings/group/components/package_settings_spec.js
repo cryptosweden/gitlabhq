@@ -14,7 +14,7 @@ import {
 
 import updateNamespacePackageSettings from '~/packages_and_registries/settings/group/graphql/mutations/update_group_packages_settings.mutation.graphql';
 import getGroupPackagesSettingsQuery from '~/packages_and_registries/settings/group/graphql/queries/get_group_packages_settings.query.graphql';
-import SettingsBlock from '~/packages_and_registries/shared/components/settings_block.vue';
+import SettingsSection from '~/vue_shared/components/settings/settings_section.vue';
 import { updateGroupPackagesSettingsOptimisticResponse } from '~/packages_and_registries/settings/group/graphql/utils/optimistic_responses';
 import {
   packageSettings,
@@ -50,14 +50,10 @@ describe('Packages Settings', () => {
       propsData: {
         packageSettings,
       },
-      stubs: {
-        SettingsBlock,
-      },
     });
   };
 
-  const findSettingsBlock = () => wrapper.findComponent(SettingsBlock);
-  const findDescription = () => wrapper.findByTestId('description');
+  const findSettingsSection = () => wrapper.findComponent(SettingsSection);
   const findMavenSettings = () => wrapper.findByTestId('maven-settings');
   const findGenericSettings = () => wrapper.findByTestId('generic-settings');
   const findNugetSettings = () => wrapper.findByTestId('nuget-settings');
@@ -97,19 +93,21 @@ describe('Packages Settings', () => {
   it('renders a settings block', () => {
     mountComponent();
 
-    expect(findSettingsBlock().exists()).toBe(true);
+    expect(findSettingsSection().exists()).toBe(true);
   });
 
   it('has the correct header text', () => {
     mountComponent();
 
-    expect(wrapper.text()).toContain(PACKAGE_SETTINGS_HEADER);
+    expect(findSettingsSection().props('heading')).toContain(PACKAGE_SETTINGS_HEADER);
   });
 
   it('has the correct description text', () => {
     mountComponent();
 
-    expect(findDescription().text()).toMatchInterpolatedText(PACKAGE_SETTINGS_DESCRIPTION);
+    expect(findSettingsSection().props('description')).toMatchInterpolatedText(
+      PACKAGE_SETTINGS_DESCRIPTION,
+    );
   });
 
   describe('maven settings', () => {
@@ -137,12 +135,11 @@ describe('Packages Settings', () => {
     it('renders ExceptionsInput and assigns duplication allowness and exception props', () => {
       mountComponent({ mountFn: mountExtended });
 
-      const { mavenDuplicatesAllowed, mavenDuplicateExceptionRegex } = packageSettings;
+      const { mavenDuplicateExceptionRegex } = packageSettings;
 
       expect(findMavenDuplicatedSettingsExceptionsInput().exists()).toBe(true);
 
       expect(findMavenDuplicatedSettingsExceptionsInput().props()).toMatchObject({
-        duplicatesAllowed: mavenDuplicatesAllowed,
         duplicateExceptionRegex: mavenDuplicateExceptionRegex,
         duplicateExceptionRegexError: '',
         loading: false,
@@ -189,10 +186,9 @@ describe('Packages Settings', () => {
     it('renders ExceptionsInput and assigns duplication allowness and exception props', () => {
       mountComponent({ mountFn: mountExtended });
 
-      const { genericDuplicatesAllowed, genericDuplicateExceptionRegex } = packageSettings;
+      const { genericDuplicateExceptionRegex } = packageSettings;
 
       expect(findGenericDuplicatedSettingsExceptionsInput().props()).toMatchObject({
-        duplicatesAllowed: genericDuplicatesAllowed,
         duplicateExceptionRegex: genericDuplicateExceptionRegex,
         duplicateExceptionRegexError: '',
         loading: false,
@@ -241,10 +237,9 @@ describe('Packages Settings', () => {
     it('renders ExceptionsInput and assigns duplication allowness and exception props', () => {
       mountComponent({ mountFn: mountExtended });
 
-      const { nugetDuplicatesAllowed, nugetDuplicateExceptionRegex } = packageSettings;
+      const { nugetDuplicateExceptionRegex } = packageSettings;
 
       expect(findNugetDuplicatedSettingsExceptionsInput().props()).toMatchObject({
-        duplicatesAllowed: nugetDuplicatesAllowed,
         duplicateExceptionRegex: nugetDuplicateExceptionRegex,
         duplicateExceptionRegexError: '',
         loading: false,
@@ -292,11 +287,9 @@ describe('Packages Settings', () => {
     it('renders ExceptionsInput and assigns duplication allowness and exception props', () => {
       mountComponent({ mountFn: mountExtended });
 
-      const { terraformModuleDuplicatesAllowed, terraformModuleDuplicateExceptionRegex } =
-        packageSettings;
+      const { terraformModuleDuplicateExceptionRegex } = packageSettings;
 
       expect(findTerraformModuleDuplicatedSettingsExceptionsInput().props()).toMatchObject({
-        duplicatesAllowed: terraformModuleDuplicatesAllowed,
         duplicateExceptionRegex: terraformModuleDuplicateExceptionRegex,
         duplicateExceptionRegexError: '',
         loading: false,

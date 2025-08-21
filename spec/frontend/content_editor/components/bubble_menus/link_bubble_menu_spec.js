@@ -1,6 +1,7 @@
 import { GlLink, GlForm } from '@gitlab/ui';
 import { nextTick } from 'vue';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
+import { createGon } from 'helpers/gon_helper';
 import LinkBubbleMenu from '~/content_editor/components/bubble_menus/link_bubble_menu.vue';
 import EditorStateObserver from '~/content_editor/components/editor_state_observer.vue';
 import eventHubFactory from '~/helpers/event_hub_factory';
@@ -62,6 +63,8 @@ describe('content_editor/components/bubble_menus/link_bubble_menu', () => {
   beforeEach(() => {
     buildEditor();
 
+    window.gon = createGon(false);
+
     tiptapEditor
       .chain()
       .setContent(
@@ -74,7 +77,7 @@ describe('content_editor/components/bubble_menus/link_bubble_menu', () => {
   it('renders bubble menu component', async () => {
     await buildWrapperAndDisplayMenu();
 
-    expect(findBubbleMenu().classes()).toEqual(['gl-shadow', 'gl-rounded-base', 'gl-bg-white']);
+    expect(findBubbleMenu().classes()).toEqual(['gl-rounded-base', 'gl-bg-dropdown', 'gl-shadow']);
   });
 
   it('shows a clickable link to the URL in the link node', async () => {
@@ -190,14 +193,32 @@ describe('content_editor/components/bubble_menus/link_bubble_menu', () => {
   });
 
   describe('copy button', () => {
-    it('copies the canonical link to clipboard', async () => {
+    it('copies the contextualized link to clipboard for project uploads', async () => {
+      document.body.dataset.page = 'projects:issues:show';
+      window.gon.current_project_id = '123';
+
       await buildWrapperAndDisplayMenu();
 
       jest.spyOn(navigator.clipboard, 'writeText');
 
       await wrapper.findByTestId('copy-link-url').vm.$emit('click');
 
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('uploads/my_file.pdf');
+      const expectedUrl = `${window.gon.gitlab_url}/path/to/project/-/wikis/uploads/my_file.pdf`;
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expectedUrl);
+    });
+
+    it('copies the contextualized link to clipboard for group uploads', async () => {
+      document.body.dataset.page = 'groups:epics:show';
+      window.gon.current_group_id = '456';
+
+      await buildWrapperAndDisplayMenu();
+
+      jest.spyOn(navigator.clipboard, 'writeText');
+
+      await wrapper.findByTestId('copy-link-url').vm.$emit('click');
+
+      const expectedUrl = `${window.gon.gitlab_url}/path/to/project/-/wikis/uploads/my_file.pdf`;
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expectedUrl);
     });
   });
 

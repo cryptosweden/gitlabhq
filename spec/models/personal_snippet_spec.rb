@@ -3,6 +3,10 @@
 require 'spec_helper'
 
 RSpec.describe PersonalSnippet do
+  describe 'validations' do
+    it { is_expected.to validate_presence_of(:organization_id) }
+  end
+
   describe '#embeddable?' do
     [
       { snippet: :public,   embeddable: true },
@@ -29,6 +33,15 @@ RSpec.describe PersonalSnippet do
       snippet = build(:personal_snippet)
 
       expect(snippet.parent_user).to eq(snippet.author)
+    end
+  end
+
+  describe '#uploads_sharding_key' do
+    it 'returns organization_id' do
+      organization = build_stubbed(:organization)
+      snippet = build_stubbed(:personal_snippet, organization: organization)
+
+      expect(snippet.uploads_sharding_key).to eq(organization_id: organization.id)
     end
   end
 end

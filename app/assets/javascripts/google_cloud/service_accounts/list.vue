@@ -23,7 +23,7 @@ export default {
     },
   },
   tableFields: [
-    { key: 'ref', label: __('Environment'), sortable: true },
+    { key: 'ref', label: __('Environment'), sortable: true, isRowHeader: true },
     { key: 'gcp_project', label: __('Google Cloud Project'), sortable: true },
     { key: 'service_account_exists', label: __('Service Account'), sortable: true },
     { key: 'service_account_key_exists', label: __('Service Account Key'), sortable: true },
@@ -67,7 +67,7 @@ export default {
     />
 
     <div v-else>
-      <h2 class="gl-font-size-h2">{{ $options.i18n.serviceAccountsTitle }}</h2>
+      <h2 class="gl-text-size-h2">{{ $options.i18n.serviceAccountsTitle }}</h2>
       <p>{{ $options.i18n.serviceAccountsDescription }}</p>
 
       <gl-table :items="list" :fields="$options.tableFields">

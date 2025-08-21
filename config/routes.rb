@@ -31,6 +31,8 @@ InitializerConnections.raise_if_new_database_connection do
         tokens: 'oauth/tokens'
     end
     put '/oauth/applications/:id/renew(.:format)' => 'oauth/applications#renew', as: :renew_oauth_application
+    get '/.well-known/oauth-protected-resource' => 'oauth/protected_resource_metadata#show', as: :oauth_protected_resource_metadata
+    post '/oauth/register(.:format)' => 'oauth/dynamic_registrations#create', as: :oauth_register
 
     draw :oauth
 
@@ -38,10 +40,15 @@ InitializerConnections.raise_if_new_database_connection do
       controllers discovery: 'jwks'
     end
 
+    use_doorkeeper_device_authorization_grant do
+      controller device_authorizations: 'oauth/device_authorizations'
+    end
+
     # Add OPTIONS method for CORS preflight requests
     match '/oauth/userinfo' => 'doorkeeper/openid_connect/userinfo#show', via: :options
     match '/oauth/discovery/keys' => 'jwks#keys', via: :options
     match '/.well-known/openid-configuration' => 'jwks#provider', via: :options
+    match '/.well-known/oauth-protected-resource' => 'oauth_protected_resource_metadata#show', via: :options
     match '/.well-known/webfinger' => 'jwks#webfinger', via: :options
 
     match '/oauth/token' => 'oauth/tokens#create', via: :options
@@ -55,6 +62,7 @@ InitializerConnections.raise_if_new_database_connection do
     scope path: '/users/sign_up', module: :registrations, as: :users_sign_up do
       Gitlab.ee do
         resource :welcome, only: [:show, :update], controller: 'welcome'
+        resource :trial_welcome, only: [:new, :create], controller: 'trial_welcome'
         resource :company, only: [:new, :create], controller: 'company'
         resources :groups, only: [:new, :create]
       end
@@ -80,6 +88,8 @@ InitializerConnections.raise_if_new_database_connection do
 
     # Terraform service discovery
     get '.well-known/terraform.json' => 'terraform/services#index', as: :terraform_services
+
+    draw :organizations
 
     # Begin of the /-/ scope.
     # Use this scope for all new global routes.
@@ -115,7 +125,7 @@ InitializerConnections.raise_if_new_database_connection do
       get '/whats_new' => 'whats_new#index'
 
       get 'offline' => "pwa#offline"
-      get 'manifest' => "pwa#manifest", constraints: lambda { |req| req.format == :json }
+      get 'manifest' => "pwa#manifest", constraints: ->(req) { req.format == :json }
 
       scope module: 'clusters' do
         scope module: 'agents' do
@@ -123,6 +133,11 @@ InitializerConnections.raise_if_new_database_connection do
           get '/kubernetes/:agent_id(/*vueroute)', to: 'dashboard#show', as: 'kubernetes_dashboard'
         end
       end
+
+      # HTTP Router
+      # Creating a black hole for /-/http_router/version since it is taken by the
+      # cloudflare worker, see: https://gitlab.com/gitlab-org/cells/http-router/-/issues/47
+      match '/http_router/version', to: proc { [204, {}, ['']] }, via: :all
 
       # '/-/health' implemented by BasicHealthCheck middleware
       get 'liveness' => 'health#liveness'
@@ -140,6 +155,7 @@ InitializerConnections.raise_if_new_database_connection do
       scope :ide, as: :ide, format: false do
         get '/', to: 'ide#index'
         get '/project', to: 'ide#index'
+        # note: This path has a hardcoded reference in the FE `app/assets/javascripts/ide/constants.js`
         get '/oauth_redirect', to: 'ide#oauth_redirect'
 
         scope path: 'project/:project_id', as: :project, constraints: { project_id: Gitlab::PathRegex.full_namespace_route_regex } do
@@ -154,28 +170,24 @@ InitializerConnections.raise_if_new_database_connection do
           get '/', to: 'ide#index'
         end
 
-        # Remote host can contain "." characters so it needs a constraint
-        post 'remote/:remote_host(/*remote_path)',
-          as: :remote,
-          to: 'web_ide/remote_ide#index',
-          constraints: { remote_host: %r{[^/?]+} }
+        post '/reset_oauth_application_settings' => 'admin/applications#reset_web_ide_oauth_application_settings'
       end
 
       draw :operations
       draw :jira_connect
-      draw :organizations
 
       Gitlab.ee do
-        draw :remote_development
+        draw 'remote_development/resources'
         draw :security
         draw :smartcard
         draw :trial_registration
         draw :country
         draw :country_state
-        draw :subscription
+        draw :gitlab_subscriptions
         draw :phone_verification
+        draw :arkose
 
-        scope '/push_from_secondary/:geo_node_id' do
+        scope '/from_secondary/:geo_node_id' do
           draw :git_http
         end
       end
@@ -203,9 +215,9 @@ InitializerConnections.raise_if_new_database_connection do
         end
       end
 
-      resources :sent_notifications, only: [], constraints: { id: /\h{32}/ } do
+      resources :sent_notifications, only: [], constraints: { id: /[A-Za-z0-9\-_]{32,78}/ } do
         member do
-          get :unsubscribe
+          match :unsubscribe, via: [:get, :post]
         end
       end
 
@@ -235,6 +247,12 @@ InitializerConnections.raise_if_new_database_connection do
       post '/track_namespace_visits' => 'users/namespace_visits#create'
 
       get '/external_redirect' => 'external_redirect/external_redirect#index'
+
+      post '/collect_events', to: 'event_forward/event_forward#forward', as: :event_forwarding
+
+      if Gitlab::Utils.to_boolean(ENV['COVERBAND_ENABLED'], default: false)
+        mount Coverband::Reporters::Web.new, at: '/coverage'
+      end
     end
     # End of the /-/ scope.
 
@@ -254,37 +272,33 @@ InitializerConnections.raise_if_new_database_connection do
 
         member do
           Gitlab.ee do
-            get :metrics, format: :json
             get :environments, format: :json
           end
 
-          get :metrics_dashboard
           get :cluster_status, format: :json
           delete :clear_cache
+          post :migrate
+          put :update_migration
         end
       end
     end
 
-    resources(:groups, only: [:index, :new, :create]) do
-      # The constraints ensure that the `group_id` parameter in the URL allows for multiple levels
-      # of subgroups, permitting both regular and encoded slashes (%2F).
-      # Deprecated in favor of /groups/*group_id/-/preview_markdown
-      # https://gitlab.com/gitlab-org/gitlab/-/issues/442218
-      post :preview_markdown,
-        as: :preview_markdown_deprecated,
-        constraints: { group_id: %r{#{Gitlab::PathRegex.full_namespace_route_regex.source}(%2F#{Gitlab::PathRegex.full_namespace_route_regex.source})*} }
-    end
+    resources :groups, only: [:index, :new, :create]
+
+    get '/-/g/:id' => 'groups/redirect#redirect_from_id'
 
     draw :group
 
     resources :projects, only: [:index, :new, :create]
 
     get '/projects/:id' => 'projects/redirect#redirect_from_id'
+    get '/-/p/:id' => 'projects/redirect#redirect_from_id'
 
     draw :git_http
     draw :api
     draw :activity_pub
     draw :customers_dot
+    draw :device_auth
     draw :sidekiq
     draw :help
     draw :google_api
@@ -334,6 +348,8 @@ InitializerConnections.raise_if_new_database_connection do
     end
 
     root to: "root#index"
+
+    get '/-/u/:id' => 'users/redirect#redirect_from_id'
 
     get '*unmatched_route', to: 'application#route_not_found', format: false
 

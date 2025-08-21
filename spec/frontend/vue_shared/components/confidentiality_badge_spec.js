@@ -1,6 +1,5 @@
 import { GlBadge, GlIcon } from '@gitlab/ui';
-
-import { shallowMount } from '@vue/test-utils';
+import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import { TYPE_ISSUE, TYPE_EPIC, WORKSPACE_GROUP, WORKSPACE_PROJECT } from '~/issues/constants';
 
 import ConfidentialityBadge from '~/vue_shared/components/confidentiality_badge.vue';
@@ -10,7 +9,7 @@ const createComponent = ({
   issuableType = TYPE_ISSUE,
   hideTextInSmallScreens = false,
 } = {}) =>
-  shallowMount(ConfidentialityBadge, {
+  shallowMountExtended(ConfidentialityBadge, {
     propsData: {
       workspaceType,
       issuableType,
@@ -25,15 +24,14 @@ describe('ConfidentialityBadge', () => {
     wrapper = createComponent();
   });
 
-  const findConfidentialityBadgeText = () =>
-    wrapper.find('[data-testid="confidential-badge-text"]');
+  const findConfidentialityBadgeText = () => wrapper.findByTestId('confidential-badge-text');
   const findBadge = () => wrapper.findComponent(GlBadge);
   const findBadgeIcon = () => wrapper.findComponent(GlIcon);
 
   it.each`
     workspaceType        | issuableType  | expectedTooltip
-    ${WORKSPACE_PROJECT} | ${TYPE_ISSUE} | ${'Only project members with at least the Reporter role, the author, and assignees can view or be notified about this issue.'}
-    ${WORKSPACE_GROUP}   | ${TYPE_EPIC}  | ${'Only group members with at least the Reporter role can view or be notified about this epic.'}
+    ${WORKSPACE_PROJECT} | ${TYPE_ISSUE} | ${'Only project members with at least the Planner role, the author, and assignees can view or be notified about this issue.'}
+    ${WORKSPACE_GROUP}   | ${TYPE_EPIC}  | ${'Only group members with at least the Planner role can view or be notified about this epic.'}
   `(
     'should render gl-badge with correct tooltip when workspaceType is $workspaceType and issuableType is $issuableType',
     ({ workspaceType, issuableType, expectedTooltip }) => {
@@ -51,15 +49,19 @@ describe('ConfidentialityBadge', () => {
     },
   );
 
-  it('does not have `sm:gl-block` and `gl-display-none` when `hideTextInSmallScreens` is false', () => {
-    wrapper = createComponent({ hideTextInSmallScreens: false });
+  describe('hideTextInSmallScreens', () => {
+    it('does not have `gl-sr-only` and `sm:gl-not-sr-only` when `hideTextInSmallScreens` is false', () => {
+      wrapper = createComponent({ hideTextInSmallScreens: false });
 
-    expect(findConfidentialityBadgeText().classes()).not.toContain('gl-hidden', 'sm:gl-block');
-  });
+      expect(findConfidentialityBadgeText().classes()).not.toContain('gl-sr-only');
+      expect(findConfidentialityBadgeText().classes()).not.toContain('sm:gl-not-sr-only');
+    });
 
-  it('has `sm:gl-block` and `gl-hidden` when `hideTextInSmallScreens` is true', () => {
-    wrapper = createComponent({ hideTextInSmallScreens: true });
+    it('has `gl-sr-only` and `sm:gl-not-sr-only` when `hideTextInSmallScreens` is true', () => {
+      wrapper = createComponent({ hideTextInSmallScreens: true });
 
-    expect(findConfidentialityBadgeText().classes()).toContain('gl-hidden', 'sm:gl-block');
+      expect(findConfidentialityBadgeText().classes()).toContain('gl-sr-only');
+      expect(findConfidentialityBadgeText().classes()).toContain('sm:gl-not-sr-only');
+    });
   });
 });

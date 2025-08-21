@@ -1,10 +1,9 @@
 ---
 stage: Package
 group: Container Registry
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Cleanup policies
 ---
-
-# Cleanup policies
 
 Cleanup policies are recurrent background processes that automatically remove
 objects according to some parameters set by users.

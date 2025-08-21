@@ -42,6 +42,15 @@ RSpec.describe Note, ResolvableNote, feature_category: :code_review_workflow do
     end
   end
 
+  describe '.resolvable_types' do
+    specify do
+      types = described_class::RESOLVABLE_TYPES
+      types += EE::ResolvableNote::EE_RESOLVABLE_TYPES if Gitlab.ee?
+
+      expect(described_class.resolvable_types).to eq(types)
+    end
+  end
+
   describe ".resolve!" do
     let(:current_user) { create(:user) }
     let!(:commit_note) { create(:diff_note_on_commit, project: project) }
@@ -351,6 +360,24 @@ RSpec.describe Note, ResolvableNote, feature_category: :code_review_workflow do
       allow(subject).to receive(:noteable).and_return(nil)
 
       expect(subject.potentially_resolvable?).to be_falsey
+    end
+  end
+
+  describe 'validations' do
+    subject(:mr_note) do
+      build(:discussion_note_on_merge_request, noteable: merge_request, project: project, resolved_at: Time.current)
+    end
+
+    it 'validates the presence of resolved_by when resolved?' do
+      expect(mr_note).to validate_presence_of(:resolved_by)
+    end
+
+    context 'when importing' do
+      it 'does not validate the presence of resolved_by' do
+        mr_note.importing = true
+
+        expect(mr_note).not_to validate_presence_of(:resolved_by)
+      end
     end
   end
 end

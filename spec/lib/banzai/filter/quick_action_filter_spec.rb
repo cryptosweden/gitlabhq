@@ -2,11 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::QuickActionFilter, feature_category: :team_planning do
+RSpec.describe Banzai::Filter::QuickActionFilter, feature_category: :markdown do
   let(:result) { {} }
 
   it 'detects action in paragraph' do
     described_class.call('<p data-sourcepos="1:1-2:3">/quick</p>', {}, result)
+
+    expect(result[:quick_action_paragraphs]).to match_array [{ start_line: 0, end_line: 1 }]
+  end
+
+  it 'detects action in paragraph when it is on another line' do
+    described_class.call(%(<p data-sourcepos="1:1-2:3">foo\n/quick</p>), {}, result)
 
     expect(result[:quick_action_paragraphs]).to match_array [{ start_line: 0, end_line: 1 }]
   end

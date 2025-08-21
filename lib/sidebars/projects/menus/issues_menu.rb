@@ -37,7 +37,13 @@ module Sidebars
 
         override :active_routes
         def active_routes
-          { path: %w[projects/issues#index projects/issues#show projects/issues#new] }
+          { path: %w[
+            projects/issues#index
+            projects/issues#show
+            projects/issues#new
+            projects/work_items#index
+            projects/work_items#show
+          ] }
         end
 
         override :has_pill?
@@ -47,12 +53,9 @@ module Sidebars
           end
         end
 
-        override :pill_count
-        def pill_count
-          strong_memoize(:pill_count) do
-            count = context.project.open_issues_count(context.current_user)
-            format_cached_count(1000, count)
-          end
+        override :pill_count_field
+        def pill_count_field
+          'openIssuesCount'
         end
 
         override :pill_html_options
@@ -66,6 +69,7 @@ module Sidebars
         def serialize_as_menu_item_args
           super.merge({
             pill_count: pill_count,
+            pill_count_field: pill_count_field,
             has_pill: has_pill?,
             super_sidebar_parent: ::Sidebars::Projects::SuperSidebarMenus::PlanMenu,
             item_id: :project_issue_list
@@ -111,6 +115,8 @@ module Sidebars
         end
 
         def service_desk_menu_item
+          return ::Sidebars::NilMenuItem.new(item_id: :service_desk) unless ::ServiceDesk.enabled?(context.project)
+
           ::Sidebars::MenuItem.new(
             title: _('Service Desk'),
             link: service_desk_project_issues_path(context.project),

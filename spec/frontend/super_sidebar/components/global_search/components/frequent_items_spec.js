@@ -4,7 +4,7 @@ import GlobalSearchFrequentItems from '~/super_sidebar/components/global_search/
 import FrequentItem from '~/super_sidebar/components/global_search/components/frequent_item.vue';
 import FrequentItemSkeleton from '~/super_sidebar/components/global_search/components/frequent_item_skeleton.vue';
 import { frecentGroupsMock } from 'jest/super_sidebar/mock_data';
-import SearchResultHoverLayover from '~/super_sidebar/components/global_search/components/global_search_hover_overlay.vue';
+import SearchResultFocusLayover from '~/super_sidebar/components/global_search/components/global_search_focus_overlay.vue';
 
 describe('FrequentlyVisitedItems', () => {
   let wrapper;
@@ -31,7 +31,7 @@ describe('FrequentlyVisitedItems', () => {
   const findItems = () => wrapper.findAllComponents(GlDisclosureDropdownItem);
   const findSkeleton = () => wrapper.findComponent(FrequentItemSkeleton);
   const findItemRenderer = (root) => root.findComponent(FrequentItem);
-  const findLayover = () => wrapper.findComponent(SearchResultHoverLayover);
+  const findLayover = () => wrapper.findComponent(SearchResultFocusLayover);
 
   describe('common behavior', () => {
     beforeEach(() => {
@@ -49,7 +49,7 @@ describe('FrequentlyVisitedItems', () => {
     });
 
     it('renders the view all items link', () => {
-      const lastItem = findItems().at(-1);
+      const lastItem = findItems().at(1);
       expect(lastItem.props('item')).toMatchObject({
         text: mockProps.viewAllItemsText,
         href: mockProps.viewAllItemsPath,
@@ -90,8 +90,13 @@ describe('FrequentlyVisitedItems', () => {
     });
   });
 
-  describe('when there are items', () => {
+  describe.each`
+    description              | relativeUrl
+    ${'with relativeUrl'}    | ${'/gitlab'}
+    ${'without relativeUrl'} | ${''}
+  `('when there are items $description', ({ relativeUrl }) => {
     beforeEach(() => {
+      gon.relative_url_root = relativeUrl;
       createComponent({
         items: frecentGroupsMock,
       });
@@ -106,7 +111,7 @@ describe('FrequentlyVisitedItems', () => {
         // Check GlDisclosureDropdownItem's item has the right structure
         expect(dropdownItem.props('item')).toMatchObject({
           text: item.name,
-          href: item.webUrl,
+          href: `${relativeUrl}/${item.fullPath}`,
         });
 
         // Check FrequentItem's item has the right structure

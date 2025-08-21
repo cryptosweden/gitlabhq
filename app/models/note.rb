@@ -9,6 +9,7 @@ class Note < ApplicationRecord
 
   include Notes::ActiveRecord
   include Notes::Discussion
+
   include Gitlab::Utils::StrongMemoize
   include Participable
   include Mentionable
@@ -27,9 +28,6 @@ class Note < ApplicationRecord
   include Sortable
   include EachBatch
   include Spammable
-  include IgnorableColumns
-
-  ignore_column :imported, remove_with: '17.2', remove_after: '2024-07-22'
 
   cache_markdown_field :note, pipeline: :note, issuable_reference_expansion_enabled: true
 
@@ -58,11 +56,14 @@ class Note < ApplicationRecord
   # Attribute used to store the attributes that have been changed by quick actions.
   attr_writer :commands_changes
 
-  # Attribute used to store the quick action command names.
-  attr_accessor :command_names
+  # Attribute used to store the status of quick actions.
+  attr_accessor :quick_actions_status
 
   # Attribute used to determine whether keep_around_commits will be skipped for diff notes.
   attr_accessor :skip_keep_around_commits
+
+  # Attribute used to skip updates of `updated_at` for the noteable when it could impact database health.
+  attr_accessor :skip_touch_noteable
 
   attribute :system, default: false
 
@@ -86,6 +87,10 @@ class Note < ApplicationRecord
   has_one :note_diff_file, inverse_of: :diff_note, foreign_key: :diff_note_id
   has_many :diff_note_positions
 
+  # rubocop:disable Cop/ActiveRecordDependent -- polymorphic association
+  has_many :events, as: :target, dependent: :delete_all
+  # rubocop:enable Cop/ActiveRecordDependent
+
   delegate :gfm_reference, :local_reference, to: :noteable
   delegate :name, to: :project, prefix: true
   delegate :title, to: :noteable, allow_nil: true
@@ -93,10 +98,7 @@ class Note < ApplicationRecord
   accepts_nested_attributes_for :note_metadata
 
   validates :project, presence: true, if: :for_project_noteable?
-  validates :namespace, presence: true, unless: :for_abuse_report?
-
-  # Attachments are deprecated and are handled by Markdown uploader
-  validates :attachment, file_size: { maximum: :max_attachment_size }
+  validates :namespace, presence: true
 
   validates :noteable_type, presence: true
   validates :noteable_id, presence: true, unless: [:for_commit?, :importing?]
@@ -105,6 +107,7 @@ class Note < ApplicationRecord
   validate :ensure_noteable_can_have_confidential_note
   validate :ensure_note_type_can_be_confidential
   validate :ensure_confidentiality_not_changed, on: :update
+  validate :ensure_confidentiality_discussion_compliance
 
   validate unless: [:for_commit?, :importing?, :skip_project_check?] do |note|
     unless note.noteable.try(:project) == note.project
@@ -114,10 +117,8 @@ class Note < ApplicationRecord
 
   validate :does_not_exceed_notes_limit?, on: :create, unless: [:system?, :importing?]
 
-  # @deprecated attachments are handled by the Upload model.
-  #
-  # https://gitlab.com/gitlab-org/gitlab/-/issues/20830
-  mount_uploader :attachment, AttachmentUploader
+  validates :position, :original_position, :change_position,
+    'notes/position_serialized_size': { max_bytesize: 100.kilobytes }
 
   # Scopes
   scope :for_commit_id, ->(commit_id) { where(noteable_type: "Commit", commit_id: commit_id) }
@@ -125,7 +126,8 @@ class Note < ApplicationRecord
   scope :user, -> { where(system: false) }
   scope :not_internal, -> { where(internal: false) }
   scope :common, -> { where(noteable_type: ["", nil]) }
-  scope :fresh, -> { order_created_asc.with_order_id_asc }
+  scope :order_created_at_id_asc, -> { order_created_asc.with_order_id_asc }
+  scope :order_created_at_id_desc, -> { order_created_desc.with_order_id_desc }
   scope :updated_after, ->(time) { where('updated_at > ?', time) }
   scope :with_suggestions, -> { joins(:suggestions) }
   scope :inc_author, -> { includes(:author) }
@@ -169,24 +171,41 @@ class Note < ApplicationRecord
     )
   end
   scope :with_metadata, -> { includes(:system_note_metadata) }
+  scope :with_noteable_type, ->(type) { where(noteable_type: type) }
+  scope :with_noteable_ids, ->(ids) { where(noteable_id: ids) }
+  scope :with_note, ->(note) { where(note: note) }
 
   scope :without_hidden, -> {
-    if Feature.enabled?(:hidden_notes)
-      where_not_exists(Users::BannedUser.where('notes.author_id = banned_users.user_id'))
-    else
-      all
-    end
+    where_not_exists(Users::BannedUser.where('notes.author_id = banned_users.user_id'))
   }
 
   scope :for_note_or_capitalized_note, ->(text) { where(note: [text, text.capitalize]) }
   scope :like_note_or_capitalized_note, ->(text) { where('(note LIKE ? OR note LIKE ?)', text, text.capitalize) }
+
+  scope :distinct_on_noteable_id, -> do
+    table = arel_table
+
+    select(
+      Arel.sql("DISTINCT ON (#{table[:noteable_id].name}) *")
+    )
+  end
+
+  scope :order_by_noteable_latest_first, -> do
+    table = arel_table
+
+    order(
+      table[:noteable_id].asc,
+      table[:created_at].desc,
+      table[:id].desc
+    )
+  end
 
   before_validation :ensure_namespace_id, :nullify_blank_type, :nullify_blank_line_code
   # Syncs `confidential` with `internal` as we rename the column.
   # https://gitlab.com/gitlab-org/gitlab/-/issues/367923
   before_create :set_internal_flag
   after_save :keep_around_commit, if: :for_project_noteable?, unless: -> { importing? || skip_keep_around_commits }
-  after_save :touch_noteable, unless: :importing?
+  after_save :touch_noteable, if: :touch_noteable?
   after_commit :notify_after_create, on: :create
   after_commit :notify_after_destroy, on: :destroy
 
@@ -194,6 +213,7 @@ class Note < ApplicationRecord
   after_commit :trigger_note_subscription_update, on: :update
   after_commit :trigger_note_subscription_destroy, on: :destroy
   after_commit :broadcast_noteable_notes_changed, unless: :importing?
+  after_commit :trigger_work_item_updated_subscription, on: :create, if: :system?
 
   def trigger_note_subscription_create
     return unless trigger_note_subscription?
@@ -224,11 +244,22 @@ class Note < ApplicationRecord
     GraphqlTriggers.work_item_note_deleted(noteable.to_work_item_global_id, deleted_note_data)
   end
 
+  def trigger_work_item_updated_subscription
+    return unless trigger_note_subscription?
+    return unless system_note_work_item_reference?
+
+    GraphqlTriggers.work_item_updated(noteable)
+  end
+
   class << self
     extend Gitlab::Utils::Override
 
     def model_name
       ActiveModel::Name.new(self, nil, 'note')
+    end
+
+    def parent_object_field
+      :noteable
     end
 
     # Group diff discussions by line code or file path.
@@ -237,7 +268,7 @@ class Note < ApplicationRecord
     def grouped_diff_discussions(diff_refs = nil)
       groups = {}
 
-      diff_notes.fresh.discussions.each do |discussion|
+      diff_notes.order_created_at_id_asc.discussions.each do |discussion|
         group_key =
           if discussion.on_image?
             discussion.file_new_path
@@ -306,10 +337,6 @@ class Note < ApplicationRecord
     true
   end
 
-  def max_attachment_size
-    Gitlab::CurrentSettings.max_attachment_size.megabytes.to_i
-  end
-
   def hook_attrs
     Gitlab::HookData::NoteBuilder.new(self).build
   end
@@ -346,12 +373,20 @@ class Note < ApplicationRecord
     noteable_type == "Vulnerability"
   end
 
+  def for_compliance_violation?
+    noteable_type == 'ComplianceManagement::Projects::ComplianceViolation'
+  end
+
   def for_project_snippet?
     noteable.is_a?(ProjectSnippet)
   end
 
   def for_personal_snippet?
     noteable.is_a?(PersonalSnippet)
+  end
+
+  def for_wiki_page?
+    noteable_type == "WikiPage::Meta"
   end
 
   def for_project_noteable?
@@ -414,6 +449,7 @@ class Note < ApplicationRecord
     project&.team&.contributor?(self.author_id)
   end
 
+  # overridden in ee
   def human_max_access
     project&.team&.human_max_access(self.author_id)
   end
@@ -445,7 +481,7 @@ class Note < ApplicationRecord
   # Since we used `updated_at` as `last_edited_at`, it could be touched by transforming / resolving a note.
   # This makes sure it is only marked as edited when the note body is updated.
   def edited?
-    return false if updated_by.blank?
+    return false if read_attribute(:last_edited_at).blank? && updated_by.blank?
 
     super
   end
@@ -473,6 +509,10 @@ class Note < ApplicationRecord
       'alert_management_alert'
     elsif for_vulnerability?
       'security_resource'
+    elsif for_wiki_page?
+      'wiki_page'
+    elsif for_compliance_violation?
+      'compliance_violations_report'
     else
       noteable_type.demodulize.underscore
     end
@@ -532,7 +572,8 @@ class Note < ApplicationRecord
   # touch the data so we can SELECT only the columns we need.
   def touch_noteable
     # Commits are not stored in the DB so we can't touch them.
-    return if for_commit?
+    # Vulnerabilities should not be touched as they are tracked in the same manner as other issuable types
+    return if for_vulnerability? || for_commit?
 
     assoc = association(:noteable)
 
@@ -711,6 +752,10 @@ class Note < ApplicationRecord
 
   private
 
+  def touch_noteable?
+    !importing? && !skip_touch_noteable
+  end
+
   def trigger_note_subscription?
     for_issue? && noteable
   end
@@ -732,7 +777,7 @@ class Note < ApplicationRecord
   end
 
   def keep_around_commit
-    project.repository.keep_around(self.commit_id, source: self.class.name)
+    project.repository.keep_around(self.commit_id, source: "#{noteable_type}/#{self.class.name}")
   end
 
   def ensure_namespace_id
@@ -762,13 +807,11 @@ class Note < ApplicationRecord
 
     if user_visible_reference_count.present? && total_reference_count.present?
       # if they are not equal, then there are private/confidential references as well
-      total_reference_count == 0 ||
-        (user_visible_reference_count > 0 && user_visible_reference_count == total_reference_count)
+      user_visible_reference_count > 0 && user_visible_reference_count == total_reference_count
     else
       refs = all_references(user)
-      refs.all
 
-      refs.all_visible?
+      refs.all.present? && refs.all_visible?
     end
   end
 
@@ -781,7 +824,9 @@ class Note < ApplicationRecord
   def does_not_exceed_notes_limit?
     return unless noteable
 
-    errors.add(:base, _('Maximum number of comments exceeded')) if noteable.notes.count >= Noteable::MAX_NOTES_LIMIT
+    notes_count = noteable.persisted? ? noteable.notes.count : noteable.notes.size
+
+    errors.add(:base, _('Maximum number of comments exceeded')) if notes_count >= Noteable::MAX_NOTES_LIMIT
   end
 
   def noteable_label_url_method
@@ -821,11 +866,15 @@ class Note < ApplicationRecord
   end
 
   def noteable_can_have_confidential_note?
-    for_issuable?
+    for_issuable? || for_wiki_page?
   end
 
   def set_internal_flag
     self.internal = confidential if confidential
+  end
+
+  def system_note_work_item_reference?
+    note.present? && system_note_metadata&.about_relation?
   end
 end
 

@@ -96,22 +96,6 @@ RSpec.describe 'User views an open merge request', feature_category: :code_revie
         expect(page).not_to have_content(/([0-9]+ commits? behind)/)
       end
     end
-
-    context 'when the assignee\'s availability set' do
-      before do
-        merge_request.author.create_status(availability: 'busy')
-        merge_request.assignees << merge_request.author
-
-        visit(merge_request_path(merge_request))
-      end
-
-      it 'exposes the availability in the data-availability attribute' do
-        assignees_data = find_all("input[name='merge_request[assignee_ids][]']", visible: false)
-
-        expect(assignees_data.size).to eq(1)
-        expect(assignees_data.first['data-availability']).to eq('busy')
-      end
-    end
   end
 
   context 'when user preferred language has changed', :use_clean_rails_memory_store_fragment_caching do
@@ -126,7 +110,7 @@ RSpec.describe 'User views an open merge request', feature_category: :code_revie
     it 'renders edit button in preferred language' do
       visit(merge_request_path(merge_request))
 
-      page.within('.detail-page-header-actions') do
+      page.within('.detail-page-header') do
         expect(page).to have_link('Edit')
       end
 
@@ -134,7 +118,7 @@ RSpec.describe 'User views an open merge request', feature_category: :code_revie
 
       visit(merge_request_path(merge_request))
 
-      page.within('.detail-page-header-actions') do
+      page.within('.detail-page-header') do
         expect(page).to have_link('Bearbeiten')
       end
     end

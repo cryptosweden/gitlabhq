@@ -1,14 +1,13 @@
 ---
 stage: Platforms
 group: Scalability
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Error budget detail dashboard
 ---
-
-# Error budget detail dashboard
 
 With error budget detailed dashboards you can explore the error budget
 spent at specific moments in time. By default, the dashboard shows
-the past 28 days. You can adjust it with the [time range controls](index.md#time-range-controls)
+the past 28 days. You can adjust it with the [time range controls](_index.md#time-range-controls)
 or by selecting a range on one of the graphs.
 
 This dashboard is the same kind of dashboard we use for service level
@@ -17,11 +16,11 @@ monitoring. For example, see the
 
 ## Error budget panels
 
-On top of each dashboard, there's the same panel with the [error budget](../index.md#error-budget).
+On top of each dashboard, there's the same panel with the [error budget](../_index.md#error-budget).
 Here, the time based targets adjust depending on the range.
 For example, while the budget was 20 minutes per 28 days, it is only 1/4 of that for 7 days:
 
-![5m budget in 7 days](img/error_budget_detail_7d_budget.png)
+![5m budget in 7 days](img/error_budget_detail_7d_budget_v14_10.png)
 
 Also, keep in mind that Grafana rounds the numbers. In this example the
 total time spent is 5 minutes and 24 seconds, so 24 seconds over
@@ -32,7 +31,7 @@ within the selected range.
 
 These two panels represent a view of the "official" error budget: they
 take into account if an SLI was ignored.
-The [attribution panels](../index.md#check-where-budget-is-being-spent) show which components
+The [attribution panels](../_index.md#check-where-budget-is-being-spent) show which components
 contributed the most over the selected period.
 
 The panels below take into account all SLIs that contribute to GitLab.com availability.
@@ -67,7 +66,7 @@ If this is something you would like for your group, let us know there.
 
 ### Stage group aggregation
 
-![stage group aggregation graphs](img/error_budget_detail_stage_group_aggregation.png)
+![stage group aggregation graphs](img/error_budget_detail_stage_group_aggregation_v14_10.png)
 
 The stage group aggregation shows a graph with the Apdex and errors
 portion of the error budget over time. The lower a dip in the Apdex
@@ -82,7 +81,7 @@ the graph.
 
 ### Service-level indicators
 
-![Rails requests service level indicator](img/error_budget_detail_sli.png)
+![Rails requests service level indicator](img/error_budget_detail_sli_v14_10.png)
 
 This time series shows a breakdown of each SLI that could be contributing to the
 error budget for a stage group. Similar to the stage group

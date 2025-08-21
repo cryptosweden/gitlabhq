@@ -2,13 +2,23 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: Learn how to clone Git repositories from a GitLab server using different protocols (SSH or HTTPS) and various IDEs.
+title: Clone a Git repository to your local computer
 ---
 
-# Clone a Git repository to your local computer
+You can clone a Git repository to your local computer. This action creates a copy of the repository and
+establishes a connection that synchronizes changes between your computer and the GitLab server.
+This connection requires you to add credentials.
+You can either [clone with SSH](#clone-with-ssh) or [clone with HTTPS](#clone-with-https).
+SSH is the recommended authentication method.
 
-When you clone a repository, a connection is created with a server and the files from the remote repository are downloaded to your computer.
+Cloning a repository:
 
-This connection requires you to add credentials. You can either use SSH or HTTPS. SSH is recommended.
+- Downloads all project files, history, and metadata to your local machine.
+- Creates a working directory with the latest version of the files.
+- Sets up remote tracking to synchronize future changes.
+- Provides offline access to the complete codebase.
+- Establishes the foundation for contributing code back to the project.
 
 ## Clone with SSH
 
@@ -30,9 +40,6 @@ Clone with SSH when you want to authenticate only one time.
    ```shell
    cd <new directory>
    ```
-
-You can also
-[clone a repository and open it directly in Visual Studio Code](../../user/project/repository/index.md#clone-and-open-in-visual-studio-code).
 
 ## Clone with HTTPS
 
@@ -64,10 +71,13 @@ the number of times you must manually authenticate, making HTTPS a seamless expe
    cd <new directory>
    ```
 
-NOTE:
+{{< alert type="note" >}}
+
 On Windows, if you enter your password incorrectly multiple times and an `Access denied` message appears,
 add your namespace (username or group) to the path:
 `git clone https://namespace@gitlab.com/gitlab-org/gitlab.git`.
+
+{{< /alert >}}
 
 ### Clone using a token
 
@@ -79,7 +89,7 @@ Clone with HTTPS using a token if:
 You can use any of these tokens to authenticate when cloning over HTTPS:
 
 - [Personal access tokens](../../user/profile/personal_access_tokens.md).
-- [Deploy tokens](../../user/project/deploy_tokens/index.md).
+- [Deploy tokens](../../user/project/deploy_tokens/_index.md).
 - [Project access tokens](../../user/project/settings/project_access_tokens.md).
 - [Group access tokens](../../user/group/settings/group_access_tokens.md).
 
@@ -88,6 +98,87 @@ For example:
 ```shell
 git clone https://<username>:<token>@gitlab.example.com/tanuki/awesome_project.git
 ```
+
+## Clone and open in Apple Xcode
+
+Projects that contain a `.xcodeproj` or `.xcworkspace` directory can be cloned
+into Xcode on macOS.
+
+1. From the GitLab UI, go to the project's overview page.
+1. In the upper-right corner, select **Code**.
+1. Select **Xcode**.
+
+The project is cloned onto your computer and you are
+prompted to open Xcode.
+
+## Clone and open in Visual Studio Code
+
+All projects can be cloned into Visual Studio Code from the GitLab user interface, but you
+can also install the [GitLab Workflow extension for VS Code](../../editor_extensions/visual_studio_code/_index.md) to clone from
+Visual Studio Code.
+
+Prerequisites:
+
+- [Visual Studio Code](https://code.visualstudio.com/) must be installed on your local machine.
+  Other versions of VS Code, like VS Code Insiders and VSCodium, are not supported.
+- [Configure your browser for IDE protocols](#configure-browsers-for-ide-protocols).
+
+- From the GitLab interface:
+  1. Go to the project's overview page.
+  1. In the upper-right corner, select **Code**.
+  1. Under **Open in your IDE**, select **Visual Studio Code (SSH)** or **Visual Studio Code (HTTPS)**.
+  1. Select a folder to clone the project into.
+
+     After Visual Studio Code clones your project, it opens the folder.
+- From Visual Studio Code, with the [extension](../../editor_extensions/visual_studio_code/_index.md) installed, use the
+  extension's [`Git: Clone` command](https://marketplace.visualstudio.com/items?itemName=GitLab.gitlab-workflow#clone-gitlab-projects).
+
+## Clone and open in IntelliJ IDEA
+
+All projects can be cloned into [IntelliJ IDEA](https://www.jetbrains.com/idea/)
+from the GitLab user interface.
+
+Prerequisites:
+
+- [IntelliJ IDEA](https://www.jetbrains.com/idea/) must be installed on your local machine.
+- [Configure your browser for IDE protocols](#configure-browsers-for-ide-protocols).
+
+To do this:
+
+1. Go to the project's overview page.
+1. In the upper-right corner, select **Code**.
+1. Under **Open in your IDE**, select **IntelliJ IDEA (SSH)** or **IntelliJ IDEA (HTTPS)**.
+
+## Configure browsers for IDE protocols
+
+To ensure that the **Open in IDE** feature is working, you must configure your browsers to handle
+custom application protocols, such as `vscode://` or `jetbrains://`.
+
+### Firefox
+
+Firefox handles custom protocols automatically if the required application is installed on your system.
+When you first select a custom protocol link, a dialog opens and requests if you want
+to open the application. Select **Open link** to allow Firefox to open the application.
+
+If you don't want to be prompted again, select the checkbox to remember your choice.
+
+If the prompt dialog does not open, you need to manually configure Firefox:
+
+1. Open Firefox.
+1. On the top right, select the **Open application menu** ({{< icon name="hamburger" >}}).
+1. Search for or go to the **Applications** section.
+1. Find and select your desired application in the list. For example, `vscode` or `jetbrains`.
+1. Select Visual Studio Code or IntelliJ IDEA from the dropdown list, or select **Use other...** to locate the executable.
+
+If your preferred IDE is not listed, you are prompted to choose an application the first time you select the corresponding link.
+
+### Chrome
+
+Chrome handles custom protocols automatically if the required application is installed on your system.
+When you first select a custom protocol link in Chrome, a dialog opens and requests if you want
+to open the application. Select **Open** to allow Chrome to open the application.
+
+If you don't want to be prompted again, select the checkbox to remember your choice.
 
 ## Reduce clone size
 
@@ -193,12 +284,15 @@ Deeper integration between partial clone and sparse checkout is possible through
 `--filter=sparse:oid=<blob-ish>` filter spec. This mode of filtering uses a format similar to a
 `.gitignore` file to specify which files to include when cloning and fetching.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Partial clone using `sparse` filters is still experimental. It might be slow and significantly increase
-[Gitaly](../../administration/gitaly/index.md) resource utilization when cloning and fetching.
+[Gitaly](../../administration/gitaly/_index.md) resource utilization when cloning and fetching.
 [Filter all blobs and use sparse-checkout](#filter-by-object-type) instead, because
 [`git-sparse-checkout`](https://git-scm.com/docs/git-sparse-checkout) simplifies
 this type of partial clone use and overcomes its limitations.
+
+{{< /alert >}}
 
 For more details, see the Git documentation for
 [`rev-list-options`](https://git-scm.com/docs/git-rev-list#Documentation/git-rev-list.txt---filterltfilter-specgt).
@@ -236,10 +330,13 @@ For more details, see the Git documentation for
    git rev-list --all --quiet --objects --missing=print | wc -l
    ```
 
-   WARNING:
+   {{< alert type="warning" >}}
+
    Git integrations with `bash`, Zsh, etc and editors that automatically
    show Git status information often run `git fetch` which fetches the
    entire repository. Disabling or reconfiguring these integrations might be required.
+
+   {{< /alert >}}
 
 ### Remove partial clone filtering
 
@@ -276,7 +373,7 @@ remove filtering:
    - Its corresponding `pack-<SHA1>.idx` file.
    - A `pack-<SHA1>.promisor` file.
 
-1. Delete the `.promisor` file. The above step should have left only one
+1. Delete the `.promisor` file. The previous step should have left only one
    `pack-<SHA1>.promisor` file, which should be empty and should be deleted.
 
 1. Remove partial clone configuration. The partial clone-related configuration

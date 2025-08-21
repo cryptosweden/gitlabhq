@@ -2,14 +2,14 @@
 
 require 'active_support/deprecation'
 require 'uri'
+require 'etc'
 
 module QA
   module Runtime
     module Env
       extend self
 
-      attr_writer :personal_access_token, :admin_personal_access_token, :gitlab_url
-      attr_accessor :dry_run
+      attr_writer :gitlab_url
 
       ENV_VARIABLES = Gitlab::QA::Runtime::Env::ENV_VARIABLES
 
@@ -90,8 +90,28 @@ module QA
         ENV['CI_PROJECT_PATH']
       end
 
+      def ci_project_dir
+        ENV.fetch('CI_PROJECT_DIR')
+      end
+
       def coverband_enabled?
         enabled?(ENV['COVERBAND_ENABLED'], default: false)
+      end
+
+      def istanbul_coverage_enabled?
+        ENV['BABEL_ENV'] == 'istanbul'
+      end
+
+      def selective_execution_improved_enabled?
+        enabled?(ENV['SELECTIVE_EXECUTION_IMPROVED'], default: false)
+      end
+
+      def frontend_selective_execution_enabled?
+        enabled?(ENV['FRONTEND_SELECTIVE_EXECUTION'], default: false)
+      end
+
+      def mr_targeting_stable_branch?
+        /^[\d-]+-stable(-ee|-jh)?$/.match?(ENV['CI_MERGE_REQUEST_TARGET_BRANCH_NAME'] || "")
       end
 
       def schedule_type
@@ -113,7 +133,7 @@ module QA
       # set to 'false' to have the browser run visibly instead of headless
       def webdriver_headless?
         if ENV.key?('CHROME_HEADLESS')
-          ActiveSupport::Deprecation.warn("CHROME_HEADLESS is deprecated. Use WEBDRIVER_HEADLESS instead.")
+          Rails.application.deprecators[:qa].warn("CHROME_HEADLESS is deprecated. Use WEBDRIVER_HEADLESS instead.")
         end
 
         return enabled?(ENV['WEBDRIVER_HEADLESS']) unless ENV['WEBDRIVER_HEADLESS'].nil?
@@ -135,9 +155,18 @@ module QA
         enabled?(ENV['ACCEPT_INSECURE_CERTS'])
       end
 
+      def running_on_live_env?
+        running_on_dot_com? || running_on_release?
+      end
+
       def running_on_dot_com?
-        uri = URI.parse(Runtime::Scenario.gitlab_address)
-        uri.host.include?('.com')
+        gitlab_host.include?('.com')
+      end
+
+      # This method can be removed after decommissioning `release` instance
+      # https://gitlab.com/groups/gitlab-com/gl-infra/-/epics/1571
+      def running_on_release?
+        gitlab_host == 'release.gitlab.net'
       end
 
       def running_on_dev?
@@ -157,6 +186,14 @@ module QA
         ENV['QA_COOKIES'] && ENV['QA_COOKIES'].split(';')
       end
 
+      def running_against_cell?
+        return false unless qa_cookies
+
+        qa_cookies.any? do |cookie|
+          cookie.start_with?("_gitlab_session=cell-")
+        end
+      end
+
       def signup_disabled?
         enabled?(ENV['SIGNUP_DISABLED'], default: false)
       end
@@ -164,23 +201,6 @@ module QA
       # PATs are disabled for FedRamp
       def personal_access_tokens_disabled?
         enabled?(ENV['PERSONAL_ACCESS_TOKENS_DISABLED'], default: false)
-      end
-
-      def admin_password
-        ENV['GITLAB_ADMIN_PASSWORD']
-      end
-
-      def admin_username
-        ENV['GITLAB_ADMIN_USERNAME']
-      end
-
-      def admin_personal_access_token
-        @admin_personal_access_token ||= ENV['GITLAB_QA_ADMIN_ACCESS_TOKEN']
-      end
-
-      # specifies token that can be used for the api
-      def personal_access_token
-        @personal_access_token ||= ENV['GITLAB_QA_ACCESS_TOKEN']
       end
 
       def remote_grid
@@ -261,6 +281,10 @@ module QA
         enabled?(ENV['USE_SELENOID'], default: false)
       end
 
+      def use_sha256_repository_object_storage
+        enabled?(ENV['QA_USE_SHA256_REPOSITORY_OBJECT_STORAGE'], default: false)
+      end
+
       def save_all_videos?
         enabled?(ENV['QA_SAVE_ALL_VIDEOS'], default: false)
       end
@@ -271,19 +295,8 @@ module QA
         remote_grid || (raise ArgumentError, "QA_REMOTE_GRID is required! See docs: #{docs_link}")
         video_recorder_image || (raise ArgumentError, "QA_VIDEO_RECORDER_IMAGE is required! See docs: #{docs_link}")
         selenoid_browser_image || (raise ArgumentError, "QA_SELENOID_BROWSER_IMAGE is required! See docs: #{docs_link}")
-        selenoid_browser_version || (raise ArgumentError, "QA_SELENOID_BROWSER_VERSION is required! See docs: #{docs_link}")
-      end
-
-      def user_username
-        ENV['GITLAB_USERNAME']
-      end
-
-      def user_password
-        ENV['GITLAB_PASSWORD']
-      end
-
-      def initial_root_password
-        ENV['GITLAB_INITIAL_ROOT_PASSWORD']
+        selenoid_browser_version || (raise ArgumentError,
+          "QA_SELENOID_BROWSER_VERSION is required! See docs: #{docs_link}")
       end
 
       def github_username
@@ -292,70 +305,6 @@ module QA
 
       def github_password
         ENV['QA_GITHUB_PASSWORD']
-      end
-
-      def forker?
-        !!(forker_username && forker_password)
-      end
-
-      def forker_username
-        ENV['GITLAB_FORKER_USERNAME']
-      end
-
-      def forker_password
-        ENV['GITLAB_FORKER_PASSWORD']
-      end
-
-      def gitlab_qa_username_1
-        ENV['GITLAB_QA_USERNAME_1'] || 'gitlab-qa-user1'
-      end
-
-      def gitlab_qa_password_1
-        ENV['GITLAB_QA_PASSWORD_1']
-      end
-
-      def gitlab_qa_access_token_1
-        ENV['GITLAB_QA_ACCESS_TOKEN_1']
-      end
-
-      def gitlab_qa_username_2
-        ENV['GITLAB_QA_USERNAME_2'] || 'gitlab-qa-user2'
-      end
-
-      def gitlab_qa_password_2
-        ENV['GITLAB_QA_PASSWORD_2']
-      end
-
-      def gitlab_qa_username_3
-        ENV['GITLAB_QA_USERNAME_3'] || 'gitlab-qa-user3'
-      end
-
-      def gitlab_qa_password_3
-        ENV['GITLAB_QA_PASSWORD_3']
-      end
-
-      def gitlab_qa_username_4
-        ENV['GITLAB_QA_USERNAME_4'] || 'gitlab-qa-user4'
-      end
-
-      def gitlab_qa_password_4
-        ENV['GITLAB_QA_PASSWORD_4']
-      end
-
-      def gitlab_qa_username_5
-        ENV['GITLAB_QA_USERNAME_5'] || 'gitlab-qa-user5'
-      end
-
-      def gitlab_qa_password_5
-        ENV['GITLAB_QA_PASSWORD_5']
-      end
-
-      def gitlab_qa_username_6
-        ENV['GITLAB_QA_USERNAME_6'] || 'gitlab-qa-user6'
-      end
-
-      def gitlab_qa_password_6
-        ENV['GITLAB_QA_PASSWORD_6']
       end
 
       def jira_admin_username
@@ -398,25 +347,8 @@ module QA
         ENV['QA_HOSTNAME']
       end
 
-      def cache_namespace_name?
-        enabled?(ENV['CACHE_NAMESPACE_NAME'], default: true)
-      end
-
       def knapsack?
         ENV['CI_NODE_TOTAL'].to_i > 1 && ENV['NO_KNAPSACK'] != "true"
-      end
-
-      def ldap_username
-        @ldap_username ||= ENV['GITLAB_LDAP_USERNAME']
-      end
-
-      def ldap_username=(ldap_username)
-        @ldap_username = ldap_username # rubocop:disable Gitlab/ModuleWithInstanceVariables
-        ENV['GITLAB_LDAP_USERNAME'] = ldap_username
-      end
-
-      def ldap_password
-        @ldap_password ||= ENV['GITLAB_LDAP_PASSWORD']
       end
 
       def sandbox_name
@@ -477,6 +409,10 @@ module QA
         ENV.fetch("WORKSPACES_OAUTH_SIGNING_KEY")
       end
 
+      def workspaces_proxy_version
+        ENV.fetch("WORKSPACES_PROXY_VERSION", '0.1.12')
+      end
+
       def workspaces_proxy_domain
         ENV.fetch("WORKSPACES_PROXY_DOMAIN")
       end
@@ -506,10 +442,6 @@ module QA
         return unless github_access_token.empty?
 
         raise ArgumentError, "Please provide QA_GITHUB_ACCESS_TOKEN"
-      end
-
-      def require_admin_access_token!
-        admin_personal_access_token || (raise ArgumentError, "GITLAB_QA_ADMIN_ACCESS_TOKEN is required!")
       end
 
       # Returns true if there is an environment variable that indicates that
@@ -560,14 +492,6 @@ module QA
 
       def geo_environment?
         QA::Runtime::Scenario.attributes.include?(:geo_secondary_address)
-      end
-
-      def gitlab_agentk_version
-        ENV.fetch('GITLAB_AGENTK_VERSION', 'v16.10.0')
-      end
-
-      def transient_trials
-        ENV.fetch('GITLAB_QA_TRANSIENT_TRIALS', 10).to_i
       end
 
       def gitlab_tls_certificate
@@ -726,7 +650,70 @@ module QA
         enabled?(ENV['QA_RSPEC_RETRIED'], default: false)
       end
 
+      def parallel_processes
+        ENV.fetch('QA_PARALLEL_PROCESSES') do
+          [Etc.nprocessors / 2, 1].max
+        end.to_i
+      end
+
+      # Execution was started by parallel runner
+      #
+      # @return [Boolean]
+      def parallel_run?
+        ENV["TEST_ENV_NUMBER"].present?
+      end
+
+      # Execute tests in multiple parallel processes
+      #
+      # @return [Boolean]
+      def run_in_parallel?
+        enabled?(ENV["QA_RUN_IN_PARALLEL"], default: false)
+      end
+
+      # Environment has no support for admin operations
+      #
+      # @return [Boolean]
+      def no_admin_environment?
+        enabled?(ENV["QA_NO_ADMIN_ENV"], default: false) || gitlab_host == "gitlab.com"
+      end
+
+      # Test run type
+      #
+      # @return [String]
+      def run_type
+        ENV["QA_RUN_TYPE"].presence
+      end
+
+      # Execution performed with --dry-run flag
+      #
+      # @return [Boolean]
+      def dry_run
+        enabled?(ENV["QA_RSPEC_DRY_RUN"], default: false)
+      end
+
+      # Ignore runtime data when generating knapsack reports
+      #
+      # @return [Boolean]
+      def ignore_runtime_data?
+        enabled?(ENV["QA_IGNORE_RUNTIME_DATA"], default: false)
+      end
+
+      # Create uniq test users for each test
+      #
+      # @return [Boolean]
+      def create_unique_test_users?
+        enabled?(ENV["QA_CREATE_UNIQUE_TEST_USERS"], default: true)
+      end
+
       private
+
+      # Gitlab host tests are running against
+      #
+      # @return [String]
+      def gitlab_host
+        # gitlab address should be immutable so it's ok to memoize as global
+        @gitlab_host ||= URI.parse(Runtime::Scenario.gitlab_address).host
+      end
 
       def remote_grid_credentials
         if remote_grid_username

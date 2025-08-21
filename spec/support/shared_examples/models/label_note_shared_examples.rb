@@ -12,7 +12,11 @@ RSpec.shared_examples 'label note created from events' do
   def label_refs(events)
     labels = events.map(&:label).compact
 
-    labels.map { |l| l.to_reference }.sort.join(' ')
+    labels.map { |l| l.to_reference }.join(' ')
+  end
+
+  def note_from_events(events)
+    described_class.from_events(events, resource: resource, resource_parent: resource.resource_parent)
   end
 
   let(:time) { Time.now }
@@ -22,7 +26,7 @@ RSpec.shared_examples 'label note created from events' do
     it 'returns system note with expected attributes' do
       event = create_event
 
-      note = described_class.from_events([event, create_event])
+      note = note_from_events([event, create_event])
 
       expect(note.system).to be true
       expect(note.author_id).to eq event.user_id
@@ -37,7 +41,7 @@ RSpec.shared_examples 'label note created from events' do
     it 'updates markdown cache if reference is not set yet' do
       event = create_event(reference: nil)
 
-      described_class.from_events([event])
+      note_from_events([event])
 
       expect(event.reference).not_to be_nil
     end
@@ -45,7 +49,7 @@ RSpec.shared_examples 'label note created from events' do
     it 'updates markdown cache if label was deleted' do
       event = create_event(reference: 'some_ref', label: nil)
 
-      described_class.from_events([event])
+      note_from_events([event])
 
       expect(event.reference).to eq ''
     end
@@ -53,39 +57,57 @@ RSpec.shared_examples 'label note created from events' do
     it 'returns html note' do
       events = [create_event(created_at: time)]
 
-      note = described_class.from_events(events)
+      note = note_from_events(events)
 
       expect(note.note_html).to include label.title
     end
 
     it 'returns text note for added labels' do
       events = [create_event(created_at: time),
-                create_event(created_at: time, label: label2),
-                create_event(created_at: time, label: nil)]
+        create_event(created_at: time, label: label2),
+        create_event(created_at: time, label: nil)]
 
-      note = described_class.from_events(events)
+      note = note_from_events(events)
 
       expect(note.note).to eq "added #{label_refs(events)} + 1 deleted label"
     end
 
+    it 'orders label events by label name' do
+      foo_label = label.dup.tap do |l|
+        l.update_attribute(:title, 'foo')
+      end
+      bar_label = label2.dup.tap do |l|
+        l.update_attribute(:title, 'bar')
+      end
+
+      events = [
+        create_event(created_at: time, label: foo_label),
+        create_event(created_at: time, label: bar_label)
+      ]
+
+      note = note_from_events(events)
+
+      expect(note.note).to eq "added #{label_refs(events.reverse)} labels"
+    end
+
     it 'returns text note for removed labels' do
       events = [create_event(action: :remove, created_at: time),
-                create_event(action: :remove, created_at: time, label: label2),
-                create_event(action: :remove, created_at: time, label: nil)]
+        create_event(action: :remove, created_at: time, label: label2),
+        create_event(action: :remove, created_at: time, label: nil)]
 
-      note = described_class.from_events(events)
+      note = note_from_events(events)
 
       expect(note.note).to eq "removed #{label_refs(events)} + 1 deleted label"
     end
 
     it 'returns text note for added and removed labels' do
       add_events = [create_event(created_at: time),
-                    create_event(created_at: time, label: nil)]
+        create_event(created_at: time, label: nil)]
 
       remove_events = [create_event(action: :remove, created_at: time),
-                       create_event(action: :remove, created_at: time, label: nil)]
+        create_event(action: :remove, created_at: time, label: nil)]
 
-      note = described_class.from_events(add_events + remove_events)
+      note = note_from_events(add_events + remove_events)
 
       expect(note.note).to eq "added #{label_refs(add_events)} + 1 deleted label and removed #{label_refs(remove_events)} + 1 deleted label"
     end
@@ -94,7 +116,7 @@ RSpec.shared_examples 'label note created from events' do
       other_label = create(:label)
       event = create_event(label: other_label)
 
-      note = described_class.from_events([event])
+      note = note_from_events([event])
 
       expect(note.note).to eq "added #{other_label.to_reference(resource_parent)} label"
     end
@@ -103,9 +125,9 @@ RSpec.shared_examples 'label note created from events' do
       other_label = create(:group_label)
       event = create_event(label: other_label)
 
-      note = described_class.from_events([event])
+      note = note_from_events([event])
 
-      expect(note.note).to eq "added #{other_label.to_reference(other_label.group, target_project: project, full: true)} label"
+      expect(note.note).to eq "added #{other_label.to_reference(other_label.group, target_container: project, full: true)} label"
     end
   end
 end

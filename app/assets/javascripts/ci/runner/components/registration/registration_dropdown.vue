@@ -9,8 +9,7 @@ import {
   GlSprintf,
 } from '@gitlab/ui';
 import { helpPagePath } from '~/helpers/help_page_helper';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
-import RunnerInstructionsModal from '~/vue_shared/components/runner_instructions/runner_instructions_modal.vue';
+import RunnerInstructionsModal from '~/ci/runner/components/registration/runner_instructions/runner_instructions_modal.vue';
 import {
   INSTANCE_TYPE,
   GROUP_TYPE,
@@ -40,7 +39,6 @@ export default {
     RunnerInstructionsModal,
     RegistrationTokenResetDropdownItem,
   },
-  mixins: [glFeatureFlagMixin()],
   props: {
     allowRegistrationToken: {
       type: Boolean,
@@ -77,9 +75,6 @@ export default {
         default:
           return I18N_REGISTER_RUNNER;
       }
-    },
-    isRegistrationTokenPresent() {
-      return Boolean(this.registrationToken);
     },
     state() {
       if (this.registrationToken && this.allowRegistrationToken) {
@@ -123,16 +118,16 @@ export default {
     v-if="state !== $options.REGISTRATION_TOKEN_HIDDEN"
     ref="runnerRegistrationDropdown"
     :toggle-text="actionText"
-    toggle-class="gl-px-3!"
     variant="default"
     category="tertiary"
+    size="small"
     v-bind="$attrs"
     icon="ellipsis_v"
     text-sr-only
     no-caret
   >
     <div v-if="state == $options.REGISTRATION_TOKEN_DISABLED" class="gl-px-4 gl-py-2">
-      <gl-icon name="error" class="gl-text-red-500" />
+      <gl-icon name="error" variant="danger" />
       <gl-sprintf
         :message="
           s__(
@@ -148,11 +143,11 @@ export default {
       </gl-sprintf>
     </div>
     <template v-if="state == $options.REGISTRATION_TOKEN_ENABLED">
-      <gl-dropdown-form class="gl-p-4!">
+      <gl-dropdown-form class="!gl-p-4">
         <registration-token input-id="token-value" :value="currentRegistrationToken" @copy="onCopy">
           <template #label-description>
-            <gl-icon name="warning" class="gl-text-orange-500" />
-            <span class="gl-text-secondary">
+            <gl-icon name="warning" variant="warning" />
+            <span class="gl-text-subtle">
               {{ s__('Runners|Support for registration tokens is deprecated') }}
             </span>
           </template>

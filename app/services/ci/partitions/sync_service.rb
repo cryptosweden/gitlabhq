@@ -8,7 +8,6 @@ module Ci
       end
 
       def execute
-        return unless Feature.enabled?(:ci_partitioning_automation, :instance)
         return unless partition
 
         sync_available_partitions_statuses!
@@ -24,12 +23,12 @@ module Ci
       attr_reader :partition
 
       def above_threshold?
-        partition.above_threshold?(Ci::Partition::MAX_PARTITION_SIZE)
+        partition.above_threshold?
       end
 
       def sync_available_partitions_statuses!
-        Ci::Partition.id_after(partition.id).each do |partition|
-          partition.ready! if partition.all_partitions_exist?
+        Ci::Partition.id_after(partition.id).with_status(:preparing).each do |record|
+          record.ready! if record.all_partitions_exist?
         end
       end
 

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Git::BranchPushService, :use_clean_rails_redis_caching, services: true, feature_category: :source_code_management do
+RSpec.describe Git::BranchPushService, :use_clean_rails_redis_caching, :services, feature_category: :source_code_management do
   include RepoHelpers
 
   let_it_be(:user) { create(:user) }
@@ -14,9 +14,11 @@ RSpec.describe Git::BranchPushService, :use_clean_rails_redis_caching, services:
   let(:branch)   { 'master' }
   let(:ref)      { "refs/heads/#{branch}" }
   let(:push_options) { nil }
+  let(:gitaly_context) { nil }
+  let(:params) { { change: { oldrev: oldrev, newrev: newrev, ref: ref }, push_options: push_options, gitaly_context: gitaly_context } }
+
   let(:service) do
-    described_class
-      .new(project, user, change: { oldrev: oldrev, newrev: newrev, ref: ref }, push_options: push_options)
+    described_class.new(project, user, **params)
   end
 
   subject(:execute_service) do
@@ -71,12 +73,13 @@ RSpec.describe Git::BranchPushService, :use_clean_rails_redis_caching, services:
     end
   end
 
-  describe "Pipelines" do
+  describe "Pipelines", :sidekiq_inline do
     before do
       stub_ci_pipeline_to_return_yaml_file
     end
 
     it 'creates a pipeline with the right parameters' do
+      allow(Ci::CreatePipelineService).to receive(:new).and_call_original
       expect(Ci::CreatePipelineService).to receive(:new).with(
         project,
         user,
@@ -86,7 +89,8 @@ RSpec.describe Git::BranchPushService, :use_clean_rails_redis_caching, services:
           ref: ref,
           checkout_sha: SeedRepo::Commit::ID,
           variables_attributes: [],
-          push_options: {}
+          push_options: nil,
+          gitaly_context: nil
         }
       ).and_call_original
 
@@ -107,23 +111,14 @@ RSpec.describe Git::BranchPushService, :use_clean_rails_redis_caching, services:
         stub_ci_pipeline_yaml_file(config)
       end
 
-      it 'reports an error' do
-        allow(Gitlab::Runtime).to receive(:sidekiq?).and_return(true)
-        expect(Sidekiq.logger).to receive(:warn)
-
+      it 'does not create a pipeline' do
         expect { subject }.not_to change { Ci::Pipeline.count }
       end
 
       context 'with push options' do
         let(:push_options) { { 'mr' => { 'create' => true } } }
 
-        it 'sanitizes push options' do
-          allow(Gitlab::Runtime).to receive(:sidekiq?).and_return(true)
-          expect(Sidekiq.logger).to receive(:warn) do |args|
-            pipeline_params = args[:pipeline_params]
-            expect(pipeline_params.keys).to match_array(%i[before after ref variables_attributes checkout_sha])
-          end
-
+        it 'does not create a pipeline' do
           expect { subject }.not_to change { Ci::Pipeline.count }
         end
       end
@@ -257,7 +252,7 @@ RSpec.describe Git::BranchPushService, :use_clean_rails_redis_caching, services:
     end
 
     it "creates a note if a pushed commit mentions an issue", :sidekiq_might_not_need_inline do
-      expect(SystemNoteService).to receive(:cross_reference).with(issue, commit, commit_author)
+      expect(SystemNoteService).to receive(:cross_reference).with(issue, commit, user)
 
       subject
     end
@@ -265,17 +260,7 @@ RSpec.describe Git::BranchPushService, :use_clean_rails_redis_caching, services:
     it "only creates a cross-reference note if one doesn't already exist" do
       SystemNoteService.cross_reference(issue, commit, user)
 
-      expect(SystemNoteService).not_to receive(:cross_reference).with(issue, commit, commit_author)
-
-      subject
-    end
-
-    it "defaults to the pushing user if the commit's author is not known", :sidekiq_inline, :use_clean_rails_redis_caching do
-      allow(commit).to receive_messages(
-        author_name: 'unknown name',
-        author_email: 'unknown@email.com'
-      )
-      expect(SystemNoteService).to receive(:cross_reference).with(issue, commit, user)
+      expect(SystemNoteService).not_to receive(:cross_reference)
 
       subject
     end
@@ -288,7 +273,7 @@ RSpec.describe Git::BranchPushService, :use_clean_rails_redis_caching, services:
         allow(project.repository).to receive(:commits_between).with(blankrev, newrev).and_return([])
         allow(project.repository).to receive(:commits_between).with("master", newrev).and_return([commit])
 
-        expect(SystemNoteService).to receive(:cross_reference).with(issue, commit, commit_author)
+        expect(SystemNoteService).to receive(:cross_reference).with(issue, commit, user)
 
         subject
       end
@@ -384,7 +369,7 @@ RSpec.describe Git::BranchPushService, :use_clean_rails_redis_caching, services:
       end
 
       it "creates cross-reference notes", :sidekiq_inline, :use_clean_rails_redis_caching do
-        expect(SystemNoteService).to receive(:cross_reference).with(issue, closing_commit, commit_author)
+        expect(SystemNoteService).to receive(:cross_reference).with(issue, closing_commit, user)
         subject
       end
 
@@ -613,6 +598,9 @@ RSpec.describe Git::BranchPushService, :use_clean_rails_redis_caching, services:
 
   describe 'Hooks' do
     context 'run on a branch' do
+      let(:process_commit_worker_pool) { Gitlab::Git::ProcessCommitWorkerPool.new }
+      let(:params) { super().merge(process_commit_worker_pool: process_commit_worker_pool) }
+
       it 'delegates to Git::BranchHooksService' do
         expect_next_instance_of(::Git::BranchHooksService) do |hooks_service|
           expect(hooks_service.project).to eq(project)
@@ -622,7 +610,8 @@ RSpec.describe Git::BranchPushService, :use_clean_rails_redis_caching, services:
               oldrev: oldrev,
               newrev: newrev,
               ref: ref
-            }
+            },
+            process_commit_worker_pool: process_commit_worker_pool
           )
 
           expect(hooks_service).to receive(:execute)

@@ -1,16 +1,17 @@
 <script>
 import {
+  GlIcon,
   GlLoadingIcon,
   GlDisclosureDropdownItem,
   GlTooltipDirective,
   GlOutsideDirective as Outside,
 } from '@gitlab/ui';
-// eslint-disable-next-line no-restricted-imports
-import { mapGetters, mapActions } from 'vuex';
+import { mapState, mapActions } from 'pinia';
 import { TYPE_ISSUE } from '~/issues/constants';
 import { __, sprintf } from '~/locale';
 import { createAlert } from '~/alert';
 import toast from '~/vue_shared/plugins/global_toast';
+import { useNotes } from '~/notes/store/legacy_notes';
 import eventHub from '../../event_hub';
 
 export default {
@@ -25,6 +26,7 @@ export default {
     displayText: __('Unlocked'),
   },
   components: {
+    GlIcon,
     GlLoadingIcon,
     GlDisclosureDropdownItem,
   },
@@ -58,7 +60,7 @@ export default {
     };
   },
   computed: {
-    ...mapGetters(['getNoteableData']),
+    ...mapState(useNotes, ['getNoteableData']),
     isIssuable() {
       return this.getNoteableData.targetType === TYPE_ISSUE;
     },
@@ -81,6 +83,9 @@ export default {
     },
     lockToggleText() {
       return this.isLocked ? this.unlockMergeRequestText : this.lockMergeRequestText;
+    },
+    lockToggleIcon() {
+      return this.isLocked ? 'lock-open' : 'lock';
     },
     lockingMergeRequestText() {
       return sprintf(this.$options.i18n.lockingMergeRequest, {
@@ -123,7 +128,7 @@ export default {
   },
 
   methods: {
-    ...mapActions(['updateLockedAttribute']),
+    ...mapActions(useNotes, ['updateLockedAttribute']),
     toggleForm() {
       if (this.isEditable) {
         this.isLockDialogOpen = !this.isLockDialogOpen;
@@ -188,6 +193,7 @@ export default {
           <gl-loading-icon inline size="sm" /> {{ lockToggleInProgressText }}
         </template>
         <template v-else>
+          <gl-icon :name="lockToggleIcon" class="gl-mr-2" variant="subtle" />
           {{ lockToggleText }}
         </template>
       </span>

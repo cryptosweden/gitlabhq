@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create', product_group: :source_code do
-    describe 'Multiple file snippet', :blocking do
+  RSpec.describe 'Create', feature_category: :source_code_management do
+    describe 'Multiple file snippet' do
       let(:personal_snippet) do
-        create(:snippet,
+        create(:project_snippet,
           title: 'Personal snippet to add file to',
           file_name: 'Original file name',
           file_content: 'Original file content')

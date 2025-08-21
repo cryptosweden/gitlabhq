@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Sidekiq Compatibility across Updates
 ---
-
-# Sidekiq Compatibility across Updates
 
 The arguments for a Sidekiq job are stored in a queue while it is
 scheduled for execution. During a online update, this could lead to
@@ -28,15 +27,19 @@ others - particularly [latency-sensitive jobs](worker_attributes.md#latency-sens
 this will result in a poor user experience.
 
 This only applies to new worker classes when they are first introduced.
-As we recommend [using feature flags](../feature_flags/index.md) as a general
+As we recommend [using feature flags](../feature_flags/_index.md) as a general
 development process, it's best to control the entire change (including
 scheduling of the new Sidekiq worker) with a feature flag.
 
 ## Changing the arguments for a worker
 
 Jobs need to be backward and forward compatible between consecutive versions
-of the application. Adding or removing an argument may cause problems
-during deployment before all Rails and Sidekiq nodes have the updated code.
+of the application. Adding or removing an argument may cause problems.
+
+During any deployment, there's a period of time where some application nodes have been updated while others haven't.
+If an updated node queues a job with new arguments, but an older Sidekiq node processes it, the job will fail due to an argument mismatch.
+
+For GitLab.com, this can occur if there are multiple deployments in the same milestone. Most self-managed deployments update all nodes sequentially in a single deployment cycle each release, so we need to spread the changes across multiple releases.
 
 ### Deprecate and remove an argument
 
@@ -75,10 +78,10 @@ following example deprecates and then removes `arg2` from the `perform_async` me
 
 There are two options for safely adding new arguments to Sidekiq workers:
 
-1. Set up a [multi-step deployment](#multi-step-deployment) in which the new argument is first added to the worker.
-1. Use a [parameter hash](#parameter-hash) for additional arguments. This is perhaps the most flexible option.
+- Set up a [multi-step release](#multi-step-release) in which the new argument is first added to the worker. Consider using a [parameter hash](#parameter-hash) for future flexibility.
+- If a worker already uses a [parameter hash](#parameter-hash) for additional arguments, pass the new argument in the hash. Workers that don't use a parameter hash yet need to go through the multi-step release to add it first.
 
-#### Multi-step deployment
+#### Multi-step release
 
 This approach requires multiple releases.
 
@@ -125,9 +128,9 @@ uses a parameter hash.
 
 ## Removing worker classes
 
-To remove a worker class, follow these steps over two minor releases:
+To remove a worker class, follow these steps over three minor releases:
 
-### In the first minor release
+### In the minor release M
 
 1. Remove any code that enqueues the jobs.
 
@@ -136,7 +139,7 @@ To remove a worker class, follow these steps over two minor releases:
    This ensures that instances related to the worker class are no longer being enqueued.
 
 1. Ensure both the frontend and backend code no longer relies on any of the work that used to be done by the worker.
-1. In the relevant worker classes, replace the contents of the `perform` method with a no-op, while keeping any arguments in tact.
+1. In the relevant worker classes, replace the contents of the `perform` method with a no-op, while keeping any arguments intact.
 
    For example, if you're working with the following `ExampleWorker`:
 
@@ -158,28 +161,32 @@ To remove a worker class, follow these steps over two minor releases:
 
    By implementing this no-op, you can avoid unnecessary cycles once any deprecated jobs that are still enqueued eventually get processed.
 
-### In a subsequent, separate minor release
+### In the M+1 release
 
-1. Delete the worker class file and follow the guidance in our [Sidekiq queues documentation](../sidekiq/index.md#sidekiq-queues) around running Rake tasks to regenerate/update related files.
-1. Add a migration (not a post-deployment migration) that uses `sidekiq_remove_jobs`:
+Add a migration (not a post-deployment migration) that uses `sidekiq_remove_jobs`:
 
    ```ruby
    class RemoveMyDeprecatedWorkersJobInstances < Gitlab::Database::Migration[2.1]
+     # Always use `disable_ddl_transaction!` while using the `sidekiq_remove_jobs` method,
+     # as we had multiple production incidents due to `idle-in-transaction` timeout.
+     disable_ddl_transaction!
+
      DEPRECATED_JOB_CLASSES = %w[
        MyDeprecatedWorkerOne
        MyDeprecatedWorkerTwo
      ]
-     # Always use `disable_ddl_transaction!` while using the `sidekiq_remove_jobs` method, as we had multiple production incidents due to `idle-in-transaction` timeout.
-     disable_ddl_transaction!
+
      def up
-       # If the job has been scheduled via `sidekiq-cron`, we must also remove
-       # it from the scheduled worker set using the key used to define the cron
-       # schedule in config/initializers/1_settings.rb.
-       job_to_remove = Sidekiq::Cron::Job.find('my_deprecated_worker')
-       # The job may be removed entirely:
-       job_to_remove.destroy if job_to_remove
-       # The job may be disabled:
-       job_to_remove.disable! if job_to_remove
+       Gitlab::SidekiqSharding::Validator.allow_unrouted_sidekiq_calls do
+         # If the job has been scheduled via `sidekiq-cron`, we must also remove
+         # it from the scheduled worker set using the key used to define the cron
+         # schedule in config/initializers/1_settings.rb.
+         job_to_remove = Sidekiq::Cron::Job.find('my_deprecated_worker')
+         # The job may be removed entirely:
+         job_to_remove.destroy if job_to_remove
+         # The job may be disabled:
+         job_to_remove.disable! if job_to_remove
+       end
 
        # Removes scheduled instances from Sidekiq queues
        sidekiq_remove_jobs(job_klasses: DEPRECATED_JOB_CLASSES)
@@ -191,6 +198,10 @@ To remove a worker class, follow these steps over two minor releases:
    end
    ```
 
+### In the M+2 release
+
+Delete the worker class file and follow the guidance in our [Sidekiq queues documentation](_index.md#sidekiq-queues) around running Rake tasks to regenerate/update related files.
+
 ## Renaming queues
 
 For the same reasons that removing workers is dangerous, care should be taken
@@ -201,7 +212,7 @@ in a **post-deployment migration**:
 
 ```ruby
 class MigrateTheRenamedSidekiqQueue < Gitlab::Database::Migration[2.1]
-  restrict_gitlab_migration gitlab_schema: :gitlab_main
+  restrict_gitlab_migration gitlab_schema: :gitlab_main_org
   disable_ddl_transaction!
 
   def up
@@ -223,12 +234,12 @@ schedule these jobs have stopped running. See also [other examples](../database/
 
 We should treat this similar to adding a new worker. That means we only start scheduling the newly-named worker after the Sidekiq deployment finishes.
 
-   To ensure backward and forward compatibility between consecutive versions
+To ensure backward and forward compatibility between consecutive versions
 of the application, follow these steps over three minor releases:
 
-1. Create the newly named worker, and have the old worker call the new worker's `#perform` method. Inroduce a feature flag to control when we start scheduling the new worker. (Release M)
+1. Create the newly named worker, and have the old worker call the new worker's `#perform` method. Introduce a feature flag to control when we start scheduling the new worker. (Release M)
 
-    Any old worker jobs that are still in the queue will delegate to the new worker. When this version is deployed, it is no longer relevant which version of the job is scheduled or which Sidekiq handles it, an old-Sidekiq will use the old worker's full implementation, a new-Sidekiq will delegate to the new worker.
+   Any old worker jobs that are still in the queue will delegate to the new worker. When this version is deployed, it is no longer relevant which version of the job is scheduled or which Sidekiq handles it, an old-Sidekiq will use the old worker's full implementation, a new-Sidekiq will delegate to the new worker.
 
 1. Enable the feature flag for GitLab.com, and after that prepare an MR to enable it by default. (Release M+1)
 1. Remove the old worker class and the feature flag. (Release M+2)

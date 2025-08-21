@@ -2,13 +2,15 @@
 stage: Package
 group: Container Registry
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Reduce container registry storage
 ---
 
-# Reduce container registry storage
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Container registries can grow in size over time if you don't manage your registry usage. For example,
 if you add a large number of images or tags:
@@ -16,24 +18,82 @@ if you add a large number of images or tags:
 - Retrieving the list of available tags or images becomes slower.
 - They take up a large amount of storage space on the server.
 
-You should delete unnecessary images and tags and set up a [cleanup policy](#cleanup-policy)
+You should delete unnecessary images and tags and set up a [container registry cleanup policy](#cleanup-policy)
 to automatically manage your container registry usage.
 
 ## View container registry usage
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com
+{{< details >}}
 
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/5523) in GitLab 15.7
+- Tier: Free, Premium, Ultimate
 
-To view the storage usage for the container registry:
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/5523) in GitLab 15.7
+
+{{< /history >}}
+
+View storage usage data for your container registry repositories.
+
+### For a project
+
+Prerequisites:
+
+- For GitLab Self-Managed instances, an administrator must [enable the container registry metadata database](../../../administration/packages/container_registry_metadata_database.md).
+- You must have at least the Maintainer role for the project or the Owner role for the namespace.
+
+To view storage usage for a project:
 
 1. On the left sidebar, select **Search or go to** and find your project.
-1. Select **Settings > Usage Quotas**.
+1. Do one of the following:
+   - To view total storage usage, select **Settings > Usage quotas**.
+    Under **Namespace entities**, select **Container Registry** to view individual repositories.
+   - To view storage usage by repository directly, select **Deploy > Container Registry**.
 
-You cannot view container registry usage for self-managed instances, but this is
-proposed in [epic 5521](https://gitlab.com/groups/gitlab-org/-/epics/5521).
+You can also use:
+
+- The [Projects API](../../../api/projects.md#get-a-single-project) to get total container registry storage for a project.
+- The [Registry API](../../../api/container_registry.md#get-details-of-a-single-repository) to get size data for a specific repository.
+
+### For a group
+
+Prerequisites:
+
+- For GitLab Self-Managed instances, an administrator must [enable the container registry metadata database](../../../administration/packages/container_registry_metadata_database.md).
+- You must have the Owner role for the group.
+
+To view storage usage for a group:
+
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Settings > Usage quotas**.
+1. Select the **Storage** tab.
+
+You can also use the [Groups API](../../../api/groups.md#list-all-groups) to get total container registry storage for all projects in a group.
+
+### Storage data updates
+
+After the metadata database is enabled:
+
+- For new container images, size data is available immediately after you push.
+- For existing container images, size data is calculated in the background and can take up to 24 hours.
+
+Storage data updates occur:
+
+- Immediately when you push or delete container images.
+- In real-time when you:
+  - View the repository image tags in the UI.
+  - Use the Container registry API to [get details of a single repository](../../../api/container_registry.md#get-details-of-a-single-repository).
+- When you push or delete tags in a project's container repository.
+- Every 5 minutes for groups.
+
+{{< alert type="note" >}}
+
+For GitLab Self-Managed instances, storage data becomes available after an administrator enables the metadata database.
+On GitLab.com, the metadata database is enabled by default.
+
+{{< /alert >}}
 
 ## How container registry usage is calculated
 
@@ -50,7 +110,7 @@ An image layer is only counted once if:
 - You share the image layer across different repositories.
 
 Only layers that are referenced by tagged images are accounted for. Untagged images and any layers
-referenced exclusively by them are subject to [online garbage collection](../container_registry/delete_container_registry_images.md#garbage-collection).
+referenced exclusively by them are subject to [online garbage collection](delete_container_registry_images.md#garbage-collection).
 Untagged image layers are automatically deleted after 24 hours if they remain unreferenced during that period.
 
 Image layers are stored on the storage backend in the original (usually compressed) format. This
@@ -72,7 +132,7 @@ in the namespace. Untagged image layers are not ignored. As a result,
 the displayed usage size might not change significantly after deleting tags. Instead,
 the size value only changes when:
 
-- An automated [garbage collection process](../container_registry/delete_container_registry_images.md#garbage-collection)
+- An automated [garbage collection process](delete_container_registry_images.md#garbage-collection)
   runs and deletes untagged image layers. After a user deletes a tag, a garbage collection run
   is scheduled to start 24 hours later. During that run, images that were previously tagged
   are analyzed and their layers deleted if not referenced by any other tagged image.
@@ -85,7 +145,11 @@ the size value only changes when:
 
 ## Cleanup policy
 
-> - [Required permissions](https://gitlab.com/gitlab-org/gitlab/-/issues/350682) changed from developer to maintainer in GitLab 15.0.
+{{< history >}}
+
+- [Required permissions](https://gitlab.com/gitlab-org/gitlab/-/issues/350682) changed from developer to maintainer in GitLab 15.0.
+
+{{< /history >}}
 
 The cleanup policy is a scheduled job you can use to remove tags from the container registry.
 For the project where it's defined, tags matching the regex pattern are removed.
@@ -96,9 +160,12 @@ To delete the underlying layers and images that aren't associated with any tags,
 
 ### Enable the cleanup policy
 
-WARNING:
+{{< alert type="warning" >}}
+
 For performance reasons, enabled cleanup policies are automatically disabled for projects on
 GitLab.com that don't have a container image.
+
+{{< /alert >}}
 
 ### How the cleanup policy works
 
@@ -117,15 +184,21 @@ The cleanup policy:
 1. Orders the remaining tags by `created_date`.
 1. Excludes the N tags based on the `keep_n` value (Number of tags to retain).
 1. Excludes the tags more recent than the `older_than` value (Expiration interval).
+1. Excludes [protected tags](protected_container_tags.md).
+1. Excludes [immutable tags](immutable_container_tags.md).
 1. Deletes the remaining tags in the list from the container registry.
 
-WARNING:
+{{< alert type="warning" >}}
+
 On GitLab.com, the execution time for the cleanup policy is limited. Some tags may remain in
 the container registry after the policy runs. The next time the policy runs, the remaining tags are included.
 It may take multiple runs to delete all tags.
 
-WARNING:
-GitLab self-managed installations support third-party container registries that comply with the
+{{< /alert >}}
+
+{{< alert type="warning" >}}
+
+GitLab Self-Managed instances support third-party container registries that comply with the
 [Docker Registry HTTP API V2](https://distribution.github.io/distribution/spec/api/)
 specification. However, this specification does not include a tag delete operation. Therefore, GitLab uses a
 workaround to delete tags when interacting with third-party container registries. Refer to
@@ -134,6 +207,7 @@ for more information. Due to possible implementation variations, this workaround
 to work with all third-party registries in the same predictable way. If you use the GitLab Container
 Registry, this workaround is not required because we implemented a special tag delete operation. In
 this case, you can expect cleanup policies to be consistent and predictable.
+{{< /alert >}}
 
 #### Example cleanup policy workflow
 
@@ -180,27 +254,34 @@ To create a cleanup policy in the UI:
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Settings > Packages and registries**.
-1. In the **Cleanup policies** section, select **Set cleanup rules**.
+1. Expand **Container registry**.
+1. Under **Container registry cleanup policies**, select **Set cleanup rules**.
 1. Complete the fields:
 
    | Field                      | Description |
    |----------------------------|-------------|
    | **Toggle**                 | Turn the policy on or off. |
    | **Run cleanup**            | How often the policy should run. |
-   | **Keep the most recent**   | How many tags to _always_ keep for each image. |
+   | **Keep the most recent**   | How many tags to always keep for each image. |
    | **Keep tags matching**     | A regex pattern that determines which tags to preserve. The `latest` tag is always preserved. For all tags, use `.*`. See other [regex pattern examples](#regex-pattern-examples). |
    | **Remove tags older than** | Remove only tags older than X days. |
    | **Remove tags matching**   | A regex pattern that determines which tags to remove. This value cannot be blank. For all tags, use `.*`. See other [regex pattern examples](#regex-pattern-examples). |
 
-   NOTE:
+   {{< alert type="note" >}}
+
    Both keep and remove regex patterns are automatically surrounded with `\A` and `\Z` anchors, so you do not need to include them. However, make sure to take this into account when choosing and testing your regex patterns.
+
+   {{< /alert >}}
 
 1. Select **Save**.
 
 The policy runs on the scheduled interval you selected.
 
-NOTE:
+{{< alert type="note" >}}
+
 If you edit the policy and select **Save** again, the interval is reset.
+
+{{< /alert >}}
 
 ### Regex pattern examples
 
@@ -244,7 +325,11 @@ Here are some examples of regex patterns you can use:
 
 ### Set cleanup limits to conserve resources
 
-> - [Removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/84996) the feature flag `container_registry_expiration_policies_throttling` in GitLab 15.0.
+{{< history >}}
+
+- [Removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/84996) the feature flag `container_registry_expiration_policies_throttling` in GitLab 15.0.
+
+{{< /history >}}
 
 Cleanup policies are executed as a background process. This process is complex, and depending on the number of tags to delete,
 the process can take time to finish.
@@ -262,18 +347,18 @@ You can use the following application settings to prevent server resource starva
   start with a low number and increase it after verifying that container images are properly
   deleted. The default value is `200`.
 - `container_registry_expiration_policies_caching`: enable or disable tag creation timestamp caching
-  during execution of policies. Cached timestamps are stored in [Redis](../../../development/architecture.md#redis).
+  during execution of policies. Cached timestamps are stored in Redis.
   Enabled by default.
 
-For self-managed instances, those settings can be updated in the [Rails console](../../../administration/operations/rails_console.md#starting-a-rails-console-session):
+For GitLab Self-Managed instances, those settings can be updated in the [Rails console](../../../administration/operations/rails_console.md#starting-a-rails-console-session):
 
 ```ruby
 ApplicationSetting.last.update(container_registry_expiration_policies_worker_capacity: 3)
 ```
 
-They are also available in the [Admin Area](../../../administration/admin_area.md):
+They are also available in the [**Admin** area](../../../administration/admin_area.md):
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > CI/CD**
 1. Expand **Container Registry**.
 
@@ -317,7 +402,7 @@ Valid values for `older_than` (days until tags are automatically removed) when u
 - `30d`
 - `90d`
 
-See the API documentation for further details: [Edit project API](../../../api/projects.md#edit-project).
+See the API documentation for further details: [Edit project API](../../../api/projects.md#edit-a-project).
 
 ### Use with external container registries
 
@@ -336,7 +421,19 @@ Here are some other options you can use to reduce the container registry storage
 - Use the API to [delete the entire container registry repository containing all the tags](../../../api/container_registry.md#delete-registry-repository).
 - Use the API to [delete registry repository tags in bulk](../../../api/container_registry.md#delete-registry-repository-tags-in-bulk).
 
-## Troubleshooting cleanup policies
+## Troubleshooting
+
+### Storage size is not available
+
+If you cannot see container registry storage size information:
+
+1. Ask an administrator to verify the [metadata database is properly configured](../../../administration/packages/container_registry_metadata_database.md).
+1. Verify the registry storage backend is correctly configured and accessible.
+1. Check registry logs for storage-related errors:
+
+   ```shell
+   sudo gitlab-ctl tail registry
+   ```
 
 ### `Something went wrong while updating the cleanup policy.`
 
@@ -349,7 +446,7 @@ View some common [regex pattern examples](#regex-pattern-examples).
 
 There can be different reasons behind this:
 
-- If you are on GitLab self-managed instances and you have 1000+ tags in a container repository, you
+- If you are on GitLab Self-Managed and you have 1000+ tags in a container repository, you
   might run into a [Container Registry token expiration issue](https://gitlab.com/gitlab-org/gitlab/-/issues/288814),
   with `error authorizing context: invalid token` in the logs.
 
@@ -358,12 +455,8 @@ There can be different reasons behind this:
   - You can [set limits for the cleanup policy](reduce_container_registry_storage.md#set-cleanup-limits-to-conserve-resources).
     This limits the cleanup execution in time, and avoids the expired token error.
 
-  - Extend the expiration delay of the container registry authentication tokens. This defaults to 5
-    minutes. You can set a custom value by running
-    `ApplicationSetting.last.update(container_registry_token_expire_delay: <integer>)` in the Rails
-    console, where `<integer>` is the desired number of minutes. For reference, the expiration delay
-    is set to 15 minutes on GitLab.com. If you increase this value you increase the
-    time required to revoke permissions.
+  - [Extend the expiration delay](../../../administration/packages/container_registry.md#increase-token-duration)
+    of the container registry authentication tokens. This defaults to 5 minutes.
 
 Alternatively, you can generate a list of tags to delete, and use that list to delete
 the tags. To create the list and delete the tags:
@@ -373,7 +466,7 @@ the tags. To create the list and delete the tags:
    the tags' names are written to the `list_o_tags.out` file:
 
    ```shell
-   # Get a list of all tags in a certain container repository while considering [pagination](../../../api/rest/index.md#pagination)
+   # Get a list of all tags in a certain container repository while considering [pagination](../../../api/rest/_index.md#pagination)
    echo -n "" > list_o_tags.out; for i in {1..N}; do curl --fail-with-body --header 'PRIVATE-TOKEN: <PAT>' "https://gitlab.example.com/api/v4/projects/<Project_id>/registry/repositories/<container_repo_id>/tags?per_page=100&page=${i}" | jq '.[].name' | sed 's:^.\(.*\).$:\1:' >> list_o_tags.out; done
    ```
 
@@ -392,9 +485,9 @@ the tags. To create the list and delete the tags:
 1. Remove any tags that you want to keep from the `list_o_tags.out` file. For example, you can use `sed` to
    parse the file and remove the tags.
 
-   ::Tabs
+   {{< tabs >}}
 
-   :::TabTitle Linux
+   {{< tab title="Linux" >}}
 
    ```shell
    # Remove the `latest` tag from the file
@@ -410,7 +503,9 @@ the tags. To create the list and delete the tags:
    sed -i '/_v3$/d' list_o_tags.out
    ```
 
-   :::TabTitle macOS
+   {{< /tab >}}
+
+   {{< tab title="macOS" >}}
 
    ```shell
    # Remove the `latest` tag from the file
@@ -426,7 +521,9 @@ the tags. To create the list and delete the tags:
    sed -i .bak '/_v3$/d' list_o_tags.out
    ```
 
-   ::EndTabs
+   {{< /tab >}}
+
+   {{< /tabs >}}
 
 1. Double-check the `list_o_tags.out` file to make sure it contains only the tags that you want to
    delete.

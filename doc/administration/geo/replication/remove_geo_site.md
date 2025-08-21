@@ -1,18 +1,20 @@
 ---
-stage: Systems
+stage: Tenant Scale
 group: Geo
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Removing secondary Geo sites
 ---
 
-# Removing secondary Geo sites
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 **Secondary** sites can be removed from the Geo cluster using the Geo administration page of the **primary** site. To remove a **secondary** site:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Geo > Nodes**.
 1. For the **secondary** site you want to remove, select **Remove**.
 1. Confirm by selecting **Remove** when the prompt appears.
@@ -28,8 +30,11 @@ stop and uninstall this site. For each node on your secondary Geo site:
 
 1. Uninstall GitLab:
 
-   NOTE:
+   {{< alert type="note" >}}
+
    If GitLab data has to be cleaned from the instance as well, see how to [uninstall the Linux package and all its data](https://docs.gitlab.com/omnibus/installation/#uninstall-the-linux-package-omnibus).
+
+   {{< /alert >}}
 
    ```shell
    # Stop gitlab and remove its supervision process
@@ -50,8 +55,11 @@ When GitLab has been uninstalled from each node on the **secondary** site, the r
    sudo gitlab-psql
    ```
 
-   NOTE:
+   {{< alert type="note" >}}
+
    Using `gitlab-rails dbconsole` does not work, because managing replication slots requires superuser permissions.
+
+   {{< /alert >}}
 
 1. Find the name of the relevant replication slot. This is the slot that is specified with `--slot-name` when running the replicate command: `gitlab-ctl replicate-geo-database`.
 

@@ -9,10 +9,10 @@ module PauseControl
 
     RESCHEDULE_DELAY = 1.second
 
-    feature_category :global_search
     data_consistency :sticky
     idempotent!
     urgency :low
+    feature_category :global_search
 
     def perform
       reschedule_job = false

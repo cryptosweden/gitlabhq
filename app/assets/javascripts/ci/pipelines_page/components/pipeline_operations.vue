@@ -30,9 +30,13 @@ export default {
       isCanceling: false,
       isRetrying: false,
       showConfirmationModal: false,
+      pipelineToCancel: this.pipeline,
     };
   },
   computed: {
+    fullPath() {
+      return this.pipeline?.project?.full_path.slice(1);
+    },
     hasActions() {
       return (
         this.pipeline?.details?.has_manual_actions || this.pipeline?.details?.has_scheduled_actions
@@ -55,10 +59,11 @@ export default {
       this.isCanceling = true;
       this.showConfirmationModal = false;
 
-      this.$emit('cancel-pipeline', this.pipeline);
+      this.$emit('cancel-pipeline', this.pipelineToCancel);
     },
     handleCancelClick() {
       this.showConfirmationModal = true;
+      this.pipelineToCancel = this.pipeline;
 
       this.trackClick('click_cancel_button');
     },
@@ -79,7 +84,7 @@ export default {
 <template>
   <div class="gl-text-right">
     <pipeline-stop-modal
-      :pipeline="pipeline"
+      :pipeline="pipelineToCancel"
       :show-confirmation-modal="showConfirmationModal"
       @submit="onConfirmCancelPipeline"
       @close-modal="onCloseModal"
@@ -89,12 +94,13 @@ export default {
       <pipelines-manual-actions
         v-if="hasActions"
         :iid="pipeline.iid"
+        :full-path="fullPath"
         @refresh-pipeline-table="$emit('refresh-pipelines-table')"
       />
 
       <gl-button
         v-if="pipeline.flags.retryable"
-        v-gl-tooltip.hover
+        v-gl-tooltip
         :aria-label="$options.BUTTON_TOOLTIP_RETRY"
         :title="$options.BUTTON_TOOLTIP_RETRY"
         :disabled="isRetrying"
@@ -109,7 +115,7 @@ export default {
 
       <gl-button
         v-if="pipeline.flags.cancelable"
-        v-gl-tooltip.hover
+        v-gl-tooltip
         :aria-label="$options.BUTTON_TOOLTIP_CANCEL"
         :title="$options.BUTTON_TOOLTIP_CANCEL"
         :loading="isCanceling"

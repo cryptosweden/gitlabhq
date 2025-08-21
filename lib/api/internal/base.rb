@@ -6,14 +6,20 @@ module API
     class Base < ::API::Base
       include Gitlab::RackLoadBalancingHelpers
 
+      WORKHORSE_CIRCUIT_BREAKER_HEADER = 'Enable-Workhorse-Circuit-Breaker'
+
       before { authenticate_by_gitlab_shell_token! }
 
       before do
         api_endpoint = env['api.endpoint']
         feature_category = api_endpoint.options[:for].try(:feature_category_for_app, api_endpoint).to_s
 
+        add_gitaly_context(params)
+
         if actor.user
           load_balancer_stick_request(::User, :user, actor.user.id)
+          set_current_organization(user: actor.user)
+          link_scoped_user(params)
         end
 
         Gitlab::ApplicationContext.push(
@@ -36,6 +42,25 @@ module API
           # This is a separate method so that EE can alter its behaviour more
           # easily.
           container.lfs_http_url_to_repo
+        end
+
+        def add_gitaly_context(params)
+          params[:gitaly_context] = gitaly_context(params)
+        end
+
+        def link_scoped_user(params)
+          context = params[:gitaly_context]
+
+          return unless context
+
+          scoped_user_id = context['scoped-user-id']
+
+          return unless scoped_user_id.present?
+
+          scoped_user_id = scoped_user_id.to_i
+          identity = ::Gitlab::Auth::Identity.link_from_scoped_user_id(actor.user, scoped_user_id)
+
+          not_found!("User ID #{scoped_user_id} not found") unless identity
         end
 
         # rubocop: disable Metrics/AbcSize
@@ -75,7 +100,7 @@ module API
               gl_id: Gitlab::GlId.gl_id(actor.user),
               gl_username: actor.username,
               git_config_options: ["uploadpack.allowFilter=true",
-                                   "uploadpack.allowAnySHA1InWant=true"],
+                "uploadpack.allowAnySHA1InWant=true"],
               gitaly: gitaly_payload(params[:action]),
               gl_console_messages: check_result.console_messages,
               need_audit: need_git_audit_event?
@@ -90,7 +115,16 @@ module API
             end
 
             unless Feature.enabled?(:log_git_streaming_audit_events, project)
-              send_git_audit_streaming_event(protocol: params[:protocol], action: params[:action])
+              audit_message = { protocol: params[:protocol], action: params[:action] }
+
+              # If the protocol is SSH, we need to send the original IP from the PROXY
+              # protocol to the audit streaming event. The original IP from gitlab-shell
+              # is set through the `check_ip` parameter.
+              if include_ip_address_in_audit_event?(Gitlab::IpAddressState.current)
+                audit_message[:ip_address] = Gitlab::IpAddressState.current
+              end
+
+              send_git_audit_streaming_event(audit_message)
             end
 
             response_with_status(**payload)
@@ -115,6 +149,12 @@ module API
         def two_factor_push_otp_check
           { success: false, message: 'Feature is not available' }
         end
+
+        def add_workhorse_circuit_breaker_header(params)
+          return unless params[:protocol] == 'ssh' && request.headers['Gitlab-Shell-Api-Request'].present?
+
+          header(WORKHORSE_CIRCUIT_BREAKER_HEADER, "true")
+        end
       end
 
       namespace 'internal' do
@@ -129,14 +169,23 @@ module API
         #   relative_path - relative path of repository having access checks performed.
         #   action - git action (git-upload-pack or git-receive-pack)
         #   changes - changes as "oldrev newrev ref", see Gitlab::ChangesList
+        #   gitaly_client_context_bin - context provided by Gitaly client (base64 encoded JSON string)
         #   check_ip - optional, only in EE version, may limit access to
         #     group resources based on its IP restrictions
+        #
+        # /internal/allowed
+        #
         post "/allowed", feature_category: :source_code_management do
           # It was moved to a separate method so that EE can alter its behaviour more
           # easily.
+          add_workhorse_circuit_breaker_header(params) if Feature.enabled?(:workhorse_circuit_breaker, project)
           check_allowed(params)
         end
 
+        # Validate LFS authentication request
+        #
+        # /internal/lfs_authenticate
+        #
         post "/lfs_authenticate", feature_category: :source_code_management, urgency: :high do
           not_found! unless container&.lfs_enabled?
 
@@ -149,12 +198,13 @@ module API
           actor.update_last_used_at!
 
           Gitlab::LfsToken
-            .new(actor.key_or_user)
+            .new(actor.key_or_user, container)
             .authentication_payload(lfs_authentication_url(container))
         end
 
-        #
         # Check whether an SSH key is known to GitLab
+        #
+        # /internal/authorized_keys
         #
         get '/authorized_keys', feature_category: :source_code_management, urgency: :high do
           fingerprint = Gitlab::InsecureKeyFingerprint.new(params.fetch(:key)).fingerprint_sha256
@@ -164,13 +214,16 @@ module API
           present key, with: Entities::SSHKey
         end
 
-        #
         # Discover user by ssh key, user id or username
+        #
+        # /internal/discover
         #
         get '/discover', feature_category: :system_access do
           present actor.user, with: Entities::UserSafe
         end
 
+        # /internal/check
+        #
         get '/check', feature_category: :not_owned do # rubocop:todo Gitlab/AvoidFeatureCategoryNotOwned
           {
             api_version: API.version,
@@ -180,6 +233,8 @@ module API
           }
         end
 
+        # /internal/two_factor_recovery_codes
+        #
         post '/two_factor_recovery_codes', feature_category: :system_access do
           status 200
 
@@ -209,6 +264,8 @@ module API
           { success: true, recovery_codes: codes }
         end
 
+        # /internal/personal_access_token
+        #
         post '/personal_access_token', feature_category: :system_access do
           status 200
 
@@ -247,7 +304,7 @@ module API
           end
 
           result = ::PersonalAccessTokens::CreateService.new(
-            current_user: user, target_user: user, params: { name: params[:name], scopes: params[:scopes], expires_at: expires_at }
+            current_user: user, target_user: user, organization_id: Current.organization.id, params: { name: params[:name], scopes: params[:scopes], expires_at: expires_at }
           ).execute
 
           unless result.status == :success
@@ -259,6 +316,8 @@ module API
           { success: true, token: access_token.token, scopes: access_token.scopes, expires_at: access_token.expires_at }
         end
 
+        # /internal/pre_receive
+        #
         post '/pre_receive', feature_category: :source_code_management do
           status 200
 
@@ -267,6 +326,8 @@ module API
           { reference_counter_increased: reference_counter_increased }
         end
 
+        # /internal/post_receive
+        #
         post '/post_receive', feature_category: :source_code_management do
           status 200
 
@@ -280,6 +341,9 @@ module API
         # decided to pursue a different approach, so it's currently not used.
         # We might revive the PAM module though as it provides better user
         # flow.
+        #
+        # /internal/two_factor_config
+        #
         post '/two_factor_config', feature_category: :system_access do
           status 200
 
@@ -302,12 +366,16 @@ module API
           end
         end
 
+        # /internal/two_factor_push_otp_check
+        #
         post '/two_factor_push_otp_check', feature_category: :system_access do
           status 200
 
           two_factor_push_otp_check
         end
 
+        # /internal/two_factor_manual_otp_check
+        #
         post '/two_factor_manual_otp_check', feature_category: :system_access do
           status 200
 

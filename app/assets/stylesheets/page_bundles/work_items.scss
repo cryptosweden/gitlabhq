@@ -1,75 +1,12 @@
 @import 'mixins_and_variables_and_functions';
-@import 'system_note_styles';
+@import 'issues_show';
 
 $work-item-field-inset-shadow: inset 0 0 0 $gl-border-size-1 var(--gray-200, $gray-200) !important;
-$work-item-overview-right-sidebar-width: 20rem;
+$work-item-overview-right-sidebar-width: px-to-rem(290px);
 $work-item-sticky-header-height: 52px;
 $work-item-overview-gap-width: 2rem;
 
-.gl-token-selector-token-container {
-  display: flex;
-  align-items: center;
-}
-
-.hide-unfocused-input-decoration:not(:focus, :hover),
-.hide-unfocused-input-decoration:disabled {
-  background-color: transparent;
-  border-color: transparent;
-  background-image: none;
-  box-shadow: none;
-}
-
-.work-item-assignees {
-  .assign-myself {
-    display: none;
-  }
-
-  @include media-breakpoint-up(sm) {
-    .assignees-selector:hover .assign-myself {
-      display: block;
-    }
-  }
-}
-
-.work-item-due-date {
-  .gl-datepicker-input.gl-form-input.form-control {
-    width: 10rem;
-
-    &:not(:focus, :hover) {
-      box-shadow: none;
-
-      ~ .gl-datepicker-actions {
-        display: none;
-      }
-    }
-
-    &[disabled] {
-      background-color: var(--white, $white);
-      box-shadow: none;
-
-      ~ .gl-datepicker-actions {
-        display: none;
-      }
-    }
-  }
-
-  .gl-datepicker-actions:focus,
-  .gl-datepicker-actions:hover {
-    display: flex !important;
-  }
-}
-
-.work-item-labels {
-  .gl-token {
-    padding-left: $gl-spacing-scale-1;
-  }
-
-  .gl-token-close {
-    display: none;
-  }
-}
-
-// sticky error placement for errors in modals , by default it is 83px for full view
+// sticky error placement for errors in modals, by default it is 83px for full view
 #work-item-detail-modal {
   .flash-container.flash-container-page.sticky {
     top: -8px;
@@ -77,20 +14,15 @@ $work-item-overview-gap-width: 2rem;
 }
 
 
-.work-item-notifications-form {
-  .gl-toggle {
-    margin-left: auto;
-  }
-
-  .gl-toggle-label {
-    font-weight: $gl-font-weight-normal;
-  }
-}
-
+// stylelint-disable-next-line gitlab/no-gl-class
 .gl-modal .work-item-view,
-.work-item-drawer .work-item-view {
+.work-item-drawer .work-item-view:not(:has(.design-detail)) {
   container-name: work-item-view;
   container-type: inline-size;
+}
+
+.work-item-drawer {
+  transition: none;
 }
 
 @mixin container-and-media($query) {
@@ -103,9 +35,13 @@ $work-item-overview-gap-width: 2rem;
   }
 }
 
-@include container-and-media("max-width: #{calc($breakpoint-md - 0.02px)}") {
+@include container-and-media("max-width: #{calc($breakpoint-md - 4rem - 0.02px)}") {
   .work-item-overview {
     display: block !important;
+  }
+
+  .work-item-container-xs-hidden {
+    display: none !important;
   }
 
   .work-item-attributes-wrapper {
@@ -116,19 +52,39 @@ $work-item-overview-gap-width: 2rem;
   }
 }
 
-.work-item-overview {
+.work-item-overview:not(.sidebar-hidden) {
   @include media-breakpoint-up(md) {
     display: grid;
     // allow the main content area to shrink
     // grid items have "max-width: auto" so without the minmax the content can
     // spill outside of the overview container
-    grid-template-columns: minmax(0, 1fr) $work-item-overview-right-sidebar-width;
+    $work-item-sidebar-min-width: 13rem;
+    grid-template-columns: minmax(67%, 1fr) minmax($work-item-sidebar-min-width, $work-item-overview-right-sidebar-width);
     column-gap: $work-item-overview-gap-width;
   }
 }
 
 .work-item-overview-right-sidebar {
   margin-top: $gl-spacing-scale-5;
+
+  .work-item-attributes-item {
+    @apply gl-mb-4;
+
+    &:not(:first-child) {
+      @apply gl-pt-4;
+      @apply gl-border-t;
+      @apply gl-border-subtle;
+    }
+  }
+}
+
+.create-work-item-description {
+  .markdown-area,
+  .rte-text-box {
+    @include media-breakpoint-up(sm) {
+      min-height: 38vh;
+    }
+  }
 }
 
 @include container-and-media("min-width: #{calc($breakpoint-md)}") {
@@ -136,14 +92,10 @@ $work-item-overview-gap-width: 2rem;
     top: calc(#{$calc-application-header-height} + #{$work-item-sticky-header-height});
     height: calc(#{$calc-application-viewport-height} - #{$work-item-sticky-header-height});
     margin-bottom: calc(#{$content-wrapper-padding} * -1);
-    padding-inline: 0.5rem;
+    padding-inline: $gl-spacing-scale-3;
     position: sticky;
     overflow-y: auto;
     overflow-x: hidden;
-  }
-
-  .work-item-date-picker {
-    max-width: 175px;
   }
 
   .work-item-overview-right-sidebar {
@@ -160,46 +112,17 @@ $work-item-overview-gap-width: 2rem;
   }
 }
 
-.work-item-field-label {
-  .work-item-overview & {
-    max-width: 30%;
-    flex: none;
-  }
-}
-
-.work-item-field-value {
-  .work-item-overview & {
-    max-width: 65%;
-  }
-
-  &.gl-form-select {
-    &:hover,
-    &:focus {
-      box-shadow: $work-item-field-inset-shadow;
-    }
-  }
-}
-
-.work-item-parent-field-value {
-  .work-item-overview & {
-    max-width: 75%;
-  }
-}
-
-.token-selector-menu-class {
-  .work-item-overview & {
-    width: 100%;
-    min-width: 100%;
-  }
-}
-
-.work-item-notification-toggle {
-  .gl-toggle {
-    margin-left: auto;
-  }
-
+// There is no props to set the font weight class in GlToggle
+// Here, we are overriding the font weight
+.work-item-dropdown-toggle {
+  // stylelint-disable-next-line gitlab/no-gl-class
   .gl-toggle-label {
     font-weight: normal;
+  }
+
+  a, a:hover {
+    @apply gl-text-default;
+    text-decoration: none;
   }
 }
 
@@ -214,22 +137,12 @@ $work-item-overview-gap-width: 2rem;
 $disclosure-hierarchy-chevron-dimension: 1.2rem;
 
 @mixin hierarchy-active-item-color {
-  background-color: var(--gray-50, $gray-50);
+  background-color: var(--gl-action-neutral-background-color-hover);
 
   &::after {
-    background-color: var(--gray-50, $gray-50);
+    background-color: var(--gl-action-neutral-background-color-hover);
+    z-index: 3;
   }
-}
-
-@mixin hierarchy-path-chevron {
-  content: '';
-  position: absolute;
-  background-color: inherit;
-  top: 0.39rem;
-  right: px-to-rem(-9px);
-  width: $disclosure-hierarchy-chevron-dimension;
-  height: $disclosure-hierarchy-chevron-dimension;
-  transform: rotate(45deg) skew(14deg, 14deg);
 }
 
 .disclosure-hierarchy {
@@ -253,17 +166,25 @@ $disclosure-hierarchy-chevron-dimension: 1.2rem;
   display: flex;
   position: relative;
   font-size: $gl-font-size-sm;
-  border: 1px solid var(--gray-100, $gray-100);
+  @apply gl-border;
   border-right-style: none;
   border-left-style: none;
   line-height: $gl-line-height-16;
   padding-right: $grid-size;
   background: var(--gl-background-color-default);
+  color: var(--gl-action-neutral-foreground-color-default);
 
   &::before,
   &::after {
-    @include hierarchy-path-chevron;
-    border: 1px solid var(--gray-100, $gray-100);
+    content: '';
+    position: absolute;
+    background-color: inherit;
+    top: 0.39rem;
+    right: px-to-rem(-9px);
+    width: $disclosure-hierarchy-chevron-dimension;
+    height: $disclosure-hierarchy-chevron-dimension;
+    transform: rotate(45deg) skew(14deg, 14deg);
+    @apply gl-border;
     border-color: inherit;
     border-bottom-color: transparent;
     border-left-color: transparent;
@@ -283,7 +204,7 @@ $disclosure-hierarchy-chevron-dimension: 1.2rem;
 
   .disclosure-hierarchy-item:first-child & {
     padding-left: $gl-spacing-scale-3;
-    border-left: 1px solid var(--gray-100, $gray-100);
+    @apply gl-border-l;
     border-top-left-radius: $gl-border-radius-base;
     border-bottom-left-radius: $gl-border-radius-base;
 
@@ -295,13 +216,13 @@ $disclosure-hierarchy-chevron-dimension: 1.2rem;
     &:focus,
     &:focus:active {
       // Custom focus
-      box-shadow: 1px 1px 0 1px $blue-400, 2px -1px 0 1px $blue-400, -1px 1px 0 1px $blue-400, -1px -1px 0 1px $blue-400 !important;
+      box-shadow: 1px 1px 0 1px var(--gl-focus-ring-outer-color), 2px -1px 0 1px var(--gl-focus-ring-outer-color), -1px 1px 0 1px var(--gl-focus-ring-outer-color), -1px -1px 0 1px var(--gl-focus-ring-outer-color) !important;
     }
   }
 
   .disclosure-hierarchy-item:last-child & {
     padding-right: $gl-spacing-scale-4;
-    border-right: 1px solid var(--gray-100, $gray-100);
+    @apply gl-border-r;
     border-top-right-radius: $gl-border-radius-base;
     border-bottom-right-radius: $gl-border-radius-base;
 
@@ -311,19 +232,17 @@ $disclosure-hierarchy-chevron-dimension: 1.2rem;
   }
 
   &[disabled] {
-    color: $gl-text-color-disabled;
+    @apply gl-text-disabled;
     cursor: not-allowed;
   }
 
   &:not([disabled]):hover {
-    border-color: var(--gray-400, $gray-400);
+    border-color: var(--gl-border-color-default);
     @include hierarchy-active-item-color;
-    color: var(--gray-900, $gray-900);
+    color: var(--gl-action-neutral-foreground-color-hover);
 
     &::after {
-      border-left: 1px solid var(--gray-50, $gray-50);
-      border-bottom: 1px solid var(--gray-50, $gray-50);
-      z-index: 3;
+      @apply gl-border-l-0 gl-border-r-0;
     }
   }
 
@@ -331,28 +250,24 @@ $disclosure-hierarchy-chevron-dimension: 1.2rem;
   &:focus,
   &:focus:active {
     // Custom focus
-    box-shadow: 1px 1px 0 1px $blue-400, 2px -1px 0 1px $blue-400 !important;
+    box-shadow: 1px 1px 0 1px var(--gl-focus-ring-outer-color), 2px -1px 0 1px var(--gl-focus-ring-outer-color) !important;
     outline: none;
-    border-top: 1px solid var(--gray-400, $gray-400);
-    border-bottom: 1px solid var(--gray-400, $gray-400);
+    border-top: 1px solid var(--gl-action-neutral-border-color-default);
+    border-bottom: 1px solid var(--gl-action-neutral-border-color-default);
     @include hierarchy-active-item-color;
-    z-index: 2;
     border-radius: $gl-border-radius-small;
+    color: var(--gl-action-neutral-foreground-color-focus);
 
     &::before, &::after {
-      box-shadow: 2px -2px 0 1px $blue-400;
+      box-shadow: 2px -2px 0 1px var(--gl-focus-ring-outer-color);
     }
   }
 }
 
-/** Ideally should be fixed in gitlab-ui but fixing it using classes for now **/
-.work-item-sidebar-dropdown-toggle {
-  justify-content: start !important;
-}
-
-.work-item-sidebar-dropdown-toggle ~ .gl-new-dropdown-panel {
+// stylelint-disable-next-line gitlab/no-gl-class
+.work-item-sidebar-dropdown .gl-new-dropdown-panel {
     width: 100% !important;
-    max-width: 19rem !important;
+    max-width: 17rem !important;
 }
 
 .container-limited {
@@ -362,7 +277,8 @@ $disclosure-hierarchy-chevron-dimension: 1.2rem;
 }
 
 .work-item-description .truncated{
-  max-height: clamp(16rem, 40vh, 32rem);
+  min-height: 16rem;
+  max-height: 80vh;
   overflow: hidden;
 }
 
@@ -376,30 +292,26 @@ $disclosure-hierarchy-chevron-dimension: 1.2rem;
     display: block;
     height: 3rem;
     width: 100%;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.00) 0%, $white 100%);
+    background: linear-gradient(180deg, transparent 0%, var(--gl-background-color-default) 100%);
 
-    .gl-dark & {
-      background: linear-gradient(180deg, rgba(31, 30, 36, 0.00) 0%, $gray-950 100%);
+    .work-item-drawer & {
+      background: linear-gradient(180deg, transparent 0%, var(--gl-background-color-overlap) 100%);
     }
   }
 
   .show-all-btn {
     pointer-events: auto;
-    background-color: $white;
+    background-color: var(--gl-background-color-default);
 
-    .gl-dark & {
-      background-color: $gray-950;
+    .work-item-drawer & {
+      background-color: var(--gl-background-color-overlap);
     }
 
     &::before, &::after {
       content: '';
       height: 1px;
       flex: 1;
-      border-top: 1px solid $gray-50;
-
-      .gl-dark & {
-        border-top: 1px solid $gray-900;
-      }
+      border-top: 1px solid var(--gl-border-color-subtle);
     }
   }
 }
@@ -407,4 +319,158 @@ $disclosure-hierarchy-chevron-dimension: 1.2rem;
 .is-ghost {
   opacity: 0.3;
   pointer-events: none;
+}
+
+.design-scaler-wrapper {
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.work-item-design-widget-container {
+  container-type: inline-size;
+  container-name: work-item-design-widget;
+
+  .work-item-design-grid {
+    @apply gl-grid gl-grid-cols-2;
+  }
+
+  .design-list-item {
+    height: unset;
+  }
+
+  .work-item-design-hidden-xs {
+    @apply gl-hidden;
+  }
+
+  @container work-item-design-widget (min-width: #{$breakpoint-sm}) {
+    .work-item-design-grid {
+      @apply gl-grid-cols-3;
+    }
+
+    .work-item-design-show-sm {
+      @apply gl-block;
+    }
+
+    .work-item-design-hidden-sm {
+      @apply gl-hidden;
+    }
+  }
+
+  @container work-item-design-widget (min-width: #{$breakpoint-md}) {
+    .work-item-design-grid {
+      @apply gl-grid-cols-4;
+    }
+  }
+
+  @container work-item-design-widget (min-width: #{$breakpoint-xl}) {
+    .work-item-design-grid {
+      @apply gl-grid-cols-6;
+    }
+  }
+}
+
+.work-item-sidebar-container {
+  container-type: inline-size;
+  container-name: work-item-sidebar;
+
+  @container work-item-sidebar (max-width: #{calc($work-item-overview-right-sidebar-width - 3rem)}) {
+    .time-tracking-body {
+      @apply gl-flex-col gl-items-start;
+
+      .time-tracking-spent-and-progress {
+        @apply gl-flex-col-reverse gl-w-full gl-items-stretch;
+
+        .time-tracking-progress {
+          @apply gl-mx-0 gl-my-2;
+        }
+      }
+    }
+
+    .work-item-date-input {
+      @apply gl-flex-col gl-items-stretch;
+
+      .work-item-datepicker {
+        @apply gl-max-w-full;
+      }
+    }
+
+    // stylelint-disable-next-line gitlab/no-gl-class
+    .work-item-sidebar-dropdown .gl-new-dropdown-panel {
+      @apply gl-min-w-0 gl-max-w-[calc(100%-1rem)] #{!important};
+    }
+  }
+}
+
+// Temporary fallback for browsers that do not properly support container queries.
+// Should be removed once container queries are fully stable across all browsers.
+// This is implemnted below for specific browsers.
+// Cf. https://gitlab.com/gitlab-org/gitlab/-/merge_requests/186598
+@mixin browser-specific-overrides {
+  .work-item-design-widget-container {
+    container-type: unset;
+
+    @media (min-width: $breakpoint-sm) {
+      .work-item-design-grid {
+        @apply gl-grid-cols-3;
+      }
+
+      .work-item-design-show-sm {
+        @apply gl-block;
+      }
+
+      .work-item-design-hidden-sm {
+        @apply gl-hidden;
+      }
+    }
+
+    @media (min-width: $breakpoint-md) {
+      .work-item-design-grid {
+        @apply gl-grid-cols-4;
+      }
+    }
+
+    @media (min-width: $breakpoint-xl) {
+      .work-item-design-grid {
+        @apply gl-grid-cols-6;
+      }
+    }
+  }
+
+  .work-item-sidebar-container {
+    container-type: unset;
+  }
+
+  .work-item-notes .note-container-query-wrapper {
+    container-type: unset !important;
+
+    @media (max-width: $breakpoint-sm) {
+      .note-hidden-xs {
+        @apply gl-hidden
+      }
+    }
+  }
+}
+
+.work-item-link-child:hover .work-item-status{
+  // Subtle border as dark mode background is same as status badge
+  box-shadow: inset 0 0 0 1px var(--gl-color-alpha-light-8);
+}
+
+// Safari
+@supports (-webkit-appearance:none) and (stroke-color:transparent) {
+  @include browser-specific-overrides;
+}
+
+// Firefox
+@-moz-document url-prefix() {
+  @include browser-specific-overrides;
+}
+
+ul.content-list {
+  .issue-clickable {
+    a, span {
+      @apply gl-relative gl-z-2;
+    }
+  }
 }

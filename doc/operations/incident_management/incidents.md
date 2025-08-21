@@ -1,14 +1,16 @@
 ---
-stage: Monitor
-group: Respond
+stage: Analytics
+group: Platform Insights
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Incidents
 ---
 
-# Incidents
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 An incident is a service disruption or outage that needs to be restored urgently.
 Incidents are critical in incident management workflows.
@@ -16,7 +18,7 @@ Use GitLab to triage, respond, and remediate incidents.
 
 ## Incidents list
 
-When you [view the incidents list](manage_incidents.md#view-incidents-list), it contains the following:
+When you [view the incidents list](manage_incidents.md#view-a-list-of-incidents), it contains the following:
 
 - **State**: To filter incidents by their state, select **Open**, **Closed**,
   or **All** above the incident list.
@@ -24,11 +26,11 @@ When you [view the incidents list](manage_incidents.md#view-incidents-list), it 
 - **Severity**: Severity of a particular incident, which can be one of the following
   values:
 
-  - **{severity-critical}** Critical - S1
-  - **{severity-high}** High - S2
-  - **{severity-medium}** Medium - S3
-  - **{severity-low}** Low - S4
-  - **{severity-unknown}** Unknown
+  - {{< icon name="severity-critical" >}} Critical - S1
+  - {{< icon name="severity-high" >}} High - S2
+  - {{< icon name="severity-medium" >}} Medium - S3
+  - {{< icon name="severity-low" >}} Low - S4
+  - {{< icon name="severity-unknown" >}} Unknown
 
 - **Incident**: The title of the incident, which attempts to capture the
   most meaningful information.
@@ -101,9 +103,12 @@ displays them below the summary.
 
 ### Metrics
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+{{< details >}}
+
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 In many cases, incidents are associated to metrics. You can upload screenshots of metric
 charts in the **Metrics** tab:
@@ -134,19 +139,25 @@ Read more about [timeline events](incident_timeline_events.md) and how to enable
 
 ### Recent updates view
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+{{< details >}}
+
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 To see the latest updates on an incident, select
-**Turn recent updates view on** (**{history}**) on the comment bar. Comments display
+**Turn recent updates view on** ({{< icon name="history" >}}) on the comment bar. Comments display
 un-threaded and chronologically, newest to oldest.
 
 ### Service Level Agreement countdown timer
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+{{< details >}}
+
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 You can enable the Service Level Agreement Countdown timer on incidents to track
 the Service Level Agreements (SLA) you hold with your customers. The timer is
@@ -177,7 +188,7 @@ label to the incident.
 - [Create an incident](manage_incidents.md#create-an-incident)
 - [Create an incident automatically](alerts.md#trigger-actions-from-alerts)
   whenever an alert is triggered
-- [View incidents list](manage_incidents.md#view-incidents-list)
+- [View incidents list](manage_incidents.md#view-a-list-of-incidents)
 - [Assign to a user](manage_incidents.md#assign-to-a-user)
 - [Change incident severity](manage_incidents.md#change-severity)
 - [Change incident status](manage_incidents.md#change-status)
@@ -186,7 +197,7 @@ label to the incident.
 - [Automatically close incidents via recovery alerts](manage_incidents.md#automatically-close-incidents-via-recovery-alerts)
 - [Add a to-do item](../../user/todos.md#create-a-to-do-item)
 - [Add labels](../../user/project/labels.md)
-- [Assign a milestone](../../user/project/milestones/index.md)
+- [Assign a milestone](../../user/project/milestones/_index.md)
 - [Make an incident confidential](../../user/project/issues/confidential_issues.md)
 - [Set a due date](../../user/project/issues/due_dates.md)
 - [Toggle notifications](../../user/profile/notifications.md#edit-notification-settings-for-issues-merge-requests-and-epics)

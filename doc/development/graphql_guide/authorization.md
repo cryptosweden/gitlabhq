@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: GraphQL Authorization
 ---
-
-# GraphQL Authorization
 
 Authorizations can be applied in these places:
 
@@ -33,18 +32,21 @@ system as throughout the rest of the application.
 
 Also see [authorizing resources in a mutation](../api_graphql_styleguide.md#authorizing-resources).
 
-NOTE:
+{{< alert type="note" >}}
+
 The best practice is to load only what the currently authenticated user is allowed to
 view with our existing finders first, without relying on authorization
 to filter the records. This minimizes database queries and unnecessary
 authorization checks of the loaded records. It also avoids situations,
 such as short pages, which can expose the presence of confidential resources.
 
+{{< /alert >}}
+
 See [`authorization_spec.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/spec/graphql/features/authorization_spec.rb)
 for examples of all the authorization schemes discussed here.
 
 <!--
-    NOTE: if you change this heading (or the location to this file), make sure to update
+if you change this heading (or the location to this file), make sure to update
           the referenced link in rubocop/cop/graphql/authorize_types.rb
 -->
 
@@ -135,7 +137,7 @@ helps avoid unnecessary queries.
 Fields can be authorized with the `authorize` option.
 
 Fields authorization is checked against the current object, and
-authorization happens _before_ resolution, which means that
+authorization happens before resolution, which means that
 fields do not have access to the resolved resource. If you need to
 apply an authorization check to a field, you probably want to add
 authorization to the resolver, or ideally to the type.
@@ -226,3 +228,104 @@ The combination of the object authorization on `UserType` and the field authoriz
 Ability.allowed?(current_user, :second_permission, issue) &&
   Ability.allowed?(current_user, :first_permission, issue.author)
 ```
+
+### Skip Type authorization for a given field
+
+In some scenarios, a given field is resolved with a dedicated `resolver` and the resolver takes care of checking the
+resolved objects' authorization.
+
+In such cases, especially when the field resolves a collection of objects, we'd like to skip the `Type` level
+authorization. Depending on the GraphQL query, having these overlapping authorization checks, can add significant overhead.
+
+For such situations, we can specify which abilities should be skipped at `Type` level by specifying the list of abilities
+through `skip_type_authorization` on a given field. This option cascades down to all descendant fields as well.
+
+For a real-world example, see
+[field :discussions, Types::Notes::DiscussionType](https://gitlab.com/gitlab-org/gitlab/-/blob/84721e500a9a95e22bfd1b34c228db0053b793fb/app/graphql/types/work_items/widgets/notes_type.rb#L24).
+
+In that example, we have `DiscussionType` which specifies `authorize :read_note`. `Discussion` is composed of multiple `notes` of type `NoteType` and `NoteType` also specifies `authorize: :read_note`.
+Some of these `notes` may be system notes and may have some specific metadata of type `SystemNoteMetadataType`.
+`SystemNoteMetadataType` also specifies the `authorize: :read_note`. Each note can have emojis, which are authorized
+with `read_emoji`, which is equivalent to `read_note` in this case.
+
+To represent this in a GraphQL example, we'd have following types:
+
+```ruby
+class SomeType < BaseObject
+  field :discussions, Types::Notes::DiscussionType.connection_type, null: true, resolver: SomeResolver
+end
+
+class DiscussionType < BaseObject
+  authorize :read_note
+
+  field :notes, Types::Notes::NoteType.connection_type, null: true
+end
+
+class NoteType < BaseObject
+  authorize :read_note
+
+  field :system_note_metadata, SystemNoteMetadataType
+  field :award_emoji, AwardEmojiType
+end
+
+class SystemNoteMetadataType < BaseObject
+  authorize :read_note
+end
+
+class AwardEmojiType < BaseObject
+  authorize :read_emoji
+end
+```
+
+And a query like:
+
+```graphql
+query {
+  someType(identified: ID) {
+    discussions {
+      nodes {
+        notes {
+          nodes {
+            award_emoji {
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+For example, if the root object of type `SomeType` has 10 discussions. Each of the 10 discussions have 10 notes. And the first note of each discussion has one emoji.
+
+In this case, we authorize the discussions in `SomeResolver`, that is 10 authorization calls.
+Then when we represent each discussion with `DiscussionType`, we authorize each discussion object, again 10 calls. These
+specific calls may be fine, as these would have been cached in the request store during resolver authorization because we are authorizing the same objects.
+Next, we authorize each note for these 10 discussions, resulting in 10*10 = 100 authorization calls. And lastly for the
+first note in each discussion, we would authorize one emoji, that is another 10 calls. So in total we have 130 authorization calls:
+
+- 10 discussions authorized in resolver
+- 10 (cached) discussions authorized through `DiscussionType`
+- 100 notes authorized through `NoteType`
+- 10 emoji authorized through `EmojiType`
+
+We can reduce these 130 calls to just 10 calls by specifying the `skip_type_authorization` on the `discussions` field.
+For that, `SomeType` definition changes to:
+
+```ruby
+class SomeType < BaseObject
+  field :discussions, Types::Notes::DiscussionType.connection_type, null: true, resolver: SomeResolver,
+        skip_type_authorization: [:read_note, :read_emoji]
+end
+```
+
+{{< alert type="note" >}}
+
+We can optimize the authorization calls with `skip_type_authorization` in this case, because:
+
+{{< /alert >}}
+
+- We already authorize the discussions in `SomeResolver`
+- Permissions to read one note or all notes are the same for a discussion
+- Permission to read a note or read an emoji are equivalent

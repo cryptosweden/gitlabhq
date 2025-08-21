@@ -57,6 +57,12 @@ describe('Pipeline Wizard - List Widget', () => {
       expect(findFirstGlFormInputGroup().attributes('type')).toBe('text');
     });
 
+    it('uses monospace font for input', () => {
+      createComponent({ monospace: true });
+
+      expect(findFirstGlFormInputGroup().props('inputClass')).toBe('!gl-font-monospace');
+    });
+
     it('passes the placeholder to the first input field', () => {
       createComponent();
 
@@ -70,7 +76,7 @@ describe('Pipeline Wizard - List Widget', () => {
       await addStep();
       const inputGroups = findAllGlFormInputGroups().wrappers;
 
-      expect(inputGroups.length).toBe(3);
+      expect(inputGroups).toHaveLength(3);
       inputGroups.forEach((inputGroup) => {
         const button = inputGroup.find('[data-testid="remove-step-button"]');
         expect(button.find('[data-testid="remove-icon"]').exists()).toBe(true);
@@ -91,7 +97,7 @@ describe('Pipeline Wizard - List Widget', () => {
 
       const inputGroups = findAllGlFormInputGroups().wrappers;
 
-      expect(inputGroups.length).toBe(1);
+      expect(inputGroups).toHaveLength(1);
       expect(wrapper.findByTestId('remove-step-button').exists()).toBe(false);
     });
 
@@ -123,9 +129,9 @@ describe('Pipeline Wizard - List Widget', () => {
     it('the "add step" button increases the number of input fields', async () => {
       createComponent();
 
-      expect(findAllGlFormInputGroups().wrappers.length).toBe(1);
+      expect(findAllGlFormInputGroups().wrappers).toHaveLength(1);
       await addStep();
-      expect(findAllGlFormInputGroups().wrappers.length).toBe(2);
+      expect(findAllGlFormInputGroups().wrappers).toHaveLength(2);
     });
 
     it('does not pass the placeholder on subsequent input fields', async () => {
@@ -158,7 +164,7 @@ describe('Pipeline Wizard - List Widget', () => {
 
       const events = wrapper.emitted('input');
 
-      expect(events.length).toBe(1);
+      expect(events).toHaveLength(1);
       expect(events[0]).toEqual([['abc']]);
     });
   });

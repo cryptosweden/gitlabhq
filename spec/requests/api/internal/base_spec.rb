@@ -6,8 +6,8 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
   include GitlabShellHelpers
   include APIInternalBaseHelpers
 
-  let_it_be(:user, reload: true) { create(:user) }
   let_it_be(:project, reload: true) { create(:project, :repository, :wiki_repo) }
+  let_it_be(:user, reload: true) { create(:user, organizations: [project.organization]) }
   let_it_be(:personal_snippet) { create(:personal_snippet, :repository, author: user) }
   let_it_be(:project_snippet) { create(:project_snippet, :repository, author: user, project: project) }
   let_it_be(:max_pat_access_token_lifetime) do
@@ -210,8 +210,6 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
 
     it 'returns a token with expiry when it receives a valid expires_at parameter' do
       freeze_time do
-        token_size = (PersonalAccessToken.token_prefix || '').size + 20
-
         post api('/internal/personal_access_token'),
           params: {
             key_id: key.id,
@@ -222,7 +220,7 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
           headers: gitlab_shell_internal_api_request_header
 
         expect(json_response['success']).to be_truthy
-        expect(json_response['token']).to match(/\A\S{#{token_size}}\z/)
+        expect(json_response['token']).to start_with(PersonalAccessToken.token_prefix)
         expect(json_response['scopes']).to match_array(%w[read_api read_repository])
         expect(json_response['expires_at']).to eq(max_pat_access_token_lifetime.iso8601)
       end
@@ -230,8 +228,6 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
 
     it 'returns token with expiry as PersonalAccessToken::MAX_PERSONAL_ACCESS_TOKEN_LIFETIME_IN_DAYS' do
       freeze_time do
-        token_size = (PersonalAccessToken.token_prefix || '').size + 20
-
         post api('/internal/personal_access_token'),
           params: {
             key_id: key.id,
@@ -242,7 +238,7 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
           headers: gitlab_shell_internal_api_request_header
 
         expect(json_response['success']).to be_truthy
-        expect(json_response['token']).to match(/\A\S{#{token_size}}\z/)
+        expect(json_response['token']).to start_with(PersonalAccessToken.token_prefix)
         expect(json_response['scopes']).to match_array(%w[read_api read_repository])
         expect(json_response['expires_at']).to eq(max_pat_access_token_lifetime.iso8601)
       end
@@ -263,7 +259,7 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
         expect(json_response['username']).to eq(user.username)
         expect(json_response['repository_http_path']).to eq(project.http_url_to_repo)
         expect(json_response['expires_in']).to eq(Gitlab::LfsToken::DEFAULT_EXPIRE_TIME)
-        expect(Gitlab::LfsToken.new(key).token_valid?(json_response['lfs_token'])).to be_truthy
+        expect(Gitlab::LfsToken.new(key, project).token_valid?(json_response['lfs_token'])).to be_truthy
       end
 
       it 'returns the correct information about the user' do
@@ -272,7 +268,7 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['username']).to eq(user.username)
         expect(json_response['repository_http_path']).to eq(project.http_url_to_repo)
-        expect(Gitlab::LfsToken.new(user).token_valid?(json_response['lfs_token'])).to be_truthy
+        expect(Gitlab::LfsToken.new(user, project).token_valid?(json_response['lfs_token'])).to be_truthy
       end
 
       it 'returns a 404 when no key or user is provided' do
@@ -309,7 +305,7 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
           expect(json_response['username']).to eq(user.username)
           expect(json_response['repository_http_path']).to eq(wiki.http_url_to_repo)
           expect(json_response['expires_in']).to eq(Gitlab::LfsToken::DEFAULT_EXPIRE_TIME)
-          expect(Gitlab::LfsToken.new(user).token_valid?(json_response['lfs_token'])).to be_truthy
+          expect(Gitlab::LfsToken.new(user, wiki).token_valid?(json_response['lfs_token'])).to be_truthy
         end
 
         it 'returns a 404 when the container does not support LFS' do
@@ -330,7 +326,7 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response['username']).to eq("lfs+deploy-key-#{key.id}")
         expect(json_response['repository_http_path']).to eq(project.http_url_to_repo)
-        expect(Gitlab::LfsToken.new(key).token_valid?(json_response['lfs_token'])).to be_truthy
+        expect(Gitlab::LfsToken.new(key, project).token_valid?(json_response['lfs_token'])).to be_truthy
       end
     end
   end
@@ -452,15 +448,9 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
       let(:actor) { key }
       let(:rate_limiter) { double(:rate_limiter, ip: "127.0.0.1", trusted_ip?: false) }
 
-      before do
-        allow(::Gitlab::Auth::IpRateLimiter).to receive(:new).with("127.0.0.1").and_return(rate_limiter)
-      end
-
       it 'is throttled by rate limiter' do
         allow(::Gitlab::ApplicationRateLimiter).to receive(:threshold).and_return(1)
-
         expect(::Gitlab::ApplicationRateLimiter).to receive(:throttled?).with(:gitlab_shell_operation, scope: [action, project.full_path, actor]).twice.and_call_original
-        expect(::Gitlab::ApplicationRateLimiter).to receive(:throttled?).with(:gitlab_shell_operation, scope: [action, project.full_path, "127.0.0.1"]).and_call_original
 
         request
 
@@ -469,6 +459,7 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
         request
 
         expect(response).to have_gitlab_http_status(:too_many_requests)
+
         expect(json_response['message']['error']).to eq('This endpoint has been requested too many times. Try again later.')
       end
 
@@ -577,7 +568,6 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
           expect(json_response["gl_root_namespace_id"]).to eq(project.root_namespace.id)
           expect(json_response["gl_key_type"]).to eq("key")
           expect(json_response["gl_key_id"]).to eq(key.id)
-          expect(user.reload.last_activity_on).to eql(Date.today)
         end
 
         # Wiki repositories don't invoke any Gitaly RPCs to check for changes, so we can only test for the
@@ -597,7 +587,6 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
           expect(json_response["gl_repository"]).to eq("wiki-#{project.id}")
           expect(json_response["gl_project_id"]).to eq(project.id)
           expect(json_response["gl_root_namespace_id"]).to eq(project.root_namespace.id)
-          expect(user.reload.last_activity_on).to eql(Date.today)
         end
       end
 
@@ -627,7 +616,6 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
           expect(json_response["gl_repository"]).to eq("snippet-#{personal_snippet.id}")
           expect(json_response["gl_project_id"]).to be_nil
           expect(json_response["gl_root_namespace_id"]).to be_nil
-          expect(user.reload.last_activity_on).to eql(Date.today)
         end
 
         it_behaves_like 'sets hook env and routes to primary' do
@@ -668,7 +656,6 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
           expect(json_response["gl_repository"]).to eq("snippet-#{project_snippet.id}")
           expect(json_response["gl_project_id"]).to eq(project.id)
           expect(json_response["gl_root_namespace_id"]).to eq(project.root_namespace.id)
-          expect(user.reload.last_activity_on).to eql(Date.today)
         end
 
         it_behaves_like 'sets hook env and routes to primary' do
@@ -772,10 +759,8 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
           end
         end
 
-        context 'with audit event' do
-          it 'does not send a git streaming audit event' do
-            expect(::Gitlab::Audit::Auditor).not_to receive(:audit)
-
+        context 'with audit event', unless: Gitlab.ee? do
+          it 'sets "need_audit" parameter as false in CE context' do
             pull(key, project)
 
             expect(response).to have_gitlab_http_status(:ok)
@@ -797,14 +782,12 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
             expect(json_response["gl_root_namespace_id"]).to eq(project.root_namespace.id)
             expect(json_response["gl_key_type"]).to eq("key")
             expect(json_response["gl_key_id"]).to eq(key.id)
-            expect(json_response["need_audit"]).to be_falsy
             expect(json_response["gitaly"]).not_to be_nil
             expect(json_response["gitaly"]["repository"]).not_to be_nil
             expect(json_response["gitaly"]["repository"]["storage_name"]).to eq(project.repository.gitaly_repository.storage_name)
             expect(json_response["gitaly"]["repository"]["relative_path"]).to eq(project.repository.gitaly_repository.relative_path)
             expect(json_response["gitaly"]["address"]).to eq(Gitlab::GitalyClient.address(project.repository_storage))
             expect(json_response["gitaly"]["token"]).to eq(Gitlab::GitalyClient.token(project.repository_storage))
-            expect(user.reload.last_activity_on).to eql(Date.today)
           end
 
           it_behaves_like 'rate limited request' do
@@ -813,6 +796,12 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
             def request
               push(key, project)
             end
+          end
+
+          it 'sets "need_audit" parameter as false in CE context', unless: Gitlab.ee? do
+            push(key, project)
+
+            expect(json_response["need_audit"]).to be_falsy
           end
         end
 
@@ -898,8 +887,6 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
     end
 
     context 'with a pending membership' do
-      let_it_be(:project) { create(:project, :repository) }
-
       before_all do
         create(:project_member, :awaiting, :developer, source: project, user: user)
       end
@@ -947,7 +934,8 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
             authentication_abilities: [:read_project, :download_code, :push_code],
             repository_path: "#{project.full_path}.git",
             redirected_path: nil,
-            push_options: nil
+            push_options: nil,
+            gitaly_context: nil
           }
         ) do |access_checker|
           expect(access_checker).to receive(:check).with(
@@ -965,7 +953,6 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
           expect(json_response['status']).to be_truthy
           expect(json_response['payload']).to eql(payload)
           expect(json_response['gl_console_messages']).to eql(console_messages)
-          expect(user.reload.last_activity_on).to eql(Date.today)
         end
       end
     end
@@ -1138,11 +1125,13 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
     end
 
     context 'project does not exist' do
+      let_it_be(:destroy_project) { create(:project, :repository, :wiki_repo) }
+
       context 'git pull' do
         it 'returns a 200 response with status: false' do
-          project.destroy!
+          destroy_project.destroy!
 
-          pull(key, project)
+          pull(key, destroy_project)
 
           expect(response).to have_gitlab_http_status(:not_found)
           expect(json_response["status"]).to be_falsey
@@ -1448,6 +1437,65 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
         end
       end
     end
+
+    context 'workhorse circuit breaker header' do
+      let(:request) do
+        post(api('/internal/allowed'),
+          params: {
+            key_id: key.id,
+            project: project.full_path,
+            gl_repository: gl_repository,
+            protocol: protocol
+          }, headers: headers
+        )
+      end
+
+      shared_examples 'a response with no circuit breaker header' do
+        it 'does not add a Enable-Workhorse-Circuit-Breaker header to the response' do
+          request
+
+          expect(response.headers['Enable-Workhorse-Circuit-Breaker']).to be_nil
+        end
+      end
+
+      context 'with the feature flag enabled' do
+        context 'with a ssh protocol and Gitlab-Shell-Api-Request header' do
+          let(:protocol) { 'ssh' }
+          let(:headers) { gitlab_shell_internal_api_request_header }
+
+          it 'adds a Enable-Workhorse-Circuit-Breaker header to the response' do
+            request
+
+            expect(response.headers['Enable-Workhorse-Circuit-Breaker']).to eq('true')
+          end
+        end
+
+        context 'without ssh protocol' do
+          let(:protocol) { 'http' }
+          let(:headers) { gitlab_shell_internal_api_request_header }
+
+          it_behaves_like 'a response with no circuit breaker header'
+        end
+
+        context 'without the Gitlab-Shell-Api-Request header' do
+          let(:protocol) { 'ssh' }
+          let(:headers) { {} }
+
+          it_behaves_like 'a response with no circuit breaker header'
+        end
+      end
+
+      context 'with the feature flag disabled' do
+        let(:protocol) { 'ssh' }
+        let(:headers) { gitlab_shell_internal_api_request_header }
+
+        before do
+          stub_feature_flags(workhorse_circuit_breaker: false)
+        end
+
+        it_behaves_like 'a response with no circuit breaker header'
+      end
+    end
   end
 
   describe 'POST /internal/post_receive', :clean_gitlab_redis_shared_state do
@@ -1479,7 +1527,11 @@ RSpec.describe API::Internal::Base, feature_category: :system_access do
       let(:gl_repository) { container.repository.gl_repository }
       let(:messages) { [] }
 
-      it 'executes PostReceiveService' do
+      it 'executes PostReceiveService passing in the gitaly_context' do
+        expect(PostReceiveService).to receive(:new)
+          .with(user, container.repository, anything, hash_including({ gitaly_context: anything }))
+          .and_call_original
+
         subject
 
         expect(response).to have_gitlab_http_status(:ok)

@@ -1,7 +1,6 @@
 ---
 RSpec/RepeatedExampleGroupDescription:
   Exclude:
-    - 'ee/spec/graphql/resolvers/vulnerabilities_grade_resolver_spec.rb'
     - 'ee/spec/graphql/resolvers/vulnerability_severities_count_resolver_spec.rb'
     - 'ee/spec/lib/gitlab/auth/ldap/person_spec.rb'
     - 'ee/spec/lib/gitlab/usage/metrics/instrumentations/approval_project_rules_with_user_metric_spec.rb'
@@ -10,7 +9,6 @@ RSpec/RepeatedExampleGroupDescription:
     - 'ee/spec/models/dast/profile_spec.rb'
     - 'ee/spec/models/ee/project_spec.rb'
     - 'ee/spec/models/geo/deleted_project_spec.rb'
-    - 'ee/spec/models/geo_node_spec.rb'
     - 'ee/spec/models/integrations/github_spec.rb'
     - 'ee/spec/models/merge_requests/external_status_check_spec.rb'
     - 'ee/spec/models/release_highlight_spec.rb'
@@ -41,7 +39,6 @@ RSpec/RepeatedExampleGroupDescription:
     - 'spec/lib/gitlab/auth/atlassian/auth_hash_spec.rb'
     - 'spec/lib/gitlab/auth/blocked_user_tracker_spec.rb'
     - 'spec/lib/gitlab/auth/ldap/dn_spec.rb'
-    - 'spec/lib/gitlab/ci/config/edge_stages_injector_spec.rb'
     - 'spec/lib/gitlab/ci/config/entry/jobs_spec.rb'
     - 'spec/lib/gitlab/ci/config/entry/needs_spec.rb'
     - 'spec/lib/gitlab/ci/config/entry/policy_spec.rb'
@@ -80,7 +77,6 @@ RSpec/RepeatedExampleGroupDescription:
     - 'spec/routing/project_routing_spec.rb'
     - 'spec/services/ci/create_pipeline_service/parent_child_pipeline_spec.rb'
     - 'spec/services/merge_requests/refresh_service_spec.rb'
-    - 'spec/services/verify_pages_domain_service_spec.rb'
     - 'spec/support/shared_examples/models/application_setting_shared_examples.rb'
     - 'spec/support/shared_examples/models/concerns/limitable_shared_examples.rb'
     - 'spec/support/shared_examples/requests/api/composer_packages_shared_examples.rb'

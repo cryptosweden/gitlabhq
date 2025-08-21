@@ -9,11 +9,11 @@ module Gitlab
         end
 
         def self.wrapper
-          lambda do |_, inner|
+          ->(_, inner) do
             inner.call
           ensure
             ::Gitlab::Database::LoadBalancing.release_hosts
-            ::Gitlab::Database::LoadBalancing::Session.clear_session
+            ::Gitlab::Database::LoadBalancing::SessionMap.clear_session
           end
         end
       end

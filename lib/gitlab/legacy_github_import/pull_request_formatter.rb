@@ -22,7 +22,8 @@ module Gitlab
           author_id: author_id,
           assignee_id: assignee_id,
           created_at: raw_data[:created_at],
-          updated_at: raw_data[:updated_at]
+          updated_at: raw_data[:updated_at],
+          imported_from: imported_from
         }
       end
 
@@ -75,6 +76,22 @@ module Gitlab
 
       def opened?
         state == 'opened'
+      end
+
+      def project_assignee_association
+        :merge_request_assignees
+      end
+
+      def contributing_user_formatters
+        {
+          author_id: author
+        }
+      end
+
+      def contributing_assignee_formatters
+        {
+          user_id: assignee
+        }
       end
 
       private

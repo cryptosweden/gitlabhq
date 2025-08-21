@@ -17,7 +17,9 @@ module Enums
           # 24 was previously used by the deprecated `user_blocked`
           project_deleted: 25,
           filtered_by_rules: 26,
-          filtered_by_workflow_rules: 27
+          filtered_by_workflow_rules: 27,
+          composite_identity_forbidden: 28,
+          pipeline_ref_creation_failure: 29
         }
       end
 
@@ -49,7 +51,9 @@ module Enums
           ondemand_dast_scan: 13,
           ondemand_dast_validation: 14,
           security_orchestration_policy: 15,
-          container_registry_push: 16
+          container_registry_push: 16,
+          duo_workflow: 17,
+          pipeline_execution_policy_schedule: 18
         }
       end
 
@@ -65,7 +69,24 @@ module Enums
       # - when a container_registry_push pipeline runs it is for security testing purpose and should
       #   not affect the ref CI status.
       def self.dangling_sources
-        sources.slice(:webide, :parent_pipeline, :ondemand_dast_scan, :ondemand_dast_validation, :security_orchestration_policy, :container_registry_push)
+        sources.slice(
+          :webide,
+          :parent_pipeline,
+          :ondemand_dast_scan,
+          :ondemand_dast_validation,
+          :security_orchestration_policy,
+          :container_registry_push,
+          :duo_workflow,
+          :pipeline_execution_policy_schedule
+        )
+      end
+
+      # Workloads are always dangling but they also have almost all sources of CI variables disabled by default as they
+      # do not need access most of the kinds of CI variables.
+      def self.workload_sources
+        dangling_sources.slice(
+          :duo_workflow
+        )
       end
 
       # CI sources are those pipeline events that affect the CI status of the ref

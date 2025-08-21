@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::References::WorkItemReferenceFilter, feature_category: :team_planning do
+RSpec.describe Banzai::Filter::References::WorkItemReferenceFilter, feature_category: :markdown do
   include FilterSpecHelper
 
   let_it_be(:group)           { create(:group) }
@@ -113,21 +113,21 @@ RSpec.describe Banzai::Filter::References::WorkItemReferenceFilter, feature_cate
     end
 
     it 'includes a data-reference-format attribute for URL references' do
-      doc = reference_filter("Issue #{work_item_url}+")
+      doc = reference_filter("Issue #{work_item_link_reference}+")
       link = doc.css('a').first
 
       expect(link).to have_attribute('data-reference-format')
       expect(link.attr('data-reference-format')).to eq('+')
-      expect(link.attr('href')).to eq(work_item_url)
+      expect(link.attr('href')).to eq(work_item_link_reference)
     end
 
     it 'includes a data-reference-format attribute for extended summary URL references' do
-      doc = reference_filter("Issue #{work_item_url}+s")
+      doc = reference_filter("Issue #{work_item_link_reference}+s")
       link = doc.css('a').first
 
       expect(link).to have_attribute('data-reference-format')
       expect(link.attr('data-reference-format')).to eq('+s')
-      expect(link.attr('href')).to eq(work_item_url)
+      expect(link.attr('href')).to eq(work_item_link_reference)
     end
 
     it 'does not process links containing issue numbers followed by text' do
@@ -140,21 +140,44 @@ RSpec.describe Banzai::Filter::References::WorkItemReferenceFilter, feature_cate
   end
 
   context 'when group level work item URL reference' do
-    let_it_be(:work_item, reload: true) { create(:work_item, :group_level, namespace: group) }
-    let_it_be(:work_item_url)     { item_url(work_item) }
-    let_it_be(:reference)         { work_item_url }
-    let_it_be(:written_reference) { reference }
-    let_it_be(:inner_text)        { written_reference }
+    let_it_be(:work_item, reload: true)   { create(:work_item, :group_level, namespace: group) }
+    let_it_be(:work_item_link_reference)  { item_url(work_item) }
+    let_it_be(:work_item_url)             { work_item_link_reference }
+    let_it_be(:reference)                 { work_item_url }
+    let_it_be(:written_reference)         { reference }
+    let_it_be(:inner_text)                { written_reference }
 
     it_behaves_like 'a work item reference'
   end
 
   context 'when group level work item full reference' do
-    let_it_be(:work_item, reload: true) { create(:work_item, :group_level, namespace: group) }
-    let_it_be(:work_item_url)     { item_url(work_item) }
-    let_it_be(:reference)         { work_item.to_reference(full: true) }
-    let_it_be(:written_reference) { reference }
-    let_it_be(:inner_text)        { written_reference }
+    let_it_be(:work_item, reload: true)   { create(:work_item, :group_level, namespace: group) }
+    let_it_be(:work_item_link_reference)  { item_url(work_item) }
+    let_it_be(:work_item_url)             { work_item_link_reference }
+    let_it_be(:reference)                 { work_item.to_reference(full: true) }
+    let_it_be(:written_reference)         { reference }
+    let_it_be(:inner_text)                { written_reference }
+
+    it_behaves_like 'a work item reference'
+  end
+
+  context 'on [work_item:XXX] reference' do
+    let_it_be(:written_reference)         { "[work_item:#{work_item.iid}]" }
+    let_it_be(:reference)                 { written_reference }
+    let_it_be(:inner_text)                { written_reference }
+    let_it_be(:work_item_link_reference)  { item_url(work_item) }
+    let_it_be(:work_item_url)             { work_item_link_reference.gsub('work_items', 'issues') }
+
+    it_behaves_like 'a work item reference'
+  end
+
+  context 'on cross project [work_item:project/path/XXX] reference' do
+    let_it_be(:work_item, reload: true)   { create(:work_item, project: cross_project) }
+    let_it_be(:work_item_link_reference)  { item_url(work_item) }
+    let_it_be(:work_item_url)             { work_item_link_reference.gsub('work_items', 'issues') }
+    let_it_be(:written_reference)         { "[work_item:#{cross_project.full_path}/#{work_item.iid}]" }
+    let_it_be(:reference)                 { written_reference }
+    let_it_be(:inner_text)                { written_reference }
 
     it_behaves_like 'a work item reference'
   end
@@ -162,11 +185,12 @@ RSpec.describe Banzai::Filter::References::WorkItemReferenceFilter, feature_cate
   # Example:
   #   "See http://localhost/cross-namespace/cross-project/-/work_items/1"
   context 'when cross-project URL reference' do
-    let_it_be(:work_item, reload: true) { create(:work_item, project: cross_project) }
-    let_it_be(:work_item_url)     { item_url(work_item) }
-    let_it_be(:reference)         { work_item_url }
-    let_it_be(:written_reference) { reference }
-    let_it_be(:inner_text)        { written_reference }
+    let_it_be(:work_item, reload: true)   { create(:work_item, project: cross_project) }
+    let_it_be(:work_item_link_reference)  { item_url(work_item) }
+    let_it_be(:work_item_url)             { work_item_link_reference }
+    let_it_be(:reference)                 { work_item_url }
+    let_it_be(:written_reference)         { reference }
+    let_it_be(:inner_text)                { written_reference }
 
     it_behaves_like 'a work item reference'
 
@@ -211,7 +235,7 @@ RSpec.describe Banzai::Filter::References::WorkItemReferenceFilter, feature_cate
       expect(doc.to_html).to match(%r{\(<a.+>#{Regexp.escape(work_item.to_reference(project))}</a>\.\)})
     end
 
-    it 'links with adjacent text' do
+    it 'links with adjacent text', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/478370' do
       doc = reference_filter("Fixed (#{reference}.)")
 
       expect(doc.to_html).to match(%r{\(<a.+>#{Regexp.escape(work_item.to_reference(project))} \(comment 123\)</a>\.\)})
@@ -221,12 +245,13 @@ RSpec.describe Banzai::Filter::References::WorkItemReferenceFilter, feature_cate
   # Example:
   #   'See <a href=\"http://localhost/cross-namespace/cross-project/-/work_items/1\">Reference</a>''
   context 'when cross-project URL in link href' do
-    let_it_be(:work_item, reload: true) { create(:work_item, project: cross_project) }
-    let_it_be(:work_item_url)     { item_url(work_item) }
-    let_it_be(:reference)         { work_item_url }
-    let_it_be(:reference_link)    { %(<a href="#{reference}">Reference</a>) }
-    let_it_be(:written_reference) { reference_link }
-    let_it_be(:inner_text)        { 'Reference' }
+    let_it_be(:work_item, reload: true)   { create(:work_item, project: cross_project) }
+    let_it_be(:work_item_link_reference)  { item_url(work_item) }
+    let_it_be(:work_item_url)             { work_item_link_reference }
+    let_it_be(:reference)                 { work_item_url }
+    let_it_be(:reference_link)            { %(<a href="#{reference}">Reference</a>) }
+    let_it_be(:written_reference)         { reference_link }
+    let_it_be(:inner_text)                { 'Reference' }
 
     it_behaves_like 'a work item reference'
 

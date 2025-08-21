@@ -1,46 +1,55 @@
 <script>
-import { GlAvatarLabeled, GlIcon, GlTooltipDirective, GlTruncateText, GlBadge } from '@gitlab/ui';
+import { GlIcon, GlBadge, GlTooltipDirective } from '@gitlab/ui';
 import uniqueId from 'lodash/uniqueId';
 
-import GroupListItemDeleteModal from 'ee_else_ce/vue_shared/components/groups_list/group_list_item_delete_modal.vue';
+import { createAlert } from '~/alert';
+import GroupListItemDeleteModal from '~/vue_shared/components/groups_list/group_list_item_delete_modal.vue';
+import axios from '~/lib/utils/axios_utils';
 import { VISIBILITY_TYPE_ICON, GROUP_VISIBILITY_TYPE } from '~/visibility_level/constants';
 import { ACCESS_LEVEL_LABELS, ACCESS_LEVEL_NO_ACCESS_INTEGER } from '~/access_level/constants';
 import { __ } from '~/locale';
-import { numberToMetricPrefix } from '~/lib/utils/number_utils';
-import SafeHtml from '~/vue_shared/directives/safe_html';
-import { ACTION_EDIT, ACTION_DELETE } from '~/vue_shared/components/list_actions/constants';
-import ListActions from '~/vue_shared/components/list_actions/list_actions.vue';
-import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
+import { numberToMetricPrefix, numberToHumanSize, isNumeric } from '~/lib/utils/number_utils';
 import {
+  ACTION_DELETE,
+  ACTION_DELETE_IMMEDIATELY,
+  ACTION_LEAVE,
+} from '~/vue_shared/components/list_actions/constants';
+import {
+  TIMESTAMP_TYPES,
   TIMESTAMP_TYPE_CREATED_AT,
-  TIMESTAMP_TYPE_UPDATED_AT,
 } from '~/vue_shared/components/resource_lists/constants';
+import ListItem from '~/vue_shared/components/resource_lists/list_item.vue';
+import ListItemStat from '~/vue_shared/components/resource_lists/list_item_stat.vue';
+import { renderDeleteSuccessToast, deleteParams } from '~/vue_shared/components/groups_list/utils';
+import GroupListItemLeaveModal from '~/vue_shared/components/groups_list/group_list_item_leave_modal.vue';
+import GroupListItemPreventDeleteModal from '~/vue_shared/components/groups_list/group_list_item_prevent_delete_modal.vue';
+import GroupListItemActions from '~/vue_shared/components/groups_list/group_list_item_actions.vue';
+import ListItemInactiveBadge from '~/vue_shared/components/resource_lists/list_item_inactive_badge.vue';
 
 export default {
   i18n: {
     subgroups: __('Subgroups'),
     projects: __('Projects'),
     directMembers: __('Direct members'),
-    showMore: __('Show more'),
-    showLess: __('Show less'),
-    [TIMESTAMP_TYPE_CREATED_AT]: __('Created'),
-    [TIMESTAMP_TYPE_UPDATED_AT]: __('Updated'),
+    deleteErrorMessage: __(
+      'An error occurred deleting the group. Please refresh the page to try again.',
+    ),
   },
-  truncateTextToggleButtonProps: { class: 'gl-font-sm!' },
   components: {
-    GlAvatarLabeled,
+    ListItem,
+    ListItemStat,
     GlIcon,
-    GlTruncateText,
     GlBadge,
-    ListActions,
+    GroupListItemActions,
+    GroupListItemLeaveModal,
+    GroupListItemPreventDeleteModal,
     GroupListItemDeleteModal,
-    TimeAgoTooltip,
-    GroupListItemInactiveBadge: () =>
-      import('ee_component/vue_shared/components/groups_list/group_list_item_inactive_badge.vue'),
+    ListItemInactiveBadge,
+    GroupsListItemPlanBadge: () =>
+      import('ee_component/vue_shared/components/groups_list/groups_list_item_plan_badge.vue'),
   },
   directives: {
     GlTooltip: GlTooltipDirective,
-    SafeHtml,
   },
   props: {
     group: {
@@ -52,18 +61,25 @@ export default {
       required: false,
       default: false,
     },
+    listItemClass: {
+      type: [String, Array, Object],
+      required: false,
+      default: '',
+    },
     timestampType: {
       type: String,
       required: false,
       default: TIMESTAMP_TYPE_CREATED_AT,
       validator(value) {
-        return [TIMESTAMP_TYPE_CREATED_AT, TIMESTAMP_TYPE_UPDATED_AT].includes(value);
+        return TIMESTAMP_TYPES.includes(value);
       },
     },
   },
   data() {
     return {
       isDeleteModalVisible: false,
+      isDeleteModalLoading: false,
+      isLeaveModalVisible: false,
       modalId: uniqueId('groups-list-item-modal-id-'),
     };
   },
@@ -84,13 +100,12 @@ export default {
       return ACCESS_LEVEL_LABELS[this.accessLevel];
     },
     shouldShowAccessLevel() {
-      return this.accessLevel !== undefined && this.accessLevel !== ACCESS_LEVEL_NO_ACCESS_INTEGER;
+      const falsyValues = [undefined, null, ACCESS_LEVEL_NO_ACCESS_INTEGER];
+
+      return !falsyValues.includes(this.accessLevel);
     },
     groupIconName() {
       return this.group.parent ? 'subgroup' : 'group';
-    },
-    statsPadding() {
-      return this.showGroupIcon ? 'gl-pl-12' : 'gl-pl-10';
     },
     descendantGroupsCount() {
       return numberToMetricPrefix(this.group.descendantGroupsCount);
@@ -101,157 +116,168 @@ export default {
     groupMembersCount() {
       return numberToMetricPrefix(this.group.groupMembersCount);
     },
-    actions() {
-      return {
-        [ACTION_EDIT]: {
-          href: this.group.editPath,
-        },
-        [ACTION_DELETE]: {
-          action: this.onActionDelete,
-        },
-      };
+    showDescendantGroupsCount() {
+      return isNumeric(this.group.descendantGroupsCount);
+    },
+    showProjectsCount() {
+      return isNumeric(this.group.projectsCount);
+    },
+    showGroupMembersCount() {
+      return isNumeric(this.group.groupMembersCount);
+    },
+    storageSize() {
+      if (!this.hasStorageSize) {
+        return null;
+      }
+
+      return numberToHumanSize(this.group.projectStatistics?.storageSize || 0);
+    },
+    hasStorageSize() {
+      return Object.hasOwn(this.group, 'projectStatistics');
+    },
+    hasActionDelete() {
+      return (
+        this.group.availableActions?.includes(ACTION_DELETE) ||
+        this.group.availableActions?.includes(ACTION_DELETE_IMMEDIATELY)
+      );
+    },
+    hasActionLeave() {
+      return this.group.availableActions?.includes(ACTION_LEAVE);
     },
     hasActions() {
       return this.group.availableActions?.length;
     },
-    hasActionDelete() {
-      return this.group.availableActions?.includes(ACTION_DELETE);
+    hasFooterAction() {
+      return this.hasActionDelete || this.hasActionLeave;
     },
-    isActionDeleteLoading() {
-      return this.group.actionLoadingStates?.[ACTION_DELETE];
-    },
-    timestampText() {
-      return this.$options.i18n[this.timestampType];
-    },
-    timestamp() {
-      return this.group[this.timestampType];
+    dataTestid() {
+      return `groups-list-item-${this.group.id}`;
     },
   },
   methods: {
     onActionDelete() {
       this.isDeleteModalVisible = true;
     },
+    onDeleteModalChange(isVisible) {
+      this.isDeleteModalVisible = isVisible;
+    },
+    async onDeleteModalConfirm() {
+      this.isDeleteModalLoading = true;
+
+      try {
+        await axios.delete(this.group.relativeWebUrl, {
+          params: deleteParams(this.group),
+        });
+        this.refetch();
+        renderDeleteSuccessToast(this.group);
+      } catch (error) {
+        createAlert({ message: this.$options.i18n.deleteErrorMessage, error, captureError: true });
+      } finally {
+        this.isDeleteModalLoading = false;
+      }
+    },
+    onActionLeave() {
+      this.isLeaveModalVisible = true;
+    },
+    refetch() {
+      this.$emit('refetch');
+    },
   },
 };
 </script>
 
 <template>
-  <li class="groups-list-item gl-py-5 gl-border-b gl-display-flex">
-    <div class="md:gl-flex gl-flex-grow-1">
-      <div class="gl-flex gl-grow gl-items-start">
-        <div
-          v-if="showGroupIcon"
-          class="gl-display-flex gl-align-items-center gl-flex-shrink-0 gl-h-9 gl-mr-3"
-        >
-          <gl-icon class="gl-text-secondary" :name="groupIconName" />
-        </div>
-        <gl-avatar-labeled
-          :entity-id="group.id"
-          :entity-name="group.fullName"
-          :label="group.fullName"
-          :label-link="group.webUrl"
-          shape="rect"
-          :size="48"
-        >
-          <template #meta>
-            <div class="gl-px-2">
-              <div class="-gl-mx-2 gl-display-flex gl-align-items-center gl-flex-wrap">
-                <div class="gl-px-2">
-                  <gl-icon
-                    v-if="visibility"
-                    v-gl-tooltip="visibilityTooltip"
-                    :name="visibilityIcon"
-                    class="gl-text-secondary"
-                  />
-                </div>
-                <div class="gl-px-2">
-                  <gl-badge
-                    v-if="shouldShowAccessLevel"
-                    class="gl-block"
-                    data-testid="access-level-badge"
-                    >{{ accessLevelLabel }}</gl-badge
-                  >
-                </div>
-              </div>
-            </div>
-          </template>
-          <gl-truncate-text
-            v-if="group.descriptionHtml"
-            :lines="2"
-            :mobile-lines="2"
-            :show-more-text="$options.i18n.showMore"
-            :show-less-text="$options.i18n.showLess"
-            :toggle-button-props="$options.truncateTextToggleButtonProps"
-            class="gl-mt-2 gl-max-w-88"
-          >
-            <div
-              v-safe-html="group.descriptionHtml"
-              class="gl-font-sm gl-text-secondary md"
-              data-testid="group-description"
-            ></div>
-          </gl-truncate-text>
-        </gl-avatar-labeled>
-      </div>
-      <div
-        class="md:gl-flex gl-flex-col gl-items-end gl-shrink-0 gl-mt-3 md:gl-pl-0 md:gl-mt-0"
-        :class="statsPadding"
-      >
-        <div class="gl-flex gl-items-center gl-gap-x-3 md:gl-h-9">
-          <group-list-item-inactive-badge :group="group" />
-          <div
-            v-gl-tooltip="$options.i18n.subgroups"
-            :aria-label="$options.i18n.subgroups"
-            class="gl-text-secondary"
-            data-testid="subgroups-count"
-          >
-            <gl-icon name="subgroup" />
-            <span>{{ descendantGroupsCount }}</span>
-          </div>
-          <div
-            v-gl-tooltip="$options.i18n.projects"
-            :aria-label="$options.i18n.projects"
-            class="gl-text-secondary"
-            data-testid="projects-count"
-          >
-            <gl-icon name="project" />
-            <span>{{ projectsCount }}</span>
-          </div>
-          <div
-            v-gl-tooltip="$options.i18n.directMembers"
-            :aria-label="$options.i18n.directMembers"
-            class="gl-text-secondary"
-            data-testid="members-count"
-          >
-            <gl-icon name="users" />
-            <span>{{ groupMembersCount }}</span>
-          </div>
-        </div>
-        <div
-          v-if="timestamp"
-          class="gl-text-sm gl-whitespace-nowrap gl-text-secondary gl-mt-3 md:-gl-mt-2"
-        >
-          <span>{{ timestampText }}</span>
-          <time-ago-tooltip :time="timestamp" />
-        </div>
-      </div>
-    </div>
-    <div class="gl-display-flex gl-align-items-center gl-h-9 gl-ml-3">
-      <list-actions
-        v-if="hasActions"
-        :actions="actions"
-        :available-actions="group.availableActions"
+  <list-item
+    :resource="group"
+    :show-icon="showGroupIcon"
+    :icon-name="groupIconName"
+    :list-item-class="listItemClass"
+    :timestamp-type="timestampType"
+    :data-testid="dataTestid"
+  >
+    <template #children-toggle>
+      <slot name="children-toggle"></slot>
+    </template>
+    <template #avatar-meta>
+      <gl-icon
+        v-if="visibility"
+        v-gl-tooltip="visibilityTooltip"
+        :name="visibilityIcon"
+        variant="subtle"
       />
-    </div>
+      <gl-badge v-if="shouldShowAccessLevel" class="gl-block" data-testid="user-access-role">{{
+        accessLevelLabel
+      }}</gl-badge>
+    </template>
 
-    <group-list-item-delete-modal
-      v-if="hasActionDelete"
-      :visible="isDeleteModalVisible"
-      :modal-id="modalId"
-      :phrase="group.fullName"
-      :confirm-loading="isActionDeleteLoading"
-      :group="group"
-      @confirm.prevent="$emit('delete', group)"
-      @change="isDeleteModalVisible = arguments[0]"
-    />
-  </li>
+    <template #stats>
+      <list-item-inactive-badge :resource="group" />
+      <gl-badge v-if="hasStorageSize" data-testid="storage-size">{{ storageSize }}</gl-badge>
+      <groups-list-item-plan-badge :group="group" />
+      <list-item-stat
+        v-if="showDescendantGroupsCount"
+        :tooltip-text="$options.i18n.subgroups"
+        icon-name="subgroup"
+        :stat="descendantGroupsCount"
+        data-testid="subgroups-count"
+      />
+      <list-item-stat
+        v-if="showProjectsCount"
+        :tooltip-text="$options.i18n.projects"
+        icon-name="project"
+        :stat="projectsCount"
+        data-testid="projects-count"
+      />
+      <list-item-stat
+        v-if="showGroupMembersCount"
+        :tooltip-text="$options.i18n.directMembers"
+        icon-name="users"
+        :stat="groupMembersCount"
+        data-testid="members-count"
+      />
+    </template>
+
+    <template v-if="hasActions" #actions>
+      <group-list-item-actions
+        :group="group"
+        @refetch="refetch"
+        @delete="onActionDelete"
+        @leave="onActionLeave"
+      />
+    </template>
+
+    <template v-if="hasFooterAction" #footer>
+      <template v-if="hasActionDelete">
+        <group-list-item-prevent-delete-modal
+          v-if="group.isLinkedToSubscription"
+          :visible="isDeleteModalVisible"
+          :modal-id="modalId"
+          @change="onDeleteModalChange"
+        />
+        <group-list-item-delete-modal
+          v-else
+          :visible="isDeleteModalVisible"
+          :modal-id="modalId"
+          :phrase="group.fullName"
+          :confirm-loading="isDeleteModalLoading"
+          :group="group"
+          @confirm.prevent="onDeleteModalConfirm"
+          @change="onDeleteModalChange"
+        />
+      </template>
+
+      <template v-if="hasActionLeave">
+        <group-list-item-leave-modal
+          v-model="isLeaveModalVisible"
+          :modal-id="modalId"
+          :group="group"
+          @success="refetch"
+        />
+      </template>
+    </template>
+
+    <template #children>
+      <slot name="children"></slot>
+    </template>
+  </list-item>
 </template>

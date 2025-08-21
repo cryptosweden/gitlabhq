@@ -1,10 +1,9 @@
 ---
 stage: Growth
 group: Acquisition
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Testing experiments
 ---
-
-# Testing experiments
 
 ## Testing experiments with RSpec
 
@@ -24,8 +23,7 @@ names as the keys, and the variants you want each to resolve to, as the values:
 
 ```ruby
 # Ensures the experiments named `:example` & `:example2` are both "enabled" and
-# that each will resolve to the given variant (`:my_variant` and `:control`
-# respectively).
+# that each will resolve to the given variant (`:my_variant` and `:control`).
 stub_experiments(example: :my_variant, example2: :control)
 
 experiment(:example) do |e|
@@ -126,8 +124,11 @@ describe('when my_experiment is enabled', () => {
 });
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 This method of stubbing in Jest specs does not automatically un-stub itself at the end of the test. We merge our stubbed experiment in with all the other global data in `window.gl`. If you must remove the stubbed experiments after your test or ensure a clean global object before your test, you must manage the global object directly yourself:
+
+{{< /alert >}}
 
 ```javascript
 describe('tests that care about global state', () => {

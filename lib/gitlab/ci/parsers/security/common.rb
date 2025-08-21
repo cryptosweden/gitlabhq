@@ -58,19 +58,16 @@ module Gitlab
             schema_validation_passed = schema_validator.valid?
 
             schema_validator.errors.each { |error| report.add_error('Schema', error) }
-            schema_validator.deprecation_warnings.each { |deprecation_warning| report.add_warning('Schema', deprecation_warning) }
             schema_validator.warnings.each { |warning| report.add_warning('Schema', warning) }
 
             schema_validation_passed
           end
 
           def schema_validator
-            @schema_validator ||= ::Gitlab::Ci::Parsers::Security::Validators::SchemaValidator.new(
-              report.type,
+            @schema_validator ||= ::Gitlab::SecurityReportSchemas::Validator.new(
               report_data,
-              report.version,
-              project: @project,
-              scanner: top_level_scanner_data
+              report.type,
+              report.version
             )
           end
 
@@ -93,7 +90,7 @@ module Gitlab
           end
 
           def scan_data
-            @scan_data ||= report_data.dig('scan')
+            @scan_data ||= report_data['scan']
           end
 
           def analyzer_data
@@ -172,7 +169,8 @@ module Gitlab
               value = values.join('|')
               signature = ::Gitlab::Ci::Reports::Security::FindingSignature.new(
                 algorithm_type: algorithm,
-                signature_value: value
+                signature_value: value,
+                qualified_signature: @signatures_enabled
               )
 
               signature if signature.valid?
@@ -193,9 +191,9 @@ module Gitlab
             return unless analyzer_data.is_a?(Hash)
 
             params = {
-              id: analyzer_data.dig('id'),
-              name: analyzer_data.dig('name'),
-              version: analyzer_data.dig('version'),
+              id: analyzer_data['id'],
+              name: analyzer_data['name'],
+              version: analyzer_data['version'],
               vendor: analyzer_data.dig('vendor', 'name')
             }
 
@@ -207,21 +205,20 @@ module Gitlab
           def create_scanner(scanner_data)
             return unless scanner_data.is_a?(Hash)
 
-            report.add_scanner(
-              ::Gitlab::Ci::Reports::Security::Scanner.new(
-                external_id: scanner_data['id'],
-                name: scanner_data['name'],
-                vendor: scanner_data.dig('vendor', 'name'),
-                version: scanner_data.dig('version'),
-                primary_identifiers: create_scan_primary_identifiers))
+            report.scanner = ::Gitlab::Ci::Reports::Security::Scanner.new(
+              external_id: scanner_data['id'],
+              name: scanner_data['name'],
+              vendor: scanner_data.dig('vendor', 'name'),
+              version: scanner_data['version'],
+              primary_identifiers: create_scan_primary_identifiers)
           end
 
           # TODO: primary_identifiers should be initialized on the
           # scan itself but we do not currently parse scans through `MergeReportsService`
           def create_scan_primary_identifiers
-            return unless scan_data.is_a?(Hash) && scan_data.dig('primary_identifiers')
+            return unless scan_data.is_a?(Hash) && scan_data['primary_identifiers']
 
-            scan_data.dig('primary_identifiers').map do |identifier|
+            scan_data['primary_identifiers'].map do |identifier|
               ::Gitlab::Ci::Reports::Security::Identifier.new(
                 external_type: identifier['type'],
                 external_id: identifier['value'],

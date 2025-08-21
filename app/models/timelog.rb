@@ -7,6 +7,7 @@ class Timelog < ApplicationRecord
 
   include Importable
   include Sortable
+  include EachBatch
 
   before_save :set_project
 
@@ -40,6 +41,10 @@ class Timelog < ApplicationRecord
 
   scope :at_or_before, ->(end_time) do
     where('spent_at <= ?', end_time)
+  end
+
+  scope :with_summary, ->(summary) do
+    where(summary: summary)
   end
 
   scope :order_scope_asc, ->(field) { order(arel_table[field].asc.nulls_last) }

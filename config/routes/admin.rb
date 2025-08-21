@@ -7,6 +7,7 @@ namespace :admin do
     resources :impersonation_tokens, only: [:index, :create] do
       member do
         put :revoke
+        put :rotate
       end
     end
 
@@ -56,7 +57,11 @@ namespace :admin do
     put 'renew', on: :member
   end
 
-  resources :groups, only: [:index, :new, :create]
+  resources :groups, only: [:index, :new, :create] do
+    collection do
+      get :active, :inactive, to: 'groups#index'
+    end
+  end
 
   resources :organizations, only: [:index]
 
@@ -115,10 +120,22 @@ namespace :admin do
 
   resource :health_check, controller: 'health_check', only: [:show]
   resource :background_jobs, controller: 'background_jobs', only: [:show]
+  resources :database_diagnostics, controller: 'database_diagnostics', only: [:index] do
+    collection do
+      post :run_collation_check
+      get :collation_check_results
+      post :run_schema_check
+      get :schema_check_results
+    end
+  end
 
   resource :system_info, controller: 'system_info', only: [:show]
 
-  resources :projects, only: [:index]
+  resources :projects, only: [:index] do
+    collection do
+      get :active, :inactive, to: 'projects#index'
+    end
+  end
 
   resources :usage_trends, only: :index
   resource :dev_ops_reports, controller: 'dev_ops_report', only: :show
@@ -167,7 +184,7 @@ namespace :admin do
     put :reset_health_check_token
     put :reset_error_tracking_access_token
     put :clear_repository_check_states
-    match :general, :integrations, :repository, :ci_cd, :reporting, :metrics_and_profiling, :network, :preferences, via: [:get, :patch]
+    match :general, :integrations, :repository, :ci_cd, :reporting, :metrics_and_profiling, :network, :preferences, :search, :usage_quotas, via: [:get, :patch]
     get :lets_encrypt_terms_of_service
     get :slack_app_manifest_download, format: :json
     get :slack_app_manifest_share
@@ -184,6 +201,7 @@ namespace :admin do
   end
 
   resources :plan_limits, only: :create
+  resource :packages_limits, only: :update
 
   resources :labels
 

@@ -5,6 +5,7 @@ module Gitlab
     module Importer
       class ReleasesImporter
         include BulkImporting
+        include ::Import::PlaceholderReferences::Pusher
 
         # rubocop: disable CodeReuse/ActiveRecord
         def existing_tags
@@ -12,13 +13,24 @@ module Gitlab
         end
         # rubocop: enable CodeReuse/ActiveRecord
 
+        def github_users
+          @github_users ||= []
+        end
+
         # Note: if you're going to replace `legacy_bulk_insert` with something that triggers callback
         # to generate HTML version - you also need to regenerate it in
         # Gitlab::GithubImport::Importer::NoteAttachmentsImporter.
         def execute
           rows, validation_errors = build_releases
 
-          bulk_insert(rows)
+          inserted_ids = bulk_insert(rows)
+
+          inserted_ids.zip(github_users).each do |id, user|
+            # `id` is the GitLab Release ID we just inserted.
+            # `user` is the GitHub user object.
+            push_references_by_ids(project, [id], Release, :author_id, user[:id])
+          end
+
           bulk_insert_failures(validation_errors) if validation_errors.any?
         end
 
@@ -32,6 +44,8 @@ module Gitlab
 
         def build_attributes(release)
           existing_tags.add(release[:tag_name])
+          # when release author is nil (deleted on github) we assign the ghost user
+          github_users.push(map_github_user_info(release))
 
           {
             name: release[:name],
@@ -46,12 +60,22 @@ module Gitlab
           }
         end
 
+        def map_github_user_info(release)
+          {
+            id: release.dig(:author, :id) || Gitlab::GithubImport.ghost_user_id,
+            login: release.dig(:author, :login) || 'ghost'
+          }
+        end
+
         def each_release
           client.releases(project.import_source)
         end
 
         def description_for(release)
-          release[:body].presence || "Release for tag #{release[:tag_name]}"
+          description = release[:body].presence || "Release for tag #{release[:tag_name]}"
+          user = map_github_user_info(release)
+
+          MarkdownText.format(description, user, user[:id], project: project, client: client)
         end
 
         def object_type

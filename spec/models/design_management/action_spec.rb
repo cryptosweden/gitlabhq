@@ -129,4 +129,13 @@ RSpec.describe DesignManagement::Action do
       end
     end
   end
+
+  describe '#uploads_sharding_key' do
+    it 'returns namespace_id' do
+      namespace = build_stubbed(:namespace)
+      design_action = build_stubbed(:design_action, namespace_id: namespace.id)
+
+      expect(design_action.uploads_sharding_key).to eq(namespace_id: namespace.id)
+    end
+  end
 end

@@ -8,6 +8,14 @@
 - Groups::EnvironmentScopesFinder # Reason: There is no need to have anything else besides the simple strucutre with the scope name
 - Security::RelatedPipelinesFinder # Reason: There is no need to have anything else besides the IDs of pipelines
 - Llm::ExtraResourceFinder # Reason: The finder does not deal with DB-backend resource for now.
+- WorkItems::Statuses::Finder # Reason: The finder intentionally returns a single model instance.
+- Sbom::PathFinder # Reason: we need an [[Sbom::Occurrence]]
+- Security::VulnerabilityElasticSearchFinder # Reason: The finder deals with Elasticsearch records and not DB records
+- Security::VulnerabilityElasticIdentifierNamesFinder # Reason: The finder deals with Elasticsearch records and not DB records
+- Security::VulnerabilityElasticCountBySeverityFinder # Reason: The finder deals with Elasticsearch records and not DB records
+- Security::VulnerabilityElasticCountOverTimeFinder # Reason: The finder deals with Elasticsearch records and not DB records
+- AuditEvents::CombinedAuditEventFinder # Reason: The finder combines result from 4 different tables and also returns cursor to next page
+- Security::AnalyzerGroupStatusFinder # Reason: To give accurate counts, return all analyzer types, even when there is no DB record
 
 # Temporary excludes (aka TODOs)
 # For example:
@@ -55,16 +63,20 @@
 - Packages::Pypi::PackageFinder
 - Projects::Integrations::Jira::ByIdsFinder
 - Projects::Integrations::Jira::IssuesFinder
+- PushRuleFinder
 - Releases::EvidencePipelineFinder
 - Repositories::BranchNamesFinder
 - Repositories::ChangelogTagFinder
 - Repositories::TreeFinder
-- Security::FindingsFinder
 - Security::PipelineVulnerabilitiesFinder
 - Security::ScanExecutionPoliciesFinder
 - Security::ScanResultPoliciesFinder
 - Security::PipelineExecutionPoliciesFinder
+- Security::PipelineExecutionSchedulePoliciesFinder
+- Security::VulnerabilityManagementPoliciesFinder
+- Security::AllPoliciesFinder
 - Security::SecurityPoliciesFinder
+- Security::SecurityProjectGroupFinder
 - SentryIssueFinder
 - ServerlessDomainFinder
 - TagsFinder
@@ -72,3 +84,6 @@
 - UploaderFinder
 - UserGroupNotificationSettingsFinder
 - UserGroupsCounter
+- Ai::FeatureSettings::FeatureSettingFinder
+- Autocomplete::VulnerabilitiesAutocompleteFinder
+- Ai::ModelSelection::Namespaces::FeatureSettingFinder

@@ -28,6 +28,7 @@ RSpec.describe Gitlab::Audit::Auditor, feature_category: :audit_events do
     before do
       allow(Gitlab::Audit::Type::Definition).to receive(:defined?).and_call_original
       allow(Gitlab::Audit::Type::Definition).to receive(:defined?).with(name).and_return(true)
+      stub_feature_flags(stream_audit_events_from_new_tables: false)
     end
 
     context 'when yaml definition is not defined' do
@@ -48,6 +49,7 @@ RSpec.describe Gitlab::Audit::Auditor, feature_category: :audit_events do
     context 'when yaml definition is defined' do
       before do
         allow(Gitlab::Audit::Type::Definition).to receive(:defined?).and_return(true)
+        allow(Gitlab::AppLogger).to receive(:info).and_call_original
       end
 
       it 'does not raise an error' do
@@ -300,11 +302,10 @@ RSpec.describe Gitlab::Audit::Auditor, feature_category: :audit_events do
 
     context 'when audit events are invalid' do
       before do
-        expect_next_instance_of(AuditEvent) do |instance|
-          allow(instance).to receive(:save!).and_raise(ActiveRecord::RecordInvalid)
-        end
         allow(Gitlab::ErrorTracking).to receive(:track_exception)
       end
+
+      let(:author) { build(:user) } # use non-persisted author (hence non-valid id)
 
       it 'tracks error' do
         audit!

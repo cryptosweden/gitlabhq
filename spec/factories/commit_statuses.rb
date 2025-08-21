@@ -10,7 +10,10 @@ FactoryBot.define do
     started_at { 'Tue, 26 Jan 2016 08:21:42 +0100' }
     finished_at { 'Tue, 26 Jan 2016 08:23:42 +0100' }
     partition_id { pipeline&.partition_id }
-    stage { 'test' }
+
+    transient do
+      stage { 'test' }
+    end
 
     before(:create) do |commit_status, evaluator|
       next if commit_status.ci_stage
@@ -36,6 +39,10 @@ FactoryBot.define do
 
     trait :failed do
       status { 'failed' }
+    end
+
+    trait :canceling do
+      status { 'canceling' }
     end
 
     trait :canceled do

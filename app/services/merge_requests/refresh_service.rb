@@ -3,6 +3,7 @@
 module MergeRequests
   class RefreshService < MergeRequests::BaseService
     include Gitlab::Utils::StrongMemoize
+
     attr_reader :push
 
     def execute(oldrev, newrev, ref)
@@ -21,8 +22,11 @@ module MergeRequests
       # Be sure to close outstanding MRs before reloading them to avoid generating an
       # empty diff during a manual merge
       close_upon_missing_source_branch_ref
+
       post_merge_manually_merged
+
       link_forks_lfs_objects
+
       reload_merge_requests
 
       merge_requests_for_source_branch.each do |mr|
@@ -42,9 +46,11 @@ module MergeRequests
 
         notify_about_push(mr)
         mark_mr_as_draft_from_commits(mr)
+
         execute_mr_web_hooks(mr)
+
         # Run at the end of the loop to avoid any potential contention on the MR object
-        refresh_pipelines_on_merge_requests(mr)
+        refresh_pipelines_on_merge_requests(mr) unless @push.branch_removed?
         merge_request_activity_counter.track_mr_including_ci_config(user: mr.author, merge_request: mr)
       end
 
@@ -148,6 +154,7 @@ module MergeRequests
 
         if branch_and_project_match?(merge_request) || @push.force_push?
           merge_request.reload_diff(current_user)
+          schedule_duo_code_review(merge_request)
           # Clear existing merge error if the push were directed at the
           # source branch. Clearing the error when the target branch
           # changes will hide the error from the user.
@@ -193,15 +200,19 @@ module MergeRequests
     def abort_auto_merges(merge_request)
       return unless abort_auto_merges?(merge_request)
 
-      abort_auto_merge(merge_request, 'source branch was updated')
+      learn_more_url = Rails.application.routes.url_helpers.help_page_url(
+        'ci/pipelines/merge_trains.md',
+        anchor: 'merge-request-dropped-from-the-merge-train'
+      )
+
+      abort_auto_merge(merge_request, "the source branch was updated. [Learn more](#{learn_more_url}).")
     end
 
     def abort_ff_merge_requests_with_auto_merges
       return unless @project.ff_merge_must_be_possible?
 
       merge_requests_with_auto_merge_enabled_to(@push.branch_name).each do |merge_request|
-        unless merge_request.auto_merge_strategy == AutoMergeService::STRATEGY_MERGE_WHEN_PIPELINE_SUCCEEDS ||
-            merge_request.auto_merge_strategy == AutoMergeService::STRATEGY_MERGE_WHEN_CHECKS_PASS
+        unless merge_request.auto_merge_strategy == AutoMergeService::STRATEGY_MERGE_WHEN_CHECKS_PASS
           next
         end
 
@@ -304,7 +315,7 @@ module MergeRequests
     # `MergeRequestsClosingIssues` model (as a performance optimization).
     # rubocop: disable CodeReuse/ActiveRecord
     def cache_merge_requests_closing_issues
-      @project.merge_requests.where(source_branch: @push.branch_name).each do |merge_request|
+      @project.merge_requests.where(source_branch: @push.branch_name).find_each do |merge_request|
         merge_request.cache_merge_request_closes_issues!(@current_user)
       end
     end
@@ -326,6 +337,10 @@ module MergeRequests
           .from_project(project)
           .from_source_branches(@push.branch_name)
           .from_fork
+    end
+
+    def schedule_duo_code_review(merge_request)
+      # Overridden in EE
     end
   end
 end

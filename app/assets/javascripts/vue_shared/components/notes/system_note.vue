@@ -18,25 +18,26 @@
  */
 import { GlButton, GlSkeletonLoader, GlTooltipDirective, GlIcon } from '@gitlab/ui';
 import $ from 'jquery';
-// eslint-disable-next-line no-restricted-imports
-import { mapGetters, mapActions, mapState } from 'vuex';
+import { mapActions, mapState } from 'pinia';
 import SafeHtml from '~/vue_shared/directives/safe_html';
 import descriptionVersionHistoryMixin from 'ee_else_ce/notes/mixins/description_version_history';
 import axios from '~/lib/utils/axios_utils';
 import { __ } from '~/locale';
 import NoteHeader from '~/notes/components/note_header.vue';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { renderGFM } from '~/behaviors/markdown/render_gfm';
+import { useNotes } from '~/notes/store/legacy_notes';
 import TimelineEntryItem from './timeline_entry_item.vue';
 
 const MAX_VISIBLE_COMMIT_LIST_COUNT = 3;
 const ICON_COLORS = {
-  check: 'gl-bg-green-100 gl-text-green-700',
-  'merge-request-close': 'gl-bg-red-100 gl-text-red-700',
-  merge: 'gl-bg-blue-100 gl-text-blue-700',
-  'issue-close': 'gl-bg-blue-100 gl-text-blue-700',
-  issues: 'gl-bg-green-100 gl-text-green-700',
-  error: 'gl-bg-red-100 gl-text-red-700',
+  check: 'system-note-icon-success',
+  'merge-request-close': 'system-note-icon-danger',
+  merge: 'system-note-icon-info',
+  'issue-close': 'system-note-icon-info',
+  issues: 'system-note-icon-success',
+  error: 'system-note-icon-danger',
+  'review-warning': 'system-note-icon-warning',
+  'comment-lines': 'system-note-icon-info',
 };
 
 export default {
@@ -55,7 +56,7 @@ export default {
     GlTooltip: GlTooltipDirective,
     SafeHtml,
   },
-  mixins: [descriptionVersionHistoryMixin, glFeatureFlagsMixin()],
+  mixins: [descriptionVersionHistoryMixin],
   props: {
     note: {
       type: Object,
@@ -71,8 +72,7 @@ export default {
     };
   },
   computed: {
-    ...mapGetters(['targetNoteHash', 'descriptionVersions', 'getNoteableData']),
-    ...mapState(['isLoadingDescriptionVersion']),
+    ...mapState(useNotes, ['targetNoteHash', 'descriptionVersions', 'isLoadingDescriptionVersion']),
     noteAnchorId() {
       return `note_${this.note.id}`;
     },
@@ -95,11 +95,14 @@ export default {
     descriptionVersion() {
       return this.descriptionVersions[this.note.description_version_id];
     },
-    isMergeRequest() {
-      return this.getNoteableData.noteableType === 'MergeRequest';
+    singleLineDescription() {
+      return !this.descriptionVersion?.match(/\n/g);
+    },
+    deleteButtonClasses() {
+      return this.singleLineDescription ? 'gl-top-5 gl-right-2 gl-mt-2' : 'gl-top-6 gl-right-3';
     },
     iconBgClass() {
-      return ICON_COLORS[this.note.system_note_icon_name] || 'gl-bg-gray-50 gl-text-gray-600';
+      return ICON_COLORS[this.note.system_note_icon_name] || 'gl-text-subtle';
     },
     systemNoteIconName() {
       let icon = this.note.system_note_icon_name;
@@ -108,7 +111,7 @@ export default {
         if (this.note.noteable_type === 'Issue') {
           icon = 'issue-open-m';
         } else if (this.note.noteable_type === 'MergeRequest') {
-          icon = 'merge-request-open';
+          icon = 'merge-request';
         }
       }
       return icon;
@@ -118,7 +121,8 @@ export default {
     renderGFM(this.$refs['gfm-content']);
   },
   methods: {
-    ...mapActions(['fetchDescriptionVersion', 'softDeleteDescriptionVersion']),
+    // eslint-disable-next-line vue/no-unused-properties -- These are used by the `descriptionVersionHistoryMixin` mixin
+    ...mapActions(useNotes, ['fetchDescriptionVersion', 'softDeleteDescriptionVersion']),
     async toggleDiff() {
       this.showLines = !this.showLines;
 
@@ -134,40 +138,43 @@ export default {
       }
     },
   },
-  userColorSchemeClass: window.gon.user_color_scheme,
 };
 </script>
 
 <template>
   <timeline-entry-item
     :id="noteAnchorId"
-    :class="{ target: isTargetNote, 'pr-0': shouldShowDescriptionVersion }"
-    class="note system-note note-wrapper"
+    :class="{
+      target: isTargetNote,
+      'pr-0': shouldShowDescriptionVersion,
+    }"
+    class="system-note"
   >
     <div
       :class="[
         iconBgClass,
         {
-          'system-note-icon': isAllowedIcon,
-          'system-note-tiny-dot gl-bg-gray-900!': !isAllowedIcon,
+          'system-note-icon -gl-mt-1 gl-ml-2 gl-h-6 gl-w-6': isAllowedIcon,
+          'system-note-dot -gl-top-1 gl-ml-4 gl-mt-3 gl-h-3 gl-w-3 gl-border-2 gl-border-solid gl-border-subtle':
+            !isAllowedIcon,
         },
       ]"
-      class="gl-float-left gl-flex gl-justify-center gl-items-center gl-rounded-full gl-relative timeline-icon"
+      class="gl-relative gl-float-left gl-flex gl-items-center gl-justify-center gl-rounded-full"
     >
       <gl-icon
         v-if="isAllowedIcon"
         :name="systemNoteIconName"
-        :size="12"
+        :size="14"
         data-testid="timeline-icon"
       />
     </div>
-    <div class="timeline-content">
-      <div class="note-header">
+    <div class="gl-ml-7">
+      <div class="gl-flex gl-items-start gl-justify-between">
         <note-header
           :author="note.author"
           :created-at="note.created_at"
           :note-id="note.id"
-          :is-system-note="true"
+          is-system-note
           :is-imported="note.imported"
         >
           <span ref="gfm-content" v-safe-html="actionTextHtml"></span>
@@ -180,7 +187,7 @@ export default {
               variant="link"
               :icon="descriptionVersionToggleIcon"
               data-testid="compare-btn"
-              class="gl-vertical-align-text-bottom gl-font-sm! gl-ml-3"
+              class="gl-ml-3 gl-align-text-bottom !gl-text-sm"
               @click="toggleDescriptionVersion"
               >{{ __('Compare with previous version') }}</gl-button
             >
@@ -189,7 +196,7 @@ export default {
               :icon="showLines ? 'chevron-up' : 'chevron-down'"
               variant="link"
               data-testid="outdated-lines-change-btn"
-              class="gl-vertical-align-text-bottom gl-font-sm!"
+              class="gl-align-text-bottom !gl-text-sm"
               @click="toggleDiff"
             >
               {{ __('Compare changes') }}
@@ -197,26 +204,40 @@ export default {
           </template>
         </note-header>
       </div>
-      <div class="note-body">
+      <div
+        class="note-body gl-pb-0 gl-pl-3"
+        :class="{ '!gl-block': showLines || shouldShowDescriptionVersion }"
+      >
         <div
           v-safe-html="note.note_html"
-          :class="{ 'system-note-commit-list': hasMoreCommits, 'hide-shade': expanded }"
+          :class="{
+            'gl-block gl-overflow-hidden': hasMoreCommits,
+            'system-note-commit-list': hasMoreCommits && !expanded,
+          }"
           class="note-text md"
         ></div>
         <div v-if="hasMoreCommits" class="flex-list">
           <div
-            class="system-note-commit-list-toggler flex-row gl-pl-4 gl-pt-3"
+            class="flex-row gl-relative gl-z-2 gl-cursor-pointer gl-pl-4 gl-pt-3 gl-text-link hover:gl-underline"
             @click="expanded = !expanded"
           >
             <gl-icon :name="toggleIcon" :size="12" class="gl-mr-2" />
             <span>{{ __('Toggle commit list') }}</span>
           </div>
         </div>
-        <div v-if="shouldShowDescriptionVersion" class="description-version pt-2">
+        <div
+          v-if="shouldShowDescriptionVersion"
+          class="gl-relative !gl-pt-3"
+          data-testid="description-version"
+        >
           <pre v-if="isLoadingDescriptionVersion" class="loading-state">
             <gl-skeleton-loader />
           </pre>
-          <pre v-else v-safe-html="descriptionVersion" class="wrapper mt-2"></pre>
+          <pre
+            v-else
+            v-safe-html="descriptionVersion"
+            class="gl-mt-3 gl-whitespace-pre-wrap gl-pr-7"
+          ></pre>
           <gl-button
             v-if="displayDeleteButton"
             v-gl-tooltip
@@ -225,42 +246,39 @@ export default {
             variant="default"
             category="tertiary"
             icon="remove"
-            class="delete-description-history"
+            class="gl-absolute"
+            :class="deleteButtonClasses"
             data-testid="delete-description-version-button"
             @click="deleteDescriptionVersion"
           />
         </div>
         <div
           v-if="lines.length && showLines"
-          class="diff-content outdated-lines-wrapper gl-border-solid gl-border-1 gl-border-gray-200 gl-mt-4 gl-rounded-small gl-overflow-hidden"
+          class="gl-my-2 gl-mr-5 gl-overflow-hidden gl-overflow-visible gl-rounded-small gl-border-1 gl-border-solid gl-border-strong gl-pl-0"
         >
           <table
-            :class="$options.userColorSchemeClass"
-            class="code js-syntax-highlight"
+            class="code code-syntax-highlight-theme js-syntax-highlight"
             data-testid="outdated-lines"
           >
             <tr v-for="line in lines" v-once :key="line.line_code" class="line_holder">
               <td
                 :class="line.type"
-                class="diff-line-num old_line gl-border-bottom-0! gl-border-top-0! gl-border-0! gl-rounded-0!"
+                class="diff-line-num old_line !gl-rounded-none !gl-border-0 !gl-border-b-0 !gl-border-t-0"
               >
                 {{ line.old_line }}
               </td>
-              <td
-                :class="line.type"
-                class="diff-line-num new_line gl-border-bottom-0! gl-border-top-0!"
-              >
+              <td :class="line.type" class="diff-line-num new_line !gl-border-b-0 !gl-border-t-0">
                 {{ line.new_line }}
               </td>
               <td
                 :class="line.type"
-                class="line_content gl-display-table-cell! gl-border-0! gl-rounded-0!"
+                class="line_content !gl-table-cell !gl-rounded-none !gl-border-0"
                 v-html="line.rich_text /* eslint-disable-line vue/no-v-html */"
               ></td>
             </tr>
           </table>
         </div>
-        <div v-else-if="showLines" class="mt-4">
+        <div v-else-if="showLines" class="gl-mt-4">
           <gl-skeleton-loader />
         </div>
       </div>

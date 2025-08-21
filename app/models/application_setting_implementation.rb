@@ -31,6 +31,7 @@ module ApplicationSettingImplementation
   ].freeze
 
   DEFAULT_MINIMUM_PASSWORD_LENGTH = 8
+  DEFAULT_NUMBER_OF_DAYS_BEFORE_REMOVAL = 30
 
   class_methods do
     def defaults # rubocop:disable Metrics/AbcSize
@@ -44,7 +45,12 @@ module ApplicationSettingImplementation
         allow_possible_spam: false,
         asset_proxy_enabled: false,
         authorized_keys_enabled: true, # TODO default to false if the instance is configured to use AuthorizedKeysCommand
-        ci_max_total_yaml_size_bytes: 157286400, # max_yaml_size_bytes * ci_max_includes = 1.megabyte * 150
+        autocomplete_users_limit: 300,
+        autocomplete_users_unauthenticated_limit: 100,
+        ci_job_live_trace_enabled: false,
+        ci_max_total_yaml_size_bytes: 314572800, # max_yaml_size_bytes * ci_max_includes = 2.megabyte * 150
+        ci_partitions_size_limit: 100.gigabytes,
+        ci_delete_pipelines_in_seconds_limit_human_readable: '1 year',
         commit_email_hostname: default_commit_email_hostname,
         container_expiration_policies_enable_historic_entries: false,
         container_registry_features: [],
@@ -65,6 +71,8 @@ module ApplicationSettingImplementation
         default_projects_limit: Settings.gitlab['default_projects_limit'],
         default_snippet_visibility: Settings.gitlab.default_projects_features['visibility_level'],
         default_syntax_highlighting_theme: 1,
+        default_dark_syntax_highlighting_theme: 2,
+        deletion_adjourned_period: DEFAULT_NUMBER_OF_DAYS_BEFORE_REMOVAL,
         deny_all_requests_except_allowed: false,
         diff_max_patch_bytes: Gitlab::Git::Diff::DEFAULT_MAX_PATCH_BYTES,
         diff_max_files: Commit::DEFAULT_MAX_DIFF_FILES_SETTING,
@@ -73,7 +81,9 @@ module ApplicationSettingImplementation
         disable_feed_token: false,
         disabled_direct_code_suggestions: false,
         disabled_oauth_sign_in_sources: [],
-        dns_rebinding_protection_enabled: true,
+        disable_password_authentication_for_users_with_sso_identities: false,
+        root_moved_permanently_redirection: false,
+        dns_rebinding_protection_enabled: Settings.gitlab['dns_rebinding_protection_enabled'],
         domain_allowlist: Settings.gitlab['domain_allowlist'],
         dsa_key_restriction: default_min_key_size(:dsa),
         ecdsa_key_restriction: default_min_key_size(:ecdsa),
@@ -81,6 +91,7 @@ module ApplicationSettingImplementation
         ed25519_key_restriction: default_min_key_size(:ed25519),
         ed25519_sk_key_restriction: default_min_key_size(:ed25519_sk),
         require_admin_two_factor_authentication: false,
+        require_email_verification_on_account_locked: false,
         eks_access_key_id: nil,
         eks_account_id: nil,
         eks_integration_enabled: false,
@@ -92,6 +103,7 @@ module ApplicationSettingImplementation
         external_pipeline_validation_service_token: nil,
         external_pipeline_validation_service_url: nil,
         failed_login_attempts_unlock_period_in_minutes: nil,
+        fetch_observability_alerts_from_cloud: true,
         first_day_of_week: 0,
         floc_enabled: false,
         gitaly_timeout_default: 55,
@@ -112,6 +124,7 @@ module ApplicationSettingImplementation
         housekeeping_gc_period: 200,
         housekeeping_incremental_repack_period: 10,
         import_sources: Settings.gitlab['import_sources'],
+        inactive_resource_access_tokens_delete_after_days: 30,
         include_optional_metrics_in_service_ping: Settings.gitlab['usage_ping_enabled'],
         instance_level_ai_beta_features_enabled: false,
         invisible_captcha_enabled: false,
@@ -124,15 +137,20 @@ module ApplicationSettingImplementation
         mailgun_signing_key: nil,
         mailgun_events_enabled: false,
         math_rendering_limits_enabled: true,
+        max_artifacts_content_include_size: 5.megabytes,
         max_artifacts_size: Settings.artifacts['max_size'],
         max_attachment_size: Settings.gitlab['max_attachment_size'],
         max_decompressed_archive_size: 25600,
         max_export_size: 0,
+        max_github_response_size_limit: 8,
+        max_github_response_json_value_count: 250_000,
+        max_http_decompressed_size: 100,
+        max_http_response_size_limit: 100,
         max_import_size: 0,
         max_import_remote_file_size: 10240,
         max_login_attempts: nil,
         max_terraform_state_size_bytes: 0,
-        max_yaml_size_bytes: 1.megabyte,
+        max_yaml_size_bytes: 2.megabytes,
         max_yaml_depth: 100,
         minimum_password_length: DEFAULT_MINIMUM_PASSWORD_LENGTH,
         mirror_available: true,
@@ -141,10 +159,12 @@ module ApplicationSettingImplementation
         members_delete_limit: 60,
         notify_on_unknown_sign_in: true,
         outbound_local_requests_whitelist: [],
+        organization_cluster_agent_authorization_enabled: false,
         password_authentication_enabled_for_git: true,
         password_authentication_enabled_for_web: Settings.gitlab['signin_enabled'],
         performance_bar_allowed_group_id: nil,
         personal_access_token_prefix: 'glpat-',
+        instance_token_prefix: '',
         plantuml_enabled: false,
         plantuml_url: nil,
         diagramsnet_enabled: true,
@@ -161,13 +181,19 @@ module ApplicationSettingImplementation
         push_event_hooks_limit: 3,
         raw_blob_request_limit: 300,
         recaptcha_enabled: false,
+        receptive_cluster_agents_enabled: false,
+        relation_export_batch_size: 50,
         repository_checks_enabled: true,
         repository_storages_weighted: { 'default' => 100 },
         require_admin_approval_after_user_signup: true,
         require_two_factor_authentication: false,
+        resource_usage_limits: {},
+        resource_access_token_notify_inherited: false,
+        lock_resource_access_token_notify_inherited: false,
         restricted_visibility_levels: Settings.gitlab['restricted_visibility_levels'],
         rsa_key_restriction: default_min_key_size(:rsa),
         session_expire_delay: Settings.gitlab['session_expire_delay'],
+        session_expire_from_init: false,
         shared_runners_enabled: Settings.gitlab_ci['shared_runners_enabled'],
         shared_runners_text: nil,
         sidekiq_job_limiter_mode: Gitlab::SidekiqMiddleware::SizeLimiter::Validator::COMPRESS_MODE,
@@ -191,6 +217,11 @@ module ApplicationSettingImplementation
         throttle_authenticated_api_enabled: false,
         throttle_authenticated_api_period_in_seconds: 3600,
         throttle_authenticated_api_requests_per_period: 7200,
+        throttle_authenticated_git_http_enabled: false,
+        throttle_authenticated_git_http_requests_per_period:
+          ApplicationSetting::DEFAULT_AUTHENTICATED_GIT_HTTP_LIMIT,
+        throttle_authenticated_git_http_period_in_seconds:
+          ApplicationSetting::DEFAULT_AUTHENTICATED_GIT_HTTP_PERIOD,
         throttle_authenticated_git_lfs_enabled: false,
         throttle_authenticated_git_lfs_period_in_seconds: 60,
         throttle_authenticated_git_lfs_requests_per_period: 1000,
@@ -239,7 +270,7 @@ module ApplicationSettingImplementation
         user_default_internal_regex: nil,
         user_show_add_ssh_key_message: true,
         valid_runner_registrars: VALID_RUNNER_REGISTRAR_TYPES,
-        wiki_page_max_content_bytes: 50.megabytes,
+        wiki_page_max_content_bytes: 5.megabytes,
         wiki_asciidoc_allow_uri_includes: false,
         package_registry_cleanup_policies_worker_capacity: 2,
         container_registry_delete_tags_service_timeout: 250,
@@ -262,6 +293,8 @@ module ApplicationSettingImplementation
         bulk_import_enabled: false,
         bulk_import_max_download_file_size: 5120,
         silent_admin_exports_enabled: false,
+        allow_contribution_mapping_to_admins: false,
+        allow_bypass_placeholder_confirmation: false,
         allow_runner_registration_token: true,
         user_defaults_to_private_profile: false,
         projects_api_rate_limit_unauthenticated: 400,
@@ -279,15 +312,46 @@ module ApplicationSettingImplementation
         asciidoc_max_includes: 32,
         use_clickhouse_for_analytics: false,
         group_api_limit: 400,
+        group_archive_unarchive_api_limit: 60,
+        group_invited_groups_api_limit: 60,
         group_projects_api_limit: 600,
         group_shared_groups_api_limit: 60,
         groups_api_limit: 200,
+        create_organization_api_limit: 10,
         project_api_limit: 400,
+        project_invited_groups_api_limit: 60,
         projects_api_limit: 2000,
         user_contributed_projects_api_limit: 100,
         user_projects_api_limit: 300,
         user_starred_projects_api_limit: 100,
-        nuget_skip_metadata_url_validation: false
+        users_api_limit_followers: 100,
+        users_api_limit_following: 100,
+        users_api_limit_status: 240,
+        users_api_limit_ssh_keys: 120,
+        users_api_limit_ssh_key: 120,
+        users_api_limit_gpg_keys: 120,
+        users_api_limit_gpg_key: 120,
+        nuget_skip_metadata_url_validation: false,
+        helm_max_packages_count: 1000,
+        ai_action_api_rate_limit: 160,
+        code_suggestions_api_rate_limit: 60,
+        require_personal_access_token_expiry: true,
+        pages_extra_deployments_default_expiry_seconds: 86400,
+        pages_unique_domain_default_enabled: true,
+        scan_execution_policies_action_limit: 0,
+        scan_execution_policies_schedule_limit: 0,
+        seat_control: 0,
+        show_migrate_from_jenkins_banner: true,
+        top_level_group_creation_enabled: true,
+        ropc_without_client_credentials: true,
+        vscode_extension_marketplace_enabled: false,
+        reindexing_minimum_index_size: 1.gigabyte,
+        reindexing_minimum_relative_bloat_size: 0.2,
+        git_push_pipeline_limit: 4,
+        disable_invite_members: false,
+        enforce_pipl_compliance: true,
+        model_prompt_cache_enabled: true,
+        lock_model_prompt_cache_enabled: false
       }.tap do |hsh|
         hsh.merge!(non_production_defaults) unless Rails.env.production?
       end
@@ -524,7 +588,9 @@ module ApplicationSettingImplementation
   def usage_ping_features_enabled
     return false unless usage_ping_enabled? && super
 
-    return include_optional_metrics_in_service_ping if Gitlab.ee? && respond_to?(:include_optional_metrics_in_service_ping)
+    if Gitlab.ee? && respond_to?(:include_optional_metrics_in_service_ping)
+      return include_optional_metrics_in_service_ping
+    end
 
     true
   end
@@ -686,14 +752,20 @@ module ApplicationSettingImplementation
     repository_storages_weighted.each do |key, val|
       next unless val.present?
 
-      errors.add(:repository_storages_weighted, _("value for '%{storage}' must be an integer") % { storage: key }) unless val.is_a?(Integer)
-      errors.add(:repository_storages_weighted, _("value for '%{storage}' must be between 0 and 100") % { storage: key }) unless val.between?(0, 100)
+      unless val.is_a?(Integer)
+        errors.add(:repository_storages_weighted, _("value for '%{storage}' must be an integer") % { storage: key })
+      end
+
+      unless val.between?(0, 100)
+        errors.add(:repository_storages_weighted, _("value for '%{storage}' must be between 0 and 100") % { storage: key })
+      end
     end
   end
 
   def check_valid_runner_registrars
-    valid = valid_runner_registrar_combinations.include?(valid_runner_registrars)
-    errors.add(:valid_runner_registrars, _("%{value} is not included in the list") % { value: valid_runner_registrars }) unless valid
+    return if valid_runner_registrar_combinations.include?(valid_runner_registrars)
+
+    errors.add(:valid_runner_registrars, _("%{value} is not included in the list") % { value: valid_runner_registrars })
   end
 
   def valid_runner_registrar_combinations

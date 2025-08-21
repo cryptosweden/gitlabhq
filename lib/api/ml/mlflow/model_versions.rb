@@ -16,7 +16,7 @@ module API
         resource 'model-versions' do
           desc 'Creates a Model Version.' do
             success Entities::Ml::Mlflow::ModelVersion
-            detail 'MLFlow Model Versions map to GitLab Model Versions. https://mlflow.org/docs/2.6.0/rest-api.html#create-modelversion'
+            detail 'MLFlow Model Versions map to GitLab Model Versions. https://mlflow.org/docs/2.19.0/rest-api.html#create-modelversion'
           end
           route_setting :api, write: true
           route_setting :model_registry, write: true
@@ -28,6 +28,7 @@ module API
             optional :description, type: String,
               desc: 'Optional description for model version.'
             optional :tags, type: Array, desc: 'Additional metadata for a model version.'
+            optional :run_id, type: String, desc: 'Run ID of the candidate to be promoted to a model version'
           end
           post 'create', urgency: :low do
             result = ::Ml::CreateModelVersionService.new(
@@ -36,7 +37,9 @@ module API
                 model_name: params[:name],
                 description: params[:description],
                 metadata: params[:tags],
-                version: custom_version
+                version: custom_version,
+                user: current_user,
+                candidate_eid: params[:run_id]
               }
             ).execute
 
@@ -45,9 +48,21 @@ module API
             present result.payload[:model_version], with: Entities::Ml::Mlflow::ModelVersion, root: :model_version
           end
 
+          desc 'Fetch the download URI for the model version.' do
+            success Entities::Ml::Mlflow::GetDownload
+            detail 'Returns version in MLflow format "mlflow-artifacts:<version>" https://mlflow.org/docs/2.19.0/rest-api.html#get-download-uri-for-modelversion-artifacts'
+          end
+          params do
+            requires :name, type: String, desc: 'Model version name'
+            requires :version, type: Integer, desc: 'Model version ID'
+          end
+          get 'get-download-uri' do
+            present params[:version], with: Entities::Ml::Mlflow::GetDownload
+          end
+
           desc 'Fetch model version by name and version' do
             success Entities::Ml::Mlflow::ModelVersion
-            detail 'https://mlflow.org/docs/2.6.0/rest-api.html#get-modelversion'
+            detail 'https://mlflow.org/docs/2.19.0/rest-api.html#get-modelversion'
           end
           params do
             requires :name, type: String, desc: 'Model version name'
@@ -60,7 +75,7 @@ module API
 
           desc 'Updates a Model Version.' do
             success Entities::Ml::Mlflow::ModelVersion
-            detail 'https://mlflow.org/docs/2.6.0/rest-api.html#update-modelversion'
+            detail 'https://mlflow.org/docs/2.19.0/rest-api.html#update-modelversion'
           end
           route_setting :api, write: true
           route_setting :model_registry, write: true

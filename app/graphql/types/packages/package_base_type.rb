@@ -4,7 +4,9 @@ module Types
   module Packages
     class PackageBaseType < ::Types::BaseObject
       graphql_name 'PackageBase'
-      description 'Represents a package in the Package Registry'
+      description 'Represents a package in the package registry'
+
+      PROTECTION_RULE_EXISTS_BATCH_SIZE = 20
 
       connection_type_class Types::CountableConnectionType
 
@@ -25,10 +27,7 @@ module Types
       field :project, Types::ProjectType, null: false, description: 'Project where the package is stored.'
       field :protection_rule_exists, GraphQL::Types::Boolean,
         null: false,
-        alpha: { milestone: '17.0' },
-        description:
-        'Whether any matching package protection rule exists for this package. ' \
-        'Available only when feature flag `packages_protected_packages` is enabled.'
+        description: 'Whether any matching package protection rule exists for the package.'
       field :status, Types::Packages::PackageStatusEnum, null: false, description: 'Package status.'
       field :status_message, GraphQL::Types::String, null: true, description: 'Status message.'
       field :tags, Types::Packages::PackageTagType.connection_type, null: true, description: 'Package tags.'
@@ -40,9 +39,17 @@ module Types
       end
 
       def protection_rule_exists
-        return false if Feature.disabled?(:packages_protected_packages, object.project)
+        object_package_type_value = ::Packages::Package.package_types[object.package_type]
 
-        object.matching_package_protection_rules.exists?
+        BatchLoader::GraphQL.for([object.project_id, object.name, object_package_type_value]).batch do |tuples, loader|
+          tuples.each_slice(PROTECTION_RULE_EXISTS_BATCH_SIZE) do |projects_and_packages|
+            ::Packages::Protection::Rule
+              .for_push_exists_for_projects_and_packages(projects_and_packages)
+              .each do |row|
+                loader.call([row['project_id'], row['package_name'], row['package_type']], row['protected'])
+              end
+          end
+        end
       end
 
       # NOTE: This method must be kept in sync with the union
@@ -62,6 +69,8 @@ module Types
           object.nuget_metadatum
         when 'pypi'
           object.pypi_metadatum
+        when 'terraform_module'
+          object.terraform_module_metadatum
         end
       end
       # rubocop: enable GraphQL/ResolverMethodLength

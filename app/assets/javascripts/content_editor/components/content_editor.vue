@@ -1,6 +1,8 @@
 <script>
-import { GlButton, GlTooltipDirective } from '@gitlab/ui';
+import { GlButton, GlTooltipDirective, GlLoadingIcon } from '@gitlab/ui';
 import { EditorContent as TiptapEditorContent } from '@tiptap/vue-2';
+import { isEqual } from 'lodash';
+import { markRaw } from '~/lib/utils/vue3compat/mark_raw';
 import { __ } from '~/locale';
 import { VARIANT_DANGER } from '~/alert';
 import EditorModeSwitcher from '~/vue_shared/components/markdown/editor_mode_switcher.vue';
@@ -12,26 +14,29 @@ import { ALERT_EVENT, TIPTAP_AUTOFOCUS_OPTIONS } from '../constants';
 import ContentEditorAlert from './content_editor_alert.vue';
 import ContentEditorProvider from './content_editor_provider.vue';
 import EditorStateObserver from './editor_state_observer.vue';
+import AlertBubbleMenu from './bubble_menus/alert_bubble_menu.vue';
 import CodeBlockBubbleMenu from './bubble_menus/code_block_bubble_menu.vue';
 import LinkBubbleMenu from './bubble_menus/link_bubble_menu.vue';
 import MediaBubbleMenu from './bubble_menus/media_bubble_menu.vue';
 import ReferenceBubbleMenu from './bubble_menus/reference_bubble_menu.vue';
+import TableBubbleMenu from './bubble_menus/table_bubble_menu.vue';
 import FormattingToolbar from './formatting_toolbar.vue';
-import LoadingIndicator from './loading_indicator.vue';
 
 export default {
   components: {
     GlButton,
-    LoadingIndicator,
+    GlLoadingIcon,
     ContentEditorAlert,
     ContentEditorProvider,
     TiptapEditorContent,
     FormattingToolbar,
+    AlertBubbleMenu,
     CodeBlockBubbleMenu,
     LinkBubbleMenu,
     MediaBubbleMenu,
     EditorStateObserver,
     ReferenceBubbleMenu,
+    TableBubbleMenu,
     EditorModeSwitcher,
   },
   directives: {
@@ -111,6 +116,11 @@ export default {
       required: false,
       default: false,
     },
+    newCommentTemplatePaths: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
   },
   data() {
     return {
@@ -125,6 +135,11 @@ export default {
     },
   },
   watch: {
+    autocompleteDataSources(newDataSources, oldDataSources) {
+      if (!isEqual(newDataSources, oldDataSources)) {
+        this.contentEditor.updateAutocompleteDataSources(newDataSources);
+      }
+    },
     markdown(markdown) {
       if (markdown !== this.latestMarkdown) {
         this.setSerializedContent(markdown);
@@ -149,33 +164,90 @@ export default {
     } = this;
 
     // This is a non-reactive attribute intentionally since this is a complex object.
-    this.contentEditor = createContentEditor({
-      renderMarkdown,
-      uploadsPath,
-      extensions,
-      serializerConfig,
-      drawioEnabled,
-      enableAutocomplete,
-      autocompleteDataSources,
-      codeSuggestionsConfig,
-      sidebarMediator: SidebarMediator.singleton,
-      tiptapOptions: {
-        autofocus,
-        editable,
-      },
-    });
+    this.contentEditor = markRaw(
+      createContentEditor({
+        renderMarkdown,
+        uploadsPath,
+        extensions,
+        serializerConfig,
+        drawioEnabled,
+        enableAutocomplete,
+        autocompleteDataSources,
+        codeSuggestionsConfig,
+        sidebarMediator: SidebarMediator.singleton,
+        tiptapOptions: {
+          autofocus,
+          editable,
+          editorProps: {
+            attributes: {
+              'aria-controls': 'content-editor-suggestions',
+              'aria-label': __('Rich text editor'),
+              class: 'rte-text-box',
+            },
+          },
+        },
+      }),
+    );
   },
   async mounted() {
     this.$emit('initialized');
     await this.setSerializedContent(this.markdown);
     markdownEditorEventHub.$emit(CONTENT_EDITOR_READY_EVENT);
     markdownEditorEventHub.$on(CONTENT_EDITOR_PASTE, this.pasteContent);
+
+    // Set editor height if stored
+    this.contentEditor.tiptapEditor.view.dom.style.minHeight = this.getEditorSelectorDataset();
+
+    // Add event listener for custom resize event
+    document.addEventListener('mousedown', this.handleManualResize);
   },
   beforeDestroy() {
     markdownEditorEventHub.$off(CONTENT_EDITOR_PASTE, this.pasteContent);
     this.contentEditor.dispose();
   },
   methods: {
+    editorSelector() {
+      return this.contentEditor?.tiptapEditor?.view?.dom?.closest('.js-editor');
+    },
+    setEditorSelectorDataset(value) {
+      this.editorSelector().dataset.gfmEditorMinHeight = value;
+    },
+    getEditorSelectorDataset() {
+      return this.editorSelector()?.dataset?.gfmEditorMinHeight;
+    },
+    handleManualResize(e) {
+      const textarea = this.contentEditor.tiptapEditor.view.dom;
+      const rect = textarea.getBoundingClientRect();
+      const mouseX = e.clientX;
+      const mouseY = e.clientY;
+      const cornerSize = 16;
+      const isInBottomRight =
+        mouseX >= rect.right - cornerSize &&
+        mouseX <= rect.right &&
+        mouseY >= rect.bottom - cornerSize &&
+        mouseY <= rect.bottom;
+
+      if (isInBottomRight) {
+        this.isManuallyResizing = true;
+        textarea.style.minHeight = null;
+        this.setEditorSelectorDataset(null);
+
+        document.addEventListener('mouseup', this.handleManualResizeUp);
+      }
+    },
+    handleManualResizeUp() {
+      const textarea = this.contentEditor.tiptapEditor.view.dom;
+
+      // Set current height as min height, so autogrow will still work
+      if (textarea) {
+        const editorHeight = `${textarea.offsetHeight}px`;
+        textarea.style.minHeight = editorHeight;
+        // Store minHeight in global variable for RTE
+        this.setEditorSelectorDataset(editorHeight);
+      }
+
+      document.removeEventListener('mouseup', this.handleManualResizeUp);
+    },
     pasteContent(content) {
       this.contentEditor.tiptapEditor.chain().focus().pasteContent(content).run();
     },
@@ -190,7 +262,7 @@ export default {
         this.contentEditor.setEditable(false);
         this.contentEditor.eventHub.$emit(ALERT_EVENT, {
           message: __(
-            'An error occurred while trying to render the content editor. Please try again.',
+            'An error occurred while trying to render the rich text editor. Please try again.',
           ),
           variant: VARIANT_DANGER,
           actionLabel: __('Retry'),
@@ -202,14 +274,17 @@ export default {
         this.notifyLoadingError();
       }
     },
+    // eslint-disable-next-line vue/no-unused-properties -- focus() is part of the component's public API.
     focus() {
       this.contentEditor.tiptapEditor.commands.focus();
     },
     onFocus() {
       this.focused = true;
+      this.$emit('focus');
     },
     onBlur() {
       this.focused = false;
+      this.$emit('blur');
     },
     notifyLoading() {
       this.isLoading = true;
@@ -240,7 +315,12 @@ export default {
 </script>
 <template>
   <content-editor-provider :content-editor="contentEditor">
-    <div class="md-area gl-overflow-hidden">
+    <div class="md-area gl-relative">
+      <gl-loading-icon
+        v-if="isLoading"
+        size="lg"
+        class="gl-absolute gl-bottom-0 gl-top-0 gl-z-1 gl-flex gl-w-full gl-items-center gl-justify-center gl-bg-alpha-light-36 dark:gl-bg-alpha-dark-40"
+      />
       <editor-state-observer
         @docUpdate="notifyChange"
         @focus="onFocus"
@@ -253,27 +333,32 @@ export default {
           ref="toolbar"
           :supports-quick-actions="supportsQuickActions"
           :hide-attachment-button="disableAttachments"
+          :new-comment-template-paths-prop="newCommentTemplatePaths"
           @enableMarkdownEditor="$emit('enableMarkdownEditor')"
-        />
-        <div v-if="showPlaceholder" class="gl-absolute gl-text-gray-400 gl-px-5 gl-pt-4">
+        >
+          <template #header-buttons><slot name="header-buttons"></slot></template>
+        </formatting-toolbar>
+        <div v-if="showPlaceholder" class="gl-absolute gl-px-5 gl-pt-4 gl-text-disabled">
           {{ placeholder }}
         </div>
         <tiptap-editor-content
-          class="md"
+          class="md !gl-static"
           data-testid="content_editor_editablebox"
           :editor="contentEditor.tiptapEditor"
         />
-        <loading-indicator v-if="isLoading" />
 
+        <alert-bubble-menu />
         <code-block-bubble-menu />
         <link-bubble-menu />
         <media-bubble-menu />
         <reference-bubble-menu />
+        <table-bubble-menu />
       </div>
       <div
-        class="gl-display-flex gl-display-flex gl-flex-direction-row gl-justify-content-space-between gl-align-items-center gl-rounded-bottom-left-base gl-rounded-bottom-right-base gl-px-2 gl-border-t gl-border-gray-100 gl-text-secondary"
+        class="gl-border-t gl-flex gl-flex-row gl-items-center gl-justify-between gl-rounded-bl-base gl-rounded-br-base gl-border-default gl-px-2"
       >
         <editor-mode-switcher size="small" value="richText" @switch="handleEditorModeChanged" />
+        <slot name="toolbar"></slot>
         <gl-button
           v-gl-tooltip
           icon="markdown-mark"
@@ -283,7 +368,7 @@ export default {
           size="small"
           :title="__('Markdown is supported')"
           :aria-label="__('Markdown is supported')"
-          class="gl-px-3!"
+          class="!gl-px-3"
         />
       </div>
     </div>

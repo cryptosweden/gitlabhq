@@ -21,6 +21,7 @@ import {
   MOCK_GROUPED_AUTOCOMPLETE_OPTIONS,
   MOCK_SORTED_AUTOCOMPLETE_OPTIONS,
   MOCK_SCOPED_SEARCH_OPTIONS_DEF,
+  MOCK_DASHBOARD_FLAG_ENABLED_SEARCH_OPTIONS,
 } from '../mock_data';
 
 describe('Global Search Store Getters', () => {
@@ -267,6 +268,22 @@ describe('Global Search Store Getters', () => {
           MOCK_DEFAULT_SEARCH_OPTIONS.slice(2, MOCK_DEFAULT_SEARCH_OPTIONS.length),
         );
       });
+
+      describe('when feature flag mergeRequestDashboard is enabled', () => {
+        beforeEach(() => {
+          window.gon.features = { mergeRequestDashboard: true };
+        });
+
+        afterEach(() => {
+          window.gon.features = {};
+        });
+
+        it('returns the correct array', () => {
+          expect(getters.defaultSearchOptions(state, mockGetters)).toStrictEqual(
+            MOCK_DASHBOARD_FLAG_ENABLED_SEARCH_OPTIONS,
+          );
+        });
+      });
     });
 
     describe('without a user', () => {
@@ -356,38 +373,77 @@ describe('Global Search Store Getters', () => {
     it('returns the correct name', () => {
       state.search = 'pie';
 
-      expect(getters.scopedSearchGroup(state, {}).name).toStrictEqual('Search for `pie` in...');
+      expect(getters.scopedSearchGroup(state, {}).name).toStrictEqual('Search for `pie` in…');
 
       state.commandChar = '@';
-      expect(getters.scopedSearchGroup(state, {}).name).toStrictEqual(
-        'Search for `pie` users in...',
-      );
+      expect(getters.scopedSearchGroup(state, {}).name).toStrictEqual('Search for `pie` users in…');
     });
 
     it('does not escape name', () => {
       state.search = '<pie`>#$%';
 
-      expect(getters.scopedSearchGroup(state, {}).name).toStrictEqual(
-        'Search for `<pie`>#$%` in...',
-      );
+      expect(getters.scopedSearchGroup(state, {}).name).toStrictEqual('Search for `<pie`>#$%` in…');
 
       state.commandChar = '>';
       expect(getters.scopedSearchGroup(state, {}).name).toStrictEqual(
-        'Search for `<pie`>#$%` pages in...',
+        'Search for `<pie`>#$%` pages in…',
       );
     });
   });
 
   describe('autocompleteGroupedSearchOptions', () => {
-    beforeEach(() => {
-      createState();
-      state.autocompleteOptions = MOCK_AUTOCOMPLETE_OPTIONS;
+    const findGroupItems = (res, name) => res.find((group) => group.name === name).items;
+
+    const totalResults = 4;
+    const totalProjects = 2;
+
+    const expectUniqueAutocompleteResults = (result) => {
+      expect(result).toStrictEqual(MOCK_GROUPED_AUTOCOMPLETE_OPTIONS);
+
+      expect(findGroupItems(result, 'Users')).toHaveLength(totalResults);
+      expect(findGroupItems(result, 'Projects')).toHaveLength(totalProjects);
+    };
+
+    describe('without duplicates', () => {
+      beforeEach(() => {
+        createState();
+
+        state.autocompleteOptions = MOCK_AUTOCOMPLETE_OPTIONS;
+      });
+
+      it('returns the correct grouped array', () => {
+        expectUniqueAutocompleteResults(getters.autocompleteGroupedSearchOptions(state));
+      });
     });
 
-    it('returns the correct grouped array', () => {
-      expect(getters.autocompleteGroupedSearchOptions(state)).toStrictEqual(
-        MOCK_GROUPED_AUTOCOMPLETE_OPTIONS,
-      );
+    describe('with duplicates', () => {
+      beforeEach(() => {
+        createState();
+
+        state.autocompleteOptions = [
+          ...MOCK_AUTOCOMPLETE_OPTIONS,
+          {
+            category: 'Users',
+            id: 12457737,
+            value: 'Madelein van Niekerk (duplicate)',
+            label: 'maddievn',
+            url: '/maddievn',
+            avatar_url: '/uploads/-/system/user/avatar/12457737/avatar.png',
+          },
+          {
+            category: 'Projects',
+            id: 1,
+            label: 'Gitlab Org / MockProject1 (duplicate)',
+            value: 'MockProject1',
+            url: 'project/1',
+            avatar_url: '/project/avatar/1/avatar.png',
+          },
+        ];
+      });
+
+      it('returns the correct grouped array with duplicates removed', () => {
+        expectUniqueAutocompleteResults(getters.autocompleteGroupedSearchOptions(state));
+      });
     });
   });
 
@@ -449,11 +505,11 @@ describe('Global Search Store Getters', () => {
 
   describe.each`
     commandChar | header
-    ${'>'}      | ${'Search for `%{searchTerm}` pages in...'}
-    ${'@'}      | ${'Search for `%{searchTerm}` users in...'}
-    ${':'}      | ${'Search for `%{searchTerm}` projects in...'}
-    ${'~'}      | ${'Search for `%{searchTerm}` files in...'}
-    ${'}'}      | ${'Search for `%{searchTerm}` in...'}
+    ${'>'}      | ${'Search for `%{searchTerm}` pages in…'}
+    ${'@'}      | ${'Search for `%{searchTerm}` users in…'}
+    ${':'}      | ${'Search for `%{searchTerm}` projects in…'}
+    ${'~'}      | ${'Search for `%{searchTerm}` files in…'}
+    ${'}'}      | ${'Search for `%{searchTerm}` in…'}
   `('scopedSearchGroup', ({ commandChar, header }) => {
     beforeEach(() => {
       createState();

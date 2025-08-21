@@ -9,6 +9,7 @@ module ContainerRegistry
     attr_accessor :media_type
 
     delegate :registry, :client, to: :repository
+    delegate :project, to: :repository, private: true
 
     def initialize(repository, name, from_api: false)
       @repository = repository
@@ -135,7 +136,6 @@ module ContainerRegistry
       repository.client.put_tag(repository.path, name, digests)
     end
 
-    # rubocop: disable CodeReuse/ActiveRecord
     def total_size
       return @total_size if @total_size
 
@@ -143,7 +143,6 @@ module ContainerRegistry
 
       layers.sum(&:size) if v2?
     end
-    # rubocop: enable CodeReuse/ActiveRecord
 
     # Deletes the image associated with this tag
     # Note this will delete the image and all tags associated with it.
@@ -152,6 +151,28 @@ module ContainerRegistry
       return unless digest
 
       client.delete_repository_tag_by_digest(repository.path, digest)
+    end
+
+    def protection_rule
+      result = nil
+      project.container_registry_protection_tag_rules.select(&:mutable?).each do |rule|
+        next unless rule.matches_tag_name?(name)
+
+        result ||= ::ContainerRegistry::Protection::TagRule.new
+        set_highest_protection_rule_access_level(result, rule)
+      end
+
+      result
+    end
+    strong_memoize_attr :protection_rule
+
+    def protected_for_delete?(user)
+      return true unless user
+      return false unless protection_rule
+      return false if user.can_admin_all_resources?
+
+      max_access = project.team.max_member_access(user.id)
+      protection_rule.delete_restricted?(max_access)
     end
 
     private
@@ -165,5 +186,17 @@ module ContainerRegistry
     rescue ArgumentError
       nil
     end
+
+    def set_highest_protection_rule_access_level(result, rule)
+      %i[push delete].each do |action|
+        attribute = :"minimum_access_level_for_#{action}"
+        result[attribute] = [
+          result.method(:"#{attribute}_before_type_cast").call.to_i,
+          rule.method(:"#{attribute}_before_type_cast").call
+        ].max
+      end
+    end
   end
 end
+
+ContainerRegistry::Tag.prepend_mod

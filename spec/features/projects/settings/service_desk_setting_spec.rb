@@ -38,8 +38,8 @@ RSpec.describe 'Service Desk Setting', :js, :clean_gitlab_redis_cache, feature_c
 
       project.reload
       expect(project.service_desk_enabled).to be_truthy
-      expect(project.service_desk_address).to be_present
-      expect(find_by_testid('incoming-email').value).to eq(project.service_desk_incoming_address)
+      expect(::ServiceDesk::Emails.new(project).address).to be_present
+      expect(find_by_testid('incoming-email').value).to eq(::ServiceDesk::Emails.new(project).send(:incoming_address))
     end
   end
 
@@ -56,9 +56,10 @@ RSpec.describe 'Service Desk Setting', :js, :clean_gitlab_redis_cache, feature_c
       wait_for_requests
 
       project.reload
-      expect(find_by_testid('incoming-email').value).to eq(project.service_desk_alias_address)
+      alias_address = ::ServiceDesk::Emails.new(project).alias_address
+      expect(find_by_testid('incoming-email').value).to eq(alias_address)
 
-      page.within '#js-service-desk' do
+      within_testid('service-desk-content') do
         fill_in('service-desk-project-suffix', with: 'foo')
         click_button 'Save changes'
       end
@@ -106,6 +107,5 @@ RSpec.describe 'Service Desk Setting', :js, :clean_gitlab_redis_cache, feature_c
     visit edit_project_path(project)
 
     expect(page).to have_pushed_frontend_feature_flags(issueEmailParticipants: true)
-    expect(page).to have_pushed_frontend_feature_flags(serviceDeskTicketsConfidentiality: true)
   end
 end

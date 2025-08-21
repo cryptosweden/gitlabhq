@@ -19,29 +19,9 @@ RSpec.describe Ci::PipelineBridgeStatusService, feature_category: :continuous_in
       end
 
       it 'calls inherit_status_from_downstream on upstream bridge' do
-        expect(bridge).to receive(:inherit_status_from_downstream!).with(pipeline)
+        expect(bridge).to receive(:inherit_status_from_downstream).with(pipeline)
 
         subject
-      end
-
-      context 'when bridge job status raises state machine errors' do
-        before do
-          pipeline.drop!
-          bridge.drop!
-        end
-
-        it 'tracks the exception' do
-          expect(Gitlab::ErrorTracking)
-            .to receive(:track_exception)
-            .with(
-              instance_of(Ci::Bridge::InvalidTransitionError),
-              bridge_id: bridge.id,
-              downstream_pipeline_id: pipeline.id) do |error|
-            expect(error.backtrace).to be_present
-          end
-
-          subject
-        end
       end
     end
   end

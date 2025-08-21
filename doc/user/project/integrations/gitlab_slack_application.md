@@ -1,19 +1,29 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: GitLab for Slack app
+description: "Configure the GitLab for Slack app to use slash commands and receive notifications from GitLab in your Slack workspace."
 ---
 
-# GitLab for Slack app
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/358872) for self-managed in GitLab 16.2.
+{{< /details >}}
 
-NOTE:
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/358872) for GitLab Self-Managed in GitLab 16.2.
+
+{{< /history >}}
+
+{{< alert type="note" >}}
+
 This page contains user documentation for the GitLab for Slack app. For administrator documentation, see [GitLab for Slack app administration](../../../administration/settings/slack_app.md).
+
+{{< /alert >}}
 
 The GitLab for Slack app is a native Slack app that provides [slash commands](#slash-commands) and [notifications](#slack-notifications)
 in your Slack workspace. GitLab links your Slack user with your GitLab user so that any command
@@ -24,7 +34,7 @@ you run in Slack is run by your linked GitLab user.
 Prerequisites:
 
 - You must have the [appropriate permissions to add apps to your Slack workspace](https://slack.com/help/articles/202035138-Add-apps-to-your-Slack-workspace).
-- On self-managed GitLab, an administrator must [enable the integration](../../../administration/settings/slack_app.md).
+- On GitLab Self-Managed, an administrator must [enable the integration](../../../administration/settings/slack_app.md).
 
 In GitLab 15.0 and later, the GitLab for Slack app uses
 [granular permissions](https://medium.com/slack-developer-blog/more-precision-less-restrictions-a3550006f9c3).
@@ -32,27 +42,35 @@ Although functionality has not changed, you should [reinstall the app](#reinstal
 
 ### From the project or group settings
 
-> - Installation at the group level [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/391526) in GitLab 16.10 [with a flag](../../../administration/feature_flags.md) named `gitlab_for_slack_app_instance_and_group_level`. Disabled by default.
-> - [Enabled on GitLab.com, self-managed, and GitLab Dedicated](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147820) in GitLab 16.11.
+{{< history >}}
 
-FLAG:
-On self-managed GitLab, by default this feature is available.
-To hide the feature, an administrator can [disable the feature flag](../../../administration/feature_flags.md) named `gitlab_for_slack_app_instance_and_group_level`.
-On GitLab.com and GitLab Dedicated, this feature is available.
+- Installation at the group level [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/391526) in GitLab 16.10 [with a flag](../../../administration/feature_flags/_index.md) named `gitlab_for_slack_app_instance_and_group_level`. Disabled by default.
+- [Enabled on GitLab.com, GitLab Self-Managed, and GitLab Dedicated](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147820) in GitLab 16.11.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/175803) in GitLab 17.8. Feature flag `gitlab_for_slack_app_instance_and_group_level` removed.
+
+{{< /history >}}
 
 To install the GitLab for Slack app from the project or group settings:
 
 1. On the left sidebar, select **Search or go to** and find your project or group.
 1. Select **Settings > Integrations**.
 1. Select **GitLab for Slack app**.
-1. Select **Install GitLab for Slack app**.
-1. On the Slack confirmation page, select **Allow**.
+1. Select **Install GitLab for Slack app**. You're redirected to the Slack confirmation page.
+1. On the Slack confirmation page:
+   1. Optional. If you're signed in to more than one Slack workspace, in the upper right,
+      from the dropdown list, select the workspace you want to install the app in.
+      On GitLab Self-Managed and GitLab Dedicated, an administrator must first
+      [enable support for multiple workspaces](../../../administration/settings/slack_app.md#enable-support-for-multiple-workspaces) for the dropdown list to appear.
+   1. Select **Allow**.
 
 ### From the Slack App Directory
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com
+{{< details >}}
+
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com
+
+{{< /details >}}
 
 On GitLab.com, you can also install the GitLab for Slack app from the
 [Slack App Directory](https://slack-platform.slack.com/apps/A676ADMV5-gitlab).
@@ -71,8 +89,13 @@ To reinstall the GitLab for Slack app:
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Settings > Integrations**.
 1. Select **GitLab for Slack app**.
-1. Select **Reinstall GitLab for Slack app**.
-1. On the Slack confirmation page, select **Allow**.
+1. Select **Install GitLab for Slack app**. You're redirected to the Slack confirmation page.
+1. On the Slack confirmation page:
+   1. Optional. If you're signed in to more than one Slack workspace, in the upper right,
+      from the dropdown list, select the workspace you want to reinstall the app in.
+      On GitLab Self-Managed and GitLab Dedicated, an administrator must first
+      [enable support for multiple workspaces](../../../administration/settings/slack_app.md#enable-support-for-multiple-workspaces) for the dropdown list to appear.
+   1. Select **Allow**.
 
 The GitLab for Slack app is updated for all projects that use the integration.
 
@@ -106,7 +129,7 @@ The following slash commands are available for GitLab:
 | `/gitlab <project> issue close <id>` | Closes the issue with the ID `<id>`. |
 | `/gitlab <project> issue comment <id>` <kbd>Shift</kbd>+<kbd>Enter</kbd> `<comment>` | Adds a comment with the comment body `<comment>` to the issue with the ID `<id>`. |
 | `/gitlab <project> deploy <from> to <to>` | [Deploys](#deploy-command) from the `<from>` environment to the `<to>` environment. |
-| `/gitlab <project> run <job name> <arguments>` | Executes the [ChatOps](../../../ci/chatops/index.md) job `<job name>` on the default branch. |
+| `/gitlab <project> run <job name> <arguments>` | Executes the [ChatOps](../../../ci/chatops/_index.md) job `<job name>` on the default branch. |
 | `/gitlab incident declare` | Opens a dialog to [create an incident from Slack](../../../operations/incident_management/slack.md). |
 
 ### `deploy` command
@@ -134,7 +157,11 @@ To create a project alias for slash commands in the GitLab for Slack app:
 
 ## Slack notifications
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/381012) in GitLab 15.9.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/381012) in GitLab 15.9.
+
+{{< /history >}}
 
 You can receive notifications to Slack channels for certain GitLab [events](#notification-events).
 
@@ -150,14 +177,20 @@ To configure Slack notifications:
    - For each checkbox you select, enter the names of the Slack channels you want to receive notifications.
      You can enter up to 10 channel names separated by commas (for example, `#channel-one, #channel-two`).
 
-     NOTE:
-     If the Slack channel is private, you must [add the GitLab for Slack app to the channel](#receive-notifications-to-a-private-channel).
+     {{< alert type="note" >}}
+
+    If the Slack channel is private, you must [add the GitLab for Slack app to the channel](#receive-notifications-to-a-private-channel).
+
+     {{< /alert >}}
 
 1. Optional. In the **Notification settings** section:
    - Select the **Notify only broken pipelines** checkbox
      to receive notifications for failed pipelines only.
    - From the **Branches for which notifications are to be sent** dropdown list,
-     select the branches you want to receive notifications for.
+     select the branches you want to receive notifications for. Notifications
+     for vulnerabilities are only triggered by the default branch, regardless
+     of the selected branches.
+     For more details, see [issue 469373](https://gitlab.com/gitlab-org/gitlab/-/issues/469373).
    - For **Labels to be notified**, enter any or all of the labels a GitLab
      issue, merge request, or comment must have to receive notifications for.
      Leave blank to receive notifications for all events.
@@ -190,18 +223,18 @@ The following GitLab events can trigger notifications in Slack:
 | [Group mention](#trigger-notifications-for-group-mentions) in public  | A group is mentioned in a public channel.                     |
 | [Group mention](#trigger-notifications-for-group-mentions) in private | A group is mentioned in a private channel.                    |
 | [Incident](../../../operations/incident_management/slack.md)          | An incident is created, closed, or reopened.                  |
-| [Vulnerability](../../application_security/vulnerabilities/index.md)  | A new, unique vulnerability is recorded.                      |
+| [Vulnerability](../../application_security/vulnerabilities/_index.md)  | A new, unique vulnerability is recorded on the default branch.|
 | Alert                                                                 | A new, unique alert is recorded.                              |
 
 ### Trigger notifications for group mentions
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/391526) in GitLab 16.10 [with a flag](../../../administration/feature_flags.md) named `gitlab_for_slack_app_instance_and_group_level`. Disabled by default.
-> - [Enabled on GitLab.com, self-managed, and GitLab Dedicated](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147820) in GitLab 16.11.
+{{< history >}}
 
-FLAG:
-On self-managed GitLab, by default this feature is available.
-To hide the feature, an administrator can [disable the feature flag](../../../administration/feature_flags.md) named `gitlab_for_slack_app_instance_and_group_level`.
-On GitLab.com and GitLab Dedicated, this feature is available.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/391526) in GitLab 16.10 [with a flag](../../../administration/feature_flags/_index.md) named `gitlab_for_slack_app_instance_and_group_level`. Disabled by default.
+- [Enabled on GitLab.com, GitLab Self-Managed, and GitLab Dedicated](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/147820) in GitLab 16.11.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/175803) in GitLab 17.8. Feature flag `gitlab_for_slack_app_instance_and_group_level` removed.
+
+{{< /history >}}
 
 To trigger a [notification event](#notification-events) for a group mention, use `@<group_name>` in:
 

@@ -1,31 +1,11 @@
 include:
-  - local: .gitlab/ci/global.gitlab-ci.yml
   - local: .gitlab/ci/qa-common/main.gitlab-ci.yml
   - local: .gitlab/ci/qa-common/rules.gitlab-ci.yml
   - local: .gitlab/ci/qa-common/variables.gitlab-ci.yml
 
-# code pattern changes
-.code-pattern-changes: &code-pattern-changes
-  if: $MR_CODE_PATTERNS == "true"
-
-.rules:gdk:qa-selective:
+workflow:
   rules:
-    - <<: *code-pattern-changes
-      when: never
-    - !reference [.rules:test:qa-selective, rules]
-    - if: $QA_SUITES =~ /Test::Instance::Blocking/
-
-.rules:gdk:qa-parallel:
-  rules:
-    # To account for cases where a group label is set which may trigger selective execution
-    # But we want to execute full blocking suite on gdk in case of code-pattern-changes
-    - <<: *code-pattern-changes
-      variables:
-        QA_TESTS: ""
-        KNAPSACK_TEST_FILE_PATTERN: ""
-    - !reference [.rules:test:qa-parallel, rules]
-    - if: $QA_SUITES =~ /Test::Instance::Blocking/
-    - !reference [.rules:test:manual, rules]
+    - when: always
 
 .rules:test:gdk-load-balancer-changes:
   rules:
@@ -35,6 +15,16 @@ include:
         - ".gitlab/ci/test-on-gdk/**"
         - "lib/gitlab/database/load_balancing/**/*"
 
+.rules:test:gdk-gitaly-version-change:
+  rules:
+    - if: '$PARENT_PIPELINE_SOURCE == "schedule"'
+      when: manual
+      allow_failure: true
+    - changes:
+        - "GITALY_SERVER_VERSION"
+    - when: manual
+      allow_failure: true
+
 .with-parallel:
   parallel: 15
 
@@ -43,15 +33,17 @@ include:
     - mv $CI_BUILDS_DIR/*.log $CI_PROJECT_DIR/
 
 .gdk-qa-base:
-  image: "${REGISTRY_HOST}/${REGISTRY_GROUP}/gitlab-build-images/${BUILD_OS}-${OS_VERSION}-ruby-${RUBY_VERSION}:git-2.36-lfs-2.9-chrome-${CHROME_VERSION}-docker-${DOCKER_VERSION}-gcloud-383-kubectl-1.23"
+  image: "${REGISTRY_HOST}/${REGISTRY_GROUP}/gitlab-build-images/ci/${BUILD_OS}-${OS_VERSION}-slim-ruby-${RUBY_VERSION}:rubygems-${RUBYGEMS_VERSION}-git-${GIT_VERSION}-lfs-${LFS_VERSION}-chrome-${CHROME_VERSION}-docker-${DOCKER_VERSION}"
   extends:
-    - .qa-cache
-    - .docker-in-docker
-    - .gitlab-qa-report
-    - .qa-run-e2e-with-bundler
+    - .e2e-test-base
+    # ignore runtime data from gdk because it's significantly slower than cng and runtime data for
+    # optimizing parallel distribution should be geared towards test-on-cng
+    - .with-ignored-runtime-data
   stage: test
   services:
-    - name: docker:${DOCKER_VERSION}-dind
+    - name: "$GL_DOCKER_REGISTRY_MIRROR/docker:${DOCKER_VERSION}-dind"
+      alias: docker
+      entrypoint: ["sh", "-c", "dockerd-entrypoint.sh $GL_DOCKER_DIND_OPTIONS"]
     - name: ${GDK_IMAGE}
       alias: gdk.test
       # CI setup will tail each component in to separate file
@@ -59,22 +51,24 @@ include:
       command: [gdk, tail, rails-web]
   tags:
     - e2e
+  needs:
+    - pipeline: $PARENT_PIPELINE_ID
+      job: clone-gitlab-repo
   variables:
-    QA_GENERATE_ALLURE_REPORT: "true"
-    QA_CAN_TEST_PRAEFECT: "false"
-    QA_INTERCEPT_REQUESTS: "false"
-    QA_SUITE_STATUS_ENV_FILE: "$CI_PROJECT_DIR/suite_status.env"
-    QA_DOCKER_NETWORK: host
-    QA_DISABLE_RSPEC_RETRY: "true"
-    QA_GITLAB_URL: http://gdk.test:3000
+    COVERBAND_ENABLED: "$COVERBAND_ENABLED"  # explicitly define variable so it is passed in to gdk service container
+    BABEL_ENV: "$BABEL_ENV"
+    GITLAB_CRON_JOBS_POLL_INTERVAL: "0"
+    GITLAB_DEVELOPMENT_USE_PRECOMPILED_ASSETS: "true"
     GITLAB_QA_ADMIN_ACCESS_TOKEN: $QA_ADMIN_ACCESS_TOKEN
-    FF_NETWORK_PER_BUILD: "true"
+    GL_DOCKER_REGISTRY_MIRROR: mirror.gcr.io
+    GL_DOCKER_REGISTRY_MIRROR_ENDPOINT: https://${GL_DOCKER_REGISTRY_MIRROR}
+    GL_DOCKER_DIND_OPTIONS: "--registry-mirror=$GL_DOCKER_REGISTRY_MIRROR_ENDPOINT"
+    QA_DOCKER_NETWORK: host
+    QA_GITLAB_URL: http://gdk.test:3000
+    QA_RUN_IN_PARALLEL: "true"
+    QA_PARALLEL_PROCESSES: 4
     RSPEC_LAST_RUN_RESULTS_FILE: "$CI_PROJECT_DIR/qa/tmp/examples.txt"
-  before_script:
-    - echo "SUITE_RAN=true" > "$QA_SUITE_STATUS_ENV_FILE"
-    - echo -e "\e[0Ksection_start:`date +%s`:install_gems[collapsed=true]\r\e[0KInstall gems"
-    - cd qa && bundle install
-    - echo -e "\e[0Ksection_end:`date +%s`:install_gems\r\e[0K"
+    GIT_STRATEGY: "none"
   after_script:
     - !reference [.with-gdk-log, after_script]
     - !reference [.gitlab-qa-report, after_script]
@@ -88,101 +82,41 @@ include:
     expire_in: 7 days
     when: always
 
-# Take the existing GDK docker image and reconfigure it with Postgres load
-# balancing. Adding 5s lag to 1 of the replicas to validate robustness of
-# the load balancer.
-.gdk-with-load-balancer-setup:
-  variables:
-    WITH_LOAD_BALANCER: "true"
-
-# ==========================================
-# Pre stage
-# ==========================================
-# override .download-knapsack-report job to not depend on qa-image build
-download-knapsack-report:
-  extends:
-    - .download-knapsack-report
-    - .ruby-image
-    - .bundler-variables
-    - .qa-cache
-    - .rules:download-knapsack
-  variables:
-    GIT_STRATEGY: clone
-  before_script:
-    - cd qa && bundle install
-  after_script: []
-
 # ==========================================
 # Test stage
 # ==========================================
 
-# ------------------------------------------
-# Blocking tests
-# ------------------------------------------
-gdk-qa-blocking:
+gdk-instance:
   extends:
     - .gdk-qa-base
     - .with-parallel
-    - .rules:gdk:qa-parallel
   variables:
-    QA_SCENARIO: Test::Instance::Blocking
-    QA_RUN_TYPE: gdk-qa-blocking
+    QA_SCENARIO: Test::Instance::All
 
-gdk-qa-blocking-ff-inverse:
-  extends: gdk-qa-blocking
+gdk-instance-ff-inverse:
+  extends: gdk-instance
   variables:
     QA_FEATURE_FLAGS: $FEATURE_FLAGS
   rules:
     - !reference [.rules:test:feature-flags-set, rules]
 
-gdk-qa-blocking-selective:
-  extends:
-    - .gdk-qa-base
-    - .rules:gdk:qa-selective
+gdk-instance-gitaly-transactions:
+  extends: gdk-instance
   variables:
-    QA_SCENARIO: Test::Instance::Blocking
-    QA_RUN_TYPE: gdk-qa-blocking
+    QA_GITALY_TRANSACTIONS_ENABLED: "true"
+  rules:
+    - !reference [.rules:test:gdk-gitaly-version-change, rules]
 
-# ------------------------------------------
-# Non Blocking tests
-# ------------------------------------------
-gdk-qa-blocking-with-load-balancer:
-  extends:
-    - .gdk-qa-base
-    - .gdk-with-load-balancer-setup
-    - .with-gdk-log
-    - .with-parallel
+# Take the existing GDK docker image and reconfigure it with Postgres load
+# balancing. Adding 5s lag to 1 of the replicas to validate robustness of
+# the load balancer.
+gdk-instance-with-load-balancer:
+  extends: gdk-instance
   variables:
-    QA_SCENARIO: Test::Instance::Blocking
-    QA_RUN_TYPE: gdk-qa-blocking
-  artifacts:
-    paths:
-      - log
-    reports:
-      dotenv: ""
+    WITH_LOAD_BALANCER: "true"
   rules:
     - !reference [".rules:test:never-schedule-pipeline", rules]
     - !reference [".rules:test:gdk-load-balancer-changes", rules]
-
-gdk-qa-non-blocking:
-  extends:
-    - .gdk-qa-base
-    - .with-gdk-log
-  variables:
-    QA_SCENARIO: Test::Instance::NonBlocking
-    QA_RUN_TYPE: gdk-qa-non-blocking
-  parallel: 5
-  allow_failure: true
-  artifacts:
-    paths:
-      - log
-    reports:
-      dotenv: ""
-  rules:
-    # run tests on master pipelines to collect metrics and move tests to `blocking` job until `non-blocking` job
-    # is removed entirely
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
-    - when: manual
 
 # ==========================================
 # Post test stage
@@ -192,43 +126,25 @@ e2e-test-report:
   variables:
     ALLURE_REPORT_RESULTS_GLOB: "qa/tmp/allure-results"
 
-upload-knapsack-report:
+upload-test-runtime-data:
   extends:
-    - .upload-knapsack-report
-    - .rules:report:process-results
-  variables:
-    QA_KNAPSACK_REPORT_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/knapsack/*/*.json
+    - .upload-test-runtime-data
+    - .rules:report:upload-test-runtime-data
 
 export-test-metrics:
   extends:
     - .export-test-metrics
     - .rules:report:process-results
-  variables:
-    QA_METRICS_REPORT_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/test-metrics-*.json
 
 export-code-paths-mapping:
   extends:
     - .export-code-paths-mapping
-  variables:
-    QA_CODE_PATHS_MAPPING_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/test-code-paths-mapping-*.json
-  rules:
-    - if: '$COVERBAND_ENABLED == "true"'
 
-.gitlab-qa-report:
-  variables:
-    QA_RSPEC_JSON_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/rspec-*.json
-    QA_SYSTEM_LOG_FILE_PATTERN: $CI_PROJECT_DIR/test_output/logs
-
-generate-test-session:
+export-frontend-code-paths-mapping:
   extends:
-    - .generate-test-session
-    - .rules:report:process-results
-  variables:
-    QA_RSPEC_JSON_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/rspec-*.json
+    - .export-frontend-code-paths-mapping
 
 notify-slack:
   extends:
     - .notify-slack
     - .rules:report:process-results
-  variables:
-    QA_RSPEC_XML_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/rspec-*.xml

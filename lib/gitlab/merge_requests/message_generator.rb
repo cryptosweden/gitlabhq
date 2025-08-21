@@ -61,6 +61,9 @@ module Gitlab
         'first_multiline_commit' => ->(merge_request, _, _) {
           merge_request.first_multiline_commit&.safe_message&.strip.presence || merge_request.title
         },
+        'first_multiline_commit_description' => ->(merge_request, _, _) {
+          merge_request.first_multiline_commit_description&.strip
+        },
         'url' => ->(merge_request, _, _) { Gitlab::UrlBuilder.build(merge_request) },
         'reviewed_by' => ->(merge_request, _, _) {
           merge_request.reviewed_by_users
@@ -86,7 +89,7 @@ module Gitlab
         },
         'all_commits' => ->(merge_request, _, _) do
           merge_request
-            .recent_commits
+            .recent_commits(load_from_gitaly: true)
             .without_merge_commits
             .map do |commit|
               if commit.safe_message&.bytesize&.>(100.kilobytes)
@@ -110,6 +113,7 @@ module Gitlab
         target_branch
         first_commit
         first_multiline_commit
+        first_multiline_commit_description
         co_authored_by
         all_commits
       ].freeze

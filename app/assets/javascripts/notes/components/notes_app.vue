@@ -1,25 +1,33 @@
 <script>
-// eslint-disable-next-line no-restricted-imports
-import { mapGetters, mapActions } from 'vuex';
+import { mapState, mapActions } from 'pinia';
 import { v4 as uuidv4 } from 'uuid';
+import DuoCodeReviewSystemNote from 'ee_component/vue_shared/components/notes/duo_code_review_system_note.vue';
 import { InternalEvents } from '~/tracking';
+import { convertToGraphQLId, getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { TYPENAME_NOTE } from '~/graphql_shared/constants';
+import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import { getDraft, getAutoSaveKeyFromDiscussion } from '~/lib/utils/autosave';
 import highlightCurrentUser from '~/behaviors/markdown/highlight_current_user';
+import { scrollToTargetOnResize } from '~/lib/utils/resize_observer';
 import TimelineEntryItem from '~/vue_shared/components/notes/timeline_entry_item.vue';
-import OrderedLayout from '~/vue_shared/components/ordered_layout.vue';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import DraftNote from '~/batch_comments/components/draft_note.vue';
 import { getLocationHash } from '~/lib/utils/url_utility';
 import PlaceholderNote from '~/vue_shared/components/notes/placeholder_note.vue';
 import PlaceholderSystemNote from '~/vue_shared/components/notes/placeholder_system_note.vue';
 import SkeletonLoadingContainer from '~/vue_shared/components/notes/skeleton_note.vue';
 import SystemNote from '~/vue_shared/components/notes/system_note.vue';
+import { Mousetrap } from '~/lib/mousetrap';
+import { ISSUABLE_COMMENT_OR_REPLY, keysFor } from '~/behaviors/shortcuts/keybindings';
+import { CopyAsGFM } from '~/behaviors/markdown/copy_as_gfm';
+import { useNotes } from '~/notes/store/legacy_notes';
 import * as constants from '../constants';
 import eventHub from '../event_hub';
+import noteQuery from '../graphql/note.query.graphql';
 import CommentForm from './comment_form.vue';
 import DiscussionFilterNote from './discussion_filter_note.vue';
 import NoteableDiscussion from './noteable_discussion.vue';
 import NoteableNote from './noteable_note.vue';
+import OrderedLayout from './ordered_layout.vue';
 import SidebarSubscription from './sidebar_subscription.vue';
 import NotesActivityHeader from './notes_activity_header.vue';
 
@@ -40,8 +48,9 @@ export default {
     DraftNote,
     TimelineEntryItem,
     AiSummary: () => import('ee_component/notes/components/ai_summary.vue'),
+    DuoCodeReviewSystemNote,
   },
-  mixins: [glFeatureFlagsMixin(), InternalEvents.mixin()],
+  mixins: [InternalEvents.mixin()],
   provide() {
     return {
       summarizeClientSubscriptionId: uuidv4(),
@@ -82,12 +91,62 @@ export default {
       renderSkeleton: !this.shouldShow,
       aiLoading: null,
       isInitialEventTriggered: false,
+      previewNote: null,
     };
   },
+  apollo: {
+    previewNote: {
+      skip() {
+        const notCommentId = Boolean(this.previewNoteId?.match(/([a-f0-9]{40})/));
+        return !this.previewNoteId || notCommentId;
+      },
+      query: noteQuery,
+      variables() {
+        return {
+          id: convertToGraphQLId(TYPENAME_NOTE, this.previewNoteId),
+        };
+      },
+      update(data) {
+        if (!data?.note?.discussion) return null;
+        return {
+          id: `${getIdFromGraphQLId(data.note.discussion.id)}`,
+          expanded: true,
+          notes: data.note.discussion.notes.nodes.map((note) => ({
+            ...note,
+            id: `${getIdFromGraphQLId(note.id)}`,
+            author: {
+              ...note.author,
+              id: getIdFromGraphQLId(note.author.id),
+            },
+            award_emoji: note.award_emoji.nodes.map((emoji) => ({
+              ...emoji,
+              id: getIdFromGraphQLId(emoji.id),
+              user: {
+                ...emoji.user,
+                id: getIdFromGraphQLId(emoji.user.id),
+              },
+            })),
+            current_user: {
+              can_award_emoji: note.userPermissions.awardEmoji,
+              can_edit: note.userPermissions.adminNote,
+              can_resolve_discussions: data.note.discussion.userPermissions.resolveNote,
+            },
+            last_edited_by: {
+              ...note.last_edited_by,
+              id: getIdFromGraphQLId(note.last_edited_by?.id),
+            },
+            toggle_award_path: '',
+          })),
+        };
+      },
+      error(error) {
+        Sentry.captureException(error);
+      },
+    },
+  },
   computed: {
-    ...mapGetters([
+    ...mapState(useNotes, [
       'isNotesFetched',
-      'discussions',
       'convertedDisscussionIds',
       'getNotesDataByProp',
       'isLoading',
@@ -97,12 +156,24 @@ export default {
       'userCanReply',
       'sortDirection',
       'timelineEnabled',
+      'targetNoteHash',
     ]),
+    ...mapState(useNotes, { discussions: 'filteredDiscussions' }),
     sortDirDesc() {
       return this.sortDirection === constants.DESC;
     },
     noteableType() {
+      if (this.noteableData.type?.toUpperCase() === constants.INCIDENT_NOTEABLE_TYPE) {
+        return (
+          this.noteableData.type.charAt(0).toUpperCase() +
+          this.noteableData.type.slice(1).toLowerCase()
+        );
+      }
       return this.noteableData.noteableType;
+    },
+    previewNoteId() {
+      if (!this.isLoading || !this.targetNoteHash?.startsWith('note_')) return null;
+      return this.targetNoteHash.replace('note_', '');
     },
     allDiscussions() {
       let skeletonNotes = [];
@@ -113,8 +184,14 @@ export default {
         skeletonNotes = new Array(prerenderedNotesCount).fill({
           isSkeletonNote: true,
         });
-      }
 
+        if (
+          this.previewNote &&
+          !this.discussions.find((d) => d.notes[0].id === this.previewNoteId)
+        ) {
+          skeletonNotes.splice(prerenderedNotesCount / 2, 0, this.previewNote);
+        }
+      }
       if (this.sortDirDesc) {
         return skeletonNotes.concat(this.discussions);
       }
@@ -153,6 +230,7 @@ export default {
         if (!isReady) return;
         this.$nextTick(() => {
           window.mrTabs?.eventHub.$emit('NotesAppReady');
+          this.cleanup?.();
         });
       },
       immediate: true,
@@ -161,10 +239,7 @@ export default {
   mounted() {
     const { parentElement } = this.$el;
     if (parentElement && parentElement.classList.contains('js-vue-notes-event')) {
-      parentElement.addEventListener('toggleAward', (event) => {
-        const { awardName, noteId } = event.detail;
-        this.toggleAward({ awardName, noteId });
-      });
+      parentElement.addEventListener('toggleAward', this.handleAward);
     }
 
     eventHub.$on('noteFormAddToReview', this.handleReviewTracking);
@@ -172,7 +247,12 @@ export default {
 
     window.addEventListener('hashchange', this.handleHashChanged);
 
+    if (this.targetNoteHash && this.targetNoteHash.startsWith('note_')) {
+      this.cleanup = scrollToTargetOnResize();
+    }
+
     eventHub.$on('notesApp.updateIssuableConfidentiality', this.setConfidentiality);
+    Mousetrap.bind(keysFor(ISSUABLE_COMMENT_OR_REPLY), (e) => this.quoteReply(e));
   },
   updated() {
     this.$nextTick(() => {
@@ -184,9 +264,14 @@ export default {
     eventHub.$off('notesApp.updateIssuableConfidentiality', this.setConfidentiality);
     eventHub.$off('noteFormStartReview', this.handleReviewTracking);
     eventHub.$off('noteFormAddToReview', this.handleReviewTracking);
+    Mousetrap.unbind(keysFor(ISSUABLE_COMMENT_OR_REPLY), this.quoteReply);
+    const { parentElement } = this.$el;
+    if (parentElement && parentElement.classList.contains('js-vue-notes-event')) {
+      parentElement.removeEventListener('toggleAward', this.handleAward);
+    }
   },
   methods: {
-    ...mapActions([
+    ...mapActions(useNotes, [
       'toggleAward',
       'setLastFetchedAt',
       'setTargetNoteHash',
@@ -197,6 +282,40 @@ export default {
       'setConfidentiality',
       'fetchNotes',
     ]),
+    handleAward(event) {
+      const { awardName, noteId } = event.detail;
+      this.toggleAward({ awardName, noteId });
+    },
+    getDiscussionInSelection() {
+      const selection = window.getSelection();
+      if (selection.rangeCount <= 0) return null;
+
+      const el = selection.getRangeAt(0).startContainer;
+      const node = el.nodeType === Node.TEXT_NODE ? el.parentNode : el;
+      return node.closest('.js-noteable-discussion');
+    },
+    async quoteReply(e) {
+      const discussionEl = this.getDiscussionInSelection();
+      const text = await CopyAsGFM.selectionToGfm();
+
+      // Prevent 'r' being written.
+      if (e && typeof e.preventDefault === 'function') {
+        e.preventDefault();
+      }
+
+      if (!discussionEl) {
+        this.replyInMainEditor(text);
+      } else {
+        const instance = this.$refs.discussions.find(({ $el }) => $el === discussionEl);
+        // prevent hotkey input from going into the form
+        requestAnimationFrame(() => {
+          instance.showReplyForm(text);
+        });
+      }
+    },
+    replyInMainEditor(text) {
+      this.$refs.commentForm.append(text);
+    },
     discussionIsIndividualNoteAndNotConverted(discussion) {
       return (
         discussion.individual_note &&
@@ -213,10 +332,10 @@ export default {
     },
     checkLocationHash() {
       const hash = getLocationHash();
-      const noteId = hash && hash.replace(/^note_/, '');
+      const noteId = (hash && hash.startsWith('note_') && hash.replace(/^note_/, '')) ?? null;
 
       if (noteId) {
-        const discussion = this.discussions.find((d) => d.notes.some(({ id }) => id === noteId));
+        const discussion = this.discussions.find((d) => d.notes?.some(({ id }) => id === noteId));
 
         if (discussion) {
           this.expandDiscussion({ discussionId: discussion.id });
@@ -225,10 +344,10 @@ export default {
 
       return noteId;
     },
-    startReplying(discussionId) {
-      return this.convertToDiscussion(discussionId)
-        .then(this.$nextTick)
-        .then(() => eventHub.$emit('startReplying', discussionId));
+    async startReplying(discussionId) {
+      this.convertToDiscussion(discussionId);
+      await this.$nextTick();
+      eventHub.$emit('startReplying', discussionId);
     },
     setAiLoading(loading) {
       this.aiLoading = loading;
@@ -247,6 +366,9 @@ export default {
       const autoSaveKey = getAutoSaveKeyFromDiscussion(discussion);
       return Boolean(getDraft(autoSaveKey));
     },
+    isDuoCodeReviewBotAuthor(discussion) {
+      return discussion.notes[0].author?.user_type === 'duo_code_review_bot';
+    },
   },
   systemNote: constants.SYSTEM_NOTE,
 };
@@ -259,6 +381,7 @@ export default {
       :notes-filters="notesFilters"
       :notes-filter-value="notesFilterValue"
       :ai-loading="aiLoading"
+      :noteable-type="noteableType"
       @set-ai-loading="setAiLoading"
     />
     <ai-summary v-if="aiLoading !== null" :ai-loading="aiLoading" @set-ai-loading="setAiLoading" />
@@ -266,6 +389,7 @@ export default {
       <template #form>
         <comment-form
           v-if="!(commentsDisabled || timelineEnabled)"
+          ref="commentForm"
           class="js-comment-form"
           :noteable-type="noteableType"
         />
@@ -290,11 +414,14 @@ export default {
               <placeholder-note v-else :key="discussion.id" :note="discussion.notes[0]" />
             </template>
             <template v-else-if="discussionIsIndividualNoteAndNotConverted(discussion)">
-              <system-note
-                v-if="discussion.notes[0].system"
-                :key="discussion.id"
-                :note="discussion.notes[0]"
-              />
+              <template v-if="discussion.notes[0].system">
+                <duo-code-review-system-note
+                  v-if="isDuoCodeReviewBotAuthor(discussion)"
+                  :key="discussion.id"
+                  :note="discussion.notes[0]"
+                />
+                <system-note v-else :key="discussion.id" :note="discussion.notes[0]" />
+              </template>
               <noteable-note
                 v-else
                 :key="discussion.id"
@@ -305,7 +432,9 @@ export default {
             </template>
             <noteable-discussion
               v-else
+              ref="discussions"
               :key="discussion.id"
+              class="js-noteable-discussion"
               :discussion="discussion"
               :render-diff-file="true"
               is-overview-tab

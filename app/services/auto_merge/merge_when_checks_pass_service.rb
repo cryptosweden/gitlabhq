@@ -41,14 +41,16 @@ module AutoMerge
       end
     end
 
-    override :available_for
-    def available_for?(merge_request)
+    # availability_details are responsible for validating whether the service is available_for a merge request and sets
+    # an unavailable_reason if it is not
+    override :availability_details
+    def availability_details(merge_request)
       super do
-        next false if Feature.disabled?(:merge_when_checks_pass, merge_request.project)
-        next false if merge_request.project.merge_trains_enabled?
-        next false if merge_request.mergeable? && !merge_request.diff_head_pipeline_considered_in_progress?
+        default_error = AutoMerge::AvailabilityCheck.error
+        next default_error if merge_request.project.merge_trains_enabled?
+        next default_error if merge_request.mergeable? && !merge_request.diff_head_pipeline_considered_in_progress?
 
-        next true
+        AutoMerge::AvailabilityCheck.success
       end
     end
 

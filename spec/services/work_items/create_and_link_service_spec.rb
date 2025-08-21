@@ -19,19 +19,26 @@ RSpec.describe WorkItems::CreateAndLinkService, feature_category: :portfolio_man
     }
   end
 
+  before_all do
+    # Ensure support bot user is created so creation doesn't count towards query limit
+    # and we don't try to obtain an exclusive lease within a transaction.
+    # See https://gitlab.com/gitlab-org/gitlab/-/issues/509629
+    Users::Internal.support_bot_id
+  end
+
   shared_examples 'successful work item and link creator' do
     it 'creates a work item successfully with links' do
       expect do
         service_result
-      end.to change(WorkItem, :count).by(1).and(
-        change(WorkItems::ParentLink, :count).by(1)
+      end.to change { WorkItem.count }.by(1).and(
+        change { WorkItems::ParentLink.count }.by(1)
       )
     end
 
     it 'copies confidential status from the parent' do
       expect do
         service_result
-      end.to change(WorkItem, :count).by(1)
+      end.to change { WorkItem.count }.by(1)
 
       created_task = WorkItem.last
 
@@ -48,7 +55,7 @@ RSpec.describe WorkItems::CreateAndLinkService, feature_category: :portfolio_man
       it 'creates a work item successfully with no links' do
         expect do
           service_result
-        end.to change(WorkItem, :count).by(1).and(
+        end.to change { WorkItem.count }.by(1).and(
           not_change(IssueLink, :count)
         )
       end
@@ -80,7 +87,7 @@ RSpec.describe WorkItems::CreateAndLinkService, feature_category: :portfolio_man
           expect do
             service_result
           end.to not_change(WorkItems::ParentLink, :count).and(
-            change(WorkItem, :count).by(1)
+            change { WorkItem.count }.by(1)
           )
         end
 

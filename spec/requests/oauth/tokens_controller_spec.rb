@@ -3,7 +3,55 @@
 require 'spec_helper'
 
 RSpec.describe Oauth::TokensController, feature_category: :system_access do
+  let_it_be(:organization) { create(:organization) }
+
   describe 'POST /oauth/token' do
+    context 'with dynamic user scope', :aggregate_failures do
+      let_it_be(:user) { create(:user) }
+      let_it_be(:scopes) { "api user:#{user.id}" }
+      let_it_be(:oauth_application) { create(:oauth_application, owner: nil, scopes: "api user:*") }
+      let_it_be(:oauth_access_grant) { create(:oauth_access_grant, scopes: scopes, application: oauth_application, redirect_uri: oauth_application.redirect_uri) }
+
+      context 'when authorization code flow' do
+        it 'returns an access token with the dynamic scopes' do
+          post(
+            '/oauth/token',
+            params: {
+              grant_type: 'authorization_code',
+              client_secret: oauth_application.secret,
+              client_id: oauth_application.uid,
+              redirect_uri: oauth_application.redirect_uri,
+              code: oauth_access_grant.plaintext_token
+            }
+          )
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response.parsed_body['scope']).to eq scopes
+        end
+      end
+
+      context 'when refresh token flow' do
+        let_it_be(:oauth_token) { create(:oauth_access_token, application: oauth_application, scopes: scopes, use_refresh_token: true) }
+
+        it 'returns an access token with the dynamic scopes' do
+          post(
+            '/oauth/token',
+            params: {
+              grant_type: 'refresh_token',
+              refresh_token: oauth_token.plaintext_refresh_token,
+              client_secret: oauth_application.secret,
+              client_id: oauth_application.uid,
+              redirect_uri: oauth_application.redirect_uri,
+              scopes: scopes # must be passed for refresh token to have correct scopes until https://github.com/doorkeeper-gem/doorkeeper/pull/1754 is merged
+            }
+          )
+
+          expect(response).to have_gitlab_http_status(:ok)
+          expect(response.parsed_body['scope']).to eq scopes
+        end
+      end
+    end
+
     context 'for resource owner password credential flow', :aggregate_failures do
       let_it_be(:password) { User.random_password }
 
@@ -12,7 +60,7 @@ RSpec.describe Oauth::TokensController, feature_category: :system_access do
       end
 
       context 'when user does not have two factor enabled' do
-        let_it_be(:user) { create(:user, password: password) }
+        let_it_be(:user) { create(:user, password: password, organizations: [organization]) }
 
         it 'authenticates successfully' do
           expect(::Gitlab::Auth).to receive(:find_with_user_password).and_call_original
@@ -84,6 +132,131 @@ RSpec.describe Oauth::TokensController, feature_category: :system_access do
         end
       end
     end
+
+    describe 'PKCE validation for dynamic applications' do
+      let_it_be(:user) { create(:user) }
+
+      context 'with dynamic OAuth application' do
+        let_it_be(:oauth_application) { create(:oauth_application, :dynamic) }
+        let_it_be(:oauth_access_grant) do
+          create(:oauth_access_grant,
+            application: oauth_application,
+            redirect_uri: oauth_application.redirect_uri,
+            resource_owner_id: user.id)
+        end
+
+        let(:base_params) do
+          {
+            grant_type: 'authorization_code',
+            client_id: oauth_application.uid,
+            client_secret: oauth_application.secret,
+            redirect_uri: oauth_application.redirect_uri,
+            code: oauth_access_grant.plaintext_token
+          }
+        end
+
+        context 'when code_verifier is missing' do
+          it 'returns bad request with PKCE error' do
+            post('/oauth/token', params: base_params)
+
+            expect(response).to have_gitlab_http_status(:bad_request)
+            expect(response.parsed_body).to eq({
+              'error' => 'invalid_request',
+              'error_description' => 'PKCE code_verifier is required for dynamic OAuth applications'
+            })
+          end
+        end
+
+        context 'when code_verifier is blank' do
+          it 'returns bad request with PKCE error' do
+            post('/oauth/token', params: base_params.merge(code_verifier: ''))
+
+            expect(response).to have_gitlab_http_status(:bad_request)
+            expect(response.parsed_body).to eq({
+              'error' => 'invalid_request',
+              'error_description' => 'PKCE code_verifier is required for dynamic OAuth applications'
+            })
+          end
+        end
+
+        context 'when code_verifier is present' do
+          it 'allows the request to proceed past PKCE validation' do
+            post('/oauth/token', params: base_params.merge(code_verifier: 'valid_code_verifier'))
+
+            expect(response.parsed_body['error']).not_to eq('invalid_request')
+            expect(response.parsed_body['error_description']).not_to include('PKCE code_verifier is required')
+          end
+        end
+      end
+
+      context 'with non-dynamic OAuth application' do
+        let_it_be(:oauth_application) { create(:oauth_application) }
+        let_it_be(:oauth_access_grant) do
+          create(:oauth_access_grant,
+            application: oauth_application,
+            redirect_uri: oauth_application.redirect_uri,
+            resource_owner_id: user.id)
+        end
+
+        let(:base_params) do
+          {
+            grant_type: 'authorization_code',
+            client_id: oauth_application.uid,
+            client_secret: oauth_application.secret,
+            redirect_uri: oauth_application.redirect_uri,
+            code: oauth_access_grant.plaintext_token
+          }
+        end
+
+        context 'when code_verifier is missing' do
+          it 'does not enforce PKCE validation' do
+            post('/oauth/token', params: base_params)
+
+            # Should not be rejected due to missing code_verifier
+            expect(response.parsed_body['error']).not_to eq('invalid_request')
+
+            if response.parsed_body['error_description']
+              expect(
+                response.parsed_body['error_description']
+              ).not_to include('PKCE')
+            end
+          end
+        end
+      end
+
+      context 'with application that is explicitly not dynamic' do
+        let_it_be(:oauth_application) { create(:oauth_application, :without_owner) }
+        let_it_be(:oauth_access_grant) do
+          create(:oauth_access_grant,
+            application: oauth_application,
+            redirect_uri: oauth_application.redirect_uri,
+            resource_owner_id: user.id)
+        end
+
+        let(:base_params) do
+          {
+            grant_type: 'authorization_code',
+            client_id: oauth_application.uid,
+            client_secret: oauth_application.secret,
+            redirect_uri: oauth_application.redirect_uri,
+            code: oauth_access_grant.token
+          }
+        end
+
+        context 'when code_verifier is missing' do
+          it 'does not enforce PKCE validation' do
+            post('/oauth/token', params: base_params)
+
+            expect(response.parsed_body['error']).not_to eq('invalid_request')
+
+            if response.parsed_body['error_description']
+              expect(response.parsed_body['error_description'])
+                .not_to include('PKCE')
+            end
+          end
+        end
+      end
+    end
   end
 
   context 'for CORS requests' do
@@ -110,8 +283,11 @@ RSpec.describe Oauth::TokensController, feature_category: :system_access do
       it 'allows cross-origin requests' do
         expect(response.headers['Access-Control-Allow-Origin']).to eq '*'
         expect(response.headers['Access-Control-Allow-Methods']).to eq allowed_methods
-        expect(response.headers['Access-Control-Allow-Headers']).to eq authorization_methods
         expect(response.headers['Access-Control-Allow-Credentials']).to be_nil
+
+        expect(
+          Array.wrap(response.headers['Access-Control-Allow-Headers']).join("\n")
+        ).to eq authorization_methods.join("\n")
       end
     end
 

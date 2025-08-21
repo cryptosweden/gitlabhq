@@ -2,7 +2,7 @@
 
 SCHEMA_NOT_UPDATED_MESSAGE_SHORT = "New %<migrations>s added but %<schema>s wasn't updated"
 
-SCHEMA_NOT_UPDATED_MESSAGE_FULL = <<~MSG
+SCHEMA_NOT_UPDATED_MESSAGE_FULL = <<~MSG.freeze
 **#{SCHEMA_NOT_UPDATED_MESSAGE_SHORT}**
 
 Usually, when adding new %<migrations>s, %<schema>s should be
@@ -11,13 +11,15 @@ and isn't the most recent one).
 MSG
 
 DB_MESSAGE = <<~MSG
+## Database review
+
 This merge request requires a database review. To make sure these
 changes are reviewed, take the following steps:
 
 1. Ensure the merge request has ~database and ~"database::review pending" labels.
    If the merge request modifies database files, Danger will do this for you.
 1. Prepare your MR for database review according to the
-   [docs](https://docs.gitlab.com/ee/development/database_review.html#how-to-prepare-the-merge-request-for-a-database-review).
+   [docs](https://docs.gitlab.com/development/database_review/#how-to-prepare-the-merge-request-for-a-database-review).
 1. Assign and mention the database reviewer suggested by Reviewer Roulette.
 MSG
 
@@ -25,13 +27,13 @@ DB_FILES_MESSAGE = <<~MSG
 The following files require a review from the Database team:
 MSG
 
-DB_REMOVE_MESSAGE = <<~MSG
+DB_REMOVE_MESSAGE = <<~MSG.freeze
 If you no longer require a database review, you can remove this suggestion
 by removing the ~database label and re-running the [`danger-review` job](#{ENV['CI_JOB_URL']}).
 MSG
 
 DB_MIGRATION_TESTING_REQUIRED_MESSAGE = <<~MSG
-The [database migration pipeline](https://docs.gitlab.com/ee/development/database/database_migration_pipeline.html)
+The [database migration pipeline](https://docs.gitlab.com/development/database/database_migration_pipeline/)
 must be triggered by the job `db:gitlabcom-database-testing` must be run before requesting
 ~database review. This job takes ~30m and will post the results to a comment on the merge
 request. Please run and review any results before passing to a reviewer.
@@ -43,7 +45,7 @@ DB_OLD_MIGRATIONS_MESSAGE = <<~MSG
 
   %<old_migrations>s
 
-  Please double check the timestamps and update them if possible. [Why does this matter?](https://docs.gitlab.com/ee/development/migration_style_guide.html#migration-timestamp-age)
+  Please double check the timestamps and update them if possible. [Why does this matter?](https://docs.gitlab.com/development/migration_style_guide/#migration-timestamp-age)
 MSG
 
 DATABASE_APPROVED_LABEL = 'database::approved'
@@ -91,9 +93,7 @@ if helper.mr_labels.include?('database') || database.changes.any?
     markdown(DB_REMOVE_MESSAGE)
   end
 
-  unless helper.has_scoped_label_with_scope?("database")
-    helper.labels_to_add << 'database::review pending'
-  end
+  helper.labels_to_add << 'database::review pending' unless helper.has_scoped_label_with_scope?("database")
 end
 
 cutoff = Date.today - 21 # Three weeks ago

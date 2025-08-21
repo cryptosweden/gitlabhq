@@ -2,18 +2,30 @@ import { escapeRegExp } from 'lodash';
 import Vue from 'vue';
 import VueRouter from 'vue-router';
 import { joinPaths, webIDEUrl } from '~/lib/utils/url_utility';
+import { setTitle } from './utils/title';
 import BlobPage from './pages/blob.vue';
 import IndexPage from './pages/index.vue';
 import TreePage from './pages/tree.vue';
+import { getRefType } from './utils/ref_type';
 
 Vue.use(VueRouter);
 
-export default function createRouter(base, baseRef) {
+const normalizePathParam = (pathParam) => {
+  // Vue Router 4 when there's more than one `:path` segment
+  if (Array.isArray(pathParam)) {
+    return joinPaths(...pathParam);
+  }
+
+  // Vue Router 3, or when there's zero or one `:path` segments.
+  return pathParam?.replace(/^\//, '') || '/';
+};
+
+export default function createRouter(base, baseRef, fullName) {
   const treePathRoute = {
     component: TreePage,
     props: (route) => ({
-      path: route.params.path?.replace(/^\//, '') || '/',
-      refType: route.query.ref_type || null,
+      path: normalizePathParam(route.params.path),
+      refType: getRefType(route.query.ref_type || null),
     }),
   };
 
@@ -23,7 +35,7 @@ export default function createRouter(base, baseRef) {
       return {
         path: route.params.path,
         projectPath: base,
-        refType: route.query.ref_type || null,
+        refType: getRefType(route.query.ref_type || null),
       };
     },
   };
@@ -35,25 +47,25 @@ export default function createRouter(base, baseRef) {
       {
         name: 'treePathDecoded',
         // Sometimes the ref needs decoding depending on how the backend sends it to us
-        path: `(/-)?/tree/${decodeURI(baseRef)}/:path*`,
+        path: `/:dash(-)?/tree/${decodeURI(baseRef)}/:path*`,
         ...treePathRoute,
       },
       {
         name: 'treePath',
         // Support without decoding as well just in case the ref doesn't need to be decoded
-        path: `(/-)?/tree/${escapeRegExp(baseRef)}/:path*`,
+        path: `/:dash(-)?/tree/${escapeRegExp(baseRef)}/:path*`,
         ...treePathRoute,
       },
       {
         name: 'blobPathDecoded',
         // Sometimes the ref needs decoding depending on how the backend sends it to us
-        path: `(/-)?/blob/${decodeURI(baseRef)}/:path*`,
+        path: `/:dash(-)?/blob/${decodeURI(baseRef)}/:path*`,
         ...blobPathRoute,
       },
       {
         name: 'blobPath',
         // Support without decoding as well just in case the ref doesn't need to be decoded
-        path: `(/-)?/blob/${escapeRegExp(baseRef)}/:path*`,
+        path: `/:dash(-)?/blob/${escapeRegExp(baseRef)}/:path*`,
         ...blobPathRoute,
       },
       {
@@ -70,8 +82,9 @@ export default function createRouter(base, baseRef) {
     ],
   });
 
-  router.afterEach((to) => {
-    const needsClosingSlash = !to.name.includes('blobPath');
+  router.afterEach(({ params: { path }, name }) => {
+    const needsClosingSlash = !name.includes('blobPath');
+    const normalizedPath = normalizePathParam(path);
     window.gl.webIDEPath = webIDEUrl(
       joinPaths(
         '/',
@@ -79,10 +92,14 @@ export default function createRouter(base, baseRef) {
         'edit',
         decodeURI(baseRef),
         '-',
-        to.params.path || '',
+        normalizedPath,
         needsClosingSlash && '/',
       ),
     );
+
+    const titlePath = Array.isArray(path) ? joinPaths(...path) : path; // Vue 3 returns an array of strings for the path
+
+    setTitle(titlePath || '', baseRef, fullName);
   });
 
   return router;

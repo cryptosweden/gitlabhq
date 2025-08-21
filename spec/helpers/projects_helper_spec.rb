@@ -119,7 +119,6 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
   end
 
   describe '#can_set_diff_preview_in_email?' do
-    stub_feature_flags(diff_preview_in_email: true)
     let_it_be(:user) { create(:project_member, :maintainer, user: create(:user), project: project).user }
 
     it 'returns true for the project owner' do
@@ -248,7 +247,7 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
   describe '#show_no_ssh_key_message?' do
     context 'user has no keys' do
       it 'returns true' do
-        expect(helper.show_no_ssh_key_message?).to be_truthy
+        expect(helper.show_no_ssh_key_message?(project)).to be_truthy
       end
     end
 
@@ -256,7 +255,7 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
       it 'returns false' do
         create(:personal_key, user: user)
 
-        expect(helper.show_no_ssh_key_message?).to be_falsey
+        expect(helper.show_no_ssh_key_message?(project)).to be_falsey
       end
     end
   end
@@ -301,7 +300,7 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
       it 'returns message prompting user to set password or set up a PAT' do
         stub_application_setting(password_authentication_enabled_for_git?: true)
 
-        expect(helper.no_password_message).to eq('Your account is authenticated with SSO or SAML. To <a href="/help/topics/git/terminology#pull-and-push" target="_blank" rel="noopener noreferrer">push and pull</a> over HTTP with Git using this account, you must <a href="/-/user_settings/password/edit">set a password</a> or <a href="/-/user_settings/personal_access_tokens">set up a Personal Access Token</a> to use instead of a password. For more information, see <a href="/help/gitlab-basics/start-using-git#clone-with-https" target="_blank" rel="noopener noreferrer">Clone with HTTPS</a>.')
+        expect(helper.no_password_message).to eq('Your account is authenticated with SSO or SAML. To push and pull over HTTP with Git using this account, you must <a href="/-/user_settings/password/edit">set a password</a> or <a href="/-/user_settings/personal_access_tokens">set up a personal access token</a> to use instead of a password.')
       end
     end
 
@@ -309,7 +308,7 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
       it 'returns message prompting user to set up a PAT' do
         stub_application_setting(password_authentication_enabled_for_git?: false)
 
-        expect(helper.no_password_message).to eq('Your account is authenticated with SSO or SAML. To <a href="/help/topics/git/terminology#pull-and-push" target="_blank" rel="noopener noreferrer">push and pull</a> over HTTP with Git using this account, you must <a href="/-/user_settings/personal_access_tokens">set up a Personal Access Token</a> to use instead of a password. For more information, see <a href="/help/gitlab-basics/start-using-git#clone-with-https" target="_blank" rel="noopener noreferrer">Clone with HTTPS</a>.')
+        expect(helper.no_password_message).to eq('Your account is authenticated with SSO or SAML. To push and pull over HTTP with Git using this account, you must <a href="/-/user_settings/personal_access_tokens">set up a personal access token</a> to use instead of a password.')
       end
     end
   end
@@ -355,13 +354,13 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
 
     describe 'using the default options' do
       it 'returns an HTML link to the user' do
-        link = helper.link_to_member(project, user)
+        link = helper.link_to_member(user)
 
         expect(link).to match(%r{/#{user.username}})
       end
 
       it 'HTML escapes the name of the user' do
-        link = helper.link_to_member(project, user)
+        link = helper.link_to_member(user)
 
         expect(link).to include(ERB::Util.html_escape(user.name))
         expect(link).not_to include(user.name)
@@ -370,7 +369,7 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
 
     context 'when user is nil' do
       it 'returns "(deleted)"' do
-        link = helper.link_to_member(project, nil)
+        link = helper.link_to_member(nil)
 
         expect(link).to eq("(deleted)")
       end
@@ -412,28 +411,6 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
       expect(user).to receive(:recent_push).with(project).and_return(event)
 
       expect(helper.last_push_event).to eq(event)
-    end
-  end
-
-  describe '#show_projects' do
-    let(:projects) do
-      Project.all
-    end
-
-    it 'returns true when there are projects' do
-      expect(helper.show_projects?(projects, {})).to eq(true)
-    end
-
-    it 'returns true when there are no projects but a name is given' do
-      expect(helper.show_projects?(Project.none, name: 'foo')).to eq(true)
-    end
-
-    it 'returns true when there are no projects but personal is present' do
-      expect(helper.show_projects?(Project.none, personal: 'true')).to eq(true)
-    end
-
-    it 'returns false when there are no projects and there is no name' do
-      expect(helper.show_projects?(Project.none, {})).to eq(false)
     end
   end
 
@@ -732,37 +709,6 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
     end
   end
 
-  describe '#can_admin_project_member?' do
-    context 'when user is project owner' do
-      let(:user) { project.owner }
-
-      it 'returns true for owner of project' do
-        expect(helper.can_admin_project_member?(project)).to eq true
-      end
-    end
-
-    context 'when user is not a project owner' do
-      using RSpec::Parameterized::TableSyntax
-
-      where(:user_project_role, :can_admin) do
-        :maintainer | true
-        :developer | false
-        :reporter | false
-        :guest | false
-      end
-
-      with_them do
-        before do
-          project.add_role(user, user_project_role)
-        end
-
-        it 'resolves if the user can import members' do
-          expect(helper.can_admin_project_member?(project)).to eq can_admin
-        end
-      end
-    end
-  end
-
   describe '#project_license_name(project)', :request_store do
     let_it_be(:repository) { project.repository }
 
@@ -872,24 +818,114 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
     end
   end
 
-  describe '#project_title' do
-    subject { helper.project_title(project) }
+  describe '#show_lfs_misconfiguration_banner?' do
+    before do
+      allow(project).to receive(:lfs_enabled?).and_return(true)
+      allow(project.repository).to receive(:has_gitattributes?).and_return(true)
+    end
 
-    it 'enqueues the elements in the breadcrumb schema list' do
-      expect(helper).to receive(:push_to_schema_breadcrumb).with(project.namespace.name, user_path(project.owner))
-      expect(helper).to receive(:push_to_schema_breadcrumb).with(project.name, project_path(project), nil)
+    subject { helper.show_lfs_misconfiguration_banner?(project) }
+
+    it { is_expected.to be_falsey }
+
+    context 'when the project contains an lfs_object' do
+      context 'which belongs to the project repository' do
+        before do
+          create(:lfs_objects_project, :project_repository_type, project: project)
+        end
+
+        it { is_expected.to be_falsey }
+
+        context 'when it does not have a .gitattributes file' do
+          before do
+            allow(project.repository).to receive(:has_gitattributes?).and_return(false)
+          end
+
+          it { is_expected.to be_truthy }
+
+          context 'when lfs is not enabled' do
+            before do
+              allow(project).to receive(:lfs_enabled?).and_return(false)
+            end
+
+            it { is_expected.to be_falsey }
+          end
+
+          context 'when user has dismissed the callout' do
+            before do
+              allow(user).to receive(:dismissed_callout_for_project?)
+                .with(feature_name: :lfs_misconfiguration_banner, project: project)
+                .and_return(true)
+            end
+
+            it { is_expected.to be_falsey }
+          end
+        end
+      end
+
+      context 'which belongs to the wiki repository' do
+        before do
+          allow(project.repository).to receive(:has_gitattributes?).and_return(false)
+          create(:lfs_objects_project, :wiki_repository_type, project: project)
+        end
+
+        it { is_expected.to be_falsey }
+      end
+
+      context 'which belongs to the design repository' do
+        before do
+          allow(project.repository).to receive(:has_gitattributes?).and_return(false)
+          create(:lfs_objects_project, :design_repository_type, project: project)
+        end
+
+        it { is_expected.to be_falsey }
+      end
+
+      context 'which does not have a repository_type' do
+        before do
+          allow(project.repository).to receive(:has_gitattributes?).and_return(false)
+          create(:lfs_objects_project, :null_repository_type, project: project)
+        end
+
+        it { is_expected.to be_falsey }
+      end
+    end
+  end
+
+  describe '#push_project_breadcrumbs' do
+    subject { helper.push_project_breadcrumbs(project) }
+
+    it 'enqueues the elements in the breadcrumb schema list in the correct order' do
+      expect(helper).to receive(:push_to_schema_breadcrumb).with(project.namespace.name, user_path(project.owner)).ordered
+      expect(helper).to receive(:push_to_schema_breadcrumb).with(project.name, project_path(project), nil).ordered
 
       subject
     end
 
     context 'with malicious owner name' do
+      let(:malicious_owner_name) { 'a<a class="fixed-top" href=/api/v4' }
+
       before do
-        allow_any_instance_of(User).to receive(:name).and_return('a<a class="fixed-top" href=/api/v4')
+        allow_any_instance_of(User).to receive(:name).and_return(malicious_owner_name)
       end
 
       it 'escapes the malicious owner name' do
-        expect(subject).not_to include('<a class="fixed-top" href="/api/v4"></a>')
+        expect(helper).not_to receive(:push_to_schema_breadcrumb).with(malicious_owner_name, user_path(project.owner))
+        expect(helper).to receive(:push_to_schema_breadcrumb).with('a', user_path(project.owner))
+
+        subject
       end
+    end
+  end
+
+  describe '#remove_project_message' do
+    subject(:message) { helper.remove_project_message }
+
+    specify do
+      deletion_date = helper.permanent_deletion_date_formatted(Date.current)
+
+      expect(message).to eq "Deleting a project places it into a read-only state until #{deletion_date}, " \
+        "at which point the project will be permanently deleted. Are you ABSOLUTELY sure?"
     end
   end
 
@@ -901,7 +937,7 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
     end
 
     it 'includes project_permissions_settings' do
-      settings = subject.dig(:currentSettings)
+      settings = subject[:currentSettings]
 
       expect(settings).to include(
         packagesEnabled: !!project.packages_enabled,
@@ -920,6 +956,7 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
         containerRegistryEnabled: !!project.container_registry_enabled,
         lfsEnabled: !!project.lfs_enabled,
         emailsEnabled: project.emails_enabled?,
+        extendedPratExpiryWebhooksExecute: project.extended_prat_expiry_webhooks_execute?,
         showDefaultAwardEmojis: project.show_default_award_emojis?,
         securityAndComplianceAccessLevel: project.security_and_compliance_access_level,
         containerRegistryAccessLevel: project.project_feature.container_registry_access_level,
@@ -1057,7 +1094,6 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
       forks_count: 4,
       project_full_path: project_path,
       project_forks_url: project_forks_path,
-      can_create_fork: "true",
       can_fork_project: "true",
       can_read_code: "true",
       new_fork_url: project_new_fork_path
@@ -1068,14 +1104,12 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
 
     subject { helper.fork_button_data_attributes(project) }
 
-    # The stubs for the forkable namespaces seem not to make sense (they're just numbers),
-    # but they're set up that way because we don't really care about what the array contains, only about its length
-    where(:has_user, :project_already_forked, :forkable_namespaces, :expected) do
-      false | false | []     | nil
-      true  | false | [0]    | data_attributes_without_user_fork_url
-      true  | false | [0, 1] | data_attributes_without_user_fork_url
-      true  | true  | [0]    | data_attributes_with_user_fork_url
-      true  | true  | [0, 1] | data_attributes_without_user_fork_url
+    where(:has_user, :project_already_forked, :has_groups_allowing_project_creation, :expected) do
+      false | false | false | nil
+      true  | false | false | data_attributes_without_user_fork_url
+      true  | false | true  | data_attributes_without_user_fork_url
+      true  | true  | false | data_attributes_with_user_fork_url
+      true  | true  | true  | data_attributes_without_user_fork_url
     end
 
     with_them do
@@ -1085,10 +1119,9 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
         allow(helper).to receive(:current_user).and_return(current_user)
         allow(user).to receive(:can?).and_call_original
         allow(user).to receive(:can?).with(:fork_project, project).and_return(true)
-        allow(user).to receive(:can?).with(:create_fork).and_return(true)
         allow(user).to receive(:can?).with(:create_projects, anything).and_return(true)
         allow(user).to receive(:already_forked?).with(project).and_return(project_already_forked)
-        allow(user).to receive(:forkable_namespaces).and_return(forkable_namespaces)
+        allow(user).to receive(:has_groups_allowing_project_creation?).and_return(has_groups_allowing_project_creation)
 
         allow(project).to receive(:forks_count).and_return(4)
         allow(project).to receive(:full_path).and_return(project_path)
@@ -1223,27 +1256,25 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
 
       it { is_expected.to include(expected) }
     end
-  end
 
-  describe '#visibility_level_name' do
-    using RSpec::Parameterized::TableSyntax
-
-    where(:banned_user, :feature_flag_enabled, :expected) do
-      true  | true  | 'banned'
-      false | false | 'private'
-      true  | false | 'private'
-      false | true  | 'private'
-    end
-
-    with_them do
+    context "when project is not marked for deletion" do
       before do
-        stub_feature_flags(hide_projects_of_banned_users: feature_flag_enabled)
-        allow(project).to receive(:created_and_owned_by_banned_user?).and_return(banned_user)
+        allow(project).to receive(:self_deletion_scheduled?).and_return(false)
       end
 
-      subject { visibility_level_name(project) }
+      subject { helper.home_panel_data_attributes }
 
-      it { is_expected.to eq(expected) }
+      it { is_expected.to include({ is_project_marked_for_deletion: "false" }) }
+    end
+
+    context "when project is marked for deletion" do
+      before do
+        allow(project).to receive(:self_deletion_scheduled?).and_return(true)
+      end
+
+      subject { helper.home_panel_data_attributes }
+
+      it { is_expected.to include({ is_project_marked_for_deletion: "true" }) }
     end
   end
 
@@ -1273,43 +1304,125 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
     it_behaves_like 'configure import method modal'
   end
 
-  describe "#show_archived_project_banner?" do
-    shared_examples 'does not show the banner' do |pass_project: true|
-      it do
-        expect(project.archived?).to be(false)
-        expect(helper.show_archived_project_banner?(pass_project ? project : nil)).to be(false)
-      end
-    end
+  describe "#archiving_available?" do
+    subject(:archiving_available?) { helper.archiving_available?(project) }
 
-    context 'with no project' do
-      it_behaves_like 'does not show the banner', pass_project: false
+    context 'with nil project' do
+      let_it_be(:project) { nil }
+
+      it { is_expected.to be(false) }
     end
 
     context 'with unsaved project' do
       let_it_be(:project) { build(:project) }
 
-      it_behaves_like 'does not show the banner'
+      it { is_expected.to be(false) }
     end
 
-    context 'with the setting enabled' do
-      context 'with an active project' do
-        it_behaves_like 'does not show the banner'
+    shared_context 'with current user :archive_project permission' do |can_manage|
+      before do
+        allow(helper)
+          .to receive(:can?)
+          .with(user, :archive_project, project)
+          .and_return(can_manage)
+      end
+    end
+
+    context 'with an active project' do
+      context 'when current user cannot manage archiving' do
+        include_context 'with current user :archive_project permission', false
+
+        it { is_expected.to be(false) }
       end
 
-      context 'with an inactive project' do
-        before do
-          project.archived = true
-          project.save!
-        end
+      context 'when current user can manage archiving' do
+        include_context 'with current user :archive_project permission', true
 
-        it 'shows the banner' do
-          expect(project.present?).to be(true)
-          expect(project.saved?).to be(true)
-          expect(project.archived?).to be(true)
-          expect(helper.show_archived_project_banner?(project)).to be(true)
-          expect(helper.show_inactive_project_deletion_banner?(project)).to be(false)
-        end
+        it { is_expected.to be(true) }
       end
+    end
+
+    context 'with an archived project' do
+      before do
+        project.archived = true
+        project.save!
+      end
+
+      context 'when current user cannot manage archiving' do
+        include_context 'with current user :archive_project permission', false
+
+        it { is_expected.to be(false) }
+      end
+
+      context 'when current user can manage archiving' do
+        include_context 'with current user :archive_project permission', true
+
+        it { is_expected.to be(true) }
+      end
+    end
+
+    context 'with a project marked for deletion' do
+      before do
+        project.marked_for_deletion_at = Time.current
+        project.save!
+      end
+
+      context 'when current user cannot manage archiving' do
+        include_context 'with current user :archive_project permission', false
+
+        it { is_expected.to be(false) }
+      end
+
+      context 'when current user can manage archiving' do
+        include_context 'with current user :archive_project permission', true
+
+        it { is_expected.to be(false) }
+      end
+    end
+  end
+
+  describe "#show_archived_project_banner?" do
+    subject(:show_archived_project_banner?) { helper.show_archived_project_banner?(project) }
+
+    context 'with nil project' do
+      let_it_be(:project) { nil }
+
+      it { is_expected.to be(false) }
+    end
+
+    context 'with unsaved project' do
+      let_it_be(:project) { build(:project) }
+
+      it { is_expected.to be(false) }
+    end
+
+    context 'with an active project' do
+      it { is_expected.to be(false) }
+    end
+
+    context 'with an archived project' do
+      before do
+        project.archived = true
+        project.save!
+      end
+
+      it { is_expected.to be(true) }
+    end
+
+    context 'with a project marked for deletion' do
+      before do
+        project.marked_for_deletion_at = Time.current
+        project.save!
+      end
+
+      it { is_expected.to be(false) }
+    end
+
+    context 'with archived group' do
+      let_it_be(:group) { create(:group, :archived) }
+      let_it_be(:project) { create(:project, group: group) }
+
+      it { is_expected.to be(true) }
     end
   end
 
@@ -1363,13 +1476,13 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
   end
 
   describe '#inactive_project_deletion_date' do
-    let(:tracker) { instance_double(::Gitlab::InactiveProjectsDeletionWarningTracker) }
+    let(:tracker) { instance_double(::Gitlab::DormantProjectsDeletionWarningTracker) }
 
     before do
       stub_application_setting(inactive_projects_delete_after_months: 2)
       stub_application_setting(inactive_projects_send_warning_email_after_months: 1)
 
-      allow(::Gitlab::InactiveProjectsDeletionWarningTracker).to receive(:new).with(project.id).and_return(tracker)
+      allow(::Gitlab::DormantProjectsDeletionWarningTracker).to receive(:new).with(project.id).and_return(tracker)
       allow(tracker).to receive(:scheduled_deletion_date).and_return('2022-03-01')
     end
 
@@ -1750,15 +1863,15 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
       end
 
       it 'returns visibility level content_tag' do
-        expected_result = "<span class=\"has-tooltip\" data-container=\"body\" data-placement=\"top\" title=\"#{description}\">#{icon}</span>"
+        expected_result = "<button class=\"has-tooltip gl-border-0 gl-bg-transparent gl-p-0 gl-leading-0 gl-text-inherit\" data-container=\"body\" data-placement=\"top\" title=\"#{description}\" type=\"button\" aria-label=\"#{description}\">#{icon}</button>"
         expect(helper.visibility_level_content(project)).to eq(expected_result)
       end
 
       it 'returns visibility level content_tag with extra CSS classes' do
-        expected_result = "<span class=\"has-tooltip extra-class\" data-container=\"body\" data-placement=\"top\" title=\"#{description}\">#{icon}</span>"
+        expected_result = "<button class=\"has-tooltip gl-border-0 gl-bg-transparent gl-p-0 gl-leading-0 gl-text-inherit extra-class\" data-container=\"body\" data-placement=\"top\" title=\"#{description}\" type=\"button\" aria-label=\"#{description}\">#{icon}</button>"
 
         expect(helper).to receive(:visibility_level_icon)
-          .with(anything, options: { class: 'extra-icon-class' })
+          .with(anything, options: { class: 'extra-icon-class', variant: nil })
           .and_return(icon)
         result = helper.visibility_level_content(project, css_class: 'extra-class', icon_css_class: 'extra-icon-class')
         expect(result).to eq(expected_result)
@@ -1766,35 +1879,6 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
     end
 
     it_behaves_like 'returns visibility level content_tag'
-
-    context 'when project creator is banned' do
-      let(:hidden_resource_icon) { '<svg>fake hidden resource icon</svg>' }
-
-      before do
-        allow(project).to receive(:created_and_owned_by_banned_user?).and_return(true)
-        allow(helper).to receive(:hidden_resource_icon).and_return(hidden_resource_icon)
-      end
-
-      it 'returns hidden resource icon' do
-        expect(helper.visibility_level_content(project)).to eq hidden_resource_icon
-      end
-    end
-
-    context 'with hide_projects_of_banned_users feature flag disabled' do
-      before do
-        stub_feature_flags(hide_projects_of_banned_users: false)
-      end
-
-      it_behaves_like 'returns visibility level content_tag'
-
-      context 'when project creator is banned' do
-        before do
-          allow(project).to receive(:created_and_owned_by_banned_user?).and_return(true)
-        end
-
-        it_behaves_like 'returns visibility level content_tag'
-      end
-    end
   end
 
   describe '#hidden_issue_icon' do
@@ -1894,16 +1978,183 @@ RSpec.describe ProjectsHelper, feature_category: :source_code_management do
     end
   end
 
-  describe '#projects_explore_filtered_search_and_sort_app_data' do
+  describe '#projects_filtered_search_and_sort_app_data' do
     it 'returns expected json' do
-      expect(Gitlab::Json.parse(helper.projects_explore_filtered_search_and_sort_app_data)).to eq(
+      expect(Gitlab::Json.parse(helper.projects_filtered_search_and_sort_app_data)).to eq(
         {
           'initial_sort' => 'created_desc',
           'programming_languages' => ProgrammingLanguage.most_popular,
-          'starred_explore_projects_path' => starred_explore_projects_path,
-          'explore_root_path' => explore_root_path
+          'paths_to_exclude_sort_on' => [starred_explore_projects_path, explore_root_path]
         }
       )
+    end
+  end
+
+  describe '#dashboard_projects_app_data' do
+    it 'returns expected json' do
+      expect(Gitlab::Json.parse(helper.dashboard_projects_app_data)).to eq(
+        {
+          'initial_sort' => 'created_desc',
+          'programming_languages' => ProgrammingLanguage.most_popular
+        }
+      )
+    end
+  end
+
+  describe '#show_dashboard_projects_welcome_page?' do
+    where(:request_path, :authorized_projects, :result) do
+      [
+        [:root_path, [], true],
+        [:root_dashboard_path, [], true],
+        [:dashboard_projects_path, [], true],
+        [:contributed_dashboard_projects_path, [], true],
+        [:root_path, [ref(:project)], false],
+        [:root_dashboard_path, [ref(:project)], false],
+        [:dashboard_projects_path, [ref(:project)], false],
+        [:contributed_dashboard_projects_path, [ref(:project)], false],
+        [:starred_dashboard_projects_path, [], false],
+        [:starred_dashboard_projects_path, [ref(:project)], false]
+      ]
+    end
+
+    with_them do
+      let(:request) { instance_double(ActionDispatch::Request, path: helper.send(request_path)) }
+      let(:collection) { Project.where(id: authorized_projects) }
+
+      before do
+        allow(helper).to receive(:request).and_return(request)
+        allow(user).to receive(:authorized_projects).and_return(collection)
+      end
+
+      it 'returns the correct boolean response' do
+        expect(helper.show_dashboard_projects_welcome_page?).to eq(result)
+      end
+    end
+  end
+
+  describe '#project_pages_domain_choices' do
+    subject { helper.project_pages_domain_choices }
+
+    let(:pages_url) { "http://pages.example.com" }
+    let(:blank_option) { [['Don’t enforce a primary domain', '']] }
+    let(:gitlab_default_option) { [[pages_url, pages_url]] }
+
+    before do
+      allow(helper).to receive(:build_pages_url).with(project).and_return(pages_url)
+    end
+
+    context 'when the project has no pages domains' do
+      it 'returns only the default options' do
+        expect(subject).to eq(options_for_select(blank_option + gitlab_default_option))
+      end
+    end
+
+    context 'when the project has pages domains' do
+      let!(:pages_domains) do
+        [
+          create(:pages_domain, project: project, domain: 'custom1.com'),
+          create(:pages_domain, project: project, domain: 'custom2.com')
+        ]
+      end
+
+      it 'returns default options and additional domain options' do
+        domain_options = pages_domains.map { |domain| [domain.url, domain.url] }
+
+        expect(subject).to eq(options_for_select(blank_option + domain_options + gitlab_default_option))
+      end
+    end
+  end
+
+  describe '#project_archive_settings_app_data' do
+    let_it_be(:project) { create(:project) }
+
+    subject { helper.project_archive_settings_app_data(project) }
+
+    it 'returns correct data' do
+      is_expected.to match({
+        resource_type: 'project',
+        resource_id: project.id,
+        resource_path: including(project.full_path),
+        help_path: '/help/user/project/working_with_projects.md#archive-a-project'
+      })
+    end
+  end
+
+  describe '#project_unarchive_settings_app_data' do
+    let_it_be_with_reload(:ancestor) { create(:group) }
+    let_it_be(:project) { create(:project, group: ancestor) }
+
+    subject { helper.project_unarchive_settings_app_data(project) }
+
+    context 'when ancestor is not archived' do
+      it 'returns correct data' do
+        is_expected.to match({
+          resource_type: 'project',
+          resource_id: project.id,
+          resource_path: including(project.full_path),
+          ancestors_archived: 'false',
+          help_path: '/help/user/project/working_with_projects.md#unarchive-a-project'
+        })
+      end
+    end
+
+    context 'when ancestor is archived' do
+      before do
+        ancestor.archive
+      end
+
+      it 'returns correct data' do
+        is_expected.to match({
+          resource_type: 'project',
+          resource_id: project.id,
+          resource_path: including(project.full_path),
+          ancestors_archived: 'true',
+          help_path: '/help/user/project/working_with_projects.md#unarchive-a-project'
+        })
+      end
+    end
+  end
+
+  describe '#show_archived_badge?' do
+    let_it_be_with_reload(:group) { create(:group) }
+    let_it_be_with_reload(:project) { create(:project, group: group) }
+
+    subject { helper.show_archived_badge?(project) }
+
+    context 'when project is archived' do
+      before do
+        project.update!(archived: true)
+      end
+
+      it { is_expected.to be(true) }
+    end
+
+    context 'when ancestor is archived' do
+      before do
+        group.archive
+      end
+
+      it { is_expected.to be(true) }
+
+      context 'when `archive_group` flag is disabled' do
+        before do
+          stub_feature_flags(archive_group: false)
+        end
+
+        it { is_expected.to be(false) }
+      end
+    end
+
+    context 'when project and ancestor is not archived' do
+      it { is_expected.to be(false) }
+
+      context 'when `archive_group` flag is disabled' do
+        before do
+          stub_feature_flags(archive_group: false)
+        end
+
+        it { is_expected.to be(false) }
+      end
     end
   end
 end

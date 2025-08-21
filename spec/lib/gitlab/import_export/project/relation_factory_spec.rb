@@ -4,8 +4,8 @@ require 'spec_helper'
 
 RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_memory_store_caching, feature_category: :importers do
   let(:group) { create(:group, maintainers: importer_user) }
-  let(:project) { create(:project, :repository, group: group) }
   let(:members_mapper) { double('members_mapper').as_null_object }
+  let(:project) { create(:project, :repository, group: group) }
   let(:admin) { create(:admin) }
   let(:importer_user) { admin }
   let(:excluded_keys) { [] }
@@ -20,7 +20,8 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
       user: importer_user,
       importable: project,
       import_source: ::Import::SOURCE_PROJECT_EXPORT_IMPORT,
-      excluded_keys: excluded_keys
+      excluded_keys: excluded_keys,
+      rewrite_mentions: true
     )
   end
 
@@ -29,6 +30,7 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
     stub_const('FooModel', Class.new)
     FooModel.class_eval do
       include ActiveModel::Model
+      include ActiveModel::AttributeMethods
 
       def initialize(params = {})
         params.each { |key, value| send("#{key}=", value) }
@@ -65,6 +67,7 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
         'job_events' => false,
         'wiki_page_events' => true,
         'releases_events' => false,
+        'milestone_events' => false,
         'emoji_events' => false,
         'resource_access_token_events' => false,
         'token' => token
@@ -77,10 +80,6 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
 
     it 'does not have the original integration_id' do
       expect(created_object.integration_id).not_to eq(integration_id)
-    end
-
-    it 'does not have the original project_id' do
-      expect(created_object.project_id).not_to eq(original_project_id)
     end
 
     it 'has the new project_id' do
@@ -151,7 +150,7 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
         'updated_at' => "2016-06-14T15:02:56.815Z",
         'state' => "opened",
         'merge_status' => "unchecked",
-        'description' => "Description",
+        'description' => "I said to @sam the code should follow @bob's advice. @alice?",
         'position' => 0,
         'source_branch_sha' => "ABCD",
         'target_branch_sha' => "DCBA",
@@ -175,8 +174,12 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
       expect(created_object.target_project).to equal(project)
     end
 
-    it 'has MWPS set to false' do
+    it 'has auto merge set to false' do
       expect(created_object.merge_when_pipeline_succeeds).to eq(false)
+    end
+
+    it 'inserts backticks around username mentions' do
+      expect(created_object.description).to eq("I said to `@sam` the code should follow `@bob`'s advice. `@alice`?")
     end
   end
 
@@ -221,7 +224,7 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
         'created_at' => "2016-06-14T15:02:36.568Z",
         'updated_at' => "2016-06-14T15:02:56.815Z",
         'state' => "opened",
-        'description' => "Description",
+        'description' => "I said to @sam the code should follow @bob's advice. @alice?",
         "relative_position" => 25111 # just a random position
       }
     end
@@ -282,6 +285,10 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
       it 'makes work_item_type take precedence over issue_type' do
         expect(created_object.work_item_type).to eq(incident_type)
       end
+    end
+
+    it 'inserts backticks around username mentions' do
+      expect(created_object.description).to eq("I said to `@sam` the code should follow `@bob`'s advice. `@alice`?")
     end
   end
 
@@ -381,18 +388,19 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
   # `project_id`, `described_class.USER_REFERENCES`, noteable_id, target_id, and some project IDs are already
   # re-assigned by described_class.
   context 'Potentially hazardous foreign keys' do
+    let(:dummy_int) { project.id + 1 } # to avoid setting an integer that equals the current project.id
     let(:relation_sym) { :hazardous_foo_model }
     let(:relation_hash) do
       {
-        'integration_id' => 99,
-        'moved_to_id' => 99,
-        'namespace_id' => 99,
-        'ci_id' => 99,
-        'random_project_id' => 99,
-        'random_id' => 99,
-        'milestone_id' => 99,
-        'project_id' => 99,
-        'user_id' => 99
+        'integration_id' => dummy_int,
+        'moved_to_id' => dummy_int,
+        'namespace_id' => dummy_int,
+        'ci_id' => dummy_int,
+        'random_project_id' => dummy_int,
+        'random_id' => dummy_int,
+        'milestone_id' => dummy_int,
+        'project_id' => dummy_int,
+        'user_id' => dummy_int
       }
     end
 
@@ -406,19 +414,20 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
     end
 
     it 'does not preserve any foreign key IDs' do
-      expect(created_object.values).not_to include(99)
+      expect(created_object.values).to match_array([created_object.project_id])
     end
   end
 
   context 'overrided model with pluralized name' do
+    let(:dummy_int) { project.id + 1 } # to avoid setting an integer that equals the current project.id
     let(:relation_sym) { :metrics }
 
     let(:relation_hash) do
       {
-        'id' => 99,
-        'merge_request_id' => 99,
+        'id' => dummy_int,
+        'merge_request_id' => dummy_int,
         'merged_at' => Time.now,
-        'merged_by_id' => 99,
+        'merged_by_id' => dummy_int,
         'latest_closed_at' => nil,
         'latest_closed_by_id' => nil
       }
@@ -430,9 +439,10 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
   end
 
   context 'Project references' do
+    let(:dummy_int) { project.id + 1 } # to avoid setting an integer that equals the current project.id
     let(:relation_sym) { :project_foo_model }
     let(:relation_hash) do
-      Gitlab::ImportExport::Project::RelationFactory::PROJECT_REFERENCES.map { |ref| { ref => 99 } }.inject(:merge)
+      Gitlab::ImportExport::Project::RelationFactory::PROJECT_REFERENCES.map { |ref| { ref => dummy_int } }.inject(:merge)
     end
 
     before do
@@ -445,7 +455,7 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
     end
 
     it 'does not preserve any project foreign key IDs' do
-      expect(created_object.values).not_to include(99)
+      expect(created_object.values).not_to include(dummy_int)
     end
   end
 
@@ -498,9 +508,59 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
     it 'has preloaded project' do
       expect(created_object.project).to equal(project)
     end
+
+    it 'builds an event' do
+      expect(created_object).to be_an(Event)
+    end
+
+    context 'when user ID maps to no user' do
+      let(:members_mapper) { double('members_mapper', map: {}) }
+
+      it 'does not build an event' do
+        expect(created_object).to be_nil
+      end
+    end
   end
 
-  describe 'protected branch access levels' do
+  describe 'approval object' do
+    let(:relation_sym) { :approvals }
+    let(:relation_hash) do
+      {
+        'user_id' => admin.id
+      }
+    end
+
+    it 'builds an approvals' do
+      expect(created_object).to be_an(Approval)
+    end
+
+    context 'when user ID maps to no user' do
+      let(:members_mapper) { double('members_mapper', map: {}) }
+
+      it 'does not build an approval' do
+        expect(created_object).to be_nil
+      end
+    end
+  end
+
+  describe 'DesignManagement::Version object' do
+    let(:relation_sym) { :design_versions }
+    let(:relation_hash) do
+      {
+        'sha' => SecureRandom.hex(20),
+        'created_at' => Time.now,
+        'author_id' => 1,
+        'actions' => [],
+        'project_id' => project.id
+      }
+    end
+
+    it 'sets the namespace_id based on the project' do
+      expect(created_object.namespace_id).to eq(project.project_namespace.id)
+    end
+  end
+
+  describe 'protected refs access levels' do
     shared_examples 'access levels' do
       let(:relation_hash) { { 'access_level' => access_level, 'created_at' => '2022-03-29T09:53:13.457Z', 'updated_at' => '2022-03-29T09:54:13.457Z' } }
 
@@ -557,16 +617,26 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
       end
     end
 
-    describe 'merge access level' do
-      let(:relation_sym) { :'ProtectedBranch::MergeAccessLevel' }
+    describe 'protected branch access levels' do
+      context 'merge access level' do
+        let(:relation_sym) { :'ProtectedBranch::MergeAccessLevel' }
 
-      include_examples 'access levels'
+        include_examples 'access levels'
+      end
+
+      context 'push access level' do
+        let(:relation_sym) { :'ProtectedBranch::PushAccessLevel' }
+
+        include_examples 'access levels'
+      end
     end
 
-    describe 'push access level' do
-      let(:relation_sym) { :'ProtectedBranch::PushAccessLevel' }
+    describe 'protected tag access levels' do
+      context 'create access level' do
+        let(:relation_sym) { :'ProtectedTag::CreateAccessLevel' }
 
-      include_examples 'access levels'
+        include_examples 'access levels'
+      end
     end
   end
 
@@ -661,6 +731,94 @@ RSpec.describe Gitlab::ImportExport::Project::RelationFactory, :use_clean_rails_
       it 'removes the null bytes' do
         expect(created_object.diff).to eq('diff_export')
       end
+    end
+  end
+
+  describe 'MergeRequest::DiffCommitUser' do
+    let(:relation_sym) { :'MergeRequest::DiffCommitUser' }
+    let(:relation_hash) do
+      {
+        'name' => 'Test Author',
+        'email' => 'test@example.com'
+      }
+    end
+
+    it 'creates a DiffCommitUser object' do
+      expect(created_object).to be_a(MergeRequest::DiffCommitUser)
+      expect(created_object.name).to eq('Test Author')
+      expect(created_object.email).to eq('test@example.com')
+    end
+
+    it 'passes project to ObjectBuilder' do
+      expect(Gitlab::ImportExport::Project::ObjectBuilder).to receive(:build).with(
+        MergeRequest::DiffCommitUser,
+        hash_including('project' => project)
+      ).and_call_original
+
+      created_object
+    end
+  end
+
+  describe 'MergeRequestDiffCommit' do
+    let(:relation_sym) { :merge_request_diff_commits }
+    let(:relation_hash) do
+      {
+        'sha' => '123abc',
+        'relative_order' => 1,
+        'message' => 'Test commit',
+        'authored_date' => '2023-01-01',
+        'committed_date' => '2023-01-01',
+        'author_name' => 'Test Author',
+        'author_email' => 'author@example.com',
+        'committer_name' => 'Test Committer',
+        'committer_email' => 'committer@example.com'
+      }
+    end
+
+    it 'creates a MergeRequestDiffCommit object' do
+      expect(created_object).to be_a(MergeRequestDiffCommit)
+      expect(created_object.sha).to eq('123abc')
+    end
+
+    it 'passes project to ObjectBuilder' do
+      expect(Gitlab::ImportExport::Project::ObjectBuilder).to receive(:build).with(
+        MergeRequestDiffCommit,
+        hash_including('project' => project)
+      ).and_call_original
+
+      created_object
+    end
+  end
+
+  describe 'MergeRequest::CommitsMetadata' do
+    let_it_be(:commit_author) { create(:merge_request_diff_commit_user) }
+    let_it_be(:committer) { create(:merge_request_diff_commit_user) }
+
+    let(:relation_sym) { :merge_request_commits_metadata }
+    let(:relation_hash) do
+      {
+        'sha' => '123abc',
+        'message' => 'Test commit',
+        'trailers' => { 'foo' => 'bar' },
+        'authored_date' => '2023-01-01',
+        'committed_date' => '2023-01-01',
+        'commit_author' => commit_author,
+        'committer' => committer
+      }
+    end
+
+    it 'creates a MergeRequest::CommitsMetadata object' do
+      expect(created_object).to be_a(MergeRequest::CommitsMetadata)
+      expect(created_object.sha).to eq('123abc')
+    end
+
+    it 'passes project to ObjectBuilder' do
+      expect(Gitlab::ImportExport::Project::ObjectBuilder).to receive(:build).with(
+        MergeRequest::CommitsMetadata,
+        hash_including('project' => project)
+      ).and_call_original
+
+      created_object
     end
   end
 end

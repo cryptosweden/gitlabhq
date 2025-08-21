@@ -2,25 +2,27 @@
 stage: Plan
 group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Export issues to CSV
 ---
 
-# Export issues to CSV
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 You can export issues from GitLab to a plain-text CSV
 ([comma-separated values](https://en.wikipedia.org/wiki/Comma-separated_values))
 file. The CSV file is attached to an email, and sent to your default
 notification email address.
 
-<!-- vale gitlab.Spelling = NO -->
+<!-- vale gitlab_base.Spelling = NO -->
 
 CSV files can be used with any plotter or spreadsheet-based program, like
 Microsoft Excel, OpenOffice Calc, or Google Sheets. Use a CSV list of issues to:
 
-<!-- vale gitlab.Spelling = YES -->
+<!-- vale gitlab_base.Spelling = YES -->
 
 - Create a snapshot of issues for offline analysis, or to share with other
   teams who might not be in GitLab.
@@ -37,7 +39,7 @@ You can export issues from individual projects, but not groups.
 
 Prerequisites:
 
-- You must have at least the Reporter role.
+- You must have at least the Guest role.
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Plan > Issues**.
@@ -45,7 +47,7 @@ Prerequisites:
 1. In the dropdown list that appears, select the attributes to filter by.
    For more information about filter options, see
    [Filter the list of issues](managing_issues.md#filter-the-list-of-issues).
-1. In the upper right, select **Actions** (**{ellipsis_v}**) **> Export as CSV**.
+1. In the upper right, select **Actions** ({{< icon name="ellipsis_v" >}}) **> Export as CSV**.
 1. In the dialog, verify that the email address is correct, then select **Export issues**.
 
 All matching issues are exported, including those not shown on the first page.
@@ -59,6 +61,13 @@ The CSV file has this format:
 - Columns are delimited with commas.
 - Fields are quoted with double quotes (`"`) if needed.
 - Newline characters separate rows.
+
+{{< alert type="note" >}}
+
+For information about CSV parsing requirements that can affect how exported files display when viewed
+in GitLab, see [CSV parsing considerations](../repository/files/csv.md#csv-parsing-considerations).
+
+{{< /alert >}}
 
 ## Columns
 

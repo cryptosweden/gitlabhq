@@ -1,10 +1,46 @@
 @import 'mixins_and_variables_and_functions';
 
-.project-last-commit {
-  min-height: 4.75rem;
+$bottom-padding: $gl-spacing-scale-6;
+
+.content-wrapper:has(.navigation-root) {
+  padding-bottom: $bottom-padding;
+}
+
+.navigation-root {
+  min-height: calc(100dvh - var(--application-header-height) - #{$bottom-padding});
+}
+
+.repository-tree-list {
+  --file-row-level-padding: #{$gl-spacing-scale-5};
+  --file-tree-min-height: 300px;
+  --file-tree-bottom-padding: #{rem-to-px($bottom-padding)};
+  position: sticky;
+  top: calc(var(--application-header-height) + #{$gl-spacing-scale-5});
+  min-height: var(--file-tree-min-height);
+  flex: none;
+
+  .file-row {
+    @apply gl-border-none;
+    @apply gl-bg-transparent;
+    @apply gl-w-full;
+  }
+}
+
+.repository-tree-list-responsive {
+  width: var(--tree-width);
+
+  @include media-breakpoint-down(md) {
+    width: 250px;
+  }
 }
 
 .tree-holder {
+  .repo-breadcrumb {
+    li {
+      min-width: $gl-spacing-scale-9;
+    }
+  } 
+
   .nav-block {
     margin: $gl-spacing-scale-2 0 $gl-spacing-scale-5;
 
@@ -38,10 +74,6 @@
         float: left;
       }
 
-      .tree-ref-target-holder {
-        display: inline-block;
-      }
-
       .repo-breadcrumb {
         li:last-of-type {
           position: relative;
@@ -64,18 +96,11 @@
       }
     }
 
-    .add-to-tree-dropdown {
-      position: absolute;
-      left: 0;
-      right: 0;
-    }
-
     .tree-controls {
       margin-bottom: 10px;
 
       .btn:not(.dropdown-toggle-split),
-      .dropdown,
-      .btn-group {
+      .dropdown {
         width: 100%;
       }
     }
@@ -101,46 +126,74 @@
   }
 
   table.tree-table {
-    margin-bottom: 0;
+    @apply dark:gl-bg-neutral-900 gl-mb-0;
 
-    tr {
-      border-bottom: 1px solid var(--gray-50, $gray-50);
+    thead tr th[scope="col"] {
+      @apply gl-bg-subtle dark:gl-bg-neutral-800 gl-border-t-0;
+    }
+
+    tbody tr {
+      @apply gl-border-b gl-border-b-section;
 
       td,
       th {
         line-height: 21px;
       }
 
-      th {
-        border: 0;
-      }
-
-      td {
-        border-color: var(--border-color, $border-color);
+      td, th {
+        @apply gl-border-section;
       }
 
       &:hover:not(.tree-truncated-warning) {
-        td {
-          background-color: var(--blue-50, $blue-50);
-          background-clip: padding-box;
-          border-top: 1px solid var(--blue-200, $blue-200);
-          border-bottom: 1px solid var(--blue-200, $blue-200);
-          cursor: pointer;
+        td, th {
+          @apply gl-bg-blue-50 dark:gl-bg-neutral-800 gl-bg-clip-padding;
+          border-top: 1px solid var(--gl-action-selected-border-color-default);
+          border-bottom: 1px solid var(--gl-action-selected-border-color-default);
+
+          &:first-child {
+            box-shadow: inset 1px 0 0 0 var(--gl-action-selected-border-color-default);
+          }
+
+          &:last-child {
+            box-shadow: inset -1px 0 0 0 var(--gl-action-selected-border-color-default);
+          }
+
+          &:first-child:last-child {
+            box-shadow: inset 1px 0 0 0 var(--gl-action-selected-border-color-default),
+              inset -1px 0 0 0 var(--gl-action-selected-border-color-default);
+          }
+        }
+
+        &:last-child {
+          td, th {
+            @apply gl-border-b-0;
+            box-shadow: inset 0 -1px 0 0 var(--gl-action-selected-border-color-default);
+
+            &:first-child {
+              box-shadow: inset 1px 0 0 0 var(--gl-action-selected-border-color-default),
+                inset 0 -1px 0 0 var(--gl-action-selected-border-color-default);
+              border-bottom-left-radius: calc(#{$gl-border-radius-base} - 1px);
+            }
+
+            &:last-child {
+              box-shadow: inset -1px 0 0 0 var(--gl-action-selected-border-color-default),
+                inset 0 -1px 0 0 var(--gl-action-selected-border-color-default);
+              border-bottom-right-radius: calc(#{$gl-border-radius-base} - 1px);
+            }
+          }
         }
       }
 
       &.selected {
         td {
-          background: var(--gray-50, $gray-50);
-          border-top: 1px solid var(--border-color, $border-color);
-          border-bottom: 1px solid var(--border-color, $border-color);
+          @apply gl-bg-strong dark:gl-bg-neutral-800 gl-border-t gl-border-b;
         }
       }
 
       &:last-of-type,
       &:last-of-type td,
       &:last-of-type:hover td {
-        border-bottom: 0;
+        @apply gl-border-b-0;
       }
     }
   }
@@ -161,7 +214,7 @@
 
       i,
       a {
-        color: var(--gl-text-color, $gl-text-color);
+        @apply gl-text-default;
       }
 
       img {

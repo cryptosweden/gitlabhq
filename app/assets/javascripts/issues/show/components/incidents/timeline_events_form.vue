@@ -8,7 +8,6 @@ import {
   GlFormTextarea,
 } from '@gitlab/ui';
 import MarkdownField from '~/vue_shared/components/markdown/field.vue';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { __, sprintf } from '~/locale';
 import TimelineEventsTagsPopover from './timeline_events_tags_popover.vue';
 import { MAX_TEXT_LENGTH, TIMELINE_EVENT_TAGS, timelineFormI18n } from './constants';
@@ -37,7 +36,6 @@ export default {
     GlCollapsibleListbox,
     GlFormTextarea,
   },
-  mixins: [glFeatureFlagsMixin()],
   i18n: timelineFormI18n,
   MAX_TEXT_LENGTH,
   props: {
@@ -83,7 +81,6 @@ export default {
     return {
       timelineText: this.previousNote,
       timelineTextIsDirty: this.isEditing,
-      placeholderDate,
       hourPickerInput: placeholderDate.getHours(),
       minutePickerInput: placeholderDate.getMinutes(),
       datePickerInput: placeholderDate,
@@ -130,6 +127,7 @@ export default {
     this.focusDate();
   },
   methods: {
+    // eslint-disable-next-line vue/no-unused-properties
     clear() {
       const newPlaceholderDate = getUtcShiftedDate();
       this.datePickerInput = newPlaceholderDate;
@@ -173,14 +171,14 @@ export default {
 </script>
 
 <template>
-  <form class="gl-flex-grow-1 gl-border-gray-50">
-    <div class="gl-display-flex gl-flex-direction-column gl-sm-flex-direction-row gl-mt-3">
+  <form class="gl-grow gl-border-subtle">
+    <div class="gl-mt-3 gl-flex gl-flex-col sm:gl-flex-row">
       <gl-form-group :label="__('Date')" class="gl-mr-5">
         <gl-datepicker id="incident-date" ref="datepicker" v-model="datePickerInput" />
       </gl-form-group>
-      <div class="gl-display-flex">
+      <div class="gl-flex">
         <gl-form-group :label="__('Time')">
-          <div class="gl-display-flex">
+          <div class="gl-flex">
             <label label-for="timeline-input-hours" class="sr-only"></label>
             <gl-form-input
               id="timeline-input-hours"
@@ -204,11 +202,11 @@ export default {
             />
           </div>
         </gl-form-group>
-        <p class="gl-ml-3 gl-align-self-end gl-leading-32">{{ __('UTC') }}</p>
+        <p class="gl-ml-3 gl-self-end gl-leading-32">{{ __('UTC') }}</p>
       </div>
     </div>
     <gl-form-group>
-      <label class="gl-display-flex gl-align-items-center gl-gap-3" for="timeline-input-tags">
+      <label class="gl-flex gl-items-center gl-gap-3" for="timeline-input-tags">
         {{ $options.i18n.tagsLabel }}
         <timeline-events-tags-popover />
       </label>
@@ -226,13 +224,12 @@ export default {
       <gl-form-group class="gl-mb-3" :label="$options.i18n.areaLabel">
         <markdown-field
           :can-attach-file="false"
-          :add-spacing-classes="false"
           :show-comment-tool-bar="false"
           :textarea-value="timelineText"
           :restricted-tool-bar-items="$options.restrictedToolBarItems"
           markdown-docs-path=""
           :enable-preview="false"
-          class="bordered-box gl-mt-0"
+          class="gl-border gl-mt-0 gl-rounded-base gl-border-section"
         >
           <template #textarea>
             <gl-form-textarea
@@ -251,7 +248,7 @@ export default {
             <div id="timeline-form-hint" class="gl-sr-only">{{ $options.i18n.hint }}</div>
             <div
               aria-hidden="true"
-              class="gl-absolute gl-text-gray-500 gl-font-sm gl-line-height-14 gl-right-4 gl-bottom-3"
+              class="gl-absolute gl-bottom-2 gl-right-4 gl-text-sm gl-text-subtle"
             >
               {{ timelineTextRemainingCount }}
             </div>
@@ -263,7 +260,7 @@ export default {
       </gl-form-group>
     </div>
     <gl-form-group class="gl-mb-3">
-      <div class="gl-display-flex gl-flex-wrap gl-gap-3">
+      <div class="gl-flex gl-flex-wrap gl-gap-3">
         <gl-button
           variant="confirm"
           category="primary"
@@ -278,18 +275,25 @@ export default {
           v-if="showSaveAndAdd"
           variant="confirm"
           category="secondary"
+          data-testid="save-and-add-button"
           :disabled="!isTimelineTextValid"
           :loading="isEventProcessed"
           @click="handleSave(true)"
         >
           {{ $options.i18n.saveAndAdd }}
         </gl-button>
-        <gl-button :disabled="isEventProcessed" @click="$emit('cancel')">
+        <gl-button
+          :disabled="isEventProcessed"
+          data-testid="cancel-button"
+          @click="$emit('cancel')"
+        >
           {{ $options.i18n.cancel }}
         </gl-button>
         <gl-button
           v-if="isEditing"
-          class="gl-ml-auto btn-danger"
+          variant="danger"
+          class="gl-ml-auto"
+          data-testid="delete-button"
           :disabled="isEventProcessed"
           @click="$emit('delete')"
         >

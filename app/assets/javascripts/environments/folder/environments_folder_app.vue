@@ -56,6 +56,7 @@ export default {
     };
   },
   apollo: {
+    // eslint-disable-next-line @gitlab/vue-no-undef-apollo-properties
     folder: {
       query: folderQuery,
       variables() {
@@ -187,9 +188,9 @@ export default {
 </script>
 <template>
   <div>
-    <delete-environment-modal :environment="environmentToDelete" graphql />
-    <stop-environment-modal :environment="environmentToStop" graphql />
-    <confirm-rollback-modal :environment="environmentToRollback" graphql />
+    <delete-environment-modal :environment="environmentToDelete" />
+    <stop-environment-modal :environment="environmentToStop" />
+    <confirm-rollback-modal :environment="environmentToRollback" />
     <canary-update-modal :environment="environmentToChangeCanary" :weight="weight" />
     <h4 class="gl-font-normal" data-testid="folder-name">
       {{ $options.i18n.pageTitle }} /
@@ -223,7 +224,7 @@ export default {
       <div
         v-for="n in lastRowCount"
         :key="`skeleton-box-${n}`"
-        class="gl-border-gray-100 gl-border-t-solid gl-border-1 gl-py-5 gl-md-pl-7"
+        class="gl-border-1 gl-border-default gl-py-5 gl-border-t-solid md:gl-pl-7"
       >
         <gl-skeleton-loader :lines="2" />
       </div>
@@ -242,7 +243,7 @@ export default {
         :id="environment.name"
         :key="index"
         :environment="environment"
-        class="gl-border-gray-100 gl-border-t-solid gl-border-1 gl-pt-3"
+        class="gl-border-1 gl-border-default gl-pt-3 gl-border-t-solid"
         in-folder
       />
     </div>
@@ -250,6 +251,7 @@ export default {
       v-model="pageNumber"
       :per-page="$options.perPage"
       :total-items="totalItems"
+      class="gl-mt-6"
       align="center"
     />
   </div>

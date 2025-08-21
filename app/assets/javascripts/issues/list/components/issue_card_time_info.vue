@@ -1,137 +1,130 @@
 <script>
-import { GlLink, GlIcon, GlTooltipDirective } from '@gitlab/ui';
+import { GlIcon, GlSkeletonLoader } from '@gitlab/ui';
 import { STATUS_CLOSED } from '~/issues/constants';
-import {
-  dateInWords,
-  getTimeRemainingInWords,
-  humanTimeframe,
-  isInFuture,
-  isInPast,
-  isToday,
-  newDateAsLocaleTime,
-} from '~/lib/utils/datetime_utility';
+import { humanTimeframe, isInPast, newDate } from '~/lib/utils/datetime_utility';
 import { __ } from '~/locale';
-import { STATE_CLOSED } from '~/work_items/constants';
-import { isMilestoneWidget, isStartAndDueDateWidget } from '~/work_items/utils';
+import { STATE_CLOSED, METADATA_KEYS } from '~/work_items/constants';
+import {
+  findMilestoneWidget,
+  findStartAndDueDateWidget,
+  findTimeTrackingWidget,
+} from '~/work_items/utils';
+import IssuableMilestone from '~/vue_shared/issuable/list/components/issuable_milestone.vue';
+import WorkItemAttribute from '~/vue_shared/components/work_item_attribute.vue';
 
 export default {
   components: {
-    GlLink,
+    IssuableMilestone,
+    WorkItemAttribute,
     GlIcon,
+    GlSkeletonLoader,
   },
-  directives: {
-    GlTooltip: GlTooltipDirective,
+  constants: {
+    METADATA_KEYS,
   },
   props: {
     issue: {
       type: Object,
       required: true,
     },
+    detailLoading: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    hiddenMetadataKeys: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
   },
   computed: {
     milestone() {
-      return this.issue.milestone || this.issue.widgets?.find(isMilestoneWidget)?.milestone;
-    },
-    milestoneDate() {
-      if (this.milestone.dueDate) {
-        const { dueDate, startDate } = this.milestone;
-        const date = dateInWords(newDateAsLocaleTime(dueDate), true);
-        const remainingTime = this.milestoneRemainingTime(dueDate, startDate);
-        return `${date} (${remainingTime})`;
-      }
-      return __('Milestone');
-    },
-    milestoneLink() {
-      return this.milestone.webPath || this.milestone.webUrl;
+      return this.issue.milestone || findMilestoneWidget(this.issue)?.milestone;
     },
     dueDate() {
-      return this.issue.dueDate || this.issue.widgets?.find(isStartAndDueDateWidget)?.dueDate;
+      return this.issue.dueDate || findStartAndDueDateWidget(this.issue)?.dueDate;
     },
-    dueDateText() {
-      if (this.startDate) {
-        return humanTimeframe(this.startDate, this.dueDate);
+    datesText() {
+      if (this.startDate || this.dueDate) {
+        return humanTimeframe(newDate(this.startDate), newDate(this.dueDate));
       }
-      if (this.dueDate) {
-        return dateInWords(newDateAsLocaleTime(this.dueDate), true);
-      }
+
       return null;
     },
     isClosed() {
       return this.issue.state === STATUS_CLOSED || this.issue.state === STATE_CLOSED;
     },
-    showDueDateInRed() {
+    isOverdue() {
       if (!this.dueDate) {
         return false;
       }
-      return isInPast(newDateAsLocaleTime(this.dueDate)) && !this.isClosed;
+      return isInPast(newDate(this.dueDate)) && !this.isClosed;
+    },
+    datesTooltipTitle() {
+      return this.isOverdue ? `${__('Dates')} (${__('overdue')})` : __('Dates');
+    },
+    dateIcon() {
+      return this.isOverdue ? 'calendar-overdue' : 'calendar';
     },
     startDate() {
-      return this.issue.widgets?.find(isStartAndDueDateWidget)?.startDate;
+      return findStartAndDueDateWidget(this.issue)?.startDate;
     },
     timeEstimate() {
-      return this.issue.humanTimeEstimate || this.issue.timeStats?.humanTimeEstimate;
-    },
-  },
-  methods: {
-    milestoneRemainingTime(dueDate, startDate) {
-      const due = newDateAsLocaleTime(dueDate);
-      const start = newDateAsLocaleTime(startDate);
-
-      if (dueDate && isInPast(due)) {
-        return __('Past due');
-      }
-      if (dueDate && isToday(due)) {
-        return __('Today');
-      }
-      if (startDate && isInFuture(start)) {
-        return __('Upcoming');
-      }
-      if (dueDate) {
-        return getTimeRemainingInWords(due);
-      }
-      return '';
+      return (
+        this.issue.humanTimeEstimate ||
+        this.issue.timeStats?.humanTimeEstimate ||
+        findTimeTrackingWidget(this.issue)?.humanReadableAttributes?.timeEstimate
+      );
     },
   },
 };
 </script>
 
 <template>
-  <span>
-    <span
-      v-if="milestone"
-      class="issuable-milestone gl-mr-3 gl-text-truncate gl-max-w-26 gl-display-inline-block gl-align-bottom"
-      data-testid="issuable-milestone"
-    >
-      <gl-link
-        v-gl-tooltip
-        :href="milestoneLink"
-        :title="milestoneDate"
-        class="gl-font-sm gl-text-gray-500!"
-      >
-        <gl-icon name="milestone" :size="12" />
-        {{ milestone.title }}
-      </gl-link>
+  <span class="gl-inline-flex gl-w-min gl-gap-3 gl-whitespace-nowrap">
+    <slot name="weight"></slot>
+    <issuable-milestone
+      v-if="milestone && !hiddenMetadataKeys.includes($options.constants.METADATA_KEYS.MILESTONE)"
+      :milestone="milestone"
+    />
+    <span v-else-if="detailLoading">
+      <gl-skeleton-loader :width="55" :lines="1" equal-width-lines />
     </span>
-    <span
-      v-if="dueDateText"
-      v-gl-tooltip
-      class="issuable-due-date gl-mr-3"
-      :class="{ 'gl-text-red-500': showDueDateInRed }"
-      :title="__('Due date')"
-      data-testid="issuable-due-date"
+    <slot name="iteration"></slot>
+    <work-item-attribute
+      v-if="datesText && !hiddenMetadataKeys.includes($options.constants.METADATA_KEYS.DATES)"
+      anchor-id="issuable-due-date"
+      wrapper-component="button"
+      wrapper-component-class="issuable-due-date !gl-cursor-help gl-text-subtle gl-bg-transparent gl-border-0 gl-p-0 focus-visible:gl-focus-inset"
+      :title="datesText"
+      title-component-class="gl-mr-3"
+      :tooltip-text="datesTooltipTitle"
+      tooltip-placement="top"
     >
-      <gl-icon name="calendar" :size="12" />
-      {{ dueDateText }}
+      <template #icon>
+        <gl-icon :variant="isOverdue ? 'danger' : 'current'" :name="dateIcon" :size="12" />
+      </template>
+    </work-item-attribute>
+    <span v-else-if="detailLoading">
+      <gl-skeleton-loader :width="30" :lines="1" equal-width-lines />
     </span>
-    <span
+    <work-item-attribute
       v-if="timeEstimate"
-      v-gl-tooltip
-      class="gl-mr-3"
-      :title="__('Estimate')"
-      data-testid="time-estimate"
+      anchor-id="time-estimate"
+      wrapper-component="button"
+      :title="timeEstimate"
+      title-component-class="gl-mr-3"
+      wrapper-component-class="gl-text-subtle gl-bg-transparent gl-border-0 gl-p-0 focus-visible:gl-focus-inset"
+      :tooltip-text="__('Estimate')"
+      tooltip-placement="top"
     >
-      <gl-icon name="timer" :size="12" />
-      {{ timeEstimate }}
+      <template #icon>
+        <gl-icon name="timer" :size="12" />
+      </template>
+    </work-item-attribute>
+    <span v-else-if="detailLoading">
+      <gl-skeleton-loader :width="25" :lines="1" equal-width-lines />
     </span>
     <slot></slot>
   </span>

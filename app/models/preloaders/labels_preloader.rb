@@ -21,12 +21,17 @@ module Preloaders
     def preload_all
       ActiveRecord::Associations::Preloader.new(
         records: project_labels,
-        associations: { project: [:project_feature, { namespace: :route }] }
+        associations: {
+          project: [
+            :project_feature,
+            { namespace: [:route, :namespace_settings_with_ancestors_inherited_settings] }
+          ]
+        }
       ).call
 
       ActiveRecord::Associations::Preloader.new(
         records: group_labels,
-        associations: { group: :route }
+        associations: { group: [:namespace_settings_with_ancestors_inherited_settings, :route] }
       ).call
 
       Preloaders::UserMaxAccessLevelInProjectsPreloader.new(project_labels.map(&:project), user).execute

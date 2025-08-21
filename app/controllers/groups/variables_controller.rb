@@ -7,7 +7,7 @@ module Groups
 
     skip_cross_project_access_check :show, :update
 
-    feature_category :secrets_management
+    feature_category :ci_variables
 
     urgency :low, [:show]
 
@@ -51,7 +51,7 @@ module Groups
     end
 
     def variable_params_attributes
-      %i[id variable_type key description secret_value protected masked raw _destroy]
+      %i[id variable_type key description secret_value protected masked hidden raw _destroy]
     end
   end
 end

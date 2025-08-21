@@ -10,6 +10,21 @@ RSpec.shared_examples 'validate schema data' do |tables_and_views|
 end
 
 RSpec.describe Gitlab::Database::GitlabSchema, feature_category: :database do
+  describe 'lock_gitlab_schemas for main and related databases' do
+    it 'all gitlab_schema is locked in other database_connections', :aggregate_failures do
+      database_connections = Gitlab::Database.all_database_connections
+        .select { |_, db| db.name == :main || db.fallback_database == :main }
+        .values
+
+      database_connections.permutation(2) do |db, other_db|
+        gitlab_schemas = db.gitlab_schemas - [:gitlab_shared, :gitlab_internal]
+
+        expect(other_db.lock_gitlab_schemas).to include(*gitlab_schemas),
+          "Expected `#{other_db.name}` lock_gitlab_schemas to include `#{db.name}` gitlab_schemas:"
+      end
+    end
+  end
+
   shared_examples 'maps table name to table schema' do
     using RSpec::Parameterized::TableSyntax
 
@@ -24,7 +39,9 @@ RSpec.describe Gitlab::Database::GitlabSchema, feature_category: :database do
       '_test_gitlab_ci_table'                        | :gitlab_ci
       '_test_gitlab_main_clusterwide_table'          | :gitlab_main_clusterwide
       '_test_gitlab_main_cell_table'                 | :gitlab_main_cell
+      '_test_gitlab_main_org_table'                  | :gitlab_main_org
       '_test_gitlab_pm_table'                        | :gitlab_pm
+      '_test_gitlab_sec_table'                       | :gitlab_sec
       '_test_my_table'                               | :gitlab_shared
       'pg_attribute'                                 | :gitlab_internal
     end
@@ -115,7 +132,7 @@ RSpec.describe Gitlab::Database::GitlabSchema, feature_category: :database do
     subject { described_class.table_schemas!(tables) }
 
     it 'returns the matched schemas' do
-      expect(subject).to match_array %i[gitlab_main_cell gitlab_ci].to_set
+      expect(subject).to match_array %i[gitlab_main_cell gitlab_ci gitlab_main_org].to_set
     end
 
     context 'when one of the tables does not have a matching table schema' do
@@ -202,6 +219,31 @@ RSpec.describe Gitlab::Database::GitlabSchema, feature_category: :database do
     end
   end
 
+  describe '.sharding_root_tables' do
+    context 'schemas where require_sharding_key is true' do
+      using RSpec::Parameterized::TableSyntax
+
+      where(:schema_name, :result) do
+        :gitlab_main_user | %w[organizations users]
+        :gitlab_main_cell | %w[organizations projects namespaces]
+        :gitlab_ci | %w[organizations projects namespaces]
+        :gitlab_sec | %w[organizations projects namespaces]
+      end
+
+      with_them do
+        it { expect(described_class.sharding_root_tables(schema_name)).to match_array(result) }
+      end
+
+      it 'always includes organizations', :aggregate_failures do
+        Gitlab::Database.all_gitlab_schemas.each do |schema_name, schema_info|
+          next unless schema_info.require_sharding_key
+
+          expect(described_class.sharding_root_tables(schema_name)).to include('organizations')
+        end
+      end
+    end
+  end
+
   context 'when testing cross schema access' do
     using RSpec::Parameterized::TableSyntax
 
@@ -251,32 +293,20 @@ RSpec.describe Gitlab::Database::GitlabSchema, feature_category: :database do
       where(:schemas, :tables, :result) do
         %i[] | %w[] | false
         %i[gitlab_main] | %w[evidences] | true
-        %i[gitlab_main_clusterwide gitlab_main] | %w[users evidences] | true
+        %i[gitlab_main_clusterwide gitlab_main] | %w[users clusters] | true
         %i[gitlab_main_clusterwide gitlab_ci] | %w[users ci_pipelines] | false
         %i[gitlab_main_clusterwide gitlab_internal] | %w[users schema_migrations] | false
         %i[gitlab_main gitlab_ci] | %w[evidences ci_pipelines] | false
         %i[gitlab_main_clusterwide gitlab_shared] | %w[users detached_partitions] | false
-        %i[gitlab_main_clusterwide gitlab_main_cell] | %w[users namespaces] | true
-        %i[gitlab_main_clusterwide gitlab_main_cell] | %w[plans namespaces] | true
-        %i[gitlab_main_clusterwide gitlab_main_cell] | %w[users achievements] | true
-        %i[gitlab_main_clusterwide gitlab_main_cell] | %w[users agent_group_authorizations] | true
+        %i[gitlab_main_clusterwide gitlab_main_cell] | %w[users namespaces] | false
+        %i[gitlab_main_clusterwide gitlab_main_cell] | %w[plans namespaces] | false
+        %i[gitlab_main_clusterwide gitlab_main_cell] | %w[users achievements] | false
+        %i[gitlab_main_clusterwide gitlab_main_cell] | %w[users agent_group_authorizations] | false
       end
 
       with_them do
         it { expect(described_class.cross_foreign_key_allowed?(schemas, tables)).to eq(result) }
       end
-    end
-  end
-
-  describe '.cell_local?' do
-    it 'is true for cell local tables and false otherwise' do
-      expect(described_class.cell_local?('gitlab_ci')).to eq(true)
-      expect(described_class.cell_local?('gitlab_pm')).to eq(true)
-      expect(described_class.cell_local?('gitlab_main_cell')).to eq(true)
-      expect(described_class.cell_local?('gitlab_main')).to eq(false)
-      expect(described_class.cell_local?('gitlab_main_clusterwide')).to eq(false)
-      expect(described_class.cell_local?('gitlab_shared')).to eq(false)
-      expect(described_class.cell_local?('gitlab_internal')).to eq(false)
     end
   end
 end

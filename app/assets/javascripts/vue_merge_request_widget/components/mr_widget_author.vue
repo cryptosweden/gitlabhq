@@ -1,9 +1,10 @@
 <script>
-import { GlTooltipDirective, GlLink } from '@gitlab/ui';
+import { GlAvatar, GlLink, GlTooltipDirective } from '@gitlab/ui';
 
 export default {
   name: 'MrWidgetAuthor',
   components: {
+    GlAvatar,
     GlLink,
   },
   directives: {
@@ -31,15 +32,10 @@ export default {
 };
 </script>
 <template>
-  <gl-link
-    v-gl-tooltip
-    :href="authorUrl"
-    :title="showAuthorName ? null : author.name"
-    class="mr-widget-author"
-  >
-    <img :src="avatarUrl" :alt="author.name" class="avatar avatar-inline s16" /><span
+  <gl-link v-gl-tooltip :href="authorUrl" :title="showAuthorName ? null : author.name">
+    <gl-avatar :src="avatarUrl" :size="16" :alt="author.name" /><span
       v-if="showAuthorName"
-      class="author"
+      class="author gl-ml-2"
       >{{ author.name }}</span
     >
   </gl-link>

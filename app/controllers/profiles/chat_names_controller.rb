@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class Profiles::ChatNamesController < Profiles::ApplicationController
+  include SafeFormatHelper
+
   before_action :chat_name_token, only: [:new]
   before_action :chat_name_params, only: [:new, :create, :deny]
 
@@ -18,33 +20,34 @@ class Profiles::ChatNamesController < Profiles::ApplicationController
     new_chat_name = current_user.chat_names.new(chat_name_params)
 
     if new_chat_name.save
-      flash[:notice] = _("Authorized %{new_chat_name}") % { new_chat_name: new_chat_name.chat_name }
+      flash[:notice] = safe_format(_("Authorized %{new_chat_name}"), new_chat_name: new_chat_name.chat_name)
     else
-      flash[:alert] = _("Could not authorize chat nickname. Try again!")
+      flash[:alert] = s_("Integrations|Could not authorize integration account nickname. Try again!")
     end
 
     delete_chat_name_token
-    redirect_to profile_chat_names_path
+    redirect_to user_settings_integration_accounts_path
   end
 
   def deny
     delete_chat_name_token
 
-    flash[:notice] = _("Denied authorization of chat nickname %{user_name}.") % { user_name: chat_name_params[:user_name] }
+    flash[:notice] =
+      safe_format(_("Denied authorization of account nickname %{user_name}."), user_name: chat_name_params[:user_name])
 
-    redirect_to profile_chat_names_path
+    redirect_to user_settings_integration_accounts_path
   end
 
   def destroy
     @chat_name = chat_names.find(params[:id])
 
     if @chat_name.destroy
-      flash[:notice] = _("Deleted chat nickname: %{chat_name}!") % { chat_name: @chat_name.chat_name }
+      flash[:notice] = safe_format(_("Deleted account nickname: %{chat_name}!"), chat_name: @chat_name.chat_name)
     else
-      flash[:alert] = _("Could not delete chat nickname %{chat_name}.") % { chat_name: @chat_name.chat_name }
+      flash[:alert] = safe_format(_("Could not delete account nickname %{chat_name}."), chat_name: @chat_name.chat_name)
     end
 
-    redirect_to profile_chat_names_path, status: :found
+    redirect_to user_settings_integration_accounts_path, status: :found
   end
 
   private

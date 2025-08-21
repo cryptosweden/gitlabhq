@@ -2,14 +2,14 @@
 
 require 'spec_helper'
 
-RSpec.describe 'Edit group settings', feature_category: :groups_and_projects do
+RSpec.describe 'Edit group settings', :with_current_organization, feature_category: :groups_and_projects do
   include Spec::Support::Helpers::ModalHelpers
+  include Features::WebIdeSpecHelpers
 
-  let(:user)  { create(:user) }
-  let(:group) { create(:group, path: 'foo') }
+  let_it_be(:user) { create(:user, organization: current_organization) }
+  let_it_be_with_reload(:group) { create(:group, path: 'foo', owners: [user]) }
 
   before do
-    group.add_owner(user)
     sign_in(user)
   end
 
@@ -91,7 +91,7 @@ RSpec.describe 'Edit group settings', feature_category: :groups_and_projects do
     it 'shows the selection menu' do
       visit edit_group_path(group)
 
-      expect(page).to have_content('Roles allowed to create projects')
+      expect(page).to have_content('Minimum role required to create projects')
     end
   end
 
@@ -128,15 +128,35 @@ RSpec.describe 'Edit group settings', feature_category: :groups_and_projects do
     it 'has a root URL label for top-level group' do
       visit edit_group_path(group)
 
-      expect(find(:css, '.group-root-path').text).to eq(root_url)
+      expect(find(:css, '.group-root-path').text).to eq(unscoped_root_url)
     end
 
-    it 'has a parent group URL label for a subgroup group' do
-      subgroup = create(:group, parent: group)
+    context 'with scoped paths' do
+      before do
+        allow(current_organization).to receive(:scoped_paths?).and_return(true)
+      end
 
-      visit edit_group_path(subgroup)
+      it 'has a parent group URL label for a subgroup group' do
+        subgroup = create(:group, parent: group)
 
-      expect(find(:css, '.group-root-path').text).to eq(group_url(subgroup.parent) + '/')
+        visit edit_group_path(subgroup)
+
+        expect(find(:css, '.group-root-path').text).to eq(group_url(subgroup.parent) + '/')
+      end
+    end
+
+    context 'without scoped paths' do
+      before do
+        allow(current_organization).to receive(:scoped_paths?).and_return(false)
+      end
+
+      it 'has a parent group URL label for a subgroup group' do
+        subgroup = create(:group, parent: group)
+
+        visit edit_group_path(subgroup)
+
+        expect(find(:css, '.group-root-path').text).to eq(group_url(subgroup.parent) + '/')
+      end
     end
   end
 
@@ -164,7 +184,7 @@ RSpec.describe 'Edit group settings', feature_category: :groups_and_projects do
         click_button s_('GroupSettings|Transfer group')
 
         page.within(confirm_modal) do
-          expect(page).to have_text "You are about to transfer #{selected_group.full_path} to another namespace. This action changes the project's path and can lead to data loss."
+          expect(page).to have_text "You are about to transfer #{selected_group.full_path} to another namespace. This action changes the group's path and can lead to data loss."
 
           fill_in 'confirm_name_input', with: selected_group.full_path
           click_button 'Transfer group'
@@ -247,8 +267,6 @@ RSpec.describe 'Edit group settings', feature_category: :groups_and_projects do
   end
 
   describe 'group README', :js do
-    let_it_be(:group) { create(:group) }
-
     context 'with gitlab-profile project and README.md' do
       let_it_be(:project) { create(:project, :readme, namespace: group) }
 
@@ -280,7 +298,7 @@ RSpec.describe 'Edit group settings', feature_category: :groups_and_projects do
 
         expect(page).to have_current_path("/-/ide/project/#{group.readme_project.present.path_with_namespace}/edit/main/-/README.md/")
 
-        page.within('.ide') do
+        within_web_ide do
           expect(page).to have_text('README.md')
         end
       end
@@ -300,100 +318,145 @@ RSpec.describe 'Edit group settings', feature_category: :groups_and_projects do
 
         expect(page).to have_current_path("/-/ide/project/#{group.full_path}/gitlab-profile/edit/main/-/README.md/")
 
-        page.within('.ide') do
+        within_web_ide do
           expect(page).to have_text('README.md')
         end
       end
     end
   end
 
-  context 'Dormant members', :saas, :aggregate_failures, feature_category: :user_management do
-    before do
-      visit edit_group_path(group)
+  describe 'archive', :js do
+    let_it_be_with_reload(:ancestor) { group }
+    let_it_be_with_reload(:subgroup) { create(:group, parent: ancestor) }
+
+    shared_examples 'does not render archive settings when `archive_group` flag is disabled' do
+      before do
+        stub_feature_flags(archive_group: false)
+
+        visit edit_group_path(subgroup)
+      end
+
+      specify { expect(page).not_to have_button(s_('GroupProjectArchiveSettings|Archive')) }
+      specify { expect(page).not_to have_button(s_('GroupProjectUnarchiveSettings|Unarchive')) }
     end
 
-    context "when feature flag is disabled" do
+    context 'when group is archived' do
       before do
-        stub_feature_flags(group_remove_dormant_members: false)
+        subgroup.archive
+
+        visit edit_group_path(subgroup)
+      end
+
+      it 'can unarchive group', :aggregate_failures do
+        click_button s_('GroupProjectUnarchiveSettings|Unarchive')
+
+        expect(page).to have_current_path(group_path(subgroup))
+        expect(subgroup.reload.archived).to be(false)
+      end
+
+      it_behaves_like 'does not render archive settings when `archive_group` flag is disabled'
+    end
+
+    context 'when ancestor is archived' do
+      before do
+        ancestor.archive
+
+        visit edit_group_path(subgroup)
+      end
+
+      it 'cannot archive or unarchive group', :aggregate_failures do
+        expect(page).not_to have_button(s_('GroupProjectArchiveSettings|Archive'))
+        expect(page).not_to have_button(s_('GroupProjectUnarchiveSettings|Unarchive'))
+      end
+    end
+
+    context 'when group and parent is not archived' do
+      before do
+        visit edit_group_path(subgroup)
+      end
+
+      it 'can archive group', :aggregate_failures do
+        click_button s_('GroupProjectArchiveSettings|Archive')
+
+        expect(page).to have_current_path(group_path(subgroup))
+        expect(subgroup.reload.archived).to be(true)
+      end
+
+      it_behaves_like 'does not render archive settings when `archive_group` flag is disabled'
+    end
+  end
+
+  describe 'delayed project deletion' do
+    let(:form_group_selector) { '[data-testid="delayed-project-removal-form-group"]' }
+
+    def remove_with_confirm(button_text, confirm_with, confirm_button_text = 'Confirm')
+      click_button button_text
+      fill_in 'confirm_name_input', with: confirm_with
+      click_button confirm_button_text
+    end
+
+    context 'when immediately deleting a project marked for deletion', :js do
+      before do
+        create(:group_deletion_schedule, group: group, marked_for_deletion_on: 2.days.from_now)
+
         visit edit_group_path(group)
       end
 
-      it 'does not expose the setting section' do
-        expect(page).not_to have_content('Dormant members')
-        expect(page).not_to have_field('Remove dormant members after a period of inactivity')
-        expect(page).not_to have_field('Days of inactivity before removal', disabled: true)
+      it 'deletes the project immediately', :sidekiq_inline do
+        expect { remove_with_confirm('Delete group', group.path) }.to change { Group.count }.by(-1)
+
+        expect(page).to have_content "is being deleted"
       end
     end
 
-    it 'exposes the setting section' do
-      expect(page).to have_content('Dormant members')
-      expect(page).to have_field('Remove dormant members after a period of inactivity')
-      expect(page).to have_field('Days of inactivity before removal', disabled: true)
+    it 'does not display delayed project removal field at group level', :js do
+      visit edit_group_path(group)
+
+      expect(page).not_to have_css(form_group_selector)
+    end
+  end
+
+  describe 'update pages access control' do
+    let_it_be(:group) { create(:group, owners: [user]) }
+    let_it_be(:project) { create(:project, :pages_published, namespace: group, pages_access_level: ProjectFeature::PUBLIC) }
+
+    before do
+      stub_pages_setting(access_control: true, enabled: true)
+      allow(::Gitlab::Pages).to receive(:access_control_is_forced?).and_return(false)
     end
 
-    it 'changes dormant members', :js do
-      expect(page).to have_unchecked_field(_('Remove dormant members after a period of inactivity'))
-      expect(group.namespace_settings.remove_dormant_members).to be_falsey
+    context 'when group owner changes forced access control settings' do
+      context 'when group access control is being enabled' do
+        it 'project access control should be enforced' do
+          visit edit_group_path(group)
 
-      within_testid('permissions-settings') do
-        check _('Remove dormant members after a period of inactivity')
-        fill_in _('Days of inactivity before removal'), with: '90'
-        click_button _('Save changes')
+          check 'group_force_pages_access_control'
+
+          expect { save_permissions_group }.to change {
+            project.private_pages?
+          }.from(false).to(true)
+        end
       end
-
-      expect(page).to have_content(
-        format(
-          _("Group '%{group_name}' was successfully updated."),
-          group_name: group.name
-        )
-      )
-
-      page.refresh
-
-      expect(page).to have_checked_field(_('Remove dormant members after a period of inactivity'))
-      expect(page).to have_field(_('Days of inactivity before removal'), disabled: false, with: '90')
-    end
-
-    it 'displays dormant members period field validation error', :js do
-      selector = '#group_remove_dormant_members_period_error'
-      expect(page).not_to have_selector(selector, visible: :visible)
-
-      within_testid('permissions-settings') do
-        check _('Remove dormant members after a period of inactivity')
-        fill_in _('Days of inactivity before removal'), with: '30'
-        click_button 'Save changes'
-      end
-
-      expect(page).to have_selector(selector, visible: :visible)
-      expect(page).to have_content _('Please enter a value of 90 days or more')
-    end
-
-    it 'auto disables dormant members period field depending on parent checkbox', :js do
-      uncheck _('Remove dormant members after a period of inactivity')
-      expect(page).to have_field(_('Days of inactivity before removal'), disabled: true)
-
-      check _('Remove dormant members after a period of inactivity')
-      expect(page).to have_field(_('Days of inactivity before removal'), disabled: false)
     end
   end
 
   def update_path(new_group_path)
     visit edit_group_path(group)
 
-    page.within('.gs-advanced') do
+    within_testid('advanced-settings-content') do
       fill_in 'group_path', with: new_group_path
       click_button 'Change group URL'
     end
   end
 
   def save_general_group
-    page.within('.gs-general') do
+    within_testid('general-settings') do
       click_button 'Save changes'
     end
   end
 
   def save_permissions_group
-    page.within('.gs-permissions') do
+    within_testid('permissions-settings') do
       click_button 'Save changes'
     end
   end

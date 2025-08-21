@@ -24,7 +24,7 @@ RSpec.describe Projects::OpenIssuesCountService, :use_clean_rails_memory_store_c
 
       context 'when user can read confidential issues' do
         before do
-          project.add_reporter(user)
+          project.add_planner(user)
         end
 
         it 'returns the right count with confidential issues' do
@@ -53,6 +53,17 @@ RSpec.describe Projects::OpenIssuesCountService, :use_clean_rails_memory_store_c
 
         it 'uses public_open_issues_count cache key' do
           expect(described_class.new(project, user).cache_key_name).to eq('public_open_issues_count')
+        end
+      end
+
+      context 'when there are hidden issues' do
+        let(:banned_user) { create(:user, :banned) }
+
+        it 'does not include hidden issues in the count' do
+          create(:issue, :opened, project: project)
+          create(:issue, :opened, project: project, author: banned_user)
+
+          expect(described_class.new(project, user).count).to eq(1)
         end
       end
     end
@@ -87,6 +98,21 @@ RSpec.describe Projects::OpenIssuesCountService, :use_clean_rails_memory_store_c
           expect(Rails.cache.read(subject.cache_key(described_class::PUBLIC_COUNT_KEY))).to eq(3)
           expect(Rails.cache.read(subject.cache_key(described_class::TOTAL_COUNT_KEY))).to eq(5)
         end
+      end
+    end
+
+    describe "#delete_cache" do
+      before do
+        create(:issue, :opened, project: project)
+        create(:issue, :opened, project: project)
+        create(:issue, :opened, confidential: true, project: project)
+        subject.refresh_cache # we use this method to add the counts in the cache
+      end
+
+      it "clears the cache" do
+        expect { subject.delete_cache }
+        .to change { Rails.cache.read(subject.public_count_cache_key) }.from(2).to(nil)
+        .and change { Rails.cache.read(subject.total_count_cache_key) }.from(3).to(nil)
       end
     end
   end

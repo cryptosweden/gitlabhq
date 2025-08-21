@@ -4,19 +4,19 @@ import {
   GlButton,
   GlDisclosureDropdown,
   GlDisclosureDropdownItem,
+  GlDisclosureDropdownGroup,
 } from '@gitlab/ui';
-// eslint-disable-next-line no-restricted-imports
-import { mapActions, mapGetters, mapState } from 'vuex';
+import { mapActions, mapState } from 'pinia';
 import Api from '~/api';
 import resolvedStatusMixin from '~/batch_comments/mixins/resolved_status';
 import { createAlert } from '~/alert';
 import { TYPE_ISSUE } from '~/issues/constants';
-import { __, sprintf } from '~/locale';
-import eventHub from '~/sidebar/event_hub';
+import { __, sprintf, s__ } from '~/locale';
 import UserAccessRoleBadge from '~/vue_shared/components/user_access_role_badge.vue';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { splitCamelCase } from '~/lib/utils/text_utility';
 import AbuseCategorySelector from '~/abuse_reports/components/abuse_category_selector.vue';
+import { useNotes } from '~/notes/store/legacy_notes';
+import Tracking from '~/tracking';
 import ReplyButton from './note_actions/reply_button.vue';
 import TimelineEventButton from './note_actions/timeline_event_button.vue';
 
@@ -26,6 +26,7 @@ export default {
     deleteCommentLabel: __('Delete comment'),
     moreActionsLabel: __('More actions'),
     reportAbuse: __('Report abuse'),
+    GENIE_CHAT_FEEDBACK_THANKS: s__('AI|Thanks for your feedback!'),
   },
   name: 'NoteActions',
   components: {
@@ -34,6 +35,7 @@ export default {
     GlButton,
     GlDisclosureDropdown,
     GlDisclosureDropdownItem,
+    GlDisclosureDropdownGroup,
     ReplyButton,
     TimelineEventButton,
     UserAccessRoleBadge,
@@ -41,7 +43,7 @@ export default {
   directives: {
     GlTooltip: GlTooltipDirective,
   },
-  mixins: [resolvedStatusMixin, glFeatureFlagsMixin()],
+  mixins: [resolvedStatusMixin, Tracking.mixin()],
   props: {
     author: {
       type: Object,
@@ -64,6 +66,11 @@ export default {
       type: String,
       required: false,
       default: '',
+    },
+    isAmazonQCodeReview: {
+      type: Boolean,
+      required: false,
+      default: false,
     },
     isAuthor: {
       type: Boolean,
@@ -91,21 +98,25 @@ export default {
     },
     canEdit: {
       type: Boolean,
-      required: true,
+      required: false,
+      default: false,
     },
     canAwardEmoji: {
       type: Boolean,
-      required: true,
+      required: false,
+      default: false,
     },
     canDelete: {
       type: Boolean,
-      required: true,
+      required: false,
+      default: false,
     },
     canResolve: {
       type: Boolean,
       required: false,
       default: false,
     },
+    // eslint-disable-next-line vue/no-unused-properties -- resolvable is part of the component's public API.
     resolvable: {
       type: Boolean,
       required: false,
@@ -121,6 +132,7 @@ export default {
       required: false,
       default: false,
     },
+    // eslint-disable-next-line vue/no-unused-properties -- resolvedBy is part of the component's public API.
     resolvedBy: {
       type: Object,
       required: false,
@@ -140,19 +152,21 @@ export default {
   data() {
     return {
       isReportAbuseDrawerOpen: false,
+      feedbackReceived: false,
     };
   },
   computed: {
-    ...mapState(['isPromoteCommentToTimelineEventInProgress']),
-    ...mapGetters(['getUserDataByProp', 'getNoteableData', 'canUserAddIncidentTimelineEvents']),
+    ...mapState(useNotes, [
+      'isPromoteCommentToTimelineEventInProgress',
+      'getUserDataByProp',
+      'getNoteableData',
+      'canUserAddIncidentTimelineEvents',
+    ]),
     shouldShowActionsDropdown() {
       return this.currentUserId;
     },
     showDeleteAction() {
       return this.canDelete && !this.canReportAsAbuse && !this.noteUrl;
-    },
-    isAuthoredByCurrentUser() {
-      return this.authorId === this.currentUserId;
     },
     currentUserId() {
       return this.getUserDataByProp('id');
@@ -161,12 +175,7 @@ export default {
       return this.assignees && this.assignees.some(({ id }) => id === this.author.id);
     },
     displayAssignUserText() {
-      return this.isUserAssigned
-        ? __('Unassign from commenting user')
-        : __('Assign to commenting user');
-    },
-    sidebarAction() {
-      return this.isUserAssigned ? 'sidebar.addAssignee' : 'sidebar.removeAssignee';
+      return this.isUserAssigned ? __('Unassign comment author') : __('Assign to comment author');
     },
     targetType() {
       return this.getNoteableData.targetType;
@@ -205,12 +214,16 @@ export default {
       }
       return null;
     },
-    resolveVariant() {
-      return this.isResolved ? 'success' : 'default';
+    feedbackModalComponent() {
+      // Only load the EE component if this is an Amazon Q code review
+      if (this.isAmazonQCodeReview) {
+        return () => import('ee_component/ai/components/duo_chat_feedback_modal.vue');
+      }
+      return null;
     },
   },
   methods: {
-    ...mapActions(['toggleAwardRequest', 'promoteCommentToTimelineEvent']),
+    ...mapActions(useNotes, ['toggleAwardRequest', 'promoteCommentToTimelineEvent']),
     onEdit() {
       this.$emit('handleEdit');
     },
@@ -223,13 +236,33 @@ export default {
     onAbuse() {
       this.toggleReportAbuseDrawer(true);
     },
+    showFeedbackModal() {
+      this.$refs.feedbackModal.show();
+    },
+    /**
+     * Tracks feedback submitted for Amazon Q code reviews
+     * @param {Object} options - The feedback options
+     * @param {Array<string>} [options.feedbackOptions] - Array of selected feedback options (e.g. ['helpful', 'incorrect'])
+     * @param {string} [options.extendedFeedback] - Additional text feedback provided by the user
+     */
+    trackFeedback({ feedbackOptions, extendedFeedback } = {}) {
+      this.track('amazon_q_code_review_feedback', {
+        action: 'amazon_q',
+        label: 'code_review_feedback',
+        property: feedbackOptions,
+        extra: {
+          extendedFeedback,
+          note_id: this.noteId,
+        },
+      });
+
+      this.feedbackReceived = true;
+    },
     onCopyUrl() {
       this.$toast.show(__('Link copied to clipboard.'));
     },
     handleAssigneeUpdate(assignees) {
       this.$emit('updateAssignees', assignees);
-      eventHub.$emit(this.sidebarAction, this.author);
-      eventHub.$emit('sidebar.saveAssignees');
     },
     assignUser() {
       let { assignees } = this;
@@ -298,14 +331,14 @@ export default {
       v-if="canResolve"
       ref="resolveButton"
       v-gl-tooltip
+      data-testid="resolve-line-button"
       category="tertiary"
-      :variant="resolveVariant"
-      :class="{ 'is-disabled': !resolvable, 'is-active': isResolved }"
+      class="note-action-button"
+      :class="{ '!gl-text-success': isResolved }"
       :title="resolveButtonTitle"
       :aria-label="resolveButtonTitle"
       :icon="resolveIcon"
       :loading="isResolving"
-      class="line-resolve-btn note-action-button"
       @click="onResolve"
     />
     <timeline-event-button
@@ -360,42 +393,54 @@ export default {
         no-caret
       >
         <gl-disclosure-dropdown-item
-          v-if="canReportAsAbuse"
-          data-testid="report-abuse-button"
-          @action="onAbuse"
-        >
-          <template #list-item>
-            {{ $options.i18n.reportAbuse }}
-          </template>
-        </gl-disclosure-dropdown-item>
-        <gl-disclosure-dropdown-item
           v-if="noteUrl"
           class="js-btn-copy-note-link"
           :data-clipboard-text="noteUrl"
           @action="onCopyUrl"
         >
-          <template #list-item>
-            {{ __('Copy link') }}
-          </template>
+          <template #list-item> {{ __('Copy link') }} </template>
         </gl-disclosure-dropdown-item>
         <gl-disclosure-dropdown-item
           v-if="canAssign"
           data-testid="assign-user"
           @action="assignUser"
         >
-          <template #list-item>
-            {{ displayAssignUserText }}
-          </template>
+          <template #list-item> {{ displayAssignUserText }} </template>
         </gl-disclosure-dropdown-item>
-        <gl-disclosure-dropdown-item v-if="canEdit" class="js-note-delete" @action="onDelete">
-          <template #list-item>
-            <span class="text-danger">{{ __('Delete comment') }}</span>
-          </template>
-        </gl-disclosure-dropdown-item>
+        <gl-disclosure-dropdown-group v-if="canReportAsAbuse || canEdit" bordered>
+          <gl-disclosure-dropdown-item
+            v-if="canReportAsAbuse"
+            data-testid="report-abuse-button"
+            @action="onAbuse"
+          >
+            <template #list-item> {{ $options.i18n.reportAbuse }} </template>
+          </gl-disclosure-dropdown-item>
+          <gl-disclosure-dropdown-item
+            v-if="isAmazonQCodeReview && !feedbackReceived"
+            data-testid="amazon-q-feedback-button"
+            @action="showFeedbackModal"
+          >
+            <template #list-item> {{ s__('AmazonQ|Provide feedback on code review') }} </template>
+          </gl-disclosure-dropdown-item>
+          <gl-disclosure-dropdown-item
+            v-if="canEdit"
+            class="js-note-delete"
+            variant="danger"
+            @action="onDelete"
+          >
+            <template #list-item> {{ __('Delete comment') }} </template>
+          </gl-disclosure-dropdown-item>
+        </gl-disclosure-dropdown-group>
       </gl-disclosure-dropdown>
     </div>
     <!-- IMPORTANT: show this component lazily because it causes layout thrashing -->
     <!-- https://gitlab.com/gitlab-org/gitlab/-/issues/331172#note_1269378396 -->
+    <component
+      :is="feedbackModalComponent"
+      v-if="feedbackModalComponent && !feedbackReceived"
+      ref="feedbackModal"
+      @feedback-submitted="trackFeedback"
+    />
     <abuse-category-selector
       v-if="canReportAsAbuse && isReportAbuseDrawerOpen"
       :reported-user-id="authorId"

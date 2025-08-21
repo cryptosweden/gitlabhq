@@ -1,18 +1,27 @@
 ---
-stage: Data Stores
-group: Tenant Scale
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
+stage: Tenant Scale
+group: Organizations
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Use a project as a Go package
+description: Go modules and import calls.
 ---
 
-# Use a project as a Go package
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+{{< history >}}
+
+- Changed in [GitLab 17.3](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/161162) to return 404 errors for unauthorized `go get` requests.
+
+{{< /history >}}
 
 Prerequisites:
 
-- Contact your administrator to enable the [GitLab Go Proxy](../packages/go_proxy/index.md).
+- Contact your administrator to enable the [GitLab Go Proxy](../packages/go_proxy/_index.md).
 - To use a private project in a subgroup as a Go package, you must [authenticate Go requests](#authenticate-go-requests-to-private-projects). Go requests that are not authenticated cause
   `go get` to fail. You don't need to authenticate Go requests for projects that are not in subgroups.
 
@@ -20,6 +29,13 @@ To use a project as a Go package, use the `go get` and `godoc.org` discovery req
 
 - [`go-import`](https://pkg.go.dev/cmd/go#hdr-Remote_import_paths)
 - [`go-source`](https://github.com/golang/gddo/wiki/Source-Code-Links)
+
+{{< alert type="note" >}}
+
+If you make a `go get` request with invalid HTTP credentials, you receive a 404 error.
+You can find the HTTP credentials in `~/.netrc` (MacOS and Linux) or `~/_netrc` (Windows).
+
+{{< /alert >}}
 
 ## Authenticate Go requests to private projects
 
@@ -63,8 +79,8 @@ Configure Git to either:
 
 ## Disable Go module fetching for private projects
 
-To [fetch modules or packages](../../development/go_guide/dependencies.md#fetching), Go uses
-the [environment variables](../../development/go_guide/dependencies.md#proxies):
+To fetch modules or packages, Go uses
+the environment variables:
 
 - `GOPRIVATE`
 - `GONOPROXY`
@@ -80,7 +96,7 @@ To disable fetching:
 
 - If the module name or its prefix is in `GOPRIVATE` or `GONOPROXY`, Go does not query module
   proxies.
-- If the module name or its prefix is in `GONOPRIVATE` or `GONOSUMDB`, Go does not query
+- If the module name or its prefix is in `GOPRIVATE` or `GONOSUMDB`, Go does not query
   Checksum databases.
 
 ## Authenticate Git requests to private subgroups
@@ -89,7 +105,7 @@ If the Go module is located under a private subgroup like
 `gitlab.com/namespace/subgroup/go-module`, then the Git authentication doesn't work.
 It happens, because `go get` makes an unauthenticated request to discover
 the repository path.
-Without an HTTP authentication via `.netrc` file, GitLab responds with
+Without an HTTP authentication by using a `.netrc` file, GitLab responds with
 `gitlab.com/namespace/subgroup.git` to prevent a security risk of exposing
 the project's existence for unauthenticated users.
 As a result, the Go module cannot be downloaded.
@@ -102,20 +118,14 @@ Follow [`golang/go#26232`](https://github.com/golang/go/issues/26232) for detail
 ### Workaround: use `.git` in the module name
 
 There is a way to skip `go get` request and force Go to use a Git authentication
-directly, but it requires a modification of the module name.
+directly, but it requires a modification of the module name. [From Go documentation](https://go.dev/ref/mod#vcs-find):
 
-<!-- markdownlint-disable proper-names -->
-
-> If the module path has a VCS qualifier (one of .bzr, .fossil, .git, .hg, .svn)
+> If the module path has a VCS qualifier (one of `.bzr`, `.fossil`, `.git`, `.hg`, `.svn`)
 > at the end of a path component, the go command will use everything up to that
 > path qualifier as the repository URL. For example, for the module
-> example.com/foo.git/bar, the go command downloads the repository
-> at example.com/foo.git using git, expecting to find the module
+> `example.com/foo.git/bar`, the go command downloads the repository
+> at `example.com/foo.git` using Git, expecting to find the module
 > in the bar subdirectory.
-
-<!-- markdownlint-enable proper-names -->
-
-[From Go documentation](https://go.dev/ref/mod#vcs-find)
 
 1. Go to `go.mod` of the Go module in a private subgroup.
 1. Add `.git` to the module name.
@@ -129,7 +139,7 @@ For example, `GOPRIVATE=gitlab.com/namespace/* go mod tidy`.
 
 ## Fetch Go modules from Geo secondary sites
 
-Use [Geo](../../administration/geo/index.md) to access Git repositories that contain Go modules
+Use [Geo](../../administration/geo/_index.md) to access Git repositories that contain Go modules
 on secondary Geo servers.
 
 You can use SSH or HTTP to access the Geo secondary server.

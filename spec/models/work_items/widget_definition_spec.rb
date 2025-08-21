@@ -16,23 +16,29 @@ RSpec.describe WorkItems::WidgetDefinition, feature_category: :team_planning do
       ::WorkItems::Widgets::CurrentUserTodos,
       ::WorkItems::Widgets::AwardEmoji,
       ::WorkItems::Widgets::LinkedItems,
+      ::WorkItems::Widgets::LinkedResources,
       ::WorkItems::Widgets::Participants,
       ::WorkItems::Widgets::TimeTracking,
       ::WorkItems::Widgets::Designs,
-      ::WorkItems::Widgets::Development
+      ::WorkItems::Widgets::Development,
+      ::WorkItems::Widgets::CrmContacts,
+      ::WorkItems::Widgets::EmailParticipants,
+      ::WorkItems::Widgets::ErrorTracking
     ]
 
     if Gitlab.ee?
       list += [
         ::WorkItems::Widgets::Iteration,
         ::WorkItems::Widgets::Weight,
-        ::WorkItems::Widgets::Status,
+        ::WorkItems::Widgets::VerificationStatus,
         ::WorkItems::Widgets::HealthStatus,
         ::WorkItems::Widgets::Progress,
         ::WorkItems::Widgets::RequirementLegacy,
         ::WorkItems::Widgets::TestReports,
         ::WorkItems::Widgets::Color,
-        ::WorkItems::Widgets::RolledupDates
+        ::WorkItems::Widgets::CustomFields,
+        ::WorkItems::Widgets::Vulnerabilities,
+        ::WorkItems::Widgets::Status
       ]
     end
 
@@ -40,36 +46,84 @@ RSpec.describe WorkItems::WidgetDefinition, feature_category: :team_planning do
   end
 
   describe 'associations' do
-    it { is_expected.to belong_to(:namespace) }
     it { is_expected.to belong_to(:work_item_type) }
   end
 
   describe 'validations' do
     it { is_expected.to validate_presence_of(:name) }
-    it { is_expected.to validate_uniqueness_of(:name).case_insensitive.scoped_to([:namespace_id, :work_item_type_id]) }
+
     it { is_expected.to validate_length_of(:name).is_at_most(255) }
+
+    describe 'name uniqueness' do
+      let_it_be(:test_type) { create(:work_item_type, :non_default, name: 'Test Type') }
+      let_it_be(:existing_widget) { create(:widget_definition, name: 'TesT Widget', work_item_type: test_type) }
+
+      it 'validates uniqueness with a custom validator' do
+        new_widget = build(:widget_definition, name: ' TesT WIDGET ', work_item_type: test_type)
+        expect(new_widget).to be_invalid
+        expect(new_widget.errors.full_messages).to include('Name has already been taken')
+      end
+    end
+
+    describe 'widget_options' do
+      subject(:widget_definition) do
+        build(:widget_definition, widget_type: widget_type, widget_options: widget_options)
+      end
+
+      context 'when widget type is weight' do
+        let(:widget_type) { 'weight' }
+
+        context 'when widget_options has valid attributes' do
+          let(:widget_options) { { editable: true, rollup: false } }
+
+          it { is_expected.to be_valid }
+        end
+
+        context 'when widget_options is nil' do
+          let(:widget_options) { nil }
+
+          it { is_expected.to be_invalid }
+        end
+
+        context 'when widget_options has invalid attributes' do
+          let(:widget_options) { { other_key: :other_value } }
+
+          it { is_expected.to be_invalid }
+        end
+      end
+
+      context 'when widget type is something else' do
+        let(:widget_type) { 'labels' }
+
+        context 'when widget_options is nil' do
+          let(:widget_options) { nil }
+
+          it { is_expected.to be_valid }
+        end
+
+        context 'when widget_options is not empty' do
+          let(:widget_options) { { editable: true, rollup: false } }
+
+          it { is_expected.to be_invalid }
+        end
+      end
+    end
   end
 
   context 'with some widgets disabled' do
     before do
-      described_class.global.where(widget_type: :notes).update_all(disabled: true)
+      described_class.where(widget_type: :notes).update_all(disabled: true)
     end
 
     describe '.available_widgets' do
       subject { described_class.available_widgets }
 
-      it 'returns all global widgets excluding the disabled ones' do
-        # WorkItems::Widgets::Notes is excluded from widget class because:
-        # * although widget_definition below is enabled and uses notes widget, it's namespaced (has namespace != nil)
-        # * available_widgets takes into account only global definitions (which have namespace=nil)
-        namespace = create(:namespace)
-        create(:widget_definition, namespace: namespace, widget_type: :notes)
-
+      it 'returns all widgets excluding the disabled ones' do
         is_expected.to match_array(all_widget_classes - [::WorkItems::Widgets::Notes])
       end
 
-      it 'returns all global widgets if there is at least one global widget definition which is enabled' do
-        create(:widget_definition, namespace: nil, widget_type: :notes)
+      it 'returns all widgets if there is at least one widget definition which is enabled' do
+        create(:widget_definition, widget_type: :notes)
 
         is_expected.to match_array(all_widget_classes)
       end

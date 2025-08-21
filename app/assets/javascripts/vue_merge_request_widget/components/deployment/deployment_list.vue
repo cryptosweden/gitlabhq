@@ -19,10 +19,6 @@ export default {
       type: String,
       required: true,
     },
-    hasDeploymentMetrics: {
-      type: Boolean,
-      required: true,
-    },
   },
   computed: {
     showCollapsedDeployments() {
@@ -44,7 +40,7 @@ export default {
       <div class="gl-mr-3 gl-leading-normal">
         <gl-sprintf :message="multipleDeploymentsTitle">
           <template #deployments>
-            <span class="gl-font-bold gl-mr-2">{{ deployments.length }}</span>
+            <span class="gl-mr-2 gl-font-bold">{{ deployments.length }}</span>
           </template>
         </gl-sprintf>
       </div>
@@ -54,7 +50,6 @@ export default {
       :key="deployment.id"
       :class="deploymentClass"
       :deployment="deployment"
-      :show-metrics="hasDeploymentMetrics"
     />
   </mr-collapsible-extension>
   <div v-else class="mr-widget-extension">
@@ -63,7 +58,6 @@ export default {
       :key="deployment.id"
       :class="deploymentClass"
       :deployment="deployment"
-      :show-metrics="hasDeploymentMetrics"
     />
   </div>
 </template>

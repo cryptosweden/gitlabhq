@@ -1,25 +1,23 @@
 # frozen_string_literal: true
 
 class ResourceLabelEvent < ResourceEvent
-  include CacheMarkdownField
   include MergeRequestResourceEvent
   include Import::HasImportSource
-  include IgnorableColumns
-
-  ignore_column :imported, remove_with: '17.2', remove_after: '2024-07-22'
-
-  cache_markdown_field :reference
+  include FromUnion
 
   belongs_to :label
+  belongs_to :namespace
 
   scope :inc_relations, -> { includes(:label, :user) }
 
   validates :label, presence: { unless: :importing? }, on: :create
   validate :exactly_one_issuable, unless: :importing?
+  validates :namespace, presence: true
 
+  before_validation :ensure_namespace_id
   after_commit :broadcast_notes_changed, unless: :importing?
 
-  enum action: {
+  enum :action, {
     add: 1,
     remove: 2
   }
@@ -44,22 +42,8 @@ class ResourceLabelEvent < ResourceEvent
     LabelNote
   end
 
-  def project
-    issuable.project
-  end
-
-  def group
-    issuable.resource_parent if issuable.resource_parent.is_a?(Group)
-  end
-
-  def outdated_markdown?
-    return true if label_id.nil? && reference.present?
-
-    reference.nil? || latest_cached_markdown_version != cached_markdown_version
-  end
-
-  def banzai_render_context(field)
-    super.merge(pipeline: :label, only_path: true, label_url_method: label_url_method)
+  def outdated_reference?
+    (label_id.nil? && reference.present?) || reference.nil?
   end
 
   def refresh_invalid_reference
@@ -69,11 +53,7 @@ class ResourceLabelEvent < ResourceEvent
     # reference is not set for events which were not rendered yet
     self.reference ||= label_reference
 
-    if changed?
-      save
-    elsif invalidated_markdown_cache?
-      refresh_markdown_cache!
-    end
+    save if changed?
   end
 
   def self.visible_to_user?(user, events)
@@ -86,20 +66,18 @@ class ResourceLabelEvent < ResourceEvent
 
   private
 
+  def ensure_namespace_id
+    self.namespace_id = Gitlab::Issuable::NamespaceGetter.new(issuable, allow_nil: true).namespace_id
+  end
+
   def label_reference
     if local_label?
       label.to_reference(format: :id)
     elsif label.is_a?(GroupLabel)
-      label.to_reference(label.group, target_project: resource_parent, format: :id)
+      label.to_reference(label.group, target_container: resource_parent, format: :id)
     else
       label.to_reference(resource_parent, format: :id)
     end
-  end
-
-  def label_url_method
-    return :project_merge_requests_url if issuable.is_a?(MergeRequest)
-
-    issuable.project_id.nil? ? :group_work_items_url : :project_issues_url
   end
 
   def broadcast_notes_changed
@@ -126,4 +104,4 @@ class ResourceLabelEvent < ResourceEvent
   end
 end
 
-ResourceLabelEvent.prepend_mod_with('ResourceLabelEvent')
+ResourceLabelEvent.prepend_mod

@@ -57,7 +57,7 @@ describe('Deploy keys key', () => {
     it('renders the keys title', async () => {
       await createComponent({ deployKey });
 
-      expect(findTextAndTrim('.title')).toContain('My title');
+      expect(findTextAndTrim('.title')).toContain(deployKey.title);
     });
 
     it('renders human friendly formatted created date', async () => {
@@ -142,7 +142,7 @@ describe('Deploy keys key', () => {
       await createComponent({ deployKey });
       const labels = wrapper.findAll('.deploy-project-label');
 
-      expect(labels.length).toBe(2);
+      expect(labels).toHaveLength(2);
       expect(labels.at(1).text()).toContain('others');
       expect(labels.at(1).attributes('title')).toContain('Expand');
     });
@@ -167,7 +167,7 @@ describe('Deploy keys key', () => {
 
       const labels = wrapper.findAll('.deploy-project-label');
 
-      expect(labels.length).toBe(2);
+      expect(labels).toHaveLength(2);
       expect(labels.at(1).text()).toContain(deployKey.deployKeysProjects[1].project.fullName);
     });
   });

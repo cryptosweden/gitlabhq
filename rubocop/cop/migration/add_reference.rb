@@ -41,7 +41,7 @@ module RuboCop
         private
 
         def existing_table?(new_tables, table)
-          !new_tables.include?(table) # rubocop:disable Rails/NegateInclude
+          !new_tables.include?(table)
         end
 
         def create_table?(node)
@@ -59,7 +59,7 @@ module RuboCop
         def index_missing?(node)
           opts = node.children.last
 
-          return true if opts && opts.type == :hash
+          return true if opts && opts.hash_type?
 
           index_present = false
 

@@ -2,20 +2,35 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Database::LooseForeignKeys do
+RSpec.describe Gitlab::Database::LooseForeignKeys, feature_category: :database do
   describe 'verify all definitions' do
     subject(:definitions) { described_class.definitions }
 
     it 'all definitions have assigned a known gitlab_schema and on_delete' do
-      is_expected.to all(have_attributes(
-        options: a_hash_including(
-          column: be_a(String),
-          gitlab_schema: be_in(Gitlab::Database.schemas_to_base_models.symbolize_keys.keys),
-          on_delete: be_in([:async_delete, :async_nullify])
-        ),
-        from_table: be_a(String),
-        to_table: be_a(String)
-      ))
+      is_expected.to all(
+        have_attributes(
+          options: a_hash_including(
+            column: be_a(String),
+            gitlab_schema: be_in(Gitlab::Database.schemas_to_base_models.symbolize_keys.keys),
+            on_delete: be_in([:async_delete, :async_nullify, :update_column_to]),
+            target_column: be_a(String).or(be_a(NilClass)),
+            target_value: be_a(String).or(be_a(Integer)).or(be_a(NilClass)),
+            delete_limit: be_a(Integer).or(be_a(NilClass)),
+            conditions: be_nil.or(
+              be_an(Array).and(
+                all(
+                  a_hash_including(
+                    column: be_a(String),
+                    value: be_a(String).or(be_a(Integer))
+                  )
+                )
+              )
+            )
+          ),
+          from_table: be_a(String),
+          to_table: be_a(String)
+        )
+      )
     end
 
     context 'ensure keys are sorted' do
@@ -23,7 +38,64 @@ RSpec.describe Gitlab::Database::LooseForeignKeys do
         parsed = YAML.parse_file(described_class.loose_foreign_keys_yaml_path)
         mapping = parsed.children.first
         table_names = mapping.children.select(&:scalar?).map(&:value)
-        expect(table_names).to eq(table_names.sort), "expected sorted table names in the YAML file"
+        expect(table_names).to eq(table_names.sort),
+          "expected sorted table names in the YAML file #{described_class.loose_foreign_keys_yaml_path}"
+      end
+    end
+
+    context 'ensure no partitions are included' do
+      let(:all_source_tables) do
+        YAML
+        .load_file(described_class.loose_foreign_keys_yaml_path)
+        .values.flat_map { |sources| sources.pluck(:table) }
+        .uniq
+      end
+
+      let(:included_partitioned_tables) do
+        Gitlab::Database::PostgresPartition.where(name: all_source_tables)
+      end
+
+      it 'does not include partitions as source tables' do
+        expect(included_partitioned_tables).to be_blank, <<~END
+          Please remove these partitions #{included_partitioned_tables.map(&:name).join(', ')}.
+          And include their partitioned tables #{included_partitioned_tables.map(&:parent_identifier)} instead
+          if you haven't done so.
+        END
+      end
+    end
+
+    context 'for all partitioned tables' do
+      let(:tables_with_trigger) do
+        Gitlab::Database::PostgresPartitionedTable
+          .connection.select_values(<<~SQL)
+            SELECT event_object_table
+            FROM information_schema.triggers
+            WHERE action_statement LIKE '%insert_into_loose_foreign_keys_deleted_records_override_table%'
+          SQL
+      end
+
+      let(:partitioned_tables_without_trigger) do
+        partitioned_tables
+        .pluck(:name)
+        .reject { |table| tables_with_trigger.include?(table) }
+      end
+
+      let(:partitioned_tables) do
+        Gitlab::Database::PostgresPartitionedTable.where(name: all_source_tables)
+      end
+
+      let(:all_source_tables) do
+        YAML
+        .load_file(described_class.loose_foreign_keys_yaml_path)
+        .values.flat_map { |sources| sources.pluck(:table) }
+        .uniq
+      end
+
+      it 'has installed trigger for all partitioned tables' do
+        expect(partitioned_tables_without_trigger).to be_blank, <<~END
+          #{partitioned_tables_without_trigger.join(',')} need(s) LFK trigger.
+          Please create migration using `track_record_deletions_override_table_name` to install the trigger.
+        END
       end
     end
 
@@ -49,7 +121,13 @@ RSpec.describe Gitlab::Database::LooseForeignKeys do
       it 'does not have duplicate column definitions' do
         # ignore other modifiers
         all_definitions = definitions.map do |definition|
-          { from_table: definition.from_table, to_table: definition.to_table, column: definition.column }
+          {
+            from_table: definition.from_table,
+            to_table: definition.to_table,
+            column: definition.column,
+            target_column: definition.options[:target_column],
+            target_value: definition.options[:target_value]
+          }
         end
 
         # expect to not have duplicates
@@ -79,8 +157,49 @@ RSpec.describe Gitlab::Database::LooseForeignKeys do
               "Table #{definition.from_table} does not exist"
             expect(model.connection).to be_column_exist(definition.from_table, definition.column),
               "Column #{definition.column} in #{definition.from_table} does not exist"
+
+            if definition.options[:target_column]
+              expect(model.connection).to be_column_exist(definition.from_table, definition.options[:target_column]),
+                "Column #{definition.options[:target_column]} in #{definition.from_table} does not exist"
+            end
           end
         end
+      end
+
+      it 'ensures that async_nullify does not conflict with not-null constraints' do
+        definitions
+          .filter { |definition| definition.on_delete == :async_nullify }
+          .each do |definition|
+            base_models_for(definition.from_table).each do |model|
+              nullable =
+                model.connection
+                  .select_value(<<~SQL, 'NULLABLE', [definition.from_table, definition.column])
+                    SELECT
+                      CASE
+                        WHEN a.attnotnull THEN false -- column is not-null
+                        WHEN c.contype = 'c' AND pg_get_constraintdef(c.oid) LIKE '%IS NOT NULL%' THEN false -- not-null constraint check
+                        WHEN c.contype = 'p' THEN false -- part of primary key constraint
+                        ELSE true
+                      END AS nullable
+                    FROM pg_attribute a
+                    LEFT JOIN pg_constraint c ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+                    JOIN pg_class t ON a.attrelid = t.oid
+                    JOIN pg_namespace s ON t.relnamespace = s.oid
+                    WHERE
+                      s.nspname = current_schema()
+                      AND t.relname = $1
+                      AND a.attname = $2
+                      AND a.attnum > 0 -- non-system column
+                      AND NOT a.attisdropped -- non-dropped column
+                    LIMIT 1;
+                  SQL
+
+              expect(nullable).to be_truthy, <<~ERROR
+                Column `#{definition.from_table}.#{definition.column}` is not-nullable,
+                and this conflicts with `on_delete: async_nullify`.
+              ERROR
+            end
+          end
       end
     end
   end
@@ -149,6 +268,36 @@ RSpec.describe Gitlab::Database::LooseForeignKeys do
 
       it 'raises Gitlab::Database::GitlabSchema::UnknownSchemaError error' do
         expect { subject }.to raise_error(Gitlab::Database::GitlabSchema::UnknownSchemaError)
+      end
+    end
+
+    context 'when worker_class is not in allowed list' do
+      let(:loose_foreign_keys_yaml) do
+        {
+          'projects' => [
+            {
+              'table' => 'namespaces',
+              'column' => 'namespace_id',
+              'on_delete' => 'async_delete',
+              'worker_class' => 'UnknownWorker'
+            }
+          ]
+        }
+      end
+
+      subject { described_class.definitions }
+
+      before do
+        described_class.instance_variable_set(:@definitions, nil)
+        described_class.instance_variable_set(:@loose_foreign_keys_yaml, loose_foreign_keys_yaml)
+      end
+
+      after do
+        described_class.instance_variable_set(:@loose_foreign_keys_yaml, nil)
+      end
+
+      it 'raises ArgumentError with descriptive message' do
+        expect { subject }.to raise_error(ArgumentError, "Worker class 'UnknownWorker' is not in the allowed list")
       end
     end
   end

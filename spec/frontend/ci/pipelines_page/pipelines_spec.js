@@ -1,11 +1,11 @@
 import '~/commons';
 import {
   GlButton,
+  GlCollapsibleListbox,
   GlEmptyState,
   GlFilteredSearch,
   GlLoadingIcon,
   GlPagination,
-  GlCollapsibleListbox,
 } from '@gitlab/ui';
 import { mount } from '@vue/test-utils';
 import MockAdapter from 'axios-mock-adapter';
@@ -42,8 +42,8 @@ import {
   setIdTypePreferenceMutationResponse,
   setIdTypePreferenceMutationResponseWithErrors,
 } from 'jest/issues/list/mock_data';
-import { legacyStageReply } from 'jest/ci/pipeline_mini_graph/mock_data';
-import { users, mockSearch, branches } from '../pipeline_details/mock_data';
+import { describeSkipVue3, SkipReason } from 'helpers/vue3_conditional';
+import { branches, mockSearch, users } from '../pipeline_details/mock_data';
 
 Vue.use(VueApollo);
 
@@ -55,11 +55,14 @@ const mockProjectId = '21';
 const mockDefaultBranchName = 'main';
 const mockPipelinesEndpoint = `/${mockProjectPath}/pipelines.json`;
 const mockPipelinesIds = mockPipelinesResponse.pipelines.map(({ id }) => id);
-const mockPipelineWithStages = mockPipelinesResponse.pipelines.find(
-  (p) => p.details.stages && p.details.stages.length,
-);
 
-describe('Pipelines', () => {
+const skipReason = new SkipReason({
+  name: 'Pipelines',
+  reason: 'OOM on the worker',
+  issue: 'https://gitlab.com/gitlab-org/gitlab/-/issues/458411',
+});
+
+describeSkipVue3(skipReason, () => {
   let wrapper;
   let mockApollo;
   let mock;
@@ -67,18 +70,13 @@ describe('Pipelines', () => {
   let mutationMock;
 
   const withPermissionsProps = {
-    ciLintPath: '/ci/lint',
     resetCachePath: `${mockProjectPath}/settings/ci_cd/reset_cache`,
     newPipelinePath: `${mockProjectPath}/pipelines/new`,
     ciRunnerSettingsPath: `${mockProjectPath}/-/settings/ci_cd#js-runners-settings`,
-    canCreatePipeline: true,
   };
 
   const defaultProps = {
     hasGitlabCi: true,
-    canCreatePipeline: false,
-    projectId: mockProjectId,
-    defaultBranchName: mockDefaultBranchName,
     endpoint: mockPipelinesEndpoint,
     params: {},
   };
@@ -93,10 +91,7 @@ describe('Pipelines', () => {
 
   const findTab = (tab) => wrapper.findByTestId(`pipelines-tab-${tab}`);
   const findRunPipelineButton = () => wrapper.findByTestId('run-pipeline-button');
-  const findCiLintButton = () => wrapper.findByTestId('ci-lint-button');
   const findCleanCacheButton = () => wrapper.findByTestId('clear-cache-button');
-  const findStagesDropdownToggle = () =>
-    wrapper.find('.mini-pipeline-graph-dropdown [data-testid="base-dropdown-toggle"]');
   const findPipelineUrlLinks = () => wrapper.findAll('[data-testid="pipeline-url-link"]');
 
   const createComponent = ({ props = {}, withPermissions = true } = {}) => {
@@ -106,7 +101,11 @@ describe('Pipelines', () => {
     wrapper = extendedWrapper(
       mount(PipelinesComponent, {
         provide: {
+          canCreatePipeline: withPermissions,
+          defaultBranchName: mockDefaultBranchName,
           pipelineEditorPath: '',
+          pipelinesAnalyticsPath: 'pipeline/analytics',
+          projectId: mockProjectId,
           suggestedCiTemplates: [],
           ciRunnerSettingsPath: defaultProps.ciRunnerSettingsPath,
           anyRunnersAvailable: true,
@@ -184,7 +183,6 @@ describe('Pipelines', () => {
         expect(findNavigationControls().exists()).toBe(false);
 
         expect(findRunPipelineButton().exists()).toBe(false);
-        expect(findCiLintButton().exists()).toBe(false);
         expect(findCleanCacheButton().exists()).toBe(false);
       });
 
@@ -231,10 +229,6 @@ describe('Pipelines', () => {
         expect(findRunPipelineButton().attributes('href')).toBe(
           withPermissionsProps.newPipelinePath,
         );
-      });
-
-      it('renders CI lint link', () => {
-        expect(findCiLintButton().attributes('href')).toBe(withPermissionsProps.ciLintPath);
       });
 
       it('renders Clear runner cache button', () => {
@@ -641,10 +635,6 @@ describe('Pipelines', () => {
         );
       });
 
-      it('renders CI lint link', () => {
-        expect(findCiLintButton().attributes('href')).toBe(withPermissionsProps.ciLintPath);
-      });
-
       it('renders Clear runner cache button', () => {
         expect(findCleanCacheButton().text()).toBe('Clear runner caches');
       });
@@ -699,7 +689,6 @@ describe('Pipelines', () => {
         expect(findNavigationTabs().exists()).toBe(false);
         expect(findTab('all').exists()).toBe(false);
         expect(findRunPipelineButton().exists()).toBe(false);
-        expect(findCiLintButton().exists()).toBe(false);
         expect(findCleanCacheButton().exists()).toBe(false);
       });
     });
@@ -721,7 +710,6 @@ describe('Pipelines', () => {
       it('does not render tabs or buttons', () => {
         expect(findTab('all').exists()).toBe(false);
         expect(findRunPipelineButton().exists()).toBe(false);
-        expect(findCiLintButton().exists()).toBe(false);
         expect(findCleanCacheButton().exists()).toBe(false);
       });
     });
@@ -739,83 +727,11 @@ describe('Pipelines', () => {
 
       it('does not render buttons', () => {
         expect(findRunPipelineButton().exists()).toBe(false);
-        expect(findCiLintButton().exists()).toBe(false);
         expect(findCleanCacheButton().exists()).toBe(false);
       });
 
       it('renders empty state', () => {
         expect(findEmptyState().text()).toBe('There are currently no pipelines.');
-      });
-    });
-  });
-
-  describe('when a pipeline with stages exists', () => {
-    describe('updates results when a staged is clicked', () => {
-      let stopMock;
-      let restartMock;
-      let cancelMock;
-
-      beforeEach(() => {
-        mock.onGet(mockPipelinesEndpoint, { scope: 'all', page: '1' }).reply(
-          HTTP_STATUS_OK,
-          {
-            pipelines: [mockPipelineWithStages],
-            count: { all: '1' },
-          },
-          {
-            'POLL-INTERVAL': 100,
-          },
-        );
-
-        mock
-          .onGet(mockPipelineWithStages.details.stages[0].dropdown_path)
-          .reply(HTTP_STATUS_OK, legacyStageReply);
-
-        // cancelMock is getting overwritten in pipelines_service.js#L29
-        // so we have to spy on it again here
-        cancelMock = { cancel: jest.fn() };
-        jest.spyOn(axios.CancelToken, 'source').mockReturnValue(cancelMock);
-
-        createComponent();
-
-        stopMock = jest.spyOn(window, 'clearTimeout');
-        restartMock = jest.spyOn(axios, 'get');
-      });
-
-      describe('when a request is being made', () => {
-        beforeEach(async () => {
-          mock.onGet(mockPipelinesEndpoint).reply(HTTP_STATUS_OK, mockPipelinesResponse);
-
-          await waitForPromises();
-        });
-
-        it('stops polling, cancels the request, & restarts polling', async () => {
-          // Mock init a polling cycle
-          wrapper.vm.poll.options.notificationCallback(true);
-
-          await findStagesDropdownToggle().trigger('click');
-          jest.runOnlyPendingTimers();
-
-          await waitForPromises();
-
-          expect(cancelMock.cancel).toHaveBeenCalled();
-          expect(stopMock).toHaveBeenCalled();
-          expect(restartMock).toHaveBeenCalledWith(
-            `${mockPipelinesResponse.pipelines[0].path}/stage.json?stage=test`,
-          );
-        });
-
-        it('stops polling & restarts polling', async () => {
-          await findStagesDropdownToggle().trigger('click');
-          jest.runOnlyPendingTimers();
-          await waitForPromises();
-
-          expect(cancelMock.cancel).not.toHaveBeenCalled();
-          expect(stopMock).toHaveBeenCalled();
-          expect(restartMock).toHaveBeenCalledWith(
-            `${mockPipelinesResponse.pipelines[0].path}/stage.json?stage=test`,
-          );
-        });
       });
     });
   });
@@ -841,7 +757,6 @@ describe('Pipelines', () => {
 
       it('does not render buttons', () => {
         expect(findRunPipelineButton().exists()).toBe(false);
-        expect(findCiLintButton().exists()).toBe(false);
         expect(findCleanCacheButton().exists()).toBe(false);
       });
 
@@ -868,8 +783,6 @@ describe('Pipelines', () => {
         expect(findRunPipelineButton().attributes('href')).toBe(
           withPermissionsProps.newPipelinePath,
         );
-
-        expect(findCiLintButton().attributes('href')).toBe(withPermissionsProps.ciLintPath);
         expect(findCleanCacheButton().text()).toBe('Clear runner caches');
       });
 

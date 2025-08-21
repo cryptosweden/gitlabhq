@@ -1,4 +1,5 @@
 import Vue from 'vue';
+import { parseBoolean } from '~/lib/utils/common_utils';
 import GlFieldErrors from '~/gl_field_errors';
 import PasswordInput from './components/password_input.vue';
 
@@ -10,8 +11,20 @@ export const initPasswordInput = () => {
 
     const { form } = el;
 
-    const { title, id, minimumPasswordLength, testid, trackActionForErrors, autocomplete, name } =
-      el.dataset;
+    const {
+      title,
+      id,
+      minimumPasswordLength,
+      testid,
+      trackActionForErrors,
+      required,
+      autocomplete,
+      name,
+      disabled,
+    } = el.dataset;
+
+    const requiredAttr = required ? parseBoolean(required) : true;
+    const disabledAttr = disabled ? parseBoolean(disabled) : false;
 
     // eslint-disable-next-line no-new
     new Vue({
@@ -27,6 +40,8 @@ export const initPasswordInput = () => {
             trackActionForErrors,
             autocomplete,
             name,
+            required: requiredAttr,
+            disabled: disabledAttr,
           },
         });
       },

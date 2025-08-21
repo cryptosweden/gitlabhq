@@ -1,94 +1,50 @@
 <script>
-import {
-  GlAlert,
-  GlIcon,
-  GlButton,
-  GlCollapsibleListbox,
-  GlForm,
-  GlFormGroup,
-  GlFormInput,
-  GlFormTextarea,
-  GlLink,
-  GlSprintf,
-  GlLoadingIcon,
-} from '@gitlab/ui';
-import { uniqueId } from 'lodash';
-import Vue from 'vue';
+import { GlAlert, GlButton, GlForm, GlFormGroup, GlSprintf } from '@gitlab/ui';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
-import { fetchPolicies } from '~/lib/graphql';
-import SafeHtml from '~/vue_shared/directives/safe_html';
 import { visitUrl } from '~/lib/utils/url_utility';
 import { s__, __, n__ } from '~/locale';
-import {
-  CC_VALIDATION_REQUIRED_ERROR,
-  IDENTITY_VERIFICATION_REQUIRED_ERROR,
-  CONFIG_VARIABLES_TIMEOUT,
-  FILE_TYPE,
-  VARIABLE_TYPE,
-} from '../constants';
+import { createAlert } from '~/alert';
+import SafeHtml from '~/vue_shared/directives/safe_html';
+import PipelineInputsForm from '~/ci/common/pipeline_inputs/pipeline_inputs_form.vue';
 import createPipelineMutation from '../graphql/mutations/create_pipeline.mutation.graphql';
-import ciConfigVariablesQuery from '../graphql/queries/ci_config_variables.graphql';
-import filterVariables from '../utils/filter_variables';
 import RefsDropdown from './refs_dropdown.vue';
-import VariableValuesListbox from './variable_values_listbox.vue';
+import PipelineVariablesForm from './pipeline_variables_form.vue';
 
-let pollTimeout;
-export const POLLING_INTERVAL = 2000;
 const i18n = {
-  variablesDescription: s__(
-    'Pipeline|Specify variable values to be used in this run. The variables specified in the configuration file as well as %{linkStart}CI/CD settings%{linkEnd} are used by default.',
-  ),
-  overrideNoteText: s__(
-    'CiVariables|Variables specified here are %{boldStart}expanded%{boldEnd} and not %{boldStart}masked.%{boldEnd}',
-  ),
+  configButtonTitle: s__('Pipelines|Go to the pipeline editor'),
   defaultError: __('Something went wrong on our end. Please try again.'),
+  maxWarningsSummary: __('%{total} warnings found: showing first %{warningsDisplayed}'),
   refsLoadingErrorTitle: s__('Pipeline|Branches or tags could not be loaded.'),
   submitErrorTitle: s__('Pipeline|Pipeline cannot be run.'),
-  configButtonTitle: s__('Pipelines|Go to the pipeline editor'),
   warningTitle: __('The form contains the following warning:'),
-  maxWarningsSummary: __('%{total} warnings found: showing first %{warningsDisplayed}'),
-  removeVariableLabel: s__('CiVariables|Remove variable'),
 };
 
 export default {
+  name: 'PipelineNewForm',
   i18n,
-  formElementClasses: 'gl-mr-3 gl-mb-3 gl-flex-basis-quarter gl-flex-shrink-0 gl-flex-grow-0',
-  // this height value is used inline on the textarea to match the input field height
-  // it's used to prevent the overwrite if 'gl-h-7' or 'gl-h-7!' were used
-  textAreaStyle: { height: '32px' },
+  ROLE_MAINTAINER: 'maintainer',
   components: {
     GlAlert,
-    GlIcon,
     GlButton,
-    GlCollapsibleListbox,
     GlForm,
     GlFormGroup,
-    GlFormInput,
-    GlFormTextarea,
-    GlLink,
     GlSprintf,
-    GlLoadingIcon,
+    PipelineInputsForm,
+    PipelineVariablesForm,
     RefsDropdown,
-    VariableValuesListbox,
-    CcValidationRequiredAlert: () =>
-      import('ee_component/billings/components/cc_validation_required_alert.vue'),
     PipelineAccountVerificationAlert: () =>
       import('ee_component/vue_shared/components/pipeline_account_verification_alert.vue'),
   },
   directives: { SafeHtml },
+  inject: [
+    'canViewPipelineEditor',
+    'canSetPipelineVariables',
+    'pipelineEditorPath',
+    'pipelinesPath',
+    'projectPath',
+    'userRole',
+  ],
   props: {
-    pipelinesPath: {
-      type: String,
-      required: true,
-    },
-    pipelinesEditorPath: {
-      type: String,
-      required: true,
-    },
-    canViewPipelineEditor: {
-      type: Boolean,
-      required: true,
-    },
     defaultBranch: {
       type: String,
       required: true,
@@ -105,10 +61,6 @@ export default {
       type: Object,
       required: false,
       default: () => ({}),
-    },
-    projectPath: {
-      type: String,
-      required: true,
     },
     refParam: {
       type: String,
@@ -134,239 +86,95 @@ export default {
         // https://gitlab.com/gitlab-org/gitlab/-/issues/287815
         fullName: this.refParam === this.defaultBranch ? `refs/heads/${this.refParam}` : undefined,
       },
-      configVariablesWithDescription: {},
-      form: {},
       errorTitle: null,
       error: null,
-      predefinedVariables: null,
+      pipelineInputs: [],
+      pipelineVariables: [],
       warnings: [],
       totalWarnings: 0,
       isWarningDismissed: false,
       submitted: false,
-      ccAlertDismissed: false,
     };
   },
-  apollo: {
-    ciConfigVariables: {
-      fetchPolicy: fetchPolicies.NO_CACHE,
-      query: ciConfigVariablesQuery,
-      // Skip when variables already cached in `form`
-      skip() {
-        return Object.keys(this.form).includes(this.refFullName);
-      },
-      variables() {
-        return {
-          fullPath: this.projectPath,
-          ref: this.refQueryParam,
-        };
-      },
-      update({ project }) {
-        return project?.ciConfigVariables;
-      },
-      result({ data }) {
-        this.predefinedVariables = data?.project?.ciConfigVariables;
-
-        // API cache is empty when predefinedVariables === null, so we need to
-        // poll while cache values are being populated in the backend.
-        // After CONFIG_VARIABLES_TIMEOUT ms have passed, we stop polling
-        // and populate the form regardless.
-        if (this.isFetchingCiConfigVariables && !pollTimeout) {
-          pollTimeout = setTimeout(() => {
-            this.predefinedVariables = [];
-            this.clearPolling();
-            this.populateForm();
-          }, CONFIG_VARIABLES_TIMEOUT);
-        }
-
-        if (!this.isFetchingCiConfigVariables) {
-          this.clearPolling();
-          this.populateForm();
-        }
-      },
-      error(error) {
-        Sentry.captureException(error);
-      },
-      pollInterval: POLLING_INTERVAL,
-    },
-  },
   computed: {
-    isFetchingCiConfigVariables() {
-      return this.predefinedVariables === null;
+    identityVerificationRequiredError() {
+      return this.error === __('Identity verification is required in order to run CI jobs');
     },
-    isLoading() {
-      return this.$apollo.queries.ciConfigVariables.loading || this.isFetchingCiConfigVariables;
+    isMaintainer() {
+      return this.userRole?.toLowerCase() === this.$options.ROLE_MAINTAINER;
     },
     overMaxWarningsLimit() {
       return this.totalWarnings > this.maxWarnings;
     },
-    warningsSummary() {
-      return n__('%d warning found:', '%d warnings found:', this.warnings.length);
-    },
-    summaryMessage() {
-      return this.overMaxWarningsLimit ? i18n.maxWarningsSummary : this.warningsSummary;
-    },
-    shouldShowWarning() {
-      return this.warnings.length > 0 && !this.isWarningDismissed;
+    refFullName() {
+      return this.refValue.fullName;
     },
     refShortName() {
       return this.refValue.shortName;
     },
-    refFullName() {
-      return this.refValue.fullName;
-    },
     refQueryParam() {
       return this.refFullName || this.refShortName;
     },
-    variables() {
-      return this.form[this.refFullName]?.variables ?? [];
+
+    shouldShowWarning() {
+      return this.warnings.length > 0 && !this.isWarningDismissed;
     },
-    descriptions() {
-      return this.form[this.refFullName]?.descriptions ?? {};
+    summaryMessage() {
+      return this.overMaxWarningsLimit ? i18n.maxWarningsSummary : this.warningsSummary;
     },
-    ccRequiredError() {
-      return this.error === CC_VALIDATION_REQUIRED_ERROR && !this.ccAlertDismissed;
-    },
-    identityVerificationRequiredError() {
-      return this.error === IDENTITY_VERIFICATION_REQUIRED_ERROR;
-    },
-    variableTypeListboxItems() {
-      return [
-        {
-          value: VARIABLE_TYPE,
-          text: s__('Pipeline|Variable'),
-        },
-        {
-          value: FILE_TYPE,
-          text: s__('Pipeline|File'),
-        },
-      ];
+    warningsSummary() {
+      return n__('%d warning found:', '%d warnings found:', this.warnings.length);
     },
   },
   methods: {
-    addEmptyVariable(refValue) {
-      const { variables } = this.form[refValue];
-
-      const lastVar = variables[variables.length - 1];
-      if (lastVar?.key === '' && lastVar?.value === '') {
-        return;
-      }
-
-      variables.push({
-        uniqueId: uniqueId(`var-${refValue}`),
-        variable_type: VARIABLE_TYPE,
-        key: '',
-        value: '',
-      });
-    },
-    clearPolling() {
-      clearTimeout(pollTimeout);
-      this.$apollo.queries.ciConfigVariables.stopPolling();
-    },
-    populateForm() {
-      this.configVariablesWithDescription = this.predefinedVariables.reduce(
-        (accumulator, { description, key, value, valueOptions }) => {
-          if (description) {
-            accumulator.descriptions[key] = description;
-            accumulator.values[key] = value;
-            accumulator.options[key] = valueOptions;
-          }
-
-          return accumulator;
-        },
-        { descriptions: {}, values: {}, options: {} },
-      );
-
-      Vue.set(this.form, this.refFullName, {
-        descriptions: this.configVariablesWithDescription.descriptions,
-        variables: [],
-      });
-
-      // Add default variables from yml
-      this.setVariableParams(
-        this.refFullName,
-        VARIABLE_TYPE,
-        this.configVariablesWithDescription.values,
-      );
-
-      // Add/update variables, e.g. from query string
-      if (this.variableParams) {
-        this.setVariableParams(this.refFullName, VARIABLE_TYPE, this.variableParams);
-      }
-
-      if (this.fileParams) {
-        this.setVariableParams(this.refFullName, FILE_TYPE, this.fileParams);
-      }
-
-      // Adds empty var at the end of the form
-      this.addEmptyVariable(this.refFullName);
-    },
-    setVariable(refValue, type, key, value) {
-      const { variables } = this.form[refValue];
-
-      const variable = variables.find((v) => v.key === key);
-      if (variable) {
-        variable.type = type;
-        variable.value = value;
-      } else {
-        variables.push({
-          uniqueId: uniqueId(`var-${refValue}`),
-          key,
-          value,
-          variable_type: type,
-        });
-      }
-    },
-    setVariableAttribute(key, attribute, value) {
-      const { variables } = this.form[this.refFullName];
-      const variable = variables.find((v) => v.key === key);
-      variable[attribute] = value;
-    },
-    setVariableParams(refValue, type, paramsObj) {
-      Object.entries(paramsObj).forEach(([key, value]) => {
-        this.setVariable(refValue, type, key, value);
-      });
-    },
-    shouldShowValuesDropdown(key) {
-      return this.configVariablesWithDescription.options[key]?.length > 1;
-    },
-    removeVariable(index) {
-      this.variables.splice(index, 1);
-    },
-    canRemove(index) {
-      return index < this.variables.length - 1;
-    },
     async createPipeline() {
       this.submitted = true;
-      this.ccAlertDismissed = false;
+      try {
+        const {
+          data: {
+            pipelineCreate: { errors, pipeline },
+          },
+        } = await this.$apollo.mutate({
+          mutation: createPipelineMutation,
+          variables: {
+            input: {
+              projectPath: this.projectPath,
+              ref: this.refShortName,
+              variables: this.pipelineVariables,
+              inputs: this.pipelineInputs,
+            },
+          },
+        });
 
-      const { data } = await this.$apollo.mutate({
-        mutation: createPipelineMutation,
-        variables: {
-          endpoint: this.pipelinesPath,
-          // send shortName as fall back for query params
-          // https://gitlab.com/gitlab-org/gitlab/-/issues/287815
-          ref: this.refQueryParam,
-          variablesAttributes: filterVariables(this.variables),
-        },
-      });
+        const pipelineErrors = pipeline?.errorMessages?.nodes?.map((node) => node?.content) || '';
+        const totalWarnings = pipeline?.warningMessages?.nodes?.length || 0;
 
-      const { id, errors, totalWarnings, warnings } = data.createPipeline;
+        if (pipeline?.path) {
+          visitUrl(pipeline.path);
+        } else if (errors?.length > 0 || pipelineErrors.length || totalWarnings) {
+          const warnings = pipeline?.warningMessages?.nodes?.map((node) => node?.content) || '';
+          const error = errors[0] || pipelineErrors[0] || '';
 
-      if (id) {
-        visitUrl(`${this.pipelinesPath}/${id}`);
-        return;
+          this.reportError({
+            title: i18n.submitErrorTitle,
+            error,
+            warnings,
+            totalWarnings,
+          });
+        }
+      } catch (error) {
+        createAlert({ message: i18n.submitErrorTitle });
+        Sentry.captureException(error);
       }
 
       // always re-enable submit button
       this.submitted = false;
-      const [error] = errors;
-
-      this.reportError({
-        title: i18n.submitErrorTitle,
-        error,
-        warnings,
-        totalWarnings,
-      });
+    },
+    handleInputsUpdated(updatedInputs) {
+      this.pipelineInputs = updatedInputs;
+    },
+    handleVariablesUpdated(updatedVariables) {
+      this.pipelineVariables = updatedVariables;
     },
     onRefsLoadingError(error) {
       this.reportError({ title: i18n.refsLoadingErrorTitle });
@@ -379,27 +187,13 @@ export default {
       this.warnings = warnings;
       this.totalWarnings = totalWarnings;
     },
-    dismissError() {
-      this.ccAlertDismissed = true;
-      this.error = null;
-    },
-    createListItemsFromVariableOptions(key) {
-      return this.configVariablesWithDescription.options[key].map((option) => ({
-        text: option,
-        value: option,
-      }));
-    },
   },
 };
 </script>
 
 <template>
   <gl-form @submit.prevent="createPipeline">
-    <cc-validation-required-alert v-if="ccRequiredError" class="gl-pb-5" @dismiss="dismissError" />
-    <pipeline-account-verification-alert
-      v-else-if="identityVerificationRequiredError"
-      class="gl-mb-4"
-    />
+    <pipeline-account-verification-alert v-if="identityVerificationRequiredError" class="gl-mb-4" />
     <gl-alert
       v-else-if="error"
       :title="errorTitle"
@@ -414,7 +208,7 @@ export default {
         data-testid="ci-cd-pipeline-configuration"
         variant="confirm"
         :aria-label="$options.i18n.configButtonTitle"
-        :href="pipelinesEditorPath"
+        :href="pipelineEditorPath"
       >
         {{ $options.i18n.configButtonTitle }}
       </gl-button>
@@ -447,115 +241,50 @@ export default {
         </p>
       </details>
     </gl-alert>
-    <gl-form-group :label="s__('Pipeline|Run for branch name or tag')">
-      <refs-dropdown
-        v-model="refValue"
-        :project-id="projectId"
-        @loadingError="onRefsLoadingError"
+    <div class="gl-flex gl-flex-col gl-gap-5">
+      <gl-form-group
+        id="pipeline-ref-label"
+        :label="s__('Pipeline|Run for branch name or tag')"
+        class="gl-mb-0"
+      >
+        <refs-dropdown
+          v-model="refValue"
+          :project-id="projectId"
+          toggle-aria-labelled-by="pipeline-ref-label"
+          @loadingError="onRefsLoadingError"
+        />
+      </gl-form-group>
+      <pipeline-inputs-form
+        emit-modified-only
+        preselect-all-inputs
+        :project-path="projectPath"
+        :query-ref="refQueryParam"
+        :empty-selection-text="s__('Pipeline|Select inputs to create a new pipeline.')"
+        @update-inputs="handleInputsUpdated"
       />
-    </gl-form-group>
+      <pipeline-variables-form
+        v-if="canSetPipelineVariables"
+        :file-params="fileParams"
+        :is-maintainer="isMaintainer"
+        :project-path="projectPath"
+        :ref-param="refQueryParam"
+        :settings-link="settingsLink"
+        :variable-params="variableParams"
+        @variables-updated="handleVariablesUpdated"
+      />
 
-    <gl-loading-icon v-if="isLoading" class="gl-mb-5" size="lg" />
-
-    <gl-form-group v-else class="gl-mb-3" :label="s__('Pipeline|Variables')">
-      <div
-        v-for="(variable, index) in variables"
-        :key="variable.uniqueId"
-        class="gl-mb-3 gl-pb-2"
-        data-testid="ci-variable-row-container"
-      >
-        <div
-          class="gl-display-flex gl-align-items-stretch gl-flex-direction-column gl-md-flex-direction-row"
+      <div class="gl-flex">
+        <gl-button
+          type="submit"
+          category="primary"
+          variant="confirm"
+          class="js-no-auto-disable gl-mr-3"
+          data-testid="run-pipeline-button"
+          :disabled="submitted"
+          >{{ s__('Pipeline|New pipeline') }}</gl-button
         >
-          <gl-collapsible-listbox
-            :items="variableTypeListboxItems"
-            :selected="variable.variable_type"
-            block
-            fluid-width
-            :class="$options.formElementClasses"
-            data-testid="pipeline-form-ci-variable-type"
-            @select="setVariableAttribute(variable.key, 'variable_type', $event)"
-          />
-          <gl-form-input
-            v-model="variable.key"
-            :placeholder="s__('CiVariables|Input variable key')"
-            :class="$options.formElementClasses"
-            data-testid="pipeline-form-ci-variable-key-field"
-            @change="addEmptyVariable(refFullName)"
-          />
-          <variable-values-listbox
-            v-if="shouldShowValuesDropdown(variable.key)"
-            :items="createListItemsFromVariableOptions(variable.key)"
-            :selected="variable.value"
-            :class="$options.formElementClasses"
-            class="gl-flex-grow-1 gl-mr-0!"
-            data-testid="pipeline-form-ci-variable-value-dropdown"
-            @select="setVariableAttribute(variable.key, 'value', $event)"
-          />
-          <gl-form-textarea
-            v-else
-            v-model="variable.value"
-            :placeholder="s__('CiVariables|Input variable value')"
-            class="gl-mb-3"
-            :style="$options.textAreaStyle"
-            :no-resize="false"
-            data-testid="pipeline-form-ci-variable-value-field"
-          />
-
-          <template v-if="variables.length > 1">
-            <gl-button
-              v-if="canRemove(index)"
-              class="gl-md-ml-3 gl-mb-3"
-              data-testid="remove-ci-variable-row"
-              variant="danger"
-              category="secondary"
-              :aria-label="$options.i18n.removeVariableLabel"
-              @click="removeVariable(index)"
-            >
-              <gl-icon class="gl-mr-0! gl-hidden md:gl-block" name="clear" />
-              <span class="md:gl-hidden">{{ $options.i18n.removeVariableLabel }}</span>
-            </gl-button>
-            <gl-button
-              v-else
-              class="gl-md-ml-3 gl-mb-3 gl-hidden md:gl-block gl-invisible"
-              icon="clear"
-              :aria-label="$options.i18n.removeVariableLabel"
-            />
-          </template>
-        </div>
-        <div v-if="descriptions[variable.key]" class="gl-text-gray-500 gl-mb-3">
-          {{ descriptions[variable.key] }}
-        </div>
+        <gl-button :href="pipelinesPath">{{ __('Cancel') }}</gl-button>
       </div>
-
-      <template #description
-        ><gl-sprintf :message="$options.i18n.variablesDescription">
-          <template #link="{ content }">
-            <gl-link :href="settingsLink">{{ content }}</gl-link>
-          </template>
-        </gl-sprintf></template
-      >
-    </gl-form-group>
-    <div class="gl-mb-4 gl-text-gray-500">
-      <gl-sprintf :message="$options.i18n.overrideNoteText">
-        <template #bold="{ content }">
-          <strong>
-            {{ content }}
-          </strong>
-        </template>
-      </gl-sprintf>
-    </div>
-    <div class="gl-pt-5 gl-display-flex">
-      <gl-button
-        type="submit"
-        category="primary"
-        variant="confirm"
-        class="js-no-auto-disable gl-mr-3"
-        data-testid="run-pipeline-button"
-        :disabled="submitted"
-        >{{ s__('Pipeline|Run pipeline') }}</gl-button
-      >
-      <gl-button :href="pipelinesPath">{{ __('Cancel') }}</gl-button>
     </div>
   </gl-form>
 </template>

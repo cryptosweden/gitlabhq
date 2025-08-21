@@ -1,6 +1,7 @@
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import createDefaultClient from '~/lib/graphql';
+import { parseBoolean } from '~/lib/utils/common_utils';
 import PipelineSchedulesForm from './components/pipeline_schedules_form.vue';
 
 Vue.use(VueApollo);
@@ -17,13 +18,17 @@ export default (selector, editing = false) => {
   }
 
   const {
-    fullPath,
+    canViewPipelineEditor,
     dailyLimit,
-    timezoneData,
-    projectId,
     defaultBranch,
-    settingsLink,
+    pipelineEditorPath,
+    projectId,
+    projectPath,
     schedulesPath,
+    settingsLink,
+    canSetPipelineVariables,
+    timezoneData,
+    workerCronExpression,
   } = containerEl.dataset;
 
   return new Vue({
@@ -31,19 +36,22 @@ export default (selector, editing = false) => {
     name: 'PipelineSchedulesFormRoot',
     apolloProvider,
     provide: {
-      fullPath,
-      projectId,
-      defaultBranch,
+      canViewPipelineEditor: parseBoolean(canViewPipelineEditor),
       dailyLimit: dailyLimit ?? '',
-      settingsLink,
+      defaultBranch,
+      pipelineEditorPath,
+      projectId,
+      projectPath,
       schedulesPath,
+      settingsLink,
+      workerCronExpression,
     },
     render(createElement) {
       return createElement(PipelineSchedulesForm, {
         props: {
           timezoneData: JSON.parse(timezoneData),
-          refParam: defaultBranch,
           editing,
+          canSetPipelineVariables: parseBoolean(canSetPipelineVariables),
         },
       });
     },

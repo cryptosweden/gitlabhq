@@ -1,33 +1,35 @@
 ---
-stage: Systems
+stage: Tenant Scale
 group: Geo
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Set up Geo for two single-node sites (with external PostgreSQL services)
 ---
 
-# Set up Geo for two single-node sites (with external PostgreSQL services)
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 The following guide provides concise instructions on how to deploy GitLab Geo for a two single-node site installation using two Linux package instances and external PostgreSQL databases like RDS, Azure Database, or Google Cloud SQL.
 
 Prerequisites:
 
 - You have at least two independently working GitLab sites.
-  To create the sites, see the [GitLab reference architectures documentation](../../reference_architectures/index.md).
+  To create the sites, see the [GitLab reference architectures documentation](../../reference_architectures/_index.md).
   - One GitLab site serves as the **Geo primary site**. You can use different reference architecture sizes for each Geo site. If you already have a working GitLab instance, you can use it as the primary site.
   - The second GitLab site serves as the **Geo secondary site**. Geo supports multiple secondary sites.
 - The Geo primary site has at least a [GitLab Premium](https://about.gitlab.com/pricing/) license.
   You need only one license for all sites.
-- Confirm all sites meet the [requirements for running Geo](../index.md#requirements-for-running-geo).
+- Confirm all sites meet the [requirements for running Geo](../_index.md#requirements-for-running-geo).
 
 ## Set up Geo for Linux package (Omnibus)
 
 Prerequisites:
 
 - You use PostgreSQL 12 or later,
-  which includes the [`pg_basebackup` tool](https://www.postgresql.org/docs/12/app-pgbasebackup.html).
+  which includes the [`pg_basebackup` tool](https://www.postgresql.org/docs/16/app-pgbasebackup.html).
 
 ### Configure the primary site
 
@@ -65,7 +67,7 @@ Prerequisites:
 
 To set up an external database, you can either:
 
-- Set up [streaming replication](https://www.postgresql.org/docs/12/warm-standby.html#STREAMING-REPLICATION-SLOTS) yourself (for example Amazon RDS, or bare metal not managed by the Linux package).
+- Set up [streaming replication](https://www.postgresql.org/docs/16/warm-standby.html#STREAMING-REPLICATION-SLOTS) yourself (for example Amazon RDS, or bare metal not managed by the Linux package).
 - Manually perform the configuration of your Linux package installations as follows.
 
 #### Leverage your cloud provider's tools to replicate the primary database
@@ -91,7 +93,7 @@ has three main functions:
 
 1. Configure the replica database.
 1. Configure the tracking database.
-1. Enable the [Geo Log Cursor](../index.md#geo-log-cursor).
+1. Enable the [Geo Log Cursor](../_index.md#geo-log-cursor).
 
 To configure the connection to the external read-replica database:
 
@@ -117,7 +119,7 @@ To configure the connection to the external read-replica database:
    gitlab_rails['db_username'] = 'gitlab'
    gitlab_rails['db_host'] = '<database_read_replica_host>'
 
-   # Disable the bundled Omnibus PostgreSQL, since we are
+   # Disable the bundled Omnibus PostgreSQL because we are
    # using an external PostgreSQL
    postgresql['enable'] = false
    ```
@@ -274,14 +276,20 @@ You must manually replicate the secret file across all of your secondary sites, 
 1. To verify SSH is still functional, from a new terminal, SSH into your GitLab secondary server.
    If you can't connect, make sure you have the correct permissions.
 
-#### Set up fast lookup of authorized SSH keys
+#### Fast lookup of authorized SSH keys
 
-After the replication process is complete, you need to [configure fast lookup of authorized SSH keys](../../operations/fast_ssh_key_lookup.md).
+After the initial replication process is complete, follow the steps to
+[configure fast lookup of authorized SSH keys](../../operations/fast_ssh_key_lookup.md).
 
-NOTE:
+Fast lookup is [required for Geo](../../operations/fast_ssh_key_lookup.md#fast-lookup-is-required-for-geo).
+
+{{< alert type="note" >}}
+
 Authentication is handled by the primary site. Don't set up custom authentication for the secondary site.
-Any change that requires access to the Admin Area should be made in the primary site, because the
+Any change that requires access to the **Admin** area should be made in the primary site, because the
 secondary site is a read-only copy.
+
+{{< /alert >}}
 
 #### Add the secondary site
 
@@ -310,11 +318,11 @@ secondary site is a read-only copy.
    ```
 
 1. Go to the primary node GitLab instance:
-   1. On the left sidebar, at the bottom, select **Admin Area**..
+   1. On the left sidebar, at the bottom, select **Admin**..
    1. Select **Geo > Sites**.
    1. Select **Add site**.
 
-      ![Add secondary site](../replication/img/adding_a_secondary_v15_8.png)
+      ![Form to add a new secondary Geo site](img/adding_a_secondary_v15_8.png)
 
    1. In **Name**, enter the value for `gitlab_rails['geo_node_name']` in
       `/etc/gitlab/gitlab.rb`. The values must match exactly.
@@ -337,7 +345,7 @@ secondary site is a read-only copy.
    sudo gitlab-rake gitlab:geo:check
    ```
 
-   If any of the checks fail, see the [troubleshooting documentation](../replication/troubleshooting/index.md).
+   If any of the checks fail, see the [troubleshooting documentation](../replication/troubleshooting/_index.md).
 
 1. To verify that the secondary site is reachable, SSH into a Rails or Sidekiq server on your primary site and run:
 
@@ -345,7 +353,7 @@ secondary site is a read-only copy.
    sudo gitlab-rake gitlab:geo:check
    ```
 
-   If any of the checks fail, check the [troubleshooting documentation](../replication/troubleshooting/index.md).
+   If any of the checks fail, check the [troubleshooting documentation](../replication/troubleshooting/_index.md).
 
 After the secondary site is added to the Geo administration page and restarted,
 the site automatically starts to replicate missing data from the primary site
@@ -365,7 +373,7 @@ If you convert an existing site to Geo, you should check that the clone method i
 
 On the primary site:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > General**.
 1. Expand **Visibility and access controls**.
 1. If you use Git over SSH:
@@ -380,7 +388,7 @@ the primary site.
 
 After you sign in:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Geo > Sites**.
 1. Verify that the site is correctly identified as a secondary Geo site, and that
    Geo is enabled.
@@ -389,12 +397,15 @@ The initial replication might take some time.
 You can monitor the synchronization process on each Geo site from the primary
 site **Geo Sites** dashboard in your browser.
 
-![Geo dashboard](../replication/img/geo_dashboard_v14_0.png)
+![Geo admin dashboard showing the synchronization status of a secondary site.](img/geo_dashboard_v14_0.png)
 
 ## Configure the tracking database
 
-NOTE:
+{{< alert type="note" >}}
+
 This step is optional in case you also want to have your tracking database set up externally on another server.
+
+{{< /alert >}}
 
 **Secondary** sites use a separate PostgreSQL installation as a tracking
 database to keep track of replication status and automatically recover from
@@ -415,21 +426,24 @@ to grant additional roles to your tracking database user (by default, this is
 Additional roles are needed for the installation of extensions during installation and upgrades. As an alternative,
 [ensure the extensions are installed manually, and read about the problems that may arise during future GitLab upgrades](../../../install/postgresql_extensions.md).
 
-NOTE:
+{{< alert type="note" >}}
+
 If you want to use Amazon RDS as a tracking database, make sure it has access to
 the secondary database. Unfortunately, just assigning the same security group is not enough as
 outbound rules do not apply to RDS PostgreSQL databases. Therefore, you need to explicitly add an inbound
 rule to the read-replica's security group allowing any TCP traffic from
 the tracking database on port 5432.
 
+{{< /alert >}}
+
 ### Create the tracking database
 
 Create and configure the tracking database in your PostgreSQL instance:
 
 1. Set up PostgreSQL according to the
-   [database requirements document](../../../install/requirements.md#database).
+   [database requirements document](../../../install/requirements.md#postgresql).
 1. Set up a `gitlab_geo` user with a password of your choice, create the `gitlabhq_geo_production` database, and make the user an owner of the database.
-   You can see an example of this setup in the [self-compiled installation documentation](../../../install/installation.md#7-database).
+   You can see an example of this setup in the [self-compiled installation documentation](../../../install/self_compiled/_index.md#7-database).
 1. If you are **not** using a cloud-managed PostgreSQL database, ensure that your secondary
    site can communicate with your tracking database by manually changing the
    `pg_hba.conf` that is associated with your tracking database.
@@ -474,7 +488,7 @@ Configure GitLab to use this database. These steps are for Linux package and Doc
 
 #### Manually set up the database schema (optional)
 
-The reconfigure in the [steps above](#configure-gitlab) handles these steps automatically. These steps are provided in case something went wrong.
+The reconfigure command in the [previously listed steps](#configure-gitlab) handles these steps automatically. These steps are provided in case something went wrong.
 
 1. This task creates the database schema. It requires the database user to be a superuser.
 
@@ -491,4 +505,4 @@ The reconfigure in the [steps above](#configure-gitlab) handles these steps auto
 
 ## Troubleshooting
 
-See [troubleshooting Geo](../replication/troubleshooting/index.md).
+See [troubleshooting Geo](../replication/troubleshooting/_index.md).

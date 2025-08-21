@@ -5,10 +5,16 @@ module WorkItems
     class BaseService < IssuableLinks::CreateService
       extend ::Gitlab::Utils::Override
 
+      def initialize(issuable, user, params)
+        @previous_parents = Set.new
+        super
+      end
+
       private
 
       def set_parent(issuable, work_item)
         link = WorkItems::ParentLink.for_work_item(work_item)
+        previous_parents.add(link.work_item_parent) if link.work_item_parent
         link.work_item_parent = issuable
         link
       end
@@ -18,11 +24,9 @@ module WorkItems
       end
 
       def linkable_issuables(work_items)
-        @linkable_issuables ||= if can_admin_link?(issuable)
-                                  work_items.select { |work_item| linkable?(work_item) }
-                                else
-                                  []
-                                end
+        @linkable_issuables ||= work_items.select do |work_item|
+          can_add_to_parent?(issuable, work_item) && linkable?(work_item)
+        end
       end
 
       def linkable?(work_item)
@@ -31,6 +35,27 @@ module WorkItems
 
       def can_admin_link?(work_item)
         can?(current_user, :admin_parent_link, work_item)
+      end
+
+      # Overriden in EE
+      def can_add_to_parent?(parent_work_item, _child_work_item = nil)
+        can_admin_link?(parent_work_item)
+      end
+
+      def track_event
+        events = previous_parents.map do |previous_parent|
+          WorkItems::WorkItemUpdatedEvent.new(data: {
+            id: previous_parent.id,
+            namespace_id: previous_parent.namespace_id,
+            updated_widgets: ['hierarchy_widget']
+          })
+        end
+
+        return if events.blank?
+
+        issuable.run_after_commit_or_now do
+          Gitlab::EventStore.publish_group(events)
+        end
       end
 
       override :previous_related_issuables
@@ -48,6 +73,8 @@ module WorkItems
         format(_('No matching %{issuable} found. Make sure that you are adding a valid %{issuable} ID.'),
           issuable: target_issuable_type)
       end
+
+      attr_accessor :previous_parents
     end
   end
 end

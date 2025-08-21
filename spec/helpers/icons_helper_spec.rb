@@ -48,6 +48,11 @@ RSpec.describe IconsHelper do
         .to eq "<svg class=\"s72\" data-testid=\"#{icon_name}-icon\"><use href=\"#{icons_path}##{icon_name}\"></use></svg>"
     end
 
+    it 'returns svg icon html + size + variant classes' do
+      expect(sprite_icon(icon_name, size: 72, variant: 'subtle').to_s)
+        .to eq "<svg class=\"s72 gl-fill-icon-subtle\" data-testid=\"#{icon_name}-icon\"><use href=\"#{icons_path}##{icon_name}\"></use></svg>"
+    end
+
     it 'returns svg icon html + size classes + additional class' do
       expect(sprite_icon(icon_name, size: 72, css_class: 'icon-danger').to_s)
         .to eq "<svg class=\"s72 icon-danger\" data-testid=\"#{icon_name}-icon\"><use href=\"#{icons_path}##{icon_name}\"></use></svg>"
@@ -63,6 +68,30 @@ RSpec.describe IconsHelper do
 
       expect(sprite_icon('coffee', file_icon: true).to_s)
         .to eq "<svg class=\"s#{IconsHelper::DEFAULT_ICON_SIZE}\" data-testid=\"coffee-icon\"><use href=\"#{file_icons_path}#coffee\"></use></svg>"
+    end
+
+    context 'with color parameter' do
+      it 'returns svg icon html with inline color style' do
+        expect(sprite_icon(icon_name, color: '#1f75cb').to_s).to include "style=\"fill: #1f75cb;\""
+      end
+
+      it 'returns svg icon html with all parameters including color' do
+        expect(sprite_icon(icon_name, size: 24, css_class: 'test-class', variant: 'danger', color: '#123456', aria_label: 'test label').to_s)
+          .to eq "<svg class=\"s24 gl-fill-icon-danger test-class\" data-testid=\"#{icon_name}-icon\" aria-label=\"test label\" style=\"fill: #123456;\"><use href=\"#{icons_path}##{icon_name}\"></use></svg>"
+      end
+
+      it 'does not add style attribute when color is nil or an empty string' do
+        expect(sprite_icon(icon_name, color: nil).to_s).not_to include "style"
+        expect(sprite_icon(icon_name, color: '').to_s).not_to include "style"
+      end
+
+      it 'caches icons with different colors separately' do
+        icon1 = sprite_icon(icon_name, color: '#ff0000')
+        icon2 = sprite_icon(icon_name, color: '#00ff00')
+
+        expect(icon1.to_s).to include('style="fill: #ff0000;"')
+        expect(icon2.to_s).to include('style="fill: #00ff00;"')
+      end
     end
 
     describe 'non existing icon' do
@@ -123,8 +152,8 @@ RSpec.describe IconsHelper do
   end
 
   describe 'file_type_icon_class' do
-    it 'returns folder-o class' do
-      expect(file_type_icon_class('folder', 0, 'folder_name')).to eq 'folder-o'
+    it 'returns folder class' do
+      expect(file_type_icon_class('folder', 0, 'folder_name')).to eq 'folder'
     end
 
     it 'returns share class' do
@@ -258,7 +287,8 @@ RSpec.describe IconsHelper do
   describe 'gl_loading_icon' do
     it 'returns the default spinner markup' do
       expect(gl_loading_icon.to_s)
-        .to eq '<div class="gl-spinner-container" role="status"><span aria-label="Loading" class="gl-spinner gl-spinner-sm gl-spinner-dark gl-vertical-align-text-bottom!"></span></div>'
+        .to eq '<div class="gl-spinner-container" role="status"><span aria-hidden class="gl-spinner gl-spinner-sm gl-spinner-dark !gl-align-text-bottom"></span><span class="gl-sr-only !gl-absolute">Loading</span>
+</div>'
     end
 
     context 'when css_class is provided' do

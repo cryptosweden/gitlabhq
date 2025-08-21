@@ -7,7 +7,7 @@ RSpec.describe Gitlab::Search::Params, feature_category: :global_search do
 
   let(:search) { 'search' }
   let(:group_id) { 123 }
-  let(:params) { { group_id: 123, search: search } }
+  let(:params) { ActionController::Parameters.new(group_id: 123, search: search) }
   let(:detect_abuse) { true }
 
   describe 'detect_abuse conditional' do
@@ -36,6 +36,38 @@ RSpec.describe Gitlab::Search::Params, feature_category: :global_search do
 
     it 'also works on attr_reader attributes' do
       expect(search_params[:query_string]).to eq(search_params.query_string)
+    end
+  end
+
+  describe '#slice' do
+    let(:controller_params) { ActionController::Parameters.new(group_id: 123, search: search, exclude_forks: true) }
+    let(:params) { described_class.new(controller_params) }
+
+    it 'returns a new params object with only the specified keys' do
+      sliced = params.slice(:exclude_forks, :group_id, :project_id)
+
+      expect(sliced).to be_a(Hash)
+      expect(sliced[:exclude_forks]).to be(true)
+      expect(sliced[:group_id]).to eq(123)
+      expect(sliced[:project_id]).to be_nil
+    end
+
+    it 'works with string keys' do
+      sliced = params.slice('exclude_forks', 'group_id', 'project_id')
+
+      expect(sliced).to be_a(Hash)
+      expect(sliced['exclude_forks']).to be(true)
+      expect(sliced['group_id']).to eq(123)
+      expect(sliced['project_id']).to be_nil
+    end
+
+    it 'handles mixed string and symbol keys' do
+      sliced = params.slice(:exclude_forks, 'group_id')
+
+      expect(sliced).to be_a(Hash)
+      expect(sliced[:exclude_forks]).to be(true)
+      expect(sliced[:group_id]).to eq(123)
+      expect(sliced[:project_id]).to be_nil
     end
   end
 
@@ -91,57 +123,52 @@ RSpec.describe Gitlab::Search::Params, feature_category: :global_search do
     end
   end
 
-  describe '#valid?' do
-    context 'when detect_abuse is disabled' do
-      let(:detect_abuse) { false }
-
-      it 'does NOT validate AbuseDetector' do
-        expect(Gitlab::Search::AbuseDetection).not_to receive(:new)
-        search_params.valid?
-      end
-    end
-
-    it 'validates AbuseDetector on validation' do
-      expect(Gitlab::Search::AbuseDetection).to receive(:new).at_least(:once).and_call_original
-      search_params.valid?
-    end
-  end
-
-  describe 'abuse detection' do
+  describe '#abusive?' do
     let(:abuse_detection) { instance_double(Gitlab::Search::AbuseDetection) }
 
-    before do
-      allow(search_params).to receive(:abuse_detection).and_return abuse_detection
-      allow(abuse_detection).to receive(:errors).and_return abuse_errors
-    end
+    context 'when detect_abuse is false' do
+      let(:detect_abuse) { false }
 
-    context 'when there are abuse validation errors' do
-      let(:abuse_errors) { { foo: ['bar'] } }
-
-      it 'is considered abusive' do
-        expect(search_params).to be_abusive
+      it 'is not considered as abusive' do
+        expect(abuse_detection).not_to receive(:errors)
+        expect(search_params).not_to be_abusive
       end
     end
 
-    context 'when there are NOT any abuse validation errors' do
-      let(:abuse_errors) { {} }
+    context 'when detect_abuse is true' do
+      before do
+        allow(search_params).to receive(:abuse_detection).and_return abuse_detection
+        allow(abuse_detection).to receive(:errors).and_return abuse_errors
+      end
 
-      context 'and there are other validation errors' do
-        it 'is NOT considered abusive' do
-          allow(search_params).to receive(:valid?) do
-            search_params.errors.add :project_id, 'validation error unrelated to abuse'
-            false
-          end
+      context 'when there are abuse validation errors' do
+        let(:abuse_errors) { { foo: ['bar'] } }
 
-          expect(search_params).not_to be_abusive
+        it 'is considered abusive' do
+          expect(search_params).to be_abusive
         end
       end
 
-      context 'and there are NO other validation errors' do
-        it 'is NOT considered abusive' do
-          allow(search_params).to receive(:valid?).and_return(true)
+      context 'when there are NOT any abuse validation errors' do
+        let(:abuse_errors) { {} }
 
-          expect(search_params).not_to be_abusive
+        context 'and there are other validation errors' do
+          it 'is NOT considered abusive' do
+            allow(search_params).to receive(:valid?) do
+              search_params.errors.add :project_id, 'validation error unrelated to abuse'
+              false
+            end
+
+            expect(search_params).not_to be_abusive
+          end
+        end
+
+        context 'and there are NO other validation errors' do
+          it 'is NOT considered abusive' do
+            allow(search_params).to receive(:valid?).and_return(true)
+
+            expect(search_params).not_to be_abusive
+          end
         end
       end
     end
@@ -171,39 +198,44 @@ RSpec.describe Gitlab::Search::Params, feature_category: :global_search do
       end
     end
 
-    describe 'for confidential' do
-      let(:params) { { group_id: 123, search: search, confidential: input } }
+    described_class::BOOLEAN_PARAMS.each do |boolean_param|
+      describe "for #{boolean_param}" do
+        let(:params) { ActionController::Parameters.new(group_id: 123, search: search, boolean_param => input) }
 
-      include_context 'with inputs'
+        include_context 'with inputs'
 
-      with_them do
-        it 'transforms param' do
-          expect(search_params[:confidential]).to eq(expected)
+        with_them do
+          it 'transforms param' do
+            expect(search_params[boolean_param]).to eq(expected)
+          end
         end
       end
     end
+  end
 
-    describe 'for include_archived' do
-      let(:params) { { group_id: 123, search: search, include_archived: input } }
+  describe 'converts not params' do
+    using RSpec::Parameterized::TableSyntax
 
-      include_context 'with inputs'
+    where(:input, :expected_key, :expected_value) do
+      { not: { source_branch: 'good-bye' } }              | 'not_source_branch' | 'good-bye'
+      { not: { label_name: %w[hello-world labelName] } }  | 'not_label_name'    | %w[hello-world labelName]
+      { label_name: %w[hello-world labelName] }           | 'label_name'        | %w[hello-world labelName]
+      { source_branch: 'foo-bar' }                        | 'source_branch'     | 'foo-bar'
+    end
 
-      with_them do
-        it 'transforms param' do
-          expect(search_params[:include_archived]).to eq(expected)
-        end
+    let(:params) { ActionController::Parameters.new(group_id: 123, search: search, **input) }
+
+    with_them do
+      it 'transforms param' do
+        expect(search_params[expected_key]).to eq(expected_value)
       end
     end
 
-    describe 'for include_forked' do
-      let(:params) { { group_id: 123, search: search, include_forked: input } }
+    context 'when not param is not a hash' do
+      let(:params) { ActionController::Parameters.new(group_id: 123, search: search, not: 'test') }
 
-      include_context 'with inputs'
-
-      with_them do
-        it 'transforms param' do
-          expect(search_params[:include_forked]).to eq(expected)
-        end
+      it 'ignores the not param and removes it from params' do
+        expect(search_params['not']).to be_nil
       end
     end
   end

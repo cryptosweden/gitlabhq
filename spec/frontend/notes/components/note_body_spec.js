@@ -1,54 +1,52 @@
-// eslint-disable-next-line no-restricted-imports
-import Vuex from 'vuex';
+import Vue from 'vue';
+import { PiniaVuePlugin } from 'pinia';
+import { createTestingPinia } from '@pinia/testing';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
-
-import { suggestionCommitMessage } from '~/diffs/store/getters';
 import NoteBody from '~/notes/components/note_body.vue';
 import NoteAwardsList from '~/notes/components/note_awards_list.vue';
 import NoteForm from '~/notes/components/note_form.vue';
-import createStore from '~/notes/stores';
-import notes from '~/notes/stores/modules/index';
 import Suggestions from '~/vue_shared/components/markdown/suggestions.vue';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { globalAccessorPlugin } from '~/pinia/plugins';
+import { useNotes } from '~/notes/store/legacy_notes';
+import { useMrNotes } from '~/mr_notes/store/legacy_mr_notes';
 import { noteableDataMock, notesDataMock, note } from '../mock_data';
 
 jest.mock('~/autosave');
 
-const createComponent = ({
-  props = {},
-  noteableData = noteableDataMock,
-  notesData = notesDataMock,
-  store = null,
-} = {}) => {
-  let mockStore;
-
-  if (!store) {
-    mockStore = createStore();
-
-    mockStore.dispatch('setNoteableData', noteableData);
-    mockStore.dispatch('setNotesData', notesData);
-  }
-
-  return shallowMountExtended(NoteBody, {
-    store: mockStore || store,
-    propsData: {
-      note,
-      canEdit: true,
-      canAwardEmoji: true,
-      isEditing: false,
-      ...props,
-    },
-  });
-};
+Vue.use(PiniaVuePlugin);
 
 describe('issue_note_body component', () => {
   let wrapper;
+  let pinia;
+
+  const createComponent = (props = {}) => {
+    wrapper = shallowMountExtended(NoteBody, {
+      pinia,
+      propsData: {
+        note,
+        canEdit: true,
+        canAwardEmoji: true,
+        isEditing: false,
+        ...props,
+      },
+      stubs: {
+        DuoCodeReviewFeedback: true,
+      },
+    });
+  };
 
   beforeEach(() => {
-    wrapper = createComponent();
+    pinia = createTestingPinia({ plugins: [globalAccessorPlugin] });
+    useLegacyDiffs();
+    useNotes().setNoteableData(noteableDataMock);
+    useNotes().setNotesData(notesDataMock);
+    useMrNotes();
+    createComponent();
   });
 
   it('should render the note', () => {
-    expect(wrapper.find('.note-text').html()).toContain(note.note_html);
+    expect(wrapper.text()).toBe(note.note);
   });
 
   it('should render awards list', () => {
@@ -57,17 +55,26 @@ describe('issue_note_body component', () => {
 
   describe('isInternalNote', () => {
     beforeEach(() => {
-      wrapper = createComponent({ props: { isInternalNote: true } });
+      createComponent({ isInternalNote: true });
     });
   });
 
   describe('isEditing', () => {
+    const autosaveKey = 'autosave';
+
     beforeEach(() => {
-      wrapper = createComponent({ props: { isEditing: true } });
+      createComponent({
+        isEditing: true,
+        autosaveKey,
+        restoreFromAutosave: true,
+      });
     });
 
     it('renders edit form', () => {
       expect(wrapper.findComponent(NoteForm).exists()).toBe(true);
+      expect(wrapper.findComponent(NoteForm).props('autosaveKey')).toBe(autosaveKey);
+      expect(wrapper.findComponent(NoteForm).props('autosaveKey')).toBe(autosaveKey);
+      expect(wrapper.findComponent(NoteForm).props('restoreFromAutosave')).toBe(true);
     });
 
     it.each`
@@ -75,7 +82,7 @@ describe('issue_note_body component', () => {
       ${false} | ${'Save comment'}
       ${true}  | ${'Save internal note'}
     `('renders save button with text "$buttonText"', ({ internal, buttonText }) => {
-      wrapper = createComponent({ props: { note: { ...note, internal }, isEditing: true } });
+      createComponent({ note: { ...note, internal }, isEditing: true });
 
       expect(wrapper.findComponent(NoteForm).props('saveButtonTitle')).toBe(buttonText);
     });
@@ -89,43 +96,20 @@ describe('issue_note_body component', () => {
 
   describe('commitMessage', () => {
     beforeEach(() => {
-      const notesStore = notes();
+      useMrNotes().mrMetadata = {
+        branch_name: 'branch',
+        project_path: '/path',
+        project_name: 'name',
+        username: 'user',
+        user_full_name: 'user userton',
+      };
+      useLegacyDiffs().defaultSuggestionCommitMessage =
+        '*** %{branch_name} %{project_path} %{project_name} %{username} %{user_full_name} %{file_paths} %{suggestions_count} %{files_count} %{co_authored_by}';
 
-      notesStore.state.notes = {};
-
-      const store = new Vuex.Store({
-        modules: {
-          notes: notesStore,
-          diffs: {
-            namespaced: true,
-            state: {
-              defaultSuggestionCommitMessage:
-                '*** %{branch_name} %{project_path} %{project_name} %{username} %{user_full_name} %{file_paths} %{suggestions_count} %{files_count} %{co_authored_by}',
-            },
-            getters: { suggestionCommitMessage },
-          },
-          page: {
-            namespaced: true,
-            state: {
-              mrMetadata: {
-                branch_name: 'branch',
-                project_path: '/path',
-                project_name: 'name',
-                username: 'user',
-                user_full_name: 'user userton',
-              },
-            },
-          },
-        },
-      });
-
-      wrapper = createComponent({
-        store,
-        props: {
-          note: { ...note, suggestions: [12345] },
-          canEdit: true,
-          file: { file_path: 'abc' },
-        },
+      createComponent({
+        note: { ...note, suggestions: [12345] },
+        canEdit: true,
+        file: { file_path: 'abc' },
       });
     });
 
@@ -135,6 +119,146 @@ describe('issue_note_body component', () => {
       expect(commitMessage).toBe(
         '*** branch /path name user user userton abc 1 1 Co-authored-by: ...',
       );
+    });
+  });
+
+  describe('duo code review feedback', () => {
+    it.each`
+      userType                 | type                | exists   | existsText
+      ${'duo_code_review_bot'} | ${null}             | ${true}  | ${'renders'}
+      ${'duo_code_review_bot'} | ${'DiscussionNote'} | ${true}  | ${'renders'}
+      ${'duo_code_review_bot'} | ${'DiffNote'}       | ${false} | ${'does not render'}
+      ${'human'}               | ${null}             | ${false} | ${'does not render'}
+    `(
+      '$existsText code review feedback component when author type is "$userType" and note type is "$type"',
+      ({ userType, type, exists }) => {
+        const duoNote = {
+          ...note,
+          id: '1',
+          type,
+          discussion_id: 'discussion1',
+          author: {
+            ...note.author,
+            user_type: userType,
+          },
+        };
+        useNotes().discussions = [{ id: 'discussion1', notes: [duoNote] }];
+
+        createComponent({ note: duoNote });
+
+        expect(wrapper.findByTestId('code-review-feedback').exists()).toBe(exists);
+      },
+    );
+
+    it('does not render if not first note in discussion', () => {
+      const duoNote = {
+        ...note,
+        id: '9',
+        type: 'DiscussionNote',
+        discussion_id: 'discussion1',
+        author: {
+          ...note.author,
+          user_type: 'duo_code_review_bot',
+        },
+      };
+      useNotes().discussions = [{ id: 'discussion1', notes: [note, duoNote] }];
+
+      createComponent({ note: duoNote });
+
+      expect(wrapper.findByTestId('code-review-feedback').exists()).toBe(false);
+    });
+  });
+
+  describe('duo code review feedback text', () => {
+    const createDuoNote = (props = {}) => ({
+      ...note,
+      id: '1',
+      type: 'DiffNote',
+      discussion_id: 'discussion1',
+      author: {
+        ...note.author,
+        user_type: 'duo_code_review_bot',
+      },
+      ...props,
+    });
+
+    it('renders feedback text for the first DiffNote from GitLabDuo', () => {
+      const duoNote = createDuoNote();
+      useNotes().discussions = [{ id: 'discussion1', notes: [duoNote] }];
+
+      createComponent({
+        note: duoNote,
+      });
+
+      const feedbackDiv = wrapper.find('.gl-text-md.gl-mt-4.gl-text-gray-500');
+      expect(feedbackDiv.exists()).toBe(true);
+    });
+
+    it('does not render feedback text for non-DiffNote from GitLabDuo', () => {
+      const duoNote = createDuoNote({ type: 'DiscussionNote' });
+      useNotes().discussions = [{ id: 'discussion1', notes: [duoNote] }];
+
+      createComponent({
+        note: duoNote,
+      });
+
+      const feedbackDiv = wrapper.find('.gl-text-md.gl-mt-4.gl-text-gray-500');
+      expect(feedbackDiv.exists()).toBe(false);
+    });
+
+    it('does not render feedback text for follow-up DiffNote from GitLabDuo', () => {
+      const duoNote = createDuoNote({ id: '2' });
+      useNotes().discussions = [{ id: 'discussion1', notes: [{ id: '1' }, duoNote] }];
+
+      createComponent({
+        note: duoNote,
+      });
+
+      const feedbackDiv = wrapper.find('.gl-text-md.gl-mt-4.gl-text-gray-500');
+      expect(feedbackDiv.exists()).toBe(false);
+    });
+
+    it('shows default awards list with thumbsup and thumbsdown for first DiffNote from GitLabDuo', () => {
+      const duoNote = createDuoNote();
+      useNotes().discussions = [{ id: 'discussion1', notes: [duoNote] }];
+
+      createComponent({
+        note: duoNote,
+      });
+
+      const awardsList = wrapper.findComponent(NoteAwardsList);
+      expect(awardsList.exists()).toBe(true);
+      expect(awardsList.props('defaultAwards')).toEqual(['thumbsup', 'thumbsdown']);
+    });
+
+    it('uses empty default awards list for non-Duo comments', () => {
+      const regularNote = {
+        ...note,
+        id: '1',
+        author: {
+          ...note.author,
+          user_type: 'human',
+        },
+      };
+
+      createComponent({
+        note: regularNote,
+      });
+
+      const awardsList = wrapper.findComponent(NoteAwardsList);
+      expect(awardsList.props('defaultAwards')).toEqual([]);
+    });
+
+    describe('duoFeedbackText computed property', () => {
+      it('returns the expected feedback text', () => {
+        createComponent();
+
+        const result = wrapper.vm.duoFeedbackText;
+        expect(result).toContain('Rate this response');
+        expect(result).toContain('Mention');
+        expect(result).toContain('@GitLabDuo');
+        expect(result).toContain('to continue the conversation.');
+      });
     });
   });
 });

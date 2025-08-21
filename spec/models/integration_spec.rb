@@ -434,20 +434,6 @@ RSpec.describe Integration, feature_category: :integrations do
   end
 
   describe '.build_from_integration' do
-    context 'when integration is invalid' do
-      let(:invalid_integration) do
-        build(:prometheus_integration, :instance, active: true, properties: {})
-          .tap { |integration| integration.save!(validate: false) }
-      end
-
-      it 'sets integration to inactive' do
-        integration = described_class.build_from_integration(invalid_integration, project_id: project.id)
-
-        expect(integration).to be_valid
-        expect(integration.active).to be false
-      end
-    end
-
     context 'when integration is an instance-level integration' do
       let(:instance_integration) { create(:jira_integration, :instance) }
 
@@ -602,7 +588,7 @@ RSpec.describe Integration, feature_category: :integrations do
   end
 
   describe '.create_from_default_integrations' do
-    let!(:instance_integration) { create(:prometheus_integration, :instance, api_url: 'https://prometheus.instance.com/') }
+    let!(:instance_integration) { create(:confluence_integration, :instance, confluence_url: 'https://example.atlassian.net/wiki') }
     let!(:instance_level_instance_specific_integration) { create(:beyond_identity_integration) }
 
     it 'creates integrations from default integrations' do
@@ -628,13 +614,13 @@ RSpec.describe Integration, feature_category: :integrations do
 
   describe '.create_from_active_default_integrations' do
     context 'with an active instance-level integration' do
-      let!(:instance_integration) { create(:prometheus_integration, :instance, api_url: 'https://prometheus.instance.com/') }
+      let!(:instance_integration) { create(:confluence_integration, :instance, confluence_url: 'https://example.atlassian.net/wiki') }
 
       it 'creates an integration from the instance-level integration' do
         described_class.create_from_active_default_integrations(project, :project_id)
 
         expect(project.reload.integrations.size).to eq(1)
-        expect(project.reload.integrations.first.api_url).to eq(instance_integration.api_url)
+        expect(project.reload.integrations.first.confluence_url).to eq(instance_integration.confluence_url)
         expect(project.reload.integrations.first.inherit_from_id).to eq(instance_integration.id)
       end
 
@@ -643,19 +629,19 @@ RSpec.describe Integration, feature_category: :integrations do
           described_class.create_from_active_default_integrations(group, :group_id)
 
           expect(group.reload.integrations.size).to eq(1)
-          expect(group.reload.integrations.first.api_url).to eq(instance_integration.api_url)
+          expect(group.reload.integrations.first.confluence_url).to eq(instance_integration.confluence_url)
           expect(group.reload.integrations.first.inherit_from_id).to eq(instance_integration.id)
         end
       end
 
       context 'with an active group-level integration' do
-        let!(:group_integration) { create(:prometheus_integration, :group, group: group, api_url: 'https://prometheus.group.com/') }
+        let!(:group_integration) { create(:confluence_integration, :group, group: group, confluence_url: 'https://group.atlassian.net/wiki') }
 
         it 'creates an integration from the group-level integration' do
           described_class.create_from_active_default_integrations(project, :project_id)
 
           expect(project.reload.integrations.size).to eq(1)
-          expect(project.reload.integrations.first.api_url).to eq(group_integration.api_url)
+          expect(project.reload.integrations.first.confluence_url).to eq(group_integration.confluence_url)
           expect(project.reload.integrations.first.inherit_from_id).to eq(group_integration.id)
         end
 
@@ -678,7 +664,7 @@ RSpec.describe Integration, feature_category: :integrations do
             described_class.create_from_active_default_integrations(subgroup, :group_id)
 
             expect(subgroup.reload.integrations.size).to eq(1)
-            expect(subgroup.reload.integrations.first.api_url).to eq(group_integration.api_url)
+            expect(subgroup.reload.integrations.first.confluence_url).to eq(group_integration.confluence_url)
             expect(subgroup.reload.integrations.first.inherit_from_id).to eq(group_integration.id)
           end
         end
@@ -687,13 +673,13 @@ RSpec.describe Integration, feature_category: :integrations do
           let_it_be(:subgroup) { create(:group, parent: group) }
           let_it_be(:project) { create(:project, group: subgroup) }
 
-          let!(:subgroup_integration) { create(:prometheus_integration, :group, group: subgroup, api_url: 'https://prometheus.subgroup.com/') }
+          let!(:subgroup_integration) { create(:confluence_integration, :group, group: subgroup, confluence_url: 'https://subgroup.atlassian.net/wiki') }
 
           it 'creates an integration from the subgroup-level integration' do
             described_class.create_from_active_default_integrations(project, :project_id)
 
             expect(project.reload.integrations.size).to eq(1)
-            expect(project.reload.integrations.first.api_url).to eq(subgroup_integration.api_url)
+            expect(project.reload.integrations.first.confluence_url).to eq(subgroup_integration.confluence_url)
             expect(project.reload.integrations.first.inherit_from_id).to eq(subgroup_integration.id)
           end
 
@@ -708,14 +694,14 @@ RSpec.describe Integration, feature_category: :integrations do
                   sub_subgroup.reload
 
                   expect(sub_subgroup.integrations.size).to eq(1)
-                  expect(sub_subgroup.integrations.first.api_url).to eq(subgroup_integration.api_url)
+                  expect(sub_subgroup.integrations.first.confluence_url).to eq(subgroup_integration.confluence_url)
                   expect(sub_subgroup.integrations.first.inherit_from_id).to eq(subgroup_integration.id)
                 end
 
                 context 'when having an integration inheriting settings' do
                   let!(:subgroup_integration) do
-                    create(:prometheus_integration, :group, group: subgroup, inherit_from_id: group_integration.id,
-                      api_url: 'https://prometheus.subgroup.com/')
+                    create(:confluence_integration, :group, group: subgroup, inherit_from_id: group_integration.id,
+                      confluence_url: 'https://subgroup.atlassian.net/wiki')
                   end
 
                   it 'creates an integration from the group-level integration' do
@@ -724,7 +710,7 @@ RSpec.describe Integration, feature_category: :integrations do
                     sub_subgroup.reload
 
                     expect(sub_subgroup.integrations.size).to eq(1)
-                    expect(sub_subgroup.integrations.first.api_url).to eq(group_integration.api_url)
+                    expect(sub_subgroup.integrations.first.confluence_url).to eq(group_integration.confluence_url)
                     expect(sub_subgroup.integrations.first.inherit_from_id).to eq(group_integration.id)
                   end
                 end
@@ -852,7 +838,7 @@ RSpec.describe Integration, feature_category: :integrations do
       end
 
       context 'when the integration is not instance specific' do
-        let!(:instance_integration) { create(:prometheus_integration, :instance) }
+        let!(:instance_integration) { create(:confluence_integration, :instance) }
 
         it 'does not create an integration from the instance level instance specific integration' do
           described_class.create_from_default_instance_specific_integrations(project, :project_id)
@@ -868,18 +854,18 @@ RSpec.describe Integration, feature_category: :integrations do
     let_it_be(:subgroup_2) { create(:group, parent: group) }
     let_it_be(:project_1) { create(:project, group: subgroup_1) }
     let_it_be(:project_2) { create(:project, group: subgroup_2) }
-    let_it_be(:group_integration) { create(:prometheus_integration, :group, group: group) }
+    let_it_be(:group_integration) { create(:confluence_integration, :group, group: group) }
     let_it_be(:subgroup_integration_1) do
-      create(:prometheus_integration, :group, group: subgroup_1, inherit_from_id: group_integration.id)
+      create(:confluence_integration, :group, group: subgroup_1, inherit_from_id: group_integration.id)
     end
 
-    let_it_be(:subgroup_integration_2) { create(:prometheus_integration, :group, group: subgroup_2) }
+    let_it_be(:subgroup_integration_2) { create(:confluence_integration, :group, group: subgroup_2) }
     let_it_be(:project_integration_1) do
-      create(:prometheus_integration, project: project_1, inherit_from_id: group_integration.id)
+      create(:confluence_integration, project: project_1, inherit_from_id: group_integration.id)
     end
 
     let_it_be(:project_integration_2) do
-      create(:prometheus_integration, project: project_2, inherit_from_id: subgroup_integration_2.id)
+      create(:confluence_integration, project: project_2, inherit_from_id: subgroup_integration_2.id)
     end
 
     it 'returns the groups and projects inheriting from integration ancestors', :aggregate_failures do
@@ -894,13 +880,13 @@ RSpec.describe Integration, feature_category: :integrations do
     let_it_be(:project) { create(:project, :in_subgroup) }
     let(:group) { project.root_namespace }
     let(:subgroup) { project.group }
-    let!(:group_integration) { create(:prometheus_integration, :group, group: group) }
+    let!(:group_integration) { create(:confluence_integration, :group, group: group) }
     let!(:subgroup_integration) do
-      create(:prometheus_integration, :group, group: subgroup, inherit_from_id: group_integration.id)
+      create(:confluence_integration, :group, group: subgroup, inherit_from_id: group_integration.id)
     end
 
     let!(:project_custom_settings_integration) do
-      create(:prometheus_integration, project: project, inherit_from_id: nil)
+      create(:confluence_integration, project: project, inherit_from_id: nil)
     end
 
     it 'returns integrations for descendants of the group of the integration' do
@@ -1271,37 +1257,65 @@ RSpec.describe Integration, feature_category: :integrations do
   describe '.available_integration_names' do
     subject { described_class.available_integration_names }
 
+    it { is_expected.not_to include('jira_cloud_app') }
+
+    context 'when instance is configured for Jira Cloud app' do
+      before do
+        stub_application_setting(jira_connect_application_key: 'mock_app_oauth_key')
+      end
+
+      it { is_expected.to include('jira_cloud_app') }
+    end
+  end
+
+  describe '.available_integration_names (stubbed)' do
+    subject { described_class.available_integration_names }
+
     before do
       allow(described_class).to receive_messages(
         integration_names: %w[foo disabled],
-        project_specific_integration_names: ['bar'],
-        dev_integration_names: ['baz'],
-        instance_specific_integration_names: ['instance-specific'],
+        project_specific_integration_names: ['project'],
+        project_and_group_specific_integration_names: ['project-and-group'],
+        dev_integration_names: ['dev'],
+        instance_specific_integration_names: ['instance'],
         disabled_integration_names: ['disabled']
       )
     end
 
-    it { is_expected.to include('foo', 'bar', 'baz') }
+    it { is_expected.to include('foo', 'project', 'project-and-group', 'instance', 'dev') }
+    it { is_expected.not_to include('disabled') }
 
     context 'when `include_project_specific` is false' do
       subject { described_class.available_integration_names(include_project_specific: false) }
 
-      it { is_expected.to include('foo', 'baz', 'instance-specific') }
-      it { is_expected.not_to include('bar', 'disabled') }
+      it { is_expected.to include('foo', 'dev', 'project-and-group', 'instance') }
+      it { is_expected.not_to include('project', 'disabled') }
     end
 
     context 'when `include_dev` is false' do
       subject { described_class.available_integration_names(include_dev: false) }
 
-      it { is_expected.to include('foo', 'bar', 'instance-specific') }
-      it { is_expected.not_to include('baz', 'disabled') }
+      it { is_expected.to include('foo', 'project', 'project-and-group', 'instance') }
+      it { is_expected.not_to include('dev', 'disabled') }
     end
 
     context 'when `include_instance_specific` is false' do
       subject { described_class.available_integration_names(include_instance_specific: false) }
 
-      it { is_expected.to include('foo', 'baz', 'bar') }
-      it { is_expected.not_to include('instance-specific', 'disabled') }
+      it { is_expected.to include('foo', 'dev', 'project', 'project-and-group') }
+      it { is_expected.not_to include('instance', 'disabled') }
+    end
+
+    context 'when `include_project_specific` and `include_group_specific` are false' do
+      subject do
+        described_class.available_integration_names(
+          include_project_specific: false,
+          include_group_specific: false
+        )
+      end
+
+      it { is_expected.to include('foo', 'dev', 'instance') }
+      it { is_expected.not_to include('project', 'project-and-group', 'disabled') }
     end
 
     context 'when `include_disabled` is true' do
@@ -1314,7 +1328,7 @@ RSpec.describe Integration, feature_category: :integrations do
   describe '.integration_names' do
     subject { described_class.integration_names }
 
-    it { is_expected.to include(*described_class::INTEGRATION_NAMES) }
+    it { is_expected.to include(*described_class::INTEGRATION_NAMES - ['jira_cloud_app']) }
     it { is_expected.to include('gitlab_slack_application') }
 
     context 'when Rails.env is not test' do
@@ -1330,14 +1344,6 @@ RSpec.describe Integration, feature_category: :integrations do
         end
 
         it { is_expected.to include('gitlab_slack_application') }
-
-        context 'when feature flag is disabled' do
-          before do
-            stub_feature_flags(gitlab_for_slack_app_instance_and_group_level: false)
-          end
-
-          it { is_expected.not_to include('gitlab_slack_application') }
-        end
       end
     end
   end
@@ -1345,40 +1351,32 @@ RSpec.describe Integration, feature_category: :integrations do
   describe '.project_specific_integration_names' do
     subject { described_class.project_specific_integration_names }
 
-    it { is_expected.to include(*described_class::PROJECT_SPECIFIC_INTEGRATION_NAMES) }
-    it { is_expected.not_to include('gitlab_slack_application') }
+    it { is_expected.to include(*described_class::PROJECT_LEVEL_ONLY_INTEGRATION_NAMES) }
+  end
 
-    context 'when feature flag is disabled' do
-      before do
-        stub_feature_flags(gitlab_for_slack_app_instance_and_group_level: false)
-      end
+  describe '.all_integration_names' do
+    subject(:names) { described_class.all_integration_names }
 
-      it { is_expected.to include('gitlab_slack_application') }
-
-      context 'when Rails.env is not test' do
-        before do
-          allow(Rails.env).to receive(:test?).and_return(false)
-        end
-
-        it { is_expected.not_to include('gitlab_slack_application') }
-
-        context 'when `slack_app_enabled` setting is enabled' do
-          before do
-            stub_application_setting(slack_app_enabled: true)
-          end
-
-          it { is_expected.to include('gitlab_slack_application') }
-        end
-      end
+    it 'includes project-specific integrations' do
+      expect(names).to include(*described_class::PROJECT_LEVEL_ONLY_INTEGRATION_NAMES)
     end
 
-    context 'when Rails.env is not test and `slack_app_enabled` setting is enabled' do
-      before do
-        allow(Rails.env).to receive(:test?).and_return(false)
-        stub_application_setting(slack_app_enabled: true)
-      end
+    it 'includes group-specific integrations' do
+      expect(names).to include(*described_class::PROJECT_AND_GROUP_LEVEL_ONLY_INTEGRATION_NAMES)
+    end
 
-      it { is_expected.not_to include('gitlab_slack_application') }
+    it 'includes instance-specific integrations' do
+      expect(names).to include(*described_class::INSTANCE_LEVEL_ONLY_INTEGRATION_NAMES)
+    end
+
+    it 'includes development-specific integrations' do
+      expect(names).to include(*described_class::DEV_INTEGRATION_NAMES)
+    end
+
+    it 'includes disabled integrations' do
+      allow(described_class).to receive(:disabled_integration_names).and_return(Integrations::Asana.to_param)
+
+      expect(names).to include(Integrations::Asana.to_param)
     end
   end
 
@@ -1434,10 +1432,12 @@ RSpec.describe Integration, feature_category: :integrations do
       expect(hash['encrypted_properties']).not_to eq(record.encrypted_properties)
       expect(hash['encrypted_properties_iv']).not_to eq(record.encrypted_properties_iv)
 
-      decrypted = described_class.attr_decrypt(
+      options = record.send(:evaluated_attr_encrypted_options_for, :properties)
+        .merge(iv: hash['encrypted_properties_iv'])
+      decrypted = described_class.attr_encrypted_decrypt(
         :properties,
         hash['encrypted_properties'],
-        { iv: hash['encrypted_properties_iv'] }
+        options
       )
 
       expect(decrypted).to eq db_props
@@ -1674,9 +1674,7 @@ RSpec.describe Integration, feature_category: :integrations do
   end
 
   describe '#async_execute' do
-    let(:integration) { described_class.new(id: 123) }
-    let(:data) { { object_kind: 'build' } }
-    let(:serialized_data) { data.deep_stringify_keys }
+    let(:integration) { build(:jenkins_integration, id: 123) }
     let(:supported_events) { %w[push build] }
 
     subject(:async_execute) { integration.async_execute(data) }
@@ -1685,14 +1683,48 @@ RSpec.describe Integration, feature_category: :integrations do
       allow(integration).to receive(:supported_events).and_return(supported_events)
     end
 
-    it 'queues a Integrations::ExecuteWorker' do
-      expect(Integrations::ExecuteWorker).to receive(:perform_async).with(integration.id, serialized_data)
+    where(:data) do
+      [
+        { object_kind: 'build' },
+        { object_kind: :build },
+        { 'object_kind' => 'build' },
+        { 'object_kind' => :build }
+      ]
+    end
 
-      async_execute
+    with_them do
+      it 'queues a Integrations::ExecuteWorker' do
+        expect(Integrations::ExecuteWorker).to receive(:perform_async).with(integration.id, data.deep_stringify_keys)
+
+        async_execute
+      end
     end
 
     context 'when the event is not supported' do
+      let(:data) { { object_kind: 'build' } }
       let(:supported_events) { %w[issue] }
+
+      it 'does not queue a worker' do
+        expect(Integrations::ExecuteWorker).not_to receive(:perform_async)
+
+        async_execute
+      end
+
+      it 'writes a log' do
+        expect(Gitlab::IntegrationsLogger).to receive(:info).with(
+          hash_including(
+            message: 'async_execute did nothing due to event not being supported',
+            integration_class: 'Integrations::Jenkins',
+            event: 'build'
+          )
+        ).and_call_original
+
+        async_execute
+      end
+    end
+
+    context 'when object_kind is missing from data' do
+      let(:data) { {} }
 
       it 'does not queue a worker' do
         expect(Integrations::ExecuteWorker).not_to receive(:perform_async)
@@ -1702,8 +1734,24 @@ RSpec.describe Integration, feature_category: :integrations do
     end
 
     context 'when the Gitlab::SilentMode is enabled' do
+      let(:data) { { object_kind: 'build' } }
+
       before do
         allow(Gitlab::SilentMode).to receive(:enabled?).and_return(true)
+      end
+
+      it 'does not queue a worker' do
+        expect(Integrations::ExecuteWorker).not_to receive(:perform_async)
+
+        async_execute
+      end
+    end
+
+    context 'when integration is not active' do
+      let(:data) { { object_kind: 'build' } }
+
+      before do
+        integration.active = false
       end
 
       it 'does not queue a worker' do
@@ -1717,6 +1765,6 @@ RSpec.describe Integration, feature_category: :integrations do
   describe '.instance_specific_integration_types' do
     subject { described_class.instance_specific_integration_types }
 
-    it { is_expected.to eq(['Integrations::BeyondIdentity']) }
+    it { is_expected.to include('Integrations::BeyondIdentity') }
   end
 end

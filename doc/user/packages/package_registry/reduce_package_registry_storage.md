@@ -2,96 +2,128 @@
 stage: Package
 group: Package Registry
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Reduce package registry storage
 ---
 
-# Reduce package registry storage
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-Without cleanup, package registries become large over time. When a large number of packages and
-their assets are added:
+{{< /details >}}
 
-- Fetching the list of packages becomes slower.
-- They take up a large amount of storage space on the server, impacting your [storage usage quota](../../usage_quotas.md).
+Package registries accumulate packages and their assets over time. Without regular cleanup:
 
-We recommend deleting unnecessary packages and assets. This page offers examples of how to do so.
+- Package lists take longer to fetch, which impacts CI/CD pipeline performance
+- Servers allocate more storage space to unused or old packages
+- Users might struggle to find relevant packages among numerous outdated package versions
 
-## Check package registry storage use
+You should implement a regular cleanup strategy to reduce package registry bloat and free up storage.
 
-The Usage Quotas page (**Settings > Usage Quotas > Storage**) displays storage usage for Packages.
+## Review package registry storage use
+
+To review the storage **Usage breakdown**:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Usage quotas**.
+1. From the **Usage quotas** page, review the **Usage breakdown** for packages.
 
 ## Delete a package
 
 You cannot edit a package after you publish it in the package registry. Instead, you
-must delete and recreate it.
+must delete the package and republish it.
 
-To delete a package, you must have suitable [permissions](../../permissions.md).
+Prerequisites:
 
-You can delete packages by using [the API](../../../api/packages.md#delete-a-project-package) or the UI.
+- You must have at least the Maintainer role.
 
-To delete a package in the UI, from your group or project:
+To delete a package:
 
-1. Go to **Deploy > Package Registry**.
-1. Find the name of the package you want to delete.
+1. On the left sidebar, select **Search or go to** and find your project or group.
+1. Select **Deploy > Package registry**.
+1. From the **Package registry** page, select the package you want to delete.
+   - Or, from the **Package registry** page,
+   select the vertical ellipsis ({{< icon name="ellipsis_v" >}})
+   and select **Delete package**.
 1. Select **Delete**.
 
 The package is permanently deleted.
 
-If [request forwarding](supported_functionality.md#forwarding-requests) is enabled,
-deleting a package can introduce a [dependency confusion risk](supported_functionality.md#deleting-packages).
+To delete a package, you can also use [the API](../../../api/packages.md#delete-a-project-package).
 
-## Delete assets associated with a package
+{{< alert type="note" >}}
 
-To delete package assets, you must have suitable [permissions](../../permissions.md).
+You can introduce a [dependency confusion risk](supported_functionality.md#deleting-packages)
+if you delete a package while
+[request forwarding](supported_functionality.md#forwarding-requests) is enabled.
 
-You can delete packages by using [the API](../../../api/packages.md#delete-a-package-file) or the UI.
+{{< /alert >}}
 
-To delete package assets in the UI, from your group or project:
+## Delete package assets
 
-1. Go to **Deploy > Package Registry**.
-1. Find the name of the package you want to delete.
-1. Select the package to view additional details.
-1. Find the name of the assets you would like to delete.
-1. Expand the ellipsis and select **Delete asset**.
+Delete assets associated with a package to reduce storage.
+
+Prerequisites:
+
+- You must have at least the Developer role.
+
+To delete package assets:
+
+1. On the left sidebar, select **Search or go to** and find your project or group.
+1. Select **Deploy > Package registry**.
+1. From the **Package registry** page, select a package to view additional details.
+1. From the **Assets** table, find the name of the assets you want to delete.
+1. Select the vertical ellipsis ({{< icon name="ellipsis_v" >}}) and select **Delete asset**.
 
 The package assets are permanently deleted.
 
+To delete a package, you can also use [the API](../../../api/packages.md#delete-a-package-file).
+
 ## Cleanup policy
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/346153) in GitLab 15.2.
+{{< history >}}
 
-Depending on the number of packages to remove, the process of manually deleting the packages can take a long time to finish.
-A cleanup policy defines a set of rules that, applied to a project, defines which package assets you can automatically delete.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/346153) in GitLab 15.2.
+
+{{< /history >}}
+
+When you upload a package with the same name and version to the package registry,
+more assets are added to the package.
+
+To save storage space, you should keep only the most recent assets. Use a cleanup policy
+to define rules that automatically delete package assets in a project so you do not
+have to delete them manually.
 
 ### Enable the cleanup policy
 
+Prerequisites:
+
+- You must have at least the Maintainer role.
+
 By default, the packages cleanup policy is disabled. To enable it:
 
-1. Go to your project **Settings > Packages and registries**.
-1. Expand **Manage storage used by package assets**.
-1. Set the rules appropriately.
-
-NOTE:
-To access these project settings, you must be at least a maintainer on the related project.
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Packages and registries**.
+1. Expand **Package registry**.
+1. Under **Manage storage used by package assets**, set the rules appropriately.
 
 ### Available rules
 
-- `Number of duplicated assets to keep`: The number of duplicated assets to keep. Some package formats allow you
-  to upload more than one copy of an asset. You can limit the number of duplicated assets to keep and automatically
-  delete the oldest assets once the limit is reached. Unique filenames, such as those produced by Maven snapshots, are not considered when evaluating the number of duplicated assets to keep.
+- `Number of duplicated assets to keep`: Some package formats support multiple copies of the same asset.
+You can set a limit on how many duplicated assets to keep.
+When the limit is reached, the oldest assets are automatically deleted.
+Unique filenames, like those produced by Maven snapshots, are not counted as duplicated assets.
 
-  `Number of duplicated assets to keep` has a [fixed cadence of 12 hours](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/models/packages/cleanup/policy.rb).
+- `Number of duplicated assets to keep` runs [every 12 hours](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/models/packages/cleanup/policy.rb).
 
 ### Set cleanup limits to conserve resources
 
-A background process executes the package-cleanup policies. This process can take a long time to finish and consumes
-server resources while it is running.
+A background process executes the package cleanup policies. This process can take a long time to finish and consumes
+server resources while it runs.
 
-You can use the following setting to limit the number of cleanup workers:
+Use the following setting to limit the number of cleanup workers:
 
 - `package_registry_cleanup_policies_worker_capacity`: the maximum number of cleanup workers running concurrently.
   This number must be greater than or equal to `0`.
-  We recommend starting with a low number and increasing it after monitoring the resources used by the background workers.
-  To remove all workers and not execute the cleanup policies, set this to `0`. The default value is `2`.
+  You should start with a low number and increase it after monitoring the resources used by the background workers.
+  To remove all workers and not execute the cleanup policies, set this setting to `0`. The default value is `2`.

@@ -2,8 +2,8 @@
 
 require 'spec_helper'
 
-RSpec.describe Organizations::OrganizationPolicy, feature_category: :cell do
-  let_it_be_with_refind(:private_organization) { create(:organization) }
+RSpec.describe Organizations::OrganizationPolicy, feature_category: :organization do
+  let_it_be_with_refind(:private_organization) { create(:organization, :private) }
   let_it_be_with_refind(:organization) { private_organization }
   let_it_be(:public_organization) { create(:organization, :public) }
   let_it_be(:current_user) { create :user }
@@ -59,7 +59,7 @@ RSpec.describe Organizations::OrganizationPolicy, feature_category: :cell do
     it { is_expected.to be_disallowed(:admin_organization) }
     it { is_expected.to be_allowed(:create_group) }
     it { is_expected.to be_allowed(:read_organization) }
-    it { is_expected.to be_allowed(:read_organization_user) }
+    it { is_expected.to be_disallowed(:read_organization_user) }
   end
 
   context 'when the user is an owner of the organization' do

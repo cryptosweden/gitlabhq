@@ -1,9 +1,9 @@
-import { GlEmptyState, GlLoadingIcon, GlAlert } from '@gitlab/ui';
+import { GlEmptyState, GlAlert, GlFormCheckbox } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
 
 import VueApollo, { ApolloMutation } from 'vue-apollo';
 import VueRouter from 'vue-router';
-import { GlBreakpointInstance as breakpointInstance } from '@gitlab/ui/dist/utils';
+import { GlBreakpointInstance as breakpointInstance } from '@gitlab/ui/src/utils';
 import VueDraggable from 'vuedraggable';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
@@ -19,6 +19,7 @@ import uploadDesignMutation from '~/design_management/graphql/mutations/upload_d
 import Index, { i18n } from '~/design_management/pages/index.vue';
 import createRouter from '~/design_management/router';
 import { DESIGNS_ROUTE_NAME } from '~/design_management/router/constants';
+import CrudComponent from '~/vue_shared/components/crud_component.vue';
 import * as utils from '~/design_management/utils/design_management_utils';
 import {
   EXISTING_DESIGN_DROP_MANY_FILES_MESSAGE,
@@ -102,7 +103,7 @@ describe('Design management index page', () => {
   let moveDesignHandler;
   let permissionsQueryHandler;
 
-  const findDesignCheckboxes = () => wrapper.findAll('.design-checkbox');
+  const findDesignCheckboxes = () => wrapper.findAllComponents(GlFormCheckbox);
   const findSelectAllButton = () => wrapper.findByTestId('select-all-designs-button');
   const findToolbar = () => wrapper.findByTestId('design-selector-toolbar');
   const findDesignCollectionIsCopying = () => wrapper.findByTestId('design-collection-is-copying');
@@ -117,7 +118,7 @@ describe('Design management index page', () => {
   const findDesignUploadButton = () => wrapper.findByTestId('design-upload-button');
   const findDesignToolbarWrapper = () => wrapper.findByTestId('design-toolbar-wrapper');
   const findDesignUpdateAlert = () => wrapper.findByTestId('design-update-alert');
-  const findLoadinIcon = () => wrapper.findComponent(GlLoadingIcon);
+  const findCrudComponent = () => wrapper.findComponent(CrudComponent);
   const findAlert = () => wrapper.findComponent(GlAlert);
 
   async function moveDesigns(localWrapper) {
@@ -165,7 +166,13 @@ describe('Design management index page', () => {
       },
       mocks: { $apollo },
       router,
-      stubs: { DesignDestroyer, ApolloMutation, VueDraggable, ...stubs },
+      stubs: {
+        CrudComponent,
+        DesignDestroyer,
+        ApolloMutation,
+        VueDraggable,
+        ...stubs,
+      },
       attachTo: document.body,
       provide: {
         projectPath: 'project-path',
@@ -204,14 +211,14 @@ describe('Design management index page', () => {
   }
 
   describe('designs', () => {
-    it('renders loading icon', () => {
+    it('sets loading prop', () => {
       createComponent({ loading: true });
-      expect(findLoadinIcon().exists()).toBe(true);
+      expect(findCrudComponent().props('isLoading')).toBe(true);
     });
 
     it('renders a toolbar with buttons when there are designs', () => {
       createComponent({ allVersions: [mockVersion] });
-      expect(findLoadinIcon().exists()).toBe(false);
+      expect(findCrudComponent().props('isLoading')).toBe(false);
       expect(findToolbar().exists()).toBe(true);
     });
 
@@ -219,7 +226,7 @@ describe('Design management index page', () => {
       createComponent({ allVersions: [mockVersion] });
 
       expect(findDesignsWrapper().exists()).toBe(true);
-      expect(findDesigns().length).toBe(3);
+      expect(findDesigns()).toHaveLength(3);
       expect(findDesignToolbarWrapper().exists()).toBe(true);
       expect(findDesignUploadButton().exists()).toBe(true);
     });
@@ -232,7 +239,7 @@ describe('Design management index page', () => {
     it('has correct classes applied to dropzone wrapper', () => {
       createComponent({ designs: mockDesigns, allVersions: [mockVersion] });
       expect(findDropzoneWrapper().classes()).toEqual([
-        'gl-flex-direction-column',
+        'gl-flex-col',
         'col-md-6',
         'col-lg-3',
         'gl-mt-5',
@@ -539,10 +546,10 @@ describe('Design management index page', () => {
     });
 
     it('adds two designs to selected designs when their checkboxes are checked', async () => {
-      findDesignCheckboxes().at(0).trigger('click');
+      findDesignCheckboxes().at(0).vm.$emit('change');
 
       await nextTick();
-      findDesignCheckboxes().at(1).trigger('click');
+      findDesignCheckboxes().at(1).vm.$emit('change');
 
       await nextTick();
       expect(findDeleteButton().exists()).toBe(true);
@@ -564,7 +571,7 @@ describe('Design management index page', () => {
     });
 
     it('removes all designs from selected designs when at least one design was selected', async () => {
-      findDesignCheckboxes().at(0).trigger('click');
+      findDesignCheckboxes().at(0).vm.$emit('change');
       await nextTick();
 
       findSelectAllButton().vm.$emit('click');

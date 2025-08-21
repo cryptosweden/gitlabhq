@@ -18,7 +18,6 @@ module Labels
       # rubocop: disable CodeReuse/ActiveRecord
       link_ids = group_labels_applied_to_issues.pluck("label_links.id") +
         group_labels_applied_to_merge_requests.pluck("label_links.id")
-      # rubocop: disable CodeReuse/ActiveRecord
 
       Label.transaction do
         labels_to_transfer.find_each do |label|
@@ -36,14 +35,13 @@ module Labels
 
     attr_reader :current_user, :old_group, :project
 
-    # rubocop: disable CodeReuse/ActiveRecord
     def labels_to_transfer
       Label
         .from_union([
           group_labels_applied_to_issues,
           group_labels_applied_to_merge_requests
         ])
-        .reorder(nil)
+        .without_order
         .distinct
     end
     # rubocop: enable CodeReuse/ActiveRecord
@@ -52,7 +50,7 @@ module Labels
     def group_labels_applied_to_issues
       @labels_applied_to_issues ||= Label.joins(:issues)
         .joins("INNER JOIN namespaces on namespaces.id = labels.group_id AND namespaces.type = 'Group'")
-        .where(issues: { project_id: project.id }).reorder(nil)
+        .where(issues: { project_id: project.id }).without_order
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
@@ -60,13 +58,17 @@ module Labels
     def group_labels_applied_to_merge_requests
       @labels_applied_to_mrs ||= Label.joins(:merge_requests)
         .joins("INNER JOIN namespaces on namespaces.id = labels.group_id AND namespaces.type = 'Group'")
-        .where(merge_requests: { target_project_id: project.id }).reorder(nil)
+        .where(merge_requests: { target_project_id: project.id }).without_order
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
     def find_or_create_label!(label)
       params    = label.attributes.slice('title', 'description', 'color')
-      new_label = FindOrCreateService.new(current_user, project, params.merge(include_ancestor_groups: true)).execute
+      new_label = FindOrCreateService.new(
+        current_user,
+        project,
+        params.merge(include_ancestor_groups: true)
+      ).execute(skip_authorization: true)
 
       new_label.id
     end

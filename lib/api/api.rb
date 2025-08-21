@@ -5,6 +5,8 @@ module API
     include APIGuard
     include Helpers::OpenApi
 
+    use ::Gitlab::Middleware::IpAddress
+
     LOG_FILENAME = Rails.root.join("log", "api_json.log")
 
     NO_SLASH_URL_PART_REGEX = %r{[^/]+}
@@ -43,8 +45,7 @@ module API
         Gitlab::GrapeLogging::Loggers::CorrelationIdLogger.new,
         Gitlab::GrapeLogging::Loggers::ContextLogger.new,
         Gitlab::GrapeLogging::Loggers::ContentLogger.new,
-        Gitlab::GrapeLogging::Loggers::UrgencyLogger.new,
-        Gitlab::GrapeLogging::Loggers::ResponseLogger.new
+        Gitlab::GrapeLogging::Loggers::UrgencyLogger.new
       ]
 
     allow_access_with_scope :api
@@ -86,8 +87,11 @@ module API
         runner: -> { @current_runner || @runner },
         remote_ip: request.ip,
         caller_id: api_endpoint.endpoint_id,
-        feature_category: feature_category
+        feature_category: feature_category,
+        **http_router_rule_context
       )
+
+      increment_http_router_metrics
     end
 
     before do
@@ -193,6 +197,8 @@ module API
     helpers ::API::Helpers::CommonHelpers
     helpers ::API::Helpers::PerformanceBarHelpers
     helpers ::API::Helpers::RateLimiter
+    helpers Gitlab::HttpRouter::RuleContext
+    helpers Gitlab::HttpRouter::RuleMetrics
 
     namespace do
       after do
@@ -210,13 +216,16 @@ module API
         mount ::API::Admin::InstanceClusters
         mount ::API::Admin::Migrations
         mount ::API::Admin::PlanLimits
+        mount ::API::Admin::Token
         mount ::API::AlertManagementAlerts
         mount ::API::Appearance
         mount ::API::Applications
         mount ::API::Avatar
+        mount ::API::AwardEmoji
         mount ::API::Badges
         mount ::API::Branches
         mount ::API::BulkImports
+        mount ::API::Ci::Catalog
         mount ::API::Ci::JobArtifacts
         mount ::API::Groups
         mount ::API::Ci::Jobs
@@ -228,13 +237,16 @@ module API
         mount ::API::Ci::PipelineSchedules
         mount ::API::Ci::Triggers
         mount ::API::Ci::Variables
+        mount ::API::ClusterDiscovery
         mount ::API::Clusters::AgentTokens
         mount ::API::Clusters::Agents
+        mount ::API::CargoProjectPackages
         mount ::API::Commits
         mount ::API::CommitStatuses
         mount ::API::ComposerPackages
-        mount ::API::ConanInstancePackages
-        mount ::API::ConanProjectPackages
+        mount ::API::Conan::V1::InstancePackages
+        mount ::API::Conan::V1::ProjectPackages
+        mount ::API::Conan::V2::ProjectPackages
         mount ::API::ContainerRegistryEvent
         mount ::API::ContainerRepositories
         mount ::API::DebianGroupPackages
@@ -263,6 +275,7 @@ module API
         mount ::API::GroupExport
         mount ::API::GroupImport
         mount ::API::GroupPackages
+        mount ::API::GroupPlaceholderReassignments
         mount ::API::GroupVariables
         mount ::API::HelmPackages
         mount ::API::ImportBitbucket
@@ -285,8 +298,6 @@ module API
         mount ::API::MergeRequests
         mount ::API::MergeRequestDiffs
         mount ::API::Metadata
-        mount ::API::Metrics::Dashboard::Annotations
-        mount ::API::Metrics::UserStarredDashboards
         mount ::API::MlModelPackages
         mount ::API::Namespaces
         mount ::API::NpmGroupPackages
@@ -294,6 +305,7 @@ module API
         mount ::API::NpmProjectPackages
         mount ::API::NugetGroupPackages
         mount ::API::NugetProjectPackages
+        mount ::API::Organizations
         mount ::API::PackageFiles
         mount ::API::Pages
         mount ::API::PagesDomains
@@ -312,7 +324,6 @@ module API
         mount ::API::ProjectJobTokenScope
         mount ::API::ProjectPackages
         mount ::API::ProjectPackagesProtectionRules
-        mount ::API::ProjectRepositoryStorageMoves
         mount ::API::ProjectSnapshots
         mount ::API::ProjectSnippets
         mount ::API::ProjectStatistics
@@ -325,12 +336,11 @@ module API
         mount ::API::Release::Links
         mount ::API::RemoteMirrors
         mount ::API::Repositories
-        mount ::API::ResourceAccessTokens
+        mount ::API::ResourceAccessTokens::SelfRotation
         mount ::API::ResourceMilestoneEvents
         mount ::API::RpmProjectPackages
         mount ::API::RubygemPackages
         mount ::API::Snippets
-        mount ::API::SnippetRepositoryStorageMoves
         mount ::API::Statistics
         mount ::API::Submodules
         mount ::API::Suggestions
@@ -343,11 +353,13 @@ module API
         mount ::API::Topics
         mount ::API::Unleash
         mount ::API::UsageData
+        mount ::API::UsageDataServicePing
+        mount ::API::UsageDataTrack
         mount ::API::UsageDataNonSqlMetrics
         mount ::API::UsageDataQueries
-        mount ::API::Users
         mount ::API::UserCounts
         mount ::API::UserRunners
+        mount ::API::WebCommits
         mount ::API::Wikis
 
         add_open_api_documentation!
@@ -355,7 +367,6 @@ module API
 
       # Keep in alphabetical order
       mount ::API::Admin::Sidekiq
-      mount ::API::AwardEmoji
       mount ::API::Boards
       mount ::API::Ci::Pipelines
       mount ::API::Ci::PipelineSchedules
@@ -366,26 +377,35 @@ module API
       mount ::API::GroupMilestones
       mount ::API::Issues
       mount ::API::Labels
+      mount ::API::Mcp::Base # MCP uses JSON-RPC for base protocol, omit from OpenAPI V2 documentation for REST API
       mount ::API::Notes
       mount ::API::NotificationSettings
       mount ::API::ProjectEvents
       mount ::API::ProjectMilestones
+      mount ::API::ProjectRepositoryStorageMoves
       mount ::API::ProtectedTags
+      mount ::API::ResourceAccessTokens
       mount ::API::ResourceLabelEvents
       mount ::API::ResourceStateEvents
       mount ::API::Search
       mount ::API::Settings
       mount ::API::SidekiqMetrics
+      mount ::API::SnippetRepositoryStorageMoves
       mount ::API::Subscriptions
       mount ::API::Tags
       mount ::API::Templates
       mount ::API::Todos
       mount ::API::UsageData
+      mount ::API::UsageDataServicePing
+      mount ::API::UsageDataTrack
       mount ::API::UsageDataNonSqlMetrics
+      mount ::API::Users
       mount ::API::VsCode::Settings::VsCodeSettingsSync
       mount ::API::Ml::Mlflow::Entrypoint
+      mount ::API::Ml::MlflowArtifacts::Entrypoint
     end
 
+    mount ::API::Internal::AutoFlow
     mount ::API::Internal::Base
     mount ::API::Internal::Coverage if Gitlab::Utils.to_boolean(ENV['COVERBAND_ENABLED'], default: false)
     mount ::API::Internal::Lfs
@@ -396,7 +416,7 @@ module API
     mount ::API::Internal::Workhorse
     mount ::API::Internal::Shellhorse
 
-    route :any, '*path', feature_category: :not_owned do # rubocop:todo Gitlab/AvoidFeatureCategoryNotOwned
+    route :any, '*path', feature_category: :not_owned do
       error!('404 Not Found', 404)
     end
   end

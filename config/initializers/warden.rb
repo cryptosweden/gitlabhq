@@ -3,6 +3,7 @@
 Rails.application.configure do |config|
   Warden::Manager.after_set_user(scope: :user) do |user, auth, opts|
     Gitlab::Auth::UniqueIpsLimiter.limit_user!(user)
+    Gitlab::Auth::SessionExpireFromInitEnforcer.new(auth, opts).enforce!
 
     activity = Gitlab::Auth::Activity.new(opts)
 
@@ -12,7 +13,7 @@ Rails.application.configure do |config|
     when :set_user
       activity.user_authenticated!
       activity.user_session_override!
-    when :fetch # rubocop:disable Lint/EmptyWhen
+    when :fetch
       # We ignore session fetch events
     else
       activity.user_session_override!
@@ -24,6 +25,7 @@ Rails.application.configure do |config|
   Warden::Manager.after_authentication(scope: :user) do |user, auth, opts|
     ActiveSession.cleanup(user)
     ActiveSession.set_marketing_user_cookies(auth, user) if ::Gitlab.ee? && ::Gitlab.com?
+    Gitlab::Auth::SessionExpireFromInitEnforcer.new(auth, opts).set_login_time
     Gitlab::AnonymousSession.new(auth.request.remote_ip).cleanup_session_per_ip_count
   end
 
@@ -36,6 +38,8 @@ Rails.application.configure do |config|
   end
 
   Warden::Manager.before_logout(scope: :user) do |user, auth, opts|
+    ActiveSession.unset_marketing_user_cookies(auth) if ::Gitlab.ee? && ::Gitlab.com?
+
     user ||= auth.user
     # Rails CSRF protection may attempt to log out a user before that
     # user even logs in

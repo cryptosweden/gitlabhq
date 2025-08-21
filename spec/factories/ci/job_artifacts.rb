@@ -73,6 +73,8 @@ FactoryBot.define do
     trait :metadata do
       file_type { :metadata }
       file_format { :gzip }
+      exposed_as { job.options.dig(:artifacts, :expose_as) }
+      exposed_paths { (job.options.dig(:artifacts, :paths) if job.options.dig(:artifacts, :expose_as)) }
 
       transient do
         file { fixture_file_upload(Rails.root.join('spec/fixtures/ci_build_artifacts_metadata.gz'), 'application/x-gzip') }
@@ -223,6 +225,16 @@ FactoryBot.define do
       after(:build) do |artifact, evaluator|
         artifact.file = fixture_file_upload(
           Rails.root.join('spec/fixtures/cobertura/coverage.xml.gz'), 'application/x-gzip')
+      end
+    end
+
+    trait :jacoco do
+      file_type { :jacoco }
+      file_format { :gzip }
+
+      after(:build) do |artifact, evaluator|
+        artifact.file = fixture_file_upload(
+          Rails.root.join('spec/fixtures/jacoco/coverage.xml.gz'), 'application/x-gzip')
       end
     end
 
@@ -489,6 +501,12 @@ FactoryBot.define do
     trait :correct_checksum do
       after(:build) do |artifact, evaluator|
         artifact.file_sha256 = Digest::SHA256.file(artifact.file.path).hexdigest
+      end
+    end
+
+    trait :mocked_checksum do
+      after(:build) do |artifact, evaluator|
+        artifact.file_sha256 = Digest::SHA256.hexdigest("mocked")
       end
     end
 

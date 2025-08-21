@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Verify', :runner, product_group: :pipeline_authoring do
+  RSpec.describe 'Verify', feature_category: :pipeline_composition do
     describe 'Include multiple files from a project' do
       let(:executor) { "qa-runner-#{Faker::Alphanumeric.alphanumeric(number: 8)}" }
       let(:expected_text) { Faker::Lorem.sentence }
@@ -15,15 +15,14 @@ module QA
         Flow::Login.sign_in
         add_included_files
         add_main_ci_file
-        project.visit!
-        Flow::Pipeline.visit_latest_pipeline(status: 'Passed')
+        project.visit_latest_pipeline
       end
 
       after do
         runner.remove_via_api!
       end
 
-      it 'runs the pipeline with composed config', :blocking,
+      it 'runs the pipeline with composed config',
         testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/348087' do
         Page::Project::Pipeline::Show.perform do |pipeline|
           aggregate_failures 'pipeline has all expected jobs' do
@@ -47,6 +46,8 @@ module QA
 
       def add_main_ci_file
         create(:commit, project: project, commit_message: 'Add config file', actions: [main_ci_file])
+        Flow::Pipeline.wait_for_pipeline_creation_via_api(project: project)
+        Flow::Pipeline.wait_for_latest_pipeline_to_have_status(project: project, status: 'success')
       end
 
       def add_included_files

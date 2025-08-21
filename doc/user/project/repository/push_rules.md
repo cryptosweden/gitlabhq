@@ -1,28 +1,35 @@
 ---
 stage: Create
 group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
-description: "Use push rules to control the content and format of Git commits your repository will accept. Set standards for commit messages, and block secrets or credentials from being added accidentally."
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: Use push rules to control the content and format of Git commits your repository accepts. Set standards for commit messages, and block secrets or credentials from being added accidentally.
+title: Push rules
 ---
 
-# Push rules
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - Maximum regular expression length for push rules [changed](https://gitlab.com/gitlab-org/gitlab/-/issues/411901) from 255 to 511 characters in GitLab 16.3.
+{{< /details >}}
 
-Push rules are [pre-receive Git hooks](https://git-scm.com/book/en/v2/Customizing-Git-Git-Hooks) you
+{{< history >}}
+
+- Maximum regular expression length for push rules [changed](https://gitlab.com/gitlab-org/gitlab/-/issues/411901) from 255 to 511 characters in GitLab 16.3.
+
+{{< /history >}}
+
+Push rules are [`pre-receive` Git hooks](https://git-scm.com/book/en/v2/Customizing-Git-Git-Hooks#:~:text=pre%2Dreceive,with%20the%20push.) you
 can enable in a user-friendly interface. Push rules give you more control over what
 can and can't be pushed to your repository. While GitLab offers
-[protected branches](../protected_branches.md), you may need more specific rules, such as:
+[protected branches](branches/protected.md), you may need more specific rules, such as:
 
 - Evaluating the contents of a commit.
 - Confirming commit messages match expected formats.
-- Enforcing [branch name rules](branches/index.md#name-your-branch).
+- Enforcing [branch name rules](branches/_index.md#name-your-branch).
 - Evaluating the details of files.
 - Preventing Git tag removal.
+- Requiring signed commits.
 
 GitLab uses [RE2 syntax](https://github.com/google/re2/wiki/Syntax) for regular expressions
 in push rules. You can test them at the [regex101 regex tester](https://regex101.com/).
@@ -33,7 +40,7 @@ For custom push rules use [server hooks](../../../administration/server_hooks.md
 ## Enable global push rules
 
 You can create push rules for all new projects to inherit, but they can be overridden
-at the project level or the [group level](../../group/access_and_permissions.md#group-push-rules).
+in a project or [group](../../group/access_and_permissions.md#group-push-rules).
 All projects created after you configure global push rules inherit this
 configuration. However, each existing project must be updated manually, using the
 process described in [Override global push rules per project](#override-global-push-rules-per-project).
@@ -44,8 +51,8 @@ Prerequisites:
 
 To create global push rules:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Push Rules**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Push rules**.
 1. Expand **Push rules**.
 1. Set the rule you want.
 1. Select **Save push rules**.
@@ -66,14 +73,25 @@ for an existing project to match new global push rules:
 
 Use these rules to validate users who make commits.
 
-- **Reject unverified users**: Users must have a [confirmed email address](../../../security/user_email_confirmation.md).
-- **Check whether the commit author is a GitLab user**: The commit author and committer must have an email address that's been verified by GitLab.
-- **Commit author's email**: Both the author's and committer's email addresses must match the regular expression.
+{{< alert type="note" >}}
+
+These push rules apply only to commits and not [tags](tags/_index.md).
+
+{{< /alert >}}
+
+- **Reject unverified users**: The committer email must match one of the user's [verified email addresses](../../profile/_index.md#add-emails-to-your-user-profile) or [private commit email address](../../profile/_index.md#use-an-automatically-generated-private-commit-email).
+- **Reject inconsistent user name**: The commit author name must match the user's GitLab account name.
+- **Check whether the commit author is a GitLab user**: Both the commit author and committer email addresses must match a GitLab user's [verified email addresses](../../profile/_index.md#add-emails-to-your-user-profile).
+- **Commit author's email**: Both the author and committer email addresses must match the regular expression.
   To allow any email address, leave empty.
+
+When using [bot users for projects](../../project/settings/project_access_tokens.md#bot-users-for-projects)
+or [bot users for groups](../../group/settings/group_access_tokens.md#bot-users-for-groups),
+you must add the generated email suffix so that bot tokens can commit and push changes.
 
 ## Validate commit messages
 
-Use these rules for your commit messages.
+Use these rules for your commit messages:
 
 - **Require expression in commit messages**: Messages must match the
   expression. To allow any commit message, leave empty.
@@ -100,15 +118,6 @@ Use these rules for your commit messages.
 - **Reject expression in commit messages**: Commit messages must not match
   the expression. To allow any commit message, leave empty.
   Uses multiline mode, which can be disabled by using `(?-m)`.
-
-## Reject commits that aren't DCO certified
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/98810) in GitLab 15.5.
-
-Commits signed with the [Developer Certificate of Origin](https://developercertificate.org/) (DCO)
-certify the contributor wrote, or has the right to submit, the code contributed in that commit.
-You can require all commits to your project to comply with the DCO. This push rule requires a
-`Signed-off-by:` trailer in every commit message, and rejects any commits that lack it.
 
 ## Validate branch names
 
@@ -143,11 +152,10 @@ Some validation examples:
 
 Use these rules to prevent unintended consequences.
 
-- **Reject unsigned commits**: Commit [must be signed](signed_commits/index.md). This rule
+- **Reject unsigned commits**: Commit [must be signed](signed_commits/_index.md). This rule
   can block some legitimate commits [created in the Web IDE](#reject-unsigned-commits-push-rule-disables-web-ide),
-  and allow [unsigned commits created in the GitLab UI](#unsigned-commits-created-in-the-gitlab-ui).
+  and allow [unsigned commits to appear in commit history](#unsigned-commits-appear-in-commit-history).
 - **Do not allow users to remove Git tags with `git push`**: Users cannot use `git push` to remove Git tags.
-  Users can still delete tags in the UI.
 
 ## Validate files
 
@@ -238,59 +246,102 @@ In Git, filenames include both the file's name, and all directories preceding th
 When you `git push`, each filename in the push is compared to the regular expression
 in **Prohibited filenames**.
 
-The regular expression in your **Prohibited filenames** push rule can contain multiple,
-independent matches to exclude. You can match filenames broadly to any location in
-your repository, or restrict only in certain locations. Filename matches can also
-be partial, and exclude file types by extension.
+{{< alert type="note" >}}
 
-These examples use regex (regular expressions) string boundary characters to match
-the beginning of a string (`^`), and its end (`$`). They also include instances
-where either the directory path or the filename can include `.` or `/`. Both of
-these special regex characters must be escaped with a backslash `\\` if you want
-to use them as standard characters in a match condition.
+This feature uses [RE2 syntax](https://github.com/google/re2/wiki/Syntax),
+which does not support positive or negative lookaheads.
 
-- **Prevent pushing `.exe` files to any location in the repository** - This regex
-  matches any filename that contains `.exe` at the end:
+{{< /alert >}}
+
+The regular expression can:
+
+- Match file names in any location in your repository.
+- Match file names in specific locations.
+- Match partial file names.
+- Exclude specific file types by extension.
+- Combine multiple expressions to exclude several patterns.
+
+### Regular expression examples
+
+These examples use common regex string boundary patterns:
+
+- `^`: Matches the beginning of a string.
+- `$`: Matches the end of a string.
+- `\.`: Matches a literal period character. The backslash escapes the period.
+- `\/`: Matches a literal forward slash. The backslash escapes the forward slash.
+
+#### Prevent specific file types
+
+- To prevent pushing `.exe` files to any location in the repository:
 
   ```plaintext
   \.exe$
   ```
 
-- **Prevent pushing a specific configuration file in the repository root**
+#### Prevent specific files
 
-  ```plaintext
-  ^config\.yml$
-  ```
+- To prevent pushing a specific configuration file:
 
-- **Prevent pushing a specific configuration file in a known directory**
+  - In the repository root:
 
-  ```plaintext
-  ^directory-name\/config\.yml$
-  ```
+    ```plaintext
+    ^config\.yml$
+    ```
 
-- **Prevent pushing a specific file to any location in the repository** - This example tests
-  for any file named `install.exe`. The parenthesized expression `(^|\/)` matches either
-  a file following a directory separator, or a file in the root directory of the repository:
+  - In a specific directory:
+
+    ```plaintext
+    ^directory-name\/config\.yml$
+    ```
+
+- In any location - This example prevents pushing any file named `install.exe`:
 
   ```plaintext
   (^|\/)install\.exe$
   ```
 
-- **Combine all previous expressions into one expression** - The preceding expressions rely
-  on the end-of-string character `$`. We can move that part of each expression to the
-  end of the grouped collection of match conditions, where it is appended to all matches:
+#### Combine patterns
 
-  ```plaintext
-  (\.exe|^config\.yml|^directory-name\/config\.yml|(^|\/)install\.exe)$
-  ```
+You can combine multiple patterns into one expression. This example combines all the previous expressions:
+
+```plaintext
+(\.exe|^config\.yml|^directory-name\/config\.yml|(^|\/)install\.exe)$
+```
+
+## Require signed commits
+
+[Signed commits](signed_commits/_index.md) are digital signatures used to verify authenticity.
+Use the **Reject unsigned commits** push rule to require all commits to have cryptographic signatures.
+
+When you enable this rule:
+
+- All new commits pushed to the repository must contain a valid cryptographic signature.
+- The signature must be created using a supported signing method (GPG, SSH, or X.509).
+- Commits without any signature are rejected at push time.
+- Commits with invalid or corrupted signatures are rejected.
+
+To enable the **Reject unsigned commits** push rule:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Settings > Repository**.
+1. Expand **Push rules**.
+1. Select **Reject unsigned commits**.
+1. Select **Save push rules**.
+
+## Reject commits that aren't DCO certified
+
+Commits signed with the [Developer Certificate of Origin](https://developercertificate.org/) (DCO)
+certify the contributor wrote, or has the right to submit, the code contributed in that commit.
+You can require all commits to your project to comply with the DCO. This push rule requires a
+`Signed-off-by:` trailer in every commit message, and rejects any commits that lack it.
 
 ## Related topics
 
+- [Protect your repository](repository_protection.md)
 - [Git server hooks](../../../administration/server_hooks.md) (previously called server hooks), to create complex custom push rules
-- [Signing commits with GPG](signed_commits/gpg.md)
-- [Signing commits with SSH](signed_commits/ssh.md)
-- [Signing commits with X.509](signed_commits/x509.md)
-- [Protected branches](../protected_branches.md)
+- [Signed commits](signed_commits/_index.md)
+- [Protected branches](branches/protected.md)
+- [Secret detection](../../application_security/secret_detection/_index.md)
 
 ## Troubleshooting
 
@@ -300,32 +351,35 @@ If a project has the **Reject unsigned commits** push rule, the user cannot
 create commits through the GitLab Web IDE.
 
 To allow committing through the Web IDE on a project with this push rule, a GitLab administrator
-must disable the feature flag `reject_unsigned_commits_by_gitlab` [with a flag](../../../administration/feature_flags.md).
+must disable the feature flag `reject_unsigned_commits_by_gitlab` [with a flag](../../../administration/feature_flags/_index.md).
 
 ```ruby
 Feature.disable(:reject_unsigned_commits_by_gitlab)
 ```
 
-### Unsigned commits created in the GitLab UI
+### Unsigned commits appear in commit history
 
-The **Reject unsigned commits** push rule ignores commits that are authenticated
-and created by GitLab (either through the UI or API). When this push rule is
-enabled, unsigned commits may still appear in the commit history if a commit was
-created in GitLab itself. As expected, commits created outside GitLab and
-pushed to the repository are rejected. For more information about this issue,
-read [issue #19185](https://gitlab.com/gitlab-org/gitlab/-/issues/19185).
+The **Reject unsigned commits** push rule ignores commits that are authenticated and created by
+GitLab (either through the UI or API). When this push rule is enabled, unsigned commits might still
+appear in the commit history if a commit was created in GitLab itself.
 
-### Bulk update push rules for _all_ projects
+As expected, commits created outside GitLab and pushed to the repository are rejected.
+For more information, see [issue #5361](https://gitlab.com/gitlab-org/gitaly/-/issues/5361).
+
+### Bulk update push rules for all projects
 
 To update the push rules to be the same for all projects,
-you need to use [the rails console](../../../administration/operations/rails_console.md#starting-a-rails-console-session),
-or write a script to update each project using the [Push Rules API endpoint](../../../api/projects.md#push-rules).
+use the [Rails console](../../../administration/operations/rails_console.md#starting-a-rails-console-session),
+or write a script to update each project using the [push rules API endpoint](../../../api/project_push_rules.md).
 
 For example, to enable **Check whether the commit author is a GitLab user** and **Do not allow users to remove Git tags with `git push`** checkboxes,
 and create a filter for allowing commits from a specific email domain only through rails console:
 
-WARNING:
+{{< alert type="warning" >}}
+
 Commands that change data can cause damage if not run correctly or under the right conditions. Always run commands in a test environment first and have a backup instance ready to restore.
+
+{{< /alert >}}
 
 ``` ruby
 Project.find_each do |p|

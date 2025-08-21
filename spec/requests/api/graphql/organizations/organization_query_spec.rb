@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'getting organization information', feature_category: :cell do
+RSpec.describe 'getting organization information', feature_category: :organization do
   include GraphqlHelpers
   using RSpec::Parameterized::TableSyntax
 
@@ -22,6 +22,7 @@ RSpec.describe 'getting organization information', feature_category: :cell do
 
   let_it_be(:organization_owner) { create(:organization_owner) }
   let_it_be(:organization) { organization_owner.organization }
+  let_it_be(:default_organization) { create(:organization, :default) }
   let_it_be(:user) { organization_owner.user }
   let_it_be(:project) { create(:project, organization: organization) { |p| p.add_developer(user) } }
   let_it_be(:other_group) do
@@ -36,6 +37,8 @@ RSpec.describe 'getting organization information', feature_category: :cell do
     let(:current_user) { create(:user) }
 
     context 'when organization is private' do
+      let_it_be(:organization) { create(:organization, :private) }
+
       it 'returns no organization' do
         request_organization
 
@@ -44,8 +47,6 @@ RSpec.describe 'getting organization information', feature_category: :cell do
     end
 
     context 'when organization is public' do
-      let_it_be(:organization) { create(:organization, :public) }
-
       it 'only returns the public organization' do
         request_organization
 
@@ -132,7 +133,7 @@ RSpec.describe 'getting organization information', feature_category: :cell do
         create(:group, :private, name: 'no-access', organization: organization)
         private_group.add_developer(user)
         public_group.add_developer(user)
-        create(:group) { |g| g.add_developer(user) } # outside organization
+        create(:group, organization: create(:organization)) { |g| g.add_developer(user) } # outside organization
       end
 
       it 'returns ancestors of authorized groups' do
@@ -214,7 +215,8 @@ RSpec.describe 'getting organization information', feature_category: :cell do
       end
 
       before_all do
-        create(:project) { |p| p.add_developer(user) } # some other project that shouldn't show up in our results
+        # some other project that shouldn't show up in our results
+        create(:project, organization: create(:organization)) { |p| p.add_developer(user) }
       end
 
       before do

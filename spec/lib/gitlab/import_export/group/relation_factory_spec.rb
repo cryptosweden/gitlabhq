@@ -18,7 +18,8 @@ RSpec.describe Gitlab::ImportExport::Group::RelationFactory, feature_category: :
       user: importer_user,
       importable: group,
       import_source: ::Import::SOURCE_GROUP_EXPORT_IMPORT,
-      excluded_keys: excluded_keys
+      excluded_keys: excluded_keys,
+      rewrite_mentions: true
     )
   end
 
@@ -89,6 +90,15 @@ RSpec.describe Gitlab::ImportExport::Group::RelationFactory, feature_category: :
     end
   end
 
+  context 'when relation is a milestone' do
+    let(:relation_sym) { :milestone }
+    let(:relation_hash) { { 'description' => "I said to @sam the code should follow @bob's advice. @alice?" } }
+
+    it 'updates username mentions with backticks' do
+      expect(created_object.description).to eq("I said to `@sam` the code should follow `@bob`'s advice. `@alice`?")
+    end
+  end
+
   context 'when relation is namespace_settings' do
     let(:relation_sym) { :namespace_settings }
     let(:relation_hash) do
@@ -101,6 +111,29 @@ RSpec.describe Gitlab::ImportExport::Group::RelationFactory, feature_category: :
 
     it do
       expect(created_object).to eq(nil)
+    end
+  end
+
+  context 'when relation is event' do
+    let(:relation_sym) { :events }
+    let(:relation_hash) do
+      {
+        'author_id' => 1,
+        'action' => 'created',
+        'target_type' => 'Issue'
+      }
+    end
+
+    it 'builds an event' do
+      expect(created_object).to be_an(Event)
+    end
+
+    context 'when author ID maps to nil user' do
+      let(:members_mapper) { double('members_mapper', map: {}) }
+
+      it 'does not build an Event' do
+        expect(created_object).to be_nil
+      end
     end
   end
 

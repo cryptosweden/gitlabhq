@@ -1,10 +1,9 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Hardening - Application Recommendations
 ---
-
-# Hardening - Application Recommendations
 
 For general hardening guidelines, see the [main hardening documentation](hardening.md).
 
@@ -13,8 +12,8 @@ web interface.
 
 ## System hooks
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **System Hooks**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **System hooks**.
 
 In a typical hardened environment, internal information is not transmitted or stored
 outside of the system. For an offline environment system, this is
@@ -31,8 +30,8 @@ encouraged for communications through system hooks.
 
 ## Push rules
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Push Rules**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Push rules**.
 
 Ensure that the following items are selected:
 
@@ -45,19 +44,19 @@ The adjustments help limit pushes to established and authorized users.
 
 ## Deploy keys
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Deploy Keys**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Deploy keys**.
 
 Public deploy keys at are used to give read or read/write access to
 **all** projects on the instance, and are intended for remote automation to access
 projects. Public deploy keys should not be used in a hardened environment. If you
 must use deploy keys, use project deploy keys instead. For more information, refer to
-the documentation on [deploy keys](../user/project/deploy_keys/index.md) and
-[project deploy keys](../user/project/deploy_keys/index.md#create-a-project-deploy-key).
+the documentation on [deploy keys](../user/project/deploy_keys/_index.md) and
+[project deploy keys](../user/project/deploy_keys/_index.md#create-a-project-deploy-key).
 
 ## General
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > General**.
 
 Hardening adjustments can be made in 4 sections.
@@ -118,7 +117,7 @@ to specifically allow only those addresses.
 
 For more details on **Visibility and access control**, see [visibility and access controls](../administration/settings/visibility_and_access_controls.md).
 For information on SSH settings, see
-[SSH keys restrictions](../security/ssh_keys_restrictions.md).
+[SSH keys restrictions](ssh_keys_restrictions.md).
 
 ### Account and limit
 
@@ -175,7 +174,7 @@ For more detailed information, see
 
 ## Integrations
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Integrations**.
 
 In general, as long as administrators control and monitor usage, integrations
@@ -186,7 +185,7 @@ process or authenticated user.
 
 ## Metrics and profiling
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Metrics and profiling**.
 
 The main focus for hardening is **Usage statistics**:
@@ -197,13 +196,11 @@ The main focus for hardening is **Usage statistics**:
 
 - If your environment is isolated or one where your organizational requirements
   restrict data gathering and statistics reporting to a software vendor, you may have
-  to disable the **Enable service ping** feature. For more information on what data is collected to
-  help you make an informed decision, see
-  [service ping](../development/internal_analytics/service_ping/index.md).
+  to turn off the **Enable service ping** feature.
 
 ## Network
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Network**.
 
 For any setting that enables rate limiting, make sure it is selected. Default values
@@ -221,15 +218,3 @@ accesses. Here are a few notables to keep in mind:
 
 - Under **Notes rate limit** and **Users API rate limit** you can exclude specific users
   from those limits if needed.
-
-<!-- ## Troubleshooting
-
-Include any troubleshooting steps that you can foresee. If you know beforehand what issues
-one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
-This is important to minimize requests for support, and to avoid doc comments with
-questions that you know someone might ask.
-
-Each scenario can be a third-level heading, for example `### Getting error message X`.
-If you have none to add when creating a doc, leave this section in place
-but commented out to help encourage others to add to it in the future. -->

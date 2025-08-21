@@ -14,7 +14,7 @@ RSpec.describe Sidebars::Admin::Menus::MonitoringMenu, feature_category: :naviga
 
   it_behaves_like 'Admin menu with sub menus'
 
-  describe 'Menu items' do
+  describe 'Menu items', :enable_admin_mode do
     subject { described_class.new(context).renderable_items.index { |e| e.item_id == item_id } }
 
     describe 'Metrics Dashboard' do
@@ -27,13 +27,13 @@ RSpec.describe Sidebars::Admin::Menus::MonitoringMenu, feature_category: :naviga
       context 'when grafana is enabled' do
         let(:grafana_enabled) { true }
 
-        specify { is_expected.not_to be_nil }
+        it { is_expected.not_to be_nil }
       end
 
       context 'when grafana is disabled' do
         let(:grafana_enabled) { false }
 
-        specify { is_expected.to be_nil }
+        it { is_expected.to be_nil }
       end
     end
   end

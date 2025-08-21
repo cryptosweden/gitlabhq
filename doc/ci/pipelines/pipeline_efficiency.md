@@ -1,16 +1,18 @@
 ---
 stage: Verify
 group: Pipeline Execution
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+info: This page is maintained by Developer Relations, author @dnsmichi, see https://handbook.gitlab.com/handbook/marketing/developer-relations/developer-advocacy/content/#maintained-documentation
+title: Pipeline efficiency
 ---
 
-# Pipeline efficiency
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-[CI/CD Pipelines](index.md) are the fundamental building blocks for [GitLab CI/CD](../index.md).
+{{< /details >}}
+
+[CI/CD Pipelines](_index.md) are the fundamental building blocks for [GitLab CI/CD](../_index.md).
 Making pipelines more efficient helps you save developer time, which:
 
 - Speeds up your DevOps processes
@@ -22,8 +24,8 @@ and improve their configuration over time through trial and error. A better proc
 to use pipeline features that improve efficiency right away, and get a faster software
 development lifecycle earlier.
 
-First ensure you are familiar with [GitLab CI/CD fundamentals](../index.md)
-and understand the [quick start guide](../quick_start/index.md).
+First ensure you are familiar with [GitLab CI/CD fundamentals](../_index.md)
+and understand the [quick start guide](../quick_start/_index.md).
 
 ## Identify bottlenecks and common failures
 
@@ -31,13 +33,13 @@ The easiest indicators to check for inefficient pipelines are the runtimes of th
 stages, and the total runtime of the pipeline itself. The total pipeline duration is
 heavily influenced by the:
 
-- [Size of the repository](../../user/project/repository/monorepos/index.md)
+- [Size of the repository](../../user/project/repository/monorepos/_index.md)
 - Total number of stages and jobs.
 - Dependencies between jobs.
-- The ["critical path"](#directed-acyclic-graphs-dag-visualization), which represents
+- The ["critical path"](#needs-dependency-visualization), which represents
   the minimum and maximum pipeline duration.
 
-Additional points to pay attention relate to [GitLab Runners](../runners/index.md):
+Additional points to pay attention relate to [GitLab Runners](../runners/_index.md):
 
 - Availability of the runners and the resources they are provisioned with.
 - Build dependencies, their installation time, and storage space requirements.
@@ -66,7 +68,7 @@ It's important to understand and document the pipeline workflows, and discuss po
 actions and changes. Refactoring pipelines may need careful interaction between teams
 in the DevSecOps lifecycle.
 
-Pipeline analysis can help identify issues with cost efficiency. For example, [runners](../runners/index.md)
+Pipeline analysis can help identify issues with cost efficiency. For example, [runners](../runners/_index.md)
 hosted with a paid cloud service may be provisioned with:
 
 - More resources than needed for CI/CD pipelines, wasting money.
@@ -74,7 +76,7 @@ hosted with a paid cloud service may be provisioned with:
 
 ### Pipeline Insights
 
-The [Pipeline success and duration charts](index.md#pipeline-success-and-duration-charts)
+The [Pipeline success and duration charts](_index.md#pipeline-success-and-duration-charts)
 give information about pipeline runtime and failed job counts.
 
 Tests like [unit tests](../testing/unit_test_reports.md), integration tests, end-to-end tests,
@@ -86,25 +88,20 @@ You can improve runtimes by running jobs that test different things in parallel,
 the same stage, reducing overall runtime. The downside is that you need more runners
 running simultaneously to support the parallel jobs.
 
-The [testing levels for GitLab](../../development/testing_guide/testing_levels.md)
-provide an example of a complex testing strategy with many components involved.
+### `needs` dependency visualization
 
-### Directed Acyclic Graphs (DAG) visualization
-
-The [Directed Acyclic Graph](../directed_acyclic_graph/index.md) (DAG) visualization can help analyze the critical path in
-the pipeline and understand possible blockers.
-
-![CI Pipeline Critical Path with DAG](img/ci_efficiency_pipeline_dag_critical_path.png)
+Viewing the `needs` dependencies in the [full pipeline graph](_index.md#group-jobs-by-stage-or-needs-configuration)
+can help analyze the critical path in the pipeline and understand possible blockers.
 
 ### Pipeline Monitoring
 
 Global pipeline health is a key indicator to monitor along with job and pipeline duration.
-[CI/CD analytics](index.md#pipeline-success-and-duration-charts) give a visual
+[CI/CD analytics](_index.md#pipeline-success-and-duration-charts) give a visual
 representation of pipeline health.
 
-Instance administrators have access to additional [performance metrics and self-monitoring](../../administration/monitoring/index.md).
+Instance administrators have access to additional [performance metrics and self-monitoring](../../administration/monitoring/_index.md).
 
-You can fetch specific pipeline health metrics from the [API](../../api/rest/index.md).
+You can fetch specific pipeline health metrics from the [API](../../api/rest/_index.md).
 External monitoring tools can poll the API and verify pipeline health or collect
 metrics for long term SLA analytics.
 
@@ -116,7 +113,7 @@ be embedded into incidents making problem resolving easier. Additionally, it can
 
 If you use the GitLab CI Pipelines Exporter, you should start with the [example configuration](https://github.com/mvisonneau/gitlab-ci-pipelines-exporter/blob/main/docs/configuration_syntax.md).
 
-![Grafana Dashboard for GitLab CI Pipelines Prometheus Exporter](img/ci_efficiency_pipeline_health_grafana_dashboard.png)
+![Grafana Dashboard showing CI run statuses and historical statistics including frequency and fail rate.](img/ci_efficiency_pipeline_health_grafana_dashboard_v13_7.png)
 
 Alternatively, you can use a monitoring tool that can execute scripts, like
 [`check_gitlab`](https://gitlab.com/6uellerBpanda/check_gitlab) for example.
@@ -143,17 +140,17 @@ with cloud providers, and define offline times to reduce costs.
 Use your existing monitoring tools and dashboards to integrate CI/CD pipeline monitoring,
 or build them from scratch. Ensure that the runtime data is actionable and useful
 in teams, and operations/SREs are able to identify problems early enough.
-[Incident management](../../operations/incident_management/index.md) can help here too,
+[Incident management](../../operations/incident_management/_index.md) can help here too,
 with embedded metric charts and all valuable details to analyze the problem.
 
 ### Storage usage
 
 Review the storage use of the following to help analyze costs and efficiency:
 
-- [Job artifacts](../jobs/job_artifacts.md) and their [`expire_in`](../yaml/index.md#artifactsexpire_in)
+- [Job artifacts](../jobs/job_artifacts.md) and their [`expire_in`](../yaml/_index.md#artifactsexpire_in)
   configuration. If kept for too long, storage usage grows and could slow pipelines down.
-- [Container registry](../../user/packages/container_registry/index.md) usage.
-- [Package registry](../../user/packages/package_registry/index.md) usage.
+- [Container registry](../../user/packages/container_registry/_index.md) usage.
+- [Package registry](../../user/packages/package_registry/_index.md) usage.
 
 ## Pipeline configuration
 
@@ -166,11 +163,12 @@ make pipelines run faster and more efficiently.
 Try to find which jobs don't need to run in all situations, and use pipeline configuration
 to stop them from running:
 
-- Use the [`interruptible`](../yaml/index.md#interruptible) keyword to stop old pipelines
+- Use the [`interruptible`](../yaml/_index.md#interruptible) keyword to stop old pipelines
   when they are superseded by a newer pipeline.
-- Use [`rules`](../yaml/index.md#rules) to skip tests that aren't needed. For example,
+- Use [`rules`](../yaml/_index.md#rules) to skip tests that aren't needed. For example,
   skip backend tests when only the frontend code is changed.
 - Run non-essential [scheduled pipelines](schedules.md) less frequently.
+- Distribute [`cron` schedules](schedules.md#view-and-optimize-pipeline-schedules) evenly across time.
 
 ### Fail fast
 
@@ -185,21 +183,21 @@ Decide if it's important for long jobs to run early, before fast feedback from
 faster jobs. The initial failures may make it clear that the rest of the pipeline
 shouldn't run, saving pipeline resources.
 
-### Directed Acyclic Graphs (DAG)
+### `needs` keyword
 
 In a basic configuration, jobs always wait for all other jobs in earlier stages to complete
 before running. This is the simplest configuration, but it's also the slowest in most
-cases. [Directed Acyclic Graphs](../directed_acyclic_graph/index.md) and
+cases. [Pipelines with the `needs` keyword](../yaml/needs.md) and
 [parent/child pipelines](downstream_pipelines.md#parent-child-pipelines) are more flexible and can
 be more efficient, but can also make pipelines harder to understand and analyze.
 
 ### Caching
 
-Another optimization method is to [cache](../caching/index.md) dependencies. If your
-dependencies change rarely, like [NodeJS `/node_modules`](../caching/index.md#cache-nodejs-dependencies),
+Another optimization method is to [cache](../caching/_index.md) dependencies. If your
+dependencies change rarely, like [NodeJS `/node_modules`](../caching/_index.md#cache-nodejs-dependencies),
 caching can make pipeline execution much faster.
 
-You can use [`cache:when`](../yaml/index.md#cachewhen) to cache downloaded dependencies
+You can use [`cache:when`](../yaml/_index.md#cachewhen) to cache downloaded dependencies
 even when a job fails.
 
 ### Docker Images
@@ -210,7 +208,7 @@ of jobs.
 If a Docker image is slowing down job execution, analyze the base image size and network
 connection to the registry. If GitLab is running in the cloud, look for a cloud container
 registry offered by the vendor. In addition to that, you can make use of the
-[GitLab container registry](../../user/packages/container_registry/index.md) which can be accessed
+[GitLab container registry](../../user/packages/container_registry/_index.md) which can be accessed
 by the GitLab instance faster than other registries.
 
 #### Optimize Docker images
@@ -241,7 +239,7 @@ Methods to reduce Docker image size:
   to analyze and shrink images.
 
 To simplify Docker image management, you can create a dedicated group for managing
-[Docker images](../docker/index.md) and test, build and publish them with CI/CD pipelines.
+[Docker images](../docker/_index.md) and test, build and publish them with CI/CD pipelines.
 
 ## Test, document, and learn
 
@@ -260,5 +258,5 @@ identify recurring problems with CI pipeline efficiency.
 ### Related topics
 
 - [CI Monitoring Webcast Slides](https://docs.google.com/presentation/d/1ONwIIzRB7GWX-WOSziIIv8fz1ngqv77HO1yVfRooOHM/edit?usp=sharing)
-- [GitLab.com Monitoring Handbook](https://handbook.gitlab.com/handbook/engineering/monitoring/)
+- GitLab.com Monitoring Handbook
 - [Buildings dashboards for operational visibility](https://aws.amazon.com/builders-library/building-dashboards-for-operational-visibility/)

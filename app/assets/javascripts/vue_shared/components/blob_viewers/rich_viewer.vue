@@ -3,7 +3,7 @@ import SafeHtml from '~/vue_shared/directives/safe_html';
 import { handleBlobRichViewer } from '~/blob/viewer';
 import MarkdownFieldView from '~/vue_shared/components/markdown/field_view.vue';
 import { handleLocationHash } from '~/lib/utils/common_utils';
-import { sanitize } from '~/lib/dompurify';
+import { sanitize, defaultConfig } from '~/lib/dompurify';
 import ViewerMixin from './mixins';
 import {
   MARKUP_FILE_TYPE,
@@ -20,6 +20,13 @@ export default {
     SafeHtml,
   },
   mixins: [ViewerMixin],
+  props: {
+    isSnippet: {
+      type: Boolean,
+      default: false,
+      required: false,
+    },
+  },
   data() {
     return {
       isLoading: true,
@@ -33,6 +40,13 @@ export default {
     },
     isMarkup() {
       return this.type === MARKUP_FILE_TYPE;
+    },
+    forbiddenAttrs() {
+      const attrs = [...defaultConfig.FORBID_ATTR, 'data-lines-path'];
+      if (this.isSnippet) {
+        attrs.push('style');
+      }
+      return attrs;
     },
   },
   created() {
@@ -55,7 +69,10 @@ export default {
       if (!this.isMarkup) return;
 
       const tmpWrapper = document.createElement('div');
-      tmpWrapper.innerHTML = sanitize(this.rawContent, this.$options.safeHtmlConfig);
+      tmpWrapper.innerHTML = sanitize(this.rawContent, {
+        ...defaultConfig,
+        FORBID_ATTR: this.forbiddenAttrs,
+      });
 
       const fileContent = tmpWrapper.querySelector(MARKUP_CONTENT_SELECTOR);
       if (!fileContent) return;
@@ -98,7 +115,8 @@ export default {
     },
   },
   safeHtmlConfig: {
-    ADD_TAGS: ['gl-emoji', 'copy-code'],
+    ...defaultConfig,
+    FORBID_ATTR: [...defaultConfig.FORBID_ATTR, 'data-lines-path'],
   },
 };
 </script>

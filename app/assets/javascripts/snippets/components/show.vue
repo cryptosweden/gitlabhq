@@ -35,12 +35,12 @@ export default {
 };
 </script>
 <template>
-  <div class="gl-pt-3 js-snippet-view">
+  <div class="js-snippet-view gl-pt-3">
     <gl-loading-icon
       v-if="isLoading"
       :label="__('Loading snippet')"
       size="lg"
-      class="loading-animation prepend-top-20 gl-mb-6"
+      class="loading-animation gl-mb-6 gl-mt-5"
     />
     <template v-else>
       <snippet-header :snippet="snippet" />

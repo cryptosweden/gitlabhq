@@ -1,7 +1,6 @@
 <script>
 import { debounce, uniq } from 'lodash';
-import { GlDropdownDivider, GlDropdownItem, GlCollapsibleListbox, GlSprintf } from '@gitlab/ui';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import { GlDropdownDivider, GlDropdownItem, GlCollapsibleListbox } from '@gitlab/ui';
 import { __, s__, sprintf } from '~/locale';
 import { convertEnvironmentScope } from './utils';
 import {
@@ -29,15 +28,8 @@ export default {
     GlCollapsibleListbox,
     GlDropdownDivider,
     GlDropdownItem,
-    GlSprintf,
   },
-  mixins: [glFeatureFlagsMixin()],
   props: {
-    isEnvironmentRequired: {
-      type: Boolean,
-      required: false,
-      default: true,
-    },
     areEnvironmentsLoading: {
       type: Boolean,
       required: true,
@@ -51,7 +43,22 @@ export default {
       type: Array,
       required: true,
     },
+    isEnvironmentRequired: {
+      type: Boolean,
+      required: false,
+      default: true,
+    },
+    placeholderText: {
+      type: String,
+      required: false,
+      default: __('Select environment or create wildcard'),
+    },
     selectedEnvironmentScope: {
+      type: String,
+      required: false,
+      default: '',
+    },
+    ariaLabelledBy: {
       type: String,
       required: false,
       default: '',
@@ -66,8 +73,12 @@ export default {
     };
   },
   computed: {
-    composedCreateButtonLabel() {
-      return sprintf(__('Create wildcard: %{searchTerm}'), { searchTerm: this.searchTerm });
+    composedCreateScopeButtonLabel() {
+      const label = this.searchTerm?.includes('*')
+        ? __('Create wildcard: %{searchTerm}')
+        : s__('CiVariable|Create environment scope: %{searchTerm}');
+
+      return sprintf(label, { searchTerm: this.searchTerm });
     },
     environmentScopeLabel() {
       return convertEnvironmentScope(this.selectedEnvironmentScope);
@@ -101,20 +112,28 @@ export default {
         text: environment,
       }));
     },
-    shouldRenderCreateButton() {
-      if (!this.canCreateWildcard) {
+    shouldRenderCreateScopeButton() {
+      if (!this.canCreateWildcard || !this.searchTerm) {
         return false;
       }
 
-      return (
-        this.searchTerm && ![...this.environments, this.customEnvScope].includes(this.searchTerm)
-      );
+      return ![...this.environments, this.customEnvScope].includes(this.searchTerm);
     },
     shouldRenderDivider() {
       return !this.areEnvironmentsLoading;
     },
     sortedEnvironments() {
       return [...this.environments].sort();
+    },
+    toggleText() {
+      return this.environmentScopeLabel || this.placeholderText;
+    },
+  },
+  watch: {
+    selectedEnvironmentScope: {
+      handler(scope) {
+        this.selectedEnvironment = scope;
+      },
     },
   },
   methods: {
@@ -137,8 +156,8 @@ export default {
   },
   ENVIRONMENT_QUERY_LIMIT,
   i18n: {
-    maxEnvsNote: s__(
-      'CiVariable|Maximum of %{limit} environments listed. For more environments, enter a search query.',
+    searchQueryNote: s__(
+      'CiVariable|Enter a search query to find more environments, or use * to create a wildcard.',
     ),
   },
 };
@@ -151,7 +170,8 @@ export default {
     :items="searchedEnvironments"
     :loading="isDropdownLoading"
     :searching="isDropdownSearching"
-    :toggle-text="environmentScopeLabel"
+    :toggle-text="toggleText"
+    :toggle-aria-labelled-by="ariaLabelledBy"
     @search="debouncedSearch"
     @select="selectEnvironment"
     @shown="toggleDropdownShown(true)"
@@ -159,23 +179,17 @@ export default {
   >
     <template #footer>
       <gl-dropdown-divider v-if="shouldRenderDivider" />
-      <div data-testid="max-envs-notice">
-        <gl-dropdown-item class="gl-list-none" disabled>
-          <gl-sprintf :message="$options.i18n.maxEnvsNote" class="gl-font-sm">
-            <template #limit>
-              {{ $options.ENVIRONMENT_QUERY_LIMIT }}
-            </template>
-          </gl-sprintf>
-        </gl-dropdown-item>
-      </div>
-      <div v-if="shouldRenderCreateButton">
+      <gl-dropdown-item class="gl-list-none" disabled data-testid="search-query-note">
+        {{ $options.i18n.searchQueryNote }}
+      </gl-dropdown-item>
+      <div v-if="shouldRenderCreateScopeButton">
         <!-- TODO: Rethink create wildcard button. https://gitlab.com/gitlab-org/gitlab/-/issues/396928 -->
         <gl-dropdown-item
           class="gl-list-none"
-          data-testid="create-wildcard-button"
+          data-testid="create-scope-button"
           @click="createEnvironmentScope"
         >
-          {{ composedCreateButtonLabel }}
+          {{ composedCreateScopeButtonLabel }}
         </gl-dropdown-item>
       </div>
     </template>

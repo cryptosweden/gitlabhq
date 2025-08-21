@@ -74,6 +74,9 @@ tree:
         - merge_request_diff_commits:
           - :commit_author
           - :committer
+          - merge_request_commits_metadata:
+            - :commit_author
+            - :committer
         - :merge_request_diff_files
       - events:
         - :push_event_payload
@@ -113,7 +116,6 @@ tree:
       - :create_access_levels
     - :project_feature
     - :custom_attributes
-    - :prometheus_metrics
     - :project_badges
     - :ci_cd_settings
     - :error_tracking_setting
@@ -325,17 +327,6 @@ included_attributes:
     - :infrastructure_access_level
     - :model_experiments_access_level
     - :model_registry_access_level
-  prometheus_metrics:
-    - :created_at
-    - :updated_at
-    - :project_id
-    - :y_label
-    - :unit
-    - :legend
-    - :title
-    - :query
-    - :group
-    - :dashboard_path
   service_desk_setting:
     - :project_id
     - :issue_template_key
@@ -435,6 +426,12 @@ included_attributes:
     - :files_count
     - :sorted
     - :diff_type
+  merge_request_commits_metadata:
+    - :sha
+    - :message
+    - :trailers
+    - :authored_date
+    - :committed_date
   merge_request_diff_commits:
     - :author_name
     - :author_email
@@ -457,6 +454,7 @@ included_attributes:
     - :b_mode
     - :too_large
     - :binary
+    - :encoded_file_path
   metrics:
     - :created_at
     - :updated_at
@@ -485,7 +483,6 @@ included_attributes:
     - :created_at
     - :updated_at
     - :project_id
-    - :attachment
     - :line_code
     - :commit_id
     - :system
@@ -561,7 +558,6 @@ included_attributes:
     - :name
     - :options
     - :allow_failure
-    - :stage
     - :stage_idx
     - :tag
     - :ref
@@ -632,6 +628,7 @@ included_attributes:
     - :created_at
     - :sha
     - :author_id
+    - :namespace_id
   issue_assignees:
     - :user_id
   merge_request_assignees:
@@ -672,7 +669,6 @@ included_attributes:
     - :last_edited_by_id
     - :discussion_locked
     - :health_status
-    - :external_key
     - :issue_type
   group_members:
     - :access_level
@@ -762,6 +758,8 @@ included_attributes:
     - :security_and_compliance_enabled
     - :allow_merge_on_skipped_pipeline
     - :squash_option
+    - :merge_commit_template
+    - :squash_commit_template
   resource_milestone_events:
     - :user_id
     - :action
@@ -869,9 +867,6 @@ excluded_attributes:
     - :jid
     - :last_update_at
     - :last_successful_update_at
-  prometheus_metrics:
-    - :common
-    - :identifier
   snippets:
     - :expired_at
     - :secret
@@ -892,8 +887,14 @@ excluded_attributes:
     - :merge_request_diff_id
     - :commit_author_id
     - :committer_id
+    - :merge_request_commits_metadata_id
   merge_request_diff_commit_user:
     - :id
+  merge_request_commits_metadata:
+    - :id
+    - :commit_author_id
+    - :committer_id
+    - :project_id
   merge_request_diff_detail:
     - :merge_request_diff_id
     - :verification_retry_at
@@ -920,6 +921,7 @@ excluded_attributes:
     - :work_item_type_id
     - :email_message_id
     - :incident_management_issuable_escalation_status
+    - :external_key
   merge_request: &merge_request_excluded_definition
     - :milestone_id
     - :sprint_id
@@ -944,7 +946,6 @@ excluded_attributes:
     - :artifacts_size
     - :commands
     - :runner_id
-    - :trigger_request_id
     - :erased_by_id
     - :auto_canceled_by_id
     - :stage_id
@@ -966,11 +967,11 @@ excluded_attributes:
     - :group_id
   resource_label_events:
     - :reference
-    - :reference_html
     - :epic_id
     - :issue_id
     - :merge_request_id
     - :label_id
+    - :namespace_id
   runners:
     - :token
     - :token_encrypted
@@ -1034,6 +1035,7 @@ excluded_attributes:
     - :pipeline_schedule_id
     - :merge_request_id
     - :external_pull_request_id
+    - :trigger_id
     - :ci_ref_id
     - :locked
   pipeline_metadata:
@@ -1061,6 +1063,9 @@ excluded_attributes:
     - :label_id
     - :milestone_id
     - :iteration_id
+    - :system_defined_status_identifier
+    - :custom_status_id
+
   epic:
     - :start_date_sourcing_milestone_id
     - :due_date_sourcing_milestone_id
@@ -1069,9 +1074,13 @@ excluded_attributes:
     - :start_date_sourcing_epic_id
     - :due_date_sourcing_epic_id
     - :issue_id
+    - :work_item_parent_link_id
+    - :external_key
   epic_issue:
     - :epic_id
     - :issue_id
+    - :namespace_id
+    - :work_item_parent_link_id
   system_note_metadata:
     - :description_version_id
     - :note_id
@@ -1126,6 +1135,13 @@ excluded_attributes:
     - :icon_name
     - :namespace_id
     - :updated_at
+  current_status:
+    - :id
+    - :namespace_id
+    - :work_item_id
+    - :system_defined_status_id
+    - :custom_status_id
+    - :updated_at
   note_diff_file:
     - :id
     - :diff_note_id
@@ -1135,6 +1151,8 @@ methods:
   project:
     - :allow_merge_on_skipped_pipeline
     - :squash_option
+    - :merge_commit_template
+    - :squash_commit_template
   notes:
     - :type
   commit_notes:
@@ -1203,6 +1221,10 @@ export_reorders:
       column: :relative_position
       direction: :asc
       nulls_position: :nulls_last
+    merge_requests:
+      column: :created_at
+      direction: :asc
+      nulls_position: :nulls_last
 
 # EE specific relationships and settings to include. All of this will be merged
 # into the previous structures if EE is used.
@@ -1220,6 +1242,7 @@ ee:
             - :iterations_cadence
       - protected_branches:
         - :unprotect_access_levels
+        - :squash_option
       - protected_environments:
         - :deploy_access_levels
       - :security_setting
@@ -1231,14 +1254,21 @@ ee:
       - approval_rules:
         - :approval_project_rules_protected_branches
         - :approval_project_rules_users
+      - vulnerabilities:
+        - vulnerability_finding:
+          - :scanner
+          - :primary_identifier
+          - :identifiers
+          - :initial_finding_pipeline
+          - :latest_finding_pipeline
+        - vulnerability_read:
+          - :scanner
 
   included_attributes:
     issuable_sla:
       - :issue
       - :due_at
     push_rule:
-      - :force_push_regex
-      - :delete_branch_regex
       - :commit_message_regex
       - :author_email_regex
       - :file_name_regex
@@ -1308,9 +1338,60 @@ ee:
       - :protected_branch
     approval_project_rules_users:
       - :user_id
+    vulnerabilities:
+      - :project_id
+      - :author_id
+      - :title
+      - :description
+      - :severity
+      - :report_type
+      - :findings
+    findings:
+      - :project_id
+      - :location_fingerprint
+      - :primary_identifier_fingerprint
+      - :name
+      - :report_type
+      - :severity
+      - :detection_method
+      - :metadata_version
+      - :raw_metadata
+    scanner:
+      - :project_id
+      - :name
+      - :vendor
+      - :external_id
+    identifiers: &identifiers_definition
+      - :project_id
+      - :external_type
+      - :external_id
+      - :fingerprint
+      - :name
+      - :url
+    primary_identifier: *identifiers_definition
+    vulnerability_finding:
+      - :uuid
+      - :project_id
+      - :location_fingerprint
+      - :name
+      - :report_type
+      - :severity
+      - :detection_method
+      - :metadata_version
+      - :raw_metadata
+    initial_finding_pipeline:
+      - :iid
+    latest_finding_pipeline:
+      - :iid
+    vulnerability_read:
+      - :project_id
+    squash_option:
+      - :squash_option
+      - :project_id
   excluded_attributes:
     project:
       - :vulnerability_hooks_integrations
+      - :ready_active_context_code_repository
     approval_rules:
       - :created_at
       - :updated_at

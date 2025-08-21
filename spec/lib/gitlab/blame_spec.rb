@@ -2,15 +2,16 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Blame do
+RSpec.describe Gitlab::Blame, feature_category: :source_code_management do
   let_it_be(:project) { create(:project, :repository) }
 
   let(:path) { 'files/ruby/popen.rb' }
   let(:commit) { project.commit('master') }
   let(:blob) { project.repository.blob_at(commit.id, path) }
   let(:range) { nil }
+  let(:ignore_revs) { nil }
 
-  subject(:blame) { described_class.new(blob, commit, range: range) }
+  subject(:blame) { described_class.new(blob, commit, range: range, ignore_revs: ignore_revs) }
 
   describe '#first_line' do
     subject { blame.first_line }
@@ -67,6 +68,17 @@ RSpec.describe Gitlab::Blame do
           expect(groups[1][:lines][0]).to match(/LC4.*Popen/)
           expect(groups[1][:lines][1]).to match(/LC5.*extend/)
         end
+
+        context 'when highlighed lines are misaligned' do
+          let(:raw_blob) { Gitlab::Git::Blob.new(data: "Test\r\nopen3", path: path, size: 6) }
+          let(:blob) { Blob.new(raw_blob) }
+
+          it 'returns the correct lines' do
+            expect(groups.count).to eq(2)
+            expect(groups[0][:lines][0]).to match(/LC1.*Test/)
+            expect(groups[0][:lines][1]).to match(/LC2.*open3/)
+          end
+        end
       end
     end
 
@@ -96,11 +108,28 @@ RSpec.describe Gitlab::Blame do
       let(:commit) { project.commit('blame-on-renamed') }
 
       it 'adds previous path' do
-        expect(subject[0][:previous_path]).to be nil
+        expect(subject[0][:previous_path]).to be_nil
         expect(subject[0][:lines]).to match_array(['Initial commit', 'Initial commit'])
 
         expect(subject[1][:previous_path]).to eq('files/plain_text/initial-commit')
         expect(subject[1][:lines]).to match_array(['Renamed as "filename"'])
+      end
+    end
+
+    context 'with ignore_revs' do
+      let(:ignore_revs) { true }
+      let(:git_blame_double) { instance_double(Gitlab::Git::Blame, each: nil) }
+
+      it 'requests for a blame with the default ignore revs file' do
+        expect(Gitlab::Git::Blame).to receive(:new).with(
+          project.repository,
+          commit.id,
+          blob.path,
+          range: range,
+          ignore_revisions_blob: 'refs/heads/master:.git-blame-ignore-revs'
+        ).and_return(git_blame_double)
+
+        subject
       end
     end
   end

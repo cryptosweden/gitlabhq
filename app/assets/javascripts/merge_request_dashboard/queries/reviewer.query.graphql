@@ -6,20 +6,25 @@ query reviewRequests(
   $reviewState: MergeRequestReviewState
   $reviewStates: [MergeRequestReviewState!]
   $mergedAfter: Time
+  $not: MergeRequestsResolverNegatedParams
   $perPage: Int!
   $afterCursor: String
+  $sort: MergeRequestSort = UPDATED_DESC
+  $or: UnionedMergeRequestFilterInput
 ) {
   currentUser {
     id
-    reviewRequestedMergeRequests(
+    mergeRequests: reviewRequestedMergeRequests(
       state: $state
       reviewState: $reviewState
       reviewStates: $reviewStates
       mergedAfter: $mergedAfter
+      not: $not
+      or: $or
       first: $perPage
       after: $afterCursor
+      sort: $sort
     ) {
-      count
       pageInfo {
         ...PageInfo
       }

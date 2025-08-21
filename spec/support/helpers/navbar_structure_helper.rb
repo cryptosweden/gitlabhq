@@ -8,6 +8,13 @@ module NavbarStructureHelper
     structure.insert(index + 1, new_nav_item)
   end
 
+  def remove_nav_item(item_name)
+    structure.reject! { |item| item[:nav_item] == item_name }
+    structure.each do |item|
+      item[:nav_sub_items]&.reject! { |sub| sub == item_name }
+    end
+  end
+
   def insert_before_nav_item(after_nav_item_name, new_nav_item:)
     expect(structure).to include(a_hash_including(nav_item: after_nav_item_name))
 
@@ -41,7 +48,7 @@ module NavbarStructureHelper
     insert_after_sub_nav_item(
       _("Feature flags"),
       within: _('Deploy'),
-      new_sub_nav_item_name: _("Package Registry")
+      new_sub_nav_item_name: _("Package registry")
     )
   end
 
@@ -50,7 +57,7 @@ module NavbarStructureHelper
       before,
       new_nav_item: {
         nav_item: _("Deploy"),
-        nav_sub_items: [_("Package Registry")]
+        nav_sub_items: [_("Package registry")]
       }
     )
   end
@@ -65,15 +72,23 @@ module NavbarStructureHelper
 
   def insert_container_nav
     insert_after_sub_nav_item(
-      _('Package Registry'),
+      _('Package registry'),
       within: _('Deploy'),
-      new_sub_nav_item_name: _('Container Registry')
+      new_sub_nav_item_name: _('Container registry')
+    )
+  end
+
+  def insert_virtual_registry_nav
+    insert_after_sub_nav_item(
+      _('Package registry'),
+      within: _('Deploy'),
+      new_sub_nav_item_name: _('Virtual registry')
     )
   end
 
   def insert_google_artifact_registry_nav
     insert_after_sub_nav_item(
-      _('Container Registry'),
+      _('Container registry'),
       within: _('Deploy'),
       new_sub_nav_item_name: _('Google Artifact Registry')
     )
@@ -97,7 +112,7 @@ module NavbarStructureHelper
 
   def insert_harbor_registry_nav
     insert_after_sub_nav_item(
-      _('Package Registry'),
+      _('Package registry'),
       within: _('Deploy'),
       new_sub_nav_item_name: _('Harbor Registry')
     )
@@ -143,6 +158,16 @@ module NavbarStructureHelper
     )
   end
 
+  def insert_contribution_analytics_nav
+    insert_after_nav_item(
+      _('Operate'),
+      new_nav_item: {
+        nav_item: _("Analyze"),
+        nav_sub_items: [_("Contribution analytics")]
+      }
+    )
+  end
+
   def project_analytics_sub_nav_item
     [
       _('Value stream analytics'),
@@ -150,12 +175,9 @@ module NavbarStructureHelper
       _('CI/CD analytics'),
       _('Repository analytics'),
       (_('Code review analytics') if Gitlab.ee?),
-      (_('Merge request analytics') if Gitlab.ee?)
+      (_('Merge request analytics') if Gitlab.ee?),
+      _('Model experiments')
     ]
-  end
-
-  def group_analytics_sub_nav_item
-    [_("Contribution analytics")]
   end
 end
 

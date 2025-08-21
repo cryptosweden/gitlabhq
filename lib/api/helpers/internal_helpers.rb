@@ -66,7 +66,9 @@ module API
           authentication_abilities: ssh_authentication_abilities,
           repository_path: repository_path,
           redirected_path: redirected_path,
-          push_options: params[:push_options])
+          push_options: params[:push_options],
+          gitaly_context: gitaly_context(params)
+        )
       end
 
       def access_checker_klass
@@ -91,11 +93,19 @@ module API
 
       def log_user_activity(actor)
         commands = Gitlab::GitAccess::DOWNLOAD_COMMANDS
-        commands += Gitlab::GitAccess::PUSH_COMMANDS if Feature.enabled?(:log_user_git_push_activity)
 
         return unless commands.include?(params[:action])
 
         ::Users::ActivityService.new(author: actor, namespace: project&.namespace, project: project).execute
+
+        return unless project && actor
+
+        Gitlab::EventStore.publish(
+          ::Users::ActivityEvent.new(data: {
+            user_id: actor.id,
+            namespace_id: project.root_ancestor.id
+          })
+        )
       end
 
       def redis_ping
@@ -130,7 +140,25 @@ module API
         false
       end
 
+      def include_ip_address_in_audit_event?(ip_address)
+        params[:protocol] == 'ssh' && ip_address
+      end
+
       private
+
+      def gitaly_context(params)
+        return unless params[:gitaly_client_context_bin].present?
+
+        raw_context = Base64.decode64(params[:gitaly_client_context_bin])
+        context = Gitlab::Json.parse(raw_context)
+
+        raise bad_request!('Decoded gitaly_client_context_bin is not a valid JSON object') unless context.is_a?(Hash)
+
+        context
+      rescue JSON::ParserError => e
+        Gitlab::ErrorTracking.log_exception(e, gitaly_context: params[:gitaly_client_context_bin])
+        bad_request!('malformed gitaly_client_context_bin')
+      end
 
       def repository_path
         if container

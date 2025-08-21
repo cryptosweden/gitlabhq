@@ -42,8 +42,18 @@ RSpec.describe Groups::Settings::AccessTokensController, feature_category: :syst
     it_behaves_like 'GET access tokens are paginated and ordered'
   end
 
+  describe 'GET /:namespace/-/settings/access_tokens/inactive.json' do
+    subject(:get_inactive_access_tokens) do
+      get inactive_group_settings_access_tokens_path(resource, format: :json)
+      response
+    end
+
+    it_behaves_like 'feature unavailable'
+    it_behaves_like 'GET inactive access tokens'
+  end
+
   describe 'POST /:namespace/-/settings/access_tokens' do
-    let(:access_token_params) { { name: 'Nerd bot', scopes: ["api"], expires_at: Date.today + 1.month } }
+    let(:access_token_params) { { name: 'Nerd bot', description: 'Nerd bot description', scopes: ["api"], expires_at: 1.month.from_now } }
 
     subject do
       post group_settings_access_tokens_path(resource), params: { resource_access_token: access_token_params }
@@ -74,7 +84,7 @@ RSpec.describe Groups::Settings::AccessTokensController, feature_category: :syst
     end
 
     context 'with custom access level' do
-      let(:access_token_params) { { name: 'Nerd bot', scopes: ["api"], expires_at: Date.today + 1.month, access_level: 20 } }
+      let(:access_token_params) { { name: 'Nerd bot', scopes: ["api"], expires_at: 1.month.from_now, access_level: 20 } }
 
       subject { post group_settings_access_tokens_path(resource), params: { resource_access_token: access_token_params } }
 
@@ -110,6 +120,7 @@ RSpec.describe Groups::Settings::AccessTokensController, feature_category: :syst
 
     it 'sets available scopes' do
       expect(assigns(:scopes)).to include(Gitlab::Auth::K8S_PROXY_SCOPE)
+      expect(assigns(:scopes)).to include(Gitlab::Auth::SELF_ROTATE_SCOPE)
     end
   end
 end

@@ -1,21 +1,25 @@
 # frozen_string_literal: true
 
 class GitlabSchema < GraphQL::Schema
-  # Currently an IntrospectionQuery has a complexity of 179.
-  # These values will evolve over time.
   DEFAULT_MAX_COMPLEXITY = 200
   AUTHENTICATED_MAX_COMPLEXITY = 250
   ADMIN_MAX_COMPLEXITY = 300
+  # Current GraphiQL introspection query has complexity of 226.
+  # As we cache this specific query we allow it to have a higher complexity.
+  INTROSPECTION_MAX_COMPLEXITY = 226
 
   DEFAULT_MAX_DEPTH = 15
   AUTHENTICATED_MAX_DEPTH = 20
 
   trace_with Gitlab::Graphql::Tracers::InstrumentationTracer
+  trace_with Gitlab::Graphql::VersionFilter::IntroducedTracer
 
   use Gitlab::Graphql::Subscriptions::ActionCableWithLoadBalancing
   use BatchLoader::GraphQL
   use Gitlab::Graphql::Pagination::Connections
   use Gitlab::Graphql::Timeout, max_seconds: Gitlab.config.gitlab.graphql_timeout
+
+  directive Gitlab::Graphql::VersionFilter::IntroducedDirective
 
   query_analyzer Gitlab::Graphql::QueryAnalyzers::AST::LoggerAnalyzer
   query_analyzer Gitlab::Graphql::QueryAnalyzers::AST::RecursionAnalyzer
@@ -43,11 +47,11 @@ class GitlabSchema < GraphQL::Schema
       super(queries, **kwargs)
     end
 
-    def get_type(type_name, context = GraphQL::Query::NullContext)
+    def get_type(type_name, *other_args)
       type_name = Gitlab::GlobalId::Deprecations.apply_to_graphql_name(type_name)
       type_name = Gitlab::Graphql::TypeNameDeprecations.apply_to_graphql_name(type_name)
 
-      super(type_name, context)
+      super(type_name, *other_args)
     end
 
     def id_from_object(object, _type = nil, _ctx = nil)
@@ -96,7 +100,12 @@ class GitlabSchema < GraphQL::Schema
       elsif gid.model_class.respond_to?(:lazy_find)
         gid.model_class.lazy_find(gid.model_id)
       else
-        gid.find
+        begin
+          gid.find
+        # other if conditions return nil when the record is not found
+        rescue ActiveRecord::RecordNotFound
+          nil
+        end
       end
     end
 
@@ -156,11 +165,14 @@ class GitlabSchema < GraphQL::Schema
 
     def max_query_complexity(ctx)
       current_user = ctx&.fetch(:current_user, nil)
+      introspection = ctx&.fetch(:introspection, false)
 
       if current_user&.admin
         ADMIN_MAX_COMPLEXITY
       elsif current_user
         AUTHENTICATED_MAX_COMPLEXITY
+      elsif introspection
+        INTROSPECTION_MAX_COMPLEXITY
       else
         DEFAULT_MAX_COMPLEXITY
       end
@@ -185,4 +197,4 @@ class GitlabSchema < GraphQL::Schema
   end
 end
 
-GitlabSchema.prepend_mod_with('GitlabSchema') # rubocop: disable Cop/InjectEnterpriseEditionModule
+GitlabSchema.prepend_mod_with('GitlabSchema')

@@ -9,18 +9,19 @@ RSpec.describe BulkImports::Common::Extractors::JsonExtractor do
   let_it_be(:tmpdir) { Dir.mktmpdir }
   let_it_be(:import) { create(:bulk_import) }
   let_it_be(:config) { create(:bulk_import_configuration, bulk_import: import) }
-  let_it_be(:entity) { create(:bulk_import_entity, bulk_import: import) }
+  let_it_be(:entity) { create(:bulk_import_entity, :with_portable, bulk_import: import) }
+
   let_it_be(:tracker) { create(:bulk_import_tracker, entity: entity) }
   let_it_be(:context) { BulkImports::Pipeline::Context.new(tracker) }
 
   before do
-    allow(FileUtils).to receive(:remove_entry).with(any_args).and_call_original
+    allow(FileUtils).to receive(:rm_rf).with(any_args).and_call_original
 
     subject.instance_variable_set(:@tmpdir, tmpdir)
   end
 
   after(:all) do
-    FileUtils.remove_entry(tmpdir) if File.directory?(tmpdir)
+    FileUtils.rm_rf(tmpdir)
   end
 
   describe '#extract' do
@@ -31,7 +32,7 @@ RSpec.describe BulkImports::Common::Extractors::JsonExtractor do
 
       expect(BulkImports::FileDownloadService).to receive(:new)
         .with(
-          configuration: context.configuration,
+          context: context,
           relative_url: entity.relation_download_url_path('self'),
           tmpdir: tmpdir,
           filename: 'self.json.gz')
@@ -50,7 +51,7 @@ RSpec.describe BulkImports::Common::Extractors::JsonExtractor do
 
   describe '#remove_tmpdir' do
     it 'removes tmp dir' do
-      expect(FileUtils).to receive(:remove_entry).with(tmpdir).once
+      expect(FileUtils).to receive(:rm_rf).with(tmpdir).once
 
       subject.remove_tmpdir
     end

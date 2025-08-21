@@ -2,28 +2,31 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Understand and configure the commit squashing options available in GitLab."
+description: Understand and configure the commit squashing options available in GitLab.
+title: Squash and merge
 ---
 
-# Squash and merge
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-As you work on a feature branch, you often create small, self-contained commits. These small commits
-help describe the process of building a feature, but can clutter your Git history after the feature
-is finished. As you finish features, you can combine these commits and ensure a cleaner merge history
-in your Git repository by using the _squash and merge_ strategy.
+{{< /details >}}
+
+Squash and merge combines multiple small commits into a single meaningful commit.
+This strategy keeps your repository history clean and makes it easier to track or revert changes.
+When you work on multiple features at once, squashing separates each feature's changes into distinct, logical units.
 
 - Small commits are joined together, making it simpler to [revert all parts of a change](revert_changes.md).
 - When the single commit merges into the target branch, it retains the full commit history.
 - Your base branch remains clean, and contains meaningful commit messages.
 
+## Squash and merge workflow
+
 Each time a branch merges into your base branch, up to two commits are added:
 
 - The single commit created by squashing the commits from the branch.
-- A merge commit, unless you have enabled [fast-forward merges](methods/index.md#fast-forward-merge)
+- A merge commit, unless you have enabled [fast-forward merges](methods/_index.md#fast-forward-merge)
   in your project. Fast-forward merges disable merge commits.
 
 By default, squashed commits contain the following metadata:
@@ -60,8 +63,7 @@ squash the commits as part of the merge process:
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Code > Merge requests** and find your merge request.
-1. Scroll to the merge request reports section that contains the **Merge** button.
-1. Ensure the **Squash commits** checkbox is selected. This checkbox doesn't display
+1. In the merge request widget, ensure the **Squash commits** checkbox is selected. This checkbox doesn't display
    if the project's squashing option is set to either **Do not allow** or **Require**.
 1. Optional. To modify either the squash commit message or the merge commit message
    (depending on your project configuration), select **Modify commit messages**.
@@ -88,16 +90,4 @@ To configure the default squashing behavior for all merge requests in your proje
 ## Related topics
 
 - [Commit message templates](commit_templates.md)
-- [Merge methods](methods/index.md)
-
-<!-- ## Troubleshooting
-
-Include any troubleshooting steps that you can foresee. If you know beforehand what issues
-one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
-This is important to minimize requests for support, and to avoid doc comments with
-questions that you know someone might ask.
-
-Each scenario can be a third-level heading, for example `### Getting error message X`.
-If you have none to add when creating a doc, leave this section in place
-but commented out to help encourage others to add to it in the future. -->
+- [Merge methods](methods/_index.md)

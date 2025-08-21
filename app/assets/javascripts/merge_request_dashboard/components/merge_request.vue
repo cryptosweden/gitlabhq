@@ -1,13 +1,25 @@
 <script>
-import { GlLink, GlSprintf, GlIcon, GlLabel, GlTooltipDirective } from '@gitlab/ui';
-import ApprovalCount from 'ee_component/merge_request_dashboard/components/approval_count.vue';
-import { __, sprintf } from '~/locale';
+import {
+  GlLink,
+  GlSprintf,
+  GlIcon,
+  GlTooltipDirective,
+  GlLabel,
+  GlSkeletonLoader,
+} from '@gitlab/ui';
+import ApprovalCount from 'ee_else_ce/merge_requests/components/approval_count.vue';
+import { __, n__, sprintf } from '~/locale';
 import isShowingLabelsQuery from '~/graphql_shared/client/is_showing_labels.query.graphql';
+import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import SafeHtml from '~/vue_shared/directives/safe_html';
 import TimeAgoTooltip from '~/vue_shared/components/time_ago_tooltip.vue';
-import UserAvatarLink from '~/vue_shared/components/user_avatar/user_avatar_link.vue';
 import CiIcon from '~/vue_shared/components/ci_icon/ci_icon.vue';
+import UserAvatarImage from '~/vue_shared/components/user_avatar/user_avatar_image.vue';
+import DiscussionsBadge from '~/merge_requests/list/components/discussions_badge.vue';
 import { isScopedLabel } from '~/lib/utils/common_utils';
+import diffStatsQuery from '../queries/diff_stats.query.graphql';
+import AssignedUsers from './assigned_users.vue';
+import StatusBadge from './status_badge.vue';
 
 export default {
   apollo: {
@@ -15,16 +27,32 @@ export default {
       query: isShowingLabelsQuery,
       update: (data) => data.isShowingLabels,
     },
+    diffStats: {
+      query: diffStatsQuery,
+      variables() {
+        return {
+          id: this.mergeRequest.id,
+        };
+      },
+      update: (d) => d.mergeRequest?.diffStatsSummary,
+      context() {
+        return { batchKey: `MergeRequestDiffStats_${this.listId}` };
+      },
+    },
   },
   components: {
     GlLink,
     GlSprintf,
     GlIcon,
     GlLabel,
+    GlSkeletonLoader,
+    UserAvatarImage,
     CiIcon,
     TimeAgoTooltip,
-    UserAvatarLink,
     ApprovalCount,
+    DiscussionsBadge,
+    AssignedUsers,
+    StatusBadge,
   },
   directives: {
     SafeHtml,
@@ -35,124 +63,184 @@ export default {
       type: Object,
       required: true,
     },
+    listId: {
+      type: String,
+      required: true,
+    },
+    newMergeRequestIds: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
   },
   data() {
     return {
-      isShowingLabels: true,
+      isShowingLabels: null,
+      diffStats: null,
     };
   },
+  computed: {
+    statsAriaLabel() {
+      if (!this.diffStats) return null;
+
+      const fileAdditions = n__('%d file addition', '%d file additions', this.diffStats.additions);
+      const fileDeletions = n__('%d file deletion', '%d file deletions', this.diffStats.deletions);
+
+      return sprintf(__('%{filesChanged}, %{fileAdditions}, %{fileDeletions}'), {
+        filesChanged: n__('%d file', '%d files', this.diffStats.fileCount),
+        fileAdditions,
+        fileDeletions,
+      });
+    },
+    isMergeRequestBroken() {
+      return (
+        this.mergeRequest.state === 'opened' &&
+        (this.mergeRequest.commitCount === 0 ||
+          !this.mergeRequest.sourceBranchExists ||
+          !this.mergeRequest.targetBranchExists ||
+          this.mergeRequest.conflicts)
+      );
+    },
+    isNewlyAdded() {
+      return this.newMergeRequestIds.includes(this.mergeRequest.id);
+    },
+    authorId() {
+      return getIdFromGraphQLId(this.mergeRequest.author.id);
+    },
+  },
   methods: {
-    showScopedLabel(label) {
-      return isScopedLabel(label);
-    },
-    assigneeTitle(assignee) {
-      return sprintf(__('Assigned to %{assignee}'), { assignee: assignee.name });
-    },
-    reviewerTitle(reviewer) {
-      return sprintf(__('Review requested %{reviewer}'), { reviewer: reviewer.name });
-    },
+    isScopedLabel,
   },
 };
 </script>
 
 <template>
-  <div class="gl-bg-white gl-p-5 gl-rounded-base">
-    <div
-      class="gl-display-flex"
-      :class="{ 'gl-mb-2': mergeRequest.labels.length && isShowingLabels }"
-    >
-      <div class="gl-display-flex gl-flex-direction-column">
-        <h4 class="gl-mb-0 gl-mt-0 gl-font-base">
-          <gl-link
-            v-safe-html="mergeRequest.titleHtml"
-            :href="mergeRequest.webUrl"
-            class="gl-text-body gl-hover-text-gray-900"
-          />
-        </h4>
-        <div class="gl-font-sm gl-mt-2 gl-text-secondary">
-          <gl-sprintf
-            :message="__('%{reference} %{divider} created %{createdAt} by %{author} %{milestone}')"
-          >
-            <template #reference>{{ mergeRequest.reference }}</template>
-            <template #divider>&middot;</template>
-            <template #createdAt><time-ago-tooltip :time="mergeRequest.createdAt" /></template>
-            <template #author>
-              <gl-link :href="mergeRequest.author.webUrl" class="gl-text-secondary">
-                {{ mergeRequest.author.name }}
-              </gl-link>
+  <div :class="{ 'gl-bg-green-50': isNewlyAdded }" role="row">
+    <div role="cell">
+      <status-badge :merge-request="mergeRequest" :list-id="listId" />
+    </div>
+    <div role="cell" class="gl-flex gl-flex-col gl-items-start gl-gap-2">
+      <gl-link
+        :href="mergeRequest.webUrl"
+        class="gl-font-bold gl-text-default hover:gl-text-default"
+      >
+        {{ mergeRequest.title }}
+      </gl-link>
+      <div class="gl-text-sm gl-text-subtle">
+        <gl-sprintf :message="__('%{reference} %{author} %{stats} %{milestone}')">
+          <template #reference>{{ mergeRequest.reference }}</template>
+          <template #author>
+            <gl-link
+              :href="mergeRequest.author.webUrl"
+              :data-name="mergeRequest.author.name"
+              :data-user-id="authorId"
+              :data-username="mergeRequest.author.username"
+              class="js-user-link gl-mx-2 gl-inline-flex gl-align-bottom gl-text-subtle"
+            >
+              <user-avatar-image
+                :img-src="mergeRequest.author.avatarUrl"
+                img-alt=""
+                :size="16"
+                lazy
+              />
+              <span class="gl-sr-only">{{ mergeRequest.author.name }}</span>
+            </gl-link>
+          </template>
+          <template #milestone>
+            <template v-if="mergeRequest.milestone">
+              <gl-icon :size="16" name="milestone" />
+              {{ mergeRequest.milestone.title }}
             </template>
-            <template #milestone>
-              <template v-if="mergeRequest.milestone">
-                <gl-icon :size="16" class="gl-ml-2" name="milestone" />
-                {{ mergeRequest.milestone.title }}
-              </template>
-            </template>
-          </gl-sprintf>
-        </div>
+          </template>
+          <template #stats>
+            <div class="gl-mr-2 gl-inline-flex">
+              <gl-skeleton-loader
+                v-if="$apollo.queries.diffStats.loading"
+                :lines="1"
+                :width="100"
+                equal-width-lines
+              />
+              <div
+                v-else-if="diffStats"
+                class="gl-inline-flex gl-gap-2"
+                :aria-label="statsAriaLabel"
+                :title="statsAriaLabel"
+              >
+                <div class="gl-whitespace-nowrap">
+                  <gl-icon name="doc-new" />
+                  <span>{{ diffStats.fileCount }}</span>
+                </div>
+                <div class="gl-flex gl-items-center gl-text-success">
+                  <span>+</span>
+                  <span>{{ diffStats.additions }}</span>
+                </div>
+                <div class="gl-flex gl-items-center gl-text-danger">
+                  <span>−</span>
+                  <span>{{ diffStats.deletions }}</span>
+                </div>
+              </div>
+            </div>
+          </template>
+        </gl-sprintf>
       </div>
-      <div class="gl-ml-auto gl-display-flex gl-flex-direction-column">
-        <ul class="gl-display-flex gl-justify-content-end gl-m-0 gl-p-0 gl-list-none">
-          <li v-if="mergeRequest.headPipeline && mergeRequest.headPipeline.detailedStatus">
-            <ci-icon :status="mergeRequest.headPipeline.detailedStatus" use-link show-tooltip />
-          </li>
-          <li v-if="mergeRequest.assignees.nodes.length" class="gl-ml-4">
-            <user-avatar-link
-              v-for="(assignee, index) in mergeRequest.assignees.nodes"
-              :key="`assignee_${assignee.id}`"
-              :link-href="assignee.webUrl"
-              :img-src="assignee.avatarUrl"
-              :img-size="24"
-              :tooltip-text="assigneeTitle(assignee)"
-              :class="{ 'gl-mr-2': index !== mergeRequest.assignees.nodes.length - 1 }"
-            />
-          </li>
-          <li v-if="mergeRequest.reviewers.nodes.length" class="gl-ml-4">
-            <user-avatar-link
-              v-for="(reviewer, index) in mergeRequest.reviewers.nodes"
-              :key="`reviewer_${reviewer.id}`"
-              :link-href="reviewer.webUrl"
-              :img-src="reviewer.avatarUrl"
-              :img-size="24"
-              :tooltip-text="reviewerTitle(reviewer)"
-              :class="{ 'gl-mr-2': index !== mergeRequest.reviewers.nodes.length - 1 }"
-            />
-          </li>
-          <li
-            v-if="mergeRequest.approvalsRequired || mergeRequest.approved"
-            class="gl-ml-4 gl-display-flex gl-align-self-center"
-          >
-            <approval-count :merge-request="mergeRequest" />
-          </li>
-          <li
-            v-if="mergeRequest.userDiscussionsCount"
-            v-gl-tooltip="__('Comments')"
-            class="gl-align-self-center gl-ml-4"
-          >
-            <gl-icon name="comments" class="!gl-align-middle" />
-            {{ mergeRequest.userDiscussionsCount }}
-          </li>
-        </ul>
-        <div
-          v-if="mergeRequest.updatedAt"
-          class="gl-font-sm gl-mt-2 gl-text-secondary gl-text-right"
-        >
-          <gl-sprintf :message="__('Updated at %{updatedAt}')">
-            <template #updatedAt><time-ago-tooltip :time="mergeRequest.updatedAt" /></template>
-          </gl-sprintf>
-        </div>
+      <div
+        v-if="isShowingLabels && mergeRequest.labels.nodes.length"
+        class="gl-mt-3 gl-flex gl-flex-wrap gl-gap-2"
+        data-testid="labels-container"
+      >
+        <gl-label
+          v-for="label in mergeRequest.labels.nodes"
+          :key="label.id"
+          :background-color="label.color"
+          :title="label.title"
+          :description="label.description"
+          size="sm"
+          :scoped="isScopedLabel(label)"
+        />
       </div>
     </div>
-    <div v-if="isShowingLabels">
-      <gl-label
-        v-for="label in mergeRequest.labels.nodes"
-        :key="label.id"
-        :background-color="label.color"
-        :title="label.title"
-        :description="label.description"
-        size="sm"
-        :scoped="showScopedLabel(label)"
-        class="gl-mr-2"
-      />
+    <div role="cell">
+      <assigned-users :users="mergeRequest.assignees.nodes" type="ASSIGNEES" />
+    </div>
+    <div role="cell">
+      <assigned-users :users="mergeRequest.reviewers.nodes" type="REVIEWERS" />
+    </div>
+    <div class="gl-flex gl-flex-col gl-items-end gl-gap-2" role="cell">
+      <div class="gl-flex gl-gap-3">
+        <gl-icon
+          v-if="isMergeRequestBroken"
+          v-gl-tooltip
+          :title="__('Cannot be merged automatically')"
+          name="warning-solid"
+          variant="subtle"
+          class="gl-mt-1"
+          data-testid="mr-broken-badge"
+        />
+        <discussions-badge
+          v-if="mergeRequest.resolvableDiscussionsCount"
+          :merge-request="mergeRequest"
+        />
+        <approval-count :merge-request="mergeRequest" />
+        <ci-icon
+          v-if="mergeRequest.headPipeline && mergeRequest.headPipeline.detailedStatus"
+          :status="mergeRequest.headPipeline.detailedStatus"
+          use-link
+          show-tooltip
+        />
+      </div>
+      <div class="gl-text-sm gl-text-subtle">
+        <gl-sprintf :message="__('Updated %{updatedAt}')">
+          <template #updatedAt>
+            <time-ago-tooltip :time="mergeRequest.updatedAt" />
+          </template>
+        </gl-sprintf>
+      </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.gl-skeleton-loader-default-container svg {
+  display: block;
+}
+</style>

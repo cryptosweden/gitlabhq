@@ -1,16 +1,17 @@
+@use "sass:math";
+
 gl-emoji {
   font-style: normal;
-  display: inline-flex;
+  display: inline-block;
   vertical-align: baseline;
   font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
   font-size: 1.2em;
   line-height: 1;
 
   img {
-    width: 1.2em;
-    height: 1.2em;
-    position: relative;
-    top: 0.25em;
+    width: 1em;
+    object-fit: scale-down;
+    height: 1em;
   }
 }
 
@@ -33,7 +34,7 @@ gl-emoji {
 .emoji-picker-emoji {
   height: 30px;
   // Create a width that fits 9 emojis per row
-  width: 100 / 9 * 1%;
+  width: math.div(100, 9) * 1%;
   mix-blend-mode: normal !important;
 
   gl-emoji {
@@ -48,17 +49,15 @@ gl-emoji {
 
 .emoji-picker .gl-dropdown .dropdown-menu,
 .emoji-picker .gl-new-dropdown .gl-new-dropdown-panel {
-  width: 350px !important;
+  width: 354px !important;
 }
 
 .emoji-picker-category-tab {
   border-bottom-color: transparent;
 
   &:hover {
-    color: $gray-900 !important;
-
     &:not(.emoji-picker-category-active) {
-      border-bottom-color: $gray-300;
+      @apply gl-border-b;
     }
   }
 
@@ -68,11 +67,7 @@ gl-emoji {
 }
 
 .emoji-picker-category-active {
-  border-bottom-color: $blue-500 !important;
-
-  svg {
-    color: $gray-900 !important;
-  }
+  border-bottom-color: $gl-control-border-color-selected-default !important;
 }
 
 .emoji-picker .gl-dropdown-contents > :last-child {

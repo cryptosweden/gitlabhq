@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create', :smoke, product_group: :code_review do
+  RSpec.describe 'Create', :smoke, feature_category: :code_review_workflow do
     describe 'Reverting a commit' do
       let(:file_name) { "secret_file.md" }
       let(:project) { create(:project, :with_readme) }
@@ -14,10 +14,6 @@ module QA
       before do
         Flow::Login.sign_in
         commit.visit!
-      end
-
-      after do
-        project.remove_via_api!
       end
 
       it 'creates a merge request', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347716' do

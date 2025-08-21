@@ -35,6 +35,7 @@ module API
         optional :search, type: String, desc: 'Returns a list of namespaces the user is authorized to view based on the search criteria'
         optional :owned_only, type: Boolean, desc: 'In GitLab 14.2 and later, returns a list of owned namespaces only'
         optional :top_level_only, type: Boolean, default: false, desc: 'Only include top level namespaces'
+        optional :full_path_search, type: Boolean, default: false, desc: 'If `true`, the `search` parameter is matched against the full path of the namespaces'
 
         use :pagination
         use :optional_list_params_ee
@@ -44,13 +45,15 @@ module API
 
         namespaces = current_user.admin ? Namespace.all : current_user.namespaces(owned_only: owned_only)
 
-        namespaces = namespaces.top_most if params[:top_level_only]
+        namespaces = namespaces.top_level if params[:top_level_only]
 
         namespaces = namespaces.without_project_namespaces.include_route
 
         namespaces = namespaces.include_gitlab_subscription_with_hosted_plan if Gitlab.ee?
 
-        namespaces = namespaces.search(params[:search]) if params[:search].present?
+        if params[:search].present?
+          namespaces = namespaces.search(params[:search], include_parents: params[:full_path_search])
+        end
 
         options = { with: Entities::Namespace, current_user: current_user }
 
@@ -93,7 +96,7 @@ module API
         namespace_path = params[:id]
         existing_namespaces_within_the_parent = Namespace.without_project_namespaces.by_parent(params[:parent_id])
 
-        exists = existing_namespaces_within_the_parent.filter_by_path(namespace_path).exists?
+        exists = existing_namespaces_within_the_parent.filter_by_path(namespace_path).exists? || ProjectSetting.unique_domain_exists?(namespace_path)
         suggestions = exists ? [Namespace.clean_path(namespace_path, limited_to: existing_namespaces_within_the_parent)] : []
 
         present :exists, exists

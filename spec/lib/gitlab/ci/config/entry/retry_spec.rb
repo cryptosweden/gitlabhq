@@ -5,13 +5,13 @@ require 'spec_helper'
 RSpec.describe Gitlab::Ci::Config::Entry::Retry do
   let(:entry) { described_class.new(config) }
 
-  shared_context 'when retry value is a numeric', :numeric do
+  shared_context 'when retry value is a numeric' do
     let(:config) { max }
     let(:max) {}
   end
 
-  shared_context 'when retry value is a hash', :hash do
-    let(:config) { { max: max, when: public_send(:when), exit_codes: public_send(:exit_codes) }.compact }
+  shared_context 'when retry value is a hash' do
+    let(:config) { { max: max, when: public_send(:when), exit_codes: exit_codes }.compact }
     let(:when) {}
     let(:exit_codes) {}
     let(:max) {}
@@ -20,7 +20,9 @@ RSpec.describe Gitlab::Ci::Config::Entry::Retry do
   describe '#value' do
     subject(:value) { entry.value }
 
-    context 'when retry value is a numeric', :numeric do
+    context 'when retry value is a numeric' do
+      include_context 'when retry value is a numeric'
+
       let(:max) { 2 }
 
       it 'is returned as a hash with max key' do
@@ -28,7 +30,9 @@ RSpec.describe Gitlab::Ci::Config::Entry::Retry do
       end
     end
 
-    context 'when retry value is a hash', :hash do
+    context 'when retry value is a hash' do
+      include_context 'when retry value is a hash'
+
       context 'and `when` is a string' do
         let(:when) { 'unknown_failure' }
 
@@ -61,33 +65,13 @@ RSpec.describe Gitlab::Ci::Config::Entry::Retry do
         end
       end
     end
-
-    context 'when ci_retry_on_exit_codes feature flag is disabled', :hash do
-      before do
-        stub_feature_flags(ci_retry_on_exit_codes: false)
-      end
-
-      context 'when `exit_codes` is an integer' do
-        let(:exit_codes) { 255 }
-
-        it 'deletes the attribute exit_codes' do
-          expect(value).to eq({})
-        end
-      end
-
-      context 'when `exit_codes` is an array' do
-        let(:exit_codes) { [255, 137] }
-
-        it 'deletes the attribute exit_codes' do
-          expect(value).to eq({})
-        end
-      end
-    end
   end
 
   describe 'validation' do
     context 'when retry value is correct' do
-      context 'when it is a numeric', :numeric do
+      context 'when it is a numeric' do
+        include_context 'when retry value is a numeric'
+
         let(:max) { 2 }
 
         it 'is valid' do
@@ -95,7 +79,9 @@ RSpec.describe Gitlab::Ci::Config::Entry::Retry do
         end
       end
 
-      context 'when it is a hash', :hash do
+      context 'when it is a hash' do
+        include_context 'when retry value is a hash'
+
         context 'with max' do
           let(:max) { 2 }
 
@@ -197,7 +183,9 @@ RSpec.describe Gitlab::Ci::Config::Entry::Retry do
         end
       end
 
-      context 'when it is a numeric', :numeric do
+      context 'when it is a numeric' do
+        include_context 'when retry value is a numeric'
+
         context 'when it is lower than zero' do
           let(:max) { -1 }
 
@@ -227,7 +215,9 @@ RSpec.describe Gitlab::Ci::Config::Entry::Retry do
         end
       end
 
-      context 'when it is a hash', :hash do
+      context 'when it is a hash' do
+        include_context 'when retry value is a hash'
+
         context 'with unknown keys' do
           let(:config) { { max: 2, unknown_key: :something, one_more: :key } }
 

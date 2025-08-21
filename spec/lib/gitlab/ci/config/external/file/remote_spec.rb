@@ -94,6 +94,26 @@ RSpec.describe Gitlab::Ci::Config::External::File::Remote, feature_category: :pi
 
       it { is_expected.to be_falsy }
     end
+
+    context 'when integrity is specified' do
+      let(:params) { { remote: location, integrity: integrity_hash } }
+
+      before do
+        stub_full_request(location).to_return(body: remote_file_content)
+      end
+
+      context 'with matching integrity hash' do
+        let(:integrity_hash) { "sha256-#{Base64.strict_encode64(Digest::SHA256.digest(remote_file_content))}" }
+
+        it { is_expected.to be_truthy }
+      end
+
+      context 'with non-matching integrity hash' do
+        let(:integrity_hash) { "sha256-#{Base64.strict_encode64(Digest::SHA256.digest('different content'))}" }
+
+        it { is_expected.to be_falsy }
+      end
+    end
   end
 
   describe "#content" do
@@ -189,7 +209,7 @@ RSpec.describe Gitlab::Ci::Config::External::File::Remote, feature_category: :pi
       let(:location) { 'not-valid://gitlab.com/gitlab-org/gitlab-foss/blob/1234/?secret_file.yml' }
 
       it 'returns an error message describing invalid address' do
-        expect(subject).to eq('Remote file `not-valid://gitlab.com/gitlab-org/gitlab-foss/blob/1234/?xxxxxxxxxxx.yml` does not have a valid address!')
+        expect(subject).to eq('Remote file `not-valid://gitlab.com/gitlab-org/gitlab-foss/blob/1234/?[MASKED]xxx.yml` does not have a valid address!')
       end
     end
 
@@ -199,7 +219,7 @@ RSpec.describe Gitlab::Ci::Config::External::File::Remote, feature_category: :pi
       end
 
       it 'returns error message about a timeout' do
-        expect(subject).to eq('Remote file `https://gitlab.com/gitlab-org/gitlab-foss/blob/1234/.xxxxxxxxxxx.yml` could not be fetched because of a timeout error!')
+        expect(subject).to eq('Remote file `https://gitlab.com/gitlab-org/gitlab-foss/blob/1234/.[MASKED]xxx.yml` could not be fetched because of a timeout error!')
       end
     end
 
@@ -209,7 +229,7 @@ RSpec.describe Gitlab::Ci::Config::External::File::Remote, feature_category: :pi
       end
 
       it 'returns error message about a HTTP error' do
-        expect(subject).to eq('Remote file `https://gitlab.com/gitlab-org/gitlab-foss/blob/1234/.xxxxxxxxxxx.yml` could not be fetched because of HTTP error!')
+        expect(subject).to eq('Remote file `https://gitlab.com/gitlab-org/gitlab-foss/blob/1234/.[MASKED]xxx.yml` could not be fetched because of HTTP error!')
       end
     end
 
@@ -219,7 +239,7 @@ RSpec.describe Gitlab::Ci::Config::External::File::Remote, feature_category: :pi
       end
 
       it 'returns error message about a timeout' do
-        expect(subject).to eq('Remote file `https://gitlab.com/gitlab-org/gitlab-foss/blob/1234/.xxxxxxxxxxx.yml` could not be fetched because of HTTP code `404` error!')
+        expect(subject).to eq('Remote file `https://gitlab.com/gitlab-org/gitlab-foss/blob/1234/.[MASKED]xxx.yml` could not be fetched because of HTTP code `404` error!')
       end
     end
 
@@ -244,6 +264,20 @@ RSpec.describe Gitlab::Ci::Config::External::File::Remote, feature_category: :pi
         expect(subject).to eq "Remote file could not be fetched because Connection refused!"
       end
     end
+
+    context 'when integrity check fails' do
+      let(:params) { { remote: location, integrity: "sha256-#{Base64.strict_encode64(Digest::SHA256.digest('different content'))}" } }
+
+      before do
+        stub_full_request(location).to_return(body: remote_file_content)
+      end
+
+      it 'returns error message about integrity check failure' do
+        expect(error_message).to eq(
+          'Remote file `https://gitlab.com/gitlab-org/gitlab-foss/blob/1234/.[MASKED]xxx.yml` failed integrity check!'
+        )
+      end
+    end
   end
 
   describe '#expand_context' do
@@ -263,17 +297,17 @@ RSpec.describe Gitlab::Ci::Config::External::File::Remote, feature_category: :pi
 
     subject(:metadata) { remote_file.metadata }
 
-    it {
+    it do
       is_expected.to eq(
         context_project: nil,
         context_sha: '12345',
         type: :remote,
-        location: 'https://gitlab.com/gitlab-org/gitlab-foss/blob/1234/.xxxxxxxxxxx.yml',
-        raw: 'https://gitlab.com/gitlab-org/gitlab-foss/blob/1234/.xxxxxxxxxxx.yml',
+        location: 'https://gitlab.com/gitlab-org/gitlab-foss/blob/1234/.[MASKED]xxx.yml',
+        raw: 'https://gitlab.com/gitlab-org/gitlab-foss/blob/1234/.[MASKED]xxx.yml',
         blob: nil,
         extra: {}
       )
-    }
+    end
   end
 
   describe '#to_hash' do

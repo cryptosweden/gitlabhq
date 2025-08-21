@@ -1,13 +1,17 @@
 <script>
 // We are using gl-breadcrumb only at the last child of the handwritten breadcrumb
-// until this gitlab-ui issue is resolved: https://gitlab.com/gitlab-org/gitlab-ui/-/issues/1079
-//
-// See the CSS workaround in app/assets/stylesheets/pages/registry.scss when this file is changed.
+// until this gitlab-ui issue is resolved: https://gitlab.com/gitlab-org/gitlab-ui/-/issues/1079 [CLOSED]
 import { GlBreadcrumb } from '@gitlab/ui';
 
 export default {
   components: {
     GlBreadcrumb,
+  },
+  props: {
+    staticBreadcrumbs: {
+      type: Array,
+      required: true,
+    },
   },
   computed: {
     rootRoute() {
@@ -20,13 +24,11 @@ export default {
       return this.$route.name === this.rootRoute.name;
     },
     detailsRouteName() {
-      return this.detailsRoute.meta.nameGenerator();
-    },
-    isLoaded() {
-      return this.isRootRoute || this.detailsRouteName;
+      return this.detailsRoute.meta?.nameGenerator() || (this.$route.params?.id ?? '');
     },
     allCrumbs() {
       const crumbs = [
+        ...this.staticBreadcrumbs,
         {
           text: this.rootRoute.meta.nameGenerator(),
           to: this.rootRoute.path,
@@ -35,7 +37,7 @@ export default {
       if (!this.isRootRoute) {
         crumbs.push({
           text: this.detailsRouteName,
-          href: this.detailsRoute.meta.path,
+          to: { name: this.detailsRoute.name, params: this.$route.params },
         });
       }
       return crumbs;
@@ -45,5 +47,5 @@ export default {
 </script>
 
 <template>
-  <gl-breadcrumb :key="isLoaded" :items="allCrumbs" :auto-resize="false" />
+  <gl-breadcrumb :items="allCrumbs" :auto-resize="false" />
 </template>

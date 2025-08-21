@@ -1,11 +1,9 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Plan', :smoke, product_group: :project_management do
+  RSpec.describe 'Plan', :smoke, feature_category: :team_planning do
     describe 'mention' do
-      let(:user) do
-        Resource::User.fabricate_or_use(Runtime::Env.gitlab_qa_username_1, Runtime::Env.gitlab_qa_password_1)
-      end
+      let(:user) { Runtime::User::Store.additional_test_user }
 
       let(:project) do
         Resource::Project.fabricate_via_api_unless_fips! do |project|
@@ -42,7 +40,10 @@ module QA
 
       it 'mentions another user in an issue',
         testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347988' do
-        Page::Project::Issue::Show.perform do |show|
+        work_item_enabled = Page::Project::Issue::Show.perform(&:work_item_enabled?)
+        page_type = work_item_enabled ? Page::Project::WorkItem::Show : Page::Project::Issue::Show
+
+        page_type.perform do |show|
           at_username = "@#{user.username}"
 
           show.select_all_activities_filter

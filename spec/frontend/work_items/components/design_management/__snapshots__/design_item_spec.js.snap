@@ -2,22 +2,25 @@
 
 exports[`Design item component when item appears in view after image is loaded renders media broken icon when image onerror triggered 1`] = `
 <gl-icon-stub
-  class="text-secondary"
   name="media-broken"
   size="32"
-  variant="current"
+  variant="subtle"
 />
 `;
 
 exports[`Design item component with notes renders item with multiple comments 1`] = `
 <a
-  class="card design-list-item gl-cursor-pointer gl-mb-0 js-design-list-item text-plain"
+  class="focus:gl-focus gl-block gl-text-default hover:gl-text-default"
+  href="/gitlab-org/gitlab-test/-/work_items/1/designs/test"
 >
-  <div
-    class="card-body gl-flex gl-items-center gl-justify-content-center gl-overflow-hidden gl-p-0 gl-relative gl-rounded-top-base"
+  <gl-card-stub
+    bodyclass="gl-py-3 gl-px-4 gl-flex gl-bg-section gl-rounded-b-base"
+    class="design-list-item gl-border-section gl-mb-0 hover:gl-border-strong js-design-list-item"
+    footerclass=""
+    headerclass=" gl-p-0 gl-flex gl-grow gl-items-center gl-justify-center gl-overflow-hidden gl-relative gl-aspect-video"
   >
     <gl-intersection-observer-stub
-      class="gl-grow"
+      class="gl-flex gl-grow gl-items-center gl-justify-center"
       data-qa-filename="test"
       data-testid="design-image"
     >
@@ -28,34 +31,33 @@ exports[`Design item component with notes renders item with multiple comments 1`
         src="null"
       />
     </gl-intersection-observer-stub>
-  </div>
-  <div
-    class="card-footer gl-bg-white gl-flex gl-px-4 gl-py-3 gl-w-full"
-  >
     <div
-      class="gl-flex gl-flex-col str-truncated-100"
+      class="gl-flex gl-flex-col gl-truncate"
+      data-testid="design-file-name"
     >
       <span
-        class="gl-font-sm str-truncated-100"
+        class="gl-text-sm gl-truncate"
         data-testid="design-img-filename-1"
         title="test"
       >
         test
       </span>
       <span
-        class="str-truncated-100"
+        class="gl-truncate"
       >
         Updated
         <timeago-stub
           cssclass=""
           datetimeformat="asDateTime"
+          href=""
+          showdatewhenoverayear="true"
           time="01-01-2019"
           tooltipplacement="bottom"
         />
       </span>
     </div>
     <div
-      class="gl-flex gl-items-center gl-ml-auto gl-text-gray-500"
+      class="gl-flex gl-items-center gl-ml-auto gl-text-subtle"
     >
       <gl-icon-stub
         class="gl-ml-2"
@@ -65,24 +67,28 @@ exports[`Design item component with notes renders item with multiple comments 1`
       />
       <span
         aria-label="2 comments"
-        class="gl-font-sm gl-ml-2"
+        class="gl-ml-2 gl-text-sm"
       >
         2
       </span>
     </div>
-  </div>
+  </gl-card-stub>
 </a>
 `;
 
 exports[`Design item component with notes renders item with single comment 1`] = `
 <a
-  class="card design-list-item gl-cursor-pointer gl-mb-0 js-design-list-item text-plain"
+  class="focus:gl-focus gl-block gl-text-default hover:gl-text-default"
+  href="/gitlab-org/gitlab-test/-/work_items/1/designs/test"
 >
-  <div
-    class="card-body gl-flex gl-items-center gl-justify-content-center gl-overflow-hidden gl-p-0 gl-relative gl-rounded-top-base"
+  <gl-card-stub
+    bodyclass="gl-py-3 gl-px-4 gl-flex gl-bg-section gl-rounded-b-base"
+    class="design-list-item gl-border-section gl-mb-0 hover:gl-border-strong js-design-list-item"
+    footerclass=""
+    headerclass=" gl-p-0 gl-flex gl-grow gl-items-center gl-justify-center gl-overflow-hidden gl-relative gl-aspect-video"
   >
     <gl-intersection-observer-stub
-      class="gl-grow"
+      class="gl-flex gl-grow gl-items-center gl-justify-center"
       data-qa-filename="test"
       data-testid="design-image"
     >
@@ -93,34 +99,33 @@ exports[`Design item component with notes renders item with single comment 1`] =
         src="null"
       />
     </gl-intersection-observer-stub>
-  </div>
-  <div
-    class="card-footer gl-bg-white gl-flex gl-px-4 gl-py-3 gl-w-full"
-  >
     <div
-      class="gl-flex gl-flex-col str-truncated-100"
+      class="gl-flex gl-flex-col gl-truncate"
+      data-testid="design-file-name"
     >
       <span
-        class="gl-font-sm str-truncated-100"
+        class="gl-text-sm gl-truncate"
         data-testid="design-img-filename-1"
         title="test"
       >
         test
       </span>
       <span
-        class="str-truncated-100"
+        class="gl-truncate"
       >
         Updated
         <timeago-stub
           cssclass=""
           datetimeformat="asDateTime"
+          href=""
+          showdatewhenoverayear="true"
           time="01-01-2019"
           tooltipplacement="bottom"
         />
       </span>
     </div>
     <div
-      class="gl-flex gl-items-center gl-ml-auto gl-text-gray-500"
+      class="gl-flex gl-items-center gl-ml-auto gl-text-subtle"
     >
       <gl-icon-stub
         class="gl-ml-2"
@@ -130,11 +135,11 @@ exports[`Design item component with notes renders item with single comment 1`] =
       />
       <span
         aria-label="1 comment"
-        class="gl-font-sm gl-ml-2"
+        class="gl-ml-2 gl-text-sm"
       >
         1
       </span>
     </div>
-  </div>
+  </gl-card-stub>
 </a>
 `;

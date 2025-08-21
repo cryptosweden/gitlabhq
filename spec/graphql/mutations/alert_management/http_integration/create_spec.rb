@@ -2,10 +2,11 @@
 
 require 'spec_helper'
 
-RSpec.describe Mutations::AlertManagement::HttpIntegration::Create do
+RSpec.describe Mutations::AlertManagement::HttpIntegration::Create, feature_category: :incident_management do
+  include GraphqlHelpers
+
   let_it_be(:current_user) { create(:user) }
   let_it_be(:project) { create(:project) }
-
   let(:args) { { project_path: project.full_path, active: true, name: 'HTTP Integration' } }
 
   specify { expect(described_class).to require_graphql_authorizations(:admin_operations) }
@@ -24,6 +25,11 @@ RSpec.describe Mutations::AlertManagement::HttpIntegration::Create do
             integration: ::AlertManagement::HttpIntegration.last!,
             errors: []
           )
+          expect(resolve[:integration]).to have_attributes(
+            active: true,
+            name: 'HTTP Integration',
+            type_identifier: 'http'
+          )
         end
       end
 
@@ -41,6 +47,29 @@ RSpec.describe Mutations::AlertManagement::HttpIntegration::Create do
           )
         end
       end
+
+      context 'when type argument is specified' do
+        let(:args) do
+          {
+            project_path: project.full_path,
+            active: true,
+            name: 'Prometheus',
+            type_identifier: :prometheus
+          }
+        end
+
+        it 'returns the integration with no errors' do
+          expect(resolve).to eq(
+            integration: ::AlertManagement::HttpIntegration.last!,
+            errors: []
+          )
+          expect(resolve[:integration]).to have_attributes(
+            active: true,
+            name: 'Prometheus',
+            type_identifier: 'prometheus'
+          )
+        end
+      end
     end
 
     context 'when resource is not accessible to the user' do
@@ -52,7 +81,7 @@ RSpec.describe Mutations::AlertManagement::HttpIntegration::Create do
 
   private
 
-  def mutation_for(project, user)
-    described_class.new(object: project, context: { current_user: user }, field: nil)
+  def mutation_for(project, _user)
+    described_class.new(object: project, context: query_context, field: nil)
   end
 end

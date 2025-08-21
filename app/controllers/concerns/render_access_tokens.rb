@@ -4,14 +4,17 @@ module RenderAccessTokens
   extend ActiveSupport::Concern
 
   def active_access_tokens
-    tokens = finder(state: 'active', sort: 'expires_at_asc_id_desc').execute.preload_users
+    tokens = finder(state: 'active', sort: 'expires_asc').execute.preload_users
+    size = tokens.size
 
-    if Feature.enabled?('access_token_pagination')
-      tokens = tokens.page(page)
-      add_pagination_headers(tokens)
-    end
+    tokens = tokens.page(page)
+    add_pagination_headers(tokens)
 
-    represent(tokens)
+    [represent(tokens), size]
+  end
+
+  def inactive_access_tokens
+    finder(state: 'inactive', sort: 'updated_at_desc').execute.preload_users
   end
 
   def add_pagination_headers(relation)

@@ -3,17 +3,17 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import autoprefixer from 'autoprefixer';
 import postcss from 'postcss';
+import postcssCustomProperties from 'postcss-custom-properties';
+import postcssGlobalData from '@csstools/postcss-global-data';
 import { compile, Logger } from 'sass';
 import glob from 'glob';
-/* eslint-disable import/extensions */
 import tailwindcss from 'tailwindcss/lib/plugin.js';
 import tailwindConfig from '../../../config/tailwind.config.js';
 import IS_EE from '../../../config/helpers/is_ee_env.js';
 import IS_JH from '../../../config/helpers/is_jh_env.js';
-/* eslint-enable import/extensions */
+import { postCssColorToHex } from './postcss_color_to_hex.js';
 
-// Note, in node > 21.2 we could replace the below with import.meta.dirname
-const ROOT_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../');
+const ROOT_PATH = path.resolve(import.meta.dirname, '../../../');
 const OUTPUT_PATH = path.join(ROOT_PATH, 'app/assets/builds/');
 
 const BASE_PATH = 'app/assets/stylesheets';
@@ -38,6 +38,12 @@ export function resolveLoadPaths() {
       'app/assets/stylesheets/_jh',
       // loaded last
       'vendor/assets/stylesheets', // empty
+      /*
+       This load path is added in order to be able to consume the bootstrap SCSS
+       from @gitlab/ui which has been vendored with:
+       https://gitlab.com/gitlab-org/gitlab-ui/-/merge_requests/4333
+       */
+      'node_modules/@gitlab/ui/src/vendor',
       'node_modules',
     ],
   };
@@ -110,7 +116,6 @@ function resolveCompilationTargets(filter) {
         ignore: [
           SCSS_PARTIAL_GLOB,
           '**/bootstrap_migration*', // TODO: Prefix file name with _ (and/or move to framework)
-          '**/utilities.scss', // TODO: Prefix file name with _
         ],
       },
     ],
@@ -185,6 +190,15 @@ export function resolveCompilationTargetsForVite() {
 function createPostCSSProcessors() {
   return {
     tailwind: postcss([tailwindcss(tailwindConfig), autoprefixer()]),
+    mailers: postcss([
+      tailwindcss(tailwindConfig),
+      postcssGlobalData({
+        files: [path.join(ROOT_PATH, 'node_modules/@gitlab/ui/src/tokens/build/css/tokens.css')],
+      }),
+      postcssCustomProperties({ preserve: false }),
+      postCssColorToHex(),
+      autoprefixer(),
+    ]),
     default: postcss([autoprefixer()]),
   };
 }
@@ -219,7 +233,13 @@ export async function compileAllStyles({
   }
 
   async function postProcessCSS(content, source) {
-    const processor = content.css.includes('@apply') ? processors.tailwind : processors.default;
+    let processor = processors.default;
+
+    if (source.includes('/mailers/')) {
+      processor = processors.mailers;
+    } else if (content.css.includes('@apply')) {
+      processor = processors.tailwind;
+    }
 
     return processor.process(content.css, {
       from: source,

@@ -89,6 +89,30 @@ RSpec.describe Projects::MergeRequestsController, feature_category: :code_review
       end
     end
 
+    context 'when the merge request has auto merge enabled' do
+      let(:merge_request) { create(:merge_request_with_diffs, :merge_when_checks_pass, target_project: project, source_project: merge_request_source_project, allow_collaboration: false) }
+
+      context 'when the merge request is mergeable' do
+        let(:pipeline) { create(:ci_pipeline, :success) }
+
+        before do
+          merge_request.update_attribute(:head_pipeline_id, pipeline.id)
+        end
+
+        it 'calls the auto merge process worker async' do
+          expect { go }.to publish_event(MergeRequests::MergeableEvent)
+            .with(merge_request_id: merge_request.id)
+        end
+      end
+
+      context 'when the merge request is not mergeable' do
+        it 'does not call the auto merge process worker' do
+          merge_request.update!(title: "Draft: #{merge_request.title}")
+          expect { go }.not_to publish_event(MergeRequests::MergeableEvent)
+        end
+      end
+    end
+
     describe 'as html' do
       it 'sets the endpoint_metadata_url' do
         go
@@ -245,14 +269,14 @@ RSpec.describe Projects::MergeRequestsController, feature_category: :code_review
         end
       end
 
-      context 'when has pinned file' do
+      context 'when has linked file' do
         let(:file) { merge_request.merge_request_diff.diffs.diff_files.first }
         let(:file_hash) { file.file_hash }
 
-        it 'adds pinned file url' do
-          go(pin: file_hash)
+        it 'adds linked file url' do
+          go(file: file_hash)
 
-          expect(assigns['pinned_file_url']).to eq(
+          expect(assigns['linked_file_url']).to eq(
             diff_by_file_hash_namespace_project_merge_request_path(
               format: 'json',
               id: merge_request.iid,
@@ -363,67 +387,10 @@ RSpec.describe Projects::MergeRequestsController, feature_category: :code_review
       }
     end
 
-    it_behaves_like "issuables list meta-data", :merge_request
+    it 'renders merge requests index template' do
+      get_merge_requests
 
-    it_behaves_like 'set sort order from user preference' do
-      let(:sorting_param) { 'updated_asc' }
-    end
-
-    context 'when page param' do
-      let(:last_page) { project.merge_requests.page.total_pages }
-      let!(:merge_request) { create(:merge_request_with_diffs, target_project: project, source_project: project) }
-
-      it 'redirects to last_page if page number is larger than number of pages' do
-        get_merge_requests(last_page + 1)
-
-        expect(response).to redirect_to(project_merge_requests_path(project, page: last_page, state: controller.params[:state], scope: controller.params[:scope]))
-      end
-
-      it 'redirects to specified page' do
-        get_merge_requests(last_page)
-
-        expect(assigns(:merge_requests).current_page).to eq(last_page)
-        expect(response).to have_gitlab_http_status(:ok)
-      end
-
-      it 'does not redirect to external sites when provided a host field' do
-        external_host = "www.example.com"
-        get :index,
-          params: {
-            namespace_id: project.namespace.to_param,
-            project_id: project,
-            state: 'opened',
-            page: (last_page + 1).to_param,
-            host: external_host
-          }
-
-        expect(response).to redirect_to(project_merge_requests_path(project, page: last_page, state: controller.params[:state], scope: controller.params[:scope]))
-      end
-    end
-
-    context 'when filtering by opened state' do
-      context 'with opened merge requests' do
-        it 'lists those merge requests' do
-          expect(merge_request).to be_persisted
-
-          get_merge_requests
-
-          expect(assigns(:merge_requests)).to include(merge_request)
-        end
-      end
-
-      context 'with reopened merge requests' do
-        before do
-          merge_request.close!
-          merge_request.reopen!
-        end
-
-        it 'lists those merge requests' do
-          get_merge_requests
-
-          expect(assigns(:merge_requests)).to include(merge_request)
-        end
-      end
+      expect(response).to render_template('projects/merge_requests/index')
     end
   end
 
@@ -646,6 +613,23 @@ RSpec.describe Projects::MergeRequestsController, feature_category: :code_review
         end
       end
 
+      context 'when the merge when checks strategy is passed' do
+        let!(:head_pipeline) do
+          create(:ci_empty_pipeline, project: project, sha: merge_request.diff_head_sha, ref: merge_request.source_branch, head_pipeline_of: merge_request)
+        end
+
+        def set_auto_merge
+          post :merge, params: base_params.merge(sha: merge_request.diff_head_sha, auto_merge_strategy:
+                                                 'merge_when_checks_pass')
+        end
+
+        it_behaves_like 'api merge with auto merge' do
+          let(:service_class) { AutoMerge::MergeWhenChecksPassService }
+          let(:status) { 'merge_when_checks_pass' }
+          let(:not_current_pipeline_status) { 'merge_when_checks_pass' }
+        end
+      end
+
       context 'when merge when pipeline succeeds option is passed' do
         let!(:head_pipeline) do
           create(:ci_empty_pipeline, project: project, sha: merge_request.diff_head_sha, ref: merge_request.source_branch, head_pipeline_of: merge_request)
@@ -659,18 +643,6 @@ RSpec.describe Projects::MergeRequestsController, feature_category: :code_review
           let(:service_class) { AutoMerge::MergeWhenChecksPassService }
           let(:status) { 'merge_when_checks_pass' }
           let(:not_current_pipeline_status) { 'merge_when_checks_pass' }
-        end
-
-        context 'when merge_when_checks_pass is false' do
-          before do
-            stub_feature_flags(merge_when_checks_pass: false)
-          end
-
-          it_behaves_like 'api merge with auto merge' do
-            let(:service_class) { AutoMerge::MergeWhenPipelineSucceedsService }
-            let(:status) { 'merge_when_pipeline_succeeds' }
-            let(:not_current_pipeline_status) { 'failed' }
-          end
         end
       end
 
@@ -828,128 +800,138 @@ RSpec.describe Projects::MergeRequestsController, feature_category: :code_review
   end
 
   describe 'GET pipelines' do
-    before do
-      create(
-        :ci_pipeline,
-        project: merge_request.source_project,
-        ref: merge_request.source_branch,
-        sha: merge_request.diff_head_sha
-      )
-
-      get :pipelines, params: {
-        namespace_id: project.namespace.to_param,
-        project_id: project,
-        id: merge_request.iid
-      }, format: :json
-    end
-
-    context 'with "enabled" builds on a public project' do
-      let(:project) { create(:project, :repository, :public) }
-
-      context 'for a project owner' do
-        it 'responds with serialized pipelines' do
-          expect(json_response['pipelines']).to be_present
-          expect(json_response['count']['all']).to eq(1)
-          expect(response).to include_pagination_headers
-        end
-      end
-
-      context 'for an unassociated user' do
-        let(:user) { create :user }
-
-        it 'responds with no pipelines' do
-          expect(json_response['pipelines']).to be_present
-          expect(json_response['count']['all']).to eq(1)
-          expect(response).to include_pagination_headers
-        end
-      end
-    end
-
-    context 'with private builds on a public project' do
-      let(:project) { project_public_with_private_builds }
-
-      context 'for a project owner' do
-        it 'responds with serialized pipelines' do
-          expect(json_response['pipelines']).to be_present
-          expect(json_response['count']['all']).to eq(1)
-          expect(response).to include_pagination_headers
-        end
-      end
-
-      context 'for an unassociated user' do
-        let(:user) { create :user }
-
-        it 'responds with no pipelines' do
-          expect(json_response['pipelines']).to be_empty
-          expect(json_response['count']['all']).to eq(0)
-          expect(response).to include_pagination_headers
-        end
-      end
-
-      context 'from a project fork' do
-        let(:fork_user)      { create :user }
-        let(:forked_project) { fork_project(project, fork_user, repository: true) } # Forked project carries over :builds_private
-        let(:merge_request)  { create(:merge_request_with_diffs, target_project: project, source_project: forked_project) }
-
-        context 'with private builds' do
-          context 'for the target project member' do
-            it 'does not respond with serialized pipelines' do
-              expect(json_response['pipelines']).to be_empty
-              expect(json_response['count']['all']).to eq(0)
-              expect(response).to include_pagination_headers
-            end
-          end
-
-          context 'for the source project member' do
-            let(:user) { fork_user }
-
-            it 'responds with serialized pipelines' do
-              expect(json_response['pipelines']).to be_present
-              expect(json_response['count']['all']).to eq(1)
-              expect(response).to include_pagination_headers
-            end
-          end
-        end
-
-        context 'with public builds' do
-          let(:forked_project) do
-            fork_project(project, fork_user, repository: true).tap do |new_project|
-              new_project.project_feature.update!(builds_access_level: ProjectFeature::ENABLED)
-            end
-          end
-
-          context 'for the target project member' do
-            it 'does not respond with serialized pipelines' do
-              expect(json_response['pipelines']).to be_present
-              expect(json_response['count']['all']).to eq(1)
-              expect(response).to include_pagination_headers
-            end
-          end
-
-          context 'for the source project member' do
-            let(:user) { fork_user }
-
-            it 'responds with serialized pipelines' do
-              expect(json_response['pipelines']).to be_present
-              expect(json_response['count']['all']).to eq(1)
-              expect(response).to include_pagination_headers
-            end
-          end
-        end
-      end
-    end
-
-    context 'with pagination' do
+    context 'while being on last page' do
       before do
-        create(:ci_pipeline, project: merge_request.source_project, ref: merge_request.source_branch, sha: merge_request.diff_head_sha)
+        2.times do
+          create(
+            :ci_pipeline,
+            project: merge_request.source_project,
+            ref: merge_request.source_branch,
+            sha: merge_request.diff_head_sha
+          )
+        end
       end
 
-      it 'paginates the result' do
+      it 'paginates the result and returns the correct amount of all pipelines' do
         allow(Ci::Pipeline).to receive(:default_per_page).and_return(1)
 
-        get :pipelines, params: { namespace_id: project.namespace.to_param, project_id: project, id: merge_request.iid }, format: :json
+        get :pipelines, params: { namespace_id: project.namespace.to_param, page: 2, project_id: project, id: merge_request.iid }, format: :json
 
         expect(json_response['pipelines'].count).to eq(1)
+        expect(json_response['count']['all']).to eq(2)
+      end
+    end
+
+    context 'while being on first page' do
+      before do
+        create(
+          :ci_pipeline,
+          project: merge_request.source_project,
+          ref: merge_request.source_branch,
+          sha: merge_request.diff_head_sha
+        )
+
+        get :pipelines, params: {
+          namespace_id: project.namespace.to_param,
+          project_id: project,
+          id: merge_request.iid
+        }, format: :json
+      end
+
+      context 'with "enabled" builds on a public project' do
+        let_it_be(:project) { create(:project, :repository, :public) }
+
+        context 'for a project owner' do
+          it 'responds with serialized pipelines' do
+            expect(json_response['pipelines']).to be_present
+            expect(json_response['count']['all']).to eq(1)
+            expect(response).to include_pagination_headers
+          end
+        end
+
+        context 'for an unassociated user' do
+          let(:user) { create :user }
+
+          it 'responds with no pipelines' do
+            expect(json_response['pipelines']).to be_present
+            expect(json_response['count']['all']).to eq(1)
+            expect(response).to include_pagination_headers
+          end
+        end
+      end
+
+      context 'with private builds on a public project' do
+        let(:project) { project_public_with_private_builds }
+
+        context 'for a project owner' do
+          it 'responds with serialized pipelines' do
+            expect(json_response['pipelines']).to be_present
+            expect(json_response['count']['all']).to eq(1)
+            expect(response).to include_pagination_headers
+          end
+        end
+
+        context 'for an unassociated user' do
+          let(:user) { create :user }
+
+          it 'responds with no pipelines' do
+            expect(json_response['pipelines']).to be_empty
+            expect(json_response['count']['all']).to eq(0)
+            expect(response).to include_pagination_headers
+          end
+        end
+
+        context 'from a project fork' do
+          let(:fork_user)      { create :user }
+          let(:forked_project) { fork_project(project, fork_user, repository: true) } # Forked project carries over :builds_private
+          let(:merge_request)  { create(:merge_request_with_diffs, target_project: project, source_project: forked_project) }
+
+          context 'with private builds' do
+            context 'for the target project member' do
+              it 'does not respond with serialized pipelines' do
+                expect(json_response['pipelines']).to be_empty
+                expect(json_response['count']['all']).to eq(0)
+                expect(response).to include_pagination_headers
+              end
+            end
+
+            context 'for the source project member' do
+              let(:user) { fork_user }
+
+              it 'responds with serialized pipelines' do
+                expect(json_response['pipelines']).to be_present
+                expect(json_response['count']['all']).to eq(1)
+                expect(response).to include_pagination_headers
+              end
+            end
+          end
+
+          context 'with public builds' do
+            let(:forked_project) do
+              fork_project(project, fork_user, repository: true).tap do |new_project|
+                new_project.project_feature.update!(builds_access_level: ProjectFeature::ENABLED)
+              end
+            end
+
+            context 'for the target project member' do
+              it 'does not respond with serialized pipelines' do
+                expect(json_response['pipelines']).to be_present
+                expect(json_response['count']['all']).to eq(1)
+                expect(response).to include_pagination_headers
+              end
+            end
+
+            context 'for the source project member' do
+              let(:user) { fork_user }
+
+              it 'responds with serialized pipelines' do
+                expect(json_response['pipelines']).to be_present
+                expect(json_response['count']['all']).to eq(1)
+                expect(response).to include_pagination_headers
+              end
+            end
+          end
+        end
       end
     end
   end

@@ -13,13 +13,38 @@ module Gitlab
         # project - An instance of Project.
         def import(_, project)
           @project = project
+
+          return self.class.perform_in(30.seconds, project.id) if reference_store_pending?
+
           project.after_import
+
           report_import_time
         end
 
         private
 
         attr_reader :project
+
+        def reference_store_pending?
+          import_settings = import_settings(project)
+
+          return false unless import_settings.user_mapping_enabled?
+          return false if import_settings.map_to_personal_namespace_owner?
+          return false unless placeholder_reference_store.any?
+
+          ::Import::LoadPlaceholderReferencesWorker.perform_async(
+            ::Import::SOURCE_GITHUB,
+            project.import_state.id
+          )
+
+          info(
+            project.id,
+            message: 'Delaying finalization as placeholder references are pending',
+            placeholder_store_count: placeholder_reference_store.count
+          )
+
+          true
+        end
 
         def report_import_time
           metrics.track_finished_import
@@ -34,6 +59,10 @@ module Gitlab
 
         def metrics
           @metrics ||= Gitlab::Import::Metrics.new(:github_importer, project)
+        end
+
+        def placeholder_reference_store
+          @placeholder_reference_store ||= project.placeholder_reference_store
         end
       end
     end

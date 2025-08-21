@@ -1,4 +1,4 @@
-import { GlBadge, GlButton } from '@gitlab/ui';
+import { GlBadge, GlButton, GlModal } from '@gitlab/ui';
 import Vue, { nextTick } from 'vue';
 // eslint-disable-next-line no-restricted-imports
 import Vuex from 'vuex';
@@ -14,18 +14,18 @@ describe('ProviderRepoTableRow', () => {
   const fetchImport = jest.fn();
   const cancelImport = jest.fn();
   const setImportTarget = jest.fn();
-  const fakeImportTarget = {
+  const groupImportTarget = {
     targetNamespace: 'target',
     newName: 'newName',
   };
 
   const userNamespace = 'root';
 
-  function initStore(initialState) {
+  function initStore({ importTarget = groupImportTarget } = {}) {
     const store = new Vuex.Store({
-      state: initialState,
+      state: {},
       getters: {
-        getImportTarget: () => () => fakeImportTarget,
+        getImportTarget: () => () => importTarget,
       },
       actions: { fetchImport, cancelImport, setImportTarget },
     });
@@ -43,7 +43,9 @@ describe('ProviderRepoTableRow', () => {
   const findReimportButton = () => findButton('Re-import');
   const findImportTargetDropdown = () => wrapper.findComponent(ImportTargetDropdown);
   const findImportStatus = () => wrapper.findComponent(ImportStatus);
-  const findProviderLink = () => wrapper.findByTestId('providerLink');
+  const findProviderLink = () => wrapper.findByTestId('provider-link');
+  const findMembershipsWarning = () => wrapper.findByTestId('memberships-warning');
+  const findGlModal = () => wrapper.findComponent(GlModal);
 
   const findCancelButton = () => {
     const buttons = wrapper
@@ -53,14 +55,23 @@ describe('ProviderRepoTableRow', () => {
     return buttons.length ? buttons.at(0) : buttons;
   };
 
-  function mountComponent(props) {
+  function mountComponent(
+    props,
+    { storeOptions = {}, userMappingToPersonalNamespaceOwner = true } = {},
+  ) {
     Vue.use(Vuex);
 
-    const store = initStore();
+    const store = initStore(storeOptions);
 
     wrapper = shallowMountExtended(ProviderRepoTableRow, {
       store,
-      propsData: { userNamespace, optionalStages: {}, ...props },
+      propsData: { optionalStages: {}, ...props },
+      provide: {
+        userNamespace,
+        glFeatures: {
+          userMappingToPersonalNamespaceOwner,
+        },
+      },
     });
   }
 
@@ -90,6 +101,79 @@ describe('ProviderRepoTableRow', () => {
 
     it('renders a group namespace select', () => {
       expect(findImportTargetDropdown().exists()).toBe(true);
+    });
+
+    describe('when user namespace is selected as import target', () => {
+      beforeEach(() => {
+        mountComponent(
+          { repo },
+          { storeOptions: { importTarget: { targetNamespace: userNamespace } } },
+        );
+      });
+
+      it('shows memberships warning', () => {
+        expect(findMembershipsWarning().isVisible()).toBe(true);
+      });
+
+      it('shows modal with warning message when import button is clicked', async () => {
+        findImportButton().vm.$emit('click');
+        await nextTick();
+
+        const modal = findGlModal();
+        expect(modal.props('title')).toBe(
+          'Are you sure you want to import the project to a personal namespace?',
+        );
+        expect(modal.text()).toContain(
+          'When you import to a personal namespace, all contributions are assigned to the personal namespace owner and they cannot be reassigned. To map contributions to real users, import to a group instead.',
+        );
+      });
+
+      it('triggers import when clicking modal primary button', async () => {
+        findImportButton().vm.$emit('click');
+        await nextTick();
+
+        findGlModal().vm.$emit('primary');
+
+        expect(fetchImport).toHaveBeenCalledWith(expect.anything(), {
+          repoId: repo.importSource.id,
+          optionalStages: {},
+        });
+      });
+
+      describe('when user_mapping_to_personal_namespace_owner feature flag is disabled', () => {
+        beforeEach(() => {
+          mountComponent(
+            { repo },
+            {
+              storeOptions: { importTarget: { targetNamespace: userNamespace } },
+              userMappingToPersonalNamespaceOwner: false,
+            },
+          );
+        });
+
+        it('shows message warning user about mapping to import user', async () => {
+          findImportButton().vm.$emit('click');
+          await nextTick();
+
+          const modal = findGlModal();
+          expect(modal.text()).toContain(
+            'When you import to a personal namespace, all contributions are assigned to a single non-functional user and they cannot be reassigned. To map contributions to real users, import to a group instead.',
+          );
+        });
+      });
+    });
+
+    describe('when group namespace is selected as import target', () => {
+      it('does not show memberships warning', () => {
+        expect(findMembershipsWarning().isVisible()).toBe(false);
+      });
+
+      it('does not show modal when import button is clicked', async () => {
+        findImportButton().vm.$emit('click');
+        await nextTick();
+
+        expect(findGlModal().exists()).toBe(false);
+      });
     });
 
     it('renders import button', () => {

@@ -2,7 +2,7 @@
 # You should not add this template to an existing `.gitlab-ci.yml` file by using the `include:` keyword.
 #
 # To contribute improvements to CI/CD templates, please follow the Development guide at:
-# https://docs.gitlab.com/ee/development/cicd/templates.html
+# https://docs.gitlab.com/development/cicd/templates/
 # This specific template is located at:
 # https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Ruby.gitlab-ci.yml
 
@@ -12,7 +12,7 @@ image: ruby:latest
 
 # Pick zero or more services to be used on all builds.
 # Only needed when using a docker container to run your tests in.
-# Check out: https://docs.gitlab.com/ee/ci/services/index.html
+# Check out: https://docs.gitlab.com/ee/ci/services/
 services:
   - mysql:latest
   - redis:latest
@@ -23,6 +23,9 @@ variables:
 
 # Cache gems in between builds
 cache:
+  key:
+    files:
+      - Gemfile.lock
   paths:
     - vendor/ruby
 
@@ -32,7 +35,8 @@ before_script:
   - ruby -v  # Print out ruby version for debugging
   # Uncomment next line if your rails app needs a JS runtime:
   # - apt-get update -q && apt-get install nodejs -yqq
-  - bundle config set --local deployment true  # Install dependencies into ./vendor/ruby
+  - bundle config set --local deployment true
+  - bundle config set --local path './vendor/ruby' # Install dependencies into ./vendor/ruby
   - bundle install -j $(nproc)
 
 # Optional - Delete if not using `rubocop`

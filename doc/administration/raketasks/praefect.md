@@ -1,17 +1,19 @@
 ---
-stage: Systems
+stage: Data Access
 group: Gitaly
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Praefect Rake tasks
 ---
 
-# Praefect Rake tasks
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 Rake tasks are available for projects that have been created on Praefect storage. See the
-[Praefect documentation](../gitaly/praefect.md) for information on configuring Praefect.
+[Praefect documentation](../gitaly/praefect/_index.md) for information on configuring Praefect.
 
 ## Replica checksums
 

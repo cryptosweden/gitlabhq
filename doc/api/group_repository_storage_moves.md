@@ -1,23 +1,25 @@
 ---
 stage: Create
-group: IDE
+group: Remote Development
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Documentation for the REST API for moving the storage for repositories in a GitLab group."
+description: Documentation for the REST API for moving the storage for repositories in a GitLab group.
+title: Group repository storage moves API
 ---
 
-# Group repository storage moves API
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Group wiki repositories can be moved between storages. This API can help you, for example,
-[migrate to Gitaly Cluster](../administration/gitaly/index.md#migrate-to-gitaly-cluster)
+[migrate to Gitaly Cluster (Praefect)](../administration/gitaly/praefect/_index.md#migrate-to-gitaly-cluster-praefect)
 or migrate a [group wiki](../user/project/wiki/group.md). This API does not manage
 project repositories in a group. To schedule project moves, use the
 [project repository storage moves API](project_repository_storage_moves.md).
 
-As group repository storage moves are processed, they transition through different states. Values
+As GitLab processes a group repository storage move, it transitions through different states. Values
 of `state` are:
 
 - `initial`: The record has been created, but the background job has not yet been scheduled.
@@ -28,7 +30,7 @@ of `state` are:
 - `finished`: The group has been moved, and the repositories on the source storage have been deleted.
 - `cleanup failed`: The group has been moved, but the repositories on the source storage could not be deleted.
 
-To ensure data integrity, groups are put in a temporary read-only state for the
+To ensure data integrity, GitLab places groups in a temporary read-only state for the
 duration of the move. During this time, users receive this message if they try to
 push new commits:
 
@@ -36,7 +38,7 @@ push new commits:
 The repository is temporarily read-only. Please try again later.
 ```
 
-This API requires you to [authenticate yourself](rest/index.md#authentication) as an administrator.
+This API requires you to [authenticate yourself](rest/authentication.md) as an administrator.
 
 APIs are also available to move other types of repositories:
 
@@ -50,12 +52,13 @@ GET /group_repository_storage_moves
 ```
 
 By default, `GET` requests return 20 results at a time, because the API results
-are [paginated](rest/index.md#pagination).
+are [paginated](rest/_index.md#pagination).
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/group_repository_storage_moves"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/group_repository_storage_moves"
 ```
 
 Example response:
@@ -86,7 +89,7 @@ GET /groups/:group_id/repository_storage_moves
 ```
 
 By default, `GET` requests return 20 results at a time, because the API results
-are [paginated](rest/index.md#pagination).
+are [paginated](rest/_index.md#pagination).
 
 Supported attributes:
 
@@ -97,7 +100,8 @@ Supported attributes:
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/1/repository_storage_moves"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/1/repository_storage_moves"
 ```
 
 Example response:
@@ -137,7 +141,8 @@ Supported attributes:
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/group_repository_storage_moves/1"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/group_repository_storage_moves/1"
 ```
 
 Example response:
@@ -176,7 +181,8 @@ Supported attributes:
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/1/repository_storage_moves/1"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/1/repository_storage_moves/1"
 ```
 
 Example response:
@@ -220,7 +226,7 @@ Example request:
 curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
      --header "Content-Type: application/json" \
      --data '{"destination_storage_name":"storage2"}' \
-     "https://gitlab.example.com/api/v4/groups/1/repository_storage_moves"
+     --url "https://gitlab.example.com/api/v4/groups/1/repository_storage_moves"
 ```
 
 Example response:
@@ -263,7 +269,7 @@ Example request:
 curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
      --header "Content-Type: application/json" \
      --data '{"source_storage_name":"default"}' \
-     "https://gitlab.example.com/api/v4/group_repository_storage_moves"
+     --url "https://gitlab.example.com/api/v4/group_repository_storage_moves"
 ```
 
 Example response:

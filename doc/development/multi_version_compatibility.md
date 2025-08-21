@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Backwards compatibility across updates
 ---
-
-# Backwards compatibility across updates
 
 GitLab deployments can be broken down into many components. Updating GitLab is not atomic. Therefore, **many components must be backwards-compatible**.
 
@@ -52,8 +51,8 @@ Is it ok that some nodes have the new Rails version, but some nodes have the old
 Backward compatibility problems during updates are often very subtle. This is why it is worth
 familiarizing yourself with:
 
-- [Update instructions](../update/index.md)
-- [Reference architectures](../administration/reference_architectures/index.md)
+- [Upgrade instructions](../update/_index.md)
+- [Reference architectures](../administration/reference_architectures/_index.md)
 - [GitLab.com's architecture](https://handbook.gitlab.com/handbook/engineering/infrastructure/production/architecture/)
 - [GitLab.com's upgrade pipeline](https://gitlab.com/gitlab-org/release/docs/blob/master/general/deploy/gitlab-com-deployer.md#upgrade-pipeline-default)
 
@@ -77,7 +76,7 @@ This example is not exhaustive. GitLab can be deployed in many different ways. E
 
 ## How long must code be backwards-compatible?
 
-For users following [zero-downtime update instructions](../update/index.md#upgrading-without-downtime), the answer is one monthly release. For example:
+For users following [zero-downtime update instructions](../update/zero_downtime.md), the answer is one monthly release. For example:
 
 - 13.11 => 13.12
 - 13.12 => 14.0
@@ -85,7 +84,7 @@ For users following [zero-downtime update instructions](../update/index.md#upgra
 
 For GitLab.com, there can be multiple tiny version updates per day, so GitLab.com doesn't constrain how far changes must be backwards-compatible.
 
-Many users [skip some monthly releases](../update/index.md#upgrading-to-a-new-major-version), for example:
+Many users skip some monthly releases, for example:
 
 - 13.0 => 13.12
 
@@ -110,7 +109,7 @@ During an update, there will be [two different versions of GitLab running in dif
 
 ## Doesn't the order of update steps matter?
 
-Yes! We have specific instructions for [zero-downtime updates](../update/index.md#upgrading-without-downtime) because it allows us to ignore some permutations of compatibility. This is why we don't worry about Rails code making DB calls to an old PostgreSQL database schema.
+Yes! We have specific instructions for [zero-downtime updates](../update/zero_downtime.md) because it allows us to ignore some permutations of compatibility. This is why we don't worry about Rails code making DB calls to an old PostgreSQL database schema.
 
 ## You've identified a potential backwards compatibility problem, what can you do about it?
 
@@ -123,7 +122,7 @@ For major or minor version updates of Rails or Puma:
 
 ### Feature flags
 
-[Feature flags](feature_flags/index.md) are a tool, not a strategy, for handling backward compatibility problems.
+[Feature flags](feature_flags/_index.md) are a tool, not a strategy, for handling backward compatibility problems.
 
 For example, it is safe to add a new feature with frontend and API changes, if both
 frontend and API changes are disabled by default. This can be done with multiple
@@ -232,7 +231,7 @@ If we look at this schema from a database point of view, we can see two deployme
 And these deployments align perfectly with application changes.
 
 1. At the beginning we have `Version N` on `Schema A`.
-1. Then we have a _long_ transition period with both `Version N` and `Version N+1` on `Schema B`.
+1. Then we have a long transition period with both `Version N` and `Version N+1` on `Schema B`.
 1. When we only have `Version N+1` on `Schema B` the schema changes again.
 1. Finally we have `Version N+1` on `Schema C`.
 
@@ -270,7 +269,7 @@ and set this column to `false`. The old servers were still updating the old colu
 that updated the new column from the old one. For the new servers though, they were only updating the new column and that same trigger
 was now working against us and setting it back to the wrong value.
 
-For more information, see [the relevant issue](https://gitlab.com/gitlab-com/gl-infra/reliability/-/issues/9176).
+For more information, see [the relevant issue](https://gitlab.com/gitlab-com/gl-infra/production-engineering/-/issues/9176).
 
 ### Sidebar wasn't loading for some users
 
@@ -315,7 +314,7 @@ variable `CI_NODE_TOTAL` being an integer failed. This was caused because after 
    instead of sending an integer value (for example, 9), it sent a serialized
    `Hash` value (`{:number=>9, :total=>9}`).
 
-If you look at the [deployment pipeline](https://ops.gitlab.net/gitlab-com/gl-infra/deployer/-/pipelines/202212),
+If you look at the [deployment pipeline](https://ops.gitlab.net/gitlab-com/gl-infra/deployer),
 you see all nodes were updated in parallel:
 
 ![GitLab.com deployment pipeline](img/deployment_pipeline_v13_3.png)

@@ -1,6 +1,7 @@
 /* eslint no-param-reassign: "off" */
 import MockAdapter from 'axios-mock-adapter';
 import $ from 'jquery';
+import fuzzaldrinPlus from 'fuzzaldrin-plus';
 import labelsFixture from 'test_fixtures/autocomplete_sources/labels.json';
 import { setHTMLFixture, resetHTMLFixture } from 'helpers/fixtures';
 import GfmAutoComplete, {
@@ -18,12 +19,25 @@ import waitForPromises from 'helpers/wait_for_promises';
 import AjaxCache from '~/lib/utils/ajax_cache';
 import axios from '~/lib/utils/axios_utils';
 import { HTTP_STATUS_INTERNAL_SERVER_ERROR, HTTP_STATUS_OK } from '~/lib/utils/http_status';
+import { linkedItems, currentAssignees } from '~/graphql_shared/issuable_client';
 import {
   eventlistenersMockDefaultMap,
   crmContactsMock,
+  mockIssues,
+  mockAssignees,
 } from 'ee_else_ce_jest/gfm_auto_complete/mock_data';
+import { InternalEvents } from '~/tracking';
 
 const mockSpriteIcons = '/icons.svg';
+
+jest.mock('~/graphql_shared/issuable_client', () => ({
+  linkedItems: jest.fn(),
+  currentAssignees: jest.fn(),
+}));
+
+jest.mock('fuzzaldrin-plus', () => ({
+  filter: jest.fn((items) => items),
+}));
 
 describe('escape', () => {
   it.each`
@@ -55,6 +69,12 @@ describe('GfmAutoComplete', () => {
     $textarea.trigger('keyup');
 
     jest.runOnlyPendingTimers();
+  };
+
+  const getAutocompleteDropdownItems = (listSelector = '') => {
+    const dropdown = document.getElementById(listSelector);
+    const items = dropdown.getElementsByTagName('li');
+    return [].map.call(items, (item) => item.textContent.trim());
   };
 
   beforeEach(() => {
@@ -182,6 +202,7 @@ describe('GfmAutoComplete', () => {
       mock = new MockAdapter(axios);
       jest.spyOn(axios, 'get');
       jest.spyOn(AjaxCache, 'retrieve');
+      jest.spyOn(InternalEvents, 'trackEvent');
     });
 
     afterEach(() => {
@@ -228,6 +249,15 @@ describe('GfmAutoComplete', () => {
           });
         });
 
+        it('tracks autocomplete event for wikis', () => {
+          fetchData.call(context, {}, '[[', 'query');
+
+          expect(InternalEvents.trackEvent).toHaveBeenCalledTimes(1);
+          expect(InternalEvents.trackEvent).toHaveBeenCalledWith(
+            'trigger_autocomplete_for_wiki_links',
+          );
+        });
+
         it.each([HTTP_STATUS_OK, HTTP_STATUS_INTERNAL_SERVER_ERROR])(
           'should set the loading state',
           async (responseStatus) => {
@@ -265,27 +295,27 @@ describe('GfmAutoComplete', () => {
       describe('data is not in cache', () => {
         beforeEach(() => {
           const context = {
-            isLoadingData: { '#': false },
-            dataSources: { issues: 'issues_autocomplete_url' },
+            isLoadingData: { '/': false },
+            dataSources: { commands: 'commands_autocomplete_url' },
             cachedData: {},
           };
-          fetchData.call(context, {}, '#', 'query');
+          fetchData.call(context, {}, '/', 'query');
         });
 
         it('should call AjaxCache', () => {
-          expect(AjaxCache.retrieve).toHaveBeenCalledWith('issues_autocomplete_url', true);
+          expect(AjaxCache.retrieve).toHaveBeenCalledWith('commands_autocomplete_url', true);
         });
       });
 
       describe('data is in cache', () => {
         beforeEach(() => {
           const context = {
-            isLoadingData: { '#': false },
-            dataSources: { issues: 'issues_autocomplete_url' },
-            cachedData: { '#': [{}] },
+            isLoadingData: { '/': false },
+            dataSources: { issues: 'commands_autocomplete_url' },
+            cachedData: { '/': [{}] },
             loadData: () => {},
           };
-          fetchData.call(context, {}, '#', 'query');
+          fetchData.call(context, {}, '/', 'query');
         });
 
         it('should not call AjaxCache', () => {
@@ -645,7 +675,7 @@ describe('GfmAutoComplete', () => {
     });
 
     it('should include an svg image when iconName is provided', () => {
-      const expectedHtml = `<li><svg class="gl-text-secondary s16 gl-mr-2"><use xlink:href="/icons.svg#example-icon" /></svg><small>5</small> Some Issue</li>`;
+      const expectedHtml = `<li><svg class="gl-fill-icon-subtle s16 gl-mr-2"><use xlink:href="/icons.svg#example-icon" /></svg><small>5</small> Some Issue</li>`;
       expect(
         GfmAutoComplete.Issues.templateFunction({
           id: 5,
@@ -864,15 +894,16 @@ describe('GfmAutoComplete', () => {
       resetHTMLFixture();
     });
 
-    const getDropdownItems = () => {
-      const dropdown = document.getElementById('at-view-labels');
-      const items = dropdown.getElementsByTagName('li');
-      return [].map.call(items, (item) => item.textContent.trim());
-    };
+    const getDropdownItems = () => getAutocompleteDropdownItems('at-view-labels');
 
     const expectLabels = ({ input, output }) => {
       triggerDropdown($textarea, input);
 
+      if (input === '~bg') {
+        expect(fuzzaldrinPlus.filter).toHaveBeenCalledWith(expect.any(Array), 'bg', {
+          key: 'title',
+        });
+      }
       expect(getDropdownItems()).toEqual(output.map((label) => label.title));
     };
 
@@ -884,6 +915,7 @@ describe('GfmAutoComplete', () => {
       it.each`
         input           | output
         ${'~'}          | ${unassignedLabels}
+        ${'~bg'}        | ${unassignedLabels}
         ${'/label ~'}   | ${unassignedLabels}
         ${'/labels ~'}  | ${unassignedLabels}
         ${'/relabel ~'} | ${unassignedLabels}
@@ -899,6 +931,7 @@ describe('GfmAutoComplete', () => {
       it.each`
         input           | output
         ${'~'}          | ${allLabels}
+        ${'~bg'}        | ${allLabels}
         ${'/label ~'}   | ${unassignedLabels}
         ${'/labels ~'}  | ${unassignedLabels}
         ${'/relabel ~'} | ${allLabels}
@@ -978,7 +1011,7 @@ describe('GfmAutoComplete', () => {
       'atwho-at': ':',
       emoji: {
         c: 'symbols',
-        d: 'negative squared ab',
+        d: 'AB button (blood type)',
         e: '🆎',
         name: 'ab',
         u: '6.0',
@@ -1064,11 +1097,7 @@ describe('GfmAutoComplete', () => {
       resetHTMLFixture();
     });
 
-    const getDropdownItems = () => {
-      const dropdown = document.getElementById('at-view-contacts');
-      const items = dropdown.getElementsByTagName('li');
-      return [].map.call(items, (item) => item.textContent.trim());
-    };
+    const getDropdownItems = () => getAutocompleteDropdownItems('at-view-contacts');
 
     const expectContacts = ({ input, output }) => {
       triggerDropdown($textarea, input);
@@ -1168,6 +1197,279 @@ describe('GfmAutoComplete', () => {
             return { key: e, namespace: events[e][0].namespace };
           }),
       ).toStrictEqual([]);
+    });
+  });
+
+  describe('updateDataSources', () => {
+    const dataSources = {
+      labels: `${TEST_HOST}/autocomplete_sources/labels`,
+      members: `${TEST_HOST}/autocomplete_sources/members`,
+      commands: `${TEST_HOST}/autocomplete_sources/commands`,
+      issues: `${TEST_HOST}/autocomplete_sources/issues`,
+      mergeRequests: `${TEST_HOST}/autocomplete_sources/merge_requests`,
+      epics: `${TEST_HOST}/autocomplete_sources/epics`,
+    };
+
+    let autocomplete;
+    let $textarea;
+
+    beforeEach(() => {
+      setHTMLFixture('<textarea></textarea>');
+      autocomplete = new GfmAutoComplete(dataSources);
+      $textarea = $('textarea');
+      autocomplete.setup($textarea, {
+        labels: true,
+        members: true,
+        commands: true,
+        issues: true,
+        mergeRequests: true,
+        epics: true,
+      });
+    });
+
+    afterEach(() => {
+      autocomplete.destroy();
+      resetHTMLFixture();
+    });
+
+    it('should update dataSources correctly', () => {
+      const newDataSources = {
+        ...dataSources,
+        labels: `${TEST_HOST}/autocomplete_sources/labels?type=WorkItem&work_item_type_id=6`,
+        members: `${TEST_HOST}/autocomplete_sources/members?type=WorkItem&work_item_type_id=6`,
+      };
+
+      autocomplete.updateDataSources(newDataSources);
+
+      expect(autocomplete.dataSources).toEqual(newDataSources);
+    });
+  });
+
+  describe('Extensible reference filters', () => {
+    const dataSources = {
+      issuesAlternative: `${TEST_HOST}/autocomplete_sources/issues`,
+      workItems: `${TEST_HOST}/autocomplete_sources/issues`,
+    };
+
+    let autocomplete;
+    let $textarea;
+
+    const issueDropdownElementId = 'at-view-issuesalternative';
+    const workItemDropdownElementId = 'at-view-workitems';
+    const getIssueDropdownItems = () => getAutocompleteDropdownItems(issueDropdownElementId);
+    const getWorkItemDropdownItems = () => getAutocompleteDropdownItems(workItemDropdownElementId);
+    const issueMatcher = (issue) => `${issue.reference} ${issue.title}`;
+
+    const setup = () => {
+      setHTMLFixture('<textarea></textarea>');
+      autocomplete = new GfmAutoComplete(dataSources);
+      $textarea = $('textarea');
+      autocomplete.setup($textarea, { issuesAlternative: true, workItems: true });
+      autocomplete.cachedData['[issue:'] = {
+        '': [...mockIssues],
+      };
+      autocomplete.cachedData['[work_item:'] = {
+        '': [...mockIssues],
+      };
+    };
+
+    afterEach(() => {
+      autocomplete.destroy();
+      resetHTMLFixture();
+    });
+
+    describe('when extensible_reference_filters feature flag enabled', () => {
+      beforeEach(() => {
+        gon.features = { extensibleReferenceFilters: true };
+        setup();
+      });
+
+      it('[issue: shows issues', () => {
+        triggerDropdown($textarea, '[issue:');
+        const issues = getIssueDropdownItems();
+        expect(issues).toHaveLength(mockIssues.length);
+        expect(issues).toEqual(mockIssues.map(issueMatcher));
+      });
+
+      it('[work_item: shows work items', () => {
+        triggerDropdown($textarea, '[work_item:');
+        const workItems = getWorkItemDropdownItems();
+        expect(workItems).toHaveLength(mockIssues.length);
+        expect(workItems).toEqual(mockIssues.map(issueMatcher));
+      });
+    });
+
+    describe('when extensible_reference_filters feature flag disabled', () => {
+      beforeEach(() => {
+        gon.features = { extensibleReferenceFilters: false };
+        setup();
+      });
+
+      it('[issue: does not show issues', () => {
+        triggerDropdown($textarea, '[issue:');
+        const dropdownElement = document.getElementById(issueDropdownElementId);
+        expect(dropdownElement).toBe(null);
+      });
+
+      it('[work_item: does not show work items', () => {
+        const dropdownElement = document.getElementById(workItemDropdownElementId);
+        expect(dropdownElement).toBe(null);
+      });
+    });
+  });
+
+  describe('Work Items', () => {
+    let autocomplete;
+    let $textarea;
+    const mockWorkItemId = 'gid://gitlab/WorkItem/1';
+    const mockWorkItemFullPath = 'gitlab-test';
+    const mockWorkItemIid = '1';
+    const originalGon = window.gon;
+    const dataSources = {
+      issues: `${TEST_HOST}/autocomplete_sources/issues`,
+      members: `${TEST_HOST}/autocomplete_sources/members`,
+    };
+
+    beforeEach(() => {
+      window.gon = {
+        features: {
+          workItemViewForIssues: true,
+        },
+      };
+      document.body.dataset.page = 'projects:issues:show';
+      setHTMLFixture(`
+        <section>
+          <div class="js-gfm-wrapper"
+              data-work-item-full-path="${mockWorkItemFullPath}"
+              data-work-item-id="${mockWorkItemId}"
+              data-work-item-iid="${mockWorkItemIid}">
+              <textarea></textarea>
+          </div>
+        </section>
+      `);
+      $textarea = $('textarea');
+      autocomplete = new GfmAutoComplete(dataSources);
+    });
+
+    afterEach(() => {
+      autocomplete.destroy();
+      resetHTMLFixture();
+      window.gon = originalGon;
+    });
+
+    describe('unlink', () => {
+      const getDropdownItems = () => getAutocompleteDropdownItems('at-view-issues');
+      const issueMatcher = (issue) => `${issue.reference} ${issue.title}`;
+
+      beforeEach(() => {
+        linkedItems.mockImplementation(() => ({
+          [`${mockWorkItemFullPath}:${mockWorkItemIid}`]: [],
+        }));
+
+        autocomplete.setup($textarea, { issues: true });
+        autocomplete.cachedData['#'] = {
+          // This looks odd but that's how GFMAutoComplete
+          // caches issues data internally.
+          '': [...mockIssues],
+        };
+      });
+
+      describe('without any linked issues present', () => {
+        it('using "#" shows all the issues', () => {
+          triggerDropdown($textarea, '#');
+
+          expect(getDropdownItems()).toHaveLength(mockIssues.length);
+          expect(getDropdownItems()).toEqual(mockIssues.map(issueMatcher));
+        });
+
+        it('using "/unlink #" shows no issues', () => {
+          triggerDropdown($textarea, '/unlink #');
+
+          expect(getDropdownItems()).toHaveLength(0);
+          expect(linkedItems).toHaveBeenCalled();
+        });
+      });
+
+      describe('with linked issue present', () => {
+        beforeEach(() => {
+          linkedItems.mockImplementation(() => ({
+            [`${mockWorkItemFullPath}:${mockWorkItemIid}`]: [mockIssues[1]],
+          }));
+        });
+
+        it('using "#" shows all the issues', () => {
+          triggerDropdown($textarea, '#');
+
+          expect(getDropdownItems()).toHaveLength(mockIssues.length);
+          expect(getDropdownItems()).toEqual(mockIssues.map(issueMatcher));
+        });
+
+        it('using "/unlink #" shows only linked issues', () => {
+          triggerDropdown($textarea, '/unlink #');
+
+          expect(getDropdownItems()).toHaveLength(1);
+          expect(getDropdownItems()).toEqual([mockIssues[1]].map(issueMatcher));
+          expect(linkedItems).toHaveBeenCalled();
+        });
+      });
+    });
+
+    describe('unassign', () => {
+      const getDropdownItems = () => getAutocompleteDropdownItems('at-view-users');
+      const assigneeMatcher = (user) =>
+        `${user.username.charAt(0).toUpperCase()} ${user.username} ${user.name}`;
+
+      beforeEach(() => {
+        currentAssignees.mockImplementation(() => ({
+          [`${mockWorkItemId}`]: [],
+        }));
+
+        autocomplete.setup($textarea, { members: true });
+        autocomplete.cachedData['@'] = {
+          // This looks odd but that's how GFMAutoComplete
+          // caches issues data internally.
+          '': [...mockAssignees],
+        };
+      });
+
+      describe('without any assignees present', () => {
+        it('using "@" shows all the members', () => {
+          triggerDropdown($textarea, '@');
+
+          expect(getDropdownItems()).toHaveLength(mockAssignees.length);
+          expect(getDropdownItems()).toEqual(mockAssignees.map(assigneeMatcher));
+        });
+
+        it('using "/unassign @" shows no users', () => {
+          triggerDropdown($textarea, '/unassign @');
+
+          expect(getDropdownItems()).toHaveLength(0);
+          expect(currentAssignees).toHaveBeenCalled();
+        });
+      });
+
+      describe('with assignees present', () => {
+        beforeEach(() => {
+          currentAssignees.mockImplementation(() => ({
+            [`${mockWorkItemId}`]: [mockAssignees[1]],
+          }));
+        });
+
+        it('using "@" shows all the members', () => {
+          triggerDropdown($textarea, '@');
+
+          expect(getDropdownItems()).toHaveLength(mockAssignees.length);
+          expect(getDropdownItems()).toEqual(mockAssignees.map(assigneeMatcher));
+        });
+
+        it('using "/unassign @" shows only current assignees', () => {
+          triggerDropdown($textarea, '/unassign @');
+
+          expect(getDropdownItems()).toHaveLength(1);
+          expect(getDropdownItems()).toEqual([mockAssignees[1]].map(assigneeMatcher));
+          expect(currentAssignees).toHaveBeenCalled();
+        });
+      });
     });
   });
 });

@@ -13,24 +13,15 @@ export default {
   },
   mixins: [trackingMixin, updateMixin],
   props: {
-    endpoint: {
-      required: true,
-      type: String,
-    },
     formState: {
       type: Object,
-      required: true,
-    },
-    issuableType: {
-      type: String,
       required: true,
     },
   },
   data() {
     return {
-      deleteLoading: false,
       skipApollo: false,
-      issueState: {},
+      issueState: {}, // eslint-disable-line vue/no-unused-properties
     };
   },
   apollo: {
@@ -58,7 +49,7 @@ export default {
 </script>
 
 <template>
-  <div class="gl-mt-3 gl-mb-3 gl-display-flex">
+  <div class="gl-mb-3 gl-mt-3 gl-flex">
     <gl-button
       :loading="formState.updateLoading"
       :disabled="formState.updateLoading || !isSubmitEnabled"

@@ -1,4 +1,4 @@
-$text-color: $gl-text-color;
+$text-color: $gl-text-color-default;
 
 $brand-primary: $blue-500;
 $brand-success: $green-500;
@@ -8,8 +8,7 @@ $brand-danger: $red-500;
 
 $border-radius-base: $gl-border-radius-base;
 
-$modal-body-bg: $white;
-$input-border: $border-color;
+$input-border: $gl-border-color-default;
 
 $padding-base-vertical: $gl-vert-padding;
 $padding-base-horizontal: $gl-padding;

@@ -3,7 +3,9 @@
 require 'spec_helper'
 
 RSpec.describe NotificationRecipient, feature_category: :team_planning do
-  let(:user) { create(:user) }
+  include ExternalAuthorizationServiceHelpers
+
+  let_it_be_with_reload(:user) { create(:user) }
   let(:project) { create(:project, namespace: user.namespace) }
   let(:target) { create(:issue, project: project) }
 
@@ -11,6 +13,16 @@ RSpec.describe NotificationRecipient, feature_category: :team_planning do
 
   describe '#notifiable?' do
     let(:recipient) { described_class.new(user, :mention, target: target, project: project) }
+
+    context 'when user has a composite identity' do
+      before do
+        user.update!(composite_identity_enforced: true, user_type: :service_account)
+      end
+
+      it 'returns false' do
+        expect(recipient.notifiable?).to eq false
+      end
+    end
 
     context 'when emails are disabled' do
       it 'returns false if group disabled' do
@@ -74,9 +86,25 @@ RSpec.describe NotificationRecipient, feature_category: :team_planning do
       allow(user).to receive(:can?).and_call_original
     end
 
-    context 'user cannot read cross project' do
+    context 'when external authorization service denies access' do
+      let(:target) { project }
+
+      before do
+        enable_external_authorization_service_check
+        external_service_deny_access(user, project)
+      end
+
       it 'returns false' do
-        expect(user).to receive(:can?).with(:read_cross_project).and_return(false)
+        expect(recipient.has_access?).to eq false
+      end
+    end
+
+    context 'user cannot read project' do
+      let(:target) { project }
+
+      it 'returns false' do
+        expect(user).to receive(:can?).with(:read_project, project).and_return(false)
+        expect(user).not_to receive(:can?).with(:read_cross_project)
         expect(recipient.has_access?).to eq false
       end
     end

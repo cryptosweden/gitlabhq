@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Projects::Ci::LintsController do
+RSpec.describe Projects::Ci::LintsController, feature_category: :pipeline_composition do
   include StubRequests
 
   let_it_be(:project) { create(:project, :repository) }
@@ -145,7 +145,7 @@ RSpec.describe Projects::Ci::LintsController do
       it 'assigns result with errors' do
         expect(parsed_body['errors']).to match_array(
           [
-            'jobs rubocop config should implement a script: or a trigger: keyword',
+            'jobs rubocop config should implement the script:, run:, or trigger: keyword',
             'jobs config should contain at least one visible job'
           ])
       end
@@ -154,22 +154,62 @@ RSpec.describe Projects::Ci::LintsController do
         subject { post :create, params: params.merge(dry_run: 'true') }
 
         it 'assigns result with errors' do
-          expect(parsed_body['errors']).to eq(['jobs rubocop config should implement a script: or a trigger: keyword'])
+          expect(
+            parsed_body['errors']
+          ).to match_array(['jobs rubocop config should implement the script:, run:, or trigger: keyword'])
         end
 
         it_behaves_like 'returns a successful validation'
       end
     end
 
-    context 'without enough privileges' do
+    context 'when the current user cannot run pipelines at all' do
       before do
         project.add_guest(user)
-
-        post :create, params: { namespace_id: project.namespace, project_id: project, content: content }
       end
 
-      it 'responds with 404' do
+      it 'responds with a 404' do
+        post :create, params: { namespace_id: project.namespace, project_id: project, content: content }
+
         expect(response).to have_gitlab_http_status(:not_found)
+      end
+    end
+
+    context 'when the current user cannot run pipelines on protected branches' do
+      # The create action lints the given CI config as if it was on the default branch.
+      # The default branch is protected by default, which means it can access protected variables.
+      # Developers don't have permission to access protected variables,
+      # so we can't allow them to use this endpoint.
+
+      let(:content) do
+        <<~HEREDOC
+        include:
+          - #{remote_file_path}
+
+        rubocop:
+          script:
+            - bundle exec rubocop
+        HEREDOC
+      end
+
+      let(:remote_file_path) { 'https://test.example.com/${SECRET_TOKEN}.yml' }
+
+      before do
+        project.add_developer(user)
+
+        sha = project.repository.commit.sha # this is always the sha used by this endpoint for linting
+        ref = Gitlab::Ci::RefFinder.new(project).find_by_sha(sha)
+
+        create(:protected_branch, name: ref, project: project)
+        create(:ci_variable, key: 'SECRET_TOKEN', value: 'secret!!!!!', project: project, protected: true)
+      end
+
+      it 'does not expand protected variables' do
+        post :create, params: { namespace_id: project.namespace, project_id: project, content: content }
+
+        expect(parsed_body['errors']).to match_array([
+          'Included file `https://test.example.com/.yml` does not have YAML extension!'
+        ])
       end
     end
   end

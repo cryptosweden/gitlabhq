@@ -3,115 +3,109 @@
 require 'spec_helper'
 
 RSpec.describe UseSqlFunctionForPrimaryKeyLookups, feature_category: :groups_and_projects do
+  let_it_be(:user) { create(:user) }
+  let_it_be(:another_user) { create(:user) }
   let_it_be(:project) { create(:project) }
-  let_it_be(:another_project) { create(:project) }
 
   let(:model) do
     Class.new(ApplicationRecord) do
-      self.table_name = :projects
-
+      self.table_name = :users
       include UseSqlFunctionForPrimaryKeyLookups
     end
   end
 
-  context 'when the use_sql_functions_for_primary_key_lookups FF is on' do
-    before do
-      stub_feature_flags(use_sql_functions_for_primary_key_lookups: true)
+  it 'loads the correct record' do
+    expect(model.find(user.id).id).to eq(user.id)
+  end
+
+  it 'uses the function-based finder query' do
+    query = <<~SQL
+        SELECT "users".* FROM find_users_by_id(#{user.id})#{' '}
+        AS users WHERE ("users"."id" IS NOT NULL) LIMIT 1
+    SQL
+    query_log = ActiveRecord::QueryRecorder.new { model.find(user.id) }.log
+
+    expect(query_log).to match_array(include(query.tr("\n", '')))
+  end
+
+  it 'uses query cache', :use_sql_query_cache do
+    query = <<~SQL
+        SELECT "users".* FROM find_users_by_id(#{user.id})#{' '}
+        AS users WHERE ("users"."id" IS NOT NULL) LIMIT 1
+    SQL
+
+    recorder = ActiveRecord::QueryRecorder.new do
+      model.find(user.id)
+      model.find(user.id)
+      model.find(user.id)
     end
 
-    it 'loads the correct record' do
-      expect(model.find(project.id).id).to eq(project.id)
+    expect(recorder.data.each_value.first[:count]).to eq(1)
+    expect(recorder.cached).to include(query.tr("\n", ''))
+  end
+
+  context 'when the model has ignored columns' do
+    around do |example|
+      model.ignored_columns = %i[encrypted_password]
+      example.run
+      model.ignored_columns = []
     end
 
-    it 'uses the fuction-based finder query' do
+    it 'enumerates the column names' do
+      column_list = model.columns.map do |column|
+        %("users"."#{column.name}")
+      end.join(', ')
+
+      expect(column_list).not_to include(%("users"."encrypted_password"))
+
       query = <<~SQL
-        SELECT "projects".* FROM find_projects_by_id(#{project.id})#{' '}
-        AS projects WHERE ("projects"."id" IS NOT NULL) LIMIT 1
+          SELECT #{column_list} FROM find_users_by_id(#{user.id})#{' '}
+          AS users WHERE ("users"."id" IS NOT NULL) LIMIT 1
       SQL
-      query_log = ActiveRecord::QueryRecorder.new { model.find(project.id) }.log
+      query_log = ActiveRecord::QueryRecorder.new { model.find(user.id) }.log
 
       expect(query_log).to match_array(include(query.tr("\n", '')))
-    end
-
-    it 'uses query cache', :use_sql_query_cache do
-      query = <<~SQL
-        SELECT "projects".* FROM find_projects_by_id(#{project.id})#{' '}
-        AS projects WHERE ("projects"."id" IS NOT NULL) LIMIT 1
-      SQL
-
-      recorder = ActiveRecord::QueryRecorder.new do
-        model.find(project.id)
-        model.find(project.id)
-        model.find(project.id)
-      end
-
-      expect(recorder.data.each_value.first[:count]).to eq(1)
-      expect(recorder.cached).to include(query.tr("\n", ''))
-    end
-
-    context 'when the model has ignored columns' do
-      around do |example|
-        model.ignored_columns = %i[path]
-        example.run
-        model.ignored_columns = []
-      end
-
-      it 'enumerates the column names' do
-        column_list = model.columns.map do |column|
-          %("projects"."#{column.name}")
-        end.join(', ')
-
-        expect(column_list).not_to include(%("projects"."path"))
-
-        query = <<~SQL
-          SELECT #{column_list} FROM find_projects_by_id(#{project.id})#{' '}
-          AS projects WHERE ("projects"."id" IS NOT NULL) LIMIT 1
-        SQL
-        query_log = ActiveRecord::QueryRecorder.new { model.find(project.id) }.log
-
-        expect(query_log).to match_array(include(query.tr("\n", '')))
-      end
     end
 
     context 'when there are scope attributes' do
       let(:scoped_model) do
         Class.new(model) do
-          default_scope { where.not(path: nil) } # rubocop: disable Cop/DefaultScope -- Needed for testing a specific case
+          default_scope { where.not(email: nil) } # rubocop: disable Cop/DefaultScope -- Needed for testing a specific case
         end
       end
 
       it 'loads the correct record' do
-        expect(scoped_model.find(project.id).id).to eq(project.id)
+        expect(scoped_model.find(user.id).id).to eq(user.id)
       end
 
       it 'does not use the function-based finder query' do
-        query_log = ActiveRecord::QueryRecorder.new { scoped_model.find(project.id) }.log
+        query_log = ActiveRecord::QueryRecorder.new { scoped_model.find(user.id) }.log
 
-        expect(query_log).not_to include(match(/find_projects_by_id/))
+        expect(query_log).not_to include(match(/find_users_by_id/))
       end
     end
 
     context 'when there are multiple arguments' do
       it 'loads the correct records' do
-        expect(model.find(project.id, another_project.id).map(&:id)).to match_array([project.id, another_project.id])
+        expect(model.find(user.id, another_user.id).map(&:id)).to match_array([user.id, another_user.id])
       end
 
       it 'does not use the function-based finder query' do
-        query_log = ActiveRecord::QueryRecorder.new { model.find(project.id, another_project.id) }.log
+        query_log = ActiveRecord::QueryRecorder.new { model.find(user.id, another_user.id) }.log
 
-        expect(query_log).not_to include(match(/find_projects_by_id/))
+        expect(query_log).not_to include(match(/find_users_by_id/))
       end
     end
 
     context 'when there is block given' do
       it 'loads the correct records' do
-        expect(model.find(0) { |p| p.path == project.path }.id).to eq(project.id)
+        expect(model.find(0) { |u| u.email == user.email }.id).to eq(user.id)
       end
 
       it 'does not use the function-based finder query' do
-        query_log = ActiveRecord::QueryRecorder.new { model.find(0) { |p| p.path == project.path } }.log
+        query_log = ActiveRecord::QueryRecorder.new { model.find(0) { |u| u.email == user.email } }.log
 
-        expect(query_log).not_to include(match(/find_projects_by_id/))
+        expect(query_log).not_to include(match(/find_users_by_id/))
       end
     end
 
@@ -131,20 +125,20 @@ RSpec.describe UseSqlFunctionForPrimaryKeyLookups, feature_category: :groups_and
 
     context 'when id is provided as an array' do
       it 'returns the correct record as an array' do
-        expect(model.find([project.id]).map(&:id)).to eq([project.id])
+        expect(model.find([user.id]).map(&:id)).to eq([user.id])
       end
 
       it 'does use the function-based finder query' do
-        query_log = ActiveRecord::QueryRecorder.new { model.find([project.id]) }.log
+        query_log = ActiveRecord::QueryRecorder.new { model.find([user.id]) }.log
 
-        expect(query_log).to include(match(/find_projects_by_id/))
+        expect(query_log).to include(match(/find_users_by_id/))
       end
 
       context 'when array has multiple elements' do
         it 'does not use the function-based finder query' do
-          query_log = ActiveRecord::QueryRecorder.new { model.find([project.id, another_project.id]) }.log
+          query_log = ActiveRecord::QueryRecorder.new { model.find([user.id, another_user.id]) }.log
 
-          expect(query_log).not_to include(match(/find_projects_by_id/))
+          expect(query_log).not_to include(match(/find_users_by_id/))
         end
       end
     end
@@ -181,6 +175,7 @@ RSpec.describe UseSqlFunctionForPrimaryKeyLookups, feature_category: :groups_and
     context 'when column types change after the record is loaded' do
       before do
         model.connection.execute(<<~SQL)
+          ALTER TABLE #{model.table_name} ALTER COLUMN id TYPE INTEGER;
           ALTER TABLE #{model.table_name} ADD COLUMN id_bigint BIGINT NOT NULL DEFAULT 0;
         SQL
         model.update_all('id_bigint = id')
@@ -188,7 +183,7 @@ RSpec.describe UseSqlFunctionForPrimaryKeyLookups, feature_category: :groups_and
         # Prime the plan cache for the function based lookup
         model.uncached do
           5.times do
-            model.find(project.id)
+            model.find(user.id)
           end
         end
       end
@@ -216,26 +211,9 @@ RSpec.describe UseSqlFunctionForPrimaryKeyLookups, feature_category: :groups_and
         end
 
         it 'looks up by id via the function without error' do
-          expect(model.find(project.id).id).to eq(project.id)
+          expect(model.find(user.id).id).to eq(user.id)
         end
       end
-    end
-  end
-
-  context 'when the use_sql_functions_for_primary_key_lookups FF is off' do
-    before do
-      stub_feature_flags(use_sql_functions_for_primary_key_lookups: false)
-    end
-
-    it 'loads the correct record' do
-      expect(model.find(project.id).id).to eq(project.id)
-    end
-
-    it 'uses the SQL-based finder query' do
-      expected_query = %(SELECT "projects".* FROM \"projects\" WHERE "projects"."id" = #{project.id} LIMIT 1)
-      query_log = ActiveRecord::QueryRecorder.new { model.find(project.id) }.log
-
-      expect(query_log).to match_array(include(expected_query))
     end
   end
 end

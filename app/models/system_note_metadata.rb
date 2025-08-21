@@ -14,7 +14,24 @@ class SystemNoteMetadata < ApplicationRecord
     moved merge
     label milestone
     relate unrelate
+    unrelate_from_parent
+    unrelate_from_child
+    relate_to_parent
+    relate_to_child
     cloned
+  ].freeze
+
+  WORK_ITEMS_CROSS_REFERENCE = %w[
+    branch
+    commit
+    cross_reference
+    merge
+    relate
+    unrelate
+    unrelate_from_parent
+    unrelate_from_child
+    relate_to_parent
+    relate_to_child
   ].freeze
 
   ICON_TYPES = %w[
@@ -25,7 +42,7 @@ class SystemNoteMetadata < ApplicationRecord
     tag due_date start_date_or_due_date pinned_embed cherry_pick health_status approved unapproved
     status alert_issue_added relate unrelate new_alert_added severity contact timeline_event
     issue_type relate_to_child unrelate_from_child relate_to_parent unrelate_from_parent override
-    issue_email_participants requested_changes
+    issue_email_participants requested_changes reviewed custom_field
   ].freeze
 
   validates :note, presence: true, unless: :importing?
@@ -34,10 +51,15 @@ class SystemNoteMetadata < ApplicationRecord
   belongs_to :note
   belongs_to :description_version
 
+  scope :for_notes, ->(notes) { where(note_id: notes) }
   delegate_missing_to :note
 
   def declarative_policy_delegate
     note
+  end
+
+  def about_relation?
+    action.in?(WORK_ITEMS_CROSS_REFERENCE)
   end
 
   def icon_types

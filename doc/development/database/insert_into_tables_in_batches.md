@@ -1,14 +1,10 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
-description: "Sometimes it is necessary to store large amounts of records at once, which can be inefficient
-when iterating collections and performing individual `save`s. With the arrival of `insert_all`
-in Rails 6, which operates at the row level (that is, using `Hash`es), GitLab has added a set
-of APIs that make it safe and simple to insert ActiveRecord objects in bulk."
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+description: Sometimes it is necessary to store large amounts of records at once, which can be inefficient when iterating collections and performing individual `save`s. With the arrival of `insert_all` in Rails 6, which operates at the row level (that is, using `Hash`es), GitLab has added a set of APIs that make it safe and simple to insert ActiveRecord objects in bulk.
+title: Insert into tables in batches
 ---
-
-# Insert into tables in batches
 
 Sometimes it is necessary to store large amounts of records at once, which can be inefficient
 when iterating collections and saving each record individually. With the arrival of
@@ -87,7 +83,7 @@ In those cases where the number of `records` is above a given threshold, inserti
 occur in multiple batches. The default batch size is defined in
 [`BulkInsertSafe::DEFAULT_BATCH_SIZE`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/models/concerns/bulk_insert_safe.rb).
 Assuming a default threshold of 500, inserting 950 records
-would result in two batches being written sequentially (of size 500 and 450 respectively.)
+would result in two batches being written sequentially (of size 500 and 450).
 You can override the default batch size via the `:batch_size` option:
 
 ```ruby
@@ -101,9 +97,12 @@ performance impact this might have on your code. There is a trade-off between th
 
 ### Handling duplicate records
 
-NOTE:
+{{< alert type="note" >}}
+
 This parameter applies only to `bulk_insert!`. If you intend to update existing
 records, use `bulk_upsert!` instead.
+
+{{< /alert >}}
 
 It may happen that some records you are trying to insert already exist, which would result in
 primary key conflicts. There are two ways to address this problem: failing fast by raising an
@@ -119,10 +118,10 @@ MyModel.bulk_insert!(records, skip_duplicates: true)
 ### Requirements for safe bulk insertions
 
 Large parts of ActiveRecord's persistence API are built around the notion of callbacks. Many
-of these callbacks fire in response to model life cycle events such as `save` or `create`.
+of these callbacks fire in response to model lifecycle events such as `save` or `create`.
 These callbacks cannot be used with bulk insertions, since they are meant to be called for
 every instance that is saved or created. Since these events do not fire when
-records are inserted in bulk, we currently prevent their use.
+records are inserted in bulk, we prevent their use.
 
 The specifics around which callbacks are explicitly allowed are defined in
 [`BulkInsertSafe`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/models/concerns/bulk_insert_safe.rb).

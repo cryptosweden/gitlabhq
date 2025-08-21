@@ -11,6 +11,7 @@ import { mountExtended, shallowMountExtended } from 'helpers/vue_test_utils_help
 import { stubComponent } from 'helpers/stub_component';
 import {
   delayedJob,
+  bridgeJob,
   mockJob,
   mockJobWithoutDetails,
   mockJobWithUnauthorizedAction,
@@ -83,6 +84,12 @@ describe('pipeline graph job item', () => {
       );
 
       expect(wrapper.text()).toBe(mockJob.name);
+    });
+
+    it('should use deployment details path as the details path for manual bridge jobs', () => {
+      createWrapper({ props: { job: bridgeJob } });
+
+      expect(findJobItemContent().attributes('href')).toBe(bridgeJob.status.deploymentDetailsPath);
     });
   });
 
@@ -261,7 +268,7 @@ describe('pipeline graph job item', () => {
 
       it('shows a badge on the job item', () => {
         expect(findBadge().exists()).toBe(true);
-        expect(findBadge().text()).toBe('Trigger job');
+        expect(findBadge().text()).toBe('trigger job');
       });
 
       it('applies a rounded corner style instead of the usual pill shape', () => {

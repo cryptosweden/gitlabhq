@@ -13,11 +13,15 @@ module Packages
       INVALID_METADATA_ERROR_SYMBOL_MESSAGE = 'package name, version and/or description not found in metadata'
       MISSING_MATCHING_PACKAGE_ERROR_MESSAGE = 'symbol package is invalid, matching package does not exist'
 
-      InvalidMetadataError = ZipError = Class.new(StandardError)
+      DuplicatePackageError = Class.new(StandardError)
+      InvalidMetadataError = Class.new(StandardError)
+      ProtectedPackageError = Class.new(StandardError)
+      ZipError = Class.new(StandardError)
 
-      def initialize(package_file, package_zip_file)
+      def initialize(package_file, package_zip_file, user_or_deploy_token = nil)
         @package_file = package_file
         @package_zip_file = package_zip_file
+        @user_or_deploy_token = user_or_deploy_token
       end
 
       def execute
@@ -31,6 +35,8 @@ module Packages
             process_package_update
           end
         end
+
+        create_symbol_files
       rescue ActiveRecord::RecordInvalid => e
         raise InvalidMetadataError, e.message
       rescue Zip::Error
@@ -39,11 +45,19 @@ module Packages
 
       private
 
+      attr_reader :user_or_deploy_token
+
       def process_package_update
         package_to_destroy = nil
         target_package = @package_file.package
 
+        if package_protected?
+          raise ProtectedPackageError, "Package '#{package_name}' with version '#{package_version}' is protected"
+        end
+
         if existing_package
+          raise DuplicatePackageError, "A package '#{package_name}' with version '#{package_version}' already exists" unless symbol_package? || duplicates_allowed?
+
           package_to_destroy = @package_file.package
           target_package = existing_package
         else
@@ -57,10 +71,30 @@ module Packages
         build_infos = package_to_destroy&.build_infos || []
 
         update_package(target_package, build_infos)
-        create_symbol_files
         ::Packages::UpdatePackageFileService.new(@package_file, package_id: target_package.id, file_name: package_filename)
                                             .execute
+
         package_to_destroy&.destroy!
+      end
+
+      def package_protected?
+        service_response =
+          ::Packages::Protection::CheckRuleExistenceService.for_push(
+            project: @package_file.project,
+            # TODO Remove `@package_file.package.creator`as soon as
+            # `user_or_deploy_token` is correctly passed the `Packages::Nuget::ExtractionWorker`,
+            # see https://gitlab.com/gitlab-org/gitlab/-/merge_requests/188254#note_2513930377.
+            current_user: user_or_deploy_token || @package_file.package.creator,
+            params: { package_name: package_name, package_type: :nuget }
+          ).execute
+
+        raise ArgumentError, service_response.message if service_response.error?
+
+        service_response[:protection_rule_exists?]
+      end
+
+      def duplicates_allowed?
+        ::Namespace::PackageSetting.duplicates_allowed?(existing_package)
       end
 
       def update_package(package, build_infos)

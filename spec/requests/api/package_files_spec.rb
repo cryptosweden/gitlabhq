@@ -3,9 +3,9 @@
 require 'spec_helper'
 
 RSpec.describe API::PackageFiles, feature_category: :package_registry do
-  let(:user) { create(:user) }
-  let(:project) { create(:project, :public) }
-  let(:package) { create(:maven_package, project: project) }
+  let_it_be(:user) { create(:user) }
+  let_it_be_with_reload(:project) { create(:project, :public) }
+  let_it_be(:package) { create(:maven_package, project: project) }
 
   describe 'GET /projects/:id/packages/:package_id/package_files' do
     let(:url) { "/projects/#{project.id}/packages/#{package.id}/package_files" }
@@ -19,12 +19,17 @@ RSpec.describe API::PackageFiles, feature_category: :package_registry do
       end
     end
 
-    before do
+    before_all do
       project.add_developer(user)
     end
 
+    it_behaves_like 'enforcing job token policies', :read_packages,
+      allow_public_access_for_enabled_project_features: :package_registry do
+      let(:request) { get api(url), params: { job_token: target_job.token } }
+    end
+
     context 'without the need for a license' do
-      context 'project is public' do
+      context 'when project is public' do
         it 'returns 200' do
           get api(url)
 
@@ -44,8 +49,10 @@ RSpec.describe API::PackageFiles, feature_category: :package_registry do
         end
       end
 
-      context 'project is private' do
-        let(:project) { create(:project, :private) }
+      context 'when project is private' do
+        before_all do
+          project.update!(visibility_level: ::Gitlab::VisibilityLevel::PRIVATE)
+        end
 
         it 'returns 404 for non authenticated user' do
           get api(url)
@@ -71,21 +78,21 @@ RSpec.describe API::PackageFiles, feature_category: :package_registry do
         context 'with JOB-TOKEN auth' do
           let(:job) { create(:ci_build, :running, user: user, project: project) }
 
-          context 'a non authenticated user' do
+          context 'when a non authenticated user' do
             let(:user) { nil }
 
             it_behaves_like 'handling job token and returning', status: :not_found
           end
 
-          context 'a user without access to the project', :sidekiq_inline do
+          context 'when a user without access to the project', :sidekiq_inline do
             before do
               project.team.truncate
             end
 
-            it_behaves_like 'handling job token and returning', status: :not_found
+            it_behaves_like 'handling job token and returning', status: :forbidden
           end
 
-          context 'a user with access to the project' do
+          context 'when a user with access to the project' do
             it_behaves_like 'handling job token and returning', status: :ok
           end
         end
@@ -106,7 +113,7 @@ RSpec.describe API::PackageFiles, feature_category: :package_registry do
           end
         end
 
-        context 'viewing the second page' do
+        context 'when viewing the second page' do
           it 'returns the last package' do
             get api(url, user), params: { page: 2, per_page: per_page }
 
@@ -115,10 +122,36 @@ RSpec.describe API::PackageFiles, feature_category: :package_registry do
         end
       end
 
+      context 'with sorting params' do
+        using RSpec::Parameterized::TableSyntax
+
+        let_it_be(:package) { create(:generic_package, project:) }
+        let_it_be(:file1) { create(:package_file, package: package, file_name: 'beta.txt', created_at: 2.days.ago) }
+        let_it_be(:file2) { create(:package_file, package: package, file_name: 'alpha.txt', created_at: 1.day.ago) }
+        let_it_be(:file3) { create(:package_file, package: package, file_name: 'gamma.txt', created_at: 3.days.ago) }
+
+        where(:order_by, :sort, :expected_order) do
+          'id'         | 'asc'  | ->(files) { [files[0].id, files[1].id, files[2].id] }
+          'id'         | 'desc' | ->(files) { [files[2].id, files[1].id, files[0].id] }
+          'file_name'  | 'asc'  | ->(files) { [files[1].id, files[0].id, files[2].id] } # alpha, beta, gamma
+          'file_name'  | 'desc' | ->(files) { [files[2].id, files[0].id, files[1].id] } # gamma, beta, alpha
+          'created_at' | 'asc'  | ->(files) { [files[2].id, files[0].id, files[1].id] } # oldest to newest
+          'created_at' | 'desc' | ->(files) { [files[1].id, files[0].id, files[2].id] } # newest to oldest
+        end
+
+        with_them do
+          it 'returns packages sorted by the specified order' do
+            get api(url, user), params: { order_by: order_by, sort: sort }
+
+            expect_paginated_array_response(expected_order.call([file1, file2, file3]))
+          end
+        end
+      end
+
       context 'with package files pending destruction' do
         let!(:package_file_pending_destruction) { create(:package_file, :pending_destruction, package: package) }
 
-        let(:package_file_ids) { json_response.map { |e| e['id'] } }
+        let(:package_file_ids) { json_response.pluck('id') }
 
         it 'does not return them' do
           get api(url, user)
@@ -137,17 +170,36 @@ RSpec.describe API::PackageFiles, feature_category: :package_registry do
 
     shared_examples 'handling job token and returning' do |status:|
       it "returns status #{status}", :aggregate_failures do
-        if status == :no_content
-          expect { api_request }.to change { package.package_files.pending_destruction.count }.by(1)
-        else
-          expect { api_request }.not_to change { package.package_files.pending_destruction.count }
-        end
+        expect { api_request }.to change {
+          package.package_files.pending_destruction.count
+        }.by(status == :no_content ? 1 : 0)
 
         expect(response).to have_gitlab_http_status(status)
       end
     end
 
-    context 'project is public' do
+    it_behaves_like 'enforcing job token policies', :admin_packages do
+      before do
+        source_project.add_maintainer(user)
+      end
+
+      let(:request) { delete api(url), params: { job_token: target_job.token } }
+    end
+
+    context 'when package type is helm' do
+      let_it_be(:package) { create(:helm_package, project: project, without_package_files: true) }
+      let_it_be(:channel) { 'stable' }
+      let_it_be(:package_file) { create(:helm_package_file, package: package, channel: channel) }
+      let(:package_file_id) { package_file.id }
+
+      subject(:execute) { api_request }
+
+      it_behaves_like 'enqueue a worker to sync a helm metadata cache' do
+        subject(:execute) { api_request }
+      end
+    end
+
+    context 'when project is public' do
       context 'without user' do
         let(:user) { nil }
 
@@ -173,8 +225,10 @@ RSpec.describe API::PackageFiles, feature_category: :package_registry do
       end
     end
 
-    context 'project is private' do
-      let_it_be_with_refind(:project) { create(:project, :private) }
+    context 'when project is private' do
+      before_all do
+        project.update!(visibility_level: ::Gitlab::VisibilityLevel::PRIVATE)
+      end
 
       it 'returns 404 for a user without access to the project', :aggregate_failures do
         expect { api_request }.not_to change { package.package_files.pending_destruction.count }
@@ -208,7 +262,7 @@ RSpec.describe API::PackageFiles, feature_category: :package_registry do
         end
       end
 
-      context 'invalid file' do
+      context 'when invalid file' do
         let(:url) { "/projects/#{project.id}/packages/#{package.id}/package_files/999999" }
 
         it 'returns 404 when the package file does not exist', :aggregate_failures do
@@ -223,7 +277,7 @@ RSpec.describe API::PackageFiles, feature_category: :package_registry do
       context 'with package file pending destruction' do
         let!(:package_file_id) { create(:package_file, :pending_destruction, package: package).id }
 
-        before do
+        before_all do
           project.add_maintainer(user)
         end
 
@@ -237,28 +291,134 @@ RSpec.describe API::PackageFiles, feature_category: :package_registry do
       context 'with JOB-TOKEN auth' do
         subject(:api_request) { delete api(url, job_token: job.token) }
 
-        let(:job) { create(:ci_build, :running, user: user, project: project) }
-        let_it_be_with_refind(:project) { create(:project, :private) }
+        let_it_be(:job) { create(:ci_build, :running, user: user, project: project) }
 
-        context 'a user without access to the project' do
-          it_behaves_like 'handling job token and returning', status: :not_found
+        context 'when a user without access to the project' do
+          it_behaves_like 'handling job token and returning', status: :forbidden
         end
 
-        context 'a user without enough permissions' do
-          before do
+        context 'when a user without enough permissions' do
+          before_all do
             project.add_developer(user)
           end
 
           it_behaves_like 'handling job token and returning', status: :forbidden
         end
 
-        context 'a user with the right permissions' do
-          before do
+        context 'when a user with the right permissions' do
+          before_all do
             project.add_maintainer(user)
           end
 
           it_behaves_like 'handling job token and returning', status: :no_content
         end
+      end
+    end
+
+    context 'with package protection rule for different roles and package_name_patterns', :enable_admin_mode do
+      using RSpec::Parameterized::TableSyntax
+
+      let_it_be(:pat_project_maintainer) do
+        create(:personal_access_token, user: create(:user, maintainer_of: [project]))
+      end
+
+      let_it_be(:pat_project_owner) { create(:personal_access_token, user: create(:user, owner_of: [project])) }
+      let_it_be(:pat_instance_admin) { create(:personal_access_token, :admin_mode, user: create(:admin)) }
+      let_it_be(:headers_pat_project_maintainer) do
+        { Gitlab::Auth::AuthFinders::PRIVATE_TOKEN_HEADER => pat_project_maintainer.token }
+      end
+
+      let_it_be(:headers_pat_project_owner) do
+        { Gitlab::Auth::AuthFinders::PRIVATE_TOKEN_HEADER => pat_project_owner.token }
+      end
+
+      let_it_be(:headers_pat_instance_admin) do
+        { Gitlab::Auth::AuthFinders::PRIVATE_TOKEN_HEADER => pat_instance_admin.token }
+      end
+
+      let_it_be(:job_from_project_maintainer) do
+        create(:ci_build, :running, user: pat_project_maintainer.user, project: project)
+      end
+
+      let_it_be(:job_from_project_owner) { create(:ci_build, :running, user: pat_project_owner.user, project: project) }
+      let(:headers_job_token_from_maintainer) do
+        { Gitlab::Auth::AuthFinders::JOB_TOKEN_HEADER => job_from_project_maintainer.token }
+      end
+
+      let(:headers_job_token_from_owner) do
+        { Gitlab::Auth::AuthFinders::JOB_TOKEN_HEADER => job_from_project_owner.token }
+      end
+
+      let(:package_protection_rule) { create(:package_protection_rule, project: project) }
+
+      let(:package_name) { package.name }
+      let(:package_name_no_match) { "#{package_name}_no_match" }
+
+      subject do
+        delete api(url), headers: headers
+        response
+      end
+
+      shared_examples 'deleting package protected' do
+        it_behaves_like 'returning response status', :forbidden
+        it 'responds with correct error message' do
+          subject
+
+          expect(json_response).to include('message' => "403 Forbidden - Package is deletion protected.")
+        end
+
+        it { expect { subject }.not_to change { ::Packages::Package.pending_destruction.count } }
+
+        context 'when feature flag :packages_protected_packages_delete disabled' do
+          before do
+            stub_feature_flags(packages_protected_packages_delete: false)
+          end
+
+          it_behaves_like 'deleting package'
+        end
+      end
+
+      shared_examples 'deleting package' do
+        it_behaves_like 'returning response status', :no_content
+        it { expect { subject }.to change { package.package_files.pending_destruction.count }.by(1) }
+      end
+
+      where(:package_name_pattern, :minimum_access_level_for_delete, :headers, :shared_examples_name) do
+        ref(:package_name)          | :owner | ref(:headers_job_token_from_maintainer) | 'deleting package protected'
+        ref(:package_name)          | :owner | ref(:headers_job_token_from_owner)      | 'deleting package'
+        ref(:package_name)          | :owner | ref(:headers_pat_project_maintainer)    | 'deleting package protected'
+        ref(:package_name)          | :owner | ref(:headers_pat_project_owner)         | 'deleting package'
+        ref(:package_name)          | :owner | ref(:headers_pat_instance_admin)        | 'deleting package'
+
+        ref(:package_name)          | :admin | ref(:headers_pat_project_maintainer)    | 'deleting package protected'
+        ref(:package_name)          | :admin | ref(:headers_pat_project_owner)         | 'deleting package protected'
+        ref(:package_name)          | :admin | ref(:headers_job_token_from_owner)      | 'deleting package protected'
+        ref(:package_name)          | :admin | ref(:headers_pat_instance_admin)        | 'deleting package'
+
+        ref(:package_name_no_match) | :owner | ref(:headers_pat_project_owner)         | 'deleting package'
+      end
+
+      with_them do
+        before do
+          package_protection_rule.update!(
+            package_name_pattern: package_name_pattern,
+            package_type: package.package_type,
+            minimum_access_level_for_delete: minimum_access_level_for_delete
+          )
+        end
+
+        it_behaves_like params[:shared_examples_name]
+      end
+
+      context 'for package with unsupported package type for package protection rule' do
+        let_it_be(:nuget_package) { create(:nuget_package, project: project) }
+
+        let(:package) { nuget_package }
+        let(:package_file_id) { nuget_package.package_files.first.id }
+
+        let(:headers) { headers_pat_project_maintainer }
+
+        it_behaves_like 'deleting package'
       end
     end
   end

@@ -4,15 +4,23 @@ require "spec_helper"
 
 RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
   let_it_be(:user) { create(:user) }
-  let_it_be(:user_non_priviledged) { create(:user) }
+  let_it_be(:user_non_privileged) { create(:user) }
 
   shared_examples 'resource access token API' do |source_type|
     context "GET #{source_type}s/:id/access_tokens" do
       subject(:get_tokens) { get api("/#{source_type}s/#{resource_id}/access_tokens", user) }
 
       context "when the user has valid permissions" do
-        let_it_be(:project_bot) { create(:user, :project_bot) }
-        let_it_be(:access_tokens) { create_list(:personal_access_token, 3, user: project_bot) }
+        let_it_be(:project_bot) { create(:user, :project_bot, bot_namespace: namespace) }
+        let_it_be(:active_access_tokens) { create_list(:personal_access_token, 5, user: project_bot) }
+        let_it_be(:expired_token) do
+          create(:personal_access_token, :expired, expires_at: 2.days.ago, last_used_at: 2.days.ago, name: 'a_test_1',
+            user: project_bot)
+        end
+
+        let_it_be(:revoked_token) { create(:personal_access_token, :revoked, user: project_bot) }
+        let_it_be(:inactive_access_tokens) { [expired_token, revoked_token] }
+        let_it_be(:all_access_tokens) { active_access_tokens + inactive_access_tokens }
         let_it_be(:resource_id) { resource.id }
 
         before do
@@ -23,7 +31,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
           end
         end
 
-        it "gets a list of access tokens for the specified #{source_type}" do
+        it "gets a list of all access tokens for the specified #{source_type}" do
           get_tokens
 
           token_ids = json_response.map { |token| token['id'] }
@@ -31,13 +39,13 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
           expect(response).to match_response_schema('public_api/v4/resource_access_tokens')
-          expect(token_ids).to match_array(access_tokens.pluck(:id))
+          expect(token_ids).to match_array(all_access_tokens.pluck(:id))
         end
 
         it "exposes the correct token information", :aggregate_failures do
           get_tokens
 
-          token = access_tokens.last
+          token = all_access_tokens.last
           api_get_token = json_response.last
 
           expect(api_get_token["name"]).to eq(token.name)
@@ -45,8 +53,12 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
 
           if source_type == 'project'
             expect(api_get_token["access_level"]).to eq(resource.team.max_member_access(token.user.id))
+            expect(api_get_token["resource_type"]).to eq('project')
+            expect(api_get_token["resource_id"]).to eq(namespace.project.id)
           else
             expect(api_get_token["access_level"]).to eq(resource.max_member_access_for_user(token.user))
+            expect(api_get_token["resource_type"]).to eq('group')
+            expect(api_get_token["resource_id"]).to eq(namespace.id)
           end
 
           expect(api_get_token["expires_at"]).to eq(token.expires_at.to_date.iso8601)
@@ -54,7 +66,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
         end
 
         context "when using a #{source_type} access token to GET other #{source_type} access tokens" do
-          let_it_be(:token) { access_tokens.first }
+          let_it_be(:token) { active_access_tokens.first }
 
           it "gets a list of access tokens for the specified #{source_type}" do
             get api("/#{source_type}s/#{resource_id}/access_tokens", personal_access_token: token)
@@ -62,12 +74,12 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
             token_ids = json_response.map { |token| token['id'] }
 
             expect(response).to have_gitlab_http_status(:ok)
-            expect(token_ids).to match_array(access_tokens.pluck(:id))
+            expect(token_ids).to match_array(all_access_tokens.pluck(:id))
           end
         end
 
         context "when tokens belong to a different #{source_type}" do
-          let_it_be(:bot) { create(:user, :project_bot) }
+          let_it_be(:bot) { create(:user, :project_bot, bot_namespace: other_resource_namespace) }
           let_it_be(:token) { create(:personal_access_token, user: bot) }
 
           before do
@@ -113,11 +125,130 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
             expect(response).to have_gitlab_http_status(:not_found)
           end
         end
+
+        context 'when filtering by revoked' do
+          it 'returns non-revoked tokens when revoked is false' do
+            get api("/#{source_type}s/#{resource_id}/access_tokens", user), params: { revoked: false }
+
+            token_ids = json_response.map { |token| token['id'] }
+            expect(token_ids).to match_array(all_access_tokens.pluck(:id).reject { |n| n == revoked_token.id })
+          end
+
+          it 'returns revoked tokens when revoked is true' do
+            get api("/#{source_type}s/#{resource_id}/access_tokens", user), params: { revoked: true }
+
+            token_ids = json_response.map { |token| token['id'] }
+            expect(token_ids).to match_array([revoked_token.id])
+          end
+        end
+
+        context 'when filtering by state' do
+          context 'when state param is set to inactive' do
+            let(:params) { { state: 'inactive' } }
+
+            it 'returns only inactive tokens' do
+              get api("/#{source_type}s/#{resource_id}/access_tokens", user), params: params
+
+              token_ids = json_response.map { |token| token['id'] }
+
+              expect(response).to have_gitlab_http_status(:ok)
+              expect(response).to include_pagination_headers
+              expect(response).to match_response_schema('public_api/v4/resource_access_tokens')
+              expect(token_ids).to match_array(inactive_access_tokens.pluck(:id))
+            end
+          end
+
+          context 'when state param is set to active' do
+            let(:params) { { state: 'active' } }
+
+            it 'returns only active tokens' do
+              get api("/#{source_type}s/#{resource_id}/access_tokens", user), params: params
+
+              token_ids = json_response.map { |token| token['id'] }
+
+              expect(response).to have_gitlab_http_status(:ok)
+              expect(response).to include_pagination_headers
+              expect(response).to match_response_schema('public_api/v4/resource_access_tokens')
+              expect(token_ids).to match_array(active_access_tokens.pluck(:id))
+            end
+          end
+        end
+
+        context 'when filtering by created dates' do
+          it 'returns tokens created before specified date' do
+            get api("/#{source_type}s/#{resource_id}/access_tokens", user), params: { created_before: 1.day.ago }
+
+            expect(json_response).to be_empty
+          end
+
+          it 'returns tokens created after specified date' do
+            get api("/#{source_type}s/#{resource_id}/access_tokens", user), params: { created_after: 1.day.ago }
+
+            token_ids = json_response.map { |token| token['id'] }
+            expect(token_ids).to match_array(all_access_tokens.pluck(:id))
+          end
+        end
+
+        context 'when filtering by last used dates' do
+          it 'returns tokens last used before specified date' do
+            get api("/#{source_type}s/#{resource_id}/access_tokens", user), params: { last_used_before: 1.day.ago }
+
+            token_ids = json_response.map { |token| token['id'] }
+            expect(token_ids).to match_array([expired_token.id])
+          end
+
+          it 'returns tokens last used after specified date' do
+            get api("/#{source_type}s/#{resource_id}/access_tokens", user), params: { last_used_after: 1.day.ago }
+
+            expect(json_response).to be_empty
+          end
+        end
+
+        context 'when filtering by expiration dates' do
+          it 'returns tokens that expire before specified date' do
+            get api("/#{source_type}s/#{resource_id}/access_tokens", user), params: { expires_before: 1.day.ago }
+
+            token_ids = json_response.map { |token| token['id'] }
+            expect(token_ids).to match_array([expired_token.id])
+          end
+
+          it 'returns tokens that expire after specified date' do
+            get api("/#{source_type}s/#{resource_id}/access_tokens", user), params: { expires_after: 1.day.ago }
+
+            token_ids = json_response.map { |token| token['id'] }
+            expect(token_ids).to match_array(all_access_tokens.pluck(:id).reject { |n| n == expired_token.id })
+          end
+        end
+
+        context 'when searching by name' do
+          it 'returns tokens matching the search term' do
+            get api("/#{source_type}s/#{resource_id}/access_tokens", user), params: { search: 'a_test_1' }
+
+            token_ids = json_response.map { |token| token['id'] }
+            expect(token_ids).to match_array([expired_token.id])
+          end
+        end
+
+        context 'when sorting' do
+          it 'sorts tokens by last_used_desc when specified' do
+            get api("/#{source_type}s/#{resource_id}/access_tokens", user), params: { sort: 'name_desc' }
+
+            token_ids = json_response.map { |token| token['id'] }
+            expect(token_ids.last).to eq(expired_token.id)
+          end
+
+          it 'sorts tokens by last_used_asc when specified' do
+            get api("/#{source_type}s/#{resource_id}/access_tokens", user), params: { sort: 'name_asc' }
+
+            token_ids = json_response.map { |token| token['id'] }
+            expect(token_ids.first).to eq(expired_token.id)
+          end
+        end
       end
 
       context "when the user does not have valid permissions" do
-        let_it_be(:user) { user_non_priviledged }
-        let_it_be(:project_bot) { create(:user, :project_bot) }
+        let_it_be(:user) { user_non_privileged }
+        let_it_be(:project_bot) { create(:user, :project_bot, bot_namespace: namespace) }
         let_it_be(:access_tokens) { create_list(:personal_access_token, 3, user: project_bot) }
         let_it_be(:resource_id) { resource.id }
 
@@ -136,7 +267,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
     context "GET #{source_type}s/:id/access_tokens/:token_id" do
       subject(:get_token) { get api("/#{source_type}s/#{resource_id}/access_tokens/#{token_id}", user) }
 
-      let_it_be(:project_bot) { create(:user, :project_bot) }
+      let_it_be(:project_bot) { create(:user, :project_bot, bot_namespace: namespace) }
       let_it_be(:token) { create(:personal_access_token, user: project_bot) }
       let_it_be(:resource_id) { resource.id }
       let_it_be(:token_id) { token.id }
@@ -161,15 +292,19 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
 
           if source_type == 'project'
             expect(json_response["access_level"]).to eq(resource.team.max_member_access(token.user.id))
+            expect(json_response["resource_type"]).to eq('project')
+            expect(json_response["resource_id"]).to eq(namespace.project.id)
           else
             expect(json_response["access_level"]).to eq(resource.max_member_access_for_user(token.user))
+            expect(json_response["resource_type"]).to eq('group')
+            expect(json_response["resource_id"]).to eq(namespace.id)
           end
 
           expect(json_response["expires_at"]).to eq(token.expires_at.to_date.iso8601)
         end
 
         context "when using #{source_type} access token to GET other #{source_type} access token" do
-          let_it_be(:other_project_bot) { create(:user, :project_bot) }
+          let_it_be(:other_project_bot) { create(:user, :project_bot, bot_namespace: namespace) }
           let_it_be(:other_token) { create(:personal_access_token, user: other_project_bot) }
           let_it_be(:token_id) { other_token.id }
 
@@ -188,8 +323,12 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
 
             if source_type == 'project'
               expect(json_response["access_level"]).to eq(resource.team.max_member_access(other_token.user.id))
+              expect(json_response["resource_type"]).to eq('project')
+              expect(json_response["resource_id"]).to eq(namespace.project.id)
             else
               expect(json_response["access_level"]).to eq(resource.max_member_access_for_user(other_token.user))
+              expect(json_response["resource_type"]).to eq('group')
+              expect(json_response["resource_id"]).to eq(namespace.id)
             end
 
             expect(json_response["expires_at"]).to eq(other_token.expires_at.to_date.iso8601)
@@ -203,7 +342,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
             get_token
 
             expect(response).to have_gitlab_http_status(:not_found)
-            expect(response.body).to include("Could not find #{source_type} access token with token_id: #{token_id}")
+            expect(json_response["message"]).to eq("404 #{source_type} Access Token Not Found")
           end
         end
 
@@ -214,13 +353,13 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
             get_token
 
             expect(response).to have_gitlab_http_status(:not_found)
-            expect(response.body).to include("Could not find #{source_type} access token with token_id: #{token_id}")
+            expect(json_response["message"]).to eq("404 #{source_type} Access Token Not Found")
           end
         end
       end
 
       context "when the user does not have valid permissions" do
-        let_it_be(:user) { user_non_priviledged }
+        let_it_be(:user) { user_non_privileged }
 
         it "returns 401" do
           get_token
@@ -233,7 +372,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
     context "DELETE #{source_type}s/:id/access_tokens/:token_id", :sidekiq_inline do
       subject(:delete_token) { delete api("/#{source_type}s/#{resource_id}/access_tokens/#{token_id}", user) }
 
-      let_it_be(:project_bot) { create(:user, :project_bot) }
+      let_it_be(:project_bot) { create(:user, :project_bot, bot_namespace: namespace) }
       let_it_be(:token) { create(:personal_access_token, user: project_bot) }
       let_it_be(:resource_id) { resource.id }
       let_it_be(:token_id) { token.id }
@@ -247,13 +386,12 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
           delete_token
 
           expect(response).to have_gitlab_http_status(:no_content)
-          expect(
-            Users::GhostUserMigration.where(user: project_bot, initiator_user: user)
-          ).to be_exists
+          expect(token.reload).to be_revoked
+          expect(User.exists?(project_bot.id)).to be_truthy
         end
 
         context "when using #{source_type} access token to DELETE other #{source_type} access token" do
-          let_it_be(:other_project_bot) { create(:user, :project_bot) }
+          let_it_be(:other_project_bot) { create(:user, :project_bot, bot_namespace: namespace) }
           let_it_be(:other_token) { create(:personal_access_token, user: other_project_bot) }
           let_it_be(:token_id) { other_token.id }
 
@@ -265,9 +403,9 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
             delete_token
 
             expect(response).to have_gitlab_http_status(:no_content)
-            expect(
-              Users::GhostUserMigration.where(user: other_project_bot, initiator_user: user)
-            ).to be_exists
+            expect(token.reload).not_to be_revoked
+            expect(other_token.reload).to be_revoked
+            expect(User.exists?(other_project_bot.id)).to be_truthy
           end
         end
 
@@ -278,7 +416,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
             delete_token
 
             expect(response).to have_gitlab_http_status(:not_found)
-            expect(response.body).to include("Could not find #{source_type} access token with token_id: #{token_id}")
+            expect(json_response["message"]).to eq("404 #{source_type} Access Token Not Found")
           end
         end
 
@@ -289,13 +427,13 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
             delete_token
 
             expect(response).to have_gitlab_http_status(:not_found)
-            expect(response.body).to include("Could not find #{source_type} access token with token_id: #{token_id}")
+            expect(json_response["message"]).to eq("404 #{source_type} Access Token Not Found")
           end
         end
       end
 
       context "when the user does not have valid permissions" do
-        let_it_be(:user) { user_non_priviledged }
+        let_it_be(:user) { user_non_privileged }
 
         it "does not delete the token, and returns 400", :aggregate_failures do
           delete_token
@@ -308,7 +446,11 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
     end
 
     context "POST #{source_type}s/:id/access_tokens" do
-      let(:params) { { name: "test", scopes: ["api"], expires_at: expires_at, access_level: access_level } }
+      let(:params) do
+        { name: "test", description: "description", scopes: ["api"], expires_at: expires_at,
+          access_level: access_level }
+      end
+
       let(:expires_at) { 1.month.from_now }
       let(:access_level) { 20 }
 
@@ -324,6 +466,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
 
               expect(response).to have_gitlab_http_status(:created)
               expect(json_response["name"]).to eq("test")
+              expect(json_response["description"]).to eq("description")
               expect(json_response["scopes"]).to eq(["api"])
               expect(json_response["access_level"]).to eq(20)
               expect(json_response["expires_at"]).to eq(expires_at.to_date.iso8601)
@@ -335,15 +478,17 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
             let(:expires_at) { nil }
 
             it "creates a #{source_type} access token with the default expires_at value", :aggregate_failures do
-              freeze_time do
-                create_token
-                expires_at = PersonalAccessToken::MAX_PERSONAL_ACCESS_TOKEN_LIFETIME_IN_DAYS.days.from_now
+              create_token
+              # When the test run just before 00:00Z sometimes this expires_at is one day later.
+              # We have tried both freeze_time and time_travel_to, but it doesn't work. It seems `create_token`
+              # operates in a different context.
+              expires_at = PersonalAccessToken::MAX_PERSONAL_ACCESS_TOKEN_LIFETIME_IN_DAYS.days.from_now.to_date
 
-                expect(response).to have_gitlab_http_status(:created)
-                expect(json_response["name"]).to eq("test")
-                expect(json_response["scopes"]).to eq(["api"])
-                expect(json_response["expires_at"]).to eq(expires_at.to_date.iso8601)
-              end
+              expect(response).to have_gitlab_http_status(:created)
+              expect(json_response["name"]).to eq("test")
+              expect(json_response["scopes"]).to eq(["api"])
+              # Because of the above issue, we decided to compare with `<=` operator instead of `eq`
+              expect(json_response["expires_at"].to_date).to be <= expires_at
             end
           end
 
@@ -438,7 +583,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
         let_it_be(:resource_id) { resource.id }
 
         context "when the user role is too low" do
-          let_it_be(:user) { user_non_priviledged }
+          let_it_be(:user) { user_non_privileged }
 
           it "does not create the token, and returns the permission error" do
             create_token
@@ -449,7 +594,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
         end
 
         context "when a #{source_type} access token tries to create another #{source_type} access token" do
-          let_it_be(:project_bot) { create(:user, :project_bot) }
+          let_it_be(:project_bot) { create(:user, :project_bot, bot_namespace: namespace) }
           let_it_be(:user) { project_bot }
 
           before do
@@ -471,7 +616,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
     end
 
     context "POST #{source_type}s/:id/access_tokens/:token_id/rotate" do
-      let_it_be(:project_bot) { create(:user, :project_bot) }
+      let_it_be(:project_bot) { create(:user, :project_bot, bot_namespace: namespace) }
       let_it_be(:token) { create(:personal_access_token, user: project_bot) }
       let_it_be(:resource_id) { resource.id }
       let_it_be(:token_id) { token.id }
@@ -492,7 +637,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(json_response['token']).not_to eq(token.token)
-          expect(json_response['expires_at']).to eq((Date.today + 1.week).to_s)
+          expect(json_response['expires_at']).to eq(1.week.from_now.to_date.iso8601)
         end
       end
 
@@ -502,7 +647,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
         end
 
         context "when token has owner access level" do
-          let(:error_message) { 'Not eligible to rotate token with access level higher than the user' }
+          let(:error_message) { 'Not eligible to rotate tokens with permissions not held by the user' }
 
           before do
             resource.add_owner(project_bot)
@@ -531,7 +676,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
             if source_type == 'project'
               expect(response).to have_gitlab_http_status(:ok)
               expect(json_response['token']).not_to eq(token.token)
-              expect(json_response['expires_at']).to eq((Date.today + 1.week).to_s)
+              expect(json_response['expires_at']).to eq(1.week.from_now.to_date.iso8601)
             else
               expect(response).to have_gitlab_http_status(:unauthorized)
             end
@@ -540,7 +685,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
       end
 
       context 'when expiry is defined' do
-        let(:expiry_date) { Date.today + 1.month }
+        let(:expiry_date) { 1.month.from_now }
         let(:params) { { expires_at: expiry_date } }
 
         before do
@@ -553,7 +698,7 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
 
           expect(response).to have_gitlab_http_status(:ok)
           expect(json_response['token']).not_to eq(token.token)
-          expect(json_response['expires_at']).to eq(expiry_date.to_s)
+          expect(json_response['expires_at']).to eq(expiry_date.to_date.iso8601)
         end
       end
 
@@ -634,13 +779,15 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
 
   context 'when the resource is a project' do
     let_it_be(:resource) { create(:project, group: create(:group)) }
+    let_it_be(:namespace) { resource.project_namespace }
     let_it_be(:other_resource) { create(:project) }
+    let_it_be(:other_resource_namespace) { other_resource.project_namespace }
     let_it_be(:unknown_resource) { create(:project) }
 
     before_all do
       resource.add_maintainer(user)
       other_resource.add_maintainer(user)
-      resource.add_developer(user_non_priviledged)
+      resource.add_developer(user_non_privileged)
     end
 
     it_behaves_like 'resource access token API', 'project'
@@ -648,13 +795,15 @@ RSpec.describe API::ResourceAccessTokens, feature_category: :system_access do
 
   context 'when the resource is a group' do
     let_it_be(:resource) { create(:group) }
+    let_it_be(:namespace) { resource }
     let_it_be(:other_resource) { create(:group) }
+    let_it_be(:other_resource_namespace) { other_resource }
     let_it_be(:unknown_resource) { create(:project) }
 
     before_all do
       resource.add_owner(user)
       other_resource.add_owner(user)
-      resource.add_maintainer(user_non_priviledged)
+      resource.add_maintainer(user_non_privileged)
     end
 
     it_behaves_like 'resource access token API', 'group'

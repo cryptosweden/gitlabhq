@@ -30,15 +30,16 @@ RSpec.describe Gitlab::ImportExport::AttributesFinder, feature_category: :import
               merge_request_diff: { source_project: nil },
               merge_request_test: nil
             }
-            } },
+          } },
           { commit_statuses: {
-              include: [{ commit: { include: [] } }],
-              preload: { commit: nil }
-            } },
+            include: [{ commit: { include: [] } }],
+            preload: { commit: nil }
+          } },
           { project_members: {
-              include: [{ user: { include: [],
-                                  only: [:email] } }],
-              preload: { user: nil }
+            include: [
+              { user: { include: [], only: [:email] } }
+            ],
+            preload: { user: nil }
           } }
         ],
         preload: {
@@ -122,10 +123,11 @@ RSpec.describe Gitlab::ImportExport::AttributesFinder, feature_category: :import
 
         is_expected.to match(
           include: [{ merge_requests: {
-                      include: [{ notes: { include: [{ author: { include: [] } }],
-                                           preload: { author: nil } } }],
-                      preload: { notes: { author: nil } }
-                    } }],
+            include: [
+              { notes: { include: [{ author: { include: [] } }], preload: { author: nil } } }
+            ],
+            preload: { notes: { author: nil } }
+          } }],
           preload: { merge_requests: { notes: { author: nil } } }
         )
       end
@@ -234,6 +236,25 @@ RSpec.describe Gitlab::ImportExport::AttributesFinder, feature_category: :import
     end
 
     context 'when excluded_attributes are not present in config' do
+      let(:config) { {} }
+
+      it { is_expected.to eq([]) }
+    end
+  end
+
+  describe '#find_included_keys' do
+    subject { described_class.new(config: config).find_included_keys(klass_name) }
+
+    let(:klass_name) { 'project' }
+
+    context 'when initialized with included_attributes' do
+      let(:config) { { included_attributes: included_attributes } }
+      let(:included_attributes) { { project: [:name, :path], issues: [:milestone_id] } }
+
+      it { is_expected.to eq(%w[name path]) }
+    end
+
+    context 'when included_attributes are not present in config' do
       let(:config) { {} }
 
       it { is_expected.to eq([]) }

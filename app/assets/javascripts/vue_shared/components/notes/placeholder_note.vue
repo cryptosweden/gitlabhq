@@ -17,11 +17,11 @@
  *   />
  */
 import { GlAvatarLink, GlAvatar } from '@gitlab/ui';
-// eslint-disable-next-line no-restricted-imports
-import { mapGetters } from 'vuex';
+import { mapState } from 'pinia';
 import SafeHtml from '~/vue_shared/directives/safe_html';
 import { renderMarkdown } from '~/notes/utils';
 import TimelineEntryItem from '~/vue_shared/components/notes/timeline_entry_item.vue';
+import { useNotes } from '~/notes/store/legacy_notes';
 
 export default {
   name: 'PlaceholderNote',
@@ -36,16 +36,6 @@ export default {
       type: Object,
       required: true,
     },
-    line: {
-      type: Object,
-      required: false,
-      default: null,
-    },
-    isOverviewTab: {
-      type: Boolean,
-      required: false,
-      default: false,
-    },
     internalNote: {
       type: Boolean,
       required: false,
@@ -53,7 +43,7 @@ export default {
     },
   },
   computed: {
-    ...mapGetters(['getUserData']),
+    ...mapState(useNotes, ['getUserData']),
     renderedNote() {
       return renderMarkdown(this.note.body);
     },
@@ -85,7 +75,7 @@ export default {
       <div class="note-header">
         <div class="note-header-info">
           <a :href="getUserData.path">
-            <span class="gl-hidden sm:gl-inline-block bold">{{ getUserData.name }}</span>
+            <span class="gl-hidden gl-font-bold sm:gl-inline-block">{{ getUserData.name }}</span>
             <span class="note-headline-light">@{{ getUserData.username }}</span>
           </a>
         </div>

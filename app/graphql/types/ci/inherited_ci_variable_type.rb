@@ -5,7 +5,9 @@ module Types
     # rubocop: disable Graphql/AuthorizeTypes
     class InheritedCiVariableType < BaseObject
       graphql_name 'InheritedCiVariable'
-      description 'CI/CD variables a project inherites from its parent group and ancestors.'
+      description 'CI/CD variables a project inherits from its parent group and ancestors.'
+
+      include Gitlab::Utils::StrongMemoize
 
       field :id, GraphQL::Types::ID,
         null: false,
@@ -39,6 +41,10 @@ module Types
         null: true,
         description: 'Indicates whether the variable is masked.'
 
+      field :hidden, GraphQL::Types::Boolean,
+        null: true,
+        description: 'Indicates whether the variable is hidden.'
+
       field :group_name, GraphQL::Types::String,
         null: true,
         description: 'Indicates group the variable belongs to.'
@@ -46,6 +52,12 @@ module Types
       field :group_ci_cd_settings_path, GraphQL::Types::String,
         null: true,
         description: 'Indicates the path to the CI/CD settings of the group the variable belongs to.'
+
+      def group_ci_cd_settings_path
+        return unless current_user && Ability.allowed?(current_user, :admin_cicd_variables, object.group)
+
+        object.group_ci_cd_settings_path
+      end
     end
     # rubocop: enable Graphql/AuthorizeTypes
   end

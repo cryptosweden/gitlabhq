@@ -2,7 +2,8 @@
 import { GlAvatar, GlIcon } from '@gitlab/ui';
 import SafeHtml from '~/vue_shared/directives/safe_html';
 import highlight from '~/lib/utils/highlight';
-import { AVATAR_SHAPE_OPTION_RECT } from '~/vue_shared/constants';
+import { AVATAR_SHAPE_OPTION_RECT, AVATAR_SHAPE_OPTION_CIRCLE } from '~/vue_shared/constants';
+import { USER_CATEGORY_VALUE } from './constants';
 
 export default {
   name: 'CommandPaletteSearchItem',
@@ -27,31 +28,40 @@ export default {
     highlightedName() {
       return highlight(this.item.text, this.searchQuery);
     },
+    avatarShape() {
+      return this.item.category === USER_CATEGORY_VALUE
+        ? this.$options.AVATAR_SHAPE_OPTION_CIRCLE
+        : this.$options.AVATAR_SHAPE_OPTION_RECT;
+    },
   },
   AVATAR_SHAPE_OPTION_RECT,
+  AVATAR_SHAPE_OPTION_CIRCLE,
 };
 </script>
 
 <template>
-  <div class="gl-display-flex gl-align-items-center">
+  <div class="gl-flex gl-items-center">
     <gl-avatar
       v-if="item.avatar_url !== undefined"
       class="gl-mr-3"
       :src="item.avatar_url"
       :entity-id="item.entity_id"
       :entity-name="item.entity_name"
-      :size="item.avatar_size"
-      :shape="$options.AVATAR_SHAPE_OPTION_RECT"
+      :size="16"
+      :shape="avatarShape"
       aria-hidden="true"
     />
-    <gl-icon v-if="item.icon" class="gl-mr-3 gl-flex-shrink-0" :name="item.icon" />
-    <span class="gl-display-flex gl-flex-direction-column">
-      <span v-safe-html="highlightedName" class="gl-text-gray-900"></span>
-      <span
-        v-if="item.namespace"
-        v-safe-html="item.namespace"
-        class="gl-font-sm gl-text-gray-500"
-      ></span>
+    <gl-icon v-if="item.icon" class="gl-mr-3 gl-shrink-0" :name="item.icon" data-testid="icon" />
+    <span class="gl-flex gl-min-w-0 gl-items-center gl-gap-2">
+      <span v-safe-html="highlightedName" class="gl-truncate gl-text-strong"></span>
+      <template v-if="item.namespace">
+        <span class="gl-text-subtle" aria-hidden="true" data-testid="namespace-bullet">·</span>
+        <span
+          v-safe-html="item.namespace"
+          class="gl-truncate gl-text-sm gl-text-subtle"
+          data-testid="namespace"
+        ></span>
+      </template>
     </span>
   </div>
 </template>

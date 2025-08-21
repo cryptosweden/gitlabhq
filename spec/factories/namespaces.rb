@@ -11,6 +11,13 @@ FactoryBot.define do
 
     owner { association(:user, strategy: :build, namespace: instance, username: path) }
 
+    after(:build) do |namespace, evaluator|
+      namespace.organization ||= evaluator.parent&.organization ||
+        # We create an organization next even though we are building here. We need to ensure
+        # that an organization exists so other entities can belong to the same organization
+        create(:common_organization)
+    end
+
     after(:create) do |namespace, evaluator|
       # simulating ::Namespaces::ProcessSyncEventsWorker because most tests don't run Sidekiq inline
       # Note: we need to get refreshed `traversal_ids` it is updated via SQL query
@@ -46,6 +53,12 @@ FactoryBot.define do
 
     trait :shared_runners_disabled do
       shared_runners_enabled { false }
+    end
+
+    trait :archived do
+      after(:create) do |namespace|
+        namespace.namespace_settings.update!(archived: true)
+      end
     end
   end
 end

@@ -10,6 +10,10 @@ RSpec.describe Projects::PipelineSchedulesController, feature_category: :continu
   let_it_be_with_reload(:project) { create(:project, :public, :repository, developers: user) }
   let_it_be_with_reload(:pipeline_schedule) { create(:ci_pipeline_schedule, project: project) }
 
+  before do
+    project.update!(ci_pipeline_variables_minimum_override_role: :developer)
+  end
+
   shared_examples 'access update schedule' do
     describe 'security' do
       it 'is allowed for admin when admin mode enabled', :enable_admin_mode do
@@ -178,7 +182,7 @@ RSpec.describe Projects::PipelineSchedulesController, feature_category: :continu
 
         context 'when the user is not allowed to create a pipeline schedule with variables' do
           before do
-            project.update!(restrict_user_defined_variables: true)
+            project.update!(ci_pipeline_variables_minimum_override_role: :maintainer)
           end
 
           it 'does not create a new schedule' do
@@ -272,7 +276,7 @@ RSpec.describe Projects::PipelineSchedulesController, feature_category: :continu
 
           context 'when the user is not allowed to update pipeline schedule variables' do
             before do
-              project.update!(restrict_user_defined_variables: true)
+              project.update!(ci_pipeline_variables_minimum_override_role: :maintainer)
             end
 
             it 'does not update the schedule' do
@@ -513,7 +517,7 @@ RSpec.describe Projects::PipelineSchedulesController, feature_category: :continu
       end
 
       it 'does not allow pipeline to be executed' do
-        expect(RunPipelineScheduleWorker).not_to receive(:perform_async)
+        expect(Ci::PipelineSchedules::PlayService).not_to receive(:new)
 
         go
 
@@ -523,7 +527,7 @@ RSpec.describe Projects::PipelineSchedulesController, feature_category: :continu
 
     context 'when a developer makes the request' do
       it 'executes a new pipeline' do
-        expect(RunPipelineScheduleWorker).to receive(:perform_async).with(pipeline_schedule.id, user.id).and_return('job-123')
+        expect(Ci::PipelineSchedules::PlayService).to receive_message_chain(:new, :execute).with(pipeline_schedule).and_return('job-123')
 
         go
 
@@ -531,12 +535,15 @@ RSpec.describe Projects::PipelineSchedulesController, feature_category: :continu
         expect(response).to have_gitlab_http_status(:found)
       end
 
-      it 'prevents users from scheduling the same pipeline repeatedly' do
-        2.times { go }
+      context 'when rate limited' do
+        it 'prevents users from scheduling the same pipeline repeatedly' do
+          allow(Gitlab::ApplicationRateLimiter).to receive(:throttled_request?).and_return(true)
 
-        expect(flash.to_a.size).to eq(2)
-        expect(flash[:alert]).to eq _('You cannot play this scheduled pipeline at the moment. Please wait a minute.')
-        expect(response).to have_gitlab_http_status(:found)
+          go
+
+          expect(flash[:alert]).to eq _('You cannot play this scheduled pipeline at the moment. Please wait a minute.')
+          expect(response).to have_gitlab_http_status(:found)
+        end
       end
     end
 

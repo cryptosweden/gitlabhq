@@ -13,13 +13,12 @@ RSpec.describe Clusters::Agent, feature_category: :deployment_management do
   it { is_expected.to have_many(:ci_access_authorized_groups).through(:ci_access_group_authorizations) }
   it { is_expected.to have_many(:ci_access_project_authorizations).class_name('Clusters::Agents::Authorizations::CiAccess::ProjectAuthorization') }
   it { is_expected.to have_many(:ci_access_authorized_projects).through(:ci_access_project_authorizations).class_name('::Project') }
+  it { is_expected.to have_many(:ci_access_organization_authorizations).class_name('Clusters::Agents::Authorizations::CiAccess::OrganizationAuthorization') }
   it { is_expected.to have_many(:environments).class_name('::Environment') }
 
   it { is_expected.to validate_presence_of(:name) }
   it { is_expected.to validate_length_of(:name).is_at_most(63) }
   it { is_expected.to validate_uniqueness_of(:name).scoped_to(:project_id) }
-
-  it { is_expected.to define_enum_for(:connection_mode).with_values(outgoing: 0, incoming: 1).with_prefix }
 
   describe 'scopes' do
     describe '.ordered_by_name' do
@@ -74,6 +73,17 @@ RSpec.describe Clusters::Agent, feature_category: :deployment_management do
           it 'returns agents which do not have vulnerabilities' do
             is_expected.to contain_exactly(without_vulnerabilities)
           end
+        end
+      end
+
+      describe '.for_projects' do
+        let_it_be(:agent_1) { create(:cluster_agent) }
+        let_it_be(:agent_2) { create(:cluster_agent) }
+
+        subject { described_class.for_projects([agent_1.project, agent_2.project]) }
+
+        it 'return agents for selected projects' do
+          is_expected.to contain_exactly(agent_1, agent_2)
         end
       end
     end
@@ -318,5 +328,9 @@ RSpec.describe Clusters::Agent, feature_category: :deployment_management do
         it { is_expected.to eq(config) }
       end
     end
+  end
+
+  describe '#resource_management_enabled?' do
+    it { expect(subject.resource_management_enabled?).to be_falsey }
   end
 end

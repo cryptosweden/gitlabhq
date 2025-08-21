@@ -1,14 +1,16 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Emails on push
 ---
 
-# Emails on push
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Use emails on push to receive email notifications for changes pushed to your GitLab project.
 You can select the push events that trigger these notifications.
@@ -24,6 +26,7 @@ To set up emails on push:
 1. Select **Emails on push**.
 1. Under **Enable integration**, select the **Active** checkbox.
 1. In **Recipients**, enter a list of email addresses separated by spaces or newlines.
+   Invalid email addresses are automatically filtered out and do not receive notifications.
 1. Configure the following options:
 
    - **Push events** - Email is triggered when a push event is received.

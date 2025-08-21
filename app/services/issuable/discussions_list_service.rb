@@ -18,7 +18,7 @@ module Issuable
       return Note.none unless can_read_issuable_notes?
 
       notes = NotesFinder.new(current_user, params.merge({ target: issuable, project: issuable.project }))
-                .execute.with_web_entity_associations.inc_relations_for_view(issuable).fresh
+                .execute.with_web_entity_associations.inc_relations_for_view(issuable).order_created_at_id_asc
 
       if paginator
         paginated_discussions_by_type = paginator.records.group_by(&:table_name)
@@ -40,12 +40,19 @@ module Issuable
       project = notes.first&.project
       notes = ::Preloaders::Projects::NotesPreloader.new(project, current_user).call(notes)
 
-      # we need to check the permission on every note, because some system notes for instance can have references to
-      # resources that some user do not have read access, so those notes are filtered out from the list of notes.
-      # see Note#all_referenced_mentionables_allowed?
-      notes = notes.select { |n| n.readable_by?(current_user) }
+      # Permission check required for system notes only:
+      # - System notes may reference resources the user cannot access
+      # - see Note#all_referenced_mentionables_allowed?
+      #
+      # Regular user notes don't need this check because:
+      # - If user can access the work item, they have `read_note` ability
+      # - Internal notes are separately filtered in NotesFinder.redact_internal
+      notes = notes.select { |n| !n.system? || n.system_note_visible_for?(current_user) }
 
-      Discussion.build_collection(notes, issuable)
+      discussions = Discussion.build_collection(notes, issuable)
+      discussions.reverse! if params[:sort] && params[:sort] == :created_desc
+
+      discussions
     end
 
     def paginator
@@ -53,7 +60,7 @@ module Issuable
 
       strong_memoize(:paginator) do
         issuable
-          .discussion_root_note_ids(notes_filter: params[:notes_filter])
+          .discussion_root_note_ids(notes_filter: params[:notes_filter], sort: params[:sort])
           .keyset_paginate(cursor: params[:cursor], per_page: params[:per_page].to_i)
       end
     end

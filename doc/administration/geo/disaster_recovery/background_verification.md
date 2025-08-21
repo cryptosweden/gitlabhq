@@ -1,14 +1,17 @@
 ---
-stage: Systems
+stage: Tenant Scale
 group: Geo
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+gitlab_dedicated: no
+title: Automatic background verification
 ---
 
-# Automatic background verification
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 Automatic background verification ensures that the transferred data matches a
 calculated checksum. If the checksum of the data on the **primary** site matches checksum of the
@@ -31,23 +34,23 @@ the site more time before scheduling a planned failover.
 
 On the **primary** site:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Geo > Sites**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Geo** > **Sites**.
 1. Expand **Verification information** tab for that site to view automatic checksumming
    status for repositories and wikis. Successes are shown in green, pending work
    in gray, and failures in red.
 
-   ![Verification status](img/verification_status_primary_v14_0.png)
+   ![Verification information tab with an overview of a healthy primary Geo instance.](img/verification_status_primary_v14_0.png)
 
 On the **secondary** site:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Geo > Sites**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Geo** > **Sites**.
 1. Expand **Verification information** tab for that site to view automatic checksumming
    status for repositories and wikis. Successes are shown in green, pending work
    in gray, and failures in red.
 
-   ![Verification status](img/verification_status_secondary_v14_0.png)
+   ![Verification information tab with an overview of a healthy secondary Geo instance.](img/verification_status_secondary_v14_0.png)
 
 ## Using checksums to compare Geo sites
 
@@ -69,52 +72,36 @@ increase load and vice versa.
 
 On the **primary** site:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Geo > Sites**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Geo** > **Sites**.
 1. Select **Edit** for the **primary** site to customize the minimum
    re-verification interval:
 
-   ![Re-verification interval](img/reverification-interval.png)
+   ![Window with configuration attributes of a Geo node.](img/reverification-interval_v11_6.png)
 
 ## Reset verification for projects where verification has failed
 
 Geo actively tries to correct verification failures marking the repository to
-be resynced with a back-off period. If you want to reset them manually, this
-Rake task marks projects where verification has failed or the checksum mismatch
-to be resynced without the back-off period:
-
-Run the appropriate commands on a **Rails node on the secondary** site.
-
-For repositories:
-
-```shell
-sudo gitlab-rake geo:verification:repository:reset
-```
-
-For wikis:
-
-```shell
-sudo gitlab-rake geo:verification:wiki:reset
-```
+be resynced with a back-off period. You can also manually [resync and reverify individual components through the UI or the Rails console](../replication/troubleshooting/synchronization_verification.md#resync-and-reverify-individual-components).
 
 ## Reconcile differences with checksum mismatches
 
 If the **primary** and **secondary** sites have a checksum verification mismatch, the cause may not be apparent. To find the cause of a checksum mismatch:
 
 1. On the **primary** site:
-   1. On the left sidebar, at the bottom, select **Admin Area**.
-   1. On the left sidebar, select **Overview > Projects**.
+   1. On the left sidebar, at the bottom, select **Admin**.
+   1. On the left sidebar, select **Overview** > **Projects**.
    1. Find the project that you want to check the checksum differences and
       select its name.
    1. On the project administration page, get the values in the **Storage name** and **Relative path** fields.
 
 1. On a **Gitaly node on the primary** site and a **Gitaly node on the secondary** site, go to the project's repository
-   directory. If using Gitaly Cluster,
-   [check that it is in a healthy state](../../gitaly/troubleshooting_gitaly_cluster.md#check-cluster-health) before
+   directory. If using Gitaly Cluster (Praefect),
+   [check that it is in a healthy state](../../gitaly/praefect/troubleshooting.md#check-cluster-health) before
    running these commands.
 
-   The default path is `/var/opt/gitlab/git-data/repositories`. If `git_data_dirs`
-   is customized, check the directory layout on your server to be sure:
+   The default path is `/var/opt/gitlab/git-data/repositories`. If repository storages
+   are customized, check the directory layout on your server to be sure:
 
    ```shell
    cd /var/opt/gitlab/git-data/repositories

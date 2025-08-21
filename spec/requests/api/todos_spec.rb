@@ -20,15 +20,17 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
   let_it_be(:group_request_todo) { create(:todo, author: author_1, user: john_doe, project: nil, group: group_2, target: group_2, action: Todo::MEMBER_ACCESS_REQUESTED) }
   let_it_be(:alert_todo) { create(:todo, project: project_1, author: john_doe, user: john_doe, target: alert) }
   let_it_be(:merge_request_todo) { create(:todo, project: project_1, author: author_2, user: john_doe, target: merge_request) }
+  let_it_be(:wiki_page_meta) { create(:wiki_page_meta, :for_wiki_page, container: project_1) }
+  let_it_be(:wiki_page_todo) { create(:todo, project: project_1, author: author_2, user: john_doe, target: wiki_page_meta, action: Todo::MENTIONED) }
   let_it_be(:pending_1) { create(:todo, :mentioned, project: project_1, author: author_1, user: john_doe, target: issue) }
   let_it_be(:pending_2) { create(:todo, project: project_2, author: author_2, user: john_doe, target: create(:issue, project: project_2)) }
   let_it_be(:pending_3) { create(:on_commit_todo, project: project_1, author: author_2, user: john_doe) }
   let_it_be(:pending_4) { create(:on_commit_todo, project: project_1, author: author_2, user: john_doe, commit_id: 'invalid_id') }
   let_it_be(:pending_5) { create(:todo, :mentioned, project: project_1, author: author_1, user: john_doe, target: work_item, target_type: WorkItem.name) }
   let_it_be(:done) { create(:todo, :done, project: project_1, author: author_1, user: john_doe, target: issue) }
-  let_it_be(:award_emoji_1) { create(:award_emoji, awardable: merge_request, user: author_1, name: 'thumbsup') }
-  let_it_be(:award_emoji_2) { create(:award_emoji, awardable: pending_1.target, user: author_1, name: 'thumbsup') }
-  let_it_be(:award_emoji_3) { create(:award_emoji, awardable: pending_2.target, user: author_2, name: 'thumbsdown') }
+  let_it_be(:award_emoji_1) { create(:award_emoji, awardable: merge_request, user: author_1, name: AwardEmoji::THUMBS_UP) }
+  let_it_be(:award_emoji_2) { create(:award_emoji, awardable: pending_1.target, user: author_1, name: AwardEmoji::THUMBS_UP) }
+  let_it_be(:award_emoji_3) { create(:award_emoji, awardable: pending_2.target, user: author_2, name: AwardEmoji::THUMBS_DOWN) }
 
   describe 'GET /todos' do
     context 'when unauthenticated' do
@@ -69,7 +71,7 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to include_pagination_headers
         expect(json_response).to be_an Array
-        expect(json_response.length).to eq(8)
+        expect(json_response.length).to eq(9)
 
         expect(json_response[0]).to include(
           'id' => pending_5.id,
@@ -108,9 +110,19 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
           )
         )
 
-        # Only issues get a merge request count at the moment
-        expect(json_response[4].dig('target', 'merge_requests_count')).to be_nil
         expect(json_response[4]).to include(
+          'target_type' => 'WikiPage::Meta',
+          'action_name' => 'mentioned',
+          'target' => hash_including(
+            'id' => wiki_page_meta.id,
+            'title' => wiki_page_meta.title,
+            'slug' => wiki_page_meta.canonical_slug
+          )
+        )
+
+        # Only issues get a merge request count at the moment
+        expect(json_response[5].dig('target', 'merge_requests_count')).to be_nil
+        expect(json_response[5]).to include(
           'target_type' => 'MergeRequest',
           'target' => hash_including(
             'upvotes' => 1,
@@ -118,7 +130,7 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
           )
         )
 
-        expect(json_response[5]).to include(
+        expect(json_response[6]).to include(
           'target_type' => 'AlertManagement::Alert',
           'target' => hash_including(
             'iid' => alert.iid,
@@ -126,7 +138,7 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
           )
         )
 
-        expect(json_response[6]).to include(
+        expect(json_response[7]).to include(
           'target_type' => 'Namespace',
           'action_name' => 'member_access_requested',
           'target' => hash_including(
@@ -137,7 +149,7 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
           'target_url' => Gitlab::Routing.url_helpers.group_group_members_url(group_2, tab: 'access_requests')
         )
 
-        expect(json_response[7]).to include(
+        expect(json_response[8]).to include(
           'target_type' => 'Project',
           'action_name' => 'member_access_requested',
           'target' => hash_including(
@@ -158,7 +170,7 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
 
           get api('/todos', john_doe)
 
-          expect(json_response.count).to eq(8)
+          expect(json_response.count).to eq(9)
           expect(json_response.map { |t| t['id'] }).not_to include(no_access_todo.id, pending_4.id)
         end
       end
@@ -170,7 +182,7 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
           expect(json_response).to be_an Array
-          expect(json_response.length).to eq(3)
+          expect(json_response.length).to eq(4)
         end
       end
 
@@ -216,7 +228,7 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
           expect(json_response).to be_an Array
-          expect(json_response.length).to eq(5)
+          expect(json_response.length).to eq(6)
         end
       end
 
@@ -227,8 +239,28 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
           expect(json_response).to be_an Array
-          expect(json_response.length).to eq(2)
+          expect(json_response.length).to eq(3)
         end
+      end
+    end
+
+    context 'when user is a bot' do
+      let(:user) { create(:user, :service_account) }
+
+      it "triggers an internal event" do
+        expect { get api('/todos', user) }
+         .to trigger_internal_events('request_todos_by_bot_user')
+         .with(
+           category: 'InternalEventTracking',
+           user: user,
+           additional_properties: {
+             label: 'user_type',
+             property: user.user_type
+           }
+         ).and increment_usage_metrics(
+           'redis_hll_counters.count_distinct_user_id_from_request_todos_by_bot_user_weekly',
+           'redis_hll_counters.count_distinct_user_id_from_request_todos_by_bot_user_monthly'
+         )
       end
     end
 
@@ -388,9 +420,14 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
     end
   end
 
-  shared_examples 'an issuable' do |issuable_type|
+  shared_examples 'an issuable' do |param|
+    let(:issuable_type) { param }
+    def create_todo_for_issuable(user, iid = issuable.iid)
+      post api("/projects/#{project_1.id}/#{issuable_type}/#{iid}/todo", user)
+    end
+
     it 'creates a todo on an issuable' do
-      post api("/projects/#{project_1.id}/#{issuable_type}/#{issuable.iid}/todo", john_doe)
+      create_todo_for_issuable(john_doe)
 
       expect(response).to have_gitlab_http_status(:created)
       expect(json_response['project']).to be_a Hash
@@ -406,11 +443,9 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
     end
 
     it 'returns 304 there already exist a todo on that issuable' do
-      stub_feature_flags(multiple_todos: false)
+      create_todo_for_issuable(john_doe)
 
-      create(:todo, project: project_1, author: author_1, user: john_doe, target: issuable)
-
-      post api("/projects/#{project_1.id}/#{issuable_type}/#{issuable.iid}/todo", john_doe)
+      create_todo_for_issuable(john_doe)
 
       expect(response).to have_gitlab_http_status(:not_modified)
     end
@@ -418,7 +453,7 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
     it 'returns 404 if the issuable is not found' do
       unknown_id = 0
 
-      post api("/projects/#{project_1.id}/#{issuable_type}/#{unknown_id}/todo", john_doe)
+      create_todo_for_issuable(john_doe, unknown_id)
 
       expect(response).to have_gitlab_http_status(:not_found)
     end
@@ -427,7 +462,7 @@ RSpec.describe API::Todos, feature_category: :source_code_management do
       guest = create(:user)
       project_1.add_guest(guest)
 
-      post api("/projects/#{project_1.id}/#{issuable_type}/#{issuable.iid}/todo", guest)
+      create_todo_for_issuable(guest)
 
       if issuable_type == 'merge_requests'
         expect(response).to have_gitlab_http_status(:forbidden)

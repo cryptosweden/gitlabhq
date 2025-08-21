@@ -1,3 +1,5 @@
+@use "sass:color";
+
 /* https://gist.github.com/qguv/7936275 */
 
 @import '../common';
@@ -6,11 +8,12 @@
 /*
 * Solarized dark colors
 */
-$solarized-dark-new-bg: rgba(133, 153, 0, 0.15);
+$solarized-dark-new-bg: #163c34;
 $solarized-dark-new-idiff: rgba(133, 153, 0, 0.25);
-$solarized-dark-old-bg: rgba(220, 50, 47, 0.3);
+$solarized-dark-old-bg: #4b3036;
 $solarized-dark-old-idiff: rgba(220, 50, 47, 0.25);
 $solarized-dark-border: #113b46;
+$solarized-dark-code-mark: #113953;
 $solarized-dark-pre-bg: #002b36;
 $solarized-dark-pre-color: #93a1a1;
 $solarized-dark-pre-border: #113b46;
@@ -96,9 +99,55 @@ $solarized-dark-il: #2aa198;
 :root {
   --default-diff-color-deletion: #ff362c;
   --default-diff-color-addition: #647e0e;
+  --diff-addition-color: #{$solarized-dark-new-bg};
+  --diff-deletion-color: #{$solarized-dark-old-bg};
 }
 
-.code.solarized-dark {
+.code.solarized-dark,
+.code.code-syntax-highlight-theme {
+  --code-dark-theme: 1;
+  --code-border-lightness-adjust: 0.1;
+  --diff-expansion-background-color: #{color.adjust($solarized-dark-pre-bg, $lightness: 10%)};
+
+  --code-background: #{$solarized-dark-pre-bg};
+  --code-empty-background: #{color.adjust($solarized-dark-pre-bg, $lightness: -1.5%)};
+
+  --code-line-number-background-color: #{$solarized-dark-line-bg};
+  --code-line-number-color: #{$solarized-dark-line-color};
+  --code-line-number-hover-background-color: #{$gl-color-purple-800};
+  --code-line-number-hover-border-color: #{$gl-color-purple-700};
+  --code-line-number-hover-color: #{$gl-color-purple-50};
+
+  --code-old-diff-line-number-background-color: #{$solarized-dark-old-bg};
+  --code-old-diff-line-number-color: #{$solarized-dark-line-color-old};
+  --code-old-diff-sign-color: #{$solarized-dark-line-color-old};
+  --code-old-diff-background-color: #{$solarized-dark-old-bg};
+  --code-old-diff-border-color: #{$solarized-dark-border};
+  --code-old-diff-color: #{$solarized-dark-line-color-old};
+  --code-old-inline-diff-background-color: #{$solarized-dark-old-idiff};
+
+  --code-new-diff-line-number-background-color: #{$solarized-dark-new-bg};
+  --code-new-diff-line-number-color: #{$solarized-dark-line-color-new};
+  --code-new-diff-sign-color: #{$solarized-dark-line-color-new};
+  --code-new-diff-background-color: #{$solarized-dark-new-bg};
+  --code-new-diff-border-color: #{$solarized-dark-border};
+  --code-new-diff-color: #{$solarized-dark-line-color-new};
+  --code-new-inline-diff-background-color: #{$solarized-dark-new-idiff};
+
+  --code-meta-diff-background-color: #{$dark-diff-match-color};
+  --code-meta-diff-color: #{$dark-diff-match-bg};
+
+  --code-diff-hunk-header-background-color: #{$dark-diff-match-color};
+  --code-diff-hunk-header-color: #{$dark-diff-match-bg};
+
+  --code-diff-expand-button-background-color: #{color.adjust($solarized-dark-pre-bg, $lightness: 10%)};
+  --code-diff-expand-button-color: #{$gl-color-neutral-200};
+  --code-diff-expand-button-hover-background-color: #{color.adjust($solarized-dark-pre-bg, $lightness: 20%)};
+  --code-diff-expand-button-hover-color: #{$gl-color-neutral-0};
+
+  --code-highlighted-line-background-color: #{$gl-color-orange-800};
+  --code-highlighted-line-border-color: #{$gl-color-orange-500};
+
   // Highlight.js theme overrides (https://gitlab.com/gitlab-org/gitlab/-/issues/365167)
   // We should be able to remove the overrides once the upstream issue is fixed (https://github.com/sourcegraph/sourcegraph/issues/23251)
     @include hljs-override('string', $solarized-dark-s);
@@ -129,7 +178,7 @@ $solarized-dark-il: #2aa198;
 
   // Line numbers
   .file-line-blame {
-    @include line-link($white, 'git');
+    @include line-link($gl-color-neutral-0, 'git');
   }
 
   .line-links {
@@ -148,8 +197,8 @@ $solarized-dark-il: #2aa198;
   }
 
   .diff-grid-row.line_holder.diff-tr .diff-td.commented:not(.hll) {
-    --highlight-border-color: #{$blue-600};
-    background-color: $blue-900;
+    --highlight-border-color: #{$gl-color-blue-600};
+    background-color: $gl-color-blue-900;
   }
 
   // Code itself
@@ -166,7 +215,7 @@ $solarized-dark-il: #2aa198;
   }
 
   .diff-line-expand-button {
-    @include diff-expansion(lighten($solarized-dark-pre-bg, 10%), $gray-200, lighten($solarized-dark-pre-bg, 20%), $white);
+    @include diff-expansion(color.adjust($solarized-dark-pre-bg, $lightness: 10%), $gl-color-neutral-200, color.adjust($solarized-dark-pre-bg, $lightness: 20%), $gl-color-neutral-0);
   }
 
   // Diff line
@@ -178,8 +227,6 @@ $solarized-dark-il: #2aa198;
     }
 
     &.diff-grid-row {
-      --diff-expansion-background-color: #{lighten($solarized-dark-pre-bg, 10%)};
-
       @include dark-diff-expansion-line;
     }
 
@@ -190,8 +237,8 @@ $solarized-dark-il: #2aa198;
     td.diff-line-num.hll,
     td.line-coverage.hll,
     td.line_content.hll {
-      --highlight-border-color: #{$orange-500};
-      background-color: $orange-800;
+      --highlight-border-color: #{$gl-color-orange-500};
+      background-color: $gl-color-orange-800;
     }
 
     .line-coverage {
@@ -254,7 +301,7 @@ $solarized-dark-il: #2aa198;
       > .diff-line-num,
       > .line-coverage,
       > .line_content {
-        border-top: 1px solid $black;
+        border-top: 1px solid $gl-color-neutral-1000;
       }
     }
 
@@ -273,6 +320,27 @@ $solarized-dark-il: #2aa198;
   // highlight line via anchor
   pre .hll {
     background-color: $solarized-dark-hll-bg !important;
+  }
+
+  // mark lines via mark_multiple_lines
+  pre.solarized-dark code {
+    .selected-inline-section-marker {
+      background: $solarized-dark-code-mark !important;
+    }
+
+    .inline-section-marker {
+      background: $solarized-dark-hll-bg;
+    }
+  }
+
+  .file-holder div.code.solarized-dark {
+    .selected-inline-number-mark {
+      color: $gl-color-neutral-200;
+    }
+
+    .unselected-inline-number-mark {
+      color: $gl-color-neutral-600;
+    }
   }
 
   // Search result highlight
@@ -379,3 +447,5 @@ $solarized-dark-il: #2aa198;
   .vi { color: $solarized-dark-vi; } /* Name.Variable.Instance */
   .il { color: $solarized-dark-il; } /* Literal.Number.Integer.Long */
 }
+
+@include merge-conflicts-syntax-highlight-theme('solarized-dark');

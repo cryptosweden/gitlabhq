@@ -38,6 +38,7 @@ module API
           end
 
           route_setting :authentication, job_token_allowed: true, basic_auth_personal_access_token: true, deploy_token_allowed: true
+          route_setting :authorization, job_token_policies: :admin_packages
 
           params do
             requires :package_name, type: String, desc: 'Package name', regexp: Gitlab::Regex.generic_package_name_regex, file_path: true
@@ -47,7 +48,11 @@ module API
           end
 
           put 'authorize' do
-            authorize_workhorse!(**authorize_workhorse_params)
+            authorize_job_token_policies!(authorized_user_project)
+
+            authorize_workhorse!(**authorize_workhorse_params).tap do
+              protect_package!(declared_params[:package_name], :generic)
+            end
           end
 
           desc 'Upload package file' do
@@ -76,11 +81,13 @@ module API
           end
 
           route_setting :authentication, job_token_allowed: true, basic_auth_personal_access_token: true, deploy_token_allowed: true
+          route_setting :authorization, job_token_policies: :admin_packages
 
           put do
             project = authorized_user_project
 
             authorize_upload!(project)
+            authorize_job_token_policies!(project)
             bad_request!('File is too large') if max_file_size_exceeded?
 
             track_package_event('push_package', :generic, project: project, namespace: project.namespace)
@@ -88,12 +95,18 @@ module API
               file_name: encoded_file_name,
               build: current_authenticated_job
             )
-            package_file = ::Packages::Generic::CreatePackageFileService
+
+            response = ::Packages::Generic::CreatePackageFileService
               .new(project, current_user, create_package_file_params)
               .execute
 
+            if response.error?
+              bad_request!('Duplicate package is not allowed') if response.cause.package_file_already_exists?
+              forbidden!('Package protected.') if response.cause.package_protected?
+            end
+
             if params[:select] == 'package_file'
-              present package_file
+              present response[:package_file]
             else
               created!
             end
@@ -101,8 +114,6 @@ module API
             Gitlab::ErrorTracking.track_exception(e, extra: { file_name: params[:file_name], project_id: project.id })
 
             forbidden!
-          rescue ::Packages::DuplicatePackageError
-            bad_request!('Duplicate package is not allowed')
           end
 
           desc 'Download package file' do
@@ -124,11 +135,14 @@ module API
           end
 
           route_setting :authentication, job_token_allowed: %i[request basic_auth], basic_auth_personal_access_token: true, deploy_token_allowed: true
+          route_setting :authorization, job_token_policies: :read_packages,
+            allow_public_access_for_enabled_project_features: :package_registry
 
           get do
             project = authorized_user_project(action: :read_package)
 
             authorize_read_package!(project)
+            authorize_job_token_policies!(project)
 
             package = ::Packages::Generic::PackageFinder.new(project).execute!(params[:package_name], params[:package_version])
             package_file = ::Packages::PackageFileFinder.new(package, encoded_file_name).execute!

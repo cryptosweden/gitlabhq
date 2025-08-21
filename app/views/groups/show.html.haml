@@ -6,7 +6,7 @@
 
 - if show_invite_banner?(@group)
   = content_for :group_invite_members_banner do
-    .container-fluid.container-limited{ class: "gl-pb-2! gl-pt-6! #{@content_class}" }
+    .gl-pt-6
       .js-group-invite-members-banner{ data: { svg_path: image_path('illustrations/add-user-sm.svg'),
         track_label: 'invite_members_banner',
         invite_members_path: group_group_members_path(@group),
@@ -19,13 +19,19 @@
 
 = render partial: 'flash_messages'
 
-= render_if_exists 'subscriptions/trials/alert', namespace: @group
-
 = render 'groups/home_panel'
 
-= render_if_exists 'groups/self_or_ancestor_marked_for_deletion_notice', group: @group
-
 = render_if_exists 'groups/group_activity_analytics', group: @group
+
+
+- if Feature.enabled?(:groups_overview_shared_vue_components, current_user)
+  -# Do nothing for now. To get around an issue with ff-inverse job
+  -# we can't introduce a FF and change the UI in the same MR.
+  -# But if we don't use the feature flag in the code then the
+  -# rspec:feature-flags job fails. This will be updated in a
+  -# future commit.
+  -# See https://gitlab.com/gitlab-org/quality/quality-engineering/team-tasks/-/issues/2795
+  -# for more context.
 
 #js-group-overview-tabs{ data: group_overview_tabs_app_data(@group) }
 

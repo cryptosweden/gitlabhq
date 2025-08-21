@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Database load balancing
 ---
-
-# Database load balancing
 
 With database load balancing, read-only queries can be distributed across multiple
 PostgreSQL nodes to increase performance.
@@ -57,3 +56,22 @@ first attempt to load balance the connection across the replica hosts.
 It looks for the next `online` replica host and yields a connection from the host's connection pool.
 A replica host is considered `online` if it is up-to-date with the primary, based on
 either the replication lag size or time. The thresholds for these requirements are configurable.
+
+## Deployment Strategy
+
+When rolling out changes via feature flag, consider deploying exclusively to Sidekiq pods initially to minimize risk.
+
+Why Sidekiq-first deployment:
+
+- Keeps the API pods stable ensuring ChatOps remains available to disable feature flags in worst case scenario.
+- Background jobs can retry automatically without any intervention.
+
+Implementation example:
+
+```ruby
+if feature_flag_enabled? && Gitlab::Runtime.sidekiq?
+   new_changes
+else
+   existing_changes
+end
+```

@@ -9,7 +9,7 @@ module Search
         state: params[:state],
         confidential: params[:confidential],
         include_archived: params[:include_archived],
-        num_context_lines: params[:num_context_lines]&.to_i
+        autocomplete: params[:autocomplete]
       }
     end
   end

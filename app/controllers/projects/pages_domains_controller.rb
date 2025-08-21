@@ -34,7 +34,7 @@ class Projects::PagesDomainsController < Projects::ApplicationController
   end
 
   def retry_auto_ssl
-    PagesDomains::RetryAcmeOrderService.new(@domain).execute
+    ::Pages::Domains::RetryAcmeOrderService.new(@domain).execute
 
     redirect_to project_pages_domain_path(@project, @domain)
   end
@@ -44,7 +44,7 @@ class Projects::PagesDomainsController < Projects::ApplicationController
   end
 
   def create
-    @domain = PagesDomains::CreateService.new(@project, current_user, create_params).execute
+    @domain = ::Pages::Domains::CreateService.new(@project, current_user, create_params).execute
 
     if @domain&.persisted?
       redirect_to project_pages_domain_path(@project, @domain)
@@ -54,10 +54,10 @@ class Projects::PagesDomainsController < Projects::ApplicationController
   end
 
   def update
-    service = ::PagesDomains::UpdateService.new(@project, current_user, update_params)
+    service = ::Pages::Domains::UpdateService.new(@project, current_user, update_params)
 
     if service.execute(@domain)
-      redirect_to project_pages_path(@project),
+      redirect_to project_pages_path(@project, anchor: 'domains-settings'),
         status: :found,
         notice: 'Domain was updated'
     else
@@ -66,13 +66,13 @@ class Projects::PagesDomainsController < Projects::ApplicationController
   end
 
   def destroy
-    PagesDomains::DeleteService
-      .new(@project, current_user)
-      .execute(@domain)
+    ::Pages::Domains::DeleteService.new(@project, current_user).execute(@domain)
 
     respond_to do |format|
       format.html do
-        redirect_to project_pages_path(@project), status: :found, notice: 'Domain was removed'
+        redirect_to project_pages_path(@project, anchor: 'domains-settings'),
+          status: :found,
+          notice: 'Domain was removed'
       end
       format.js
     end
@@ -80,7 +80,7 @@ class Projects::PagesDomainsController < Projects::ApplicationController
 
   def clean_certificate
     update_params = { user_provided_certificate: nil, user_provided_key: nil }
-    service = ::PagesDomains::UpdateService.new(@project, current_user, update_params)
+    service = ::Pages::Domains::UpdateService.new(@project, current_user, update_params)
 
     flash[:alert] = @domain.errors.full_messages.join(', ') unless service.execute(@domain)
 

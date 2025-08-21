@@ -1,15 +1,14 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Bitbucket Server importer developer documentation
 ---
-
-# Bitbucket Server importer developer documentation
 
 ## Prerequisites
 
 To test imports, you need a Bitbucket Server instance running locally. For information on running a local instance, see
-[these instructions](https://gitlab.com/gitlab-org/manage/import-and-integrate/team/-/blob/main/integrations/bitbucket_server.md).
+[these instructions](https://gitlab.com/gitlab-org/foundations/import-and-integrate/team/-/blob/main/integrations/bitbucket_server.md).
 
 ## Code structure
 

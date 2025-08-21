@@ -12,16 +12,19 @@ module Ci
         end
 
         def normalize_params
-          params[:runner_type] = 'group_type'
-          params[:groups] = [scope]
+          params.merge!({
+            runner_type: 'group_type',
+            organization_id: scope&.organization_id,
+            groups: [scope]
+          })
         end
 
         def validate_params
-          _('Missing/invalid scope') unless scope.present?
+          _('Missing/invalid group') unless scope.present?
         end
 
         def authorized_user?
-          user.present? && user.can?(:create_runner, scope)
+          user.present? && user.can?(:create_runners, scope)
         end
 
         private

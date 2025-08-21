@@ -1,18 +1,23 @@
 ---
 stage: Create
 group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Suggest Changes API
 ---
 
-# Suggest Changes API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-This page describes the API for [suggesting changes](../user/project/merge_requests/reviews/suggestions.md).
+{{< /details >}}
 
-Every API call to suggestions must be authenticated.
+When you review code, suggestions provide a way to propose specific changes
+that can be directly applied. For more information,
+see [Suggest changes](../user/project/merge_requests/reviews/suggestions.md).
+
+You can programmatically create and apply code suggestions in merge request discussions with
+this API. Every API call to suggestions must be authenticated.
 
 ## Create a suggestion
 
@@ -41,7 +46,9 @@ PUT /suggestions/:id/apply
 | `commit_message` | string | no | A custom commit message to use instead of the default generated message or the project's default message |
 
 ```shell
-curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/suggestions/5/apply"
+curl --request PUT \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/suggestions/5/apply"
 ```
 
 Example response:
@@ -53,7 +60,7 @@ Example response:
   "to_line": 10,
   "applicable": true,
   "applied": false,
-  "from_content": "This is an eaxmple\n",
+  "from_content": "This is an example\n",
   "to_content": "This is an example\n"
 }
 ```
@@ -70,7 +77,11 @@ PUT /suggestions/batch_apply
 | `commit_message` | string | no | A custom commit message to use instead of the default generated message or the project's default message |
 
 ```shell
-curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" --header 'Content-Type: application/json' --data '{"ids": [5, 6]}' "https://gitlab.example.com/api/v4/suggestions/batch_apply"
+curl --request PUT \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --header 'Content-Type: application/json' \
+  --data '{"ids": [5, 6]}' \
+  --url "https://gitlab.example.com/api/v4/suggestions/batch_apply"
 ```
 
 Example response:
@@ -83,7 +94,7 @@ Example response:
     "to_line": 10,
     "applicable": true,
     "applied": false,
-    "from_content": "This is an eaxmple\n",
+    "from_content": "This is an example\n",
     "to_content": "This is an example\n"
   }
   {
@@ -92,7 +103,7 @@ Example response:
     "to_line": 19,
     "applicable": true,
     "applied": false,
-    "from_content": "This is another eaxmple\n",
+    "from_content": "This is another example\n",
     "to_content": "This is another example\n"
   }
  ]

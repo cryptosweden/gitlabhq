@@ -1,3 +1,8 @@
+/*
+ We need to import axios directly here, the shared lib already applies
+ the interceptor we are trying to test.
+ */
+// eslint-disable-next-line no-restricted-imports
 import axios from 'axios';
 import MockAdapter from 'axios-mock-adapter';
 import setupAxiosStartupCalls from '~/lib/utils/axios_startup_calls';
@@ -46,7 +51,7 @@ describe('setupAxiosStartupCalls', () => {
   it('if no startupCalls are registered: does not register a request interceptor', () => {
     setupAxiosStartupCalls(axios);
 
-    expect(axios.interceptors.request.handlers.length).toBe(0);
+    expect(axios.interceptors.request.handlers).toHaveLength(0);
   });
 
   describe('if startupCalls are registered', () => {
@@ -63,7 +68,7 @@ describe('setupAxiosStartupCalls', () => {
     });
 
     it('registers a request interceptor', () => {
-      expect(axios.interceptors.request.handlers.length).toBe(1);
+      expect(axios.interceptors.request.handlers).toHaveLength(1);
     });
 
     it('detaches the request interceptor if every startup call has been made', async () => {

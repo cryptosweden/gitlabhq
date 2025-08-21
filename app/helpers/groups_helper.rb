@@ -22,7 +22,6 @@ module GroupsHelper
   end
 
   def can_set_group_diff_preview_in_email?(group)
-    return false unless Feature.enabled?(:diff_preview_in_email, group)
     return false if group.parent&.show_diff_preview_in_email?.equal?(false)
 
     can?(current_user, :set_show_diff_preview_in_email, group)
@@ -32,8 +31,8 @@ module GroupsHelper
     Ability.allowed?(current_user, :admin_group_member, group)
   end
 
-  def can_admin_service_accounts?(group)
-    false
+  def can_invite_group_member?(group)
+    Ability.allowed?(current_user, :invite_group_members, group)
   end
 
   def show_prevent_inviting_groups_outside_hierarchy_setting?(group)
@@ -41,36 +40,17 @@ module GroupsHelper
   end
 
   def group_icon_url(group, options = {})
-    if group.is_a?(String)
-      group = Group.find_by_full_path(group)
-    end
+    group = Group.find_by_full_path(group) if group.is_a?(String)
 
     group.try(:avatar_url) || ActionController::Base.helpers.image_path('no_group_avatar.png')
   end
 
-  def group_title(group)
-    @has_group_title = true
-    full_title = []
-
-    sorted_ancestors(group).with_route.reverse_each.with_index do |parent, index|
-      if index > 0
-        add_to_breadcrumb_collapsed_links(
-          { text: simple_sanitize(parent.name), href: group_path(parent), avatar_url: parent.try(:avatar_url) },
-          location: :before
-        )
-      else
-        full_title << breadcrumb_list_item(group_title_link(parent, hidable: false))
-      end
-
+  def push_group_breadcrumbs(group)
+    sorted_ancestors(group).with_route.reverse_each do |parent|
       push_to_schema_breadcrumb(simple_sanitize(parent.name), group_path(parent), parent.try(:avatar_url))
     end
 
-    full_title << render("layouts/nav/breadcrumbs/collapsed_inline_list", location: :before, title: _("Show all breadcrumbs"))
-
-    full_title << breadcrumb_list_item(group_title_link(group))
     push_to_schema_breadcrumb(simple_sanitize(group.name), group_path(group), group.try(:avatar_url))
-
-    full_title.join.html_safe
   end
 
   def projects_lfs_status(group)
@@ -98,49 +78,6 @@ module GroupsHelper
     end
   end
 
-  # Overridden in EE
-  def remove_group_message(group)
-    content_tag :div do
-      content = ''.html_safe
-      content << content_tag(:span, _("You are about to delete the group %{group_name}.") % { group_name: group.name })
-
-      additional_content = additional_removed_items(group)
-      content << additional_content if additional_content.present?
-
-      content << remove_group_warning
-    end
-  end
-
-  def additional_removed_items(group)
-    relations = {
-      _('subgroup') => group.children,
-      _('active project') => group.all_projects.non_archived,
-      _('archived project') => group.all_projects.archived
-    }
-
-    counts = relations.filter_map do |singular, relation|
-      count = limited_counter_with_delimiter(relation, limit: 100, include_zero: false)
-      content_tag(:li, pluralize(count, singular)) if count
-    end.join.html_safe
-
-    if counts.present?
-      content_tag(:span, _(" This action will also delete:")) +
-        content_tag(:ul, counts)
-    else
-      ''.html_safe
-    end
-  end
-
-  def remove_group_warning
-    message = _('After you delete a group, you %{strongOpen}cannot%{strongClose} restore it or its components.')
-    content_tag(:p, class: 'gl-mb-0') do
-      ERB::Util.html_escape(message) % {
-        strongOpen: '<strong>'.html_safe,
-        strongClose: '</strong>'.html_safe
-      }
-    end
-  end
-
   def share_with_group_lock_help_text(group)
     return default_help unless group.parent&.share_with_group_lock?
 
@@ -160,7 +97,7 @@ module GroupsHelper
   end
 
   def prevent_sharing_groups_outside_hierarchy_help_text(group)
-    s_("GroupSettings|Available only on the top-level group. Applies to all subgroups. Groups already shared with a group outside %{group} are still shared unless removed manually.").html_safe % { group: link_to_group(group) }
+    safe_format(s_("GroupSettings|Available only on the top-level group. Applies to all subgroups. Groups already shared with a group outside %{group} are still shared unless removed manually."), group: link_to_group(group))
   end
 
   def render_setting_to_allow_project_access_token_creation?(group)
@@ -194,19 +131,17 @@ module GroupsHelper
   def group_overview_tabs_app_data(group)
     {
       group_id: group.id,
-      subgroups_and_projects_endpoint: group_children_path(group, format: :json),
+      subgroups_and_projects_endpoint:
+        group_children_path(group, format: :json, archived: false, not_aimed_for_deletion: true),
       shared_projects_endpoint: group_shared_projects_path(group, format: :json),
-      inactive_projects_endpoint: group_children_path(group, format: :json, archived: 'only'),
+      inactive_projects_endpoint: group_children_path(group, format: :json, active: false),
       current_group_visibility: group.visibility,
       initial_sort: project_list_sort_by,
       show_schema_markup: 'true',
       new_subgroup_path: new_group_path(parent_id: group.id, anchor: 'create-group-pane'),
       new_project_path: new_project_path(namespace_id: group.id),
-      new_subgroup_illustration: image_path('illustrations/subgroup-create-new-sm.svg'),
-      new_project_illustration: image_path('illustrations/project-create-new-sm.svg'),
       empty_projects_illustration: image_path('illustrations/empty-state/empty-projects-md.svg'),
-      empty_subgroup_illustration: image_path('illustrations/empty-state/empty-subgroup-md.svg'),
-      empty_search_illustration: image_path('illustrations/empty-state/empty-search-md.svg'),
+      empty_subgroup_illustration: image_path('illustrations/empty-state/empty-projects-md.svg'),
       render_empty_state: 'true',
       can_create_subgroups: can?(current_user, :create_subgroup, group).to_s,
       can_create_projects: can?(current_user, :create_projects, group).to_s
@@ -235,6 +170,23 @@ module GroupsHelper
     }
   end
 
+  def group_archive_settings_app_data(group)
+    {
+      resource_type: 'group',
+      resource_id: group.id,
+      resource_path: group_path(group)
+    }
+  end
+
+  def group_unarchive_settings_app_data(group)
+    {
+      resource_type: 'group',
+      resource_id: group.id,
+      resource_path: group_path(group),
+      ancestors_archived: group.ancestors_archived?.to_s
+    }
+  end
+
   def enabled_git_access_protocol_options_for_group
     case ::Gitlab::CurrentSettings.enabled_git_access_protocol
     when nil, ""
@@ -255,9 +207,7 @@ module GroupsHelper
 
   def access_level_roles_user_can_assign(group, roles)
     max_access_level = group.max_member_access_for_user(current_user)
-    roles.select do |_name, access_level|
-      access_level <= max_access_level
-    end
+    Authz::Role.roles_user_can_assign(max_access_level, roles)
   end
 
   def groups_projects_more_actions_dropdown_data(source)
@@ -293,20 +243,25 @@ module GroupsHelper
     dropdown_data
   end
 
-  def groups_explore_app_data
+  def groups_list_with_filtered_search_app_data(endpoint)
     {
-      endpoint: explore_groups_path(format: :json),
-      empty_search_illustration: image_path('illustrations/empty-state/empty-search-md.svg'),
-      groups_empty_state_illustration: image_path('illustrations/empty-state/empty-groups-md.svg'),
+      endpoint: endpoint,
       initial_sort: project_list_sort_by
     }.to_json
+  end
+
+  def group_merge_requests(group)
+    MergeRequestsFinder.new(current_user, group_id: group.id, include_subgroups: true, non_archived: true).execute
   end
 
   private
 
   def group_title_link(group, hidable: false, show_avatar: false)
     link_to(group_path(group), class: "group-path js-breadcrumb-item-text #{'hidable' if hidable}") do
-      icon = render Pajamas::AvatarComponent.new(group, alt: group.name, class: "avatar-tile", size: 16) if group.try(:avatar_url) || show_avatar
+      if group.try(:avatar_url) || show_avatar
+        icon = render Pajamas::AvatarComponent.new(group, alt: group.name, class: "avatar-tile", size: 16)
+      end
+
       [icon, simple_sanitize(group.name)].join.html_safe
     end
   end
@@ -350,15 +305,15 @@ module GroupsHelper
   end
 
   def ancestor_locked_but_you_can_override(group)
-    s_("GroupSettings|This setting is applied on %{ancestor_group}. You can override the setting or %{remove_ancestor_share_with_group_lock}.").html_safe % { ancestor_group: ancestor_group(group), remove_ancestor_share_with_group_lock: remove_the_share_with_group_lock_from_ancestor(group) }
+    safe_format(s_("GroupSettings|This setting is applied on %{ancestor_group}. You can override the setting or %{remove_ancestor_share_with_group_lock}."), ancestor_group: ancestor_group(group), remove_ancestor_share_with_group_lock: remove_the_share_with_group_lock_from_ancestor(group))
   end
 
   def ancestor_locked_so_ask_the_owner(group)
-    s_("GroupSettings|This setting is applied on %{ancestor_group}. To share projects in this group with another group, ask the owner to override the setting or %{remove_ancestor_share_with_group_lock}.").html_safe % { ancestor_group: ancestor_group(group), remove_ancestor_share_with_group_lock: remove_the_share_with_group_lock_from_ancestor(group) }
+    safe_format(s_("GroupSettings|This setting is applied on %{ancestor_group}. To share projects in this group with another group, ask the owner to override the setting or %{remove_ancestor_share_with_group_lock}."), ancestor_group: ancestor_group(group), remove_ancestor_share_with_group_lock: remove_the_share_with_group_lock_from_ancestor(group))
   end
 
   def ancestor_locked_and_has_been_overridden(group)
-    s_("GroupSettings|This setting is applied on %{ancestor_group} and has been overridden on this subgroup.").html_safe % { ancestor_group: ancestor_group(group) }
+    safe_format(s_("GroupSettings|This setting is applied on %{ancestor_group} and has been overridden on this subgroup."), ancestor_group: ancestor_group(group))
   end
 
   def group_url_error_message

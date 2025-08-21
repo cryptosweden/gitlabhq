@@ -48,26 +48,31 @@ module Members
               current_user = args[:current_user]
               next [] if managing_owners?(current_user, access_level) && cannot_manage_owners?(source, current_user)
 
-              emails, users, existing_members = parse_users_list(source, invitees)
+              emails, users, existing_members, users_by_emails = parse_users_list(source, invitees)
 
               common_arguments = {
                 source: source,
                 access_level: access_level,
-                existing_members: existing_members
+                existing_members: existing_members,
+                users_by_emails: users_by_emails
               }.merge(parsed_args(args))
 
-              members = emails.map do |email|
-                new(invitee: email, builder: InviteMemberBuilder, **common_arguments).execute
-              end
-
-              members += users.map do |user|
-                new(invitee: user, **common_arguments).execute
-              end
-
-              members
+              build_members(emails, users, common_arguments)
             end
           end
         end
+      end
+
+      def build_members(emails, users, common_arguments)
+        members = emails.map do |email|
+          new(invitee: email, builder: InviteMemberBuilder, **common_arguments).execute
+        end
+
+        members += users.map do |user|
+          new(invitee: user, **common_arguments).execute
+        end
+
+        members
       end
 
       def add_member(source, invitee, access_level, **args)
@@ -137,7 +142,7 @@ module Members
           existing_members = source.members_and_requesters.with_user(users + users_by_emails.values).index_by(&:user_id)
         end
 
-        [parsed_emails, users, existing_members]
+        [parsed_emails, users, existing_members, users_by_emails]
       end
     end
 
@@ -153,7 +158,6 @@ module Members
     def execute
       find_or_build_member
       commit_member
-      after_commit_tasks
 
       member
     end
@@ -209,7 +213,8 @@ module Members
       {
         created_by: member.created_by || current_user,
         access_level: access_level,
-        expires_at: args[:expires_at]
+        expires_at: args[:expires_at],
+        importing: skip_authorization? && source&.importing?
       }
     end
 
@@ -225,10 +230,6 @@ module Members
         # for details.
         member.save
       end
-    end
-
-    def after_commit_tasks
-      # hook for overriding in other uses
     end
 
     def approve_request

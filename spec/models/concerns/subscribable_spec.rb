@@ -49,6 +49,17 @@ RSpec.describe Subscribable, 'Subscribable' do
         expect(resource.public_send(method, user_1, project)).to be_falsey
       end
     end
+
+    context 'with cache_enforced: false' do
+      let(:batch_loader) { instance_double(BatchLoader) }
+
+      it 'calls batch loader with correct params' do
+        expect(batch_loader).to receive(:batch).with(hash_including(cache: false))
+        expect(BatchLoader).to receive(:for).and_return(batch_loader)
+
+        resource.lazy_subscription(user_1, project, cache_enforced: false)
+      end
+    end
   end
 
   describe '#subscribed?' do
@@ -67,6 +78,27 @@ RSpec.describe Subscribable, 'Subscribable' do
       resource.subscriptions.create!(user: create(:user), project: project, subscribed: false)
 
       expect(resource.subscribers(project)).to contain_exactly(user_1, user_2)
+    end
+  end
+
+  context 'with subscription scopes' do
+    let(:resource_2) { create(:issue, project: project) }
+
+    before do
+      resource.subscriptions.create!(user: user_1, subscribed: true)
+      resource_2.subscriptions.create!(user: user_1, project: project, subscribed: false)
+    end
+
+    describe '.explicitly_subscribed' do
+      it 'returns subscribed issues' do
+        expect(project.issues.explicitly_subscribed(user_1)).to contain_exactly(resource)
+      end
+    end
+
+    describe '.explicitly_unsubscribed' do
+      it 'returns unsubscribed issues' do
+        expect(project.issues.explicitly_unsubscribed(user_1)).to contain_exactly(resource_2)
+      end
     end
   end
 

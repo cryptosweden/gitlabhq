@@ -25,11 +25,6 @@ export default {
       showPopover: false,
     };
   },
-  methods: {
-    dismiss() {
-      this.showPopover = false;
-    },
-  },
   i18n,
   VALIDATE_TAB_FEEDBACK_URL,
 };
@@ -50,7 +45,7 @@ export default {
         </template>
         <template #link="{ content }">
           <gl-link
-            class="gl-font-sm"
+            class="gl-text-sm"
             target="_blank"
             :href="simulatePipelineHelpPagePath"
             data-testid="help-link"
@@ -59,9 +54,9 @@ export default {
         </template>
       </gl-sprintf>
     </p>
-    <p class="gl-text-right gl-mb-3">
+    <p class="gl-mb-3 gl-text-right">
       <gl-link
-        class="gl-font-sm"
+        class="gl-text-sm"
         target="_blank"
         :href="$options.VALIDATE_TAB_FEEDBACK_URL"
         data-testid="feedback-link"

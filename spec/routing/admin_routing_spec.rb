@@ -63,6 +63,14 @@ RSpec.describe Admin::ProjectsController, "routing" do
     expect(get("/admin/projects")).to route_to('admin/projects#index')
   end
 
+  it "to #active" do
+    expect(get("/admin/projects/active")).to route_to('admin/projects#index')
+  end
+
+  it "to #inactive" do
+    expect(get("/admin/projects/inactive")).to route_to('admin/projects#index')
+  end
+
   it "to #show" do
     expect(get("/admin/projects/gitlab/gitlab-ce")).to route_to('admin/projects#show', namespace_id: 'gitlab', id: 'gitlab-ce')
     expect(get("/admin/projects/gitlab/subgroup/gitlab-ce")).to route_to('admin/projects#show', namespace_id: 'gitlab/subgroup', id: 'gitlab-ce')
@@ -170,6 +178,8 @@ RSpec.describe Admin::GroupsController, "routing" do
 
   it "to #index" do
     expect(get("/admin/groups")).to route_to('admin/groups#index')
+    expect(get("/admin/groups/active")).to route_to('admin/groups#index')
+    expect(get("/admin/groups/inactive")).to route_to('admin/groups#index')
   end
 
   it "to #show" do
@@ -182,7 +192,7 @@ RSpec.describe Admin::GroupsController, "routing" do
   end
 end
 
-RSpec.describe Admin::OrganizationsController, "routing", feature_category: :cell do
+RSpec.describe Admin::OrganizationsController, "routing", feature_category: :organization do
   it "to #index" do
     expect(get("/admin/organizations")).to route_to('admin/organizations#index')
   end
@@ -211,5 +221,12 @@ end
 RSpec.describe Admin::RunnersController, "routing" do
   it "to #runner_setup_scripts" do
     expect(get("/admin/runners/runner_setup_scripts")).to route_to('admin/runners#runner_setup_scripts')
+  end
+end
+
+RSpec.describe Admin::ApplicationSettingsController, 'routing', feature_category: :global_search do
+  it 'redirects /search to #search' do
+    expect(get('/admin/application_settings/search')).to route_to('admin/application_settings#search')
+    expect(patch('/admin/application_settings/search')).to route_to('admin/application_settings#search')
   end
 end

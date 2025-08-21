@@ -25,6 +25,71 @@ RSpec.describe Projects::MergeRequestsController, feature_category: :source_code
 
       it { is_expected.to have_gitlab_http_status(:not_found) }
     end
+
+    context 'when diff version limit is reached' do
+      before do
+        stub_const('MergeRequest::DIFF_VERSION_LIMIT', 1)
+      end
+
+      it 'displays a warning' do
+        get project_merge_request_path(project, merge_request)
+
+        expect(flash[:alert]).to include('This merge request has reached the maximum limit')
+        expect(flash[:alert]).not_to include("This merge request has too many diff commits, and can't be updated")
+      end
+
+      context 'when "merge_requests_diffs_limit" feature flag is disabled' do
+        before do
+          stub_feature_flags(merge_requests_diffs_limit: false)
+        end
+
+        it 'does not display a warning' do
+          get project_merge_request_path(project, merge_request)
+
+          expect(flash[:alert]).to be_blank
+        end
+      end
+    end
+
+    context 'when diff commits limit is reached' do
+      before do
+        stub_const('MergeRequest::DIFF_COMMITS_LIMIT', 1)
+        # merge_request_diff model has a after_save callback that nullifies commits counts
+        # using #update_column to override this behavior
+        merge_request.merge_request_diff.update_column(:commits_count, 2)
+      end
+
+      it 'displays a warning' do
+        get project_merge_request_path(project, merge_request)
+
+        expect(flash[:alert]).to include("This merge request has too many diff commits, and can't be updated")
+      end
+
+      context 'when "merge_requests_diff_commits_limit" feature flag is disabled' do
+        before do
+          stub_feature_flags(merge_requests_diff_commits_limit: false)
+        end
+
+        it 'does not display a warning' do
+          get project_merge_request_path(project, merge_request)
+
+          expect(flash[:alert]).to be_blank
+        end
+      end
+
+      context 'when diff version limit is also reached' do
+        before do
+          stub_const('MergeRequest::DIFF_VERSION_LIMIT', 1)
+        end
+
+        it 'displays only one warning' do
+          get project_merge_request_path(project, merge_request)
+
+          expect(flash[:alert]).to include('This merge request has reached the maximum limit')
+          expect(flash[:alert]).not_to include("This merge request has too many diff commits, and can't be updated")
+        end
+      end
+    end
   end
 
   describe 'GET #index' do
@@ -126,7 +191,8 @@ RSpec.describe Projects::MergeRequestsController, feature_category: :source_code
     end
 
     it 'avoids N+1 queries', :use_sql_query_cache do
-      create_pipeline
+      pipeline_1 = create_pipeline
+      add_manual_stage(pipeline_1)
 
       # warm up
       get pipelines_project_merge_request_path(project, merge_request, format: :json)
@@ -138,7 +204,8 @@ RSpec.describe Projects::MergeRequestsController, feature_category: :source_code
       expect(response).to have_gitlab_http_status(:ok)
       expect(Gitlab::Json.parse(response.body)['count']['all']).to eq(1)
 
-      create_pipeline
+      pipeline_2 = create_pipeline
+      add_manual_stage(pipeline_2)
 
       expect do
         get pipelines_project_merge_request_path(project, merge_request, format: :json)
@@ -190,25 +257,6 @@ RSpec.describe Projects::MergeRequestsController, feature_category: :source_code
     end
 
     describe '#rapid_diffs' do
-      context 'when the feature flag rapid_diffs is disabled' do
-        before do
-          stub_feature_flags(rapid_diffs: false)
-        end
-
-        it 'returns 404' do
-          get diffs_project_merge_request_path(project, merge_request, rapid_diffs: 'true')
-
-          expect(response).to have_gitlab_http_status(:not_found)
-        end
-
-        it 'uses diffs action when rapid_diffs query parameter doesnt exist' do
-          get diffs_project_merge_request_path(project, merge_request)
-
-          expect(response).to have_gitlab_http_status(:ok)
-          expect(response.body).to include('data-page="projects:merge_requests:diffs"')
-        end
-      end
-
       it 'returns 200' do
         get diffs_project_merge_request_path(project, merge_request, rapid_diffs: 'true')
 
@@ -222,6 +270,12 @@ RSpec.describe Projects::MergeRequestsController, feature_category: :source_code
         expect(response).to have_gitlab_http_status(:ok)
         expect(response.body).to include('data-page="projects:merge_requests:diffs"')
       end
+
+      it 'shows only first 5 files' do
+        get diffs_project_merge_request_path(project, merge_request, rapid_diffs: 'true')
+
+        expect(response.body.scan('<diff-file ').size).to eq(5)
+      end
     end
 
     private
@@ -233,6 +287,161 @@ RSpec.describe Projects::MergeRequestsController, feature_category: :source_code
         ref: merge_request.source_branch,
         sha: merge_request.diff_head_sha
       )
+    end
+
+    def add_manual_stage(pipeline)
+      stage = create(:ci_stage, name: 'manual-stage', status: 'skipped', pipeline: pipeline)
+      create(:ci_build, :manual, stage: stage)
+      create(:ci_build, :manual, stage: stage)
+    end
+  end
+
+  describe 'GET #diff_files_metadata' do
+    before do
+      project.add_developer(user)
+      login_as(user)
+    end
+
+    let(:send_request) { get diff_files_metadata_project_merge_request_path(project, merge_request) }
+
+    include_examples 'diff files metadata'
+
+    context 'when merge_request_diff does not exist' do
+      let(:merge_request) { create(:merge_request, :skip_diff_creation, author: user) }
+      let(:project) { merge_request.project }
+
+      it 'returns an empty array' do
+        send_request
+
+        expect(json_response['diff_files']).to be_empty
+      end
+    end
+  end
+
+  describe 'GET #diffs_stats' do
+    before do
+      project.add_developer(user)
+      login_as(user)
+    end
+
+    let(:additional_params) { {} }
+    let(:send_request) { get diffs_stats_project_merge_request_path(project, merge_request, params: additional_params) }
+
+    include_examples 'diffs stats' do
+      let(:expected_stats) do
+        {
+          added_lines: 118,
+          removed_lines: 9,
+          diffs_count: 20
+        }
+      end
+    end
+
+    context 'when diffs overflow' do
+      include_examples 'overflow' do
+        let(:expected_stats) do
+          {
+            visible_count: 20,
+            email_path: "/#{project.full_path}/-/merge_requests/1.patch",
+            diff_path: "/#{project.full_path}/-/merge_requests/1.diff"
+          }
+        end
+      end
+    end
+
+    context 'when merge_request_diff does not exist' do
+      let(:merge_request) { create(:merge_request, :skip_diff_creation, author: user) }
+      let(:project) { merge_request.project }
+
+      it 'returns an empty array' do
+        send_request
+
+        expect(json_response['diffs_stats']).to eq({ "added_lines" => 0, "removed_lines" => 0, "diffs_count" => 0 })
+      end
+    end
+  end
+
+  describe 'GET #diff_file' do
+    before do
+      project.add_developer(user)
+      login_as(user)
+    end
+
+    let_it_be(:merge_request) { create(:merge_request, author: user) }
+    let(:diff_file_path) { diff_file_project_merge_request_path(project, merge_request) }
+    let(:diff_file) { merge_request.merge_request_diff.diffs.diff_files.first }
+    let(:old_path) { diff_file.old_path }
+    let(:new_path) { diff_file.new_path }
+    let(:ignore_whitespace_changes) { false }
+    let(:view) { 'inline' }
+
+    let(:params) do
+      {
+        old_path: old_path,
+        new_path: new_path,
+        ignore_whitespace_changes: ignore_whitespace_changes,
+        view: view
+      }.compact
+    end
+
+    let(:send_request) { get diff_file_path, params: params }
+
+    include_examples 'diff file endpoint'
+
+    context 'with whitespace-only diffs' do
+      let(:ignore_whitespace_changes) { true }
+      let(:diffs_collection) { instance_double(Gitlab::Diff::FileCollection::Base, diff_files: [diff_file]) }
+
+      before do
+        allow(diff_file).to receive(:whitespace_only?).and_return(true)
+      end
+
+      it 'makes a call to diffs_resource with ignore_whitespace_change: false' do
+        expect_next_instance_of(described_class) do |instance|
+          allow(instance).to receive(:diffs_resource).and_return(diffs_collection)
+
+          expect(instance).to receive(:diffs_resource).with(
+            hash_including(ignore_whitespace_change: false)
+          ).and_return(diffs_collection)
+        end
+
+        send_request
+
+        expect(response).to have_gitlab_http_status(:success)
+      end
+    end
+  end
+
+  describe 'PUT #update' do
+    before do
+      project.add_developer(user)
+      login_as(user)
+    end
+
+    it 'applies correct timezone to merge_after' do
+      put project_merge_request_path(project, merge_request, merge_request: { merge_after: '2024-09-03T21:18' })
+
+      expect(response).to redirect_to(project_merge_request_path(project, merge_request))
+
+      expect(merge_request.reload.merge_schedule.merge_after).to eq(
+        Time.zone.parse('2024-09-03T21:18')
+      )
+    end
+
+    it 'resets merge_schedule if merge_after is not set' do
+      create(:merge_request_merge_schedule, merge_request: merge_request, merge_after: '2024-10-27T21:06')
+
+      expect do
+        put project_merge_request_path(project, merge_request, merge_request: { merge_after: '' })
+      end.to change { merge_request.reload.merge_schedule }.to(nil)
+    end
+
+    it 'does not reset merge_schedule if merge_after is not sent' do
+      create(:merge_request_merge_schedule, merge_request: merge_request, merge_after: '2024-10-27T21:06')
+
+      expect do
+        put project_merge_request_path(project, merge_request, merge_request: { title: 'Something' })
+      end.not_to change { merge_request.reload.merge_schedule.merge_after }
     end
   end
 end

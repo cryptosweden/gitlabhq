@@ -18,6 +18,8 @@ describe('Project remove modal', () => {
     mergeRequestsCount: 2,
     forksCount: 3,
     starsCount: 4,
+    buttonText: 'Delete project',
+    nameWithNamespace: 'Foo / Bar',
   };
 
   const createComponent = (props = {}) => {
@@ -51,6 +53,8 @@ describe('Project remove modal', () => {
         issuesCount: defaultProps.issuesCount,
         mergeRequestsCount: defaultProps.mergeRequestsCount,
         starsCount: defaultProps.starsCount,
+        buttonText: defaultProps.buttonText,
+        nameWithNamespace: defaultProps.nameWithNamespace,
       });
     });
   });

@@ -2,96 +2,137 @@
 import {
   GlAlert,
   GlButton,
-  GlCard,
-  GlFormInput,
-  GlLink,
+  GlCollapsibleListbox,
+  GlDisclosureDropdown,
   GlIcon,
   GlLoadingIcon,
   GlSprintf,
-  GlToggle,
   GlTooltipDirective,
+  GlFormRadioGroup,
 } from '@gitlab/ui';
 import { createAlert } from '~/alert';
 import { __, s__, n__, sprintf } from '~/locale';
-import { helpPagePath } from '~/helpers/help_page_helper';
-import { TYPENAME_GROUP } from '~/graphql_shared/constants';
-import inboundAddGroupOrProjectCIJobTokenScope from '../graphql/mutations/inbound_add_group_or_project_ci_job_token_scope.mutation.graphql';
+import { TYPENAME_CI_JOB_TOKEN_ACCESSIBLE_GROUP } from '~/graphql_shared/constants';
+import CrudComponent from '~/vue_shared/components/crud_component.vue';
+import ConfirmActionModal from '~/vue_shared/components/confirm_action_modal.vue';
 import inboundRemoveProjectCIJobTokenScopeMutation from '../graphql/mutations/inbound_remove_project_ci_job_token_scope.mutation.graphql';
 import inboundRemoveGroupCIJobTokenScopeMutation from '../graphql/mutations/inbound_remove_group_ci_job_token_scope.mutation.graphql';
 import inboundUpdateCIJobTokenScopeMutation from '../graphql/mutations/inbound_update_ci_job_token_scope.mutation.graphql';
 import inboundGetCIJobTokenScopeQuery from '../graphql/queries/inbound_get_ci_job_token_scope.query.graphql';
-import inboundGetGroupsAndProjectsWithCIJobTokenScopeQuery from '../graphql/queries/inbound_get_groups_and_projects_with_ci_job_token_scope.query.graphql';
+import autopopulateAllowlistMutation from '../graphql/mutations/autopopulate_allowlist.mutation.graphql';
+import getCiJobTokenScopeAllowlistQuery from '../graphql/queries/get_ci_job_token_scope_allowlist.query.graphql';
+import getAuthLogCountQuery from '../graphql/queries/get_auth_log_count.query.graphql';
+import removeAutopopulatedEntriesMutation from '../graphql/mutations/remove_autopopulated_entries.mutation.graphql';
+import {
+  JOB_TOKEN_FORM_ADD_GROUP_OR_PROJECT,
+  JOB_TOKEN_FORM_AUTOPOPULATE_AUTH_LOG,
+  JOB_TOKEN_REMOVE_AUTOPOPULATED_ENTRIES_MODAL,
+} from '../constants';
 import TokenAccessTable from './token_access_table.vue';
+import NamespaceForm from './namespace_form.vue';
+import AutopopulateAllowlistModal from './autopopulate_allowlist_modal.vue';
+import RemoveAutopopulatedEntriesModal from './remove_autopopulated_entries_modal.vue';
 
 export default {
   i18n: {
-    toggleLabelTitle: s__('CICD|Limit access %{italicStart}to%{italicEnd} this project'),
-    toggleDescription: s__(
-      `CICD|Allow access to this project from authorized groups or projects by adding them to the allowlist. It is a security risk to disable this feature, because unauthorized projects might attempt to retrieve an active token and access the API. %{linkStart}Learn more%{linkEnd}.`,
+    radioGroupDescription: s__(
+      `CICD|Select the groups and projects authorized to use a CI/CD job token to authenticate requests to this project. %{linkStart}Learn more%{linkEnd}.`,
     ),
-    cardHeaderTitle: s__('CICD|Groups and projects with access'),
+    cardHeaderTitle: s__('CICD|CI/CD job token allowlist'),
     settingDisabledMessage: s__(
-      'CICD|Access unrestricted, so users with sufficient permissions in this project can authenticate with a job token generated in any other project. Enable this setting to restrict authentication to only job tokens generated in the groups and projects in the allowlist below.',
+      'CICD|Access unrestricted, so users with sufficient permissions in this project can authenticate with a job token generated in any other project.',
     ),
-    addGroupOrProject: __('Add group or project'),
     add: __('Add'),
-    cancel: __('Cancel'),
-    addProjectPlaceholder: __(
-      'Paste group path (i.e. gitlab-org) or project path (i.e. gitlab-org/gitlab)',
-    ),
     projectsFetchError: __('There was a problem fetching the projects'),
     scopeFetchError: __('There was a problem fetching the job token scope value'),
+    saveButtonTitle: __('Save Changes'),
+    removeNamespaceModalTitle: __('Remove %{namespace}'),
+    removeNamespaceModalText: s__(
+      'CICD|Are you sure you want to remove %{namespace} from the job token allowlist?',
+    ),
+    removeNamespaceModalActionText: s__('CICD|Remove group or project'),
+    removeAutopopulatedEntries: s__('CICD|Remove all auto-added allowlist entries'),
   },
+  inboundJobTokenScopeOptions: [
+    {
+      value: false,
+      text: s__('CICD|All groups and projects'),
+    },
+    {
+      value: true,
+      text: s__('CICD|Only this project and any groups and projects in the allowlist'),
+    },
+  ],
   components: {
+    AutopopulateAllowlistModal,
     GlAlert,
     GlButton,
-    GlCard,
-    GlFormInput,
-    GlLink,
+    GlCollapsibleListbox,
+    GlDisclosureDropdown,
     GlIcon,
     GlLoadingIcon,
     GlSprintf,
-    GlToggle,
+    CrudComponent,
+    RemoveAutopopulatedEntriesModal,
     TokenAccessTable,
+    GlFormRadioGroup,
+    NamespaceForm,
+    ConfirmActionModal,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
   },
-  inject: {
-    fullPath: {
-      default: '',
-    },
-  },
+  inject: ['enforceAllowlist', 'fullPath', 'projectAllowlistLimit'],
   apollo: {
-    inboundJobTokenScopeEnabled: {
-      query: inboundGetCIJobTokenScopeQuery,
+    authLogCount: {
+      query: getAuthLogCountQuery,
       variables() {
         return {
           fullPath: this.fullPath,
         };
       },
       update({ project }) {
+        return project.ciJobTokenAuthLogs?.count;
+      },
+      error() {
+        createAlert({
+          message: s__('CICD|There was a problem fetching authorization logs count.'),
+        });
+      },
+    },
+    inboundJobTokenScopeEnabled: {
+      query: inboundGetCIJobTokenScopeQuery,
+      variables() {
+        return { fullPath: this.fullPath };
+      },
+      update({ project }) {
         return project.ciCdSettings.inboundJobTokenScopeEnabled;
+      },
+      result({ data }) {
+        this.projectName = data?.project?.name;
       },
       error() {
         createAlert({ message: this.$options.i18n.scopeFetchError });
       },
     },
     groupsAndProjectsWithAccess: {
-      query: inboundGetGroupsAndProjectsWithCIJobTokenScopeQuery,
+      query() {
+        return getCiJobTokenScopeAllowlistQuery;
+      },
       variables() {
-        return {
-          fullPath: this.fullPath,
-        };
+        return { fullPath: this.fullPath };
       },
       update({ project }) {
-        const projects = project?.ciJobTokenScope?.inboundAllowlist?.nodes ?? [];
-        const groups = project?.ciJobTokenScope?.groupsAllowlist?.nodes ?? [];
+        const allowlist = project?.ciJobTokenScopeAllowlist;
+        const groups = this.mapAllowlistNodes(allowlist?.groupsAllowlist);
+        const projects = this.mapAllowlistNodes(allowlist?.projectsAllowlist);
+        // Add a dummy entry for the current project. The new ciJobTokenScopeAllowlist endpoint doesn't have an entry
+        // for the current project like the old ciJobTokenScope endpoint did, so we have to add it in manually, if it
+        // doesn't exist yet.
+        if (!projects.some(({ id }) => id === project.id))
+          projects.push({ ...project, defaultPermissions: true, jobTokenPolicies: [] });
 
-        this.projectCount = projects.length;
-        this.groupCount = groups.length;
-
-        return [...groups, ...projects];
+        return { projects, groups };
       },
       error() {
         createAlert({ message: this.$options.i18n.projectsFetchError });
@@ -100,40 +141,111 @@ export default {
   },
   data() {
     return {
+      authLogCount: 0,
+      allowlistLoadingMessage: '',
       inboundJobTokenScopeEnabled: null,
-      groupsAndProjectsWithAccess: [],
-      groupOrProjectPath: '',
-      projectCount: 0,
-      groupCount: 0,
-      isAddFormVisible: false,
+      isUpdatingJobTokenScope: false,
+      groupsAndProjectsWithAccess: { groups: [], projects: [] },
+      autopopulationErrorMessage: null,
+      projectName: '',
+      namespaceToEdit: null,
+      namespaceToRemove: null,
+      selectedAction: null,
     };
   },
   computed: {
-    isGroupOrProjectPathEmpty() {
-      return this.groupOrProjectPath === '';
+    authLogExceedsLimit() {
+      return this.projectCount + this.groupCount + this.authLogCount > this.projectAllowlistLimit;
     },
-    ciJobTokenHelpPage() {
-      return helpPagePath('ci/jobs/ci_job_token#control-job-token-access-to-your-project');
+    isAllowlistLoading() {
+      return (
+        this.$apollo.queries.groupsAndProjectsWithAccess.loading ||
+        this.allowlistLoadingMessage.length > 0
+      );
+    },
+    crudFormActions() {
+      const actions = [
+        {
+          text: __('Group or project'),
+          value: JOB_TOKEN_FORM_ADD_GROUP_OR_PROJECT,
+        },
+      ];
+
+      if (this.authLogCount > 0) {
+        actions.push({
+          text: __('All projects in authentication log'),
+          value: JOB_TOKEN_FORM_AUTOPOPULATE_AUTH_LOG,
+        });
+      }
+
+      return actions;
+    },
+    allowlist() {
+      // Show the current project at the top of the allowlist for better UX
+      const { groups, projects } = this.groupsAndProjectsWithAccess;
+      const allItems = [...groups, ...projects];
+      const currentProject = allItems.find((item) => item.fullPath === this.fullPath);
+      const otherItems = allItems
+        .filter((item) => item !== currentProject)
+        .sort((a, b) => a.fullPath.localeCompare(b.fullPath));
+      return currentProject ? [currentProject, ...otherItems] : otherItems;
+    },
+    disclosureDropdownOptions() {
+      return [
+        {
+          text: this.$options.i18n.removeAutopopulatedEntries,
+          variant: 'danger',
+          action: () => {
+            this.selectedAction = JOB_TOKEN_REMOVE_AUTOPOPULATED_ENTRIES_MODAL;
+          },
+        },
+      ];
+    },
+    hasAutoPopulatedEntries() {
+      return this.allowlist.filter((entry) => entry.autopopulated).length > 0;
+    },
+    groupCount() {
+      return this.groupsAndProjectsWithAccess.groups.length;
+    },
+    projectCount() {
+      return this.groupsAndProjectsWithAccess.projects.length;
     },
     groupCountTooltip() {
-      return sprintf(
-        n__('%{count} group has access', '%{count} groups have access', this.groupCount),
-        {
-          count: this.groupCount,
-        },
-      );
+      return n__('%d group has access', '%d groups have access', this.groupCount);
     },
     projectCountTooltip() {
-      return sprintf(
-        n__('%{count} project has access', '%{count} projects have access', this.projectCount),
-        {
-          count: this.projectCount,
-        },
-      );
+      return n__('%d project has access', '%d projects have access', this.projectCount);
+    },
+    removeNamespaceModalTitle() {
+      return sprintf(this.$options.i18n.removeNamespaceModalTitle, {
+        namespace: this.namespaceToRemove?.fullPath,
+      });
+    },
+    showRemoveAutopopulatedEntriesModal() {
+      return this.selectedAction === JOB_TOKEN_REMOVE_AUTOPOPULATED_ENTRIES_MODAL;
+    },
+    showAutopopulateModal() {
+      return this.selectedAction === JOB_TOKEN_FORM_AUTOPOPULATE_AUTH_LOG;
     },
   },
   methods: {
+    hideSelectedAction() {
+      this.namespaceToEdit = null;
+      this.selectedAction = null;
+    },
+    mapAllowlistNodes(list) {
+      // The defaultPermissions and jobTokenPolicies are separate fields from the target (the group or project in the
+      // allowlist). Combine them into a single object.
+      return list.nodes.map((node) => ({
+        ...node.target,
+        defaultPermissions: node.defaultPermissions,
+        jobTokenPolicies: node.jobTokenPolicies,
+        autopopulated: node.autopopulated,
+      }));
+    },
     async updateCIJobTokenScope() {
+      this.isUpdatingJobTokenScope = true;
+
       try {
         const {
           data: {
@@ -152,188 +264,257 @@ export default {
         if (errors.length) {
           throw new Error(errors[0]);
         }
+
+        const toastMessage = sprintf(
+          __("CI/CD job token permissions for '%{projectName}' were successfully updated."),
+          { projectName: this.projectName },
+        );
+        this.$toast.show(toastMessage);
       } catch (error) {
         this.inboundJobTokenScopeEnabled = !this.inboundJobTokenScopeEnabled;
         createAlert({ message: error.message });
+      } finally {
+        this.isUpdatingJobTokenScope = false;
       }
     },
-    async addGroupOrProject() {
+    async removeItem() {
+      const { __typename, fullPath } = this.namespaceToRemove;
+      const mutation =
+        __typename === TYPENAME_CI_JOB_TOKEN_ACCESSIBLE_GROUP
+          ? inboundRemoveGroupCIJobTokenScopeMutation
+          : inboundRemoveProjectCIJobTokenScopeMutation;
+
+      const response = await this.$apollo.mutate({
+        mutation,
+        variables: { projectPath: this.fullPath, targetPath: fullPath },
+      });
+
+      const error = response.data.removeNamespace.errors[0];
+      if (error) {
+        return Promise.reject(error);
+      }
+
+      this.refetchGroupsAndProjects();
+      return Promise.resolve();
+    },
+    async autopopulateAllowlist() {
+      this.hideSelectedAction();
+      this.autopopulationErrorMessage = null;
+      this.allowlistLoadingMessage = s__(
+        'CICD|Auto-populating allowlist entries. Please wait while the action completes.',
+      );
+
       try {
         const {
           data: {
-            ciJobTokenScopeAddGroupOrProject: { errors },
+            ciJobTokenScopeAutopopulateAllowlist: { errors },
           },
         } = await this.$apollo.mutate({
-          mutation: inboundAddGroupOrProjectCIJobTokenScope,
+          mutation: autopopulateAllowlistMutation,
           variables: {
             projectPath: this.fullPath,
-            targetPath: this.groupOrProjectPath,
           },
         });
 
         if (errors.length) {
-          throw new Error(errors[0]);
+          this.autopopulationErrorMessage = errors[0].message;
+          return;
         }
-      } catch (error) {
-        createAlert({ message: error.message });
+
+        this.$apollo.queries.inboundJobTokenScopeEnabled.refetch();
+        this.refetchAllowlist();
+        this.$toast.show(
+          s__('CICD|Authentication log entries were successfully added to the allowlist.'),
+        );
+      } catch {
+        this.autopopulationErrorMessage = s__(
+          'CICD|An error occurred while adding the authentication log entries. Please try again.',
+        );
       } finally {
-        this.clearGroupOrProjectPath();
-        this.getGroupsAndProjects();
+        this.allowlistLoadingMessage = '';
       }
     },
-    async removeItem(item) {
-      try {
-        let errors;
+    async removeAutopopulatedEntries() {
+      this.hideSelectedAction();
+      this.autopopulationErrorMessage = null;
+      this.allowlistLoadingMessage = s__(
+        'CICD|Removing auto-added allowlist entries. Please wait while the action completes.',
+      );
 
-        // eslint-disable-next-line no-underscore-dangle
-        if (item.__typename === TYPENAME_GROUP) {
-          const {
-            data: { ciJobTokenScopeRemoveGroup },
-          } = await this.$apollo.mutate({
-            mutation: inboundRemoveGroupCIJobTokenScopeMutation,
-            variables: {
-              projectPath: this.fullPath,
-              targetGroupPath: item.fullPath,
-            },
-          });
-          errors = ciJobTokenScopeRemoveGroup.errors;
-        } else {
-          const {
-            data: { ciJobTokenScopeRemoveProject },
-          } = await this.$apollo.mutate({
-            mutation: inboundRemoveProjectCIJobTokenScopeMutation,
-            variables: {
-              projectPath: this.fullPath,
-              targetProjectPath: item.fullPath,
-            },
-          });
-          errors = ciJobTokenScopeRemoveProject.errors;
-        }
+      try {
+        const {
+          data: {
+            ciJobTokenScopeClearAllowlistAutopopulations: { errors },
+          },
+        } = await this.$apollo.mutate({
+          mutation: removeAutopopulatedEntriesMutation,
+          variables: {
+            projectPath: this.fullPath,
+          },
+        });
 
         if (errors.length) {
-          throw new Error(errors[0]);
+          this.autopopulationErrorMessage = errors[0].message;
+          return;
         }
+
+        this.refetchAllowlist();
+        this.$toast.show(
+          s__('CICD|Authentication log entries were successfully removed from the allowlist.'),
+        );
       } catch (error) {
-        createAlert({ message: error.message });
+        this.autopopulationErrorMessage = s__(
+          'CICD|An error occurred while removing the auto-added log entries. Please try again.',
+        );
       } finally {
-        this.getGroupsAndProjects();
+        this.allowlistLoadingMessage = '';
       }
     },
-    clearGroupOrProjectPath() {
-      this.groupOrProjectPath = '';
-      this.isAddFormVisible = false;
+    refetchAllowlist() {
+      this.$apollo.queries.groupsAndProjectsWithAccess.refetch();
+      this.hideSelectedAction();
     },
-    getGroupsAndProjects() {
+    refetchGroupsAndProjects() {
       this.$apollo.queries.groupsAndProjectsWithAccess.refetch();
     },
-    showAddForm() {
-      this.isAddFormVisible = true;
+    selectAction(action, showFormFn) {
+      this.selectedAction = action;
+      if (action === JOB_TOKEN_FORM_ADD_GROUP_OR_PROJECT) {
+        showFormFn();
+      }
+    },
+    showNamespaceForm(namespace, showFormFn) {
+      this.namespaceToEdit = namespace;
+      showFormFn();
     },
   },
 };
 </script>
+
 <template>
-  <div>
-    <gl-loading-icon v-if="$apollo.loading" size="lg" class="gl-mt-5" />
-    <template v-else>
-      <gl-toggle
-        v-model="inboundJobTokenScopeEnabled"
-        :label="$options.i18n.toggleLabelTitle"
-        class="gl-mt-5"
-        @change="updateCIJobTokenScope"
-      >
-        <template #label>
-          <gl-sprintf :message="$options.i18n.toggleLabelTitle">
-            <template #italic="{ content }">
-              <i>{{ content }}</i>
-            </template>
-          </gl-sprintf>
+  <div class="gl-mt-5">
+    <autopopulate-allowlist-modal
+      :auth-log-exceeds-limit="authLogExceedsLimit"
+      :project-allowlist-limit="projectAllowlistLimit"
+      :project-name="projectName"
+      :show-modal="showAutopopulateModal"
+      @hide="hideSelectedAction"
+      @autopopulate-allowlist="autopopulateAllowlist"
+    />
+    <remove-autopopulated-entries-modal
+      :show-modal="showRemoveAutopopulatedEntriesModal"
+      @hide="hideSelectedAction"
+      @remove-entries="removeAutopopulatedEntries"
+    />
+    <gl-form-radio-group
+      v-if="!enforceAllowlist"
+      v-model="inboundJobTokenScopeEnabled"
+      :options="$options.inboundJobTokenScopeOptions"
+      stacked
+    />
+    <gl-alert
+      v-if="!inboundJobTokenScopeEnabled && !enforceAllowlist"
+      variant="warning"
+      class="gl-my-3"
+      :dismissible="false"
+      :show-icon="false"
+    >
+      {{ $options.i18n.settingDisabledMessage }}
+    </gl-alert>
+    <gl-button
+      v-if="!enforceAllowlist"
+      variant="confirm"
+      class="gl-mt-3"
+      data-testid="save-ci-job-token-scope-changes-btn"
+      :loading="isUpdatingJobTokenScope"
+      @click="updateCIJobTokenScope"
+    >
+      {{ $options.i18n.saveButtonTitle }}
+    </gl-button>
+    <gl-alert
+      v-if="autopopulationErrorMessage"
+      variant="danger"
+      class="gl-my-5"
+      :dismissible="false"
+      data-testid="autopopulation-alert"
+    >
+      {{ autopopulationErrorMessage }}
+    </gl-alert>
+    <crud-component
+      :title="$options.i18n.cardHeaderTitle"
+      class="gl-mt-5"
+      @hideForm="hideSelectedAction"
+    >
+      <template #actions="{ showForm }">
+        <gl-collapsible-listbox
+          v-model="selectedAction"
+          :items="crudFormActions"
+          :toggle-text="$options.i18n.add"
+          data-testid="form-selector"
+          size="small"
+          placement="bottom-end"
+          @select="selectAction($event, showForm)"
+        />
+        <gl-disclosure-dropdown
+          v-if="hasAutoPopulatedEntries"
+          category="tertiary"
+          icon="ellipsis_v"
+          no-caret
+          :items="disclosureDropdownOptions"
+        />
+      </template>
+      <template #count>
+        <gl-loading-icon v-if="isAllowlistLoading" data-testid="count-loading-icon" />
+        <template v-else>
+          <span
+            v-gl-tooltip.d0="groupCountTooltip"
+            class="gl-cursor-default"
+            data-testid="group-count"
+          >
+            <gl-icon name="group" /> {{ groupCount }}
+          </span>
+          <span
+            v-gl-tooltip.d0="projectCountTooltip"
+            class="gl-ml-2 gl-cursor-default"
+            data-testid="project-count"
+          >
+            <gl-icon name="project" /> {{ projectCount }}
+          </span>
         </template>
-        <template #description>
-          <gl-sprintf :message="$options.i18n.toggleDescription" class="gl-text-secondary">
-            <template #link="{ content }">
-              <gl-link :href="ciJobTokenHelpPage" class="inline-link" target="_blank">{{
-                content
-              }}</gl-link>
-            </template>
-          </gl-sprintf>
-        </template>
-      </gl-toggle>
+      </template>
 
-      <gl-alert
-        v-if="!inboundJobTokenScopeEnabled"
-        variant="warning"
-        class="gl-mt-6"
-        :dismissible="false"
-        :show-icon="false"
-      >
-        {{ $options.i18n.settingDisabledMessage }}
-      </gl-alert>
+      <template #form="{ hideForm }">
+        <namespace-form
+          :namespace="namespaceToEdit"
+          @saved="refetchGroupsAndProjects"
+          @close="hideForm"
+        />
+      </template>
 
-      <div>
-        <gl-card
-          class="gl-new-card"
-          header-class="gl-new-card-header gl-border-bottom-0"
-          body-class="gl-new-card-body gl-px-0"
+      <template #default="{ showForm }">
+        <token-access-table
+          :items="allowlist"
+          :loading="isAllowlistLoading"
+          :loading-message="allowlistLoadingMessage"
+          @editItem="showNamespaceForm($event, showForm)"
+          @removeItem="namespaceToRemove = $event"
+        />
+
+        <confirm-action-modal
+          v-if="namespaceToRemove"
+          modal-id="inbound-token-access-remove-confirm-modal"
+          :title="removeNamespaceModalTitle"
+          :action-fn="removeItem"
+          :action-text="$options.i18n.removeNamespaceModalActionText"
+          @close="namespaceToRemove = null"
         >
-          <template #header>
-            <div class="gl-new-card-title-wrapper gl-flex-direction-column gl-flex-wrap">
-              <div class="gl-new-card-title gl-items-center">
-                <h5 class="gl-my-0">{{ $options.i18n.cardHeaderTitle }}</h5>
-                <span
-                  v-gl-tooltip
-                  :title="groupCountTooltip"
-                  class="gl-new-card-count"
-                  data-testid="group-count"
-                >
-                  <gl-icon name="group" class="gl-mr-2" />
-                  {{ groupCount }}
-                </span>
-                <span
-                  v-gl-tooltip
-                  :title="projectCountTooltip"
-                  class="gl-new-card-count"
-                  data-testid="project-count"
-                >
-                  <gl-icon name="project" class="gl-mr-2" />
-                  {{ projectCount }}
-                </span>
-              </div>
-            </div>
-            <div class="gl-new-card-actions">
-              <gl-button
-                v-if="!isAddFormVisible"
-                size="small"
-                data-testid="toggle-form-btn"
-                @click="showAddForm"
-                >{{ $options.i18n.addGroupOrProject }}</gl-button
-              >
-            </div>
-          </template>
-
-          <div v-if="isAddFormVisible" class="gl-new-card-add-form gl-m-3">
-            <h4 class="gl-mt-0">{{ $options.i18n.addGroupOrProject }}</h4>
-            <gl-form-input
-              v-model="groupOrProjectPath"
-              :placeholder="$options.i18n.addProjectPlaceholder"
-            />
-            <div class="gl-display-flex gl-mt-5">
-              <gl-button
-                variant="confirm"
-                :disabled="isGroupOrProjectPathEmpty"
-                class="gl-mr-3"
-                data-testid="add-project-btn"
-                @click="addGroupOrProject"
-              >
-                {{ $options.i18n.add }}
-              </gl-button>
-              <gl-button @click="clearGroupOrProjectPath">{{ $options.i18n.cancel }}</gl-button>
-            </div>
-          </div>
-
-          <token-access-table :items="groupsAndProjectsWithAccess" @removeItem="removeItem" />
-        </gl-card>
-      </div>
-    </template>
+          <gl-sprintf :message="$options.i18n.removeNamespaceModalText">
+            <template #namespace>
+              <code>{{ namespaceToRemove.fullPath }}</code>
+            </template>
+          </gl-sprintf>
+        </confirm-action-modal>
+      </template>
+    </crud-component>
   </div>
 </template>

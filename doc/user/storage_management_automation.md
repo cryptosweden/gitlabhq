@@ -1,14 +1,16 @@
 ---
 stage: Fulfillment
 group: Utilization
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+info: This page is maintained by Developer Relations, author @dnsmichi, see https://handbook.gitlab.com/handbook/marketing/developer-relations/developer-advocacy/content/#maintained-documentation
+title: Automate storage management
 ---
 
-# Automate storage management
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 This page describes how to automate storage analysis and cleanup to manage your storage usage
 with the GitLab REST API.
@@ -17,17 +19,20 @@ You can also manage your storage usage by improving [pipeline efficiency](../ci/
 
 For more help with API automation, you can also use the [GitLab community forum and Discord](https://about.gitlab.com/community/).
 
-WARNING:
+{{< alert type="warning" >}}
+
 The script examples in this page are for demonstration purposes only and should not
 be used in production. You can use the examples to design and test your own scripts for storage automation.
 
+{{< /alert >}}
+
 ## API requirements
 
-To automate storage management, your GitLab.com SaaS or self-managed instance must have access to the [GitLab REST API](../api/api_resources.md).
+To automate storage management, your GitLab.com SaaS or GitLab Self-Managed instance must have access to the [GitLab REST API](../api/api_resources.md).
 
 ### API authentication scope
 
-Use the following scopes to [authenticate](../api/rest/index.md#authentication) with the API:
+Use the following scopes to [authenticate](../api/rest/authentication.md) with the API:
 
 - Storage analysis:
   - Read API access with the `read_api` scope.
@@ -43,15 +48,15 @@ You can use command-line tools or a programming language to interact with the RE
 To send API requests, install either:
 
 - curl with your preferred package manager.
-- [GitLab CLI](../editor_extensions/gitlab_cli/index.md) and use the `glab api` subcommand.
+- [GitLab CLI](../editor_extensions/gitlab_cli/_index.md) and use the `glab api` subcommand.
 
 To format JSON responses, install `jq`. For more information, see [Tips for productive DevOps workflows: JSON formatting with jq and CI/CD linting automation](https://about.gitlab.com/blog/2021/04/21/devops-workflows-json-format-jq-ci-cd-lint/).
 
 To use these tools with the REST API:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle curl
+{{< tab title="curl" >}}
 
 ```shell
 export GITLAB_TOKEN=xxx
@@ -59,7 +64,9 @@ export GITLAB_TOKEN=xxx
 curl --silent --header "Authorization: Bearer $GITLAB_TOKEN" "https://gitlab.com/api/v4/user" | jq
 ```
 
-:::TabTitle GitLab CLI
+{{< /tab >}}
+
+{{< tab title="GitLab CLI" >}}
 
 ```shell
 glab auth login
@@ -67,15 +74,17 @@ glab auth login
 glab api groups/YOURGROUPNAME/projects
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 #### Using the GitLab CLI
 
-Some API endpoints require [pagination](../api/rest/index.md#pagination) and subsequent page fetches to retrieve all results. The GitLab CLI provides the flag `--paginate`.
+Some API endpoints require [pagination](../api/rest/_index.md#pagination) and subsequent page fetches to retrieve all results. The GitLab CLI provides the flag `--paginate`.
 
 Requests that require a POST body formatted as JSON data can be written as `key=value` pairs passed to the `--raw-field` parameter.
 
-For more information, see the [GitLab CLI endpoint documentation](../editor_extensions/gitlab_cli/index.md#core-commands).
+For more information, see the [GitLab CLI endpoint documentation](../editor_extensions/gitlab_cli/_index.md#core-commands).
 
 ### API client libraries
 
@@ -88,10 +97,13 @@ The storage management and cleanup automation methods described in this page use
 For more information about use cases for the `python-gitlab` library,
 see [Efficient DevSecOps workflows: Hands-on `python-gitlab` API automation](https://about.gitlab.com/blog/2023/02/01/efficient-devsecops-workflows-hands-on-python-gitlab-api-automation/).
 
-For more information about other API client libraries, see [Third-party clients](../api/rest/index.md#third-party-clients).
+For more information about other API client libraries, see [Third-party clients](../api/rest/third_party_clients.md).
 
-NOTE:
-Use [GitLab Duo Code Suggestions](project/repository/code_suggestions/index.md) to write code more efficiently.
+{{< alert type="note" >}}
+
+Use [GitLab Duo Code Suggestions](project/repository/code_suggestions/_index.md) to write code more efficiently.
+
+{{< /alert >}}
 
 ## Storage analysis
 
@@ -112,9 +124,9 @@ This data provides insight into storage consumption of the project by the follow
 
 To identify storage types:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle curl
+{{< tab title="curl" >}}
 
 ```shell
 curl --silent --header "Authorization: Bearer $GITLAB_TOKEN" "https://gitlab.com/api/v4/projects/$GL_PROJECT_ID?statistics=true" | jq --compact-output '.id,.statistics' | jq
@@ -133,7 +145,9 @@ curl --silent --header "Authorization: Bearer $GITLAB_TOKEN" "https://gitlab.com
 }
 ```
 
-:::TabTitle GitLab CLI
+{{< /tab >}}
+
+{{< tab title="GitLab CLI" >}}
 
 ```shell
 export GL_PROJECT_ID=48349590
@@ -153,7 +167,9 @@ glab api --method GET projects/$GL_PROJECT_ID --field 'statistics=true' | jq --c
 }
 ```
 
-:::TabTitle Python
+{{< /tab >}}
+
+{{< tab title="Python" >}}
 
 ```python
 project_obj = gl.projects.get(project.id, statistics=True)
@@ -161,7 +177,9 @@ project_obj = gl.projects.get(project.id, statistics=True)
 print("Project {n} statistics: {s}".format(n=project_obj.name_with_namespace, s=json.dump(project_obj.statistics, indent=4)))
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 To print statistics for the project to the terminal, export the `GL_GROUP_ID` environment variable and run the script:
 
@@ -193,28 +211,28 @@ and recursively analyze all subgroups and projects. You can also analyze differe
 
 Here's an example of an algorithm to analyze multiple subgroups and projects:
 
-1. Fetch the top-level namespace ID. You can copy the ID value from the [namespace/group overview](../user/namespace/index.md#types-of-namespaces).
-1. Fetch all [subgroups](../api/groups.md#list-a-groups-subgroups) from the top-level group, and save the IDs in a list.
-1. Loop over all groups and fetch all [projects from each group](../api/groups.md#list-a-groups-projects) and save the IDs in a list.
+1. Fetch the top-level namespace ID. You can copy the ID value from the [namespace/group overview](namespace/_index.md#types-of-namespaces).
+1. Fetch all [subgroups](../api/groups.md#list-subgroups) from the top-level group, and save the IDs in a list.
+1. Loop over all groups and fetch all [projects from each group](../api/groups.md#list-projects) and save the IDs in a list.
 1. Identify the storage type to analyze, and collect the information from project attributes, like project statistics, and job artifacts.
 1. Print an overview of all projects, grouped by group, and their storage information.
 
 The shell approach with `glab` might be more suitable for smaller analyses. For larger analyses, you should use a script that
 uses the API client libraries. This type of script can improve readability, data storage, flow control, testing, and reusability.
 
-To ensure the script doesn't reach [API rate limits](../api/rest/index.md#rate-limits), the following
+To ensure the script doesn't reach [API rate limits](../security/rate_limits.md), the following
 example code is not optimized for parallel API requests.
 
 To implement this algorithm:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle GitLab CLI
+{{< tab title="GitLab CLI" >}}
 
 ```shell
 export GROUP_NAME="gitlab-da"
 
-# Return sub group IDs
+# Return subgroup IDs
 glab api groups/$GROUP_NAME/subgroups | jq --compact-output '.[]' | jq --compact-output '.id'
 12034712
 67218622
@@ -255,7 +273,9 @@ glab api projects/48349590/jobs | jq --compact-output '.[]' | jq --compact-outpu
 [{"file_type":"archive","size":1049089,"filename":"artifacts.zip","file_format":"zip"},{"file_type":"metadata","size":157,"filename":"metadata.gz","file_format":"gzip"},{"file_type":"trace","size":3140,"filename":"job.log","file_format":null}]
 ```
 
-:::TabTitle Python
+{{< /tab >}}
+
+{{< tab title="Python" >}}
 
 ```python
 #!/usr/bin/env python
@@ -297,7 +317,9 @@ if __name__ == "__main__":
             print("DEBUG: ID {i}: {a}".format(i=job.id, a=job.attributes['artifacts']))
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 The script outputs the project job artifacts in a JSON formatted list:
 
@@ -329,8 +351,11 @@ The script outputs the project job artifacts in a JSON formatted list:
 Job artifacts consume most of the pipeline storage, and job logs can also generate several hundreds of kilobytes.
 You should delete the unnecessary job artifacts first and then clean up job logs after analysis.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Deleting job log and artifacts is a destructive action that cannot be reverted. Use with caution. Deleting certain files, including report artifacts, job logs, and metadata files, affects GitLab features that use these files as data sources.
+
+{{< /alert >}}
 
 ### List job artifacts
 
@@ -416,7 +441,7 @@ to iterate over large lists of pipelines and jobs.
     print("\nDone collecting data.")
 
     if len(ci_job_artifacts) > 0:
-        print("|Project|Job|Artifact name|Artifact type|Artifact size|\n|-|-|-|-|-|") #Start markdown friendly table
+        print("| Project | Job | Artifact name | Artifact type | Artifact size |\n|---------|-----|---------------|---------------|---------------|") # Start markdown friendly table
         for artifact in ci_job_artifacts:
             print('| [{project_name}]({project_web_url}) | {job_name} | {artifact_name} | {artifact_type} | {artifact_size} |'.format(project_name=artifact['project_path_with_namespace'], project_web_url=artifact['project_web_url'], job_name=artifact['job_id'], artifact_name=artifact['artifact_filename'], artifact_type=artifact['artifact_file_type'], artifact_size=render_size_mb(artifact['artifact_size'])))
     else:
@@ -429,8 +454,8 @@ content to an issue comment or description, or populate a Markdown file in a Git
 ```shell
 $ python3 get_all_projects_top_level_namespace_storage_analysis_cleanup_example.py
 
-|Project|Job|Artifact name|Artifact type|Artifact size|
-|-|-|-|-|-|
+| Project | Job | Artifact name | Artifact type | Artifact size |
+|---------|-----|---------------|---------------|---------------|
 | [gitlab-da/playground/artifact-gen-group/gen-job-artifacts-4](Gen Job Artifacts 4) | 4828297946 | artifacts.zip | archive | 50.0154 |
 | [gitlab-da/playground/artifact-gen-group/gen-job-artifacts-4](Gen Job Artifacts 4) | 4828297946 | metadata.gz | metadata | 0.0001 |
 | [gitlab-da/playground/artifact-gen-group/gen-job-artifacts-4](Gen Job Artifacts 4) | 4828297946 | job.log | trace | 0.0030 |
@@ -480,7 +505,7 @@ When the collection loops remove the object locks, the script deletes the job ar
             # age = calculate_age(job.created_at)
 
             for a in artifacts:
-                # ... removed analysis collection code for readability
+                # Analysis collection code removed for readability
 
                 # Advanced filtering: match job artifacts age and size against thresholds
                 if (float(age) > float(threshold_age)) or (float(a['size']) > float(threshold_size)):
@@ -511,9 +536,9 @@ The [artifacts for the most recent successful jobs](../ci/jobs/job_artifacts.md#
 
 To delete all job artifacts for a project:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle curl
+{{< tab title="curl" >}}
 
 ```shell
 export GL_PROJECT_ID=48349590
@@ -521,7 +546,9 @@ export GL_PROJECT_ID=48349590
 curl --silent --header "Authorization: Bearer $GITLAB_TOKEN" --request DELETE "https://gitlab.com/api/v4/projects/$GL_PROJECT_ID/artifacts"
 ```
 
-:::TabTitle GitLab CLI
+{{< /tab >}}
+
+{{< tab title="GitLab CLI" >}}
 
 ```shell
 glab api --method GET projects/$GL_PROJECT_ID/jobs | jq --compact-output '.[]' | jq --compact-output '.id, .artifacts'
@@ -529,13 +556,17 @@ glab api --method GET projects/$GL_PROJECT_ID/jobs | jq --compact-output '.[]' |
 glab api --method DELETE projects/$GL_PROJECT_ID/artifacts
 ```
 
-:::TabTitle Python
+{{< /tab >}}
+
+{{< tab title="Python" >}}
 
 ```python
         project.artifacts.delete()
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### Delete job logs
 
@@ -574,15 +605,18 @@ Support for creating a retention policy for job logs is proposed in [issue 37471
 
 ### Delete old pipelines
 
-Pipelines do not add to the overall storage usage, but if required you can automate their deletion.
+Pipelines do not add to the overall storage usage, but if required you can [automate their deletion](../ci/pipelines/settings.md#automatic-pipeline-cleanup).
 
 To delete pipelines based on a specific date, specify the `created_at` key.
 You can use the date to calculate the difference between the current date and
 when the pipeline was created. If the age is larger than the threshold, the pipeline is deleted.
 
-NOTE:
+{{< alert type="note" >}}
+
 The `created_at` key must be converted from a timestamp to Unix epoch time,
 for example with `date -d '2023-08-08T18:59:47.581Z' +%s`.
+
+{{< /alert >}}
 
 Example with GitLab CLI:
 
@@ -605,35 +639,143 @@ glab api --method GET projects/$GL_PROJECT_ID/pipelines | jq --compact-output '.
 In the following example that uses a Bash script:
 
 - `jq` and the GitLab CLI are installed and authorized.
-- The exported environment variable `GL_PROJECT_ID`.
+- The exported environment variable `GL_PROJECT_ID`. Defaults to the GitLab predefined variable `CI_PROJECT_ID`.
+- The exported environment variable `CI_SERVER_HOST` that points to the GitLab instance URL.
+
+{{< tabs >}}
+
+{{< tab title="Using the API with glab" >}}
 
 The full script `get_cicd_pipelines_compare_age_threshold_example.sh` is located in the [GitLab API with Linux Shell](https://gitlab.com/gitlab-da/use-cases/gitlab-api/gitlab-api-linux-shell) project.
 
 ```shell
-#/bin/bash
+#!/bin/bash
 
-CREATED_AT_ARR=$(glab api --method GET projects/$GL_PROJECT_ID/pipelines | jq --compact-output '.[]' | jq --compact-output '.created_at' | jq --raw-output @sh)
+# Required programs:
+# - GitLab CLI (glab): https://docs.gitlab.com/ee/editor_extensions/gitlab_cli/
+# - jq: https://jqlang.github.io/jq/
 
-for row in ${CREATED_AT_ARR[@]}
-do
-    stripped=$(echo $row | xargs echo)
-    #echo $stripped #DEBUG
+# Required variables:
+# - PAT: Project Access Token with API scope and Owner role, or Personal Access Token with API scope
+# - GL_PROJECT_ID: ID of the project where pipelines must be cleaned
+# - AGE_THRESHOLD (optional): Maximum age in days of pipelines to keep (default: 90)
 
-    CREATED_AT_TS=$(date -d "$stripped" +%s)
-    NOW=$(date +%s)
+set -euo pipefail
 
-    AGE=$(($NOW-$CREATED_AT_TS))
-    AGE_THRESHOLD=$((90*24*60*60)) # 90 days
+# Constants
+DEFAULT_AGE_THRESHOLD=90
+SECONDS_PER_DAY=$((24 * 60 * 60))
 
-    if [ $AGE -gt $AGE_THRESHOLD ];
-    then
-        echo "Pipeline age $AGE older than threshold $AGE_THRESHOLD, should be deleted."
-        # TODO call glab to delete the pipeline. Needs an ID collected from the glab call above.
+# Functions
+log_info() {
+    echo "[INFO] $1"
+}
+
+log_error() {
+    echo "[ERROR] $1" >&2
+}
+
+delete_pipeline() {
+    local project_id=$1
+    local pipeline_id=$2
+    if glab api --method DELETE "projects/$project_id/pipelines/$pipeline_id"; then
+        log_info "Deleted pipeline ID $pipeline_id"
     else
-        echo "Pipeline age $AGE not older than threshold $AGE_THRESHOLD. Ignore."
+        log_error "Failed to delete pipeline ID $pipeline_id"
     fi
-done
+}
+
+# Main script
+main() {
+    # Authenticate
+    if ! glab auth login --hostname "$CI_SERVER_HOST" --token "$PAT"; then
+        log_error "Authentication failed"
+        exit 1
+    fi
+
+    # Set variables
+    AGE_THRESHOLD=${AGE_THRESHOLD:-$DEFAULT_AGE_THRESHOLD}
+    AGE_THRESHOLD_IN_SECONDS=$((AGE_THRESHOLD * SECONDS_PER_DAY))
+    GL_PROJECT_ID=${GL_PROJECT_ID:-$CI_PROJECT_ID}
+
+    # Fetch pipelines
+    PIPELINES=$(glab api --method GET "projects/$GL_PROJECT_ID/pipelines")
+    if [ -z "$PIPELINES" ]; then
+        log_error "Failed to fetch pipelines or no pipelines found"
+        exit 1
+    fi
+
+    # Process pipelines
+    echo "$PIPELINES" | jq -r '.[] | [.id, .created_at] | @tsv' | while IFS=$'\t' read -r id created_at; do
+        CREATED_AT_TS=$(date -d "$created_at" +%s)
+        NOW=$(date +%s)
+        AGE=$((NOW - CREATED_AT_TS))
+
+        if [ "$AGE" -gt "$AGE_THRESHOLD_IN_SECONDS" ]; then
+            log_info "Pipeline ID $id created at $created_at is older than threshold $AGE_THRESHOLD days, deleting..."
+            delete_pipeline "$GL_PROJECT_ID" "$id"
+        else
+            log_info "Pipeline ID $id created at $created_at is not older than threshold $AGE_THRESHOLD days. Ignoring."
+        fi
+    done
+}
+
+main
 ```
+
+{{< /tab >}}
+
+{{< tab title="Using the glab CLI" >}}
+
+The full script `cleanup-old-pipelines.sh` is located in the [GitLab API with Linux Shell](https://gitlab.com/gitlab-da/use-cases/gitlab-api/gitlab-api-linux-shell) project.
+
+```shell
+#!/bin/bash
+
+set -euo pipefail
+
+# Required environment variables:
+# PAT: Project Access Token with API scope and Owner role, or Personal Access Token with API scope.
+# Optional environment variables:
+# AGE_THRESHOLD: Maximum age (in days) of pipelines to keep. Default: 90 days.
+# REPO: Repository to clean up. If not set, the current repository will be used.
+# CI_SERVER_HOST: GitLab server hostname.
+
+# Function to display error message and exit
+error_exit() {
+    echo "Error: $1" >&2
+    exit 1
+}
+
+# Validate required environment variables
+[[ -z "${PAT:-}" ]] && error_exit "PAT (Project Access Token or Personal Access Token) is not set."
+[[ -z "${CI_SERVER_HOST:-}" ]] && error_exit "CI_SERVER_HOST is not set."
+
+# Set and validate AGE_THRESHOLD
+AGE_THRESHOLD=${AGE_THRESHOLD:-90}
+[[ ! "$AGE_THRESHOLD" =~ ^[0-9]+$ ]] && error_exit "AGE_THRESHOLD must be a positive integer."
+
+AGE_THRESHOLD_IN_HOURS=$((AGE_THRESHOLD * 24))
+
+echo "Deleting pipelines older than $AGE_THRESHOLD days"
+
+# Authenticate with GitLab
+glab auth login --hostname "$CI_SERVER_HOST" --token "$PAT" || error_exit "Authentication failed"
+
+# Delete old pipelines
+delete_cmd="glab ci delete --older-than ${AGE_THRESHOLD_IN_HOURS}h"
+if [[ -n "${REPO:-}" ]]; then
+    delete_cmd+=" --repo $REPO"
+fi
+
+$delete_cmd || error_exit "Pipeline deletion failed"
+
+echo "Pipeline cleanup completed."
+```
+
+{{< /tab >}}
+
+{{< tab title="Using the API with Python" >}}
 
 You can also use the [`python-gitlab` API library](https://python-gitlab.readthedocs.io/en/stable/gl_objects/pipelines_and_jobs.html#project-pipelines) and
 the `created_at` attribute to implement a similar algorithm that compares the job artifact age:
@@ -656,7 +798,9 @@ the `created_at` attribute to implement a similar algorithm that compares the jo
                 pipeline_obj.delete()
 ```
 
-Automatic deletion of old pipelines is proposed in [issue 338480](https://gitlab.com/gitlab-org/gitlab/-/issues/338480).
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### List expiry settings for job artifacts
 
@@ -721,7 +865,7 @@ The following process describes how the script searches for the artifact expiry 
                  print(f"Exception searching artifacts on ci_pipelines: {e}".format(e=e))
 
     if len(ci_job_artifacts_expiry) > 0:
-        print("|Project|Job|Artifact expiry|\n|-|-|-|") #Start markdown friendly table
+        print("| Project | Job | Artifact expiry |\n|---------|-----|-----------------|") #Start markdown friendly table
         for k, details in ci_job_artifacts_expiry.items():
             if details['job_name'][0] == '.':
                 continue # ignore job templates that start with a '.'
@@ -742,13 +886,13 @@ The script does not print job templates that:
 ```shell
 export GL_GROUP_ID=56595735
 
-# Script requires pyyaml too.
-pip3 install python-gitlab pyyaml
+# Install script dependencies
+python3 -m pip install 'python-gitlab[yaml]'
 
 python3 get_all_cicd_config_artifacts_expiry.py
 
-|Project|Job|Artifact expiry|
-|-|-|-|
+| Project | Job | Artifact expiry |
+|---------|-----|-----------------|
 | [Gen Job Artifacts 4](https://gitlab.com/gitlab-da/playground/artifact-gen-group/gen-job-artifacts-4) | generator | 30 days |
 | [Gen Job Artifacts with expiry and included jobs](https://gitlab.com/gitlab-da/playground/artifact-gen-group/gen-job-artifacts-expiry-included-jobs) | included-job10 | 10 days |
 | [Gen Job Artifacts with expiry and included jobs](https://gitlab.com/gitlab-da/playground/artifact-gen-group/gen-job-artifacts-expiry-included-jobs) | included-job1 | 1 days |
@@ -789,9 +933,9 @@ Container registries are available [for projects](../api/container_registry.md#w
 
 To list Container Registries in a project:
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle curl
+{{< tab title="curl" >}}
 
 ```shell
 export GL_PROJECT_ID=48057080
@@ -806,7 +950,9 @@ curl --silent --header "Authorization: Bearer $GITLAB_TOKEN" "https://gitlab.com
 3401613
 ```
 
-:::TabTitle GitLab CLI
+{{< /tab >}}
+
+{{< tab title="GitLab CLI" >}}
 
 ```shell
 export GL_PROJECT_ID=48057080
@@ -829,7 +975,9 @@ glab api --method GET projects/$GL_PROJECT_ID/registry/repositories/4435617/tags
 3401613
 ```
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### Delete container images in bulk
 
@@ -840,10 +988,13 @@ you can configure:
 - The number of image tags to keep matching the tag name (`keep_n`)
 - The number of days before an image tag can be deleted (`older_than`)
 
-WARNING:
+{{< alert type="warning" >}}
+
 On GitLab.com, due to the scale of the container registry, the number of tags deleted by this API is limited.
 If your container registry has a large number of tags to delete, only some of them are deleted. You might need
 to call the API multiple times. To schedule tags for automatic deletion, use a [cleanup policy](#create-a-cleanup-policy-for-containers) instead.
+
+{{< /alert >}}
 
 The following example uses the [`python-gitlab` API library](https://python-gitlab.readthedocs.io/en/stable/gl_objects/repository_tags.html) to fetch a list of tags, and calls the `delete_in_bulk()` method with filter parameters.
 
@@ -1190,7 +1341,7 @@ generate-package:
 
 ### Generate storage usage with forks
 
-Use the following projects to test storage usage with [cost factors for forks](usage_quotas.md#view-project-fork-storage-usage):
+Use the following projects to test storage usage with [cost factors for forks](storage_usage_quotas.md#view-project-fork-storage-usage):
 
 - Fork [`gitlab-org/gitlab`](https://gitlab.com/gitlab-org/gitlab) into a new namespace or group (includes LFS, Git repository).
 - Fork [`gitlab-com/www-gitlab-com`](https://gitlab.com/gitlab-com/www-gitlab-com) into a new namespace or group.

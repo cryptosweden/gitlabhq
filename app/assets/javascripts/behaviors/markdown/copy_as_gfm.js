@@ -11,7 +11,7 @@ export class CopyAsGFM {
     const isIOS = /\b(iPad|iPhone|iPod)(?=;)/.test(userAgent);
     if (isIOS) return;
 
-    $(document).on('copy', '.md', (e) => {
+    $(document).on('copy', '.md, .duo-chat-message', (e) => {
       CopyAsGFM.copyAsGFM(e, CopyAsGFM.transformGFMSelection);
     });
     $(document).on('copy', 'pre.code.highlight, table.code td.line_content', (e) => {
@@ -63,6 +63,8 @@ export class CopyAsGFM {
     if (!gfm && !gfmHtml) return;
 
     e.preventDefault();
+    // See: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/178942#note_2325656736
+    e.stopImmediatePropagation();
 
     // We have the original selection already converted to gfm
     if (gfm) {
@@ -141,7 +143,8 @@ export class CopyAsGFM {
       codeElement = document.createElement('pre');
       codeElement.className = 'code highlight';
 
-      const lang = lineElements[0].getAttribute('lang');
+      const [firstLine] = lineElements;
+      const lang = firstLine.getAttribute('lang') || firstLine.dataset.lang;
       if (lang) {
         codeElement.setAttribute('lang', lang);
       }
@@ -188,6 +191,32 @@ export class CopyAsGFM {
 
   static quoted(markdown) {
     return `> ${markdown.split('\n').join('\n> ')}`;
+  }
+
+  static isGfmFragment(documentFragment) {
+    let foundMessage = Boolean(documentFragment.querySelector('.md'));
+    if (documentFragment.originalNodes) {
+      documentFragment.originalNodes.forEach((e) => {
+        let node = e;
+        do {
+          // Text nodes don't define the `matches` method
+          if (node.matches && node.matches('.md')) {
+            foundMessage = true;
+          }
+          node = node.parentNode;
+        } while (node && !foundMessage);
+      });
+    }
+    return foundMessage;
+  }
+
+  static selectionToGfm(root = document.querySelector('#content-body')) {
+    const documentFragment = getSelectedFragment(root);
+    if (!documentFragment || !CopyAsGFM.isGfmFragment(documentFragment)) return Promise.resolve('');
+    const el = CopyAsGFM.transformGFMSelection(documentFragment.cloneNode(true));
+    const blockquoteEl = document.createElement('blockquote');
+    blockquoteEl.appendChild(el);
+    return CopyAsGFM.nodeToGFM(blockquoteEl);
   }
 }
 

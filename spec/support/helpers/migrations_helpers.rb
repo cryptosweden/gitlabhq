@@ -1,20 +1,73 @@
 # frozen_string_literal: true
 
 module MigrationsHelpers
-  def active_record_base(database: nil)
-    database_name = database || self.class.metadata[:database] || :main
+  FINALIZE_FIRST_ERROR = <<ERROR
+Schema should not be specified for background migrations, finalize the migration first.
+The schema will be defaulted to the finalizing migration.
 
-    unless ::Gitlab::Database.all_database_connections.include?(database_name)
-      raise ArgumentError, "#{database_name} is not a valid argument"
+See https://docs.gitlab.com/ee/development/database/batched_background_migrations.html#finalize-a-batched-background-migration
+ERROR
+
+  def migration_out_of_test_window?(migration_class)
+    return false if ENV.fetch('RUN_ALL_MIGRATION_TESTS', false)
+
+    min_milestone = Gitlab::Database.min_schema_gitlab_version
+
+    if migration_class < Gitlab::Database::Migration[1.0]
+      # Skip unless database migration older than min_schema_gitlab_version
+      milestone = migration_class.try(:milestone)
+
+      # Missing milestone indicates that the migration is pre-16.7,
+      # which is old enough not to execute its tests
+      return true unless milestone
+
+      migration_milestone = Gitlab::VersionInfo.parse_from_milestone(milestone)
+
+      migration_milestone < min_milestone
+    elsif migration_class < Gitlab::BackgroundMigration::BatchedMigrationJob
+      finalized_by = finalized_by_version.presence
+
+      # Execute tests for batched background migrations that are not yet finalized
+      return false unless finalized_by
+
+      finalize_migration_class = migration_class_for(finalized_by)
+
+      # Execute tests if we can't find migration class
+      return false unless finalize_migration_class
+
+      milestone = finalize_migration_class.try(:milestone)
+
+      # Missing milestone indicates that the migration is pre-16.7,
+      # which is old enough not to execute its tests
+      return true unless milestone
+
+      migration_milestone = Gitlab::VersionInfo.parse_from_milestone(milestone)
+
+      # Skip tests if finalized before the last required stop
+      migration_milestone < min_milestone
+    else
+      false
     end
-
-    Gitlab::Database.database_base_models[database_name] || Gitlab::Database.database_base_models[:main]
   end
 
-  def table(name, database: nil)
+  def active_record_base(database: nil)
+    if database.present?
+      conn = Gitlab::Database.all_database_connections[database]
+      raise ArgumentError, "#{database} is not a valid argument" unless conn
+
+      return conn.klass
+    end
+
+    migration_schema = self.class.metadata[:migration]
+    Gitlab::Database.schemas_to_base_models.dig(migration_schema, 0) ||
+      Gitlab::Database.database_base_models[:main]
+  end
+
+  def table(name, database: nil, primary_key: nil)
     Class.new(active_record_base(database: database)) do
       self.table_name = name
       self.inheritance_column = :_type_disabled
+      self.primary_key = primary_key if primary_key.present?
 
       def self.name
         table_name.singularize.camelcase
@@ -24,14 +77,17 @@ module MigrationsHelpers
     end
   end
 
-  def partitioned_table(name, by: :created_at, strategy: :monthly)
-    klass = Class.new(active_record_base) do
+  def partitioned_table(name, database: nil, by: :created_at, **partitioning_options)
+    klass = Class.new(active_record_base(database: database)) do
       include PartitionedTable
 
       self.table_name = name
+      self.inheritance_column = :_type_disabled
       self.primary_key = :id
 
-      partitioned_by by, strategy: strategy
+      attr_readonly by if partitioning_options[:strategy] == :sliding_list
+
+      partitioned_by by, **partitioning_options.reverse_merge(strategy: :monthly)
 
       def self.name
         table_name.singularize.camelcase
@@ -41,12 +97,23 @@ module MigrationsHelpers
     klass.tap { Gitlab::Database::Partitioning.sync_partitions([klass]) }
   end
 
+  def ci_partitioned_table(name)
+    partitioned_table(
+      name,
+      database: :ci,
+      by: :partition_id,
+      strategy: :ci_sliding_list,
+      next_partition_if: false,
+      detach_partition_if: false
+    )
+  end
+
   def migrations_paths
     active_record_base.connection.migrations_paths
   end
 
   def migration_context
-    ActiveRecord::MigrationContext.new(migrations_paths, ActiveRecord::SchemaMigration)
+    ActiveRecord::MigrationContext.new(migrations_paths)
   end
 
   def migrations
@@ -121,10 +188,10 @@ module MigrationsHelpers
   end
 
   def finalized_by_version
-    finalized_by = ::Gitlab::Database::BackgroundMigration::BatchedBackgroundMigrationDictionary
+    finalized_by = ::Gitlab::Utils::BatchedBackgroundMigrationsDictionary
       .entry(described_class.to_s.demodulize)&.finalized_by
 
-    finalized_by.to_i if finalized_by
+    finalized_by.to_i if finalized_by.present?
   end
 
   def migration_schema_version
@@ -133,6 +200,8 @@ module MigrationsHelpers
     if metadata_schema == :latest
       migrations.last.version
     elsif self.class.metadata[:level] == :background_migration
+      raise FINALIZE_FIRST_ERROR if ENV['CI'].nil? && !metadata_schema.nil?
+
       metadata_schema || finalized_by_version || migrations.last.version
     else
       metadata_schema || previous_migration.version
@@ -212,6 +281,33 @@ module MigrationsHelpers
     schema_migrate_down!
 
     tests.before_up.call
+  end
+
+  private
+
+  def migration_class_for(timestamp)
+    migration_file = Dir[
+      *Rails.application.config.paths['db/migrate'].paths
+      .map { |dir| File.join(dir, "#{timestamp}_*.rb") }
+    ].first
+
+    return unless migration_file
+
+    begin
+      require Rails.root.join(migration_file).to_s
+    rescue LoadError
+      return
+    end
+
+    matches = File.basename(migration_file).match(/\A\d+_(?<name>.*)\.rb\z/)
+
+    return unless matches[:name]
+
+    begin
+      matches[:name].classify.constantize
+    rescue NameError
+      nil
+    end
   end
 end
 

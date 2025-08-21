@@ -1,71 +1,61 @@
-import { GlLink, GlIcon, GlAvatarsInline, GlAvatarLink, GlAvatar } from '@gitlab/ui';
+import { GlLink, GlAvatarsInline, GlAvatarLink, GlAvatar, GlIcon, GlBadge } from '@gitlab/ui';
 import { shallowMount, mount } from '@vue/test-utils';
-import { workItemDevelopmentNodes } from 'jest/work_items/mock_data';
-import { getIdFromGraphQLId } from '~/graphql_shared/utils';
-import { STATUS_OPEN, STATUS_CLOSED, STATUS_MERGED } from '~/issues/constants';
+import { workItemDevelopmentMRNodes } from 'jest/work_items/mock_data';
+import { STATUS_CLOSED } from '~/issues/constants';
 import WorkItemDevelopmentMRItem from '~/work_items/components/work_item_development/work_item_development_mr_item.vue';
+import toast from '~/vue_shared/plugins/global_toast';
+
+jest.mock('~/vue_shared/plugins/global_toast', () => jest.fn());
+jest.mock('~/lib/utils/datetime_utility', () => ({
+  localeDateFormat: {
+    asDateTimeFull: {
+      format: jest.fn().mockReturnValue('February 6, 2025 at 9:43:01 PM GMT'),
+    },
+  },
+  newDate: jest.fn((date) => new Date(date)),
+}));
 
 describe('WorkItemDevelopmentMRItem', () => {
   let wrapper;
 
-  const openMergeRequest = workItemDevelopmentNodes[0].mergeRequest;
+  const openMergeRequest = workItemDevelopmentMRNodes[0].mergeRequest;
+
   const closedMergeRequest = {
     ...openMergeRequest,
     state: STATUS_CLOSED,
   };
-  const mergedMergeRequest = {
-    ...openMergeRequest,
-    state: STATUS_MERGED,
-  };
 
-  const mergeRequestWithNoAssignees = workItemDevelopmentNodes[1].mergeRequest;
+  const mergeRequestWithNoAssignees = workItemDevelopmentMRNodes[1].mergeRequest;
 
-  const createComponent = ({ mergeRequest = openMergeRequest, mountFn = shallowMount } = {}) => {
+  const createComponent = ({
+    mergeRequest = openMergeRequest,
+    mountFn = shallowMount,
+    workItemFullPath = 'top-group/subgroup/my-project',
+  } = {}) => {
     wrapper = mountFn(WorkItemDevelopmentMRItem, {
       propsData: {
-        mergeRequest,
+        itemContent: mergeRequest,
+        workItemFullPath,
+      },
+      stubs: {
+        GlAvatarsInline,
       },
     });
   };
 
-  const findMRStatusBadge = () => wrapper.findComponent(GlIcon);
   const findMRTitle = () => wrapper.findComponent(GlLink);
+  const findMRReference = () => wrapper.find('[data-testid="mr-reference"]');
+  const findMRIcon = () => wrapper.findComponent(GlIcon);
   const findAssigneeAvatars = () => wrapper.findComponent(GlAvatarsInline);
   const findAvatarLink = () => wrapper.findComponent(GlAvatarLink);
   const findAvatar = () => wrapper.findComponent(GlAvatar);
-
-  describe('MR status badge', () => {
-    it.each`
-      state            | icon                     | mergeRequest          | iconClass
-      ${STATUS_OPEN}   | ${'merge-request'}       | ${openMergeRequest}   | ${'gl-text-green-500'}
-      ${STATUS_MERGED} | ${'merge'}               | ${mergedMergeRequest} | ${'gl-text-blue-500'}
-      ${STATUS_CLOSED} | ${'merge-request-close'} | ${closedMergeRequest} | ${'gl-text-red-500'}
-    `(
-      'renders icon "$icon" when the state of the MR is "$state"',
-      ({ icon, iconClass, mergeRequest }) => {
-        createComponent({ mergeRequest });
-
-        expect(findMRStatusBadge().props('name')).toBe(icon);
-        expect(findMRStatusBadge().attributes('class')).toBe(iconClass);
-      },
-    );
-  });
+  const findCopyReferenceDropdownItem = () => wrapper.find('[data-testid="mr-copy-reference"]');
+  const findBadge = () => wrapper.findComponent(GlBadge);
 
   describe('MR title', () => {
     it('should render the title as a link', () => {
       createComponent();
       expect(findMRTitle().attributes('href')).toBe(openMergeRequest.webUrl);
-    });
-
-    it('should have all the data attributes passed to the link so that a popover is rendered on hover', () => {
-      createComponent();
-
-      expect(findMRTitle().attributes()).toMatchObject({
-        'data-reference-type': 'merge_request',
-        'data-project-path': 'flightjs/Flight',
-        'data-iid': `${getIdFromGraphQLId(openMergeRequest.iid)}`,
-        'data-mr-title': openMergeRequest.title,
-      });
     });
   });
 
@@ -87,6 +77,67 @@ describe('WorkItemDevelopmentMRItem', () => {
 
       expect(findAvatarLink().exists()).toBe(true);
       expect(findAvatar().exists()).toBe(true);
+    });
+  });
+
+  it('has subtle class for closed merge requests', () => {
+    createComponent({ mergeRequest: closedMergeRequest });
+
+    expect(findMRTitle().classes()).toContain('gl-text-subtle');
+    expect(findMRIcon().attributes('class')).toContain('gl-fill-icon-subtle');
+  });
+
+  it('has icon tooltip', () => {
+    createComponent();
+
+    expect(findMRIcon().attributes('title')).toBe('Merge request');
+  });
+
+  describe('Badge', () => {
+    it('shows a badge when closed', () => {
+      createComponent({ mergeRequest: closedMergeRequest });
+
+      expect(findBadge().exists()).toBe(true);
+      expect(findBadge().props('variant')).toBe('danger');
+      expect(findBadge().attributes('title')).toBe('February 6, 2025 at 9:43:01 PM GMT');
+      expect(findBadge().text()).toBe('Closed');
+    });
+    it('shows a badge when merged', () => {
+      createComponent({ mergeRequest: mergeRequestWithNoAssignees });
+
+      expect(findBadge().exists()).toBe(true);
+      expect(findBadge().props('variant')).toBe('info');
+      expect(findBadge().attributes('title')).toBe('February 6, 2025 at 9:43:01 PM GMT');
+      expect(findBadge().text()).toBe('Merged');
+    });
+  });
+
+  describe('MR references', () => {
+    const expectedFullPath = `${openMergeRequest.project.fullPath}${openMergeRequest.reference}`;
+
+    it('should show only the reference when in same namespace', () => {
+      createComponent();
+      expect(findMRReference().text()).toBe(openMergeRequest.reference);
+      expect(findMRReference().attributes('title')).toBe(expectedFullPath);
+    });
+    it('should show the project when not in same namespace', () => {
+      createComponent({ workItemFullPath: 'gitlab-org/gitlab' });
+      expect(findMRReference().text()).toBe(
+        `${openMergeRequest.project.path}${openMergeRequest.reference}`,
+      );
+      expect(findMRReference().attributes('title')).toBe(expectedFullPath);
+    });
+    it('should copy the full path using copy reference', () => {
+      createComponent({ mountFn: mount });
+
+      const copyRefItem = findCopyReferenceDropdownItem();
+      expect(copyRefItem.exists()).toBe(true);
+      expect(copyRefItem.attributes('data-clipboard-text')).toBe(expectedFullPath);
+
+      const mockCopyToClipboard = jest.spyOn(wrapper.vm, 'copyToClipboard');
+      copyRefItem.vm.$emit('action');
+      expect(mockCopyToClipboard).toHaveBeenCalledWith(expectedFullPath, 'Copied reference.');
+      expect(toast).toHaveBeenCalledWith('Copied reference.');
     });
   });
 });

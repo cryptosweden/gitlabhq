@@ -1,19 +1,21 @@
 ---
-stage: Systems
-group: Distribution
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
+stage: GitLab Delivery
+group: Operate
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Encrypted Configuration
 ---
 
-# Encrypted Configuration
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 GitLab can read settings for certain features from encrypted settings files. The supported features are:
 
 - [Incoming email `user` and `password`](incoming_email.md#use-encrypted-credentials).
-- [LDAP `bind_dn` and `password`](auth/ldap/index.md#use-encrypted-credentials).
+- [LDAP `bind_dn` and `password`](auth/ldap/_index.md#use-encrypted-credentials).
 - [Service Desk email `user` and `password`](../user/project/service_desk/configure.md#use-encrypted-credentials).
 - [SMTP `user_name` and `password`](raketasks/smtp.md#secrets).
 

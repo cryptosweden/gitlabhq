@@ -7,12 +7,14 @@ import {
   GlLink,
   GlTooltip,
   GlSprintf,
-  GlTooltipDirective,
+  GlModal,
 } from '@gitlab/ui';
 // eslint-disable-next-line no-restricted-imports
 import { mapState, mapGetters, mapActions } from 'vuex';
-import { __ } from '~/locale';
-import { helpPagePath } from '~/helpers/help_page_helper';
+import { __, s__ } from '~/locale';
+import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import HelpPageLink from '~/vue_shared/components/help_page_link/help_page_link.vue';
+import HelpPopover from '~/vue_shared/components/help_popover.vue';
 import ImportTargetDropdown from '../../components/import_target_dropdown.vue';
 import ImportStatus from '../../components/import_status.vue';
 import { STATUSES } from '../../constants';
@@ -21,6 +23,8 @@ import { isProjectImportable, isImporting, isIncompatible, getImportStatus } fro
 export default {
   name: 'ProviderRepoTableRow',
   components: {
+    HelpPageLink,
+    HelpPopover,
     ImportStatus,
     ImportTargetDropdown,
     GlFormInput,
@@ -30,17 +34,17 @@ export default {
     GlLink,
     GlTooltip,
     GlSprintf,
+    GlModal,
   },
-  directives: {
-    GlTooltip: GlTooltipDirective,
+  mixins: [glFeatureFlagMixin()],
+  inject: {
+    userNamespace: {
+      default: null,
+    },
   },
   props: {
     repo: {
       type: Object,
-      required: true,
-    },
-    userNamespace: {
-      type: String,
       required: true,
     },
     optionalStages: {
@@ -57,6 +61,7 @@ export default {
   data() {
     return {
       isSelectedForReimport: false,
+      showMembershipsModal: false,
     };
   },
 
@@ -66,6 +71,11 @@ export default {
 
     displayFullPath() {
       return this.repo.importedProject?.fullPath.replace(/^\//, '');
+    },
+
+    showMembershipsWarning() {
+      const userNamespaceSelected = this.importTarget.targetNamespace === this.userNamespace;
+      return (this.isImportNotStarted || this.isSelectedForReimport) && userNamespaceSelected;
     },
 
     isFinished() {
@@ -120,6 +130,18 @@ export default {
         this.updateImportTarget({ newName: value });
       },
     },
+
+    personalNamespaceWarning() {
+      if (this.glFeatures.userMappingToPersonalNamespaceOwner) {
+        return s__(
+          'ImportProjects|When you import to a personal namespace, all contributions are assigned to the personal namespace owner and they cannot be reassigned. To map contributions to real users, import to a group instead.',
+        );
+      }
+
+      return s__(
+        'ImportProjects|When you import to a personal namespace, all contributions are assigned to a single non-functional user and they cannot be reassigned. To map contributions to real users, import to a group instead.',
+      );
+    },
   },
 
   methods: {
@@ -147,12 +169,20 @@ export default {
       }
     },
 
+    onImportClick() {
+      if (this.showMembershipsWarning) {
+        this.showMembershipsModal = true;
+      } else {
+        this.handleImportRepo();
+      }
+    },
+
     onSelect(value) {
       this.updateImportTarget({ targetNamespace: value });
     },
   },
-
-  helpUrl: helpPagePath('/user/project/import/github.md'),
+  actionPrimary: { text: s__('ImportProjects|Continue import') },
+  actionCancel: { text: __('Cancel') },
 };
 </script>
 
@@ -163,16 +193,20 @@ export default {
     :data-qa-source-project="repo.importSource.fullName"
   >
     <td>
-      <gl-link :href="repo.importSource.providerLink" target="_blank" data-testid="providerLink"
+      <gl-link :href="repo.importSource.providerLink" target="_blank" data-testid="provider-link"
         >{{ repo.importSource.fullName }}
-        <gl-icon v-if="repo.importSource.providerLink" name="external-link" />
+        <gl-icon
+          v-if="repo.importSource.providerLink"
+          name="external-link"
+          class="gl-fill-icon-link"
+        />
       </gl-link>
-      <div v-if="isFinished" class="gl-font-sm gl-mt-2">
+      <div v-if="isFinished" class="gl-mt-2 gl-text-sm">
         <gl-sprintf :message="s__('BulkImport|Last imported to %{link}')">
           <template #link>
             <gl-link
               :href="repo.importedProject.fullPath"
-              class="gl-font-sm"
+              class="gl-text-sm"
               target="_blank"
               data-testid="go-to-project-link"
             >
@@ -183,24 +217,24 @@ export default {
       </div>
     </td>
     <td data-testid="fullPath">
-      <div class="gl-display-flex gl-sm-flex-wrap">
+      <div class="gl-flex sm:gl-flex-wrap">
         <template v-if="repo.importSource.target">{{ repo.importSource.target }}</template>
         <template v-else-if="isImportNotStarted || isSelectedForReimport">
-          <div class="gl-display-flex gl-align-items-stretch gl-w-full">
+          <div class="gl-flex gl-w-full gl-items-stretch">
             <import-target-dropdown
               :selected="importTarget.targetNamespace"
               :user-namespace="userNamespace"
               @select="onSelect"
             />
             <div
-              class="gl-px-3 gl-display-flex gl-align-items-center gl-border-solid gl-border-0 gl-border-t-1 gl-border-b-1 gl-border-gray-400"
+              class="gl-flex gl-items-center gl-border-0 gl-border-b-1 gl-border-t-1 gl-border-solid gl-border-strong gl-px-3"
             >
               /
             </div>
             <gl-form-input
               ref="newNameInput"
               v-model="newNameInput"
-              class="gl-rounded-top-left-none gl-rounded-bottom-left-none"
+              class="gl-rounded-bl-none gl-rounded-tl-none !gl-shadow-inner-1-border-strong"
               data-testid="project-path-field"
             />
           </div>
@@ -220,7 +254,8 @@ export default {
               'ImportProjects|Imported files will be kept. You can import this repository again later.',
             )
           }}
-          <gl-link :href="$options.helpUrl" target="_blank">{{ __('Learn more.') }}</gl-link>
+          <help-page-link href="/user/project/import/github">{{ __('Learn more') }}</help-page-link
+          >.
         </div>
       </gl-tooltip>
       <gl-button
@@ -236,26 +271,55 @@ export default {
         v-if="isImportNotStarted || isFinished"
         type="button"
         data-testid="import-button"
-        @click="handleImportRepo()"
+        @click="onImportClick"
       >
         {{ importButtonText }}
       </gl-button>
-      <gl-icon
-        v-if="isFinished"
-        v-gl-tooltip
-        :size="16"
-        name="information-o"
+      <gl-modal
+        v-if="showMembershipsWarning"
+        v-model="showMembershipsModal"
         :title="
-          s__(
-            'ImportProjects|Re-import creates a new project. It does not sync with the existing project.',
-          )
+          s__('ImportProjects|Are you sure you want to import the project to a personal namespace?')
         "
-        class="gl-ml-3"
-      />
+        :action-primary="$options.actionPrimary"
+        :action-cancel="$options.actionCancel"
+        @primary="handleImportRepo"
+      >
+        <p>
+          {{ personalNamespaceWarning }}
+          <help-page-link
+            href="/user/project/import/_index"
+            anchor="user-contribution-and-membership-mapping"
+            >{{ __('Learn more') }}</help-page-link
+          >.
+        </p>
+      </gl-modal>
+      <span class="gl-ml-3 gl-inline-flex gl-gap-3">
+        <help-popover
+          v-show="showMembershipsWarning"
+          icon="warning"
+          trigger-class="!gl-text-warning"
+          data-testid="memberships-warning"
+        >
+          {{ personalNamespaceWarning }}
+          <help-page-link
+            href="/user/project/import/_index"
+            anchor="user-contribution-and-membership-mapping"
+            >{{ __('Learn more') }}</help-page-link
+          >.
+        </help-popover>
 
-      <gl-badge v-else-if="isIncompatible" variant="danger">{{
-        __('Incompatible project')
-      }}</gl-badge>
+        <help-popover v-if="isFinished" icon="information-o">
+          {{
+            s__(
+              'ImportProjects|Re-import creates a new project. It does not sync with the existing project.',
+            )
+          }}
+        </help-popover>
+        <gl-badge v-else-if="isIncompatible" variant="danger">{{
+          __('Incompatible project')
+        }}</gl-badge>
+      </span>
     </td>
   </tr>
 </template>

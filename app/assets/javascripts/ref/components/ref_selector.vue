@@ -1,9 +1,11 @@
 <script>
-import { GlBadge, GlIcon, GlCollapsibleListbox } from '@gitlab/ui';
+import { GlBadge, GlIcon, GlCollapsibleListbox, GlTooltipDirective } from '@gitlab/ui';
 import { debounce, isArray } from 'lodash';
 // eslint-disable-next-line no-restricted-imports
 import { mapActions, mapGetters, mapState } from 'vuex';
-import { sprintf } from '~/locale';
+import { sprintf, __ } from '~/locale';
+import ProtectedBadge from '~/vue_shared/components/badges/protected_badge.vue';
+import toast from '~/vue_shared/plugins/global_toast';
 import {
   ALL_REF_TYPES,
   SEARCH_DEBOUNCE_MS,
@@ -25,7 +27,9 @@ export default {
     GlBadge,
     GlIcon,
     GlCollapsibleListbox,
+    ProtectedBadge,
   },
+  directives: { GlTooltip: GlTooltipDirective },
   inheritAttrs: false,
   props: {
     disabled: {
@@ -92,6 +96,11 @@ export default {
       required: false,
       default: null,
     },
+    defaultBranch: {
+      type: String,
+      required: false,
+      default: null,
+    },
   },
   data() {
     return {
@@ -113,7 +122,28 @@ export default {
       };
     },
     listBoxItems() {
-      return formatListBoxItems(this.branches, this.tags, this.commits);
+      const { branches, tags, commits } = this;
+      let selectedRef;
+      if (this.selectedRef) {
+        const selectedRefFallback = !this.query && {
+          name: this.selectedRefForDisplay,
+          value: this.selectedRef,
+        };
+        selectedRef =
+          this.branches.find((ref) => (ref.value ?? ref.name) === this.selectedRef) ||
+          this.tags.find((ref) => (ref.value ?? ref.name) === this.selectedRef) ||
+          this.commits.find((ref) => (ref.value ?? ref.name) === this.selectedRef) ||
+          selectedRefFallback;
+      }
+
+      const defaultBranchData = branches.find((branch) => branch.name === this.defaultBranch);
+      // since the API for getting list of branches is paginated, we might not have a
+      // default branch available, so in that case we add it to the list
+      if (this.defaultBranch && !defaultBranchData) {
+        branches.push({ name: this.defaultBranch, value: this.defaultBranch, default: true });
+      }
+
+      return formatListBoxItems({ branches, tags, commits, selectedRef });
     },
     branches() {
       return this.enabledRefTypes.includes(REF_TYPE_BRANCHES) ? this.matches.branches.list : [];
@@ -252,6 +282,16 @@ export default {
     totalCountText(count) {
       return count > 999 ? this.i18n.totalCountLabel : `${count}`;
     },
+    isSelectedGroup(text) {
+      return text === this.i18n.selected;
+    },
+    onCopyToClipboard() {
+      if (this.selectedRef.startsWith(`refs/${TAG_REF_TYPE}`)) {
+        toast(__('Tag name copied to clipboard.'));
+        return;
+      }
+      toast(__('Branch name copied to clipboard.'));
+    },
   },
 };
 </script>
@@ -279,12 +319,34 @@ export default {
       @select="selectRef"
     >
       <template #group-label="{ group }">
-        {{ group.text }} <gl-badge>{{ totalCountText(group.options.length) }}</gl-badge>
+        <div class="gl-flex gl-items-center gl-justify-between gl-pb-1">
+          <div>
+            {{ group.text }}
+            <gl-badge v-if="!isSelectedGroup(group.text)" data-testid="count">{{
+              totalCountText(group.options.length)
+            }}</gl-badge>
+          </div>
+
+          <div
+            v-if="isSelectedGroup(group.text) && selectedRef"
+            v-gl-tooltip.hover.focus.click.html="{
+              placement: 'left',
+              boundary: 'scrollParent',
+            }"
+            :title="__('Copy selected ref')"
+            data-testid="clipboard"
+            :data-clipboard-text="selectedRefForDisplay"
+            class="gl-mr-3 gl-cursor-pointer"
+            @click="onCopyToClipboard"
+          >
+            <gl-icon name="copy-to-clipboard" />
+          </div>
+        </div>
       </template>
       <template #list-item="{ item }">
         {{ item.text }}
         <gl-badge v-if="item.default" variant="info">{{ i18n.defaultLabelText }}</gl-badge>
-        <gl-badge v-if="item.protected" variant="neutral">{{ i18n.protectedLabelText }}</gl-badge>
+        <protected-badge v-if="item.protected" />
       </template>
       <template #footer>
         <slot name="footer" v-bind="footerSlotProps"></slot>
@@ -292,9 +354,9 @@ export default {
           v-for="errorMessage in errors"
           :key="errorMessage"
           data-testid="red-selector-error-list"
-          class="gl-display-flex gl-align-items-flex-start gl-text-red-500 gl-mx-4 gl-my-3"
+          class="gl-mx-4 gl-my-3 gl-flex gl-items-start gl-text-danger"
         >
-          <gl-icon name="error" class="gl-mr-2 gl-mt-2 gl-flex-shrink-0" />
+          <gl-icon name="error" class="gl-mr-2 gl-mt-2 gl-shrink-0" />
           <span>{{ errorMessage }}</span>
         </div>
       </template>

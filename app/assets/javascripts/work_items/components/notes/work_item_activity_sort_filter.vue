@@ -20,7 +20,7 @@ export default {
       type: String,
       required: true,
     },
-    sortFilterProp: {
+    sortFilter: {
       type: String,
       required: true,
     },
@@ -36,11 +36,7 @@ export default {
       type: String,
       required: true,
     },
-    filterEvent: {
-      type: String,
-      required: true,
-    },
-    defaultSortFilterProp: {
+    defaultSortFilter: {
       type: String,
       required: true,
     },
@@ -50,6 +46,7 @@ export default {
     },
   },
   computed: {
+    // eslint-disable-next-line vue/no-unused-properties
     tracking() {
       return {
         category: TRACKING_CATEGORY_SHOW,
@@ -57,49 +54,41 @@ export default {
         property: `type_${this.workItemType}`,
       };
     },
-    getDropdownSelectedText() {
-      return this.selectedSortOption.text;
+    dropdownText() {
+      return this.selectedItem.text;
     },
-    selectedSortOption() {
-      return (
-        this.items.find(({ key }) => this.sortFilterProp === key) || this.defaultSortFilterProp
-      );
+    selectedItem() {
+      return this.items.find(({ key }) => this.sortFilter === key) || this.defaultSortFilter;
     },
   },
   methods: {
-    setDiscussionFilterOption(filterValue) {
-      this.$emit(this.filterEvent, filterValue);
-    },
-    fetchFilteredDiscussions(filterValue) {
-      if (this.isSortDropdownItemActive(filterValue)) {
+    handleSelect(sortFilter) {
+      if (sortFilter === this.sortFilter) {
         return;
       }
       this.track(this.trackingAction);
-      this.$emit(this.filterEvent, filterValue);
-    },
-    isSortDropdownItemActive(value) {
-      return value === this.sortFilterProp;
+      this.$emit('select', sortFilter);
     },
   },
 };
 </script>
 
 <template>
-  <div class="gl-display-inline-block gl-align-bottom">
+  <div class="gl-inline-block gl-align-bottom">
     <local-storage-sync
-      :value="sortFilterProp"
+      :value="sortFilter"
       :storage-key="storageKey"
       as-string
-      @input="setDiscussionFilterOption"
+      @input="$emit('select', $event)"
     />
     <gl-collapsible-listbox
-      :toggle-text="getDropdownSelectedText"
       :disabled="loading"
+      :toggle-text="dropdownText"
       :items="items"
-      :selected="sortFilterProp"
+      :selected="sortFilter"
       placement="bottom-end"
       size="small"
-      @select="fetchFilteredDiscussions"
+      @select="handleSelect"
     />
   </div>
 </template>

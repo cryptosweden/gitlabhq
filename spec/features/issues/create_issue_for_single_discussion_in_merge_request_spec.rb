@@ -3,6 +3,10 @@
 require 'spec_helper'
 
 RSpec.describe 'Resolve an open thread in a merge request by creating an issue', :js, feature_category: :team_planning do
+  # Ensure support bot user is created so creation doesn't count towards query limit
+  # See https://gitlab.com/gitlab-org/gitlab/-/issues/509629
+  let_it_be(:support_bot) { Users::Internal.support_bot }
+
   let(:user) { create(:user) }
   let(:project) { create(:project, :repository, only_allow_merge_if_all_discussions_are_resolved: true) }
   let(:merge_request) { create(:merge_request, source_project: project) }
@@ -10,7 +14,7 @@ RSpec.describe 'Resolve an open thread in a merge request by creating an issue',
 
   def resolve_discussion_selector
     title = 'Create issue to resolve thread'
-    url = new_project_issue_path(project, discussion_to_resolve: discussion.id, merge_request_to_resolve_discussions_of: merge_request.iid)
+    url = new_project_issue_path(project, discussion_to_resolve: discussion.id, merge_request_to_resolve_discussions_of: merge_request.iid, merge_request_id: merge_request.id)
     "a[title=\"#{title}\"][href=\"#{url}\"]"
   end
 
@@ -44,7 +48,7 @@ RSpec.describe 'Resolve an open thread in a merge request by creating an issue',
 
       it 'shows the link for creating a new issue when unresolving a thread' do
         page.within '.diff-content' do
-          click_button 'Unresolve thread'
+          click_button 'Reopen thread'
         end
 
         expect(page).to have_css resolve_discussion_selector
@@ -83,7 +87,7 @@ RSpec.describe 'Resolve an open thread in a merge request by creating an issue',
 
     it 'shows a notice to ask someone else to resolve the threads' do
       expect(page).to have_content("The thread at #{merge_request.to_reference} "\
-                                   "(discussion #{discussion.first_note.id}) will stay unresolved. "\
+                                   "(discussion #{discussion.first_note.id}) will stay open. "\
                                    "Ask someone with permission to resolve it.")
     end
   end

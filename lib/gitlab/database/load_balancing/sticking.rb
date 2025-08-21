@@ -10,6 +10,8 @@ module Gitlab
         # the primary.
         EXPIRATION = 30
 
+        attr_reader :load_balancer
+
         def initialize(load_balancer)
           @load_balancer = load_balancer
         end
@@ -35,7 +37,7 @@ module Gitlab
                      !use_primary_on_empty_location
                    end
 
-          ::Gitlab::Database::LoadBalancing::Session.current.use_primary! if !result && use_primary_on_failure
+          use_primary! if !result && use_primary_on_failure
 
           result
         end
@@ -45,8 +47,9 @@ module Gitlab
         def stick(namespace, id)
           with_primary_write_location do |location|
             set_write_location_for(namespace, id, location)
+            capture_stick_logs(namespace, id, location)
           end
-          ::Gitlab::Database::LoadBalancing::Session.current.use_primary!
+          use_primary!
         end
 
         def bulk_stick(namespace, ids)
@@ -54,12 +57,30 @@ module Gitlab
             ids.each do |id|
               set_write_location_for(namespace, id, location)
             end
+            capture_stick_logs(namespace, ids, location)
           end
-
-          ::Gitlab::Database::LoadBalancing::Session.current.use_primary!
+          use_primary!
         end
 
         private
+
+        def log_database_sticking_operations_enabled?
+          Feature.enabled?(:log_database_sticking_operations, Feature.current_pod)
+        end
+
+        def capture_stick_logs(namespace, ids, location)
+          return unless log_database_sticking_operations_enabled?
+          return unless namespace.to_sym == :user
+
+          id = Array(ids).first # Only log the first ID to reduce log volume for bulk operations
+
+          ::Gitlab::Database::LoadBalancing::Logger.info(
+            event: :load_balancer_stick_logging,
+            client_id: "#{namespace}/#{id}",
+            stick_id: id,
+            stick_type: namespace,
+            current_lsn: location)
+        end
 
         def with_primary_write_location
           # When only using the primary, there's no point in getting write
@@ -99,6 +120,10 @@ module Gitlab
 
         def with_redis(&block)
           Gitlab::Redis::DbLoadBalancing.with(&block)
+        end
+
+        def use_primary!
+          ::Gitlab::Database::LoadBalancing::SessionMap.current(@load_balancer).use_primary!
         end
       end
     end

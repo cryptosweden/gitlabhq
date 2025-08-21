@@ -4,7 +4,6 @@ class Notify < ApplicationMailer
   include ActionDispatch::Routing::PolymorphicRoutes
   include GitlabRoutingHelper
   include EmailsHelper
-  include ReminderEmailsHelper
   include IssuablesHelper
 
   mattr_accessor :override_layout_lookup_table, default: {}
@@ -16,6 +15,7 @@ class Notify < ApplicationMailer
   include Emails::PagesDomains
   include Emails::Projects
   include Emails::Profile
+  include Emails::PipelineSchedules
   include Emails::Pipelines
   include Emails::Members
   include Emails::AutoDevops
@@ -34,12 +34,10 @@ class Notify < ApplicationMailer
   helper DiffHelper
   helper BlobHelper
   helper EmailsHelper
-  helper ReminderEmailsHelper
   helper MembersHelper
   helper AvatarsHelper
   helper GitlabRoutingHelper
   helper IssuablesHelper
-  helper InProductMarketingHelper
   helper RegistrationsHelper
 
   layout :determine_layout
@@ -120,9 +118,10 @@ class Notify < ApplicationMailer
 
     subject << @project.name if @project
     subject << @group.name if @group
+    subject << @namespace.name if @namespace && !@project
     subject.concat(extra) if extra.present?
 
-    subject_with_suffix(subject)
+    subject_with_prefix_and_suffix(subject)
   end
 
   # Return a string suitable for inclusion in the 'Message-Id' mail header.
@@ -157,8 +156,9 @@ class Notify < ApplicationMailer
     mail_with_locale(headers)
   end
 
-  # `model` is used on EE code
-  def reply_display_name(_model)
+  def reply_display_name(model)
+    return model.namespace.full_name if model.is_a?(Issue)
+
     @project.full_name
   end
 
@@ -203,7 +203,7 @@ class Notify < ApplicationMailer
   end
 
   def reply_key
-    @reply_key ||= SentNotification.reply_key
+    @sent_notification&.partitioned_reply_key
   end
 
   # This method applies threading headers to the email to identify
@@ -231,7 +231,9 @@ class Notify < ApplicationMailer
   def add_unsubscription_headers_and_links
     return unless !@labels_url && @sent_notification && @sent_notification.unsubscribable?
 
-    list_unsubscribe_methods = [unsubscribe_sent_notification_url(@sent_notification, force: true)]
+    @unsubscribe_url = unsubscribe_sent_notification_url(@sent_notification)
+
+    list_unsubscribe_methods = [@unsubscribe_url]
     if Gitlab::Email::IncomingEmail.enabled? && Gitlab::Email::IncomingEmail.supports_wildcard?
       list_unsubscribe_methods << "mailto:#{Gitlab::Email::IncomingEmail.unsubscribe_address(reply_key)}"
     end
@@ -241,7 +243,6 @@ class Notify < ApplicationMailer
     # be signalled with using the List-Unsubscribe-Post header
     # See https://datatracker.ietf.org/doc/html/rfc8058
     headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click'
-    @unsubscribe_url = unsubscribe_sent_notification_url(@sent_notification)
   end
 
   def email_with_layout(to:, subject:, layout: 'mailer')

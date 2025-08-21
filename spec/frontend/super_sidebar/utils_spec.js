@@ -1,6 +1,11 @@
 import MockAdapter from 'axios-mock-adapter';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
-import { getTopFrequentItems, trackContextAccess, ariaCurrent } from '~/super_sidebar/utils';
+import {
+  getTopFrequentItems,
+  trackContextAccess,
+  ariaCurrent,
+  formatAsyncCount,
+} from '~/super_sidebar/utils';
 import axios from '~/lib/utils/axios_utils';
 import { useLocalStorageSpy } from 'helpers/local_storage_helper';
 import AccessorUtilities from '~/lib/utils/accessor';
@@ -20,13 +25,13 @@ describe('Super sidebar utils spec', () => {
     it.each([undefined, null, []])('returns empty array if `items` is %s', (items) => {
       const result = getTopFrequentItems(items);
 
-      expect(result.length).toBe(0);
+      expect(result).toHaveLength(0);
     });
 
     it('returns the requested amount of items', () => {
       const result = getTopFrequentItems(unsortedFrequentItems, maxItems);
 
-      expect(result.length).toBe(maxItems);
+      expect(result).toHaveLength(maxItems);
     });
 
     it('sorts frequent items in order of frequency and lastAccessedOn', () => {
@@ -224,6 +229,17 @@ describe('Super sidebar utils spec', () => {
       ${false} | ${null}
     `('returns `$expected` when `isActive` is `$isActive`', ({ isActive, expected }) => {
       expect(ariaCurrent(isActive)).toBe(expected);
+    });
+  });
+
+  describe('formatAsyncCount', () => {
+    it.each`
+      asyncCountValue | result
+      ${0}            | ${0}
+      ${10}           | ${10}
+      ${100234}       | ${'100.2k'}
+    `('returns `$result` when count is `$asyncCountValue`', ({ asyncCountValue, result }) => {
+      expect(formatAsyncCount(asyncCountValue)).toBe(`${result}`);
     });
   });
 });

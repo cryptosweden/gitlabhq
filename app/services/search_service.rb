@@ -14,31 +14,20 @@ class SearchService
     @params = Gitlab::Search::Params.new(params, detect_abuse: true)
   end
 
-  # rubocop: disable CodeReuse/ActiveRecord
   def project
-    strong_memoize(:project) do
-      if params[:project_id].present? && valid_request?
-        the_project = Project.find_by(id: params[:project_id])
-        can?(current_user, :read_project, the_project) ? the_project : nil
-      end
-    end
-  end
-  # rubocop: enable CodeReuse/ActiveRecord
+    return unless params[:project_id].present?
 
-  # rubocop: disable CodeReuse/ActiveRecord
+    the_project = Project.find_by_id(params[:project_id])
+    can?(current_user, :read_project, the_project) ? the_project : nil
+  end
+  strong_memoize_attr :project
   def group
-    strong_memoize(:group) do
-      if params[:group_id].present? && valid_request?
-        the_group = Group.find_by(id: params[:group_id])
-        can?(current_user, :read_group, the_group) ? the_group : nil
-      end
-    end
-  end
-  # rubocop: enable CodeReuse/ActiveRecord
+    return unless params[:group_id].present?
 
-  def projects
-    # overridden in EE
+    the_group = Group.find_by_id(params[:group_id])
+    can?(current_user, :read_group, the_group) ? the_group : nil
   end
+  strong_memoize_attr :group
 
   def search_type_errors
     # overridden in EE
@@ -53,10 +42,9 @@ class SearchService
   end
 
   def show_snippets?
-    strong_memoize(:show_snippets) do
-      params[:snippets] == 'true'
-    end
+    params[:snippets] == 'true'
   end
+  strong_memoize_attr :show_snippets?
 
   delegate :scope, to: :search_service
   delegate :valid_terms_count?, :valid_query_length?, to: :params
@@ -80,22 +68,19 @@ class SearchService
     search_results.aggregations(scope)
   end
 
-  def abuse_detected?
-    strong_memoize(:abuse_detected) do
-      params.abusive?
-    end
+  def search_counts
+    search_results.counts(scope)
   end
+
+  def abuse_detected?
+    params.abusive? || pipe_abuse_detector.abusive?
+  end
+  strong_memoize_attr :abuse_detected?
 
   def abuse_messages
-    return [] unless params.abusive?
+    return [] unless abuse_detected?
 
     params.abuse_detection.errors.full_messages
-  end
-
-  def valid_request?
-    strong_memoize(:valid_request) do
-      params.valid?
-    end
   end
 
   def level
@@ -110,29 +95,27 @@ class SearchService
   end
 
   def global_search_enabled_for_scope?
-    return false if show_snippets? && Feature.disabled?(:global_search_snippet_titles_tab, current_user, type: :ops)
+    return false if show_snippets? && !::Gitlab::CurrentSettings.global_search_snippet_titles_enabled?
 
     case params[:scope]
-    when 'blobs'
-      Feature.enabled?(:global_search_code_tab, current_user, type: :ops)
-    when 'commits'
-      Feature.enabled?(:global_search_commits_tab, current_user, type: :ops)
     when 'issues'
-      Feature.enabled?(:global_search_issues_tab, current_user, type: :ops)
+      ::Gitlab::CurrentSettings.global_search_issues_enabled?
     when 'merge_requests'
-      Feature.enabled?(:global_search_merge_requests_tab, current_user, type: :ops)
+      ::Gitlab::CurrentSettings.global_search_merge_requests_enabled?
     when 'snippet_titles'
-      Feature.enabled?(:global_search_snippet_titles_tab, current_user, type: :ops)
-    when 'wiki_blobs'
-      Feature.enabled?(:global_search_wiki_tab, current_user, type: :ops)
+      ::Gitlab::CurrentSettings.global_search_snippet_titles_enabled?
     when 'users'
-      Feature.enabled?(:global_search_users_tab, current_user, type: :ops)
+      ::Gitlab::CurrentSettings.global_search_users_enabled?
     else
       true
     end
   end
 
   private
+
+  def pipe_abuse_detector
+    Search::PipeAbuseDetector.new(search_type, params)
+  end
 
   def page
     [1, params[:page].to_i].max
@@ -178,7 +161,20 @@ class SearchService
   end
 
   def log_redacted_search_results(filtered_results)
-    logger.error(message: "redacted_search_results", filtered: filtered_results, current_user_id: current_user&.id, query: params[:search])
+    request_info = {
+      class: self.class.name,
+      message: 'redacted_search_results',
+      filtered: filtered_results,
+      current_user_id: current_user&.id,
+      query: params[:search],
+      "meta.search.type": search_type,
+      "meta.search.level": level,
+      "meta.search.scope": scope,
+      "meta.search.group_id": group&.id,
+      "meta.search.project_id": project&.id
+    }
+
+    logger.error(request_info)
   end
 
   def logger

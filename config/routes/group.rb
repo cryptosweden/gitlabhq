@@ -4,29 +4,30 @@ constraints(::Constraints::GroupUrlConstrainer.new) do
   scope(
     path: 'groups/*id',
     controller: :groups,
-    constraints: { id: Gitlab::PathRegex.full_namespace_route_regex, format: /(html|json|atom|ics)/ }
+    constraints: { id: Gitlab::PathRegex.full_namespace_route_regex, format: /(atom|ics)/ }
   ) do
     scope(path: '-') do
-      # These routes are legit and the cop rule will be improved in
-      # https://gitlab.com/gitlab-org/gitlab/-/issues/230703
-      get :edit, as: :edit_group # rubocop:disable Cop/PutGroupRoutesUnderScope
-      get :issues, as: :issues_group_calendar, action: :issues_calendar, constraints: lambda { |req| req.format == :ics } # rubocop:disable Cop/PutGroupRoutesUnderScope
-      get :issues, as: :issues_group # rubocop:disable Cop/PutGroupRoutesUnderScope
-      get :merge_requests, as: :merge_requests_group # rubocop:disable Cop/PutGroupRoutesUnderScope
-      get :projects, as: :projects_group # rubocop:disable Cop/PutGroupRoutesUnderScope
-      get :details, as: :details_group # rubocop:disable Cop/PutGroupRoutesUnderScope
-      get :activity, as: :activity_group # rubocop:disable Cop/PutGroupRoutesUnderScope
-      put :transfer, as: :transfer_group # rubocop:disable Cop/PutGroupRoutesUnderScope
-      post :export, as: :export_group # rubocop:disable Cop/PutGroupRoutesUnderScope
-      get :download_export, as: :download_export_group # rubocop:disable Cop/PutGroupRoutesUnderScope
-      get :unfoldered_environment_names, as: :unfoldered_environment_names_group # rubocop:disable Cop/PutGroupRoutesUnderScope
+      # rubocop:disable Cop/PutGroupRoutesUnderScope -- These routes are legit and the cop rule will be improved in https://gitlab.com/gitlab-org/gitlab/-/issues/230703
+      get :edit, as: :edit_group
+      get :issues, as: :issues_group_calendar, action: :issues_calendar, constraints: ->(req) { req.format == :ics }
+      get :issues, as: :issues_group
+      get :merge_requests, as: :merge_requests_group
+      get :details, as: :details_group
+      get :activity, as: :activity_group
+      put :transfer, as: :transfer_group
+      post :export, as: :export_group
+      get :download_export, as: :download_export_group
+      get :unfoldered_environment_names, as: :unfoldered_environment_names_group
 
-      get 'shared', action: :show, as: :group_shared # rubocop:disable Cop/PutGroupRoutesUnderScope
-      get 'inactive', action: :show, as: :group_inactive # rubocop:disable Cop/PutGroupRoutesUnderScope
-      get 'archived', to: redirect('groups/%{id}/-/inactive') # rubocop:disable Cop/PutGroupRoutesUnderScope
+      get 'shared', action: :show, as: :group_shared
+      get 'shared_groups', action: :show, as: :group_shared_groups
+      get 'inactive', action: :show, as: :group_inactive
+      get 'archived', to: redirect('groups/%{id}/-/inactive')
+      # rubocop:enable Cop/PutGroupRoutesUnderScope
     end
 
     get '/', action: :show, as: :group_canonical
+    delete '/', action: :destroy, as: :destroy_group_canonical
   end
 
   scope(
@@ -50,6 +51,11 @@ constraints(::Constraints::GroupUrlConstrainer.new) do
       resources :access_tokens, only: [:index, :create] do
         member do
           put :revoke
+          put :rotate
+        end
+
+        collection do
+          get :inactive, format: :json
         end
       end
 
@@ -71,7 +77,9 @@ constraints(::Constraints::GroupUrlConstrainer.new) do
       resource :packages_and_registries, only: [:show]
     end
 
-    resources :usage_quotas, only: [:index]
+    resource :usage_quotas do
+      get '/', to: 'usage_quotas#root'
+    end
 
     resource :variables, only: [:show, :update]
 
@@ -113,7 +121,16 @@ constraints(::Constraints::GroupUrlConstrainer.new) do
 
     resources :group_members, only: [:index, :update, :destroy], concerns: :access_requestable do
       post :resend_invite, on: :member
-      delete :leave, on: :collection
+
+      collection do
+        resource :bulk_reassignment_file, only: %i[show create], controller: 'bulk_placeholder_assignments' do
+          post :authorize
+        end
+
+        delete :leave
+
+        get :invite_search, format: :json
+      end
     end
 
     resources :group_links, only: [:update, :destroy], constraints: { id: /\d+|:id/ }
@@ -166,13 +183,23 @@ constraints(::Constraints::GroupUrlConstrainer.new) do
 
     resources :work_items, only: [:index, :show], param: :iid
 
+    resource :import_history, only: [:show]
+
+    namespace :observability do
+      resource :o11y_service_settings, only: [:update, :edit, :destroy]
+      resource :access_requests, only: [:new, :create]
+    end
+    resources :observability, only: [:show]
+
     post :preview_markdown
+
+    post '/restore' => '/groups#restore', as: :restore
   end
 
   scope(
     path: '*id',
     as: :group,
-    constraints: { id: Gitlab::PathRegex.full_namespace_route_regex, format: /(html|json|atom)/ },
+    constraints: { id: Gitlab::PathRegex.full_namespace_route_regex, format: /(atom)/ },
     controller: :groups
   ) do
     get '/', action: :show

@@ -5,12 +5,12 @@ import {
   GlDisclosureDropdownGroup,
   GlDisclosureDropdownItem,
 } from '@gitlab/ui';
-// eslint-disable-next-line no-restricted-imports
-import { mapGetters, mapActions } from 'vuex';
+import { mapState, mapActions } from 'pinia';
 import { getLocationHash, doesHashExistInUrl } from '~/lib/utils/url_utility';
 import { __ } from '~/locale';
 import Tracking from '~/tracking';
 import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
+import { useNotes } from '~/notes/store/legacy_notes';
 import {
   DISCUSSION_FILTERS_DEFAULT_VALUE,
   HISTORY_ONLY_FILTER_VALUE,
@@ -59,7 +59,7 @@ export default {
     };
   },
   computed: {
-    ...mapGetters([
+    ...mapState(useNotes, [
       'getNotesDataByProp',
       'timelineEnabled',
       'isLoading',
@@ -67,13 +67,6 @@ export default {
       'persistSortOrder',
       'noteableType',
     ]),
-    currentFilter() {
-      if (!this.currentValue) return this.filters[0];
-      return this.filters.find((filter) => filter.value === this.currentValue);
-    },
-    selectedSortOption() {
-      return SORT_OPTIONS.find(({ key }) => this.sortDirection === key);
-    },
     sortStorageKey() {
       return `sort_direction_${this.noteableType.toLowerCase()}`;
     },
@@ -97,7 +90,7 @@ export default {
     window.removeEventListener('hashchange', this.handleLocationHash);
   },
   methods: {
-    ...mapActions([
+    ...mapActions(useNotes, [
       'filterDiscussion',
       'setCommentsDisabled',
       'setTargetNoteHash',
@@ -163,7 +156,7 @@ export default {
     v-if="displayFilters"
     id="discussion-preferences"
     data-testid="discussion-preferences"
-    class="gl-display-inline-block gl-align-bottom full-width-mobile"
+    class="full-width-mobile gl-inline-block gl-align-bottom"
   >
     <local-storage-sync
       :value="sortDirection"
@@ -193,9 +186,8 @@ export default {
               name="mobile-issue-close"
               data-testid="dropdown-item-checkbox"
               :class="[
-                'gl-dropdown-item-check-icon',
+                'gl-new-dropdown-item-check-icon',
                 { 'gl-invisible': !isSortDropdownItemActive(key) },
-                'gl-text-blue-400',
               ]"
             />
             {{ text }}
@@ -221,9 +213,8 @@ export default {
               name="mobile-issue-close"
               data-testid="dropdown-item-checkbox"
               :class="[
-                'gl-dropdown-item-check-icon',
+                'gl-new-dropdown-item-check-icon',
                 { 'gl-invisible': filter.value !== currentValue },
-                'gl-text-blue-400',
               ]"
             />
             {{ filter.title }}

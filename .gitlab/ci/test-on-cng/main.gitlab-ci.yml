@@ -10,65 +10,82 @@ workflow:
   rules:
     - when: always
 
-.cng-base:
-  image: "${REGISTRY_HOST}/${REGISTRY_GROUP}/gitlab-build-images/${BUILD_OS}-${OS_VERSION}-ruby-${RUBY_VERSION}:git-2.36-lfs-2.9-chrome-${CHROME_VERSION}-docker-${DOCKER_VERSION}-kubectl-1.23-helm-3.14-kind-0.20"
-  stage: test
-  extends:
-    - .qa-cache
-    - .docker-in-docker
-    - .qa-run-e2e-with-bundler
-  needs: [build-cng]
-  tags: [e2e]
-  variables:
-    FF_NETWORK_PER_BUILD: "true"
-    NAMESPACE: gitlab
-    KUBECONFIG: /root/.kube/config
-    BUNDLE_WITHOUT: development
-    GITLAB_USERNAME: root
-    GITLAB_PASSWORD: 5iveL!fe
-    GITLAB_ADMIN_USERNAME: root
-    GITLAB_ADMIN_PASSWORD: 5iveL!fe
-    GITLAB_QA_ADMIN_ACCESS_TOKEN: $QA_ADMIN_ACCESS_TOKEN
-    KNAPSACK_TEST_FILE_PATTERN: "" # overridden because currently selective test execution is skipped
-    RSPEC_LAST_RUN_RESULTS_FILE: "$CI_PROJECT_DIR/qa/tmp/examples.txt"
-    QA_DOCKER_NETWORK: host
-    QA_GENERATE_ALLURE_REPORT: "true"
-    QA_CAN_TEST_PRAEFECT: "false"
-    QA_ALLOW_LOCAL_REQUESTS: "true"
-    QA_SUITE_STATUS_ENV_FILE: $CI_PROJECT_DIR/suite_status.env
-  before_script:
-    - echo "SUITE_RAN=true" > "$QA_SUITE_STATUS_ENV_FILE"
+.default-branch: &default-branch
+  if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+.cng-deploy-cmd:
+  script:
     # save extra values to be available for after_script if created dynamically
     - echo "${EXTRA_DEPLOY_VALUES}" > $CI_PROJECT_DIR/EXTRA_DEPLOY_VALUES
     - export GITLAB_DOMAIN="$(getent hosts docker | awk '{ print $1 }' | head -n1).nip.io"
-    - export QA_GITLAB_URL="http://gitlab.${GITLAB_DOMAIN}"
-    - cd qa && bundle install
     - |
-      bundle exec cng create deployment "${DEPLOYMENT_TYPE}" \
+      bundle exec orchestrator create deployment "${DEPLOYMENT_TYPE:-kind}" \
         --gitlab-domain "${GITLAB_DOMAIN}" \
         --timeout 5m \
-        --admin-password "${GITLAB_ADMIN_PASSWORD}" \
-        --admin-token "${GITLAB_QA_ADMIN_ACCESS_TOKEN}" \
         --chart-sha "${GITLAB_HELM_CHART_REF}" \
+        --admin-token "${GITLAB_QA_ADMIN_ACCESS_TOKEN}" \
+        --retry 1 \
+        --resource-preset high \
         --ci \
         ${EXTRA_DEPLOY_VALUES}
+    - export QA_GITLAB_URL="http://gitlab.${GITLAB_DOMAIN}"
+
+.cng-test:
+  image: "${REGISTRY_HOST}/${REGISTRY_GROUP}/gitlab-build-images/ci/${BUILD_OS}-${OS_VERSION}-slim-ruby-${RUBY_VERSION}:rubygems-${RUBYGEMS_VERSION}-git-${GIT_VERSION}-lfs-${LFS_VERSION}-chrome-${CHROME_VERSION}-docker-${DOCKER_VERSION}-kubectl-${KUBECTL_VERSION}-helm-${HELM_VERSION}-kind-${KIND_VERSION}"
+  stage: test
+  extends:
+    - .e2e-test-base
+    - .cng-qa-cache # cng-cache includes additional cached helm chart
+  needs:
+    - job: build-cng-env
+    - job: build-cng
+    - pipeline: $PARENT_PIPELINE_ID
+      job: clone-gitlab-repo
+  tags:
+    - e2e
+  variables:
+    NAMESPACE: gitlab
+    KUBECONFIG: /root/.kube/config
+    BUNDLE_WITHOUT: development
+    RSPEC_LAST_RUN_RESULTS_FILE: "$CI_PROJECT_DIR/qa/tmp/examples.txt"
+    ORCHESTRATOR_FORCE_COLOR: "true"
+    DEPLOYMENT_TYPE: kind
+    QA_DOCKER_NETWORK: host
+    QA_RUN_IN_PARALLEL: "true"
+    QA_PARALLEL_PROCESSES: 4
+    GITLAB_QA_ADMIN_ACCESS_TOKEN: $QA_ADMIN_ACCESS_TOKEN
+    GIT_STRATEGY: "none"
+  timeout: 30m
+  before_script:
+    - !reference [.qa-install, before_script]
+    - !reference [.cng-deploy-cmd, script]
+    - bundle exec orchestrator metrics start --interval 1
   after_script:
+    - !reference [.gitlab-qa-report, after_script]
+    - source $CI_PROJECT_DIR/scripts/utils.sh
     - |
-      if [ "$CI_JOB_STATUS" == "failed" ]; then
-        echo "SUITE_FAILED=true" >> "$QA_SUITE_STATUS_ENV_FILE"
-      fi
-    - cd qa
-    - bundle exec cng log events --save
-    - bundle exec cng log pods --save --containers all --no-fail-on-missing-pods
+      section_start "logs_section" "Saving environment logs"
+      bundle exec orchestrator log events --save || true
+      bundle exec orchestrator log pods --save --containers all --no-fail-on-missing-pods || true
+      section_end "logs_section"
+    - |
+      section_start "cpu_metrics" "CNG Env CPU Utilization Graphs"
+      bundle exec orchestrator metrics serve --type cpu || true
+      section_end "cpu_metrics"
+    - |
+      section_start "memory_metrics" "CNG Env Memory Utilization Graphs"
+      bundle exec orchestrator metrics serve --type memory || true
+      section_end "memory_metrics"
     # This command prints all the necessary arguments to be able to recreate the same deployment as on CI
     - |
-      bundle exec cng create deployment "${DEPLOYMENT_TYPE}" \
+      bundle exec orchestrator create deployment "${DEPLOYMENT_TYPE}" \
         --chart-sha "${GITLAB_HELM_CHART_REF}" \
+        --resource-preset high \
         --ci \
         --print-deploy-args \
         $(cat $CI_PROJECT_DIR/EXTRA_DEPLOY_VALUES)
   artifacts:
-    expire_in: 1 day
+    expire_in: 7 days
     when: always
     reports:
       junit: qa/tmp/rspec-*.xml
@@ -77,51 +94,89 @@ workflow:
       - qa/tmp
       - ${CI_PROJECT_DIR}/qa/*.log
 
+.cng-test-parallel:
+  extends: .cng-test
+  parallel: 10
+
+.with-coverband-arg:
+  variables:
+    EXTRA_DEPLOY_VALUES: --env COVERBAND_ENABLED=${COVERBAND_ENABLED}
+
 # ==========================================
 # Pre stage
 # ==========================================
 build-cng-env:
   stage: .pre
   extends: .build-cng-env
+  needs:
+    - pipeline: $PARENT_PIPELINE_ID
+      job: clone-gitlab-repo
+  variables:
+    CNG_COMMIT_SHA: $GITLAB_CNG_MIRROR_REF
+    CNG_ACCESS_TOKEN: $CNG_MIRROR_ACCESS_TOKEN
+    CNG_SKIP_REDUNDANT_JOBS: "true"
+    GIT_STRATEGY: none
+  # when running in backport, override CNG_COMMIT so it defaults to release branch instead
+  # this ensures images are built using same stable release branch in CNG repository
+  # this is needed in case CNG repository backports some fixes related to specific release
+  rules:
+    - if: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^[\d-]+-stable(-ee|-jh)?$/
+      variables:
+        CNG_COMMIT_SHA: ''
+    - when: always
 
 build-cng:
   stage: .pre
   extends: .build-cng
   needs: [build-cng-env]
-
-download-knapsack-report:
-  extends:
-    - .download-knapsack-report
-    - .ruby-image
-    - .qa-cache
-    - .rules:download-knapsack
   variables:
-    GIT_STRATEGY: clone
-  before_script:
-    - cd qa && bundle install
-  after_script: []
+    # use larger runner for complex rails build jobs
+    HIGH_CAPACITY_RUNNER_TAG: e2e
 
 # ==========================================
 # Test stage
 # ==========================================
-cng-instance:
-  extends: .cng-base
-  variables:
-    DEPLOYMENT_TYPE: kind
-  parallel: 5
-  allow_failure: true
+cng-helm-cache:
+  extends:
+    - .cng-test
+    - .cng-deploy-cmd
+    - .cng-qa-cache-push
+  before_script:
+    - !reference [.qa-install, before_script]
+  after_script: []
+  rules:
+    - <<: *default-branch
+      allow_failure: true
+      changes:
+        - .gitlab/ci/qa-common/variables.gitlab-ci.yml
+        - qa/gems/gitlab-orchestrator/lib/gitlab/orchestrator/lib/kind/cluster.rb
 
-# Test run against environment with minimum supported redis version defined in lib/system_check/app/redis_version_check.rb
-cng-qa-min-redis-version:
-  extends: .cng-base
+cng-instance:
+  extends:
+    - .cng-test-parallel
+    - .with-coverband-arg
+
+cng-registry:
+  extends:
+    - .cng-test
+    - .with-coverband-arg
   variables:
-    DEPLOYMENT_TYPE: kind
-    QA_RSPEC_TAGS: --tag health_check
+    QA_SCENARIO: Test::Integration::Registry
+    QA_RUN_IN_PARALLEL: "false"
+
+# == minimal supported redis version ==
+cng-qa-min-redis-version:
+  extends: .cng-test
+  variables:
+    QA_SCENARIO: Test::Instance::HealthCheck
   before_script:
     - |
       redis_version=$(awk -F "=" "/MIN_REDIS_VERSION =/ {print \$2}" $CI_PROJECT_DIR/lib/system_check/app/redis_version_check.rb | sed "s/['\" ]//g")
       export EXTRA_DEPLOY_VALUES="--set redis.image.tag=${redis_version%.*}"
-    - !reference [.cng-base, before_script]
+    - !reference [.cng-test, before_script]
+  rules:
+    - !reference [.rules:test:mr-code-patterns, rules] # run validation for minimal supported redis version only on application code changes
+    - *default-branch
 
 # ==========================================
 # Post test stage
@@ -135,19 +190,17 @@ export-test-metrics:
   extends:
     - .export-test-metrics
     - .rules:report:process-results
-  variables:
-    QA_METRICS_REPORT_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/test-metrics-*.json
+
+export-code-paths-mapping:
+  extends:
+    - .export-code-paths-mapping
 
 notify-slack:
   extends:
     - .notify-slack
     - .rules:report:process-results
-  variables:
-    QA_RSPEC_XML_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/rspec-*.xml
 
-upload-knapsack-report:
+upload-test-runtime-data:
   extends:
-    - .upload-knapsack-report
-    - .rules:report:process-results
-  variables:
-    QA_KNAPSACK_REPORT_FILE_PATTERN: $CI_PROJECT_DIR/qa/tmp/knapsack/*/*.json
+    - .upload-test-runtime-data
+    - .rules:report:upload-test-runtime-data

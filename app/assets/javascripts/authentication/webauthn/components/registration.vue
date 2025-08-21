@@ -18,7 +18,6 @@ import {
   I18N_DEVICE_NAME_PLACEHOLDER,
   I18N_ERROR_HTTP,
   I18N_ERROR_UNSUPPORTED_BROWSER,
-  I18N_INFO_TEXT,
   I18N_NOTICE,
   I18N_PASSWORD,
   I18N_PASSWORD_DESCRIPTION,
@@ -61,7 +60,6 @@ export default {
   I18N_DEVICE_NAME_PLACEHOLDER,
   I18N_ERROR_HTTP,
   I18N_ERROR_UNSUPPORTED_BROWSER,
-  I18N_INFO_TEXT,
   I18N_NOTICE,
   I18N_PASSWORD,
   I18N_PASSWORD_DESCRIPTION,
@@ -127,33 +125,40 @@ export default {
         this.state = STATE_ERROR;
       }
     },
+    reset() {
+      // We need to run this in the next tick because otherwise the cancel button doesn't collapse the form section.
+      setTimeout(() => {
+        this.state = STATE_READY;
+        this.form = { deviceName: '', password: '' };
+      });
+    },
   },
 };
 </script>
 
 <template>
-  <div>
+  <div class="gl-mb-5">
     <template v-if="isCurrentState($options.STATE_UNSUPPORTED)">
-      <gl-alert variant="danger" :dismissible="false">{{ errorMessage }}</gl-alert>
+      <gl-alert variant="danger" :dismissible="false">
+        {{ errorMessage }}
+        <template #actions>
+          <gl-button class="js-toggle-button">{{ __('Cancel') }}</gl-button>
+        </template>
+      </gl-alert>
     </template>
 
     <template v-else-if="isCurrentState($options.STATE_READY)">
-      <div class="row">
-        <div class="col-md-5">
-          <gl-button variant="confirm" @click="onRegister">{{
-            $options.I18N_BUTTON_SETUP
-          }}</gl-button>
-        </div>
-        <div class="col-md-7">
-          <p>{{ $options.I18N_INFO_TEXT }}</p>
-        </div>
-      </div>
+      <gl-button variant="confirm" @click="onRegister">{{ $options.I18N_BUTTON_SETUP }}</gl-button>
+      <gl-button class="js-toggle-button">{{ __('Cancel') }}</gl-button>
     </template>
 
     <template v-else-if="isCurrentState($options.STATE_WAITING)">
       <gl-alert :dismissible="false">
         {{ $options.I18N_STATUS_WAITING }}
-        <gl-loading-icon />
+        <gl-loading-icon size="lg" class="gl-p-4" />
+        <template #actions>
+          <gl-button class="js-toggle-button" @click="reset">{{ __('Cancel') }}</gl-button>
+        </template>
       </gl-alert>
     </template>
 
@@ -169,57 +174,60 @@ export default {
         </gl-sprintf>
       </gl-alert>
 
-      <div class="row">
-        <gl-form method="post" :action="targetPath" class="col-md-9" data-testid="create-webauthn">
-          <gl-form-group
-            v-if="passwordRequired"
-            :description="$options.I18N_PASSWORD_DESCRIPTION"
-            :label="$options.I18N_PASSWORD"
-            label-for="webauthn-registration-current-password"
-          >
-            <gl-form-input
-              id="webauthn-registration-current-password"
-              v-model="form.password"
-              name="current_password"
-              type="password"
-              autocomplete="current-password"
-              data-testid="current-password-input"
-            />
-          </gl-form-group>
+      <gl-form method="post" :action="targetPath" data-testid="create-webauthn">
+        <gl-form-group
+          v-if="passwordRequired"
+          :description="$options.I18N_PASSWORD_DESCRIPTION"
+          :label="$options.I18N_PASSWORD"
+          label-for="webauthn-registration-current-password"
+        >
+          <gl-form-input
+            id="webauthn-registration-current-password"
+            v-model="form.password"
+            name="current_password"
+            type="password"
+            autocomplete="current-password"
+            data-testid="current-password-input"
+          />
+        </gl-form-group>
 
-          <gl-form-group
-            :description="$options.I18N_DEVICE_NAME_DESCRIPTION"
-            :label="$options.I18N_DEVICE_NAME"
-            label-for="device-name"
-          >
-            <gl-form-input
-              id="device-name"
-              v-model="form.deviceName"
-              name="device_registration[name]"
-              :placeholder="$options.I18N_DEVICE_NAME_PLACEHOLDER"
-              data-testid="device-name-input"
-            />
-          </gl-form-group>
+        <gl-form-group
+          :description="$options.I18N_DEVICE_NAME_DESCRIPTION"
+          :label="$options.I18N_DEVICE_NAME"
+          label-for="device-name"
+        >
+          <gl-form-input
+            id="device-name"
+            v-model="form.deviceName"
+            name="device_registration[name]"
+            :placeholder="$options.I18N_DEVICE_NAME_PLACEHOLDER"
+            data-testid="device-name-input"
+          />
+        </gl-form-group>
 
-          <input type="hidden" name="device_registration[device_response]" :value="credentials" />
-          <input :value="csrfToken" type="hidden" name="authenticity_token" />
+        <input type="hidden" name="device_registration[device_response]" :value="credentials" />
+        <input :value="csrfToken" type="hidden" name="authenticity_token" />
 
+        <div class="gl-flex gl-gap-3">
           <gl-button type="submit" :disabled="disabled" variant="confirm">{{
             $options.I18N_BUTTON_REGISTER
           }}</gl-button>
-        </gl-form>
-      </div>
+          <gl-button class="js-toggle-button" @click="reset">{{ __('Cancel') }}</gl-button>
+        </div>
+      </gl-form>
     </template>
 
     <template v-else-if="isCurrentState($options.STATE_ERROR)">
-      <gl-alert
-        variant="danger"
-        :dismissible="false"
-        class="gl-mb-5"
-        :secondary-button-text="$options.I18N_BUTTON_TRY_AGAIN"
-        @secondaryAction="onRegister"
-      >
+      <gl-alert variant="danger" :dismissible="false">
         {{ errorMessage }}
+        <template #actions>
+          <div class="gl-flex gl-gap-3">
+            <gl-button variant="confirm" @click="onRegister">{{
+              $options.I18N_BUTTON_TRY_AGAIN
+            }}</gl-button>
+            <gl-button class="js-toggle-button" @click="reset">{{ __('Cancel') }}</gl-button>
+          </div>
+        </template>
       </gl-alert>
     </template>
   </div>

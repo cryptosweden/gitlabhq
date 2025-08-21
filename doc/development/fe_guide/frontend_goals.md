@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Frontend Goals
 ---
-
-# Frontend Goals
 
 This section defines the _desired state_ of the GitLab frontend and how we see it over the next few years. It is a living document and will adapt as technologies and team dynamics evolve.
 
@@ -156,10 +155,10 @@ Ideally, we should reduce the number of times user needs to go through this long
 
 The realistic goal is to move to _multiple SPAs_ experience where we define the _clusters_ of pages that form the user flow, and move this cluster from Rails routing to a single-page application with client-side routing. This way, we can load all the relevant context from HAML only once, and fetch all the additional data from the API depending on the route. An example of a cluster could be the following pages:
 
-- issues list
-- issue boards
-- issue details page
-- new issue
+- **Issues** page
+- **Issue boards** page
+- **Issue details** page
+- **New issue** page
 - editing an issue
 
 All of them have the same context (project path, current user etc.), we could easily fetch more data with issue-specific parameter (issue `iid`) and store the results on the client (so that opening the same issue won't require more API calls). This leads to a smooth user experience for navigating through issues.

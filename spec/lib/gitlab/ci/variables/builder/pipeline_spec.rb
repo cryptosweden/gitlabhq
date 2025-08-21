@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Variables::Builder::Pipeline, feature_category: :secrets_management do
+RSpec.describe Gitlab::Ci::Variables::Builder::Pipeline, feature_category: :ci_variables do
   let_it_be(:project) { create_default(:project, :repository, create_tag: 'test').freeze }
   let_it_be(:user) { create(:user) }
 
@@ -115,6 +115,7 @@ RSpec.describe Gitlab::Ci::Variables::Builder::Pipeline, feature_category: :secr
                 merge_request.source_branch
               ).to_s,
               'CI_MERGE_REQUEST_TITLE' => merge_request.title,
+              'CI_MERGE_REQUEST_DRAFT' => merge_request.work_in_progress?.to_s,
               'CI_MERGE_REQUEST_DESCRIPTION' => merge_request.description,
               'CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED' => 'false',
               'CI_MERGE_REQUEST_ASSIGNEES' => merge_request.assignee_username_list,
@@ -245,6 +246,7 @@ RSpec.describe Gitlab::Ci::Variables::Builder::Pipeline, feature_category: :secr
               'CI_MERGE_REQUEST_SOURCE_BRANCH_NAME' => merge_request.source_branch.to_s,
               'CI_MERGE_REQUEST_SOURCE_BRANCH_SHA' => merge_request.source_branch_sha,
               'CI_MERGE_REQUEST_TITLE' => merge_request.title,
+              'CI_MERGE_REQUEST_DRAFT' => merge_request.work_in_progress?.to_s,
               'CI_MERGE_REQUEST_DESCRIPTION' => merge_request.description,
               'CI_MERGE_REQUEST_ASSIGNEES' => merge_request.assignee_username_list,
               'CI_MERGE_REQUEST_MILESTONE' => milestone.title,
@@ -278,6 +280,18 @@ RSpec.describe Gitlab::Ci::Variables::Builder::Pipeline, feature_category: :secr
             'CI_EXTERNAL_PULL_REQUEST_TARGET_BRANCH_SHA' => pull_request.target_sha,
             'CI_EXTERNAL_PULL_REQUEST_SOURCE_BRANCH_NAME' => pull_request.source_branch,
             'CI_EXTERNAL_PULL_REQUEST_TARGET_BRANCH_NAME' => pull_request.target_branch
+          )
+      end
+    end
+
+    context 'when source is a pipeline schedule' do
+      let_it_be(:pipeline_schedule) { create(:ci_pipeline_schedule, project: project) }
+      let_it_be(:pipeline) { create(:ci_pipeline, pipeline_schedule: pipeline_schedule, project: project) }
+
+      it 'exposes the pipeline schedule description variable' do
+        expect(subject.to_hash)
+          .to include(
+            'CI_PIPELINE_SCHEDULE_DESCRIPTION' => pipeline.pipeline_schedule.description
           )
       end
     end

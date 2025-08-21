@@ -1,13 +1,13 @@
 <script>
 import {
+  GlBadge,
   GlDisclosureDropdown,
   GlDisclosureDropdownItem,
   GlFormCheckbox,
   GlIcon,
   GlTruncate,
-  GlBadge,
-  GlTooltipDirective,
 } from '@gitlab/ui';
+import ProtectedBadge from '~/vue_shared/components/badges/protected_badge.vue';
 import { s__, __ } from '~/locale';
 import ListItem from '~/vue_shared/components/registry/list_item.vue';
 import {
@@ -16,6 +16,8 @@ import {
   ERROR_PUBLISHING,
   PACKAGE_ERROR_STATUS,
   PACKAGE_DEFAULT_STATUS,
+  PACKAGE_DEPRECATED_STATUS,
+  PACKAGE_TYPE_CONAN,
   WARNING_TEXT,
 } from '~/packages_and_registries/package_registry/constants';
 import { getPackageTypeLabel } from '~/packages_and_registries/package_registry/utils';
@@ -23,26 +25,22 @@ import PackageTags from '~/packages_and_registries/shared/components/package_tag
 import PublishMessage from '~/packages_and_registries/shared/components/publish_message.vue';
 import PublishMethod from '~/packages_and_registries/package_registry/components/list/publish_method.vue';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 
 export default {
   name: 'PackageListRow',
   components: {
+    GlBadge,
     GlDisclosureDropdown,
     GlDisclosureDropdownItem,
     GlFormCheckbox,
     GlIcon,
     GlTruncate,
-    GlBadge,
     PackageTags,
     PublishMessage,
     PublishMethod,
     ListItem,
+    ProtectedBadge,
   },
-  directives: {
-    GlTooltip: GlTooltipDirective,
-  },
-  mixins: [glFeatureFlagsMixin()],
   inject: ['isGroupPage', 'canDeletePackages'],
   props: {
     packageEntity: {
@@ -85,23 +83,33 @@ export default {
         ? this.packageEntity.statusMessage
         : ERRORED_PACKAGE_TEXT;
     },
+    showBadges() {
+      return this.showTags || this.showBadgeProtected || this.showDeprecatedBadge;
+    },
     showTags() {
       return Boolean(this.packageEntity.tags?.nodes?.length);
     },
     showBadgeProtected() {
-      return (
-        Boolean(this.glFeatures.packagesProtectedPackages) &&
-        Boolean(this.packageEntity.protectionRuleExists)
-      );
+      return this.packageEntity.protectionRuleExists;
+    },
+    showDeprecatedBadge() {
+      return this.packageEntity.status === PACKAGE_DEPRECATED_STATUS;
     },
     nonDefaultRow() {
       return this.packageEntity.status && this.packageEntity.status !== PACKAGE_DEFAULT_STATUS;
     },
     errorPackageStyle() {
       return {
-        'gl-text-red-500': this.errorStatusRow,
+        'gl-text-danger': this.errorStatusRow,
         'gl-font-normal': this.errorStatusRow,
       };
+    },
+    isPackageTypeConan() {
+      return (
+        this.packageEntity.packageType === PACKAGE_TYPE_CONAN &&
+        this.packageEntity.metadata?.packageChannel !== '_' &&
+        this.packageEntity.metadata?.packageUsername !== '_'
+      );
     },
   },
   i18n: {
@@ -126,40 +134,47 @@ export default {
       />
     </template>
     <template #left-primary>
-      <div
-        class="gl-display-flex gl-align-items-center gl-gap-3 gl-mr-5 gl-min-w-0"
-        data-testid="package-name"
-      >
-        <router-link
-          v-if="containsWebPathLink"
-          :class="errorPackageStyle"
-          class="gl-text-body gl-min-w-0 gl-break-all"
-          data-testid="details-link"
-          :to="{ name: 'details', params: { id: packageId } }"
-        >
-          {{ packageEntity.name }}
-        </router-link>
-        <span v-else :class="errorPackageStyle">
-          {{ packageEntity.name }}
-        </span>
+      <div class="gl-mr-5 gl-flex gl-min-w-0 gl-items-center gl-gap-3" data-testid="package-name">
+        <div class="gl-gap-2 sm:gl-flex">
+          <router-link
+            v-if="containsWebPathLink"
+            :class="errorPackageStyle"
+            class="gl-min-w-0 gl-break-all gl-text-default"
+            data-testid="details-link"
+            :to="{ name: 'details', params: { id: packageId } }"
+          >
+            {{ packageEntity.name }}
+          </router-link>
+          <span v-else :class="errorPackageStyle">
+            {{ packageEntity.name }}
+          </span>
 
-        <div v-if="showTags || showBadgeProtected" class="gl-display-flex gl-gap-2">
+          <div v-if="isPackageTypeConan" data-testid="conan-metadata">
+            <span class="gl-hidden sm:gl-inline">&middot;</span>
+            <span class="gl-font-normal gl-text-subtle" data-testid="package-username">
+              {{ packageEntity.metadata.packageUsername }}
+            </span>
+            <gl-badge class="gl-ml-2" variant="info" data-testid="package-channel">
+              {{ packageEntity.metadata.packageChannel }}
+            </gl-badge>
+          </div>
+        </div>
+
+        <div v-if="showBadges" class="gl-flex gl-gap-3">
           <package-tags
             v-if="showTags"
-            class="gl-ml-2"
             :tags="packageEntity.tags.nodes"
             hide-label
             :tag-display-limit="1"
           />
 
-          <gl-badge
+          <protected-badge
             v-if="showBadgeProtected"
-            v-gl-tooltip="{ title: $options.i18n.badgeProtectedTooltipText }"
-            class="gl-ml-2"
-            icon-size="sm"
-            variant="neutral"
-          >
-            {{ __('protected') }}
+            :tooltip-text="$options.i18n.badgeProtectedTooltipText"
+          />
+
+          <gl-badge v-if="showDeprecatedBadge" variant="warning">
+            {{ s__('PackageRegistry|deprecated') }}
           </gl-badge>
         </div>
       </div>
@@ -167,17 +182,17 @@ export default {
     <template #left-secondary>
       <div
         v-if="!errorStatusRow"
-        class="gl-display-flex gl-align-items-center"
+        class="gl-flex gl-items-center"
         data-testid="left-secondary-infos"
       >
         <gl-truncate
-          class="gl-max-w-15 gl-md-max-w-26"
+          class="gl-max-w-15 md:gl-max-w-26"
           :text="packageEntity.version"
           :with-tooltip="true"
         />
         <span class="gl-ml-2" data-testid="package-type">&middot; {{ packageType }}</span>
       </div>
-      <div v-else class="gl-text-red-500">
+      <div v-else class="gl-text-danger">
         <gl-icon name="warning" :aria-label="$options.i18n.warning" data-testid="warning-icon" />
         <span data-testid="error-message"
           >{{ $options.i18n.errorPublishing }} &middot; {{ errorStatusMessage }}</span
@@ -207,11 +222,13 @@ export default {
         text-sr-only
         no-caret
       >
-        <gl-disclosure-dropdown-item data-testid="action-delete" @action="$emit('delete')">
+        <gl-disclosure-dropdown-item
+          data-testid="action-delete"
+          variant="danger"
+          @action="$emit('delete')"
+        >
           <template #list-item>
-            <span class="gl-text-red-500">
-              {{ $options.i18n.deletePackage }}
-            </span>
+            {{ $options.i18n.deletePackage }}
           </template>
         </gl-disclosure-dropdown-item>
       </gl-disclosure-dropdown>

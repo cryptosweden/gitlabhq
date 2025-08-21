@@ -5,8 +5,6 @@ module UseSqlFunctionForPrimaryKeyLookups
 
   class_methods do
     def _query_by_sql(sql, ...)
-      return super unless Feature.enabled?(:use_sql_functions_for_primary_key_lookups, Feature.current_request)
-
       replaced = try_replace_with_function_call(sql)
 
       return super unless replaced
@@ -14,16 +12,14 @@ module UseSqlFunctionForPrimaryKeyLookups
       super(replaced.arel, ...)
     end
 
-    def cached_find_by_statement(key, &block)
-      return super unless Feature.enabled?(:use_sql_functions_for_primary_key_lookups, Feature.current_request)
-
+    def cached_find_by_statement(*args, **kwargs, &_block)
       transformed_block = proc do |params|
         original = yield(params)
 
         replaced = try_replace_with_function_call(original.arel)
         replaced || original
       end
-      super(key, &transformed_block)
+      super(*args, **kwargs, &transformed_block)
     end
 
     # Tries to replace an arel representation of a primary key lookup with an optimized function call.

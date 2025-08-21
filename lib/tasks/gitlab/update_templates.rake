@@ -31,9 +31,19 @@ namespace :gitlab do
       raise "No admin user with SSH key could be found"
     end
 
+    tmp_organization_path = "tmp-organization-import-#{SecureRandom.hex(4)}"
+    puts "Creating temporary organization #{tmp_organization_path}"
+    tmp_organization = ::Organizations::Organization.create!(name: tmp_organization_path, path: tmp_organization_path)
+
     tmp_namespace_path = "tmp-project-import-#{Time.now.to_i}"
     puts "Creating temporary namespace #{tmp_namespace_path}"
-    tmp_namespace = Namespace.create!(owner: admin, name: tmp_namespace_path, path: tmp_namespace_path, type: Namespaces::UserNamespace.sti_name)
+    tmp_namespace = Namespace.create!(
+      owner: admin,
+      name: tmp_namespace_path,
+      path: tmp_namespace_path,
+      type: Namespaces::UserNamespace.sti_name,
+      organization: tmp_organization
+    )
 
     templates = if template_names.empty?
                   Gitlab::ProjectTemplate.all
@@ -44,6 +54,7 @@ namespace :gitlab do
     templates.each do |template|
       params = {
         namespace_id: tmp_namespace.id,
+        organization_id: tmp_organization.id,
         path: template.name,
         skip_wiki: true
       }
@@ -94,7 +105,7 @@ namespace :gitlab do
       project.reset
 
       Projects::ImportExport::ExportService.new(project, admin).execute
-      downloader.call(project.export_file, template.archive_path)
+      downloader.call(project.export_file(admin), template.archive_path)
 
       unless Projects::DestroyService.new(project, admin).execute
         puts "Failed to destroy project #{template.name} (but namespace will be cleaned up later)"
@@ -108,6 +119,12 @@ namespace :gitlab do
     if tmp_namespace
       puts "Destroying temporary namespace #{tmp_namespace_path}"
       tmp_namespace.destroy
+    end
+
+    if tmp_organization
+      puts "Destroying temporary organization #{tmp_organization_path}"
+      tmp_organization.users.delete_all
+      tmp_organization.destroy
     end
 
     puts "Done".green if success
@@ -127,7 +144,7 @@ namespace :gitlab do
   end
 
   def clone_repository(url, directory)
-    FileUtils.rm_rf(directory) if Dir.exist?(directory)
+    FileUtils.rm_rf(directory)
 
     system("git clone #{url} --depth=1 --branch=master #{directory}")
   end
@@ -139,7 +156,7 @@ namespace :gitlab do
   # - Dir.entries returns also the entries '.' and '..'
   def remove_unneeded_files(directory, regex)
     Dir.foreach(directory) do |file|
-      FileUtils.rm_rf(File.join(directory, file)) unless file =~ regex
+      FileUtils.rm_rf(File.join(directory, file)) unless regex.match?(file)
     end
   end
 

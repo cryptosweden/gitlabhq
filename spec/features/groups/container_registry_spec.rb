@@ -11,7 +11,7 @@ RSpec.describe 'Container Registry', :js, feature_category: :container_registry 
     create(:container_repository, name: 'my/image')
   end
 
-  let(:help_page_href) { help_page_path('administration/packages/container_registry_metadata_database') }
+  let(:help_page_href) { help_page_path('administration/packages/container_registry_metadata_database.md') }
 
   before do
     group.add_owner(user)
@@ -27,20 +27,20 @@ RSpec.describe 'Container Registry', :js, feature_category: :container_registry 
 
     visit_container_registry
 
-    expect(page).to have_link('next-generation container registry', href: help_page_href)
+    expect(page).to have_link('Learn more', href: help_page_href)
   end
 
   it 'has a page title set' do
     visit_container_registry
 
-    expect(page).to have_title _('Container Registry')
+    expect(page).to have_title _('Container registry')
   end
 
   it 'sidebar menu is open' do
     visit_container_registry
 
     expect(page).to have_active_navigation('Deploy')
-    expect(page).to have_active_sub_navigation('Container Registry')
+    expect(page).to have_active_sub_navigation('Container registry')
   end
 
   context 'when there are no image repositories' do
@@ -86,7 +86,7 @@ RSpec.describe 'Container Registry', :js, feature_category: :container_registry 
       end
 
       it 'shows the details breadcrumb' do
-        expect(find_by_testid('breadcrumb-links')).to have_link 'my/image'
+        expect(find_by_testid('breadcrumb-links')).to have_link container_repository.id
       end
 
       it 'shows the image title' do

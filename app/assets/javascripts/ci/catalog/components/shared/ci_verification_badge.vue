@@ -1,18 +1,23 @@
 <script>
 import { GlIcon, GlLink, GlPopover, GlSprintf } from '@gitlab/ui';
+import { GlBreakpointInstance } from '@gitlab/ui/src/utils';
 import { s__ } from '~/locale';
 import { helpPagePath } from '~/helpers/help_page_helper';
 import {
   VERIFICATION_LEVELS,
   VERIFICATION_LEVEL_VERIFIED_CREATOR_MAINTAINED,
+  VERIFICATION_LEVEL_VERIFIED_CREATOR_SELF_MANAGED,
 } from '../../constants';
 
 export default {
   i18n: {
     verifiedCreatorPopoverLink: s__('CiCatalog|What are verified component creators?'),
     verificationLevelPopoverLink: s__('CiCatalog|Learn more about designated creators'),
+    verificationLevelSelfManagedPopoverLink: s__(
+      'CiCatalog|Learn more about verified creators on GitLab Self-Managed or GitLab Dedicated.',
+    ),
   },
-  verificationHelpPagePath: helpPagePath('ci/components/index', {
+  verificationHelpPagePath: helpPagePath('ci/components/_index', {
     anchor: 'verified-component-creators',
   }),
   verificationLevelOptions: VERIFICATION_LEVELS,
@@ -38,10 +43,20 @@ export default {
     },
   },
   computed: {
+    isMobile() {
+      return ['sm', 'xs'].includes(GlBreakpointInstance.getBreakpointSize());
+    },
     popoverLink() {
-      return this.verificationLevel === VERIFICATION_LEVEL_VERIFIED_CREATOR_MAINTAINED
-        ? this.$options.i18n.verifiedCreatorPopoverLink
-        : this.$options.i18n.verificationLevelPopoverLink;
+      if (this.verificationLevel === VERIFICATION_LEVEL_VERIFIED_CREATOR_MAINTAINED) {
+        return this.$options.i18n.verifiedCreatorPopoverLink;
+      }
+      if (this.verificationLevel === VERIFICATION_LEVEL_VERIFIED_CREATOR_SELF_MANAGED) {
+        return this.$options.i18n.verificationLevelSelfManagedPopoverLink;
+      }
+      return this.$options.i18n.verificationLevelPopoverLink;
+    },
+    popoverPlacement() {
+      return this.isMobile ? 'bottom' : 'right';
     },
     popoverTarget() {
       return `${this.resourceId}-verification-icon`;
@@ -54,19 +69,19 @@ export default {
   <span>
     <span :id="popoverTarget">
       <gl-icon
-        class="gl-text-blue-500 gl-ml-1"
+        class="gl-ml-1 gl-text-blue-500"
         :name="$options.verificationLevelOptions[verificationLevel].icon"
       />
       <span
         v-if="showText"
         data-testid="verification-badge-text"
-        class="gl-text-blue-500 gl-font-bold gl-cursor-default"
+        class="gl-cursor-default gl-font-bold gl-text-blue-500"
       >
         {{ $options.verificationLevelOptions[verificationLevel].badgeText }}
       </span>
     </span>
-    <gl-popover :target="popoverTarget" triggers="hover focus">
-      <div class="gl-display-flex gl-flex-direction-column gl-gap-4">
+    <gl-popover :target="popoverTarget" triggers="hover focus" :placement="popoverPlacement">
+      <div class="gl-flex gl-flex-col gl-gap-4">
         <span>
           <gl-sprintf :message="$options.verificationLevelOptions[verificationLevel].popoverText">
             <template #bold="{ content }">

@@ -7,15 +7,19 @@ RSpec.describe "Create a work item from a task in a work item's description", fe
 
   let_it_be(:project) { create(:project) }
   let_it_be(:developer) { create(:user, developer_of: project) }
-  let_it_be(:work_item, refind: true) { create(:work_item, :confidential, project: project, description: '- [ ] A task in a list', lock_version: 3) }
+  let_it_be(:work_item, refind: true) do
+    create(:work_item, :confidential, project: project, description: '- [ ] A task in a list', lock_version: 3)
+  end
 
   let(:lock_version) { work_item.lock_version }
+  let(:task_type) { WorkItems::Type.default_by_type(:task) }
+  let(:task_gid) { task_type.to_gid.to_s }
   let(:input) do
     {
-      'id' => work_item.to_global_id.to_s,
+      'id' => work_item.to_gid.to_s,
       'workItemData' => {
         'title' => 'A task in a list',
-        'workItemTypeId' => WorkItems::Type.default_by_type(:task).to_global_id.to_s,
+        'workItemTypeId' => task_gid,
         'lineNumberStart' => 1,
         'lineNumberEnd' => 1,
         'lockVersion' => lock_version
@@ -25,6 +29,13 @@ RSpec.describe "Create a work item from a task in a work item's description", fe
 
   let(:mutation) { graphql_mutation(:workItemCreateFromTask, input, nil, ['productAnalyticsState']) }
   let(:mutation_response) { graphql_mutation_response(:work_item_create_from_task) }
+
+  before_all do
+    # Ensure support bot user is created so creation doesn't count towards query limit
+    # and we don't try to obtain an exclusive lease within a transaction.
+    # See https://gitlab.com/gitlab-org/gitlab/-/issues/509629
+    Users::Internal.support_bot_id
+  end
 
   context 'the user is not allowed to update a work item' do
     let(:current_user) { create(:user) }
@@ -36,6 +47,8 @@ RSpec.describe "Create a work item from a task in a work item's description", fe
     let(:current_user) { developer }
 
     it 'creates the work item' do
+      expect(task_type.to_gid.model_id.to_i).to eq(task_type.id)
+
       expect do
         post_graphql_mutation(mutation, current_user: current_user)
       end.to change(WorkItem, :count).by(1)

@@ -18,31 +18,7 @@ module SystemNotes
 
     # Called when the auto merge is aborted
     def abort_auto_merge(reason)
-      body = "aborted the automatic merge because #{reason}"
-
-      ##
-      # TODO: Abort message should be sent by the system, not a particular user.
-      # See https://gitlab.com/gitlab-org/gitlab-foss/issues/63187.
-      create_note(NoteSummary.new(noteable, project, author, body, action: 'merge'))
-    end
-
-    # Called when 'merge when pipeline succeeds' is executed
-    def merge_when_pipeline_succeeds(sha)
-      body = "enabled an automatic merge when the pipeline for #{sha} succeeds"
-
-      create_note(NoteSummary.new(noteable, project, author, body, action: 'merge'))
-    end
-
-    # Called when 'merge when pipeline succeeds' is canceled
-    def cancel_merge_when_pipeline_succeeds
-      body = 'canceled the automatic merge'
-
-      create_note(NoteSummary.new(noteable, project, author, body, action: 'merge'))
-    end
-
-    # Called when 'merge when pipeline succeeds' is aborted
-    def abort_merge_when_pipeline_succeeds(reason)
-      body = "aborted the automatic merge because #{reason}"
+      body = "aborted the automatic merge because #{format_reason(reason)}"
 
       ##
       # TODO: Abort message should be sent by the system, not a particular user.
@@ -81,12 +57,13 @@ module SystemNotes
 
     def diff_discussion_outdated(discussion, change_position)
       merge_request = discussion.noteable
-      diff_refs = change_position.diff_refs
+      diff_refs = change_position&.diff_refs
       version_index = merge_request.merge_request_diffs.viewable.count
-      position_on_text = change_position.on_text?
+
+      position_on_text = change_position&.on_text?
       text_parts = ["changed this #{position_on_text ? 'line' : 'file'} in"]
 
-      if version_params = merge_request.version_params_for(diff_refs)
+      if diff_refs && version_params = merge_request.version_params_for(diff_refs)
         repository = project.repository
         anchor = position_on_text ? change_position.line_code(repository) : change_position.file_hash
         url = url_helpers.diffs_project_merge_request_path(project, merge_request, version_params.merge(anchor: anchor))
@@ -208,6 +185,23 @@ module SystemNotes
       body = "requested changes"
 
       create_note(NoteSummary.new(noteable, project, author, body, action: 'requested_changes'))
+    end
+
+    def reviewed
+      body = "left review comments"
+
+      create_note(NoteSummary.new(noteable, project, author, body, action: 'reviewed'))
+    end
+
+    private
+
+    def format_reason(reason)
+      return if reason.blank?
+
+      formatted_reason = +reason
+      formatted_reason[0] = formatted_reason[0].downcase
+
+      formatted_reason
     end
   end
 end

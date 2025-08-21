@@ -3,22 +3,28 @@
 require 'spec_helper'
 
 RSpec.describe Pages::UpdateService, feature_category: :pages do
-  let_it_be(:admin) { create(:admin) }
   let_it_be(:user) { create(:user) }
   let_it_be_with_reload(:project) { create(:project) }
-  let(:params) { { pages_unique_domain_enabled: false, pages_https_only: false } }
+  let(:domain) { 'my.domain.com' }
+  let(:params) do
+    {
+      pages_unique_domain_enabled: false,
+      pages_https_only: false,
+      pages_primary_domain: domain
+    }
+  end
 
   before do
     stub_pages_setting(external_https: true)
+    create(:pages_domain, project: project, domain: domain)
   end
 
   describe '#execute' do
     context 'with sufficient permissions' do
-      let(:service) { described_class.new(project, admin, params) }
+      let(:service) { described_class.new(project, user, params) }
 
       before do
-        allow(admin).to receive(:can_read_all_resources?).and_return(true)
-        allow(service).to receive(:can?).with(admin, :update_pages, project).and_return(true)
+        allow(service).to receive(:can?).with(user, :update_pages, project).and_return(true)
       end
 
       context 'when updating page setting succeeds' do
@@ -29,6 +35,7 @@ RSpec.describe Pages::UpdateService, feature_category: :pages do
           expect { service.execute }
             .to change { project.reload.pages_https_only }.from(true).to(false)
             .and change { project.project_setting.pages_unique_domain_enabled }.from(true).to(false)
+            .and change { project.project_setting.pages_primary_domain }.from(nil).to(domain)
         end
 
         it 'returns a success response' do

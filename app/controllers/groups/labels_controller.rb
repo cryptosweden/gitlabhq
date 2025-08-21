@@ -18,7 +18,7 @@ class Groups::LabelsController < Groups::ApplicationController
       format.html do
         # at group level we do not want to list project labels,
         # we only want `only_group_labels = false` when pulling labels for label filter dropdowns, fetched through json
-        @labels = available_labels(params.merge(only_group_labels: true)).page(params[:page]) # rubocop: disable CodeReuse/ActiveRecord
+        @labels = available_labels(params.merge(only_group_labels: true)).page(params[:page])
         Preloaders::LabelsPreloader.new(@labels, current_user).preload_all
       end
       format.json do
@@ -99,6 +99,7 @@ class Groups::LabelsController < Groups::ApplicationController
 
   def label_params
     allowed = [:title, :description, :color]
+    allowed << :archived if Feature.enabled?(:labels_archive, :instance)
     allowed << :lock_on_merge if @group.supports_lock_on_merge?
 
     params.require(:label).permit(allowed)
@@ -130,7 +131,9 @@ class Groups::LabelsController < Groups::ApplicationController
         sort: sort,
         subscribed: options[:subscribed],
         include_descendant_groups: options[:include_descendant_groups],
-        search: options[:search]).execute
+        search: options[:search],
+        archived: options[:archived]
+      ).execute
   end
 
   def sort

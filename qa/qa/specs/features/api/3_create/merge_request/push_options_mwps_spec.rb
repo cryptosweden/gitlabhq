@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create' do
-    describe 'Merge request push options', product_group: :code_review do
+  RSpec.describe 'Create', feature_category: :code_review_workflow do
+    describe 'Merge request push options' do
       # If run locally on GDK, push options need to be enabled on the host with the following command:
       #
       # git config --global receive.advertisepushoptions true
@@ -12,12 +12,11 @@ module QA
       let(:project) { create(:project, :with_readme, name: 'merge-request-push-options') }
       let!(:runner) { create(:project_runner, project: project, name: "runner-for-#{project.name}", tags: ["runner-for-#{project.name}"]) }
 
-      after do |example|
+      after do
         runner.remove_via_api!
-        project.remove_via_api! unless example.exception
       end
 
-      it 'sets merge when pipeline succeeds', :blocking, testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347843' do
+      it 'sets merge when pipeline succeeds', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347843' do
         create(:commit, project: project, commit_message: 'Add .gitlab-ci.yml', actions: [
           {
             action: 'create',
@@ -36,7 +35,7 @@ module QA
           push.branch_name = branch
           push.merge_request_push_options = {
             create: true,
-            merge_when_pipeline_succeeds: true,
+            auto_merge: true,
             title: title
           }
         end
@@ -79,7 +78,7 @@ module QA
           push.branch_name = branch
           push.merge_request_push_options = {
             create: true,
-            merge_when_pipeline_succeeds: true,
+            auto_merge: true,
             title: title
           }
         end
@@ -87,7 +86,7 @@ module QA
         merge_request = project.merge_request_with_title(title)
 
         expect(merge_request).not_to be_nil, "There was a problem creating the merge request"
-        expect(merge_request[:merge_when_pipeline_succeeds]).to be true
+        expect(merge_request[:auto_merge]).to be true
 
         mr = nil
         begin

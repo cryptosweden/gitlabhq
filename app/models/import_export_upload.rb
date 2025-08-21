@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
 class ImportExportUpload < ApplicationRecord
+  include EachBatch
   include WithUploads
 
   belongs_to :project
   belongs_to :group
+  belongs_to :user
 
   # These hold the project Import/Export archives (.tar.gz files)
   mount_uploader :import_file, ImportExportUploader
@@ -20,6 +22,7 @@ class ImportExportUpload < ApplicationRecord
 
   scope :updated_before, ->(date) { where('updated_at < ?', date) }
   scope :with_export_file, -> { where.not(export_file: nil) }
+  scope :with_import_file, -> { where.not(import_file: nil) }
 
   def retrieve_upload(_identifier, paths)
     Upload.find_by(model: self, path: paths)
@@ -41,6 +44,13 @@ class ImportExportUpload < ApplicationRecord
     # storage bucket.
     Gitlab::ErrorTracking.track_exception(e)
     false
+  end
+
+  def uploads_sharding_key
+    {
+      project_id: project_id,
+      namespace_id: group_id
+    }
   end
 
   private

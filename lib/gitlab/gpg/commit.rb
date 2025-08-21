@@ -2,12 +2,16 @@
 
 module Gitlab
   module Gpg
-    class Commit < Gitlab::SignedCommit
+    class Commit < Gitlab::Repositories::BaseSignedCommit
       def update_signature!(cached_signature)
         using_keychain do |gpg_key|
-          cached_signature.update!(attributes(gpg_key))
-          @signature = cached_signature
+          update_signature_with_keychain!(cached_signature, gpg_key)
         end
+      end
+
+      def update_signature_with_keychain!(cached_signature, gpg_key)
+        cached_signature.update!(attributes(gpg_key))
+        @signature = cached_signature
       end
 
       private
@@ -81,7 +85,7 @@ module Gitlab
           gpg_key: gpg_key,
           gpg_key_primary_keyid: gpg_key&.keyid || verified_signature&.fingerprint,
           gpg_key_user_name: user_infos[:name],
-          gpg_key_user_email: user_infos[:email],
+          gpg_key_user_email: gpg_key_user_email(user_infos, verification_status),
           verification_status: verification_status
         }
       end
@@ -121,6 +125,13 @@ module Gitlab
         else
           GpgKey.find_by_primary_keyid(fingerprint) || GpgKeySubkey.find_by_keyid(fingerprint)
         end
+      end
+
+      def gpg_key_user_email(user_infos, verification_status)
+        return user_infos[:email] unless Feature.enabled?(:check_for_mailmapped_commit_emails,
+          @commit.project) && verification_status == :verified_system
+
+        user_infos[:email] || author_email
       end
     end
   end

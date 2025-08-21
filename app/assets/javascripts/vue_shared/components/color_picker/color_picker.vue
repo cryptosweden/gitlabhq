@@ -14,10 +14,8 @@
  */
 import { GlFormGroup, GlFormInput, GlFormInputGroup, GlLink, GlTooltipDirective } from '@gitlab/ui';
 import { uniqueId } from 'lodash';
-import { __ } from '~/locale';
-
-const PREVIEW_COLOR_DEFAULT_CLASSES =
-  'gl-relative gl-w-7 gl-bg-gray-10 gl-rounded-top-left-base gl-rounded-bottom-left-base';
+import { __, s__ } from '~/locale';
+import { BORDER_COLOR_ERROR, BORDER_COLOR_DEFAULT } from './constants';
 
 export default {
   name: 'ColorPicker',
@@ -65,21 +63,14 @@ export default {
   computed: {
     description() {
       return this.hasSuggestedColors
-        ? this.$options.i18n.fullDescription
-        : this.$options.i18n.shortDescription;
+        ? s__('ColorPicker|Enter any hex color or choose one of the suggested colors below.')
+        : s__('ColorPicker|Enter any hex color.');
     },
-    previewColor() {
-      if (this.state) {
-        return { backgroundColor: this.value };
-      }
-
-      return {};
-    },
-    previewColorClasses() {
-      const borderStyle =
-        this.state === false ? 'gl-shadow-inner-1-red-500' : 'gl-shadow-inner-1-gray-400';
-
-      return `${PREVIEW_COLOR_DEFAULT_CLASSES} ${borderStyle}`;
+    previewStyle() {
+      return {
+        backgroundColor: this.state ? this.value : null,
+        borderColor: this.state === false ? BORDER_COLOR_ERROR : BORDER_COLOR_DEFAULT,
+      };
     },
     hasSuggestedColors() {
       return Object.keys(this.suggestedColors).length;
@@ -89,10 +80,6 @@ export default {
     handleColorChange(color) {
       this.$emit('input', color.trim());
     },
-  },
-  i18n: {
-    fullDescription: __('Enter any color or choose one of the suggested colors below.'),
-    shortDescription: __('Enter any color.'),
   },
 };
 </script>
@@ -105,22 +92,31 @@ export default {
       :description="description"
       :invalid-feedback="invalidFeedback"
       :state="state"
-      :class="{ 'gl-mb-3!': hasSuggestedColors }"
+      :class="{ '!gl-mb-3': hasSuggestedColors }"
     >
+      <!-- eslint-disable @gitlab/vue-require-i18n-attribute-strings -->
       <gl-form-input-group
+        :label="label"
         max-length="7"
         type="text"
-        class="gl-align-center gl-rounded-0 gl-rounded-top-right-base gl-rounded-bottom-right-base gl-max-w-26"
+        class="gl-align-center gl-max-w-26 gl-rounded-none gl-rounded-br-base gl-rounded-tr-base"
         :value="value"
+        placeholder="#RRGGBB"
         :state="state"
+        aria-describedby="color-picker-hint"
         @input="handleColorChange"
       >
+        <!-- eslint-enable @gitlab/vue-require-i18n-attribute-strings -->
         <template #prepend>
-          <div :class="previewColorClasses" :style="previewColor" data-testid="color-preview">
+          <div
+            class="gl-relative gl-w-7 gl-rounded-bl-base gl-rounded-tl-base gl-border-1 gl-border-solid gl-bg-subtle"
+            :style="previewStyle"
+            data-testid="color-preview"
+          >
             <gl-form-input
               :id="id"
               type="color"
-              class="gl-absolute gl-top-0 gl-left-0 gl-h-full! gl-p-0! gl-m-0! gl-opacity-0"
+              class="gl-absolute gl-left-0 gl-top-0 !gl-m-0 !gl-h-full !gl-p-0 gl-opacity-0"
               tabindex="-1"
               :value="value"
               @input="handleColorChange"
@@ -136,10 +132,13 @@ export default {
         :key="hex"
         v-gl-tooltip
         :title="name"
+        :aria-label="name"
         :style="{ backgroundColor: hex }"
-        class="gl-rounded-base gl-w-7 gl-h-7 gl-display-inline-block gl-mr-3 gl-mb-3 gl-text-decoration-none"
+        class="gl-mb-3 gl-mr-3 gl-inline-block gl-h-7 gl-w-7 gl-rounded-base gl-no-underline"
         @click.prevent="handleColorChange(hex)"
       />
     </div>
+
+    <span id="color-picker-hint" class="gl-sr-only">{{ description }}</span>
   </div>
 </template>

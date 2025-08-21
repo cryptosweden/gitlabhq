@@ -15,6 +15,7 @@ export default function createComponent({
   componentProps = {},
   listProps = {},
   apolloQueryHandlers = [],
+  apolloResolvers = {},
   provide = {},
   data = {},
   stubs = {
@@ -22,22 +23,39 @@ export default function createComponent({
     BoardNewItem,
     BoardCard,
   },
-  issuesCount,
+  mountOptions = {},
+  issuesCount = undefined,
+  totalIssueWeight = undefined,
 } = {}) {
   Vue.use(VueApollo);
 
-  const fakeApollo = createMockApollo([
-    [listQuery, jest.fn().mockResolvedValue(boardListQueryResponse({ issuesCount }))],
-    ...apolloQueryHandlers,
-  ]);
+  const queryVariables = totalIssueWeight !== undefined ? { totalIssueWeight } : { issuesCount };
+
+  const fakeApollo = createMockApollo(
+    [
+      [listQuery, jest.fn().mockResolvedValue(boardListQueryResponse(queryVariables))],
+      ...apolloQueryHandlers,
+    ],
+    apolloResolvers,
+  );
 
   const list = {
     ...mockList,
     ...listProps,
   };
 
-  if (!Object.prototype.hasOwnProperty.call(listProps, 'issuesCount')) {
+  if (
+    !Object.prototype.hasOwnProperty.call(listProps, 'issuesCount') &&
+    totalIssueWeight === undefined
+  ) {
     list.issuesCount = 1;
+  }
+
+  if (
+    !Object.prototype.hasOwnProperty.call(listProps, 'totalIssueWeight') &&
+    issuesCount === undefined
+  ) {
+    list.totalIssueWeight = 0;
   }
 
   const component = shallowMount(BoardList, {
@@ -47,6 +65,7 @@ export default function createComponent({
       canAdminList: true,
       boardId: 'gid://gitlab/Board/1',
       filterParams: {},
+      columnIndex: 1,
       ...componentProps,
     },
     provide: {
@@ -67,6 +86,7 @@ export default function createComponent({
       ...provide,
     },
     stubs,
+    ...mountOptions,
     data() {
       return {
         ...data,

@@ -8,12 +8,13 @@
   = render "layouts/bizible"
 = render_if_exists "layouts/google_tag_manager_body"
 
-= render_if_exists 'devise/shared/delete_unconfirmed_users_flash'
+.gl-mb-6
+  = render_if_exists 'devise/shared/delete_unconfirmed_users_flash'
 
 .well-confirmation.gl-text-center.gl-mb-6
   %h1.gl-mt-0
-    = _("Almost there...")
-  %p{ class: 'gl-mb-6 gl-font-lg!' }
+    = _("Almost there…")
+  %p{ class: 'gl-mb-6 !gl-text-lg' }
     = _('Please check your email %{email} to confirm your account') % { email: user_email }
     %br
     = _('If the email address is incorrect, you can %{registration_link_start}register again with a different email%{registration_link_end}.').html_safe % { registration_link_start: registration_link_start, registration_link_end: link_end }

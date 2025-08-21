@@ -100,6 +100,13 @@ RSpec.shared_examples 'job token for package GET requests' do
   end
 end
 
+RSpec.shared_examples 'enforcing read_packages job token policy' do
+  it_behaves_like 'enforcing job token policies', :read_packages,
+    allow_public_access_for_enabled_project_features: :package_registry do
+    let(:headers) { job_basic_auth_header(target_job) }
+  end
+end
+
 RSpec.shared_examples 'job token for package uploads' do |authorize_endpoint: false, accept_invalid_username: false|
   context 'with job token headers' do
     let(:headers) { basic_auth_header(::Gitlab::Auth::CI_JOB_USER, job.token).merge(workhorse_headers) }
@@ -187,7 +194,7 @@ end
 RSpec.shared_examples 'a successful package creation' do
   it 'creates npm package with file' do
     expect { subject }
-      .to change { project.packages.count }.by(1)
+      .to change { ::Packages::Npm::Package.for_projects(project).count }.by(1)
       .and change { Packages::PackageFile.count }.by(1)
       .and change { Packages::Tag.count }.by(1)
       .and change { Packages::Npm::Metadatum.count }.by(1)

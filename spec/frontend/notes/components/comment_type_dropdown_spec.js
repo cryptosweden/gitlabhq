@@ -28,6 +28,12 @@ describe('CommentTypeDropdown component', () => {
     );
   };
 
+  it('has correct button type for quick submit', () => {
+    mountComponent();
+
+    expect(findCommentButton().attributes('type')).toBe('submit');
+  });
+
   it.each`
     isInternalNote | isReviewDropdown | buttonText
     ${false}       | ${false}         | ${COMMENT_FORM.comment}
@@ -81,7 +87,7 @@ describe('CommentTypeDropdown component', () => {
     findDiscussionListboxOption().trigger('click');
 
     expect(wrapper.emitted('change')[0]).toEqual([constants.COMMENT]);
-    expect(wrapper.emitted('change').length).toEqual(1);
+    expect(wrapper.emitted('change')).toHaveLength(1);
   });
 
   it('Should emit `click` event when clicking on the action button', () => {

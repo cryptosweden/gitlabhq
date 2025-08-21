@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module Releases
   ##
   # The GroupReleasesFinder does not support all the options of ReleasesFinder
@@ -33,7 +34,9 @@ module Releases
       Gitlab::Pagination::Keyset::InOperatorOptimization::QueryBuilder.new(
         scope: releases_scope,
         array_scope: Project.for_group_and_its_subgroups(parent).select(:id),
-        array_mapping_scope: ->(project_id_expression) { Release.where(Release.arel_table[:project_id].eq(project_id_expression)) },
+        array_mapping_scope: ->(project_id_expression) {
+          Release.where(Release.arel_table[:project_id].eq(project_id_expression))
+        },
         finder_query: ->(order_by, id_expression) { Release.where(Release.arel_table[:id].eq(id_expression)) }
       )
       .execute

@@ -4,6 +4,9 @@ module Gitlab
   module GithubImport
     module Importer
       class NoteImporter
+        include Gitlab::Import::UsernameMentionRewriter
+        include ::Import::PlaceholderReferences::Pusher
+
         attr_reader :note, :project, :client, :user_finder
 
         # note - An instance of `Gitlab::GithubImport::Representation::Note`.
@@ -33,7 +36,8 @@ module Gitlab
             discussion_id: note.discussion_id,
             system: false,
             created_at: note.created_at,
-            updated_at: note.updated_at
+            updated_at: note.updated_at,
+            imported_from: ::Import::HasImportSource::IMPORT_SOURCES[:github]
           }
 
           Note.new(attributes.merge(importing: true)).validate!
@@ -44,7 +48,9 @@ module Gitlab
           # Note: if you're going to replace `legacy_bulk_insert` with something that trigger callback
           # to generate HTML version - you also need to regenerate it in
           # Gitlab::GithubImport::Importer::NoteAttachmentsImporter.
-          ApplicationRecord.legacy_bulk_insert(Note.table_name, [attributes]) # rubocop:disable Gitlab/BulkInsert
+          ids = ApplicationRecord.legacy_bulk_insert(Note.table_name, [attributes], return_ids: true) # rubocop:disable Gitlab/BulkInsert
+
+          push_references_by_ids(project, ids, Note, :author_id, note[:author]&.id)
         end
 
         # Returns the ID of the issue or merge request to create the note for.
@@ -55,8 +61,7 @@ module Gitlab
         private
 
         def note_body(author_found)
-          text = MarkdownText.convert_ref_links(note.note, project)
-          MarkdownText.format(text, note.author, author_found)
+          MarkdownText.format(note.note, note.author, author_found, project: project, client: client)
         end
       end
     end

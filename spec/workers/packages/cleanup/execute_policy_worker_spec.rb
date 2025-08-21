@@ -5,6 +5,12 @@ require 'spec_helper'
 RSpec.describe Packages::Cleanup::ExecutePolicyWorker, feature_category: :package_registry do
   let(:worker) { described_class.new }
 
+  it_behaves_like 'worker with data consistency', described_class, data_consistency: :sticky
+
+  it 'has :none deduplicate strategy' do
+    expect(described_class.get_deduplicate_strategy).to eq(:none)
+  end
+
   describe '#perform_work' do
     subject(:perform_work) { worker.perform_work }
 
@@ -34,7 +40,7 @@ RSpec.describe Packages::Cleanup::ExecutePolicyWorker, feature_category: :packag
 
     context 'with runnable policies linked to packages' do
       let_it_be(:policy) { create(:packages_cleanup_policy, :runnable, keep_n_duplicated_package_files: '1') }
-      let_it_be(:package) { create(:package, project: policy.project) }
+      let_it_be(:package) { create(:generic_package, project: policy.project) }
 
       let_it_be(:package_file1) { create(:package_file, file_name: 'test1', package: package) }
       let_it_be(:package_file2) { create(:package_file, file_name: 'test1', package: package) }
@@ -79,7 +85,7 @@ RSpec.describe Packages::Cleanup::ExecutePolicyWorker, feature_category: :packag
 
       context 'with several eligible policies' do
         let_it_be(:policy2) { create(:packages_cleanup_policy, :runnable) }
-        let_it_be(:package2) { create(:package, project: policy2.project) }
+        let_it_be(:package2) { create(:generic_package, project: policy2.project) }
 
         before do
           policy2.update_column(:next_run_at, 100.years.ago)
@@ -102,7 +108,7 @@ RSpec.describe Packages::Cleanup::ExecutePolicyWorker, feature_category: :packag
 
     context 'with runnable policy linked to packages in a disabled state' do
       let_it_be(:policy) { create(:packages_cleanup_policy, :runnable, keep_n_duplicated_package_files: 'all') }
-      let_it_be(:package) { create(:package, project: policy.project) }
+      let_it_be(:package) { create(:generic_package, project: policy.project) }
 
       it_behaves_like 'not executing any policy'
     end
@@ -133,14 +139,14 @@ RSpec.describe Packages::Cleanup::ExecutePolicyWorker, feature_category: :packag
 
     context 'with runnable policies linked to packages' do
       let_it_be(:policy) { create(:packages_cleanup_policy, :runnable) }
-      let_it_be(:package) { create(:package, project: policy.project) }
+      let_it_be(:package) { create(:generic_package, project: policy.project) }
 
       it { is_expected.to eq(1) }
     end
 
     context 'with runnable policy linked to packages in a disabled state' do
       let_it_be(:policy) { create(:packages_cleanup_policy, :runnable, keep_n_duplicated_package_files: 'all') }
-      let_it_be(:package) { create(:package, project: policy.project) }
+      let_it_be(:package) { create(:generic_package, project: policy.project) }
 
       it { is_expected.to eq(0) }
     end

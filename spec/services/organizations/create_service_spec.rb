@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Organizations::CreateService, feature_category: :cell do
+RSpec.describe Organizations::CreateService, feature_category: :organization do
   describe '#execute' do
     let_it_be(:user) { create(:user) }
 
@@ -66,16 +66,16 @@ RSpec.describe Organizations::CreateService, feature_category: :cell do
       end
     end
 
-    context 'when `allow_organization_creation` FF is disabled' do
+    context 'when `organization_switching` FF is disabled' do
       before do
-        stub_feature_flags(allow_organization_creation: false)
+        stub_feature_flags(organization_switching: false)
       end
 
       it 'returns an error' do
         expect(response).to be_error
 
         expect(response.message)
-          .to match_array(['Feature flag `allow_organization_creation` is not enabled for this user.'])
+          .to match_array(['Feature flag `organization_switching` is not enabled for this user.'])
       end
     end
   end

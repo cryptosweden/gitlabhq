@@ -36,6 +36,16 @@ RSpec.shared_examples 'an email sent to a user' do
   end
 end
 
+RSpec.shared_examples 'an email with suffix' do
+  before do
+    stub_config_setting(email_subject_suffix: 'Suffix')
+  end
+
+  it 'adds a correct suffix to subject' do
+    expect(subject.subject).to end_with('| Suffix')
+  end
+end
+
 RSpec.shared_examples 'an email that contains a header with author username' do
   it 'has X-GitLab-Author header containing author\'s username' do
     is_expected.to have_header 'X-GitLab-Author', user.username
@@ -44,7 +54,7 @@ end
 
 RSpec.shared_examples 'an email with X-GitLab headers containing IDs' do
   it 'has X-GitLab-*-ID header' do
-    is_expected.to have_header "X-GitLab-#{model.class.name}-ID", model.id.to_s
+    is_expected.to have_header "X-GitLab-#{model.class.name.gsub(/::/, '-')}-ID", model.id.to_s
   end
 
   it 'has X-GitLab-*-IID header if model has iid defined' do
@@ -83,13 +93,13 @@ RSpec.shared_examples 'a new thread email with reply-by-email enabled' do
 
     aggregate_failures do
       is_expected.to have_header('Message-ID', "<#{route_key}@#{host}>")
-      is_expected.to have_header('References', /\A<reply-.*@#{host}>\Z/ )
+      is_expected.to have_header('References', /\A<reply-.*@#{host}>\Z/)
     end
   end
 end
 
-RSpec.shared_examples 'a thread answer email with reply-by-email enabled' do
-  include_examples 'an email with X-GitLab headers containing project details'
+RSpec.shared_examples 'a thread answer email with reply-by-email enabled' do |group_level = false|
+  include_examples 'an email with X-GitLab headers containing project details' unless group_level
   include_examples 'an email with X-GitLab headers containing IDs'
 
   it 'has the characteristics of a threaded reply' do
@@ -99,14 +109,14 @@ RSpec.shared_examples 'a thread answer email with reply-by-email enabled' do
     aggregate_failures do
       is_expected.to have_header('Message-ID', /\A<.*@#{host}>\Z/)
       is_expected.to have_header('In-Reply-To', "<#{route_key}@#{host}>")
-      is_expected.to have_header('References', /\A<reply-.*@#{host}> <#{route_key}@#{host}>\Z/ )
+      is_expected.to have_header('References', /\A<reply-.*@#{host}> <#{route_key}@#{host}>\Z/)
       is_expected.to have_subject(/^Re: /)
     end
   end
 end
 
-RSpec.shared_examples 'an email starting a new thread with reply-by-email enabled' do
-  include_examples 'an email with X-GitLab headers containing project details'
+RSpec.shared_examples 'an email starting a new thread with reply-by-email enabled' do |group_level = false|
+  include_examples 'an email with X-GitLab headers containing project details' unless group_level
   include_examples 'an email with X-GitLab headers containing IDs'
   include_examples 'a new thread email with reply-by-email enabled'
 
@@ -130,10 +140,8 @@ RSpec.shared_examples 'an email starting a new thread with reply-by-email enable
   end
 end
 
-RSpec.shared_examples 'an answer to an existing thread with reply-by-email enabled' do
-  include_examples 'an email with X-GitLab headers containing project details'
-  include_examples 'an email with X-GitLab headers containing IDs'
-  include_examples 'a thread answer email with reply-by-email enabled'
+RSpec.shared_examples 'an answer to an existing thread with reply-by-email enabled' do |group_level = false|
+  include_examples 'a thread answer email with reply-by-email enabled', group_level
 
   context 'when reply-by-email is enabled with incoming address with %{key}' do
     it 'has a Reply-To header' do
@@ -143,7 +151,7 @@ RSpec.shared_examples 'an answer to an existing thread with reply-by-email enabl
 
   context 'when reply-by-email is enabled with incoming address without %{key}' do
     include_context 'reply-by-email is enabled with incoming address without %{key}'
-    include_examples 'a thread answer email with reply-by-email enabled'
+    include_examples 'a thread answer email with reply-by-email enabled', group_level
 
     it 'has a Reply-To header' do
       is_expected.to have_header 'Reply-To', /<reply@#{Gitlab.config.gitlab.host}>\Z/
@@ -175,10 +183,16 @@ RSpec.shared_examples 'it should show Gmail Actions Join now link' do
   it { is_expected.to have_body_text('Join now') }
 end
 
-RSpec.shared_examples 'it should show Gmail Actions View Issue link' do
+RSpec.shared_examples 'it should show Gmail Actions View Issue link' do |group_level = false|
   it_behaves_like 'it should have Gmail Actions links'
 
-  it { is_expected.to have_body_text('View Issue') }
+  it 'show the correct view action text' do
+    if group_level
+      is_expected.to have_body_text('View Work item')
+    else
+      is_expected.to have_body_text('View Issue')
+    end
+  end
 end
 
 RSpec.shared_examples 'it should show Gmail Actions View Merge request link' do
@@ -193,7 +207,13 @@ RSpec.shared_examples 'it should show Gmail Actions View Commit link' do
   it { is_expected.to have_body_text('View Commit') }
 end
 
-RSpec.shared_examples 'an unsubscribeable thread' do
+RSpec.shared_examples 'it should show Gmail Actions View Wiki link' do
+  it_behaves_like 'it should have Gmail Actions links'
+
+  it { is_expected.to have_body_text('View Wiki') }
+end
+
+RSpec.shared_examples 'an unsubscribeable thread' do |group_level = false|
   it_behaves_like 'an unsubscribeable thread with incoming address without %{key}'
 
   it 'has a List-Unsubscribe header in the correct format, List-Unsubscribe-Post header, and a body link' do
@@ -201,8 +221,25 @@ RSpec.shared_examples 'an unsubscribeable thread' do
       is_expected.to have_header('List-Unsubscribe', /unsubscribe/)
       is_expected.to have_header('List-Unsubscribe', /mailto/)
       is_expected.to have_header('List-Unsubscribe', /^<.+,.+>$/)
+      # Ensure force parameter is not present because some firewall scans access header links
+      # and so would automatically unsubscribe participants.
+      is_expected.not_to have_header('List-Unsubscribe', /force=true/)
       is_expected.to have_header('List-Unsubscribe-Post', 'List-Unsubscribe=One-Click')
       is_expected.to have_body_text('unsubscribe')
+    end
+  end
+
+  describe 'reply_key' do
+    unless group_level
+      it { is_expected.to have_header('X-GitLab-Reply-Key', SentNotification::PARTITIONED_REPLY_KEY_REGEX) }
+
+      context 'when sent_notifications_partitioned_reply_key FF is disabled' do
+        before do
+          stub_feature_flags(sent_notifications_partitioned_reply_key: false)
+        end
+
+        it { is_expected.to have_header('X-GitLab-Reply-Key', SentNotification::LEGACY_REPLY_KEY_REGEX) }
+      end
     end
   end
 end
@@ -231,10 +268,16 @@ RSpec.shared_examples 'a user cannot unsubscribe through footer link' do
   end
 end
 
-RSpec.shared_examples 'an email with a labels subscriptions link in its footer' do
+RSpec.shared_examples 'an email with a labels subscriptions link in its footer' do |group_level = false|
   it { is_expected.to have_body_text('label subscriptions') }
 
-  it { is_expected.to have_body_text(%(href="#{project_labels_url(project, subscribed: true)}")) }
+  it 'has the correct labels URL' do
+    if group_level
+      is_expected.to have_body_text(%(href="#{group_labels_url(group, subscribed: true)}"))
+    else
+      is_expected.to have_body_text(%(href="#{project_labels_url(project, subscribed: true)}"))
+    end
+  end
 end
 
 RSpec.shared_examples 'a note email' do
@@ -317,7 +360,7 @@ end
 
 RSpec.shared_examples 'email with link to issue' do
   it do
-    is_expected.to have_body_text(%(<a href="#{project_issue_url(project, issue)}">view it on GitLab</a>))
-    is_expected.to have_plain_text_content("view it on GitLab: #{project_issue_url(project, issue)}")
+    is_expected.to have_body_text(%(<a href="#{Gitlab::UrlBuilder.build(issue)}">view it on GitLab</a>))
+    is_expected.to have_plain_text_content("view it on GitLab: #{Gitlab::UrlBuilder.build(issue)}")
   end
 end

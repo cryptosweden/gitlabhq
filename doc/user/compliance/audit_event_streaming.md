@@ -1,21 +1,27 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Compliance
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Audit event streaming for top-level groups
 ---
 
-# Audit event streaming for top-level groups
+{{< details >}}
 
-DETAILS:
-**Tier:** Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Subgroup events recording](https://gitlab.com/gitlab-org/gitlab/-/issues/366878) fixed in GitLab 15.2.
-> - Custom HTTP headers UI [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/361630) in GitLab 15.2 [with a flag](../feature_flags.md) named `custom_headers_streaming_audit_events_ui`. Disabled by default.
-> - Custom HTTP headers UI [made generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/365259) in GitLab 15.3. [Feature flag `custom_headers_streaming_audit_events_ui`](https://gitlab.com/gitlab-org/gitlab/-/issues/365259) removed.
-> - [Improved user experience](https://gitlab.com/gitlab-org/gitlab/-/issues/367963) in GitLab 15.3.
-> - HTTP destination **Name** field [added](https://gitlab.com/gitlab-org/gitlab/-/issues/411357) in GitLab 16.3.
-> - Functionality for the **Active** checkbox [added](https://gitlab.com/gitlab-org/gitlab/-/issues/415268) in GitLab 16.5.
+{{< /details >}}
+
+{{< history >}}
+
+- [Subgroup events recording](https://gitlab.com/gitlab-org/gitlab/-/issues/366878) fixed in GitLab 15.2.
+- Custom HTTP headers UI [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/361630) in GitLab 15.2 [with a flag](../feature_flags.md) named `custom_headers_streaming_audit_events_ui`. Disabled by default.
+- Custom HTTP headers UI [made generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/365259) in GitLab 15.3. [Feature flag `custom_headers_streaming_audit_events_ui`](https://gitlab.com/gitlab-org/gitlab/-/issues/365259) removed.
+- [Improved user experience](https://gitlab.com/gitlab-org/gitlab/-/issues/367963) in GitLab 15.3.
+- HTTP destination **Name** field [added](https://gitlab.com/gitlab-org/gitlab/-/issues/411357) in GitLab 16.3.
+- Functionality for the **Active** checkbox [added](https://gitlab.com/gitlab-org/gitlab/-/issues/415268) in GitLab 16.5.
+
+{{< /history >}}
 
 With audit event streaming for top-level groups, group owners can:
 
@@ -24,16 +30,22 @@ With audit event streaming for top-level groups, group owners can:
 - Manage their audit logs in third-party systems. Any service that can receive structured JSON data can be used as the
   streaming destination.
 
-Each streaming destination can have up to 20 custom HTTP headers included with each streamed event.
+Each streaming destination:
+
+- Can have up to 20 custom HTTP headers included with each streamed event.
+- For GitLab.com, must allow traffic from the [GitLab.com IP address range](../gitlab_com/_index.md#ip-range).
 
 GitLab can stream a single event more than once to the same destination. Use the `id` key in the payload to deduplicate
 incoming data.
 
 Audit events are sent using the POST request method protocol supported by HTTP.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Streaming destinations receive **all** audit event data, which could include sensitive information. Make sure you trust
 the streaming destination.
+
+{{< /alert >}}
 
 ## HTTP destinations
 
@@ -64,19 +76,6 @@ To add streaming destinations to a top-level group:
    20 headers per streaming destination.
 1. After all headers have been filled out, select **Add** to add the new streaming destination.
 
-### List HTTP destinations
-
-Prerequisites:
-
-- Owner role for a group.
-
-To list the streaming destinations for a top-level group:
-
-1. On the left sidebar, select **Search or go to** and find your group.
-1. Select **Secure > Audit events**.
-1. On the main area, select the **Streams** tab.
-1. Select the stream to expand it and see all the custom HTTP headers.
-
 ### Update an HTTP destination
 
 Prerequisites:
@@ -105,41 +104,18 @@ To update a streaming destination's custom HTTP headers:
    20 headers per streaming destination.
 1. Select **Save** to update the streaming destination.
 
-### Delete an HTTP destination
-
-Delete streaming destinations for a top-level group. When the last destination is successfully deleted, streaming is
-disabled for the top-level group.
-
-Prerequisites:
-
-- Owner role for a group.
-
-To delete a streaming destination:
-
-1. On the left sidebar, select **Search or go to** and find your group.
-1. Select **Secure > Audit events**.
-1. On the main area, select the **Streams** tab.
-1. Select the stream to expand.
-1. Select **Delete destination**.
-1. Confirm by selecting **Delete destination** in the dialog.
-
-To delete only the custom HTTP headers for a streaming destination:
-
-1. On the left sidebar, select **Search or go to** and find your group.
-1. Select **Secure > Audit events**.
-1. On the main area, select the **Streams** tab.
-1. Select the stream to expand.
-1. Locate the **Custom HTTP headers** table.
-1. Locate the header that you wish to remove.
-1. To the right of the header, select **Delete** (**{remove}**).
-1. Select **Save** to update the streaming destination.
-
 ### Verify event authenticity
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/360814) in GitLab 15.2.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/360814) in GitLab 15.2.
+
+{{< /history >}}
 
 Each streaming destination has a unique verification token (`verificationToken`) that can be used to verify the authenticity of the event. This
 token is either specified by the Owner or generated automatically when the event destination is created and cannot be changed.
+
+The `verificationToken` parameter can only be set by using the [GraphQL API](../../api/graphql/audit_event_streaming_groups.md#add-a-new-streaming-destination).
 
 Each streamed event contains the verification token in the `X-Gitlab-Event-Streaming-Token` HTTP header that can be verified against
 the destination's value when listing streaming destinations.
@@ -158,12 +134,16 @@ To list streaming destinations and see the verification tokens:
 
 ### Update event filters
 
-> - Event type filtering in the UI with a defined list of audit event types [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/413581) in GitLab 16.1.
+{{< history >}}
+
+- Event type filtering in the UI with a defined list of audit event types [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/413581) in GitLab 16.1.
+
+{{< /history >}}
 
 When this feature is enabled for a group, you can permit users to filter streamed audit events per destination.
 If the feature is enabled with no filters, the destination receives all audit events.
 
-A streaming destination that has an event type filter set has a **filtered** (**{filter}**) label.
+A streaming destination that has an event type filter set has a **filtered** ({{< icon name="filter" >}}) label.
 
 To update a streaming destination's event filters:
 
@@ -177,12 +157,16 @@ To update a streaming destination's event filters:
 
 ### Update namespace filters
 
-> - Namespace filtering in the UI [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/390133) in GitLab 16.7.
+{{< history >}}
+
+- Namespace filtering in the UI [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/390133) in GitLab 16.7.
+
+{{< /history >}}
 
 When this feature is enabled for a group, you can permit users to filter streamed audit events per destination.
 If the feature is enabled with no filters, the destination receives all audit events.
 
-A streaming destination that has a namespace filter set has a **filtered** (**{filter}**) label.
+A streaming destination that has a namespace filter set has a **filtered** ({{< icon name="filter" >}}) label.
 
 To update a streaming destination's namespace filters:
 
@@ -197,7 +181,7 @@ To update a streaming destination's namespace filters:
 ### Override default content type header
 
 By default, streaming destinations use a `content-type` header of `application/x-www-form-urlencoded`. However, you
-might want to set the `content-type` header to something else. For example ,`application/json`.
+might want to set the `content-type` header to something else. For example, `application/json`.
 
 To override the `content-type` header default value for a top-level group streaming destination, use either:
 
@@ -206,7 +190,11 @@ To override the `content-type` header default value for a top-level group stream
 
 ## Google Cloud Logging destinations
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/124384) in GitLab 16.2.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/124384) in GitLab 16.2.
+
+{{< /history >}}
 
 Manage Google Cloud Logging destinations for top-level groups.
 
@@ -237,22 +225,13 @@ To add Google Cloud Logging streaming destinations to a top-level group:
 1. Enter a random string to use as a log ID for the new destination. You can use this later to filter log results in Google Cloud.
 1. Select **Add** to add the new streaming destination.
 
-### List Google Cloud Logging destinations
-
-Prerequisites:
-
-- Owner role for a top-level group.
-
-To list Google Cloud Logging streaming destinations for a top-level group:
-
-1. On the left sidebar, select **Search or go to** and find your group.
-1. Select **Secure > Audit events**.
-1. On the main area, select the **Streams** tab.
-1. Select the Google Cloud Logging stream to expand and see all the fields.
-
 ### Update a Google Cloud Logging destination
 
-> - Button to add private key [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/419675) in GitLab 16.3.
+{{< history >}}
+
+- Button to add private key [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/419675) in GitLab 16.3.
+
+{{< /history >}}
 
 Prerequisites:
 
@@ -270,25 +249,14 @@ To update Google Cloud Logging streaming destinations to a top-level group:
 1. Select **Add a new private key** and enter a Google private key to update the private key.
 1. Select **Save** to update the streaming destination.
 
-### Delete a Google Cloud Logging streaming destination
-
-Prerequisites:
-
-- Owner role for a top-level group.
-
-To delete Google Cloud Logging streaming destinations to a top-level group:
-
-1. On the left sidebar, select **Search or go to** and find your group.
-1. Select **Secure > Audit events**.
-1. On the main area, select the **Streams** tab.
-1. Select the Google Cloud Logging stream to expand.
-1. Select **Delete destination**.
-1. Confirm by selecting **Delete destination** in the dialog.
-
 ## AWS S3 destinations
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/132603) in GitLab 16.6 [with a flag](../feature_flags.md) named `allow_streaming_audit_events_to_amazon_s3`. Enabled by default.
-> - [Feature flag `allow_streaming_audit_events_to_amazon_s3`](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/137391) removed in GitLab 16.7.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/132603) in GitLab 16.6 [with a flag](../feature_flags.md) named `allow_streaming_audit_events_to_amazon_s3`. Enabled by default.
+- [Feature flag `allow_streaming_audit_events_to_amazon_s3`](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/137391) removed in GitLab 16.7.
+
+{{< /history >}}
 
 Manage AWS S3 destinations for top-level groups.
 
@@ -313,54 +281,121 @@ To add AWS S3 streaming destinations to a top-level group:
 1. On the main area, select the **Streams** tab.
 1. Select **Add streaming destination** and select **AWS S3** to show the section for adding destinations.
 1. Enter a random string to use as a name for the new destination.
-1. Enter the Access Key ID, Secret Access Key, Bucket Name, and AWS Region from previously-created AWS access key and bucket to add to the new destination.
+1. Enter the **Access Key ID**, **Secret Access Key**, **Bucket Name**, and **AWS Region** from previously-created AWS
+   access key and bucket to add to the new destination.
 1. Select **Add** to add the new streaming destination.
 
-### List AWS S3 destinations
+### Update an AWS S3 destination
 
 Prerequisites:
 
 - Owner role for a top-level group.
 
-To list AWS S3 streaming destinations for a top-level group:
-
-1. On the left sidebar, select **Search or go to** and find your group.
-1. Select **Secure > Audit events**.
-1. On the main area, select the **Streams** tab.
-1. Select the AWS S3 stream to expand and see all the fields.
-
-### Update a AWS S3 destination
-
-Prerequisites:
-
-- Owner role for a top-level group.
-
-To update AWS S3 streaming destinations to a top-level group:
+To update an AWS S3 streaming destination to a top-level group:
 
 1. On the left sidebar, select **Search or go to** and find your group.
 1. Select **Secure > Audit events**.
 1. On the main area, select the **Streams** tab.
 1. Select the AWS S3 stream to expand.
 1. Enter a random string to use as a name for the destination.
-1. Enter the Access Key ID, Secret Access Key, Bucket Name, and AWS Region from previously-created AWS access key and bucket to update the destination.
-1. Select **Add a new Secret Access Key** and enter a AWS Secret Access Key to update the Secret Access Key.
-1. Select **Save** to update the streaming destination.
+1. To update the destination, enter the **Access Key ID**, **Secret Access Key**, **Bucket Name**, and **AWS Region**
+   from previously-created AWS access key and bucket.
+1. To update the Secret Access Key, select **Add a new Secret Access Key** and enter a AWS Secret Access Key.
+1. Select **Save**.
 
-### Delete a AWS S3 streaming destination
+## List streaming destinations
 
 Prerequisites:
 
 - Owner role for a top-level group.
 
-To delete AWS S3 streaming destinations to a top-level group:
+To list streaming destinations for a top-level group:
 
 1. On the left sidebar, select **Search or go to** and find your group.
 1. Select **Secure > Audit events**.
 1. On the main area, select the **Streams** tab.
-1. Select the AWS S3 stream to expand.
+1. Select the stream to expand.
+
+## Activate or deactivate streaming destinations
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/537096) in GitLab 18.2.
+
+{{< /history >}}
+
+You can temporarily deactivate audit event streaming to a destination without deleting the destination configuration. When a streaming destination is deactivated:
+
+- Audit events stop streaming to that destination immediately.
+- The destination configuration is preserved.
+- You can reactivate the destination at any time.
+- Other active destinations continue to receive events.
+
+### Deactivate a streaming destination
+
+Prerequisites:
+
+- Owner role for a top-level group.
+
+To deactivate a streaming destination:
+
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Secure > Audit events**.
+1. On the main area, select the **Streams** tab.
+1. Select the stream to expand.
+1. Clear the **Active** checkbox.
+1. Select **Save**.
+
+The destination stops receiving audit events.
+
+### Activate a streaming destination
+
+To reactivate a previously deactivated streaming destination:
+
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Secure > Audit events**.
+1. On the main area, select the **Streams** tab.
+1. Select the stream to expand.
+1. Select the **Active** checkbox.
+1. Select **Save**.
+
+The destination resumes receiving audit events immediately.
+
+## Delete streaming destinations
+
+Delete streaming destinations for a top-level group. When the last destination is successfully deleted, streaming is
+disabled for the top-level group.
+
+Prerequisites:
+
+- Owner role for a top-level group.
+
+To delete streaming destinations to a top-level group:
+
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Secure > Audit events**.
+1. On the main area, select the **Streams** tab.
+1. Select the stream to expand.
 1. Select **Delete destination**.
-1. Confirm by selecting **Delete destination** in the dialog.
+1. To confirm, select **Delete destination**.
+
+### Delete only custom HTTP headers
+
+Prerequisites:
+
+- Owner role for a top-level group.
+
+To delete only the custom HTTP headers for a streaming destination:
+
+1. On the left sidebar, select **Search or go to** and find your group.
+1. Select **Secure > Audit events**.
+1. On the main area, select the **Streams** tab.
+1. Select the stream to expand.
+1. Locate the **Custom HTTP headers** table.
+1. Locate the header that you wish to remove.
+1. To the right of the header, select **Delete** ({{< icon name="remove" >}}).
+1. Select **Save**.
 
 ## Related topics
 
-- [Audit event streaming for instances](../../administration/audit_event_streaming/index.md)
+- [Audit event streaming for instances](../../administration/compliance/audit_event_streaming.md)

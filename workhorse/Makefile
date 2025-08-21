@@ -24,7 +24,7 @@ BUILD_TAGS := tracer_static tracer_static_jaeger continuous_profiler_stackdriver
 OS := $(shell uname | tr A-Z a-z)
 ARCH ?= $(shell uname -m | sed -e 's/x86_64/amd64/' | sed -e 's/aarch64/arm64/')
 
-GOLANGCI_LINT_VERSION := 1.59.1
+GOLANGCI_LINT_VERSION := 2.3.1
 GOLANGCI_LINT_ARCH ?= ${ARCH}
 GOLANGCI_LINT_FILE := _support/bin/golangci-lint-${GOLANGCI_LINT_VERSION}
 
@@ -50,15 +50,6 @@ define message
 	@echo "### $(1)"
 endef
 
-# To compute a unique and deterministic value for GNU build-id, we build the Go binary a second time.
-# From the first build, we extract its unique and deterministic Go build-id, and use that to derive
-# a comparably unique and deterministic GNU build-id to inject into the final binary.
-# If we cannot extract a Go build-id, we punt and fallback to using a random 32-byte hex string.
-# This fallback is unique but non-deterministic.  Uniqueness is critical, because the GNU build-id
-# can be used as a cache key in a build cache.  Without the fallback, we risk cache key collisions.
-## Skip generation of the GNU build ID if set to speed up builds.
-WITHOUT_BUILD_ID ?=
-
 .NOTPARALLEL:
 
 .PHONY:	all
@@ -67,10 +58,8 @@ all:	clean-build $(EXE_ALL)
 .PHONY: gitlab-resize-image gitlab-zip-cat gitlab-zip-metadata gitlab-workhorse
 gitlab-resize-image gitlab-zip-cat gitlab-zip-metadata gitlab-workhorse:
 	$(call message,Building $@)
-	go build -ldflags "$(GO_BUILD_GENERIC_LDFLAGS)" -tags "$(BUILD_TAGS)" -o $(BUILD_DIR)/$@ $(PKG)/cmd/$@
-ifndef WITHOUT_BUILD_ID
-	go build -ldflags "$(GO_BUILD_GENERIC_LDFLAGS) -B 0x$$(_support/make-gnu-build-id.sh $(BUILD_DIR)/$@)" -tags "$(BUILD_TAGS)" -o $(BUILD_DIR)/$@ $(PKG)/cmd/$@
-endif
+	go build -ldflags "$(GO_BUILD_GENERIC_LDFLAGS) -B gobuildid" -tags "$(BUILD_TAGS)" -o $(BUILD_DIR)/$@ $(PKG)/cmd/$@
+
 .PHONY:	install
 install: $(EXE_ALL)
 	$(call message,$@)
@@ -133,7 +122,17 @@ $(GITALY_PID_FILE): gitaly.toml
 	$(call message, "Starting gitaly")
 	cd ..; GITALY_TESTING_NO_GIT_HOOKS=1 GITALY_PID_FILE=workhorse/$(GITALY_PID_FILE) scripts/gitaly-test-spawn workhorse/gitaly.toml
 
-gitaly.toml: ../tmp/tests/gitaly/config.toml
+GITALY_CONFIGURATION_SOURCE_BASE = ../tmp/tests/gitaly/config.toml
+ifeq ($(GITALY_TRANSACTIONS_ENABLED),true)
+	GITALY_CONFIGURATION_SOURCE = ${GITALY_CONFIGURATION_SOURCE_BASE}.transactions
+else
+	GITALY_CONFIGURATION_SOURCE = ${GITALY_CONFIGURATION_SOURCE_BASE}
+endif
+
+# Mark the target phony so the configuration is always refreshed in case the `GITALY_TRANSACTIONS_ENABLED`
+# environment variable has been changed.
+.PHONY: gitaly.toml
+gitaly.toml: ${GITALY_CONFIGURATION_SOURCE}
 	sed -e 's/^socket_path.*$$/listen_addr = "0.0.0.0:8075"/;s/^\[auth\]$$//;s/^token.*$$//;s/^internal_socket_dir.*$$//' \
 		$< > $@
 
@@ -155,7 +154,7 @@ lint:
 .PHONY: golangci
 golangci: ${GOLANGCI_LINT_FILE}
 	@${GOLANGCI_LINT_FILE} cache clean
-	@${GOLANGCI_LINT_FILE} run --issues-exit-code 0 --print-issued-lines=false ${GOLANGCI_LINT_ARGS}
+	@${GOLANGCI_LINT_FILE} run --issues-exit-code 0 --output.text.print-issued-lines=false ${GOLANGCI_LINT_ARGS}
 
 ${GOLANGCI_LINT_FILE}:
 	@mkdir -p $(shell dirname ${GOLANGCI_LINT_FILE})
@@ -187,7 +186,7 @@ check-formatting: install-goimports
 .PHONY: staticcheck
 staticcheck:
 	$(call message,Verify: $@)
-	go install honnef.co/go/tools/cmd/staticcheck
+	go install honnef.co/go/tools/cmd/staticcheck@v0.6.1
 	@ $(GOBIN)/staticcheck ./...
 
 # In addition to fixing imports, goimports also formats your code in the same style as gofmt

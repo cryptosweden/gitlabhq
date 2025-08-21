@@ -4,6 +4,7 @@ module QA
   module Page
     module Group
       class Show < Page::Base
+        include Layout::Flash
         include Page::Component::GroupsFilter
         include QA::Page::Component::ConfirmModal
 
@@ -22,14 +23,7 @@ module QA
         end
 
         def has_subgroup?(name)
-          filter_input = find_element('filtered-search-term-input')
-          filter_input.click
-          filter_input.set(name)
-          click_element 'search-button'
-
-          wait_for_requests
-
-          page.has_link?(name, wait: 0) # element containing link to group
+          has_filtered_group?(name)
         end
 
         def go_to_new_subgroup
@@ -66,4 +60,3 @@ module QA
 end
 
 QA::Page::Group::Show.prepend_mod_with('Page::Component::DuoChatCallout', namespace: QA)
-QA::Page::Group::Show.prepend_mod_with('Page::Alert::FreeTrial', namespace: QA)

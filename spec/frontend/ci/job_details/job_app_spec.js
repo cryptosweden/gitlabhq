@@ -9,7 +9,7 @@ import EnvironmentsBlock from '~/ci/job_details/components/environments_block.vu
 import ErasedBlock from '~/ci/job_details/components/erased_block.vue';
 import JobApp from '~/ci/job_details/job_app.vue';
 import JobLog from '~/ci/job_details/components/log/log.vue';
-import JobLogTopBar from 'ee_else_ce/ci/job_details/components/job_log_top_bar.vue';
+import JobLogTopBar from '~/ci/job_details/components/job_log_top_bar.vue';
 import Sidebar from '~/ci/job_details/components/sidebar/sidebar.vue';
 import StuckBlock from '~/ci/job_details/components/stuck_block.vue';
 import UnmetPrerequisitesBlock from '~/ci/job_details/components/unmet_prerequisites_block.vue';
@@ -42,20 +42,23 @@ describe('Job App', () => {
     subscriptionsMoreMinutesUrl: 'https://customers.gitlab.com/buy_pipeline_minutes',
   };
 
-  const createComponent = () => {
+  const createComponent = (abilities = {}) => {
     wrapper = shallowMountExtended(JobApp, {
       propsData: { ...props },
       store,
+      provide: {
+        glAbilities: { troubleshootJobWithAi: false, ...abilities },
+      },
     });
   };
 
-  const setupAndMount = async ({ jobData = {}, jobLogData = {} } = {}) => {
+  const setupAndMount = async ({ jobData = {}, jobLogData = {}, abilities = {} } = {}) => {
     mock.onGet(initSettings.jobEndpoint).replyOnce(HTTP_STATUS_OK, { ...job, ...jobData });
     mock.onGet(initSettings.logEndpoint).reply(HTTP_STATUS_OK, jobLogData);
 
     const asyncInit = store.dispatch('init', initSettings);
 
-    createComponent();
+    createComponent(abilities);
 
     await asyncInit;
     jest.runOnlyPendingTimers();
@@ -75,6 +78,7 @@ describe('Job App', () => {
 
   const findJobContent = () => wrapper.findByTestId('job-content');
   const findArchivedJob = () => wrapper.findByTestId('archived-job');
+  const findStickyFooter = () => wrapper.findByTestId('rca-bar-component');
 
   beforeEach(() => {
     mock = new MockAdapter(axios);
@@ -165,9 +169,12 @@ describe('Job App', () => {
               details_path: 'path',
               action: {
                 confirmation_message: null,
+                button_title: 'Retry job',
+                method: 'post',
+                path: '/path',
               },
               illustration: {
-                content: 'Retry this job in order to create the necessary resources.',
+                content: 'Run this job again in order to create the necessary resources.',
                 image: 'path',
                 size: 'svg-430',
                 title: 'Failed to create resources',
@@ -182,6 +189,45 @@ describe('Job App', () => {
           },
         }).then(() => {
           expect(findFailedJobComponent().exists()).toBe(true);
+        }));
+    });
+
+    describe('sticky footer', () => {
+      it('does not display the sticky footer if troubleshootJobWithAi is false', () =>
+        setupAndMount({
+          jobData: {
+            status: {
+              group: 'failed',
+              icon: 'status_failed',
+            },
+            has_trace: true,
+            runners: {
+              available: true,
+            },
+            tags: [],
+          },
+        }).then(() => {
+          expect(findStickyFooter().exists()).toBe(false);
+        }));
+
+      it('displays the sticky footer if troubleshootJobWithAi is true', () =>
+        setupAndMount({
+          jobData: {
+            status: {
+              group: 'failed',
+              icon: 'status_failed',
+            },
+            has_trace: true,
+            runners: {
+              available: true,
+            },
+            tags: [],
+          },
+          abilities: {
+            troubleshootJobWithAi: true,
+          },
+        }).then(() => {
+          expect(findStickyFooter().exists()).toBe(true);
         }));
     });
 
@@ -306,7 +352,10 @@ describe('Job App', () => {
   });
 
   describe('job log', () => {
-    beforeEach(() => setupAndMount());
+    beforeEach(async () => {
+      await setupAndMount();
+      jest.spyOn(store, 'dispatch');
+    });
 
     it('should render job log header', () => {
       expect(findJobLogTopBar().exists()).toBe(true);
@@ -316,6 +365,12 @@ describe('Job App', () => {
       expect(findJobLog().exists()).toBe(true);
 
       expect(findJobLog().props()).toEqual({ searchResults: [] });
+    });
+
+    it('should toggle scroll buttons when line is toggled', () => {
+      findJobLog().vm.$emit('toggleCollapsibleLine');
+
+      expect(store.dispatch).toHaveBeenCalledWith('toggleScrollButtons');
     });
   });
 

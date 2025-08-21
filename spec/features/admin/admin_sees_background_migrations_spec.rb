@@ -26,13 +26,13 @@ RSpec.describe "Admin > Admin sees background migrations", feature_category: :da
 
     within_testid('super-sidebar') do
       click_on 'Monitoring'
-      click_on 'Background Migrations'
+      click_on 'Background migrations'
     end
 
     expect(page).to have_current_path(admin_background_migrations_path)
 
     within_testid('super-sidebar') do
-      expect(page).to have_css('a[aria-current="page"]', text: 'Background Migrations')
+      expect(page).to have_css('a[aria-current="page"]', text: 'Background migrations')
     end
   end
 
@@ -97,10 +97,12 @@ RSpec.describe "Admin > Admin sees background migrations", feature_category: :da
       click_on('Pause')
       expect(page).not_to have_content('Active')
       expect(page).to have_content('Paused')
+      expect(page).to have_link(href: resume_admin_background_migration_path(active_migration))
 
       click_on('Resume')
       expect(page).not_to have_content('Paused')
       expect(page).to have_content('Active')
+      expect(page).to have_link(href: pause_admin_background_migration_path(active_migration))
     end
   end
 
@@ -193,7 +195,7 @@ RSpec.describe "Admin > Admin sees background migrations", feature_category: :da
     visit admin_background_migrations_path
 
     within '#content-body' do
-      expect(page).to have_link('Learn more', href: help_page_path('update/background_migrations'))
+      expect(page).to have_link('Learn more', href: help_page_path('update/background_migrations.md'))
     end
   end
 

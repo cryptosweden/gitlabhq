@@ -1,10 +1,9 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authorization
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Predefined system of user roles
 ---
-
-# Predefined system of user roles
 
 ## Instance
 
@@ -14,10 +13,10 @@ Each user can be one of the following types:
 
 - Regular.
 - External - access to groups and projects only if direct member.
-- [Internal users](../internal_users.md) - system created.
+- [Internal users](../../administration/internal_users.md) - system created.
 - [Auditor](https://gitlab.com/gitlab-org/gitlab/-/blob/master/ee/app/policies/ee/base_policy.rb#L9):
   - No access to projects or groups settings menu.
-  - No access to Admin Area.
+  - No access to **Admin** area.
   - Read-only access to everything else.
 - [Administrator](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/policies/base_policy.rb#L6) - read-write access.
 
@@ -40,9 +39,12 @@ The visibility level of a group can be changed only if all subgroups and
 sub-projects have the same or lower visibility level. For example, a group can be set
 to internal only if all subgroups and projects are internal or private.
 
-WARNING:
+{{< alert type="warning" >}}
+
 If you migrate an existing group to a lower visibility level, that action does not migrate subgroups
 in the same way. This is a [known issue](https://gitlab.com/gitlab-org/gitlab/-/issues/22406).
+
+{{< /alert >}}
 
 Visibility levels can be found in the `Gitlab::VisibilityLevel` module.
 
@@ -57,7 +59,7 @@ Additionally, the following project features can have different visibility level
   - Pipelines
 - Analytics
 - Requirements
-- Security and Compliance
+- Security and compliance
 - Wiki
 - Snippets
 - Pages
@@ -78,6 +80,7 @@ module):
 - No access (`0`)
 - [Minimal access](../../user/permissions.md#users-with-minimal-access) (`5`)
 - Guest (`10`)
+- Planner (`15`)
 - Reporter (`20`)
 - Developer (`30`)
 - Maintainer (`40`)
@@ -92,8 +95,11 @@ can still view the groups and their entities (like epics).
 Project membership (where the group membership is already taken into account)
 is stored in the `project_authorizations` table.
 
-NOTE:
+{{< alert type="note" >}}
+
 Projects in personal namespaces have a maximum role of Owner.
+
+{{< /alert >}}
 
 #### Guest role
 

@@ -21,9 +21,10 @@ class InternalId < ApplicationRecord
   belongs_to :project
   belongs_to :namespace
 
-  enum usage: Enums::InternalId.usage_resources
+  enum :usage, Enums::InternalId.usage_resources
 
   validates :usage, presence: true
+  validate :one_of_project_or_namespace_is_present
 
   scope :filter_by, ->(scope, usage) do
     where(**scope, usage: usage)
@@ -191,7 +192,7 @@ class InternalId < ApplicationRecord
 
       # `init` computes the maximum based on actual records. We use the
       # primary to make sure we have up to date results
-      Gitlab::Database::LoadBalancing::Session.current.use_primary do
+      Gitlab::Database::LoadBalancing::SessionMap.current(subject.load_balancer).use_primary do
         instance = subject.is_a?(::Class) ? nil : subject
 
         init.call(instance, scope) || 0
@@ -201,5 +202,13 @@ class InternalId < ApplicationRecord
     def usage_value
       @usage_value ||= InternalId.usages[usage.to_s]
     end
+  end
+
+  private
+
+  def one_of_project_or_namespace_is_present
+    errors.add(:base, "both project and namespace can't be blank") if project.blank? && namespace.blank?
+
+    errors.add(:base, "both project and namespace can't be set") if project.present? && namespace.present?
   end
 end

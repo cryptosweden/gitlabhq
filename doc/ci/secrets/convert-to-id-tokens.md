@@ -1,26 +1,31 @@
 ---
-stage: Verify
+stage: Software Supply Chain Security
 group: Pipeline Security
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: 'Tutorial: Update HashiCorp Vault configuration to use ID Tokens'
 ---
 
-# Tutorial: Update HashiCorp Vault configuration to use ID Tokens
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-NOTE:
+{{< /details >}}
+
+{{< alert type="note" >}}
+
 Starting in Vault 1.17, [JWT auth login requires bound audiences on the role](https://developer.hashicorp.com/vault/docs/upgrading/upgrade-to-1.17.x#jwt-auth-login-requires-bound-audiences-on-the-role)
 when the JWT contains an `aud` claim. The `aud` claim can be a single string or a list of strings.
 
-This tutorial demonstrates how to convert your existing CI/CD secrets configuration to use [ID Tokens](../secrets/id_token_authentication.md).
+{{< /alert >}}
+
+This tutorial demonstrates how to convert your existing CI/CD secrets configuration to use [ID Tokens](id_token_authentication.md).
 
 The `CI_JOB_JWT` variables are deprecated, but updating to ID tokens requires some
 important configuration changes to work with Vault. If you have more than a handful of jobs,
 converting everything at once is a daunting task.
 
-There isn't one standard method to migrate to [ID tokens](../secrets/id_token_authentication.md), so this tutorial
+There isn't one standard method to migrate to [ID tokens](id_token_authentication.md), so this tutorial
 includes two variations for how to convert your existing CI/CD secrets. Choose the method that is most appropriate for
 your use case:
 
@@ -43,7 +48,7 @@ To follow along, you must have:
 - A Vault server that you are already using.
 - CI/CD jobs retrieving secrets from Vault with `CI_JOB_JWT`.
 
-In the examples below, replace:
+In the following examples, replace:
 
 - `vault.example.com` with the URL of your Vault server.
 - `gitlab.example.com` with the URL of your GitLab instance.
@@ -87,7 +92,7 @@ You can create multiple authentication paths in Vault, which enable you to trans
 
 Roles are bound to a specific authentication path so you need to add new roles for each job.
 The `bound_audiences` parameter for the role is mandatory if the JWT contains an
-audience and must match at least one of the JWT's associated `aud` claims.
+audience and must match at least one of the associated `aud` claims of the JWT.
 
 1. Recreate the role for staging named `myproject-staging`:
 
@@ -167,8 +172,8 @@ $ vault write auth/jwt/role/myproject-staging - <<EOF
 EOF
 ```
 
-You do not need to alter any existing role configurations except for the `bound_claims` section
-Make sure to add the `iss` configuration as shown above to ensure Vault accepts
+You do not need to alter any existing role configurations except for the `bound_claims` section.
+Make sure to add the `iss` configuration as shown previously, to ensure Vault accepts
 the prefixed and non-prefixed `iss` claim for this role.
 
 You must apply this change to all JWT roles used for the GitLab integration before moving on to the next step.
@@ -197,8 +202,8 @@ Check the [Which Version is my Vault KV Mount?](https://support.hashicorp.com/hc
 
 Also, if needed you can review the CI/CD documentation for:
 
-- [`secrets:`](../yaml/index.md#secrets)
-- [`id_tokens:`](../yaml/index.md#id_tokens)
+- [`secrets:`](../yaml/_index.md#secrets)
+- [`id_tokens:`](../yaml/_index.md#id_tokens)
 
 The following examples show how to obtain the staging database password written to the `password` field in `secret/myproject/staging/db`.
 
@@ -209,7 +214,7 @@ The value for the `VAULT_AUTH_PATH` variable depends on the migration method you
 
 ### KV Secrets Engine v1
 
-The [`secrets:vault`](../yaml/index.md#secretsvault) keyword defaults to v2 of the KV Mount, so you need to explicitly configure the job to use the v1 engine:
+The [`secrets:vault`](../yaml/_index.md#secretsvault) keyword defaults to v2 of the KV Mount, so you need to explicitly configure the job to use the v1 engine:
 
 ```yaml
 job:
@@ -231,10 +236,10 @@ job:
       file: false
 ```
 
-Both `VAULT_SERVER_URL` and `VAULT_AUTH_PATH` can be [defined as project or group CI/CD variables](../../ci/variables/index.md#define-a-cicd-variable-in-the-ui),
+Both `VAULT_SERVER_URL` and `VAULT_AUTH_PATH` can be [defined as project or group CI/CD variables](../variables/_index.md#define-a-cicd-variable-in-the-ui),
 if preferred.
 
-We use [`secrets:file:false`](../../ci/yaml/index.md#secretsfile) because ID tokens place secrets in a file by default, but we need it to work as a regular variable to match the old behavior.
+We use [`secrets:file:false`](../yaml/_index.md#secretsfile) because ID tokens place secrets in a file by default, but we need it to work as a regular variable to match the old behavior.
 
 ### KV Secrets Engine v2
 

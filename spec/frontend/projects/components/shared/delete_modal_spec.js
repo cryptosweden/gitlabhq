@@ -2,7 +2,7 @@ import { GlFormInput, GlModal, GlAlert } from '@gitlab/ui';
 import { nextTick } from 'vue';
 import { mountExtended } from 'helpers/vue_test_utils_helper';
 import DeleteModal from '~/projects/components/shared/delete_modal.vue';
-import { __, sprintf } from '~/locale';
+import { sprintf } from '~/locale';
 import { stubComponent } from 'helpers/stub_component';
 
 jest.mock('lodash/uniqueId', () => () => 'fake-id');
@@ -19,6 +19,7 @@ describe('DeleteModal', () => {
     forksCount: 3,
     starsCount: 4,
     confirmLoading: false,
+    nameWithNamespace: 'Foo / Bar',
   };
 
   const createComponent = (propsData) => {
@@ -47,7 +48,7 @@ describe('DeleteModal', () => {
       visible: defaultPropsData.visible,
       modalId: 'fake-id',
       actionPrimary: {
-        text: __('Yes, delete project'),
+        text: 'Yes, delete project',
         attributes: {
           variant: 'danger',
           disabled: true,
@@ -55,7 +56,7 @@ describe('DeleteModal', () => {
         },
       },
       actionCancel: {
-        text: __('Cancel, keep project'),
+        text: 'Cancel, keep project',
       },
     });
   });
@@ -167,6 +168,12 @@ describe('DeleteModal', () => {
     createComponent();
 
     expect(wrapper.findByTestId('modal-footer-slot').exists()).toBe(true);
+  });
+
+  it('renders aria-label', () => {
+    createComponent();
+
+    expect(findGlModal().props('ariaLabel')).toBe('Delete Foo / Bar');
   });
 
   it('when confirmLoading switches from true to false, emits `change event`', async () => {

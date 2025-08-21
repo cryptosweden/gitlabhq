@@ -13,40 +13,55 @@ module Ci
     include TaggableQueries
     include Presentable
     include EachBatch
-    include IgnorableColumns
-    include Ci::HasRunnerExecutor
     include Ci::HasRunnerStatus
+    include Ci::Taggable
 
     extend ::Gitlab::Utils::Override
 
-    add_authentication_token_field :token,
-      encrypted: :optional,
-      expires_at: :compute_token_expiration,
-      format_with_prefix: :prefix_for_new_and_legacy_runner
+    self.primary_key = :id
 
-    enum access_level: {
+    ignore_column :token, remove_with: '18.5', remove_after: '2025-09-21'
+    ignore_column :sharding_key_id, remove_with: '18.6', remove_after: '2025-10-21'
+
+    add_authentication_token_field :token,
+      encrypted: :required,
+      expires_at: :compute_token_expiration,
+      format_with_prefix: :prefix_for_new_and_legacy_runner,
+      routable_token: {
+        if: ->(token_owner_record) { token_owner_record.owner },
+        payload: {
+          o: ->(token_owner_record) { token_owner_record.owner.try(:organization_id) },
+          g: ->(token_owner_record) { token_owner_record.group_type? ? token_owner_record.owner.id : nil },
+          p: ->(token_owner_record) { token_owner_record.project_type? ? token_owner_record.owner.id : nil },
+          u: ->(token_owner_record) { token_owner_record.creator_id },
+          t: ->(token_owner_record) { token_owner_record.partition_id }
+        }
+      }
+
+    enum :access_level, {
       not_protected: 0,
       ref_protected: 1
     }
 
-    enum runner_type: {
+    enum :runner_type, {
       instance_type: 1,
       group_type: 2,
       project_type: 3
     }
 
-    enum creation_state: {
+    enum :creation_state, {
       started: 0,
       finished: 100
-    }, _suffix: true
+    }, suffix: true
 
-    enum registration_type: {
+    enum :registration_type, {
       registration_token: 0,
       authenticated_user: 1
-    }, _suffix: true
+    }, suffix: true
 
     # Prefix assigned to runners created from the UI, instead of registered via the command line
     CREATED_RUNNER_TOKEN_PREFIX = 'glrt-'
+    REGISTRATION_RUNNER_TOKEN_PREFIX = 'glrtr-'
 
     RUNNER_SHORT_SHA_LENGTH = 8
 
@@ -71,8 +86,10 @@ module Ci
 
     AVAILABLE_TYPES_LEGACY = %w[specific shared].freeze
     AVAILABLE_TYPES = runner_types.keys.freeze
-    AVAILABLE_STATUSES = %w[active paused online offline never_contacted stale].freeze # TODO: Remove in %16.0: active, paused. Relevant issue: https://gitlab.com/gitlab-org/gitlab/-/issues/344648
-    AVAILABLE_SCOPES = (AVAILABLE_TYPES_LEGACY + AVAILABLE_TYPES + AVAILABLE_STATUSES).freeze
+    DEPRECATED_STATUSES = %w[active paused].freeze # TODO: Remove in REST v5. Relevant issue: https://gitlab.com/gitlab-org/gitlab/-/issues/344648
+    AVAILABLE_STATUSES = %w[online offline never_contacted stale].freeze
+    AVAILABLE_STATUSES_INCL_DEPRECATED = (DEPRECATED_STATUSES + AVAILABLE_STATUSES).freeze
+    AVAILABLE_SCOPES = (AVAILABLE_TYPES_LEGACY + AVAILABLE_TYPES + AVAILABLE_STATUSES_INCL_DEPRECATED).freeze
 
     FORM_EDITABLE = %i[description tag_list active run_untagged locked access_level maximum_timeout_human_readable].freeze
     MINUTES_COST_FACTOR_FIELDS = %i[public_projects_minutes_cost_factor private_projects_minutes_cost_factor].freeze
@@ -86,38 +103,39 @@ module Ci
     has_many :projects, through: :runner_projects, disable_joins: true
     has_many :runner_namespaces, inverse_of: :runner, autosave: true
     has_many :groups, through: :runner_namespaces, disable_joins: true
+    has_many :taggings, class_name: 'Ci::RunnerTagging', inverse_of: :runner
+    has_many :tags, class_name: 'Ci::Tag', through: :taggings, source: :tag
 
     # currently we have only 1 namespace assigned, but order is here for consistency
     has_one :owner_runner_namespace, -> { order(:id) }, class_name: 'Ci::RunnerNamespace'
+    has_one :owner_runner_project, -> { order(:id) }, class_name: 'Ci::RunnerProject'
 
     has_one :last_build, -> { order('id DESC') }, class_name: 'Ci::Build'
 
     belongs_to :creator, class_name: 'User', optional: true
 
     before_save :ensure_token
+    after_destroy :cleanup_runner_queue
 
     scope :active, ->(value = true) { where(active: value) }
     scope :paused, -> { active(false) }
     scope :recent, -> do
       timestamp = stale_deadline
 
-      where(arel_table[:created_at].gteq(timestamp).or(arel_table[:contacted_at].gteq(timestamp)))
+      where(arel_table[:created_at].gt(timestamp).or(arel_table[:contacted_at].gt(timestamp)))
     end
     scope :stale, -> do
       stale_timestamp = stale_deadline
 
-      created_before_stale_deadline = arel_table[:created_at].lteq(stale_timestamp)
-      contacted_before_stale_deadline = arel_table[:contacted_at].lteq(stale_timestamp)
-      never_contacted = arel_table[:contacted_at].eq(nil)
-
-      where(created_before_stale_deadline).where(never_contacted.or(contacted_before_stale_deadline))
+      where(created_at: ..stale_timestamp)
+        .and(never_contacted.or(where(contacted_at: ..stale_timestamp)))
     end
     scope :ordered, -> { order(id: :desc) }
 
     scope :with_recent_runner_queue, -> { where(arel_table[:contacted_at].gt(recent_queue_deadline)) }
-    scope :with_running_builds, -> do
-      where('EXISTS(?)',
-        ::Ci::Build.running.select(1)
+    scope :with_executing_builds, -> do
+      where_exists(
+        ::Ci::Build.executing
           .where("#{::Ci::Build.quoted_table_name}.runner_id = #{quoted_table_name}.id")
       )
     end
@@ -133,6 +151,8 @@ module Ci
     scope :belonging_to_group, ->(group_id) {
       joins(:runner_namespaces).where(ci_runner_namespaces: { namespace_id: group_id })
     }
+
+    scope :created_by_admins, -> { with_creator_id(User.admins.ids) }
 
     scope :with_creator_id, ->(value) { where(creator_id: value) }
 
@@ -206,12 +226,15 @@ module Ci
       exclude_runners = unscoped { project.runners.select(:id) }.to_sql
 
       where(locked: false)
+        .where(organization_id: project.organization_id)
         .where.not("ci_runners.id IN (#{exclude_runners})")
         .project_type
     end
 
-    scope :order_contacted_at_asc, -> { order(contacted_at: :asc) }
-    scope :order_contacted_at_desc, -> { order(contacted_at: :desc) }
+    # Never contacted runners (NULL contacted_at) appear first when sorting ascending
+    scope :order_contacted_at_asc, -> { order(arel_table[:contacted_at].asc.nulls_first) }
+    # Never contacted runners (NULL contacted_at) appear last when sorting descending
+    scope :order_contacted_at_desc, -> { order(arel_table[:contacted_at].desc.nulls_last) }
     scope :order_created_at_asc, -> { order(created_at: :asc) }
     scope :order_created_at_desc, -> { order(created_at: :desc) }
     scope :order_token_expires_at_asc, -> { order(token_expires_at: :asc) }
@@ -220,7 +243,10 @@ module Ci
     scope :with_tags, -> { preload(:tags) }
     scope :with_creator, -> { preload(:creator) }
 
+    scope :with_api_entity_associations, -> { preload(:creator) }
+
     validate :tag_constraints
+    validates :organization_id, presence: true, on: [:create, :update], unless: :instance_type?
     validates :name, length: { maximum: 256 }, if: :name_changed?
     validates :description, length: { maximum: 1024 }, if: :description_changed?
     validates :access_level, presence: true
@@ -228,9 +254,11 @@ module Ci
     validates :registration_type, presence: true
 
     validate :no_projects, unless: :project_type?
+    validate :no_organization_id, if: :instance_type?
     validate :no_groups, unless: :group_type?
     validate :any_project, if: :project_type?
     validate :exactly_one_group, if: :group_type?
+    validate :no_allowed_plan_ids, unless: :instance_type?
 
     scope :with_version_prefix, ->(value) { joins(:runner_managers).merge(RunnerManager.with_version_prefix(value)) }
     scope :with_runner_type, ->(runner_type) do
@@ -239,11 +267,7 @@ module Ci
       where(runner_type: runner_type)
     end
 
-    acts_as_taggable
-
-    after_destroy :cleanup_runner_queue
-
-    cached_attr_reader :contacted_at
+    cached_attr_reader :contacted_at, :creation_state
 
     chronic_duration_attr :maximum_timeout_human_readable, :maximum_timeout,
       error_message: 'Maximum job timeout has a value which could not be accepted'
@@ -267,7 +291,7 @@ module Ci
     #
     # Returns an ActiveRecord::Relation.
     def self.search(query)
-      where(token: query).or(fuzzy_search(query, [:description]))
+      with_encrypted_tokens(encode(query)).or(fuzzy_search(query, [:description]))
     end
 
     def self.online_contact_time_deadline
@@ -310,7 +334,8 @@ module Ci
         :private_projects_minutes_cost_factor,
         :run_untagged,
         :access_level,
-        Arel.sql("(#{arel_tag_names_array.to_sql})")
+        Arel.sql("(#{arel_tag_names_array.to_sql})"),
+        :allowed_plan_ids
       ]
 
       group(*unique_params).pluck('array_agg(ci_runners.id)', *unique_params).map do |values|
@@ -321,30 +346,40 @@ module Ci
           private_projects_minutes_cost_factor: values[3],
           run_untagged: values[4],
           access_level: values[5],
-          tag_list: values[6]
+          tag_list: values[6],
+          allowed_plan_ids: values[7]
         })
       end
     end
 
-    def runner_matcher
-      strong_memoize(:runner_matcher) do
-        Gitlab::Ci::Matching::RunnerMatcher.new({
-          runner_ids: [id],
-          runner_type: runner_type,
-          public_projects_minutes_cost_factor: public_projects_minutes_cost_factor,
-          private_projects_minutes_cost_factor: private_projects_minutes_cost_factor,
-          run_untagged: run_untagged,
-          access_level: access_level,
-          tag_list: tag_list
-        })
-      end
+    def self.taggings_join_model
+      ::Ci::RunnerTagging
     end
+
+    def runner_matcher
+      Gitlab::Ci::Matching::RunnerMatcher.new({
+        runner_ids: [id],
+        runner_type: runner_type,
+        public_projects_minutes_cost_factor: public_projects_minutes_cost_factor,
+        private_projects_minutes_cost_factor: private_projects_minutes_cost_factor,
+        run_untagged: run_untagged,
+        access_level: access_level,
+        tag_list: tag_list,
+        allowed_plan_ids: allowed_plan_ids
+      })
+    end
+    strong_memoize_attr :runner_matcher
 
     def assign_to(project, current_user = nil)
       if instance_type?
         raise ArgumentError, 'Transitioning an instance runner to a project runner is not supported'
       elsif group_type?
         raise ArgumentError, 'Transitioning a group runner to a project runner is not supported'
+      end
+
+      if self.runner_projects.empty?
+        self.errors.add(:assign_to, 'Taking over an orphaned project runner is not allowed')
+        return false
       end
 
       begin
@@ -378,18 +413,24 @@ module Ci
       end
     end
 
-    def owner_project
-      return unless project_type?
-
-      runner_projects.order(:id).first.project
+    def owner
+      case runner_type
+      when 'instance_type'
+        memoize_owner { ::User.find_by_id(creator_id) }
+      when 'group_type'
+        persisted? ? memoize_owner { owner_runner_namespace&.namespace } : runner_namespaces.first&.namespace
+      when 'project_type'
+        # If runner projects are not yet saved (e.g. when calculating `routable_token`), use in-memory collection
+        persisted? ? memoize_owner { owner_runner_project&.project } : runner_projects.first&.project
+      end
     end
 
     def belongs_to_one_project?
-      runner_projects.count == 1
+      runner_projects.one?
     end
 
     def belongs_to_more_than_one_project?
-      runner_projects.limit(2).count(:all) > 1
+      runner_projects.many?
     end
 
     def match_build_if_online?(build)
@@ -397,22 +438,26 @@ module Ci
     end
 
     def only_for?(project)
-      !runner_projects.where.not(project_id: project.id).exists?
+      runner_projects.where.not(project_id: project.id).empty?
     end
 
     def short_sha
       return unless token
 
-      start_index = authenticated_user_registration_type? ? CREATED_RUNNER_TOKEN_PREFIX.length : 0
-      token[start_index..start_index + RUNNER_SHORT_SHA_LENGTH]
-    end
+      # We want to show the first characters of the hash, so we need to bypass any fixed components of the token, such
+      # as CREATED_RUNNER_TOKEN_PREFIX, REGISTRATION_RUNNER_TOKEN_PREFIX or legacy_partition_id_prefix_in_16_bit_encode
+      legacy_partition_prefix = legacy_partition_id_prefix_in_16_bit_encode
+      start_index = if authenticated_user_registration_type?
+                      CREATED_RUNNER_TOKEN_PREFIX.length
+                    elsif token.start_with?(REGISTRATION_RUNNER_TOKEN_PREFIX)
+                      REGISTRATION_RUNNER_TOKEN_PREFIX.length
+                    else
+                      0
+                    end
 
-    def tag_list
-      if tags.loaded?
-        tags.map(&:name)
-      else
-        super
-      end
+      start_index += legacy_partition_prefix.length if token[start_index..].start_with?(legacy_partition_prefix)
+
+      token[start_index..start_index + RUNNER_SHORT_SHA_LENGTH - 1]
     end
 
     def has_tags?
@@ -423,7 +468,7 @@ module Ci
       Gitlab::Ci::Variables::Collection.new
         .append(key: 'CI_RUNNER_ID', value: id.to_s)
         .append(key: 'CI_RUNNER_DESCRIPTION', value: description)
-        .append(key: 'CI_RUNNER_TAGS', value: tag_list.to_s)
+        .append(key: 'CI_RUNNER_TAGS', value: tag_list.to_a.to_s)
     end
 
     def tick_runner_queue
@@ -451,27 +496,21 @@ module Ci
       ensure_runner_queue_value == value if value.present?
     end
 
-    def heartbeat
+    def heartbeat(creation_state: nil)
       ##
       # We can safely ignore writes performed by a runner heartbeat. We do
       # not want to upgrade database connection proxy to use the primary
       # database after heartbeat write happens.
       #
-      ::Gitlab::Database::LoadBalancing::Session.without_sticky_writes do
-        values = { contacted_at: Time.current, creation_state: :finished }
+      ::Gitlab::Database::LoadBalancing::SessionMap.current(load_balancer).without_sticky_writes do
+        values = { contacted_at: Time.current }
+        values[:creation_state] = creation_state if creation_state.present?
 
         merge_cache_attributes(values)
 
         # We save data without validation, it will always change due to `contacted_at`
         update_columns(values) if persist_cached_data?
       end
-    end
-
-    def clear_heartbeat
-      cleared_attributes = { contacted_at: nil }
-
-      merge_cache_attributes(cleared_attributes)
-      update_columns(cleared_attributes)
     end
 
     def pick_build!(build)
@@ -487,10 +526,9 @@ module Ci
     end
 
     def namespace_ids
-      strong_memoize(:namespace_ids) do
-        runner_namespaces.pluck(:namespace_id).compact
-      end
+      runner_namespaces.pluck(:namespace_id).compact
     end
+    strong_memoize_attr :namespace_ids
 
     def compute_token_expiration
       case runner_type
@@ -503,24 +541,49 @@ module Ci
       end
     end
 
-    def ensure_manager(system_xid, &blk)
-      RunnerManager.safe_find_or_create_by!(runner_id: id, system_xid: system_xid.to_s, &blk) # rubocop: disable Performance/ActiveRecordSubtransactionMethods
+    def ensure_manager(system_xid)
+      # rubocop: disable Performance/ActiveRecordSubtransactionMethods -- This is used only in API endpoints outside of transactions
+      RunnerManager.safe_find_or_create_by!(runner_id: id, system_xid: system_xid.to_s) do |m|
+        m.runner_type = runner_type
+        m.organization_id = organization_id
+      end
+      # rubocop: enable Performance/ActiveRecordSubtransactionMethods
     end
 
     def registration_available?
       authenticated_user_registration_type? &&
         created_at > REGISTRATION_AVAILABILITY_TIME.ago &&
-        !runner_managers.any?
+        creation_state == 'started' # NOTE: We can't use started_creation_state? here as we need to check cached value
     end
 
-    def gitlab_hosted?
+    # CI_JOB_JWT_V2 that uses this method is deprecated
+    #
+    # On .com all instance runners are hosted so instance_type is used to distingish hosted from non-hosted
+    def dot_com_gitlab_hosted?
       Gitlab.com? && instance_type?
+    end
+
+    # false in FOSS
+    def dedicated_gitlab_hosted?
+      false
+    end
+
+    def partition_id
+      self.class.runner_types[runner_type]
     end
 
     private
 
     scope :with_upgrade_status, ->(upgrade_status) do
       joins(:runner_managers).merge(RunnerManager.with_upgrade_status(upgrade_status))
+    end
+
+    def fallback_owner_project
+      # NOTE: when a project is deleted, the respective ci_runner_projects records are not immediately
+      # deleted by the LFK, so we might find join records that point to a still-existing project
+      project_ids = runner_projects.order(:id).pluck(:project_id)
+      projects_added_to_runner_asc = Arel.sql("array_position(ARRAY[#{project_ids.join(',')}]::bigint[], id)")
+      Project.order(projects_added_to_runner_asc).find_by_id(project_ids)
     end
 
     def compute_token_expiration_instance
@@ -530,11 +593,15 @@ module Ci
     end
 
     def compute_token_expiration_group
-      ::Group.where(id: runner_namespaces.map(&:namespace_id)).map(&:effective_runner_token_expiration_interval).compact.min&.from_now
+      ::Group.id_in(runner_namespaces.map(&:namespace_id))
+        .filter_map(&:effective_runner_token_expiration_interval)
+        .min&.from_now
     end
 
     def compute_token_expiration_project
-      Project.where(id: runner_projects.map(&:project_id)).map(&:effective_runner_token_expiration_interval).compact.min&.from_now
+      Project.id_in(runner_projects.map(&:project_id))
+        .filter_map(&:effective_runner_token_expiration_interval)
+        .min&.from_now
     end
 
     def cleanup_runner_queue
@@ -566,44 +633,47 @@ module Ci
       end
     end
 
+    def no_organization_id
+      errors.add(:runner, 'cannot have organization_id assigned') if organization_id
+    end
+
     def no_projects
-      if runner_projects.any?
-        errors.add(:runner, 'cannot have projects assigned')
-      end
+      errors.add(:runner, 'cannot have projects assigned') if runner_projects.any?
     end
 
     def no_groups
-      if runner_namespaces.any?
-        errors.add(:runner, 'cannot have groups assigned')
-      end
+      errors.add(:runner, 'cannot have groups assigned') if runner_namespaces.any?
     end
 
     def any_project
-      unless runner_projects.any?
-        errors.add(:runner, 'needs to be assigned to at least one project')
-      end
+      errors.add(:runner, 'needs to be assigned to at least one project') if runner_projects.empty?
     end
 
     def exactly_one_group
-      unless runner_namespaces.size == 1
-        errors.add(:runner, 'needs to be assigned to exactly one group')
-      end
+      errors.add(:runner, 'needs to be assigned to exactly one group') unless runner_namespaces.size == 1
     end
 
-    # TODO Remove in 16.0 when runners are known to send a system_id
-    # For now, heartbeats with version updates might result in two Sidekiq jobs being queued if a runner has a system_id
-    # This is not a problem since the jobs are deduplicated on the version
-    def schedule_runner_version_update(new_version)
-      return if Feature.enabled?(:hide_duplicate_runner_manager_fields_in_runner)
-      return unless new_version && Gitlab::Ci::RunnerReleases.instance.enabled?
+    def no_allowed_plan_ids
+      errors.add(:runner, 'cannot have allowed plans assigned') unless allowed_plan_ids.empty?
+    end
 
-      Ci::Runners::ProcessRunnerVersionUpdateWorker.perform_async(new_version)
+    def legacy_partition_id_prefix_in_16_bit_encode
+      # Prefix with t1 / t2 / t3 (`t` as in runner type, to allow us to easily detect how a token got prefixed).
+      # This is needed in order to ensure that tokens have unique values across partitions
+      # in the new ci_runners partitioned table.
+      "t#{partition_id.to_s(16)}_"
     end
 
     def prefix_for_new_and_legacy_runner
-      return if registration_token_registration_type?
+      return REGISTRATION_RUNNER_TOKEN_PREFIX if registration_token_registration_type?
 
       CREATED_RUNNER_TOKEN_PREFIX
+    end
+
+    def memoize_owner
+      strong_memoize(:owner) do # rubocop: disable Gitlab/StrongMemoizeAttr -- need to memoize with conditions
+        yield
+      end
     end
   end
 end

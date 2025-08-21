@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Caching guidelines
 ---
-
-# Caching guidelines
 
 This document describes the various caching strategies in use at GitLab, how to implement
 them effectively, and various gotchas. This material was extracted from the excellent
@@ -56,7 +55,7 @@ The goal for every web page should be to return in under 100 ms:
 - Some engineers are opposed to caching except as a last resort, considering it to
   be a hack, and that the real solution is to improve the underlying code to be faster.
 - This is could be fed by fear of cache expiry, which is understandable.
-- But caching is _still faster_.
+- But caching is still faster.
 - You must use both techniques to achieve true performance:
   - There's no point caching if the initial cold write is so slow it times out, for example.
   - But there are few cases where caching isn't a performance boost.
@@ -67,7 +66,7 @@ The goal for every web page should be to return in under 100 ms:
 
 Despite downsides to Redis caching, you should still feel free to make good use of the
 caching setup inside the GitLab application and on GitLab.com. Our
-[forecasting for cache utilization](https://gitlab-com.gitlab.io/gl-infra/tamland/saturation.html)
+[forecasting for cache utilization](https://gitlab-com.gitlab.io/gl-infra/tamland/forecasting/)
 indicates we have plenty of headroom.
 
 ## Workflow
@@ -146,7 +145,7 @@ Is the cache being added "worthy"? This can be hard to measure, but you can cons
 
 - HTTP caching:
   - Use ETags and expiry times to instruct browsers to serve their own cached versions.
-  - This _does_ still hit Rails, but skips the view layer.
+  - This does still hit Rails, but skips the view layer.
 - HTTP caching in a reverse proxy cache:
   - Same as above, but with a `public` setting.
   - Instead of the browser, this instructs a reverse proxy (such as NGINX, HAProxy, Varnish) to serve a cached version.
@@ -195,6 +194,12 @@ This is well-documentation in the [Rails guides](https://guides.rubyonrails.org/
 This sets the Time To Live (TTL) for the cache entry, and is the single most useful
 (and most commonly used) cache option. This is supported in most Rails caching helpers.
 
+The TTL, if not set with `expires_in`,
+[defaults to 8 hours](https://gitlab.com/gitlab-org/gitlab/-/blob/a3e435da6e9f7c98dc05eccb1caa03c1aed5a2a8/lib/gitlab/redis/cache.rb#L26).
+Consider using an 8 hour TTL for general caching, as this matches a workday and would mean that a user would generally only have one cache-miss per day for the same content.
+
+When writing large amounts of data, consider using a shorter expiry to decrease its impact on the memory usage.
+
 ##### `race_condition_ttl`
 
 This option prevents multiple uncached hits for a key at the same time.
@@ -204,13 +209,19 @@ then sets the new cache value.
 Used when a cache key is under very heavy load to prevent multiple simultaneous
 writes, but should be set to a low value, such as 10 seconds.
 
+#### Rails cache behavior on GitLab
+
+`Rails.cache` uses Redis as the store.
+GitLab instances, like GitLab.com, can configure Redis for [key eviction](https://redis.io/docs/latest/develop/reference/eviction/).
+See the [Redis development guide](redis.md#caching).
+
 ### When to use HTTP caching
 
 Use conditional GET caching when the entire response is cacheable:
 
 - No privacy risk when you aren't using public caches. You're only caching what
   the user sees, for that user, in their browser.
-- Particularly useful on [endpoints that get polled](polling.md#polling-with-etag-caching).
+- Particularly useful on [endpoints that get polled](polling.md).
 - Good examples:
   - A list of discussions that we poll for updates. Use the last created entry's `updated_at` value for the `etag`.
   - API endpoints.

@@ -16,8 +16,13 @@ jest.mock('~/ide/utils');
 
 const mockNamespacePath = 'mock-namespace';
 
+const $defs = {
+  reused_policy: { items: { properties: { flam: 'jam' } } },
+  policy_scope: { type: 'object' },
+};
+
 const mockSchema = {
-  $defs: { reused_policy: { items: { properties: { flam: 'jam' } } } },
+  $defs,
   title: 'mockSchema',
   description: 'mockDescriptions',
   type: 'Object',
@@ -32,6 +37,7 @@ const mockCommonData = {
   title: 'mockSchema',
   description: 'mockDescriptions',
   type: 'Object',
+  $defs,
 };
 
 const mockScanExecutionPolicyProperties = {
@@ -42,9 +48,32 @@ const mockScanExecutionPolicyProperties = {
       description: 'Specifies the type of policy to be enforced.',
       enum: 'scan_execution_policy',
     },
-    foo: 'bar',
+    scan_execution_policy: { items: { properties: { foo: 'bar' } } },
+    approval_policy: { items: { properties: { fizz: 'buzz' } } },
+    reused_policy: { $ref: '#/$defs/reused_policy' },
   },
 };
+
+const types = {
+  scan_execution_policy: { items: { properties: { foo: 'bar' } } },
+  approval_policy: { items: { properties: { fizz: 'buzz' } } },
+  reused_policy: { $ref: '#/$defs/reused_policy' },
+};
+
+const mockCommonExtendedSchema = (policyType) => ({
+  title: 'mockSchema',
+  description: 'mockDescriptions',
+  type: 'Object',
+  properties: {
+    type: {
+      type: 'string',
+      description: 'Specifies the type of policy to be enforced.',
+      enum: policyType,
+    },
+    ...types,
+  },
+  $defs,
+});
 
 const mockApprovalPolicyProperties = {
   ...mockCommonData,
@@ -54,7 +83,7 @@ const mockApprovalPolicyProperties = {
       description: 'Specifies the type of policy to be enforced.',
       enum: 'approval_policy',
     },
-    fizz: 'buzz',
+    ...types,
   },
 };
 
@@ -66,7 +95,7 @@ const mockReusedPolicyProperties = {
       description: 'Specifies the type of policy to be enforced.',
       enum: 'reused_policy',
     },
-    flam: 'jam',
+    ...types,
   },
 };
 
@@ -78,6 +107,7 @@ const mockNonExistentPolicyProperties = {
       description: 'Specifies the type of policy to be enforced.',
       enum: 'non_existent_policy',
     },
+    ...types,
   },
 };
 
@@ -151,6 +181,26 @@ describe('getSinglePolicySchema', () => {
       }),
     ).resolves.toStrictEqual({});
   });
+
+  it.each`
+    policyType
+    ${'scan_execution_policy'}
+    ${'approval_policy'}
+    ${'reused_policy'}
+  `(
+    'returns schema with policy type wrapper when ff is enabled for $policyType',
+    async ({ policyType }) => {
+      mock.onGet().reply(HTTP_STATUS_OK, mockSchema);
+
+      await expect(
+        getSinglePolicySchema({
+          namespacePath: mockNamespacePath,
+          namespaceType: 'project',
+          policyType,
+        }),
+      ).resolves.toStrictEqual(mockCommonExtendedSchema(policyType));
+    },
+  );
 });
 
 describe('SecurityPolicySchemaExtension', () => {
@@ -194,6 +244,23 @@ describe('SecurityPolicySchemaExtension', () => {
           uri: `${TEST_HOST}/${mockNamespacePath}/-/security/policies/schema`,
           schema: mockScanExecutionPolicyProperties,
           fileMatch: ['policy.yml'],
+        });
+      });
+
+      it('registers the schema even if `getModel` fails', async () => {
+        instance.getModel = jest.fn().mockImplementation(() => undefined);
+
+        await instance.registerSecurityPolicyEditorSchema({
+          namespacePath: mockNamespacePath,
+          namespaceType: 'project',
+          policyType: 'scan_execution_policy',
+        });
+
+        expect(registerSchema).toHaveBeenCalledTimes(1);
+        expect(registerSchema).toHaveBeenCalledWith({
+          uri: `${TEST_HOST}/${mockNamespacePath}/-/security/policies/schema`,
+          schema: mockScanExecutionPolicyProperties,
+          fileMatch: ['*.yaml'],
         });
       });
     });

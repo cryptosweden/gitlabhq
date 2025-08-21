@@ -4,9 +4,13 @@ import { isEmpty } from 'lodash';
 import { mapState, mapActions, mapGetters } from 'vuex';
 import { s__ } from '~/locale';
 import { visitUrl, setUrlParams } from '~/lib/utils/url_utility';
-import { ANY_OPTION, GROUP_DATA, PROJECT_DATA } from '~/search/sidebar/constants';
-import SearchableDropdown from './searchable_dropdown.vue';
-import { archivedFilterData } from './archived_filter/data';
+import {
+  ANY_OPTION,
+  GROUP_DATA,
+  PROJECT_DATA,
+  INCLUDE_ARCHIVED_FILTER_PARAM,
+} from '~/search/sidebar/constants';
+import SearchableDropdown from './shared/searchable_dropdown.vue';
 
 export default {
   name: 'ProjectFilter',
@@ -23,13 +27,7 @@ export default {
     };
   },
   computed: {
-    ...mapState([
-      'query',
-      'projects',
-      'fetchingProjects',
-      'projectInitialJson',
-      'useSidebarNavigation',
-    ]),
+    ...mapState(['query', 'projects', 'fetchingProjects', 'projectInitialJson']),
     ...mapGetters(['frequentProjects', 'currentScope']),
     selectedProject() {
       return isEmpty(this.projectInitialJson) ? ANY_OPTION : this.projectInitialJson;
@@ -57,15 +55,18 @@ export default {
       if (project.id) {
         this.setFrequentProject(project);
       }
-
       // This determines if we need to update the group filter or not
       const queryParams = {
         ...(project.namespace?.id && { [GROUP_DATA.queryParam]: project.namespace.id }),
         [PROJECT_DATA.queryParam]: project.id,
         nav_source: null,
         scope: this.currentScope,
-        [archivedFilterData.filterParam]: null,
+        [INCLUDE_ARCHIVED_FILTER_PARAM]: null,
       };
+
+      if (project.id === null) {
+        queryParams.repository_ref = null;
+      }
 
       visitUrl(setUrlParams(queryParams));
     },
@@ -76,7 +77,7 @@ export default {
 
 <template>
   <div>
-    <h5 :id="labelId" class="gl-mt-0 gl-mb-2 gl-font-sm">
+    <h5 :id="labelId" class="gl-mb-2 gl-mt-0 gl-text-sm">
       {{ $options.i18n.projectFieldLabel }}
     </h5>
     <searchable-dropdown

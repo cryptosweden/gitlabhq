@@ -1,11 +1,12 @@
 .js-blob-result.gl-mt-3.gl-mb-5{ data: { testid: 'result-item-content' } }
   .file-holder.file-holder-top-border
     .js-file-title.file-title{ data: { testid: 'file-title-content' } }
-      = link_to blob_link, data: {track_action: 'click_text', track_label: 'blob_path', track_property: 'search_result'} do
-        = sprite_icon('document')
-        %strong
-          = search_blob_title(project, path)
+      = link_to blob_link, class: 'gl-font-bold !gl-text-link', data: { event_tracking: 'click_search_result', event_label: @scope, event_value: position } do
+        = path
       = copy_file_path_button(path)
+      - unless @project
+        %br
+        = link_to project.full_name, project_path(project), class: 'gl-text-sm !gl-text-subtle'
     - if blob.data
       - if blob.data.size > 0
         .file-content.code.term{ data: { testid: 'file-text-content' } }
@@ -13,6 +14,5 @@
       - else
         .file-content.code
           .nothing-here-block
-            .gl-text-gray-600.gl-font-sm
-              - max_file_size_indexed = Gitlab::CurrentSettings.elasticsearch_indexed_file_size_limit_kb.kilobytes
-              = _('The file could not be displayed because it is empty or larger than the maximum file size indexed (%{size}).') % { size: number_to_human_size(max_file_size_indexed) }
+            .gl-text-subtle.gl-text-sm
+              = blob_data_oversize_message

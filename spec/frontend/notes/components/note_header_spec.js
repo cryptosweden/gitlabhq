@@ -1,22 +1,20 @@
 import Vue, { nextTick } from 'vue';
-// eslint-disable-next-line no-restricted-imports
-import Vuex from 'vuex';
+import { PiniaVuePlugin } from 'pinia';
+import { createTestingPinia } from '@pinia/testing';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
+import waitForPromises from 'helpers/wait_for_promises';
 import NoteHeader from '~/notes/components/note_header.vue';
 import ImportedBadge from '~/vue_shared/components/imported_badge.vue';
+import { globalAccessorPlugin } from '~/pinia/plugins';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useNotes } from '~/notes/store/legacy_notes';
 
-Vue.use(Vuex);
-
-const actions = {
-  setTargetNoteHash: jest.fn(),
-};
+Vue.use(PiniaVuePlugin);
 
 describe('NoteHeader component', () => {
   let wrapper;
+  let pinia;
 
-  const findActionsWrapper = () => wrapper.findComponent({ ref: 'discussionActions' });
-  const findToggleThreadButton = () => wrapper.findByTestId('thread-toggle');
-  const findChevronIcon = () => wrapper.findComponent({ ref: 'chevronIcon' });
   const findActionText = () => wrapper.findComponent({ ref: 'actionText' });
   const findTimestampLink = () => wrapper.findComponent({ ref: 'noteTimestampLink' });
   const findTimestamp = () => wrapper.findComponent({ ref: 'noteTimestamp' });
@@ -54,70 +52,15 @@ describe('NoteHeader component', () => {
 
   const createComponent = (props) => {
     wrapper = shallowMountExtended(NoteHeader, {
-      store: new Vuex.Store({
-        actions,
-      }),
+      pinia,
       propsData: { ...props },
     });
   };
 
-  it('does not render discussion actions when includeToggle is false', () => {
-    createComponent({
-      includeToggle: false,
-    });
-
-    expect(findActionsWrapper().exists()).toBe(false);
-  });
-
-  describe('when includes a toggle', () => {
-    it('renders discussion actions', () => {
-      createComponent({
-        includeToggle: true,
-      });
-
-      expect(findActionsWrapper().exists()).toBe(true);
-    });
-
-    it('emits toggleHandler event on button click', () => {
-      createComponent({
-        includeToggle: true,
-      });
-
-      wrapper.find('.note-action-button').trigger('click');
-      expect(wrapper.emitted('toggleHandler')).toBeDefined();
-      expect(wrapper.emitted('toggleHandler')).toHaveLength(1);
-    });
-
-    it('has chevron-up icon if expanded prop is true', () => {
-      createComponent({
-        includeToggle: true,
-        expanded: true,
-      });
-
-      expect(findChevronIcon().props('name')).toBe('chevron-up');
-    });
-
-    it('has chevron-down icon if expanded prop is false', () => {
-      createComponent({
-        includeToggle: true,
-        expanded: false,
-      });
-
-      expect(findChevronIcon().props('name')).toBe('chevron-down');
-    });
-
-    it.each`
-      text                          | expanded
-      ${NoteHeader.i18n.showThread} | ${false}
-      ${NoteHeader.i18n.hideThread} | ${true}
-    `('toggle button has text $text is expanded is $expanded', ({ text, expanded }) => {
-      createComponent({
-        includeToggle: true,
-        expanded,
-      });
-
-      expect(findToggleThreadButton().text()).toBe(text);
-    });
+  beforeEach(() => {
+    pinia = createTestingPinia({ plugins: [globalAccessorPlugin] });
+    useLegacyDiffs();
+    useNotes();
   });
 
   it('renders an author link if author is passed to props', () => {
@@ -168,14 +111,16 @@ describe('NoteHeader component', () => {
       expect(findActionText().text()).toBe('Test action text');
     });
 
-    it('calls an action when timestamp is clicked', () => {
+    it('calls an action when timestamp is clicked', async () => {
       createComponent({
         createdAt: '2017-08-02T10:51:58.559Z',
         noteId: 123,
       });
-      findTimestampLink().trigger('click');
+      findTimestampLink().vm.$emit('click');
 
-      expect(actions.setTargetNoteHash).toHaveBeenCalled();
+      await waitForPromises();
+
+      expect(useNotes().setTargetNoteHash).toHaveBeenCalled();
     });
   });
 
@@ -266,13 +211,13 @@ describe('NoteHeader component', () => {
     it('renders with "comment" when note is imported', () => {
       createComponent({ isImported: true });
 
-      expect(findImportedBadge().props('importableType')).toBe('comment');
+      expect(findImportedBadge().exists()).toBe(true);
     });
 
     it('renders with "activity" when note is imported and is system note', () => {
       createComponent({ isImported: true, isSystemNote: true });
 
-      expect(findImportedBadge().props('importableType')).toBe('activity');
+      expect(findImportedBadge().exists()).toBe(true);
     });
 
     it('does not render when note is not imported', () => {

@@ -10,8 +10,12 @@ module Ci
 
     # For legacy reasons, the table name is ci_runner_machines in the database
     self.table_name = 'ci_runner_machines'
+    self.primary_key = :id
+
+    ignore_column :sharding_key_id, remove_with: '18.6', remove_after: '2025-10-22'
 
     AVAILABLE_STATUSES = %w[online offline never_contacted stale].freeze
+    AVAILABLE_STATUSES_INCL_DEPRECATED = AVAILABLE_STATUSES
 
     # The `UPDATE_CONTACT_COLUMN_EVERY` defines how often the Runner Machine DB entry can be updated
     UPDATE_CONTACT_COLUMN_EVERY = (40.minutes)..(55.minutes)
@@ -35,12 +39,14 @@ module Ci
 
     EXECUTOR_TYPE_TO_NAMES = EXECUTOR_NAME_TO_TYPES.invert.freeze
 
-    belongs_to :runner
+    belongs_to :runner, class_name: 'Ci::Runner', inverse_of: :runner_managers
 
-    enum creation_state: {
+    enum :creation_state, {
       started: 0,
       finished: 100
-    }, _suffix: true
+    }, suffix: true
+
+    enum :runner_type, Runner.runner_types
 
     has_many :runner_manager_builds, inverse_of: :runner_manager, foreign_key: :runner_machine_id,
       class_name: 'Ci::RunnerManagerBuild'
@@ -49,15 +55,21 @@ module Ci
       class_name: 'Ci::RunnerVersion'
 
     validates :runner, presence: true
+    validates :runner_type, presence: true, on: :create
     validates :system_xid, presence: true, length: { maximum: 64 }
+    validates :organization_id, presence: true, on: [:create, :update], unless: :instance_type?
     validates :version, length: { maximum: 2048 }
     validates :revision, length: { maximum: 255 }
     validates :platform, length: { maximum: 255 }
     validates :architecture, length: { maximum: 255 }
     validates :ip_address, length: { maximum: 1024 }
     validates :config, json_schema: { filename: 'ci_runner_config' }
+    validates :runtime_features, json_schema: { filename: 'ci_runner_runtime_features' }
 
-    cached_attr_reader :version, :revision, :platform, :architecture, :ip_address, :contacted_at, :executor_type
+    validate :no_organization_id, if: :instance_type?
+
+    cached_attr_reader :version, :revision, :platform, :architecture, :ip_address, :contacted_at,
+      :executor_type, :creation_state
 
     # The `STALE_TIMEOUT` constant defines the how far past the last contact or creation date a runner manager
     # will be considered stale
@@ -66,32 +78,31 @@ module Ci
     scope :stale, -> do
       stale_timestamp = stale_deadline
 
-      created_before_stale_deadline = arel_table[:created_at].lteq(stale_timestamp)
-      contacted_before_stale_deadline = arel_table[:contacted_at].lteq(stale_timestamp)
-
       from_union(
         never_contacted,
-        where(contacted_before_stale_deadline),
+        where(contacted_at: ..stale_timestamp),
         remove_duplicates: false
-      ).where(created_before_stale_deadline)
+      ).where(created_at: ..stale_timestamp)
     end
 
-    scope :for_runner, ->(runner_id) do
-      where(runner_id: runner_id)
+    scope :for_runner, ->(runner) do
+      scope = where(runner_id: runner)
+      scope = scope.where(runner_type: runner.runner_type) if runner.is_a?(Ci::Runner) # Use unique index if possible
+
+      scope
     end
 
     scope :with_system_xid, ->(system_xid) do
       where(system_xid: system_xid)
     end
 
-    scope :with_running_builds, -> do
-      where('EXISTS(?)',
-        Ci::Build.select(1)
+    scope :with_executing_builds, -> do
+      where_exists(
+        Ci::Build
           .joins(:runner_manager_build)
-          .running
+          .executing
           .where("#{::Ci::Build.quoted_table_name}.runner_id = #{quoted_table_name}.runner_id")
           .where("#{::Ci::RunnerManagerBuild.quoted_table_name}.runner_machine_id = #{quoted_table_name}.id")
-          .limit(1)
       )
     end
 
@@ -127,16 +138,36 @@ module Ci
         .transform_values { |s| Ci::RunnerVersion.statuses.key(s).to_sym }
     end
 
-    def heartbeat(values, update_contacted_at: true)
+    def self.ip_address_exists?(ip_address)
+      exists?(ip_address:)
+    end
+
+    def self.version_regex_expression_for_version(version)
+      case version
+      when /\d+\.\d+\.\d+/
+        '^\d+\.\d+\.\d+'
+      when /\d+\.\d+(\.)?/
+        '^\d+\.\d+\.'
+      else
+        '^\d+\.'
+      end
+    end
+
+    def uncached_contacted_at
+      read_attribute(:contacted_at)
+    end
+
+    def heartbeat(values)
       ##
       # We can safely ignore writes performed by a runner heartbeat. We do
       # not want to upgrade database connection proxy to use the primary
       # database after heartbeat write happens.
       #
-      ::Gitlab::Database::LoadBalancing::Session.without_sticky_writes do
-        values = values&.slice(:version, :revision, :platform, :architecture, :ip_address, :config, :executor) || {}
+      ::Gitlab::Database::LoadBalancing::SessionMap.current(load_balancer).without_sticky_writes do
+        values = values&.slice(:version, :revision, :platform, :architecture, :ip_address, :config,
+          :executor, :runtime_features) || {}
 
-        values.merge!(contacted_at: Time.current, creation_state: :finished) if update_contacted_at
+        values.merge!(contacted_at: Time.current, creation_state: :finished)
 
         if values.include?(:executor)
           values[:executor_type] = EXECUTOR_NAME_TO_TYPES.fetch(values.delete(:executor), :unknown)
@@ -152,13 +183,17 @@ module Ci
       end
     end
 
+    def supports_after_script_on_cancel?
+      !!runtime_features['cancel_gracefully']
+    end
+
     private
 
     def persist_cached_data?
       # Use a random threshold to prevent beating DB updates.
       contacted_at_max_age = Random.rand(UPDATE_CONTACT_COLUMN_EVERY)
 
-      real_contacted_at = read_attribute(:contacted_at)
+      real_contacted_at = uncached_contacted_at
       real_contacted_at.nil? ||
         (Time.current - real_contacted_at) >= contacted_at_max_age
     end
@@ -169,15 +204,8 @@ module Ci
       Ci::Runners::ProcessRunnerVersionUpdateWorker.perform_async(new_version)
     end
 
-    def self.version_regex_expression_for_version(version)
-      case version
-      when /\d+\.\d+\.\d+/
-        '^\d+\.\d+\.\d+'
-      when /\d+\.\d+(\.)?/
-        '^\d+\.\d+\.'
-      else
-        '^\d+\.'
-      end
+    def no_organization_id
+      errors.add(:runner_manager, 'cannot have organization_id assigned') if organization_id
     end
   end
 end

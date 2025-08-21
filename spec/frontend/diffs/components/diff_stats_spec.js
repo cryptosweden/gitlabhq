@@ -1,4 +1,4 @@
-import { GlIcon } from '@gitlab/ui';
+import { GlIcon, GlSprintf } from '@gitlab/ui';
 import { shallowMount } from '@vue/test-utils';
 import { extendedWrapper } from 'helpers/vue_test_utils_helper';
 
@@ -21,6 +21,9 @@ describe('diff_stats', () => {
           removedLines: TEST_REMOVED_LINES,
           ...props,
         },
+        stubs: {
+          GlSprintf,
+        },
       }),
     );
   };
@@ -28,18 +31,18 @@ describe('diff_stats', () => {
   describe('diff stats group', () => {
     const findDiffStatsGroup = () => wrapper.findAll('.diff-stats-group');
 
-    it('is not rendered if diffFilesCountText is empty', () => {
+    it('is not rendered if diffsCount is empty', () => {
       createComponent();
 
-      expect(findDiffStatsGroup().length).toBe(2);
+      expect(findDiffStatsGroup()).toHaveLength(2);
     });
 
-    it('is not rendered if diffFilesCountText is not a number', () => {
+    it('is not rendered if diffsCount is not a number', () => {
       createComponent({
-        diffFilesCountText: null,
+        diffsCount: null,
       });
 
-      expect(findDiffStatsGroup().length).toBe(2);
+      expect(findDiffStatsGroup()).toHaveLength(2);
     });
   });
 
@@ -63,7 +66,7 @@ describe('diff_stats', () => {
     it("renders the bytes changes instead of line changes when the file isn't diffable", () => {
       const content = getBytesContainer();
 
-      expect(content.classes('gl-text-green-600')).toBe(true);
+      expect(content.classes('gl-text-success')).toBe(true);
       expect(content.text()).toBe('+1.00 KiB (+100%)');
     });
   });
@@ -82,6 +85,16 @@ describe('diff_stats', () => {
     it('shows the amount of lines removed', () => {
       expect(findFileLine('js-file-deletion-line').text()).toBe(TEST_REMOVED_LINES.toString());
     });
+
+    it('labels stats', () => {
+      expect(
+        wrapper
+          .find(
+            `[aria-label="Added ${TEST_ADDED_LINES} lines. Removed ${TEST_REMOVED_LINES} lines."]`,
+          )
+          .exists(),
+      ).toBe(true);
+    });
   });
 
   describe('files changes', () => {
@@ -95,7 +108,7 @@ describe('diff_stats', () => {
       const oneFileChanged = '0';
 
       createComponent({
-        diffFilesCountText: oneFileChanged,
+        diffsCount: oneFileChanged,
       });
 
       expect(findIcon('doc-code').textContent.trim()).toBe(`${oneFileChanged} files`);
@@ -105,7 +118,7 @@ describe('diff_stats', () => {
       const oneFileChanged = '1';
 
       createComponent({
-        diffFilesCountText: oneFileChanged,
+        diffsCount: oneFileChanged,
       });
 
       expect(findIcon('doc-code').textContent.trim()).toBe(`${oneFileChanged} file`);
@@ -113,7 +126,7 @@ describe('diff_stats', () => {
 
     it('shows amount of files change with plural "files" when multiple files are changed', () => {
       createComponent({
-        diffFilesCountText: DIFF_FILES_COUNT,
+        diffsCount: DIFF_FILES_COUNT,
       });
 
       expect(findIcon('doc-code').textContent.trim()).toContain(`${DIFF_FILES_COUNT} files`);
@@ -121,7 +134,7 @@ describe('diff_stats', () => {
 
     it('shows amount of files change with plural "files" when files changed is truncated', () => {
       createComponent({
-        diffFilesCountText: DIFF_FILES_COUNT_TRUNCATED,
+        diffsCount: DIFF_FILES_COUNT_TRUNCATED,
       });
 
       expect(findIcon('doc-code').textContent.trim()).toContain(

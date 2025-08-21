@@ -3,12 +3,16 @@
 require 'spec_helper'
 
 RSpec.describe Packages::Generic::CreatePackageFileService, feature_category: :package_registry do
-  let_it_be(:project) { create(:project) }
+  let_it_be(:namespace) { create(:group) }
+  let_it_be(:project) { create(:project, group: namespace) }
+  let_it_be(:package_settings) { create(:namespace_package_setting, namespace: namespace) }
   let_it_be(:user) { create(:user) }
   let_it_be(:pipeline) { create(:ci_pipeline, user: user) }
   let_it_be(:file_name) { 'myfile.tar.gz.1' }
 
   let(:build) { double('build', pipeline: pipeline) }
+
+  let(:service) { described_class.new(project, user, params) }
 
   describe '#execute' do
     let_it_be(:package) { create(:generic_package, project: project) }
@@ -37,20 +41,39 @@ RSpec.describe Packages::Generic::CreatePackageFileService, feature_category: :p
       }
     end
 
-    subject(:execute_service) { described_class.new(project, user, params).execute }
+    subject(:response) { service.execute }
 
     before do
       FileUtils.touch(temp_file)
       expect(::Packages::Generic::FindOrCreatePackageService).to receive(:new).with(project, user, package_params).and_return(package_service)
-      expect(package_service).to receive(:execute).and_return(package)
+      expect(package_service).to receive(:execute).and_return(ServiceResponse.success(payload: { package: package }))
     end
 
     after do
       FileUtils.rm_f(temp_file)
     end
 
+    shared_examples 'allows creating the file' do
+      it_behaves_like 'returning a success service response'
+
+      it { expect { response }.to change { ::Packages::PackageFile.for_projects(project).count }.by(1) }
+    end
+
+    shared_examples 'does not allow duplicates' do
+      it_behaves_like 'returning an error service response', message: 'Packages::DuplicatePackageError'
+
+      it { is_expected.to have_attributes reason: :package_file_already_exists }
+
+      it 'does not add new package file' do
+        expect { response }.to not_change { ::Packages::PackageFile.for_projects(project).count }
+                           .and not_change { ::Packages::Generic::Package.for_projects(project).count }
+      end
+    end
+
+    it_behaves_like 'returning a success service response'
+
     it 'creates package file', :aggregate_failures do
-      expect { execute_service }.to change { package.package_files.count }.by(1)
+      expect { response }.to change { package.package_files.count }.by(1)
         .and change { Packages::PackageFileBuildInfo.count }.by(1)
 
       package_file = package.package_files.last
@@ -68,7 +91,7 @@ RSpec.describe Packages::Generic::CreatePackageFileService, feature_category: :p
       let(:package_params) { super().merge(status: 'hidden') }
 
       it 'updates an existing packages status' do
-        expect { execute_service }.to change { package.package_files.count }.by(1)
+        expect { response }.to change { package.package_files.count }.by(1)
           .and change { Packages::PackageFileBuildInfo.count }.by(1)
 
         package_file = package.package_files.last
@@ -78,71 +101,94 @@ RSpec.describe Packages::Generic::CreatePackageFileService, feature_category: :p
       end
     end
 
-    it_behaves_like 'assigns build to package file'
+    it_behaves_like 'assigns build to package file' do
+      subject { super().payload.fetch(:package_file) }
+    end
 
     context 'with existing package' do
       let_it_be(:duplicate_file) { create(:package_file, package: package, file_name: file_name) }
 
-      it { expect { execute_service }.to change { project.package_files.count }.by(1) }
+      it { expect { response }.to change { ::Packages::PackageFile.for_projects(project).count }.by(1) }
 
       context 'when duplicates are not allowed' do
         before do
-          package.project.namespace.package_settings.update!(generic_duplicates_allowed: false)
+          package_settings.update!(generic_duplicates_allowed: false, generic_duplicate_exception_regex: '')
         end
 
-        it 'does not allow duplicates' do
-          expect { execute_service }.to raise_error(::Packages::DuplicatePackageError)
-            .and change { project.package_files.count }.by(0)
-        end
+        it_behaves_like 'does not allow duplicates'
 
         context 'when the file is pending destruction' do
           before do
             duplicate_file.update_column(:status, :pending_destruction)
           end
 
-          it 'allows creating the file' do
-            expect { execute_service }.to change { project.package_files.count }.by(1)
-          end
+          it_behaves_like 'allows creating the file'
         end
 
         context 'when the package name matches the exception regex' do
           before do
-            package.project.namespace.package_settings.update!(generic_duplicate_exception_regex: '.*')
+            package_settings.update!(generic_duplicate_exception_regex: package.name)
           end
 
-          it { expect { execute_service }.to change { project.package_files.count }.by(1) }
+          it_behaves_like 'allows creating the file'
         end
       end
 
-      context 'with multiple files for the same package and the same pipeline' do
-        let(:file_2_params) { params.merge(file_name:  'myfile.tar.gz.2', file: file2) }
-        let(:file_3_params) { params.merge(file_name:  'myfile.tar.gz.3', file: file3) }
-
-        let(:temp_file2) { Tempfile.new("test2") }
-        let(:temp_file3) { Tempfile.new("test3") }
-
-        let(:file2) { UploadedFile.new(temp_file2.path, sha256: sha256) }
-        let(:file3) { UploadedFile.new(temp_file3.path, sha256: sha256) }
-
+      context 'when duplicates are allowed' do
         before do
-          FileUtils.touch(temp_file2)
-          FileUtils.touch(temp_file3)
-          expect(::Packages::Generic::FindOrCreatePackageService).to receive(:new).with(project, user, package_params).and_return(package_service).twice
-          expect(package_service).to receive(:execute).and_return(package).twice
+          package_settings.update!(generic_duplicates_allowed: true, generic_duplicate_exception_regex: '')
         end
 
-        after do
-          FileUtils.rm_f(temp_file2)
-          FileUtils.rm_f(temp_file3)
+        it_behaves_like 'allows creating the file'
+
+        context 'when the package name matches the exception regex' do
+          before do
+            package_settings.update!(generic_duplicate_exception_regex: package.name)
+          end
+
+          it_behaves_like 'does not allow duplicates'
         end
 
-        it 'creates the build info only once' do
-          expect do
-            described_class.new(project, user, params).execute
-            described_class.new(project, user, file_2_params).execute
-            described_class.new(project, user, file_3_params).execute
-          end.to change { package.build_infos.count }.by(1)
+        context 'with multiple files for the same package and the same pipeline' do
+          let(:file_2_params) { params.merge(file_name:  'myfile.tar.gz.2', file: file2) }
+          let(:file_3_params) { params.merge(file_name:  'myfile.tar.gz.3', file: file3) }
+
+          let(:temp_file2) { Tempfile.new("test2") }
+          let(:temp_file3) { Tempfile.new("test3") }
+
+          let(:file2) { UploadedFile.new(temp_file2.path, sha256: sha256) }
+          let(:file3) { UploadedFile.new(temp_file3.path, sha256: sha256) }
+
+          before do
+            FileUtils.touch(temp_file2)
+            FileUtils.touch(temp_file3)
+            expect(::Packages::Generic::FindOrCreatePackageService).to receive(:new).with(project, user, package_params).and_return(package_service).twice
+            expect(package_service).to receive(:execute).and_return(ServiceResponse.success(payload: { package: package })).twice
+          end
+
+          after do
+            FileUtils.rm_f(temp_file2)
+            FileUtils.rm_f(temp_file3)
+          end
+
+          it 'creates the build info only once' do
+            expect do
+              described_class.new(project, user, params).execute
+              described_class.new(project, user, file_2_params).execute
+              described_class.new(project, user, file_3_params).execute
+            end.to change { package.build_infos.count }.by(1)
+          end
         end
+      end
+    end
+
+    context 'when unexpected error is raised' do
+      before do
+        allow(service).to receive(:create_package_file).and_raise(StandardError, 'Custom error')
+      end
+
+      it 'returns error instead of service response' do
+        expect { response }.to raise_error(StandardError, 'Custom error')
       end
     end
   end

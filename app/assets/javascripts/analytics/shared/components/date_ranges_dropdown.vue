@@ -1,20 +1,21 @@
 <script>
-import { GlCollapsibleListbox, GlIcon, GlTooltipDirective } from '@gitlab/ui';
+import { GlCollapsibleListbox, GlIcon, GlTooltipDirective, GlButton } from '@gitlab/ui';
 
 import { isString } from 'lodash';
-import { isValidDate, getDayDifference } from '~/lib/utils/datetime_utility';
+import { isValidDate, localeDateFormat } from '~/lib/utils/datetime_utility';
 import {
   DATE_RANGE_CUSTOM_VALUE,
-  DEFAULT_DATE_RANGE_OPTIONS,
+  DEFAULT_DROPDOWN_DATE_RANGES,
   NUMBER_OF_DAYS_SELECTED,
 } from '~/analytics/shared/constants';
-import { __ } from '~/locale';
+import { s__, sprintf } from '~/locale';
 
 export default {
   name: 'DateRangesDropdown',
   components: {
     GlCollapsibleListbox,
     GlIcon,
+    GlButton,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -23,7 +24,7 @@ export default {
     dateRangeOptions: {
       type: Array,
       required: false,
-      default: () => DEFAULT_DATE_RANGE_OPTIONS,
+      default: () => DEFAULT_DROPDOWN_DATE_RANGES,
       validator: (options) =>
         options.length &&
         options.every(
@@ -50,12 +51,7 @@ export default {
       required: false,
       default: true,
     },
-    includeEndDateInDaysSelected: {
-      type: Boolean,
-      required: false,
-      default: false,
-    },
-    disableSelectedDayCount: {
+    disableDateRangeString: {
       type: Boolean,
       required: false,
       default: false,
@@ -89,50 +85,86 @@ export default {
 
       return this.groupedDateRangeOptionsByValue[this.selectedValue];
     },
-    showDaysSelectedCount() {
+    showDateRangeString() {
       return (
-        !this.disableSelectedDayCount && !this.isCustomDateRangeSelected && this.daysSelectedCount
+        !this.disableDateRangeString && !this.isCustomDateRangeSelected && this.dateRangeString
       );
     },
-    daysSelectedCount() {
+    showTooltip() {
+      return !this.isCustomDateRangeSelected && this.tooltip;
+    },
+    dateRangeString() {
       const { selectedDateRange } = this;
 
       if (!selectedDateRange) return '';
 
       const { startDate, endDate } = selectedDateRange;
 
-      const daysCount = getDayDifference(startDate, endDate);
-
-      return this.$options.i18n.daysSelected(
-        this.includeEndDateInDaysSelected ? daysCount + 1 : daysCount,
-      );
+      return this.formatDateRangeString(startDate, endDate);
     },
   },
   methods: {
     onSelect(value) {
+      this.selectedValue = value;
+
       if (this.isCustomDateRangeSelected) {
         this.$emit('customDateRangeSelected');
       } else {
         this.$emit('selected', { value, ...this.selectedDateRange });
       }
     },
+    formatDateRangeString(startDate, endDate) {
+      return localeDateFormat.asDate.formatRange(startDate, endDate);
+    },
   },
   customDateRangeItem: {
-    text: __('Custom'),
+    text: s__('Analytics|Custom'),
     value: DATE_RANGE_CUSTOM_VALUE,
   },
   i18n: {
     daysSelected: NUMBER_OF_DAYS_SELECTED,
+    label: s__('Analytics|Date range'),
+    ariaLabel: (selected) => sprintf(s__('Analytics|Date range %{selected}'), { selected }),
   },
 };
 </script>
 
 <template>
-  <div class="gl-display-flex gl-align-items-center gl-gap-3">
-    <gl-collapsible-listbox v-model="selectedValue" :items="items" @select="onSelect" />
-    <div v-if="showDaysSelectedCount" class="gl-text-gray-500">
-      <span data-testid="predefined-date-range-days-count">{{ daysSelectedCount }}</span>
-      <gl-icon v-if="tooltip" v-gl-tooltip class="gl-ml-2" name="information-o" :title="tooltip" />
+  <div class="gl-flex gl-items-center gl-gap-3">
+    <gl-collapsible-listbox
+      :selected="selectedValue"
+      :items="items"
+      :header-text="$options.i18n.label"
+      @select="onSelect"
+    >
+      <template #toggle>
+        <gl-button
+          v-gl-tooltip="$options.i18n.label"
+          data-testid="selected-date-range"
+          :aria-label="$options.i18n.ariaLabel(selectedValue)"
+          :title="$options.i18n.label"
+          button-text-classes="gl-mr-[-4px]"
+          >{{ $options.i18n.label }}
+          <gl-icon
+            aria-hidden="true"
+            name="chevron-down"
+            :size="16"
+            variant="current"
+            data-testid="dropdown-icon"
+        /></gl-button>
+      </template>
+    </gl-collapsible-listbox>
+    <div v-if="showDateRangeString || showTooltip" class="gl-text-subtle">
+      <span v-if="showDateRangeString" data-testid="predefined-date-range-string">{{
+        dateRangeString
+      }}</span>
+      <gl-icon
+        v-if="showTooltip"
+        v-gl-tooltip
+        class="gl-ml-2"
+        name="information-o"
+        :title="tooltip"
+      />
     </div>
   </div>
 </template>

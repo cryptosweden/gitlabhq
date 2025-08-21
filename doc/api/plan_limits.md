@@ -1,21 +1,25 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Plan limits API
 ---
 
-# Plan limits API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-The plan limits API allows you to maintain the application limits for the existing subscription plans.
+{{< /details >}}
+
+Use this API to interact with the application limits for your existing subscription plan.
 
 The existing plans depend on the GitLab edition. In the Community Edition, only the plan `default`
 is available. In the Enterprise Edition, additional plans are available as well.
 
-Administrator access is required to use this API.
+Prerequisites:
+
+- You must have administrator access to the instance.
 
 ## Get current plan limits
 
@@ -55,6 +59,7 @@ Example response:
   "maven_max_file_size": 3221225472,
   "npm_max_file_size": 524288000,
   "nuget_max_file_size": 524288000,
+  "pipeline_hierarchy_size": 1000,
   "pypi_max_file_size": 3221225472,
   "terraform_module_max_file_size": 1073741824,
   "storage_size_limit": 15000
@@ -77,9 +82,9 @@ PUT /application/plan_limits
 | `ci_active_jobs`                  | integer | no       | Total number of jobs in currently active pipelines. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/85895) in GitLab 15.0. |
 | `ci_project_subscriptions`        | integer | no       | Maximum number of pipeline subscriptions to and from a project. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/85895) in GitLab 15.0. |
 | `ci_pipeline_schedules`           | integer | no       | Maximum number of pipeline schedules. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/85895) in GitLab 15.0. |
-| `ci_needs_size_limit`             | integer | no       | Maximum number of [DAG](../ci/directed_acyclic_graph/index.md) dependencies that a job can have. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/85895) in GitLab 15.0. |
-| `ci_registered_group_runners`     | integer | no       | Maximum number of runners registered per group. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/85895) in GitLab 15.0. |
-| `ci_registered_project_runners`   | integer | no       | Maximum number of runners registered per project. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/85895) in GitLab 15.0. |
+| `ci_needs_size_limit`             | integer | no       | Maximum number of [`needs`](../ci/yaml/needs.md) dependencies that a job can have. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/85895) in GitLab 15.0. |
+| `ci_registered_group_runners`     | integer | no       | Maximum number of runners created or active in a group during the past seven days. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/85895) in GitLab 15.0. |
+| `ci_registered_project_runners`   | integer | no       | Maximum number of runners created or active in a project during the past seven days. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/85895) in GitLab 15.0. |
 | `dotenv_size`                     | integer | no       | Maximum size of a dotenv artifact in bytes. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/432529) in GitLab 17.1. |
 | `dotenv_variables`                | integer | no       | Maximum number of variables in a dotenv artifact. [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/432529) in GitLab 17.1. |
 | `conan_max_file_size`             | integer | no       | Maximum Conan package file size in bytes. |
@@ -90,6 +95,7 @@ PUT /application/plan_limits
 | `notification_limit`              | integer | no       | Maximum storage size for root namespace limit notifications in MiB. |
 | `npm_max_file_size`               | integer | no       | Maximum NPM package file size in bytes. |
 | `nuget_max_file_size`             | integer | no       | Maximum NuGet package file size in bytes. |
+| `pipeline_hierarchy_size`         | integer | no       | Maximum number of downstream pipelines in a pipeline's hierarchy tree. Default value: `1000`. Values greater than 1000 are [not recommended](../administration/instance_limits.md#limit-pipeline-hierarchy-size). |
 | `pypi_max_file_size`              | integer | no       | Maximum PyPI package file size in bytes. |
 | `terraform_module_max_file_size`  | integer | no       | Maximum Terraform Module package file size in bytes. |
 | `storage_size_limit`              | integer | no       | Maximum storage size for the root namespace in MiB. |
@@ -118,6 +124,7 @@ Example response:
   "maven_max_file_size": 3221225472,
   "npm_max_file_size": 524288000,
   "nuget_max_file_size": 524288000,
+  "pipeline_hierarchy_size": 1000,
   "pypi_max_file_size": 3221225472,
   "terraform_module_max_file_size": 1073741824
 }

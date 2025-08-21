@@ -1,17 +1,19 @@
 ---
-stage: Systems
+stage: Tenant Scale
 group: Geo
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Geo self-service framework
 ---
 
-# Geo self-service framework
+{{< alert type="note" >}}
 
-NOTE:
 This document is subject to change as we continue to implement and iterate on the framework.
 Follow the progress in the [epic](https://gitlab.com/groups/gitlab-org/-/epics/2161).
 If you need to replicate a new data type, reach out to the Geo
 team to discuss the options. You can contact them in `#g_geo` on Slack
 or mention `@geo-team` in the issue or merge request.
+
+{{< /alert >}}
 
 Geo provides an API to make it possible to easily replicate data types
 across Geo sites. This API is presented as a Ruby Domain-Specific
@@ -164,7 +166,7 @@ the Geo team if you are unsure.
 
 Models that use [CarrierWave's](https://github.com/carrierwaveuploader/carrierwave) `Uploader::Base` are supported by Geo with the `Geo::BlobReplicatorStrategy` module. For example, see how [Geo replication was implemented for Pipeline Artifacts](https://gitlab.com/gitlab-org/gitlab/-/issues/238464).
 
-Each file is expected to have its own primary ID and model. Geo strongly recommends treating *every single file* as a first-class citizen, because in our experience this greatly simplifies tracking replication and verification state.
+Each file is expected to have its own primary ID and model. Geo strongly recommends treating every single file as a first-class citizen, because in our experience this greatly simplifies tracking replication and verification state.
 
 To implement Geo replication of a new blob-type Model, [open an issue with the provided issue template](https://gitlab.com/gitlab-org/gitlab/-/issues/new?issuable_template=Geo%20Replicate%20a%20new%20blob%20type).
 

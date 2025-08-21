@@ -18,11 +18,11 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
     subject(:project) { create_project(user, opts) }
 
     before_all do
-      Label.create!(title: 'bug', template: true)
+      create(:admin_label, title: 'bug', template: true)
     end
 
     it 'creates labels on project creation' do
-      expect(project.labels).to include have_attributes(
+      expect(project.reload.labels).to include have_attributes(
         type: eq('ProjectLabel'),
         project_id: eq(project.id),
         title: eq('bug')
@@ -31,11 +31,12 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
 
     context 'using gitlab project import' do
       before do
+        stub_application_setting(import_sources: %w[gitlab_project])
         opts[:import_type] = 'gitlab_project'
       end
 
       it 'does not creates labels on project creation' do
-        expect(project.labels.size).to eq(0)
+        expect(project.reload.labels).to be_empty
       end
     end
   end
@@ -203,6 +204,8 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
     end
 
     it 'logs creation' do
+      allow(Gitlab::AppLogger).to receive(:info)
+
       expect(Gitlab::AppLogger).to receive(:info).with(/#{user.name} created a new project/)
 
       create_project(user, opts)
@@ -220,6 +223,19 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
           namespace_id: group.id,
           root_namespace_id: group.parent_id
         )
+    end
+
+    describe 'project authorizations refresh' do
+      let_it_be(:group) { create(:group, owners: user) }
+
+      subject(:create_proj) { create_project(user, opts.merge(namespace_id: group.id)) }
+
+      it 'enqueues a EnqueueGroupMembersRefreshAuthorizedProjectsWorker job' do
+        expect(AuthorizedProjectUpdate::EnqueueGroupMembersRefreshAuthorizedProjectsWorker)
+          .to receive(:perform_async).with(group.id)
+
+        create_proj
+      end
     end
   end
 
@@ -277,20 +293,55 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
 
     it_behaves_like 'has sync-ed traversal_ids'
 
+    context 'when user is not allowed to create projects' do
+      it 'does not create the project' do
+        maintainer_group =
+          create(:group, project_creation_level: Gitlab::Access::OWNER_PROJECT_ACCESS) do |group|
+            group.add_maintainer(user)
+          end
+        project = create_project(user, opts.merge!(namespace_id: maintainer_group.id))
+
+        expect(project).not_to be_persisted
+        expect(project.errors.messages[:namespace].first).to eq('is not valid')
+      end
+    end
+
     context 'when project is an import' do
-      before do
-        stub_application_setting(import_sources: ['gitlab_project'])
+      let(:group) do
+        create(:group).tap do |group|
+          group.add_developer(user)
+        end
+      end
+
+      context 'and import is from a built-in template' do
+        let(:project_template) { Gitlab::ProjectTemplate.find(:rails) }
+
+        it 'does create the project' do
+          project = create_project(user, opts.merge!(template_name: project_template.name))
+
+          expect(project).to be_persisted
+          expect(project.errors).to be_blank
+        end
+      end
+
+      context 'and import is from a sample template' do
+        let(:sample_template) { Gitlab::SampleDataTemplate.find(:sample) }
+
+        it 'does create the project' do
+          project = create_project(user, opts.merge!(template_name: sample_template.name))
+
+          expect(project).to be_persisted
+          expect(project.errors).to be_blank
+        end
       end
 
       context 'when user is not allowed to import projects' do
-        let(:group) do
-          create(:group).tap do |group|
-            group.add_developer(user)
-          end
+        before do
+          stub_application_setting(import_sources: ['gitlab_project_migration'])
         end
 
         it 'does not create the project' do
-          project = create_project(user, opts.merge!(namespace_id: group.id, import_type: 'gitlab_project'))
+          project = create_project(user, opts.merge!(namespace_id: group.id, import_type: 'gitlab_project_migration'))
 
           expect(project).not_to be_persisted
           expect(project.errors.messages[:user].first).to eq('is not allowed to import projects')
@@ -838,6 +889,22 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
     end
   end
 
+  context 'when Secret Detection initialization is requested' do
+    let(:project) { create_project(user, opts) }
+
+    before do
+      opts[:initialize_with_secret_detection] = '1'
+      allow(Gitlab::CurrentSettings).to receive(:default_branch_name).and_return('main')
+    end
+
+    it 'creates a commit for Secret Detection', :aggregate_failures do
+      expect(project.repository.commit_count).to be(1)
+      expect(project.repository.commit.message).to eq(
+        'Configure Secret Detection in `.gitlab-ci.yml`, creating this file if it does not already exist'
+      )
+    end
+  end
+
   context 'when SHA256 format is requested' do
     let(:project) { create_project(user, opts) }
     let(:opts) { super().merge(initialize_with_readme: true, repository_object_format: 'sha256') }
@@ -904,16 +971,16 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
     end
 
     context 'with an active instance-level integration' do
-      let!(:instance_integration) { create(:prometheus_integration, :instance, api_url: 'https://prometheus.instance.com/') }
+      let!(:instance_integration) { create(:confluence_integration, :instance, confluence_url: 'https://instance.atlassian.net/wiki') }
 
       it 'creates an integration from the instance-level integration' do
         expect(project.integrations.count).to eq(1)
-        expect(project.integrations.first.api_url).to eq(instance_integration.api_url)
+        expect(project.integrations.first.confluence_url).to eq(instance_integration.confluence_url)
         expect(project.integrations.first.inherit_from_id).to eq(instance_integration.id)
       end
 
       context 'with an active group-level integration' do
-        let!(:group_integration) { create(:prometheus_integration, :group, group: group, api_url: 'https://prometheus.group.com/') }
+        let!(:group_integration) { create(:confluence_integration, :group, group: group, confluence_url: 'https://group.atlassian.net/wiki') }
         let!(:group) do
           create(:group).tap do |group|
             group.add_owner(user)
@@ -929,12 +996,12 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
 
         it 'creates an integration from the group-level integration' do
           expect(project.integrations.count).to eq(1)
-          expect(project.integrations.first.api_url).to eq(group_integration.api_url)
+          expect(project.integrations.first.confluence_url).to eq(group_integration.confluence_url)
           expect(project.integrations.first.inherit_from_id).to eq(group_integration.id)
         end
 
         context 'with an active subgroup' do
-          let!(:subgroup_integration) { create(:prometheus_integration, :group, group: subgroup, api_url: 'https://prometheus.subgroup.com/') }
+          let!(:subgroup_integration) { create(:confluence_integration, :group, group: subgroup, confluence_url: 'https://subgroup.atlassian.net/wiki') }
           let!(:subgroup) do
             create(:group, parent: group).tap do |subgroup|
               subgroup.add_owner(user)
@@ -950,7 +1017,7 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
 
           it 'creates an integration from the subgroup-level integration' do
             expect(project.integrations.count).to eq(1)
-            expect(project.integrations.first.api_url).to eq(subgroup_integration.api_url)
+            expect(project.integrations.first.confluence_url).to eq(subgroup_integration.confluence_url)
             expect(project.integrations.first.inherit_from_id).to eq(subgroup_integration.id)
           end
         end
@@ -1032,7 +1099,6 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
   context 'when github import source is disabled' do
     before do
       stub_application_setting(import_sources: [])
-      stub_feature_flags(override_github_disabled: false)
       opts[:import_type] = 'github'
     end
 
@@ -1042,25 +1108,11 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
       expect(project.errors[:import_source_disabled]).to include('github import source is disabled')
       expect(project).not_to be_persisted
     end
-
-    context 'when override_github_disabled ops flag is enabled for the user' do
-      before do
-        stub_feature_flags(override_github_disabled: user)
-      end
-
-      it 'creates the project' do
-        project = create_project(user, opts)
-
-        expect(project.errors).to be_blank
-        expect(project).to be_persisted
-      end
-    end
   end
 
   context 'when bitbucket server import source is disabled' do
     before do
       stub_application_setting(import_sources: [])
-      stub_feature_flags(override_bitbucket_server_disabled: false)
       opts[:import_type] = 'bitbucket_server'
     end
 
@@ -1069,19 +1121,6 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
 
       expect(project.errors[:import_source_disabled]).to include('bitbucket_server import source is disabled')
       expect(project).not_to be_persisted
-    end
-
-    context 'when override_bitbucket_server_disabled ops flag is enabled for the user' do
-      before do
-        stub_feature_flags(override_bitbucket_server_disabled: user)
-      end
-
-      it 'creates the project' do
-        project = create_project(user, opts)
-
-        expect(project.errors).to be_blank
-        expect(project).to be_persisted
-      end
     end
   end
 
@@ -1273,6 +1312,17 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
     end
   end
 
+  context 'with group_runners_enabled' do
+    subject(:project) { create_project(user, opts) }
+
+    let(:opts) { super().merge(group_runners_enabled: true) }
+
+    it 'creates ci_cd_settings relation' do
+      expect(project.ci_cd_settings).to be_present
+      expect(project.ci_cd_settings.group_runners_enabled).to be_truthy
+    end
+  end
+
   context 'when using access_level params' do
     def expect_not_disabled_features(project, exclude: [])
       ProjectFeature::FEATURES.excluding(exclude)
@@ -1314,16 +1364,49 @@ RSpec.describe Projects::CreateService, '#execute', feature_category: :groups_an
     end
   end
 
-  it 'adds pages unique domain', feature_category: :pages do
-    stub_pages_setting(enabled: true)
+  context 'pages unique domain default setting' do
+    before do
+      stub_pages_setting(enabled: true)
+    end
 
-    expect(Gitlab::Pages)
-    .to receive(:add_unique_domain_to)
-    .and_call_original
+    context 'when pages_unique_domain_default_enabled is true' do
+      before do
+        stub_application_setting(pages_unique_domain_default_enabled: true)
+      end
 
-    project = create_project(user, opts)
+      it 'adds pages unique domain', feature_category: :pages do
+        expect(Gitlab::Pages)
+          .to receive(:add_unique_domain_to)
+          .and_call_original
 
-    expect(project.project_setting.pages_unique_domain_enabled).to eq(true)
-    expect(project.project_setting.pages_unique_domain).to be_present
+        project = create_project(user, opts)
+
+        expect(project.project_setting.pages_unique_domain_enabled).to eq(true)
+        expect(project.project_setting.pages_unique_domain).to be_present
+      end
+    end
+
+    context 'when pages_unique_domain_default_enabled is false' do
+      before do
+        stub_application_setting(pages_unique_domain_default_enabled: false)
+      end
+
+      it 'does not add pages unique domain', feature_category: :pages do
+        expect(Gitlab::Pages)
+          .not_to receive(:add_unique_domain_to)
+
+        project = create_project(user, opts)
+
+        expect(project.project_setting.pages_unique_domain_enabled).to eq(false)
+        expect(project.project_setting.pages_unique_domain).to be_nil
+      end
+    end
+  end
+
+  context 'setting protect_merge_request_pipelines settings' do
+    it 'sets the protect_merge_request_pipelines setting as true by default' do
+      project = create_project(user, opts)
+      expect(project.protect_merge_request_pipelines).to be_truthy
+    end
   end
 end

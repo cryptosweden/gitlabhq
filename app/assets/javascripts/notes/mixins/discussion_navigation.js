@@ -1,6 +1,7 @@
-// eslint-disable-next-line no-restricted-imports
-import { mapGetters, mapActions, mapState } from 'vuex';
+import { mapActions, mapState } from 'pinia';
 import { scrollToElement, contentTop } from '~/lib/utils/common_utils';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useNotes } from '~/notes/store/legacy_notes';
 
 function isOverviewPage() {
   return window.mrTabs?.currentAction === 'show';
@@ -61,6 +62,7 @@ function getPreviousDiscussion() {
   return lastDiscussion;
 }
 
+// eslint-disable-next-line max-params
 function handleJumpForBothPages(getDiscussion, ctx, fn, scrollOptions) {
   const discussion = getDiscussion();
 
@@ -82,18 +84,16 @@ function handleJumpForBothPages(getDiscussion, ctx, fn, scrollOptions) {
 
 export default {
   computed: {
-    ...mapGetters([
+    ...mapState(useNotes, [
       'nextUnresolvedDiscussionId',
       'previousUnresolvedDiscussionId',
       'getDiscussion',
+      'currentDiscussionId',
     ]),
-    ...mapState({
-      currentDiscussionId: (state) => state.notes.currentDiscussionId,
-    }),
   },
   methods: {
-    ...mapActions(['expandDiscussion', 'setCurrentDiscussionId']),
-    ...mapActions('diffs', ['scrollToFile', 'disableVirtualScroller']),
+    ...mapActions(useNotes, ['expandDiscussion', 'setCurrentDiscussionId']),
+    ...mapActions(useLegacyDiffs, ['scrollToFile', 'disableVirtualScroller']),
 
     async jumpToNextDiscussion(scrollOptions) {
       await this.disableVirtualScroller();
@@ -118,11 +118,8 @@ export default {
     },
 
     jumpToFirstUnresolvedDiscussion() {
-      this.setCurrentDiscussionId(null)
-        .then(() => {
-          this.jumpToNextDiscussion();
-        })
-        .catch(() => {});
+      this.setCurrentDiscussionId(null);
+      this.jumpToNextDiscussion();
     },
   },
 };

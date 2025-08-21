@@ -20,28 +20,49 @@ module Resolvers
 
     argument :name, GraphQL::Types::String,
       required: false,
-      alpha: { milestone: '17.1' },
+      experiment: { milestone: '17.11' },
       description: 'Filter jobs by name.'
+
+    argument :sources, [::Types::Ci::JobSourceEnum],
+      required: false,
+      experiment: { milestone: '17.7' },
+      description: "Filter jobs by source."
+
+    argument :kind, ::Types::Ci::JobKindEnum,
+      required: false,
+      description: 'Filter jobs by kind.'
 
     alias_method :project, :object
 
     def resolve_with_lookahead(**args)
+      @kind = args[:kind]
+      @with_artifacts = args[:with_artifacts]
+
+      filter_by_name = Feature.enabled?(:populate_and_use_build_names_table, project) && args[:name].to_s.present?
+      filter_by_sources = args[:sources].present?
+
       jobs = ::Ci::JobsFinder.new(
         current_user: current_user, project: project, params: {
-          scope: args[:statuses], with_artifacts: args[:with_artifacts]
-        }
+          scope: args[:statuses], with_artifacts: args[:with_artifacts],
+          skip_ordering: filter_by_sources
+        }, type: args[:kind] || ::Ci::Build
       ).execute
 
-      if Feature.enabled?(:populate_and_use_build_names_table, project)
+      # These job filters are currently exclusive with each other
+      if filter_by_name
         jobs = ::Ci::BuildNameFinder.new(
           relation: jobs,
           name: args[:name],
-          project: project,
-          params: {
-            before: decode_cursor(args[:before]), after: decode_cursor(args[:after]),
-            asc: args[:last].present?, invert_ordering: true
-          }
+          project: project
         ).execute
+      elsif filter_by_sources
+        jobs = ::Ci::BuildSourceFinder.new(
+          relation: jobs,
+          sources: args[:sources],
+          project: project
+        ).execute
+
+        return offset_pagination(apply_lookahead(jobs))
       end
 
       apply_lookahead(jobs)
@@ -49,20 +70,20 @@ module Resolvers
 
     private
 
-    def decode_cursor(encoded)
-      return unless encoded.present?
-
-      Gitlab::Json.parse(context.schema.cursor_encoder.decode(encoded, nonce: true))&.fetch('id')
-    rescue JSON::ParserError
-      raise Gitlab::Graphql::Errors::ArgumentError, "Please provide a valid cursor"
+    def should_preload_artifacts?
+      @with_artifacts || @kind == ::Ci::Build
     end
 
     def preloads
-      {
+      base_preloads = {
         previous_stage_jobs_or_needs: [:needs, :pipeline],
-        artifacts: [:job_artifacts],
-        pipeline: [:user]
+        pipeline: [:user],
+        build_source: [:source]
       }
+
+      base_preloads[:artifacts] = [:job_artifacts] if should_preload_artifacts?
+
+      base_preloads
     end
   end
 end

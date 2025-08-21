@@ -3,7 +3,7 @@
 require 'spec_helper'
 
 RSpec.describe CloudSeed::GoogleCloud::FetchGoogleIpListService, :use_clean_rails_memory_store_caching,
-  :clean_gitlab_redis_rate_limiting, feature_category: :build_artifacts do
+  :clean_gitlab_redis_rate_limiting, feature_category: :job_artifacts do
   include StubRequests
 
   let(:google_cloud_ips) { File.read(Rails.root.join('spec/fixtures/cdn/google_cloud.json')) }
@@ -33,7 +33,7 @@ RSpec.describe CloudSeed::GoogleCloud::FetchGoogleIpListService, :use_clean_rail
 
     context 'with rate limit in effect' do
       before do
-        10.times { described_class.new.execute }
+        allow(Gitlab::ApplicationRateLimiter).to receive(:throttled?).and_return(true)
       end
 
       it 'returns rate limit error' do

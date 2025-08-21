@@ -3,7 +3,6 @@
 module Ci
   class JobArtifact < Ci::ApplicationRecord
     include Ci::Partitionable
-    include IgnorableColumns
     include AfterCommitQueue
     include UpdateProjectStatistics
     include UsageStatistics
@@ -11,10 +10,16 @@ module Ci
     include Artifactable
     include Lockable
     include FileStoreMounter
+    include ObjectStorable
     include EachBatch
     include Gitlab::Utils::StrongMemoize
 
+    STORE_COLUMN = :file_store
     PLAN_LIMIT_PREFIX = 'ci_max_artifact_size_'
+    MAX_EXPOSED_AS_LENGTH = 100
+    EXPOSED_PATH_REGEX = /\A[^*]*\z/
+
+    InvalidArtifactError = Class.new(StandardError)
 
     self.table_name = :p_ci_job_artifacts
     self.primary_key = :id
@@ -23,7 +28,7 @@ module Ci
     partitionable scope: :job, partitioned: true
     query_constraints :id, :partition_id
 
-    enum accessibility: { public: 0, private: 1, none: 2 }, _suffix: true
+    enum :accessibility, { public: 0, private: 1, none: 2 }, suffix: true
 
     belongs_to :project
     belongs_to :job,
@@ -32,6 +37,12 @@ module Ci
       foreign_key: :job_id,
       partition_foreign_key: :partition_id,
       inverse_of: :job_artifacts
+
+    has_one :artifact_report,
+      ->(artifact) { in_partition(artifact) },
+      class_name: 'Ci::JobArtifactReport',
+      partition_foreign_key: :partition_id,
+      inverse_of: :job_artifact
 
     mount_file_store_uploader JobArtifactUploader, skip_store_file: true
     update_project_statistics project_statistics_name: :build_artifacts_size
@@ -48,9 +59,11 @@ module Ci
     validates :job, presence: true
     validates :file_format, presence: true, unless: :trace?, on: :create
     validate :validate_file_format!, unless: :trace?, on: :create
+    validates :exposed_as, length: { maximum: MAX_EXPOSED_AS_LENGTH }
+    validate :validate_exposed_paths, if: -> { exposed_paths.present? }
 
     scope :not_expired, -> { where('expire_at IS NULL OR expire_at > ?', Time.current) }
-    scope :for_sha, ->(sha, project_id) { joins(job: :pipeline).where(ci_pipelines: { sha: sha, project_id: project_id }) }
+    scope :for_sha, ->(sha, project_id) { joins(job: :pipeline).merge(Ci::Pipeline.for_sha(sha).for_project(project_id)) }
     scope :for_job_ids, ->(job_ids) { where(job_id: job_ids) }
     scope :for_job_name, ->(name) { joins(:job).merge(Ci::Build.by_name(name)) }
     scope :created_at_before, ->(time) { where(arel_table[:created_at].lteq(time)) }
@@ -89,7 +102,7 @@ module Ci
     scope :created_in_time_range, ->(from: nil, to: nil) { where(created_at: from..to) }
 
     delegate :filename, :exists?, :open, to: :file
-    enum file_type: Enums::Ci::JobArtifact.file_type
+    enum :file_type, Enums::Ci::JobArtifact.file_type
 
     # `file_location` indicates where actual files are stored.
     # Ideally, actual files should be stored in the same directory, and use the same
@@ -100,13 +113,7 @@ module Ci
     #                 `ci_builds.artifacts_file` and `ci_builds.artifacts_metadata`
     # hashed_path ... The actual file is stored at a path consists of a SHA2 based on the project ID.
     #                 This is the default value.
-    enum file_location: Enums::Ci::JobArtifact.file_location
-
-    def validate_file_format!
-      unless Enums::Ci::JobArtifact.type_and_format_pairs[self.file_type&.to_sym] == self.file_format&.to_sym
-        errors.add(:base, _('Invalid file format with specified file type'))
-      end
-    end
+    enum :file_location, Enums::Ci::JobArtifact.file_location
 
     def self.of_report_type(report_type)
       file_types = file_types_for_report(report_type)
@@ -156,6 +163,27 @@ module Ci
       service.update_statistics
     end
 
+    def self.archived_trace_exists_for?(job_id)
+      where(job_id: job_id).trace.take&.stored?
+    end
+
+    def self.max_artifact_size(type:, project:)
+      limit_name = "#{PLAN_LIMIT_PREFIX}#{type}"
+
+      max_size = project.actual_limits.limit_for(
+        limit_name,
+        alternate_limit: -> { project.closest_setting(:max_artifacts_size) }
+      )
+
+      max_size&.megabytes.to_i
+    end
+
+    def validate_file_format!
+      unless Enums::Ci::JobArtifact.type_and_format_pairs[self.file_type&.to_sym] == self.file_format&.to_sym
+        errors.add(:base, _('Invalid file format with specified file type'))
+      end
+    end
+
     def local_store?
       [nil, ::JobArtifactUploader::Store::LOCAL].include?(self.file_store)
     end
@@ -180,28 +208,11 @@ module Ci
 
     def expire_in=(value)
       self.expire_at =
-        if value
-          ::Gitlab::Ci::Build::DurationParser.new(value).seconds_from_now
-        end
+        (::Gitlab::Ci::Build::DurationParser.new(value).seconds_from_now if value)
     end
 
     def stored?
       file&.file&.exists?
-    end
-
-    def self.archived_trace_exists_for?(job_id)
-      where(job_id: job_id).trace.take&.stored?
-    end
-
-    def self.max_artifact_size(type:, project:)
-      limit_name = "#{PLAN_LIMIT_PREFIX}#{type}"
-
-      max_size = project.actual_limits.limit_for(
-        limit_name,
-        alternate_limit: -> { project.closest_setting(:max_artifacts_size) }
-      )
-
-      max_size&.megabytes.to_i
     end
 
     def to_deleted_object_attrs(pick_up_at = nil)
@@ -215,7 +226,8 @@ module Ci
         file_store: file_store,
         store_dir: final_path_store_dir || file.store_dir.to_s,
         file: final_path_filename || file_identifier,
-        pick_up_at: pick_up_at || expire_at || Time.current
+        pick_up_at: set_pick_up_at(pick_up_at),
+        project_id: project_id
       }
     end
 
@@ -233,7 +245,25 @@ module Ci
       none_accessibility?
     end
 
+    def each_blob(&blk)
+      if junit? && artifact_report.nil?
+        build_artifact_report(status: :validated, validation_error: nil, project_id: project_id)
+      end
+
+      super
+    rescue InvalidArtifactError => e
+      artifact_report&.assign_attributes(status: :faulty, validation_error: e.message)
+
+      raise e
+    ensure
+      artifact_report&.save! if persisted?
+    end
+
     private
+
+    def set_pick_up_at(pick_up_at)
+      (pick_up_at || expire_at || Time.current).clamp(1.day.ago, 1.hour.from_now)
+    end
 
     def store_file_in_transaction!
       store_file_now! if saved_change_to_file?
@@ -248,12 +278,10 @@ module Ci
     end
 
     # method overridden in EE
-    def file_stored_after_transaction_hooks
-    end
+    def file_stored_after_transaction_hooks; end
 
     # method overridden in EE
-    def file_stored_in_transaction_hooks
-    end
+    def file_stored_in_transaction_hooks; end
 
     def set_size
       self.size = file.size
@@ -270,6 +298,12 @@ module Ci
 
     def log_destroy
       Gitlab::Ci::Artifacts::Logger.log_deleted(self, __method__)
+    end
+
+    def validate_exposed_paths
+      return if exposed_paths.is_a?(Array) && exposed_paths.all? { |path| path.match?(EXPOSED_PATH_REGEX) }
+
+      errors.add(:exposed_paths, 'must be an array of strings without `*`')
     end
   end
 end

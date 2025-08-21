@@ -1,14 +1,16 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Operate
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Linux cheat sheet
 ---
 
-# Linux cheat sheet
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 This is the GitLab Support Team's collection of information regarding Linux, that they
 sometimes use while troubleshooting. It is listed here for transparency,
@@ -16,10 +18,13 @@ and for users with experience with Linux. If you are currently
 having an issue with GitLab, you may want to check your [support options](https://about.gitlab.com/support/)
 first, before attempting to use this information.
 
-WARNING:
+{{< alert type="warning" >}}
+
 It is [beyond the scope of GitLab Support to assist in systems administration](https://about.gitlab.com/support/statement-of-support/#training). GitLab administrators are expected to know these commands for their distribution
 of choice. If you are a GitLab Support Engineer, consider this a cross-reference to
 translate `yum` -> `apt-get` and the like.
+
+{{< /alert >}}
 
 Most of the commands below have not been labeled as to which distribution they work
 on. Contributions are welcome to help add them.
@@ -278,7 +283,7 @@ PID 16815
        0.038    22:46:22.174610           -           /opt/gitlab/embedded/service/gitlab-rails/config/database.yml
 ```
 
-In the example above, we can see which files took longer to open for `PID 16815`.
+In the previous example, we can see which files took longer to open for `PID 16815`.
 
 When nothing stands out in the results, a good way to get more context is to run `strace`
 on your own GitLab instance while performing the action performed by the customer,

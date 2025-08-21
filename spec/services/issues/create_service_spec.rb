@@ -43,11 +43,6 @@ RSpec.describe Issues::CreateService, feature_category: :team_planning do
     context 'when params are valid' do
       let_it_be(:labels) { create_pair(:label, project: project) }
 
-      before_all do
-        project.add_guest(user)
-        project.add_guest(assignee)
-      end
-
       let(:opts) do
         { title: 'Awesome issue',
           issue_type: :task,
@@ -57,6 +52,11 @@ RSpec.describe Issues::CreateService, feature_category: :team_planning do
           milestone_id: milestone.id,
           milestone: milestone,
           due_date: Date.tomorrow }
+      end
+
+      before_all do
+        project.add_guest(user)
+        project.add_guest(assignee)
       end
 
       context 'when an unauthorized project_id is provided' do
@@ -82,6 +82,14 @@ RSpec.describe Issues::CreateService, feature_category: :team_planning do
             expect(result).to be_success
             expect(issue).to be_persisted
           end
+
+          it 'publishes created event' do
+            expect { result }
+              .to publish_event(::WorkItems::WorkItemCreatedEvent).with(
+                id: an_instance_of(Integer),
+                namespace_id: project.project_namespace_id
+              )
+          end
         end
 
         context 'when the user is not authorized' do
@@ -93,20 +101,6 @@ RSpec.describe Issues::CreateService, feature_category: :team_planning do
             expect(result.http_status).to eq(403)
             expect(issue).to be_nil
           end
-        end
-      end
-
-      context 'when rely_on_work_item_type_seeder feature flag is disabled' do
-        before do
-          stub_feature_flags(rely_on_work_item_type_seeder: false)
-        end
-
-        it 'works if base work item types were not created yet' do
-          WorkItems::Type.delete_all
-
-          expect do
-            issue
-          end.to change(Issue, :count).by(1)
         end
       end
 
@@ -193,16 +187,23 @@ RSpec.describe Issues::CreateService, feature_category: :team_planning do
       end
 
       context 'when issue template is provided' do
-        let_it_be(:files) { { '.gitlab/issue_templates/Default.md' => 'Default template contents' } }
+        let_it_be(:label) { create(:group_label, group: group, title: 'stage::plan') }
+        let_it_be(:files) { { '.gitlab/issue_templates/Default.md' => "Default template contents\n/label ~stage::plan" } }
         let_it_be_with_reload(:project) { create(:project, :custom_repo, group: group, files: files, guests: user) }
 
         context 'when description is blank' do
-          it 'sets template contents as description when description is blank' do
+          before do
             opts[:description] = ''
+          end
 
+          it 'sets template contents as description when description is blank' do
             expect(result).to be_success
             expect(issue).to be_persisted
             expect(issue).to have_attributes(description: 'Default template contents')
+          end
+
+          it 'applies quick actions from the default template' do
+            expect(issue.labels).to contain_exactly(label)
           end
         end
 
@@ -211,6 +212,10 @@ RSpec.describe Issues::CreateService, feature_category: :team_planning do
             expect(result).to be_success
             expect(issue).to be_persisted
             expect(issue).to have_attributes(description: 'please fix')
+          end
+
+          it 'does not apply quick actions from the default template' do
+            expect(issue.labels).to be_empty
           end
         end
       end
@@ -486,8 +491,7 @@ RSpec.describe Issues::CreateService, feature_category: :team_planning do
               iid: { current: kind_of(Integer), previous: nil },
               project_id: { current: project.id, previous: nil },
               title: { current: opts[:title], previous: nil },
-              updated_at: { current: kind_of(Time), previous: nil },
-              time_estimate: { current: 0, previous: nil }
+              updated_at: { current: kind_of(Time), previous: nil }
             },
             object_attributes: include(
               opts.merge(
@@ -555,10 +559,18 @@ RSpec.describe Issues::CreateService, feature_category: :team_planning do
         end
       end
 
-      it 'schedules a namespace onboarding create action worker' do
-        expect(Onboarding::IssueCreatedWorker).to receive(:perform_async).with(project.project_namespace_id)
+      # https://gitlab.com/gitlab-org/gitlab/-/issues/517311
+      context 'when creating issue with a due date' do
+        let(:due_date) { Time.zone.today }
+        let(:opts) { { title: 'With Due Date', due_date: due_date } }
 
-        issue
+        it 'creates the issue with fixed start and due date', :sidekiq_inline do
+          expect(issue.due_date).to be(due_date)
+          expect(issue.dates_source).not_to be_nil
+          expect(issue.dates_source.due_date).to be(due_date)
+          expect(issue.dates_source.due_date_is_fixed).to be(true)
+          expect(issue.dates_source.start_date_is_fixed).to be(true)
+        end
       end
     end
 
@@ -630,15 +642,16 @@ RSpec.describe Issues::CreateService, feature_category: :team_planning do
     end
 
     context 'Quick actions' do
-      context 'with assignee, milestone, and contact in params and command' do
+      context 'with assignee, milestone, labels and contact in params and command' do
         let_it_be(:contact) { create(:contact, group: group) }
+        let_it_be(:label) { create(:group_label, group: group, title: "stage::plan") }
 
         let(:opts) do
           {
             assignee_ids: [create(:user).id],
             milestone_id: 1,
             title: 'Title',
-            description: %(/assign @#{assignee.username}\n/milestone %"#{milestone.name}"),
+            description: %(/assign @#{assignee.username}\n/milestone %"#{milestone.name}"\n/label ~stage::plan),
             add_contacts: [contact.email]
           }
         end
@@ -648,11 +661,12 @@ RSpec.describe Issues::CreateService, feature_category: :team_planning do
           project.add_maintainer(assignee)
         end
 
-        it 'assigns, sets milestone, and sets contact to issuable from command' do
+        it 'assigns, sets milestone, labels and contact to issuable from command' do
           expect(result).to be_success
           expect(issue).to be_persisted
           expect(issue.assignees).to eq([assignee])
           expect(issue.milestone).to eq(milestone)
+          expect(issue.labels).to contain_exactly(label)
           expect(issue.issue_customer_relations_contacts.last.contact).to eq(contact)
         end
       end
@@ -796,6 +810,17 @@ RSpec.describe Issues::CreateService, feature_category: :team_planning do
           expect(issue.description).to eq('Custom issue description')
           expect(issue.title).to eq('My new issue')
         end
+
+        context 'when merge request is passed as an object' do
+          let(:opts) { { discussion_to_resolve: discussion.id, merge_request_to_resolve_discussions_object: merge_request } }
+
+          it 'resolves the discussion' do
+            described_class.new(container: project, current_user: user, params: opts).execute
+            discussion.first_note.reload
+
+            expect(discussion.resolved?).to be(true)
+          end
+        end
       end
 
       describe 'for a merge request' do
@@ -844,6 +869,17 @@ RSpec.describe Issues::CreateService, feature_category: :team_planning do
           expect(issue).to be_persisted
           expect(issue.description).to eq('Custom issue description')
           expect(issue.title).to eq('My new issue')
+        end
+
+        context 'when merge request is passed as an object' do
+          let(:opts) { { merge_request_to_resolve_discussions_object: merge_request } }
+
+          it 'resolves the discussion' do
+            described_class.new(container: project, current_user: user, params: opts).execute
+            discussion.first_note.reload
+
+            expect(discussion.resolved?).to be(true)
+          end
         end
       end
     end

@@ -1,23 +1,32 @@
 ---
-stage: Systems
-group: Cloud Connector
+stage: Developer Experience
+group: Performance Enablement
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+gitlab_dedicated: yes
+title: Performance bar
 ---
 
-# Performance bar
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
 
-You can display the performance bar to see statistics for the performance of a GitLab UI page.
-For example:
+{{< /details >}}
+
+The performance bar displays real-time metrics directly in your browser, giving you insights without
+making you look through logs or run separate profiling tools.
+
+For development teams, the performance bar simplifies debugging by showing exactly where they should focus their efforts.
 
 ![Performance bar](img/performance_bar_v14_4.png)
 
 ## Available information
 
-> - Rugged calls [removed](https://gitlab.com/gitlab-org/gitlab/-/issues/421591) in GitLab 16.6.
+{{< history >}}
+
+- Rugged calls [removed](https://gitlab.com/gitlab-org/gitlab/-/issues/421591) in GitLab 16.6.
+
+{{< /history >}}
 
 From left to right, the performance bar displays:
 
@@ -37,7 +46,7 @@ From left to right, the performance bar displays:
     GitLab features. The name shown is the same name used to configure database
     connections in GitLab.
 - **Gitaly calls**: the time taken (in milliseconds) and the total number of
-  [Gitaly](../../gitaly/index.md) calls. Select to display a modal window with more
+  [Gitaly](../../gitaly/_index.md) calls. Select to display a modal window with more
   details.
 - **Redis calls**: the time taken (in milliseconds) and the total number of
   Redis calls. Select to display a modal window with more details.
@@ -64,24 +73,27 @@ From left to right, the performance bar displays:
   its `X-Request-Id` header.
 - **Download**: a link to download the raw JSON used to generate the Performance Bar reports.
 - **Memory Report**: a link that generates a
-  [memory profiling](../../../development/performance.md#using-memory-profiler)
+  memory profiling
   report of the current URL.
-- **Flamegraph** with mode: a link to generate a [flamegraph](../../../development/profiling.md#speedscope-flamegraphs)
+- **Flamegraph** with mode: a link to generate a flamegraph
   of the current URL with the selected [Stackprof mode](https://github.com/tmm1/stackprof#sampling):
-  - The **Wall** mode samples every *interval* of the time on a clock on a wall. The interval is set to `10100` microseconds.
-  - The **CPU** mode samples every *interval* of CPU activity. The interval is set to `10100` microseconds.
-  - The **Object** mode samples every *interval*. The interval is set to `100` allocations.
+  - The **Wall** mode samples every interval of the time on a clock on a wall. The interval is set to `10100` microseconds.
+  - The **CPU** mode samples every interval of CPU activity. The interval is set to `10100` microseconds.
+  - The **Object** mode samples every interval. The interval is set to `100` allocations.
 - **Request Selector**: a select box displayed on the right-hand side of the
   Performance Bar which enables you to view these metrics for any requests made while
   the current page was open. Only the first two requests per unique URL are captured.
 - **Stats** (optional): if the `GITLAB_PERFORMANCE_BAR_STATS_URL` environment variable is set,
   this URL is displayed in the bar. Used only on GitLab.com.
 
-NOTE:
+{{< alert type="note" >}}
+
 Not all indicators are available in all environments. For instance, the memory view
 requires running Ruby with [specific patches](https://gitlab.com/gitlab-org/gitlab-build-images/-/blob/master/patches/ruby/2.7.4/thread-memory-allocations-2.7.patch)
 applied. When running GitLab locally using the [GDK](https://gitlab.com/gitlab-org/gitlab-development-kit),
 this is typically not the case and the memory view cannot be used.
+
+{{< /alert >}}
 
 ## Keyboard shortcut
 
@@ -93,11 +105,11 @@ For non-administrators to display the performance bar, it must be
 
 ## Request warnings
 
-Requests that exceed predefined limits display a warning **{warning}** icon and
+Requests that exceed predefined limits display a warning {{< icon name="warning" >}} icon and
 explanation next to the metric. In this example, the Gitaly call duration
 exceeded the threshold.
 
-![Gitaly call duration exceeded threshold](img/performance_bar_gitaly_threshold.png)
+![Gitaly call duration exceeded threshold](img/performance_bar_gitaly_threshold_v12_4.png)
 
 ## Enable the performance bar for non-administrators
 
@@ -105,7 +117,7 @@ The performance bar is disabled by default for non-administrators. To enable it
 for a given group:
 
 1. Sign in as a user with administrator access.
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Metrics and profiling**.
 1. Expand **Profiling - Performance bar**.
 1. Select **Allow non-administrators access to the performance bar**.

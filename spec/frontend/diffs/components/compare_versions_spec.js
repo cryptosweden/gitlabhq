@@ -1,14 +1,17 @@
 import { mount } from '@vue/test-utils';
-import { nextTick } from 'vue';
+import Vue, { nextTick } from 'vue';
+import { createTestingPinia } from '@pinia/testing';
+import { PiniaVuePlugin } from 'pinia';
 import getDiffWithCommit from 'test_fixtures/merge_request_diffs/with_commit.json';
 import setWindowLocation from 'helpers/set_window_location_helper';
 import { TEST_HOST } from 'helpers/test_constants';
 import { trimText } from 'helpers/text_helper';
 import CompareVersionsComponent from '~/diffs/components/compare_versions.vue';
-import store from '~/mr_notes/stores';
+import FileBrowserToggle from '~/diffs/components/file_browser_toggle.vue';
+import { useFileBrowser } from '~/diffs/stores/file_browser';
+import { globalAccessorPlugin } from '~/pinia/plugins';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
 import diffsMockData from '../mock_data/merge_request_diffs';
-
-jest.mock('~/mr_notes/stores', () => jest.requireActual('helpers/mocks/mr_notes/stores'));
 
 const NEXT_COMMIT_URL = `${TEST_HOST}/?commit_id=next`;
 const PREV_COMMIT_URL = `${TEST_HOST}/?commit_id=prev`;
@@ -17,25 +20,26 @@ beforeEach(() => {
   setWindowLocation(TEST_HOST);
 });
 
+Vue.use(PiniaVuePlugin);
+
 describe('CompareVersions', () => {
   let wrapper;
+  let pinia;
   const targetBranchName = 'tmp-wine-dev';
   const { commit } = getDiffWithCommit;
 
-  const createWrapper = (props = {}, commitArgs = {}, createCommit = true) => {
+  const createWrapper = ({ props = {}, commitArgs = {}, createCommit = true } = {}) => {
     if (createCommit) {
-      store.state.diffs.commit = { ...store.state.diffs.commit, ...commitArgs };
+      useLegacyDiffs().commit = { ...useLegacyDiffs().commit, ...commitArgs };
     }
-
+    // force Vue 2 mode by eager store creation
+    useFileBrowser();
     wrapper = mount(CompareVersionsComponent, {
-      mocks: {
-        $store: store,
-      },
       propsData: {
-        mergeRequestDiffs: diffsMockData,
-        diffFilesCountText: '1',
+        toggleFileTreeVisible: true,
         ...props,
       },
+      pinia,
     });
   };
   const findCompareSourceDropdown = () => wrapper.find('.mr-version-dropdown');
@@ -47,45 +51,25 @@ describe('CompareVersions', () => {
     getCommitNavButtonsElement().find('.btn-group > *:first-child');
 
   beforeEach(() => {
-    store.reset();
+    pinia = createTestingPinia({ plugins: [globalAccessorPlugin] });
 
     const mergeRequestDiff = diffsMockData[0];
-    const version = {
-      ...mergeRequestDiff,
-      href: `${TEST_HOST}/latest/version`,
-      versionName: 'latest version',
-    };
-    store.getters['diffs/diffCompareDropdownSourceVersions'] = [version];
-    store.getters['diffs/diffCompareDropdownTargetVersions'] = [
-      {
-        ...version,
-        selected: true,
-        versionName: targetBranchName,
-      },
-    ];
-    store.getters['diffs/whichCollapsedTypes'] = { any: false };
-    store.getters['diffs/isInlineView'] = false;
-    store.getters['diffs/isParallelView'] = false;
 
-    store.state.diffs.addedLines = 10;
-    store.state.diffs.removedLines = 20;
-    store.state.diffs.diffFiles.push('test');
-    store.state.diffs.targetBranchName = targetBranchName;
-    store.state.diffs.mergeRequestDiff = mergeRequestDiff;
-    store.state.diffs.mergeRequestDiffs = diffsMockData;
+    useLegacyDiffs().addedLines = 10;
+    useLegacyDiffs().removedLines = 20;
+    useLegacyDiffs().diffFiles.push('test');
+    useLegacyDiffs().targetBranchName = targetBranchName;
+    useLegacyDiffs().mergeRequestDiff = mergeRequestDiff;
+    useLegacyDiffs().mergeRequestDiffs = diffsMockData;
   });
 
   describe('template', () => {
     beforeEach(() => {
-      createWrapper({}, {}, false);
+      createWrapper({ createCommit: false });
     });
 
-    it('should render Tree List toggle button with correct attribute values', () => {
-      const treeListBtn = wrapper.find('.js-toggle-tree-list');
-
-      expect(treeListBtn.exists()).toBe(true);
-      expect(treeListBtn.attributes('aria-label')).toBe('Hide file browser');
-      expect(treeListBtn.props('icon')).toBe('sidebar');
+    it('should render file browser toggle', () => {
+      expect(wrapper.findComponent(FileBrowserToggle).exists()).toBe(true);
     });
 
     it('should render comparison dropdowns with correct values', () => {
@@ -99,22 +83,9 @@ describe('CompareVersions', () => {
     });
   });
 
-  describe('noChangedFiles', () => {
-    beforeEach(() => {
-      store.state.diffs.diffFiles = [];
-    });
-
-    it('should not render Tree List toggle button when there are no changes', () => {
-      createWrapper();
-      const treeListBtn = wrapper.find('.js-toggle-tree-list');
-
-      expect(treeListBtn.exists()).toBe(false);
-    });
-  });
-
   describe('commit', () => {
     beforeEach(() => {
-      store.state.diffs.commit = commit;
+      useLegacyDiffs().commit = commit;
       createWrapper();
     });
 
@@ -135,7 +106,7 @@ describe('CompareVersions', () => {
 
   describe('with no versions', () => {
     beforeEach(() => {
-      store.state.diffs.mergeRequestDiffs = [];
+      useLegacyDiffs().mergeRequestDiffs = [];
       createWrapper();
     });
 
@@ -147,7 +118,7 @@ describe('CompareVersions', () => {
 
   describe('without neighbor commits', () => {
     beforeEach(() => {
-      createWrapper({ commit: { ...commit, prev_commit_id: null, next_commit_id: null } });
+      createWrapper({ commitArgs: { ...commit, prev_commit_id: null, next_commit_id: null } });
     });
 
     it('does not render any navigation buttons', () => {
@@ -165,20 +136,16 @@ describe('CompareVersions', () => {
         prev_commit_id: 'prev',
       };
 
-      createWrapper({}, mrCommit);
+      createWrapper({ commitArgs: mrCommit });
     });
 
     it('renders the commit navigation buttons', () => {
       expect(getCommitNavButtonsElement().exists()).toEqual(true);
 
-      createWrapper({
-        commit: { ...mrCommit, next_commit_id: null },
-      });
+      createWrapper({ commitArgs: { ...mrCommit, next_commit_id: null } });
       expect(getCommitNavButtonsElement().exists()).toEqual(true);
 
-      createWrapper({
-        commit: { ...mrCommit, prev_commit_id: null },
-      });
+      createWrapper({ commitArgs: { ...mrCommit, prev_commit_id: null } });
       expect(getCommitNavButtonsElement().exists()).toEqual(true);
     });
 
@@ -193,18 +160,18 @@ describe('CompareVersions', () => {
         expect(link.element.getAttribute('href')).toEqual(PREV_COMMIT_URL);
       });
 
-      it('triggers the correct Vuex action on click', async () => {
+      it('triggers the correct action on click', async () => {
         const link = getPrevCommitNavElement();
 
         link.trigger('click');
         await nextTick();
-        expect(store.dispatch).toHaveBeenCalledWith('diffs/moveToNeighboringCommit', {
+        expect(useLegacyDiffs().moveToNeighboringCommit).toHaveBeenCalledWith({
           direction: 'previous',
         });
       });
 
       it('renders a disabled button when there is no prev commit', () => {
-        createWrapper({}, { ...mrCommit, prev_commit_id: null });
+        createWrapper({ commitArgs: { ...mrCommit, prev_commit_id: null } });
 
         const button = getPrevCommitNavElement();
 
@@ -223,18 +190,18 @@ describe('CompareVersions', () => {
         expect(link.element.getAttribute('href')).toEqual(NEXT_COMMIT_URL);
       });
 
-      it('triggers the correct Vuex action on click', async () => {
+      it('triggers the correct action on click', async () => {
         const link = getNextCommitNavElement();
 
         link.trigger('click');
         await nextTick();
-        expect(store.dispatch).toHaveBeenCalledWith('diffs/moveToNeighboringCommit', {
+        expect(useLegacyDiffs().moveToNeighboringCommit).toHaveBeenCalledWith({
           direction: 'next',
         });
       });
 
       it('renders a disabled button when there is no next commit', () => {
-        createWrapper({}, { ...mrCommit, next_commit_id: null });
+        createWrapper({ commitArgs: { ...mrCommit, next_commit_id: null } });
 
         const button = getNextCommitNavElement();
 

@@ -38,11 +38,6 @@ export default {
       },
     },
   },
-  data() {
-    return {
-      selected: this.value,
-    };
-  },
   computed: {
     statusDropdownOptions() {
       return this.$options.STATUS_LIST.map((status) => ({
@@ -57,9 +52,11 @@ export default {
   },
 
   methods: {
+    // eslint-disable-next-line vue/no-unused-properties -- show() is part of the component's public API
     show() {
       this.$refs.dropdown.open();
     },
+    // eslint-disable-next-line vue/no-unused-properties -- hide() is part of the component's public API
     hide() {
       this.$refs.dropdown.close();
     },
@@ -71,18 +68,18 @@ export default {
 <template>
   <gl-collapsible-listbox
     ref="dropdown"
-    v-model="selected"
+    :selected="value"
     :header-text="headerText"
     block
     :toggle-text="currentStatusLabel"
     :items="statusDropdownOptions"
     toggle-class="dropdown-menu-toggle gl-mb-2"
     data-testid="escalation-status-dropdown"
-    @select="$emit('input', selected)"
+    @select="$emit('input', $event)"
   >
     <template #list-item="{ item }">
       <span class="gl-block">{{ item.text }}</span>
-      <span v-if="item.subtext" class="gl-font-sm gl-text-gray-500">{{ item.subtext }}</span>
+      <span v-if="item.subtext" class="gl-text-sm gl-text-subtle">{{ item.subtext }}</span>
     </template>
   </gl-collapsible-listbox>
 </template>

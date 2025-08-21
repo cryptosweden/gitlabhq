@@ -30,19 +30,19 @@ class ForkNamespaceEntity < Grape::Entity
     markdown_description(namespace)
   end
 
+  # Deprecated in favor of :self_deletion_scheduled
+  expose :self_deletion_scheduled?, as: :marked_for_deletion
+  expose :self_deletion_scheduled?, as: :self_deletion_scheduled
+
   private
 
-  # rubocop: disable CodeReuse/ActiveRecord
   def membership(user, object, memberships)
     return unless user
 
     memberships[object.id]
   end
-  # rubocop: enable CodeReuse/ActiveRecord
 
   def markdown_description(namespace)
-    markdown_field(namespace, :description)
+    markdown_field(namespace.namespace_details, :description)
   end
 end
-
-ForkNamespaceEntity.prepend_mod_with('ForkNamespaceEntity')

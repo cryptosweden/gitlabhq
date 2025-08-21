@@ -12,6 +12,20 @@ module Ci
 
     Result = Struct.new(:build, :build_json, :build_presented, :valid?)
 
+    class ResultFactory
+      def self.success(build, build_json, build_presented)
+        Result.new(build: build, build_json: build_json, build_presented: build_presented, valid?: true)
+      end
+
+      def self.conflict(valid:)
+        Result.new(build: nil, build_json: nil, build_presented: nil, valid?: valid)
+      end
+
+      def self.invalid
+        conflict(valid: false)
+      end
+    end
+
     ##
     # The queue depth limit number has been determined by observing 95
     # percentile of effective queue depth on gitlab.com. This is only likely to
@@ -22,6 +36,7 @@ module Ci
       @runner = runner
       @runner_manager = runner_manager
       @metrics = ::Gitlab::Ci::Queue::Metrics.new(runner)
+      @logger = ::Ci::RegisterJobService::Logger.new(runner: runner)
     end
 
     def execute(params = {})
@@ -30,9 +45,7 @@ module Ci
 
       @metrics.increment_queue_operation(:queue_attempt)
 
-      result = @metrics.observe_queue_time(:process, @runner.runner_type) do
-        process_queue(params)
-      end
+      result = process_queue_with_instrumentation(params)
 
       # Since we execute this query against replica it might lead to false-positive
       # We might receive the positive response: "hi, we don't have any more builds for you".
@@ -43,19 +56,30 @@ module Ci
       if !replica_caught_up && !result.build
         metrics.increment_queue_operation(:queue_replication_lag)
 
-        ::Ci::RegisterJobService::Result.new(nil, nil, nil, false) # rubocop:disable Cop/AvoidReturnFromBlocks
+        ResultFactory.invalid
       else
         result
       end
+
+    ensure
+      @logger.commit
     end
 
     private
+
+    def process_queue_with_instrumentation(params)
+      @metrics.observe_queue_time(:process, @runner.runner_type) do
+        @logger.instrument(:process_queue, once: true) do
+          process_queue(params)
+        end
+      end
+    end
 
     def process_queue(params)
       valid = true
       depth = 0
 
-      each_build(params) do |build|
+      each_build(params) do |build, queue_size|
         depth += 1
         @metrics.increment_queue_operation(:queue_iteration)
 
@@ -82,12 +106,13 @@ module Ci
           next
         end
 
-        result = process_build(build, params)
+        result = @logger.instrument(:process_build) do
+          process_build(build, params, queue_size: queue_size, queue_depth: depth)
+        end
         next unless result
 
         if result.valid?
-          @metrics.register_success(result.build_presented)
-          @metrics.observe_queue_depth(:found, depth)
+          track_success(result, depth)
 
           return result # rubocop:disable Cop/AvoidReturnFromBlocks
         else
@@ -97,44 +122,23 @@ module Ci
         end
       end
 
-      @metrics.increment_queue_operation(:queue_conflict) unless valid
-      @metrics.observe_queue_depth(:conflict, depth) unless valid
-      @metrics.observe_queue_depth(:not_found, depth) if valid
-      @metrics.register_failure
+      track_conflict(depth, valid)
 
-      Result.new(nil, nil, nil, valid)
+      ResultFactory.conflict(valid: valid)
     end
 
     # rubocop: disable CodeReuse/ActiveRecord
     def each_build(params, &blk)
-      queue = ::Ci::Queue::BuildQueueService.new(runner)
-
-      builds = if runner.instance_type?
-                 queue.builds_for_shared_runner
-               elsif runner.group_type?
-                 queue.builds_for_group_runner
-               else
-                 queue.builds_for_project_runner
-               end
-
-      if runner.ref_protected?
-        builds = queue.builds_for_protected_runner(builds)
-      end
-
-      # pick builds that does not have other tags than runner's one
-      builds = queue.builds_matching_tag_ids(builds, runner.tags.ids)
-
-      # pick builds that have at least one tag
-      unless runner.run_untagged?
-        builds = queue.builds_with_any_tags(builds)
-      end
+      queue = Ci::Queue::BuildQueueService.new(runner)
+      builds = queue.build_candidates
 
       build_and_partition_ids = retrieve_queue(-> { queue.execute(builds) })
+      queue_size = build_and_partition_ids.size
 
-      @metrics.observe_queue_size(-> { build_and_partition_ids.size }, @runner.runner_type)
+      @metrics.observe_queue_size(-> { queue_size }, @runner.runner_type)
 
       build_and_partition_ids.each do |build_id, partition_id|
-        yield Ci::Build.find_by!(partition_id: partition_id, id: build_id)
+        yield Ci::Build.find_by!(partition_id: partition_id, id: build_id), queue_size
       end
     end
     # rubocop: enable CodeReuse/ActiveRecord
@@ -144,30 +148,19 @@ module Ci
       # We want to reset a load balancing session to discard the side
       # effects of writes that could have happened prior to this moment.
       #
-      ::Gitlab::Database::LoadBalancing::Session.clear_session
+      ::Gitlab::Database::LoadBalancing::SessionMap.clear_session
 
       @metrics.observe_queue_time(:retrieve, @runner.runner_type) do
-        queue_query_proc.call
+        @logger.instrument(:retrieve_queue, once: true) do
+          queue_query_proc.call
+        end
       end
     end
 
-    def process_build(build, params)
-      unless build.pending?
-        @metrics.increment_queue_operation(:build_not_pending)
+    def process_build(build, params, queue_size:, queue_depth:)
+      return remove_from_queue!(build) unless build.pending?
 
-        ##
-        # If this build can not be picked because we had stale data in
-        # `ci_pending_builds` table, we need to respond with 409 to retry
-        # this operation.
-        #
-        if ::Ci::UpdateBuildQueueService.new.remove!(build)
-          return Result.new(nil, nil, nil, false)
-        end
-
-        return
-      end
-
-      if runner.matches_build?(build)
+      if runner_matched?(build)
         @metrics.increment_queue_operation(:build_can_pick)
       else
         @metrics.increment_queue_operation(:build_not_pick)
@@ -175,10 +168,14 @@ module Ci
         return
       end
 
+      # Make sure that composite identity is propagated to `PipelineProcessWorker`
+      # when the build's status change.
+      ::Gitlab::Auth::Identity.link_from_job(build)
+
       # In case when 2 runners try to assign the same build, second runner will be declined
       # with StateMachines::InvalidTransition or StaleObjectError when doing run! or save method.
-      if assign_runner!(build, params)
-        present_build!(build)
+      if assign_runner_with_instrumentation!(build, params)
+        present_build_with_instrumentation!(build, queue_size: queue_size, queue_depth: queue_depth)
       end
     rescue ActiveRecord::StaleObjectError
       # We are looping to find another build that is not conflicting
@@ -192,11 +189,11 @@ module Ci
       # to make sure that this is properly handled by runner.
       @metrics.increment_queue_operation(:build_conflict_lock)
 
-      Result.new(nil, nil, nil, false)
+      ResultFactory.invalid
     rescue StateMachines::InvalidTransition
       @metrics.increment_queue_operation(:build_conflict_transition)
 
-      Result.new(nil, nil, nil, false)
+      ResultFactory.invalid
     rescue StandardError => ex
       @metrics.increment_queue_operation(:build_conflict_exception)
 
@@ -213,17 +210,46 @@ module Ci
       MAX_QUEUE_DEPTH
     end
 
+    def remove_from_queue!(build)
+      @metrics.increment_queue_operation(:build_not_pending)
+
+      ##
+      # If this build can not be picked because we had stale data in
+      # `ci_pending_builds` table, we need to respond with 409 to retry
+      # this operation.
+      #
+      ResultFactory.invalid if ::Ci::UpdateBuildQueueService.new.remove!(build)
+    end
+
+    def runner_matched?(build)
+      @logger.instrument(:process_build_runner_matched) do
+        runner.matches_build?(build)
+      end
+    end
+
+    def present_build_with_instrumentation!(build, queue_size:, queue_depth:)
+      @logger.instrument(:process_build_present_build) do
+        present_build!(build, queue_size: queue_size, queue_depth: queue_depth)
+      end
+    end
+
     # Force variables evaluation to occur now
-    def present_build!(build)
+    def present_build!(build, queue_size:, queue_depth:)
       # We need to use the presenter here because Gitaly calls in the presenter
       # may fail, and we need to ensure the response has been generated.
-      presented_build = ::Ci::BuildRunnerPresenter.new(build) # rubocop:disable CodeReuse/Presenter
+      presented_build = ::Ci::BuildRunnerPresenter.new(build) # rubocop:disable CodeReuse/Presenter -- old code
+      presented_build.set_queue_metrics(size: queue_size, depth: queue_depth)
 
-      log_artifacts_context(build)
-      log_build_dependencies_size(presented_build)
+      @logger.instrument(:present_build_logs) do
+        log_artifacts_context(build)
+        log_build_dependencies_size(presented_build)
+      end
 
-      build_json = Gitlab::Json.dump(::API::Entities::Ci::JobRequest::Response.new(presented_build))
-      Result.new(build, build_json, presented_build, true)
+      build_json = @logger.instrument(:present_build_response_json) do
+        Gitlab::Json.dump(::API::Entities::Ci::JobRequest::Response.new(presented_build))
+      end
+
+      ResultFactory.success(build, build_json, presented_build)
     end
 
     def log_build_dependencies_size(presented_build)
@@ -238,21 +264,32 @@ module Ci
       end
     end
 
+    def assign_runner_with_instrumentation!(build, params)
+      @logger.instrument(:process_build_assign_runner) do
+        assign_runner!(build, params)
+      end
+    end
+
     def assign_runner!(build, params)
       build.runner_id = runner.id
       build.runner_session_attributes = params[:session] if params[:session].present?
 
-      failure_reason, _ = pre_assign_runner_checks.find { |_, check| check.call(build, params) }
+      failure_reason, _ = @logger.instrument(:assign_runner_failure_reason) do
+        pre_assign_runner_checks.find { |_, check| check.call(build, params) }
+      end
 
       if failure_reason
         @metrics.increment_queue_operation(:runner_pre_assign_checks_failed)
 
-        build.drop!(failure_reason)
+        @logger.instrument(:assign_runner_drop) do
+          build.drop!(failure_reason)
+        end
       else
         @metrics.increment_queue_operation(:runner_pre_assign_checks_success)
 
-        build.run!
-        persist_runtime_features(build, params)
+        @logger.instrument(:assign_runner_run) do
+          build.run!
+        end
 
         build.runner_manager = runner_manager if runner_manager
       end
@@ -282,23 +319,40 @@ module Ci
       track_exception_for_build(ex, build)
     end
 
+    def track_success(result, depth)
+      @metrics.register_success(result.build_presented)
+      @metrics.observe_queue_depth(:found, depth)
+    rescue StandardError => ex
+      # We should know about any errors during tracking but we don't want them to prevent
+      # reporting a result to the runner
+      Gitlab::ErrorTracking.track_and_raise_for_dev_exception(
+        ex, **build_tracking_data(result.build)
+      )
+    end
+
+    def track_conflict(depth, valid)
+      @metrics.increment_queue_operation(:queue_conflict) unless valid
+      @metrics.observe_queue_depth(:conflict, depth) unless valid
+      @metrics.observe_queue_depth(:not_found, depth) if valid
+      @metrics.register_failure
+    rescue StandardError => ex
+      # We should know about any errors during tracking but we don't want them to prevent
+      # reporting a result to the runner
+      Gitlab::ErrorTracking.track_and_raise_for_dev_exception(ex)
+    end
+
     def track_exception_for_build(ex, build)
-      Gitlab::ErrorTracking.track_exception(ex,
+      Gitlab::ErrorTracking.track_and_raise_for_dev_exception(ex, **build_tracking_data(build))
+    end
+
+    def build_tracking_data(build)
+      {
         build_id: build.id,
         build_name: build.name,
         build_stage: build.stage_name,
         pipeline_id: build.pipeline_id,
         project_id: build.project_id
-      )
-    end
-
-    def persist_runtime_features(build, params)
-      if params.dig(:info, :features, :cancel_gracefully) &&
-          Feature.enabled?(:ci_canceling_status, build.project)
-        build.set_cancel_gracefully
-
-        build.save
-      end
+      }
     end
 
     def pre_assign_runner_checks

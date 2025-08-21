@@ -3,7 +3,6 @@ import { GlButton } from '@gitlab/ui';
 import api from '~/api';
 import StatusIcon from '~/vue_merge_request_widget/components/mr_widget_status_icon.vue';
 import HelpPopover from '~/vue_shared/components/help_popover.vue';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { status, SLOT_SUCCESS, SLOT_LOADING, SLOT_ERROR } from '../constants';
 import IssuesList from './issues_list.vue';
 
@@ -15,7 +14,6 @@ export default {
     HelpPopover,
     StatusIcon,
   },
-  mixins: [glFeatureFlagsMixin()],
   props: {
     alwaysOpen: {
       type: Boolean,
@@ -60,11 +58,6 @@ export default {
       type: Array,
       required: false,
       default: () => [],
-    },
-    infoText: {
-      type: [String, Boolean],
-      required: false,
-      default: false,
     },
     hasIssues: {
       type: Boolean,
@@ -183,12 +176,12 @@ export default {
 </script>
 <template>
   <section class="media-section">
-    <div class="gl-pl-5 gl-pr-4 gl-py-4 gl-display-flex">
+    <div class="gl-flex gl-py-4 gl-pl-5 gl-pr-4">
       <status-icon :status="statusIconName" :size="24" class="align-self-center" />
-      <div class="media-body gl-display-flex gl-align-items-flex-start gl-flex-direction-row!">
-        <div class="js-code-text code-text gl-align-self-center gl-flex-grow-1">
-          <div class="gl-display-flex gl-align-items-center">
-            <p class="gl-leading-normal gl-m-0">{{ headerText }}</p>
+      <div class="media-body gl-flex !gl-flex-row gl-items-start">
+        <div class="js-code-text code-text gl-grow gl-self-center">
+          <div class="gl-flex gl-items-center">
+            <p class="gl-m-0 gl-leading-normal">{{ headerText }}</p>
             <slot :name="slotName"></slot>
             <help-popover
               v-if="hasPopover"
@@ -201,10 +194,7 @@ export default {
 
         <slot name="action-buttons" :is-collapsible="isCollapsible"></slot>
 
-        <div
-          v-if="isCollapsible"
-          class="gl-border-l-1 gl-border-l-solid gl-border-gray-100 gl-ml-3 gl-pl-3"
-        >
+        <div v-if="isCollapsible" class="gl-border-l gl-ml-3 gl-border-l-section gl-pl-3">
           <gl-button
             data-testid="report-section-expand-button"
             category="tertiary"

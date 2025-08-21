@@ -165,7 +165,7 @@ RSpec.describe Users::DestroyService, feature_category: :user_management do
           it 'updates the scheduled records gauge' do
             service.execute(user)
 
-            gauge = Gitlab::Metrics.registry.get(:gitlab_ghost_user_migration_scheduled_records_total)
+            gauge = Gitlab::Metrics.client.get(:gitlab_ghost_user_migration_scheduled_records_total)
             expect(gauge.get).to eq(1)
           end
         end
@@ -179,7 +179,7 @@ RSpec.describe Users::DestroyService, feature_category: :user_management do
 
             service.execute(user)
 
-            gauge = Gitlab::Metrics.registry.get(:gitlab_ghost_user_migration_scheduled_records_total)
+            gauge = Gitlab::Metrics.client.get(:gitlab_ghost_user_migration_scheduled_records_total)
             expect(gauge.get).to eq(9000)
           end
         end
@@ -191,7 +191,7 @@ RSpec.describe Users::DestroyService, feature_category: :user_management do
 
           service.execute(user)
 
-          gauge = Gitlab::Metrics.registry.get(:gitlab_ghost_user_migration_lag_seconds)
+          gauge = Gitlab::Metrics.client.get(:gitlab_ghost_user_migration_lag_seconds)
           expect(gauge.get).to eq(600)
         end
       end
@@ -222,6 +222,19 @@ RSpec.describe Users::DestroyService, feature_category: :user_management do
         expect { described_class.new(admin).execute(user) }.to raise_error(Gitlab::Access::AccessDeniedError)
 
         expect(Users::GhostUserMigration).not_to be_exists
+      end
+    end
+
+    context 'when running the service twice for a user with no personal projects' do
+      let!(:project) { nil }
+
+      it 'does not create a second ghost user migration and does not raise an exception' do
+        expect { described_class.new(user).execute(user) }
+          .to change { Users::GhostUserMigration.where(user: user).count }.by(1)
+
+        expect do
+          expect { described_class.new(user).execute(user) }.not_to raise_exception
+        end.not_to change { Users::GhostUserMigration.where(user: user).count }
       end
     end
 

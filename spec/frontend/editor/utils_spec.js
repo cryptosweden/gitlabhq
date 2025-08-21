@@ -26,9 +26,9 @@ describe('Source Editor utils', () => {
     });
 
     it('removes all child nodes from an element', () => {
-      expect(el.children.length).toBe(1);
+      expect(el.children).toHaveLength(1);
       utils.clearDomElement(el);
-      expect(el.children.length).toBe(0);
+      expect(el.children).toHaveLength(0);
     });
   });
 
@@ -95,6 +95,19 @@ describe('Source Editor utils', () => {
 
       expect(monacoEditor.colorizeElement).toHaveBeenCalledWith(el);
       expect(monacoEditor.setTheme).toHaveBeenCalled();
+    });
+  });
+
+  describe('enableMonacoYamlWorkerForVite', () => {
+    it('does not set up the worker for non-Vite environments', () => {
+      utils.enableMonacoYamlWorkerForVite();
+      expect(window.MonacoEnvironment).toBeUndefined();
+    });
+
+    it('does set up the worker for Vite environments', () => {
+      window.IS_VITE = true;
+      utils.enableMonacoYamlWorkerForVite();
+      expect(window.MonacoEnvironment).toBeDefined();
     });
   });
 });

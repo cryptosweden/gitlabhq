@@ -6,31 +6,20 @@ import {
   SHOW_SETUP_SUCCESS_ALERT,
   UPDATE_SETTINGS_SUCCESS_MESSAGE,
 } from '~/packages_and_registries/settings/project/constants';
-import ContainerExpirationPolicy from '~/packages_and_registries/settings/project/components/container_expiration_policy.vue';
-import ContainerProtectionRules from '~/packages_and_registries/settings/project/components/container_protection_rules.vue';
-import PackagesCleanupPolicy from '~/packages_and_registries/settings/project/components/packages_cleanup_policy.vue';
-import MetadataDatabaseAlert from '~/packages_and_registries/shared/components/container_registry_metadata_database_alert.vue';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import MetadataDatabaseBanner from '~/packages_and_registries/shared/components/container_registry_metadata_database_banner.vue';
+import PackageRegistrySection from '~/packages_and_registries/settings/project/components/package_registry_section.vue';
+import ContainerRegistrySection from '~/packages_and_registries/settings/project/components/container_registry_section.vue';
 
 export default {
   components: {
-    ContainerExpirationPolicy,
-    ContainerProtectionRules,
-    DependencyProxyPackagesSettings: () =>
-      import(
-        'ee_component/packages_and_registries/settings/project/components/dependency_proxy_packages_settings.vue'
-      ),
+    ContainerRegistrySection,
     GlAlert,
-    MetadataDatabaseAlert,
-    PackagesCleanupPolicy,
-    PackagesProtectionRules: () =>
-      import('~/packages_and_registries/settings/project/components/packages_protection_rules.vue'),
+    MetadataDatabaseBanner,
+    PackageRegistrySection,
   },
-  mixins: [glFeatureFlagsMixin()],
   inject: [
     'showContainerRegistrySettings',
     'showPackageRegistrySettings',
-    'showDependencyProxySettings',
     'isContainerRegistryMetadataDatabaseEnabled',
   ],
   i18n: {
@@ -38,20 +27,11 @@ export default {
   },
   data() {
     return {
+      containerRegistrySectionExpanded: false,
       showAlert: false,
     };
   },
-  computed: {
-    showProtectedPackagesSettings() {
-      return this.showPackageRegistrySettings && this.glFeatures.packagesProtectedPackages;
-    },
-    showProtectedContainersSettings() {
-      return (
-        this.glFeatures.containerRegistryProtectedContainers && this.showContainerRegistrySettings
-      );
-    },
-  },
-  mounted() {
+  created() {
     this.checkAlert();
   },
   methods: {
@@ -60,6 +40,7 @@ export default {
 
       if (showAlert) {
         this.showAlert = true;
+        this.containerRegistrySectionExpanded = true;
         const cleanUrl = window.location.href.split('?')[0];
         historyReplaceState(cleanUrl);
       }
@@ -73,20 +54,21 @@ export default {
     data-testid="packages-and-registries-project-settings"
     class="js-hide-when-nothing-matches-search"
   >
-    <metadata-database-alert v-if="!isContainerRegistryMetadataDatabaseEnabled" class="gl-mt-5" />
     <gl-alert
       v-if="showAlert"
       variant="success"
       class="gl-mt-5"
       dismissible
+      data-testid="registry-update-settings-alert"
       @dismiss="showAlert = false"
     >
       {{ $options.i18n.UPDATE_SETTINGS_SUCCESS_MESSAGE }}
     </gl-alert>
-    <packages-protection-rules v-if="showProtectedPackagesSettings" />
-    <packages-cleanup-policy v-if="showPackageRegistrySettings" />
-    <container-protection-rules v-if="showProtectedContainersSettings" />
-    <container-expiration-policy v-if="showContainerRegistrySettings" />
-    <dependency-proxy-packages-settings v-if="showDependencyProxySettings" />
+    <metadata-database-banner v-if="!isContainerRegistryMetadataDatabaseEnabled" class="gl-my-5" />
+    <package-registry-section v-if="showPackageRegistrySettings" />
+    <container-registry-section
+      v-if="showContainerRegistrySettings"
+      :expanded="containerRegistrySectionExpanded"
+    />
   </div>
 </template>

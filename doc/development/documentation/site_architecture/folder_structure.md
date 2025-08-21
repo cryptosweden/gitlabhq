@@ -2,9 +2,8 @@
 stage: none
 group: unassigned
 info: For assistance with this Style Guide page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-other-projects-and-subjects.
+title: Folder structure for documentation
 ---
-
-# Folder structure for documentation
 
 The documentation is separated by top-level audience folders [`user`](https://gitlab.com/gitlab-org/gitlab-foss/tree/master/doc/user),
 [`administration`](https://gitlab.com/gitlab-org/gitlab-foss/tree/master/doc/administration),
@@ -45,16 +44,16 @@ Do not add new content to these folders:
 
 When working with directories and files:
 
-1. When you create a new directory, always start with an `index.md` file.
+1. When you create a new directory, always start with an `_index.md` file.
    Don't use another filename and do not create `README.md` files.
 1. Do not use special characters and spaces, or capital letters in file
    names, directory names, branch names, and anything that generates a path.
 1. When creating or renaming a file or directory and it has more than one word
    in its name, use underscores (`_`) instead of spaces or dashes. For example,
    proper naming would be `import_project/import_from_github.md`. This applies
-   to both [image files](../styleguide/index.md#illustrations) and Markdown files.
+   to both [image files](../styleguide/_index.md#illustrations) and Markdown files.
 1. Do not upload video files to the product repositories.
-   [Link or embed videos](../styleguide/index.md#videos) instead.
+   [Link or embed videos](../styleguide/_index.md#videos) instead.
 1. In the `doc/user/` directory:
    - `doc/user/project/` should contain all project related documentation.
    - `doc/user/group/` should contain all group related documentation.
@@ -72,23 +71,22 @@ any stage in the process. The technical writing team reviews all
 documentation changes, regardless, and can move content if there is a better
 place for it.
 
-## Avoid duplication
+## Avoid duplication when possible
 
-Do not include the same information in multiple places.
+When possible, do not include the same information in multiple places.
 Link to a single source of truth instead.
 
-For example, if you have code in a repository other than the [primary repositories](https://gitlab.com/gitlab-org/gitlab-docs/-/blob/main/doc/architecture.md),
+For example, if you have code in a repository other than the [primary repositories](https://gitlab.com/gitlab-org/technical-writing/docs-gitlab-com/-/blob/main/doc/architecture.md),
 and documentation in the same repository, you can keep the documentation in that repository.
 
 Then you can either:
 
 - Publish it to <https://docs.gitlab.com>.
 - Link to it from <https://docs.gitlab.com> by adding an entry in the global navigation.
-  View [an example](https://gitlab.com/gitlab-org/gitlab-docs/-/blob/fedb6378a3c92274ba3b6031df0d34455594e4cc/content/_data/navigation.yaml#L2944).
 
 ## References across documents
 
-- Give each folder an `index.md` page that introduces the topic, and both introduces
+- Give each folder an `_index.md` page that introduces the topic, and both introduces
   and links to the child pages, including to the index pages of
   any next-level sub-paths.
 - To ensure discoverability, ensure each new or renamed doc is linked from its

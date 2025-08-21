@@ -95,7 +95,8 @@ production: &base
 
     ## Date & Time settings
     # Uncomment and customize if you want to change the default time zone of GitLab application.
-    # To see all available zones, run `bundle exec rake time:zones:all RAILS_ENV=production`
+    # To see all available time zones in a valid format, run `timedatectl list-timezones`
+    # on a Linux host, or 'TZInfo::Timezone.all_identifiers' in a Rails console.
     # time_zone: 'UTC'
 
     ## Email settings
@@ -105,6 +106,7 @@ production: &base
     email_from: example@example.com
     email_display_name: GitLab
     email_reply_to: noreply@example.com
+    email_subject_prefix: ''
     email_subject_suffix: ''
     email_smime:
       # Uncomment and set to true if you need to enable email S/MIME signing (default: false)
@@ -128,7 +130,7 @@ production: &base
     ## Default theme ID
     ##   1 - Indigo
     ##   2 - Gray
-    ##   3 - Light Gray
+    ##   3 - Neutral
     ##   4 - Blue
     ##   5 - Green
     ##   6 - Light Indigo
@@ -136,8 +138,12 @@ production: &base
     ##   8 - Light Green
     ##   9 - Red
     ##   10 - Light Red
-    ##   11 - Dark Mode (alpha)
     # default_theme: 1 # default: 1
+    ## Default color mode ID
+    ##   1 - Light
+    ##   2 - Dark
+    ##   3 - Automatic
+    # default_color_mode: 1 # default: 1
 
     ## Custom html header tags
     # In some cases some custom header tags are needed
@@ -167,6 +173,10 @@ production: &base
     ## Webhook settings
     # Number of seconds to wait for HTTP response after sending webhook HTTP POST request (default: 10)
     # webhook_timeout: 10
+
+    ## Session cookie settings
+    # signed_cookie_salt: 'signed cookie'
+    # authenticated_encrypted_cookie_salt: 'authenticated encrypted cookie'
 
     ## HTTP client settings
     http_client:
@@ -199,6 +209,35 @@ production: &base
     # WARNING: setting this to true means that the root password will be printed in
     # plaintext. This can be a security risk.
     # display_initial_root_password: false
+
+    ## Product Usage Data
+    # This setting enables or disables product usage data in the GitLab instance.
+    # It will be read on initial installation only. Once GitLab is up and running,
+    # this setting should be toggled from the admin pages in the UI.
+    # initial_gitlab_product_usage_data: true
+
+  ## Openbao settings
+  ## Configure OpenBao server URLs for secrets management
+  ## Two URLs can be configured to support different network architectures:
+  ##
+  ## - url: External URL used by GitLab Runners and external clients
+  ##   This URL should be accessible from outside the cluster/network
+  ##   Example: https://vault.company.com:8200
+  ##
+  ## - internal_url: Internal URL used by Rails application for direct communication
+  ##   This URL is used for Rails-to-OpenBao communication within the cluster/network
+  ##   Provides better performance and security for internal connections
+  ##   Example: https://vault.company-internal.com:8200
+  ##
+  ## If internal_url is not specified, the Rails application will use the external URL
+  ## If neither is specified, defaults to GitLab's host with port 8200
+  # openbao:
+    # url: https://vault.company.com:8200  # External URL for runners and external clients
+    # internal_url: https://vault.company-internal.com:8200 # Internal URL for Rails application
+
+  ## Custom claim values for JWT ID Tokens
+  # ci_id_tokens:
+    # issuer_url: <custom-issuer-url>
 
   # Allows delivery of emails using Microsoft Graph API with OAuth 2.0 client credentials flow.
   microsoft_graph_mailer:
@@ -485,6 +524,7 @@ production: &base
     artifacts_server: true # Set to false if you want to disable online view of HTML artifacts
     # external_http: ["1.1.1.1:80", "[2001::1]:80"] # If defined, enables custom domain support in GitLab Pages
     # external_https: ["1.1.1.1:443", "[2001::1]:443"] # If defined, enables custom domain and certificate support in GitLab Pages
+    # custom_domain_mode: http # Configure Pages to enable custom domain: `http` or `https`
 
     # File that contains the shared secret key for verifying access for gitlab-pages.
     # Default is '.gitlab_pages_secret' relative to Rails.root (i.e. root of the GitLab app).
@@ -591,10 +631,6 @@ production: &base
     schedule_migrate_external_diffs_worker:
       cron: "15 * * * *"
 
-    # Update CI Platform Metrics daily
-    ci_platform_metrics_update_cron_worker:
-      cron: "47 9 * * *"
-
     # Periodically update ci_runner_versions table with up-to-date versions and status.
     ci_runner_versions_reconciliation_worker:
       cron: "@daily"
@@ -602,6 +638,10 @@ production: &base
     # Periodically clean up stale runner machines.
     ci_runners_stale_machines_cleanup_worker:
       cron: "36 * * * *"
+
+    # Periodically queue syncing of finished pipelines from p_ci_finished_pipeline_ch_sync_events to ClickHouse
+    ci_click_house_finished_pipelines_sync_worker:
+      cron: "*/4 * * * *"
 
   # GitLab EE only jobs. These jobs are automatically enabled for an EE
   # installation, and ignored for a CE installation.
@@ -624,6 +664,11 @@ production: &base
     # NOTE: This will only take effect if LDAP is enabled
     ldap_group_sync_worker:
       cron: "0 * * * *"
+
+    # Periodically sync LDAP Duo add-on seat assignments.
+    # NOTE: This will only take effect if LDAP is enabled
+    ldap_add_on_seat_sync_worker:
+      cron: "0 2 * * *"
 
     # GitLab Geo metrics update worker
     # NOTE: This will only take effect if Geo is enabled
@@ -924,6 +969,12 @@ production: &base
         #
         admin_group: ''
 
+        # LDAP group of users who should have Duo Add-on seats assigned in GitLab
+        #
+        #   Ex. ['DuoGroup1', 'DuoGroup2']
+        #
+        duo_add_on_groups: []
+
         # LDAP group of users who should be marked as external users in GitLab
         #
         #   Ex. ['Contractors', 'Interns']
@@ -1129,6 +1180,7 @@ production: &base
       #     label: 'Our SAML Provider',
       #     groups_attribute: 'Groups',
       #     external_groups: ['Contractors', 'Freelancers'],
+      #     duo_add_on_groups: ['Developers', 'Freelancers'],
       #     args: {
       #             assertion_consumer_service_url: 'https://gitlab.example.com/users/auth/saml/callback',
       #             idp_cert_fingerprint: '43:51:43:a1:b5:fc:8b:b7:0a:3a:a9:b1:0f:66:73:a8',
@@ -1220,7 +1272,7 @@ production: &base
     # keep_time: 604800   # default: 0 (forever) (in seconds)
     # pg_schema: public     # default: nil, it means that all schemas will be backed up
     # upload:
-    #   # Fog storage connection settings, see https://fog.io/storage/ .
+    #   # Fog storage connection settings, see https://fog.github.io/storage/ .
     #   connection:
     #     provider: AWS
     #     region: eu-west-1
@@ -1272,15 +1324,17 @@ production: &base
     # Default is '.gitlab_workhorse_secret' relative to Rails.root (i.e. root of the GitLab app).
     # secret_file: /home/git/gitlab/.gitlab_workhorse_secret
 
-  topology_service:
-    # enabled: false
-    # address: topology-service.gitlab.example.com:443
-    # ca_file: /home/git/gitlab/config/topology-service-ca.pem
-    # certificate_file: /home/git/gitlab/config/topology-service-cert.pem
-    # private_key_file: /home/git/gitlab/config/topology-service-key.pem
-
   cell:
-    # name: cell-1
+    # enabled: false
+    # id: null
+    # name: null
+    # database:
+    #   skip_sequence_alteration: false
+    # topology_service_client:
+    #   address: topology-service.gitlab.example.com:443
+    #   ca_file: /home/git/gitlab/config/topology-service-ca.pem
+    #   certificate_file: /home/git/gitlab/config/topology-service-cert.pem
+    #   private_key_file: /home/git/gitlab/config/topology-service-key.pem
 
   gitlab_kas:
     # enabled: true
@@ -1296,6 +1350,9 @@ production: &base
 
     # The URL to the Kubernetes API proxy (used by GitLab users)
     # external_k8s_proxy_url: https://localhost:8154 # default: nil
+
+    # The client timeout in seconds for the KAS API (used by the GitLab backend)
+    # client_timeout_seconds: 5
 
   suggested_reviewers:
     # File that contains the secret key for verifying access to GitLab internal API for Suggested Reviewers.
@@ -1647,7 +1704,8 @@ test:
           app_id: 'YOUR_CLIENT_ID',
           app_secret: 'YOUR_CLIENT_SECRET',
           args: { scope: 'offline_access read:jira-user read:jira-work', prompt: 'consent' }
-      }
+        }
+      - { name: 'openid_connect' }
   ldap:
     enabled: false
     servers:
@@ -1664,6 +1722,9 @@ test:
   prometheus:
     enabled: true
     server_address: 'localhost:9090'
+
+  registry:
+    enabled: false
 
 staging:
   <<: *base

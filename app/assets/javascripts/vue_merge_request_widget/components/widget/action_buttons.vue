@@ -18,11 +18,6 @@ export default {
     GlTooltip: GlTooltipDirective,
   },
   props: {
-    widget: {
-      type: String,
-      required: false,
-      default: '',
-    },
     tertiaryButtons: {
       type: Array,
       required: true,
@@ -54,11 +49,11 @@ export default {
     },
   },
   methods: {
-    onClickAction(action) {
+    onClickAction(action, e = null) {
       this.$emit('clickedAction', action);
 
       if (action.onClick) {
-        action.onClick();
+        action.onClick(action, e);
       }
 
       if (action.tooltipOnClick) {
@@ -85,7 +80,7 @@ export default {
 </script>
 
 <template>
-  <div class="gl-display-flex gl-align-items-flex-start">
+  <div class="gl-flex gl-items-start">
     <gl-disclosure-dropdown
       :items="dropdownItems"
       icon="ellipsis_v"
@@ -94,11 +89,11 @@ export default {
       placement="bottom-end"
       text-sr-only
       size="small"
-      toggle-class="gl-p-2!"
+      toggle-class="!gl-p-2"
       class="gl-block md:!gl-hidden"
     >
       <template #list-item="{ item }">
-        <span class="gl-display-flex gl-align-items-center gl-justify-content-space-between">
+        <span class="gl-flex gl-items-center gl-justify-between">
           {{ item.text }}
           <gl-loading-icon v-if="item.loading" size="sm" />
           <gl-icon v-else-if="item.icon" :name="item.icon" />
@@ -108,7 +103,7 @@ export default {
     <gl-button
       v-for="(btn, index) in tertiaryButtons"
       :id="btn.id"
-      :key="index"
+      :key="btn.id || index"
       v-gl-tooltip.hover
       :title="setTooltip(btn)"
       :href="btn.href"
@@ -123,8 +118,8 @@ export default {
       :disabled="btn.loading"
       category="tertiary"
       size="small"
-      class="gl-hidden md:gl-block gl-float-left"
-      @click="onClickAction(btn)"
+      class="gl-float-left gl-hidden md:gl-inline-flex"
+      @click="($event) => onClickAction(btn, $event)"
     >
       <template v-if="btn.text">
         {{ btn.text }}

@@ -73,6 +73,7 @@ module RuboCop
 
         EAGER_EVALUATED_BLOCKS = %i[namespace].freeze
 
+        # @!method require_method(node)
         def_node_matcher :require_method, <<~PATTERN
           (send nil? ${#{METHODS.map(&:inspect).join(' ')}} $_)
         PATTERN
@@ -107,7 +108,7 @@ module RuboCop
 
         def inside_block(node, skip:)
           node.each_ancestor(:block).any? do |block|
-            !skip.include?(block.method_name) # rubocop:disable Rails/NegateInclude -- This is not Rails
+            !skip.include?(block.method_name)
           end
         end
 

@@ -4,12 +4,12 @@ module AuthorizedProjectUpdate
   class PeriodicRecalculateWorker
     include ApplicationWorker
 
-    data_consistency :always
+    data_consistency :sticky
 
     # This worker does not perform work scoped to a context
     include CronjobQueue # rubocop:disable Scalability/CronWorkerContext
 
-    feature_category :source_code_management
+    feature_category :permissions
     urgency :low
 
     idempotent!

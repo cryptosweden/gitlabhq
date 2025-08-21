@@ -9,18 +9,20 @@ import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import getIssuesQuery from 'ee_else_ce/issues/dashboard/queries/get_issues.query.graphql';
 import IssueCardStatistics from 'ee_else_ce/issues/list/components/issue_card_statistics.vue';
 import IssueCardTimeInfo from 'ee_else_ce/issues/list/components/issue_card_time_info.vue';
-import { STATUS_ALL, STATUS_CLOSED, STATUS_OPEN } from '~/issues/constants';
-import { defaultTypeTokenOptions, i18n, PARAM_STATE, urlSortParams } from '~/issues/list/constants';
-import setSortPreferenceMutation from '~/issues/list/queries/set_sort_preference.mutation.graphql';
 import {
   convertToApiParams,
   convertToSearchQuery,
   convertToUrlParams,
   deriveSortKey,
+  getDefaultWorkItemTypes,
   getFilterTokens,
   getInitialPageParams,
   getSortOptions,
-} from '~/issues/list/utils';
+  getTypeTokenOptions,
+} from 'ee_else_ce/issues/list/utils';
+import { STATUS_ALL, STATUS_CLOSED, STATUS_OPEN } from '~/issues/constants';
+import { i18n, PARAM_STATE, urlSortParams } from '~/issues/list/constants';
+import setSortPreferenceMutation from '~/issues/list/queries/set_sort_preference.mutation.graphql';
 import { fetchPolicies } from '~/lib/graphql';
 import axios from '~/lib/utils/axios_utils';
 import { scrollUp } from '~/lib/utils/scroll_utils';
@@ -40,6 +42,7 @@ import {
   TOKEN_TITLE_TYPE,
   TOKEN_TITLE_CREATED,
   TOKEN_TITLE_CLOSED,
+  TOKEN_TITLE_SUBSCRIBED,
   TOKEN_TYPE_ASSIGNEE,
   TOKEN_TYPE_AUTHOR,
   TOKEN_TYPE_CONFIDENTIAL,
@@ -50,6 +53,7 @@ import {
   TOKEN_TYPE_TYPE,
   TOKEN_TYPE_CREATED,
   TOKEN_TYPE_CLOSED,
+  TOKEN_TYPE_SUBSCRIBED,
 } from '~/vue_shared/components/filtered_search_bar/constants';
 import IssuableList from '~/vue_shared/issuable/list/components/issuable_list_root.vue';
 import { DEFAULT_PAGE_SIZE, issuableListTabs } from '~/vue_shared/issuable/list/constants';
@@ -74,6 +78,8 @@ export default {
     IssuableList,
     IssueCardStatistics,
     IssueCardTimeInfo,
+    WorkItemStatusBadge: () =>
+      import('ee_component/work_items/components/shared/work_item_status_badge.vue'),
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -90,19 +96,15 @@ export default {
     'hasIssuableHealthStatusFeature',
     'hasIssueDateFilterFeature',
     'hasIssueWeightsFeature',
+    'hasOkrsFeature',
+    'hasQualityManagementFeature',
     'hasScopedLabelsFeature',
     'initialSort',
     'isPublicVisibilityRestricted',
     'isSignedIn',
     'rssPath',
+    'isStatusFeatureEnabledOnInstance',
   ],
-  props: {
-    eeTypeTokenOptions: {
-      type: Array,
-      required: false,
-      default: () => [],
-    },
-  },
   data() {
     const state = getParameterByName(PARAM_STATE);
 
@@ -162,6 +164,12 @@ export default {
     apiFilterParams() {
       return convertToApiParams(this.filterTokens);
     },
+    defaultWorkItemTypes() {
+      return getDefaultWorkItemTypes({
+        hasOkrsFeature: this.hasOkrsFeature,
+        hasQualityManagementFeature: this.hasQualityManagementFeature,
+      });
+    },
     dropdownItems() {
       return [
         { href: this.rssPath, text: __('Subscribe to RSS feed') },
@@ -205,6 +213,7 @@ export default {
         state: this.state,
         ...this.pageParams,
         ...this.apiFilterParams,
+        types: this.apiFilterParams.types || this.defaultWorkItemTypes,
       };
     },
     renderedIssues() {
@@ -290,6 +299,26 @@ export default {
           token: GlFilteredSearchToken,
           options: this.typeTokenOptions,
         },
+        {
+          type: TOKEN_TYPE_SUBSCRIBED,
+          title: TOKEN_TITLE_SUBSCRIBED,
+          icon: 'notifications',
+          token: GlFilteredSearchToken,
+          unique: true,
+          operators: OPERATORS_IS,
+          options: [
+            {
+              icon: 'notifications',
+              value: 'EXPLICITLY_SUBSCRIBED',
+              title: __('Explicitly subscribed'),
+            },
+            {
+              icon: 'notifications-off',
+              value: 'EXPLICITLY_UNSUBSCRIBED',
+              title: __('Explicitly unsubscribed'),
+            },
+          ],
+        },
       ];
 
       if (this.isSignedIn) {
@@ -350,6 +379,7 @@ export default {
         hasBlockedIssuesFeature: this.hasBlockedIssuesFeature,
         hasIssuableHealthStatusFeature: this.hasIssuableHealthStatusFeature,
         hasIssueWeightsFeature: this.hasIssueWeightsFeature,
+        hasManualSort: false,
       });
     },
     tabCounts() {
@@ -361,7 +391,10 @@ export default {
       };
     },
     typeTokenOptions() {
-      return [...defaultTypeTokenOptions, ...this.eeTypeTokenOptions];
+      return getTypeTokenOptions({
+        hasOkrsFeature: this.hasOkrsFeature,
+        hasQualityManagementFeature: this.hasQualityManagementFeature,
+      });
     },
     urlFilterParams() {
       return convertToUrlParams(this.filterTokens);
@@ -471,6 +504,9 @@ export default {
           Sentry.captureException(error);
         });
     },
+    showStatusBadge(issuable) {
+      return issuable?.status && this.isStatusFeatureEnabledOnInstance;
+    },
   },
 };
 </script>
@@ -526,6 +562,12 @@ export default {
 
     <template #statistics="{ issuable = {} }">
       <issue-card-statistics :issue="issuable" />
+    </template>
+
+    <template #custom-status="{ issuable = {} }">
+      <div v-if="showStatusBadge(issuable)" class="gl-max-w-20">
+        <work-item-status-badge :item="issuable.status" />
+      </div>
     </template>
 
     <template #empty-state>

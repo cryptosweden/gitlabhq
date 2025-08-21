@@ -1,14 +1,13 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Database migration pipeline
 ---
-
-# Database migration pipeline
 
 With the [automated migration testing pipeline](https://gitlab.com/gitlab-org/database-team/gitlab-com-database-testing)
 we can automatically test migrations in a production-like environment (using [Database Lab](database_lab.md)).
-It is based on an [architecture blueprint](../../architecture/blueprints/database_testing/index.md).
+It is based on an [architecture design document](https://handbook.gitlab.com/handbook/engineering/architecture/design-documents/database_testing/).
 
 Migration testing is enabled in the [GitLab project](https://gitlab.com/gitlab-org/gitlab)
 for changes that add a new database migration. Trigger this job manually by running the
@@ -100,7 +99,7 @@ SHA="fed6dd8a58d75a0e053a4972765b4fc08c5814a3"  # The commit SHA of the HEAD of 
 # The following should not be changed between invocations:
 CI_JOB_URL='https://gitlab.com/gitlab-org/database-team/gitlab-com-database-testing/-/jobs/1590162939'
 # It doesn't appear that CI_JOB_URL has to be set to anything in particular for the pipeline to run
-# successfully, but this would normally be the URL to the upstream job that invokes the DB testing pipeline.
+# successfully, but this would usually be the URL to the upstream job that invokes the DB testing pipeline.
 CI_MERGE_REQUEST_PROJECT_ID='278964'    # gitlab-org/gitlab numeric ID. Shouldn't change.
 CI_PROJECT_ID="gitlab-org/gitlab"       # The slug identifying gitlab-org/gitlab.
 

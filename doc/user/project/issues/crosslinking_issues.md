@@ -2,18 +2,31 @@
 stage: Plan
 group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Crosslinking issues
 ---
 
-# Crosslinking issues
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-There are several ways to mention an issue or make [issues](index.md) appear in each other's
-[Linked issues](related_issues.md) section.
+{{< /details >}}
 
-For more information on GitLab Issues, read the [issues documentation](index.md).
+Crosslinking creates relationships between issues in GitLab.
+Crosslinking:
+
+- Connects related issues for better tracking and visibility.
+- Links issues to their related commits and merge requests.
+- Creates references through commit messages, branch names, and descriptions.
+- Works across projects and groups.
+- Shows relationships in each issue's **Linked items** section.
+
+You can create crosslinks through:
+
+- [Commit messages](#from-commit-messages)
+- [Linked issues](#from-linked-issues)
+- [Merge requests](#from-merge-requests)
+- [Branch names](#from-branch-names)
 
 ## From commit messages
 
@@ -28,7 +41,7 @@ add `#xxx` to the commit message, where `xxx` is the issue number.
 git commit -m "this is my commit message. Ref #xxx"
 ```
 
-Since commit messages cannot usually begin with a `#` character, you may use
+Commit messages cannot usually begin with a `#` character, so you may use
 the alternative `GL-xxx` notation as well:
 
 ```shell
@@ -44,6 +57,13 @@ git commit -m "this is my commit message. Ref projectname#xxx"
 
 If they are not in the same group, you can add the full URL to the issue
 (`https://gitlab.com/<username>/<projectname>/-/issues/<xxx>`).
+
+{{< alert type="note" >}}
+
+For performance reasons, GitLab processes only the first 1,000 full URLs in commit messages
+for automatic linking. Additional URLs beyond this limit are not converted to links.
+
+{{< /alert >}}
 
 ```shell
 git commit -m "this is my commit message. Related to https://gitlab.com/<username>/<projectname>/-/issues/<xxx>"
@@ -61,13 +81,12 @@ which is the time between creating an issue and making the first commit.
 Mentioning linked issues in merge requests and other issues helps your team members and
 collaborators know that there are opened issues regarding the same topic.
 
-You do that as explained above, when [mentioning an issue from a commit message](#from-commit-messages).
-
 When mentioning issue `#111` in issue `#222`, issue `#111` also displays a notification
-in its tracker. That is, you only need to mention the relationship once for it to
+in its **Activity** feed. That is, you only need to mention the relationship once for it to
 display in both issues. The same is valid when mentioning issues in [merge requests](#from-merge-requests).
 
-![issue mentioned in issue](img/mention_in_issue.png)
+When the activity feed for an issue is filtered to **Show history only** or **Show all activity**,
+crosslinks are shown as `(Username) mentioned in issue #(number) (time ago)`.
 
 ## From merge requests
 
@@ -79,11 +98,12 @@ When you mention an issue in a merge request description, it
 you can also [set an issue to close automatically](managing_issues.md#closing-issues-automatically)
 as soon as the merge request is merged.
 
-![issue mentioned in MR](img/mention_in_merge_request.png)
+When the activity feed for an issue is filtered to **Show history only** or **Show all activity**,
+crosslinks are shown as `(Username) mentioned in merge request !(number) (time ago)`.
 
 ## From branch names
 
 When you create a branch in the same project as an issue and start the branch name with the issue
 number, followed by a hyphen, the issue and MR you create are linked.
 For more information, see
-[Prefix branch names with issue numbers](../repository/branches/index.md#prefix-branch-names-with-issue-numbers).
+[Prefix branch names with issue numbers](../repository/branches/_index.md#prefix-branch-names-with-a-number).

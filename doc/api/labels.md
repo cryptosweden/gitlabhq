@@ -2,13 +2,21 @@
 stage: Plan
 group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Labels API
 ---
 
-# Labels API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+{{< history >}}
+
+- `archived` attribute [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/4233) in GitLab 18.3 [with a flag](../administration/feature_flags/_index.md) named `labels_archive`. Disabled by default.
+
+{{< /history >}}
 
 Interact with [labels](../user/project/labels.md) using the REST API.
 
@@ -16,7 +24,7 @@ Interact with [labels](../user/project/labels.md) using the REST API.
 
 Get all labels for a given project.
 
-By default, this request returns 20 results at a time because the API results [are paginated](rest/index.md#pagination).
+By default, this request returns 20 results at a time because the API results [are paginated](rest/_index.md#pagination).
 
 ```plaintext
 GET /projects/:id/labels
@@ -24,10 +32,11 @@ GET /projects/:id/labels
 
 | Attribute     | Type           | Required | Description                                                                                                                                                                  |
 | ---------     | -------        | -------- | ---------------------                                                                                                                                                        |
-| `id`          | integer/string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user                                                              |
+| `id`          | integer/string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths)                                                              |
 | `with_counts` | boolean        | no       | Whether or not to include issue and merge request counts. Defaults to `false`. |
 | `include_ancestor_groups` | boolean | no | Include ancestor groups. Defaults to `true`. |
 | `search` | string | no | Keyword to filter labels by. |
+| `archived` | boolean | no | Whether the label is archived. Returns all labels, when not set. Requires the `labels_archive` feature flag to be enabled. |
 
 ```shell
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/labels?with_counts=true"
@@ -49,7 +58,8 @@ Example response:
     "open_merge_requests_count": 1,
     "subscribed": false,
     "priority": 10,
-    "is_project_label": true
+    "is_project_label": true,
+    "archived": false
   },
   {
     "id" : 4,
@@ -63,7 +73,8 @@ Example response:
     "open_merge_requests_count": 0,
     "subscribed": false,
     "priority": null,
-    "is_project_label": true
+    "is_project_label": true,
+    "archived": false
   },
   {
     "id" : 7,
@@ -77,7 +88,8 @@ Example response:
     "open_merge_requests_count": 1,
     "subscribed": false,
     "priority": null,
-    "is_project_label": true
+    "is_project_label": true,
+    "archived": false
   },
   {
     "id" : 8,
@@ -91,7 +103,8 @@ Example response:
     "open_merge_requests_count": 2,
     "subscribed": false,
     "priority": null,
-    "is_project_label": false
+    "is_project_label": false,
+    "archived": false
   },
   {
     "id" : 9,
@@ -105,7 +118,8 @@ Example response:
     "open_merge_requests_count": 1,
     "subscribed": true,
     "priority": null,
-    "is_project_label": true
+    "is_project_label": true,
+    "archived": false
   }
 ]
 ```
@@ -120,7 +134,7 @@ GET /projects/:id/labels/:label_id
 
 | Attribute     | Type           | Required | Description                                                                                                                                                                  |
 | ---------     | -------        | -------- | ---------------------                                                                                                                                                        |
-| `id`          | integer or string | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user                                                              |
+| `id`          | integer or string | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths)                                                              |
 | `label_id` | integer or string | yes | The ID or title of a project's label. |
 | `include_ancestor_groups` | boolean | no | Include ancestor groups. Defaults to `true`. |
 
@@ -143,7 +157,8 @@ Example response:
   "open_merge_requests_count": 1,
   "subscribed": false,
   "priority": 10,
-  "is_project_label": true
+  "is_project_label": true,
+  "archived": false
 }
 ```
 
@@ -157,11 +172,12 @@ POST /projects/:id/labels
 
 | Attribute     | Type    | Required | Description                  |
 | ------------- | ------- | -------- | ---------------------------- |
-| `id`      | integer/string    | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer/string    | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `name`        | string  | yes      | The name of the label        |
 | `color`       | string  | yes      | The color of the label given in 6-digit hex notation with leading '#' sign (for example, #FFAABB) or one of the [CSS color names](https://developer.mozilla.org/en-US/docs/Web/CSS/color_value#Color_keywords) |
 | `description` | string  | no       | The description of the label |
 | `priority`    | integer | no       | The priority of the label. Must be greater or equal than zero or `null` to remove the priority. |
+| `archived`    | boolean | no       | Whether the label is archived. Defaults to `false`. Requires the `labels_archive` feature flag to be enabled. |
 
 ```shell
 curl --data "name=feature&color=#5843AD" --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/labels"
@@ -182,7 +198,8 @@ Example response:
   "open_merge_requests_count": 0,
   "subscribed": false,
   "priority": null,
-    "is_project_label": true
+  "is_project_label": true,
+  "archived": false
 }
 ```
 
@@ -196,15 +213,18 @@ DELETE /projects/:id/labels/:label_id
 
 | Attribute | Type    | Required | Description           |
 | --------- | ------- | -------- | --------------------- |
-| `id`            | integer or string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`            | integer or string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `label_id` | integer or string | yes | The ID or title of a group's label. |
 
 ```shell
 curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/labels/bug"
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 An older endpoint `DELETE /projects/:id/labels` with `name` in the parameters is still available, but deprecated.
+
+{{< /alert >}}
 
 ## Edit an existing label
 
@@ -217,12 +237,13 @@ PUT /projects/:id/labels/:label_id
 
 | Attribute       | Type    | Required                          | Description                      |
 | --------------- | ------- | --------------------------------- | -------------------------------  |
-| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `label_id` | integer or string | yes | The ID or title of a group's label. |
 | `new_name`      | string  | yes if `color` is not provided    | The new name of the label        |
 | `color`         | string  | yes if `new_name` is not provided | The color of the label given in 6-digit hex notation with leading '#' sign (for example, #FFAABB) or one of the [CSS color names](https://developer.mozilla.org/en-US/docs/Web/CSS/color_value#Color_keywords) |
 | `description`   | string  | no                                | The new description of the label |
 | `priority`    | integer | no       | The new priority of the label. Must be greater or equal than zero or `null` to remove the priority. |
+| `archived`    | boolean | no       | Whether the label is archived. Requires the `labels_archive` feature flag to be enabled. |
 
 ```shell
 curl --request PUT --data "new_name=docs&color=#8E44AD&description=Documentation" \
@@ -244,12 +265,16 @@ Example response:
   "open_merge_requests_count": 2,
   "subscribed": false,
   "priority": null,
-  "is_project_label": true
+  "is_project_label": true,
+  "archived": false
 }
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 An older endpoint `PUT /projects/:id/labels` with `name` or `label_id` in the parameters is still available, but deprecated.
+
+{{< /alert >}}
 
 ## Promote a project label to a group label
 
@@ -261,7 +286,7 @@ PUT /projects/:id/labels/:label_id/promote
 
 | Attribute       | Type    | Required                          | Description                      |
 | --------------- | ------- | --------------------------------- | -------------------------------  |
-| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `label_id` | integer or string | yes | The ID or title of a group's label. |
 
 ```shell
@@ -280,12 +305,16 @@ Example response:
   "open_issues_count": 1,
   "closed_issues_count": 0,
   "open_merge_requests_count": 2,
-  "subscribed": false
+  "subscribed": false,
+  "archived": false
 }
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 An older endpoint `PUT /projects/:id/labels/promote` with `name` in the parameters is still available, but deprecated.
+
+{{< /alert >}}
 
 ## Subscribe to a label
 
@@ -299,7 +328,7 @@ POST /projects/:id/labels/:label_id/subscribe
 
 | Attribute  | Type              | Required | Description                          |
 | ---------- | ----------------- | -------- | ------------------------------------ |
-| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `label_id` | integer or string | yes      | The ID or title of a project's label |
 
 ```shell
@@ -321,7 +350,8 @@ Example response:
   "open_merge_requests_count": 1,
   "subscribed": true,
   "priority": null,
-  "is_project_label": true
+  "is_project_label": true,
+  "archived": false
 }
 ```
 
@@ -337,7 +367,7 @@ POST /projects/:id/labels/:label_id/unsubscribe
 
 | Attribute  | Type              | Required | Description                          |
 | ---------- | ----------------- | -------- | ------------------------------------ |
-| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id`      | integer or string    | yes      | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `label_id` | integer or string | yes      | The ID or title of a project's label |
 
 ```shell

@@ -133,13 +133,6 @@ FactoryBot.define do
       target_branch { "master" }
     end
 
-    trait :merge_when_pipeline_succeeds do
-      auto_merge_enabled { true }
-      auto_merge_strategy { AutoMergeService::STRATEGY_MERGE_WHEN_PIPELINE_SUCCEEDS }
-      merge_user { author }
-      merge_params { { sha: diff_head_sha } }
-    end
-
     trait :merge_when_checks_pass do
       auto_merge_enabled { true }
       auto_merge_strategy { AutoMergeService::STRATEGY_MERGE_WHEN_CHECKS_PASS }
@@ -209,6 +202,10 @@ FactoryBot.define do
 
     trait :unique_author do
       author { association(:user) }
+    end
+
+    trait :with_assignee do
+      assignees { [author] }
     end
 
     trait :with_coverage_reports do

@@ -42,7 +42,7 @@ RSpec.describe ContainerRegistry::Event, feature_category: :container_registry d
 
     shared_examples 'event with project statistics update' do
       it 'enqueues a project statistics update' do
-        expect(ProjectCacheWorker).to receive(:perform_async).with(project.id, [], [:container_registry_size])
+        expect(ProjectCacheWorker).to receive(:perform_async).with(project.id, [], %w[container_registry_size])
 
         handle!
       end
@@ -127,13 +127,29 @@ RSpec.describe ContainerRegistry::Event, feature_category: :container_registry d
 
     subject { described_class.new(raw_event).track! }
 
-    shared_examples 'tracking event is sent to HLLRedisCounter with event and originator ID' do |originator_type|
-      it 'sends a tracking event to HLLRedisCounter' do
-        expect(::Gitlab::UsageDataCounters::HLLRedisCounter)
-        .to receive(:track_event).with("i_container_registry_#{event}_#{originator_type}", values: originator.id)
-        .exactly(count).time
+    shared_examples 'tracking a deploy_token internal event' do
+      it 'sends a tracking event' do
+        event_name = "i_container_registry_#{event}_deploy_token"
+        expect { subject }
+          .to trigger_internal_events(event_name)
+          .with(additional_properties: { property: originator.id.to_s })
+          .exactly(count).time
+      end
+    end
 
-        subject
+    shared_examples 'tracking a user internal event' do
+      it 'sends a tracking event' do
+        event_name = "i_container_registry_#{event}_user"
+        expect { subject }
+          .to trigger_internal_events(event_name)
+          .with(user: originator)
+          .exactly(count).time
+      end
+    end
+
+    shared_examples 'no tracking is sent' do
+      it 'does not send a tracking event' do
+        expect { subject }.not_to trigger_internal_events
       end
     end
 
@@ -147,7 +163,7 @@ RSpec.describe ContainerRegistry::Event, feature_category: :container_registry d
       end
     end
 
-    context 'with a respository target' do
+    context 'with a repository target' do
       let(:target) do
         {
           'mediaType' => ContainerRegistry::Client::DOCKER_DISTRIBUTION_MANIFEST_V2_TYPE,
@@ -199,16 +215,6 @@ RSpec.describe ContainerRegistry::Event, feature_category: :container_registry d
     context 'with a deploy token as the actor' do
       let!(:originator) { create(:deploy_token, username: 'username', id: 3) }
 
-      shared_examples 'no tracking of a deploy token is sent to HLLRedisCounter' do
-        it 'does not send a tracking event to HLLRedisCounter' do
-          expect(DeployToken).not_to receive(:find)
-          expect(DeployToken).not_to receive(:find_by_username)
-          expect(::Gitlab::UsageDataCounters::HLLRedisCounter).not_to receive(:track_event)
-
-          expect { subject }.not_to raise_error
-        end
-      end
-
       context 'when only username is provided and no deploy_token_id is given' do
         let(:raw_event) do
           {
@@ -218,13 +224,13 @@ RSpec.describe ContainerRegistry::Event, feature_category: :container_registry d
           }
         end
 
-        it_behaves_like 'no tracking of a deploy token is sent to HLLRedisCounter'
+        it_behaves_like 'no tracking is sent'
       end
 
       context 'when no username or deploy_token_id is given' do
         let(:raw_event) { { 'action' => 'push', 'target' => {}, 'actor' => { 'user_type' => 'deploy_token' } } }
 
-        it_behaves_like 'no tracking of a deploy token is sent to HLLRedisCounter'
+        it_behaves_like 'no tracking is sent'
       end
 
       context 'when deploy_token_id is given' do
@@ -255,12 +261,19 @@ RSpec.describe ContainerRegistry::Event, feature_category: :container_registry d
           { 'tag' => 'latest' }          | 'delete'   | 'delete_tag'         |  1
           { 'repository' => 'foo/bar' }  | 'push'     | 'create_repository'  |  1
           { 'repository' => 'foo/bar' }  | 'delete'   | 'delete_repository'  |  1
-          { 'tag' => 'latest' }          | 'copy'     | ''                   |  0
         end
 
         with_them do
           it_behaves_like 'event originator is fetched based on ID', DeployToken
-          it_behaves_like 'tracking event is sent to HLLRedisCounter with event and originator ID', :deploy_token
+
+          it_behaves_like 'tracking a deploy_token internal event'
+        end
+
+        context 'when the event is not a valid trackable event' do
+          let(:action) { 'copy' }
+          let(:target) { { 'tag' => 'latest' } }
+
+          it_behaves_like 'no tracking is sent'
         end
 
         context "when there are errors" do
@@ -273,7 +286,7 @@ RSpec.describe ContainerRegistry::Event, feature_category: :container_registry d
               allow(File).to receive(:read).with(key_file.path).and_raise(Errno::ENOENT)
             end
 
-            it_behaves_like 'no tracking of a deploy token is sent to HLLRedisCounter'
+            it_behaves_like 'no tracking is sent'
           end
 
           [JWT::VerificationError, JWT::DecodeError, JWT::ExpiredSignature, JWT::ImmatureSignature].each do |error|
@@ -284,7 +297,7 @@ RSpec.describe ContainerRegistry::Event, feature_category: :container_registry d
                 .and_raise(error)
               end
 
-              it_behaves_like 'no tracking of a deploy token is sent to HLLRedisCounter'
+              it_behaves_like 'no tracking is sent'
             end
           end
         end
@@ -322,14 +335,24 @@ RSpec.describe ContainerRegistry::Event, feature_category: :container_registry d
           { 'tag' => 'latest' }          | 'delete'   | 'delete_tag'         |  'personal_access_token'   |  1
           { 'repository' => 'foo/bar' }  | 'push'     | 'create_repository'  |  'build'                   |  1
           { 'repository' => 'foo/bar' }  | 'delete'   | 'delete_repository'  |  'gitlab_or_ldap'          |  1
-          { 'repository' => 'foo/bar' }  | 'delete'   | 'delete_repository'  |  'not_a_user'              |  0
-          { 'tag' => 'latest' }          | 'copy'     | ''                   |  nil                       |  0
-          { 'repository' => 'foo/bar' }  | 'copy'     | ''                   |  ''                        |  0
         end
 
         with_them do
           it_behaves_like 'event originator is fetched based on ID', User
-          it_behaves_like 'tracking event is sent to HLLRedisCounter with event and originator ID', :user
+          it_behaves_like 'tracking a user internal event'
+        end
+
+        context 'when the event is not a valid trackable event' do
+          where(:target, :action, :event, :user_type, :count) do
+            { 'repository' => 'foo/bar' }  | 'delete'   | 'delete_repository'  |  'not_a_user'              |  0
+            { 'tag' => 'latest' }          | 'copy'     | ''                   |  nil                       |  0
+            { 'repository' => 'foo/bar' }  | 'copy'     | ''                   |  ''                        |  0
+          end
+
+          with_them do
+            it_behaves_like 'event originator is fetched based on ID', User
+            it_behaves_like 'no tracking is sent'
+          end
         end
       end
 
@@ -342,43 +365,42 @@ RSpec.describe ContainerRegistry::Event, feature_category: :container_registry d
           }
         end
 
-        it 'does not send a tracking event to HLLRedisCounter' do
-          expect(::Gitlab::UsageDataCounters::HLLRedisCounter).not_to receive(:track_event)
-
-          subject
-        end
+        it_behaves_like 'internal event not tracked'
       end
 
       context 'when no username or id is given' do
         let(:raw_event) { { 'action' => 'push', 'target' => {}, 'actor' => { 'user_type' => 'build' } } }
 
-        it 'does not send a tracking event to HLLRedisCounter' do
-          expect(::Gitlab::UsageDataCounters::HLLRedisCounter).not_to receive(:track_event)
-
-          subject
-        end
+        it_behaves_like 'internal event not tracked'
       end
     end
 
-    context 'when it is a manifest delete event' do
-      let(:raw_event) { { 'action' => 'delete', 'target' => { 'digest' => 'x' }, 'actor' => {} } }
-
-      it 'calls the ContainerRegistryEventCounter' do
-        expect(::Gitlab::UsageDataCounters::ContainerRegistryEventCounter)
-          .to receive(:count).with('i_container_registry_delete_manifest')
-
-        subject
+    describe 'internal event tracking' do
+      let(:event) { 'delete_manifest_from_container_registry' }
+      let(:category) { 'ContainerRegistry::Event' }
+      let(:raw_event) do
+        {
+          'action' => action,
+          'target' => { 'digest' => 'x', 'repository' => 'group/test/container' },
+          'actor' => {}
+        }
       end
-    end
 
-    context 'when it is not a manifest delete event' do
-      let(:raw_event) { { 'action' => 'push', 'target' => { 'digest' => 'x' }, 'actor' => {} } }
+      before do
+        # stub other Snowplow events that are getting triggered by this class
+        allow(::Gitlab::Tracking).to receive(:event).with(described_class::EVENT_TRACKING_CATEGORY, anything)
+      end
 
-      it 'does not call the ContainerRegistryEventCounter' do
-        expect(::Gitlab::UsageDataCounters::ContainerRegistryEventCounter)
-          .not_to receive(:count).with('i_container_registry_delete_manifest')
+      context 'when it is a manifest delete event' do
+        let(:action) { 'delete' }
 
-        subject
+        it_behaves_like 'internal event tracking'
+      end
+
+      context 'when it is not a manifest delete event' do
+        let(:action) { 'push' }
+
+        it_behaves_like 'internal event not tracked'
       end
     end
   end

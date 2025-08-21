@@ -1,47 +1,81 @@
 ---
-stage: Manage
-group: Personal Productivity
+stage: Growth
+group: Engagement
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: To-Do List
+description: Task management, actions, and access changes.
 ---
 
-# To-Do List
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Your *To-Do List* is a chronological list of items waiting for your input.
 The items are known as *to-do items*.
 
-You can use the To-Do List to track [actions](#actions-that-create-to-do-items) related to:
-
-- [Issues](project/issues/index.md)
-- [Merge requests](project/merge_requests/index.md)
-- [Epics](group/epics/index.md)
-- [Designs](project/issues/design_management.md)
+You can use the To-Do List to track [actions](#actions-that-create-to-do-items)
+related to the work you do in GitLab. When people contact you or your attention is
+needed, a to-do item appears in your To-Do List.
 
 ## Access the To-Do List
 
 To access your To-Do List:
 
-On the left sidebar, at the top, select **To-Do list** (**{task-done}**).
+On the left sidebar, at the top, select **To-Do List** ({{< icon name="task-done" >}}).
 
-### Search the To-Do List
+### Filter the To-Do List
 
-You can search your To-Do List by `to do` and `done`.
+To filter your To-Do List:
 
-You can filter to-do items per project, author, type, and action.
-Also, you can sort them by [**Label priority**](project/labels.md#set-label-priority),
-**Last created**, and **Oldest created**.
+1. Above the list, put your cursor in the text box.
+1. Select from one of the predefined filters.
+1. Press <kbd>Enter</kbd>.
+
+### Sort the To-Do List
+
+To sort the To-Do List:
+
+1. On the **To Do** tab, in the upper-right corner, select from the options:
+
+   - **Recommended** sorts by the combination of created date and previously snoozed dates, with previously snoozed items at the top.
+   - **Updated** sorts by the date the item was most recently updated.
+   - **Label priority** sorts [by priorities you've set](project/labels.md#set-label-priority).
+
+1. Optional. Select the sort direction.
+
+{{< alert type="note" >}}
+
+On the **Snoozed** and **Done** tabs, **Recommended** sorts items by their creation date only.
+
+{{< /alert >}}
 
 ## Actions that create to-do items
+
+{{< history >}}
+
+- Multiple to-do items [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/28355) in GitLab 13.8 [with a flag](../administration/feature_flags/_index.md) named `multiple_todos`. Disabled by default.
+- Member access request notifications [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/374725) in GitLab 15.8.
+- Multiple to-do items [enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/28355) in GitLab 16.2.
+- Multiple to-do items [enabled on GitLab Self-Managed](https://gitlab.com/gitlab-org/gitlab/-/issues/28355) in GitLab 17.8. Feature flag `multiple_todos` enabled by default.
+
+{{< /history >}}
+
+{{< alert type="flag" >}}
+
+The availability of this feature is controlled by a feature flag.
+For more information, see the history.
+
+{{< /alert >}}
 
 Many to-do items are created automatically.
 Some of the actions that add a to-do item to your To-Do List:
 
 - An issue or merge request is assigned to you.
-- A [merge request review](project/merge_requests/reviews/index.md) is requested.
-- You're [mentioned](discussions/index.md#mentions) in the description or
+- A [merge request review](project/merge_requests/reviews/_index.md) is requested.
+- You're [mentioned](discussions/_index.md#mentions) in the description or
   comment of an issue, merge request, or epic.
 - You're mentioned in a comment on a commit or design.
 - The CI/CD pipeline for your merge request fails.
@@ -51,59 +85,38 @@ Some of the actions that add a to-do item to your To-Do List:
   - You're the user that set the merge request to automatically merge after a
     pipeline succeeds.
 - A merge request is removed from a [merge train](../ci/pipelines/merge_trains.md), and you're the user that added it.
-- [In GitLab 15.8](https://gitlab.com/gitlab-org/gitlab/-/issues/374725) and later,
-  a member access request is raised for a group or project you're an owner of.
+- A member access request is raised for a group or project you're an owner of.
 
-When several actions occur for the same user on the same object,
-GitLab displays the first action as a single to-do item.
-To change this behavior, enable
-[multiple to-do items per object](#multiple-to-do-items-per-object).
+[In GitLab 17.8 and later](https://gitlab.com/gitlab-org/gitlab/-/issues/28355), you receive a new to-do notification every time someone mentions you, even in the same issue or merge request.
+
+For other actions that create to-do items like assignments or review requests,
+you receive only one notification per action type, even if that action occurs multiple times in the same issue or merge request.
 
 To-do items aren't affected by [GitLab notification email settings](profile/notifications.md).
-The only exception: If your notification setting is set to **Custom** and **Added as approver** is
+The only exception: If your notification setting is set to **Custom** and **Merge request you're eligible to approve is created** is
 selected, you get a to-do item when you are eligible to approve a merge request.
-
-### Multiple to-do items per object
-
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed
-
-<!-- When the feature flag is removed, integrate this topic into the one above. -->
-
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/28355) in GitLab 13.8 [with a flag](../administration/feature_flags.md) named `multiple_todos`. Disabled by default.
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/82470) in GitLab 14.9: only mentions create multiple to-do items.
-> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/28355) in GitLab 16.2.
-
-FLAG:
-On self-managed GitLab, by default this feature is not available. To make it available per user,
-an administrator can [enable the feature flag](../administration/feature_flags.md) named `multiple_todos`.
-On GitLab.com, this feature is available. On GitLab Dedicated, this feature is not available.
-This feature is not ready for production use.
-
-When you enable this feature:
-
-- Every time you're mentioned, GitLab creates a new to-do item for you.
-- Other [actions that create to-do items](#actions-that-create-to-do-items)
-  create one to-do item per action type on the issue, MR, and so on.
 
 ## Create a to-do item
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/390549) in objectives, key results, and tasks in GitLab 16.0.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/390549) in objectives, key results, and tasks in GitLab 16.0.
+
+{{< /history >}}
 
 You can manually add an item to your To-Do List.
 
 1. Go to your:
 
-   - [Issue](project/issues/index.md)
-   - [Merge request](project/merge_requests/index.md)
-   - [Epic](group/epics/index.md)
+   - [Issue](project/issues/_index.md)
+   - [Merge request](project/merge_requests/_index.md)
+   - [Epic](group/epics/_index.md)
    - [Design](project/issues/design_management.md)
    - [Incident](../operations/incident_management/incidents.md)
-   - [Objective or key result](../user/okrs.md)
+   - [Objective or key result](okrs.md)
    - [Task](tasks.md)
 
-1. In the upper-right corner, select  **Add a to do** (**{todo-add}**).
+1. In the upper-right corner, select **Add a to-do item** ({{< icon name="todo-add" >}}).
 
 ### Create a to-do item by mentioning someone
 
@@ -129,12 +142,12 @@ Hi, please message @frank :incoming_envelope:
 
 If you marked a to-do item as done by mistake, you can re-add it from the **Done** tab:
 
-1. On the left sidebar, at the top, select To-Do list (**{task-done}**).
+1. On the left sidebar, at the top, select **To-Do List** ({{< icon name="task-done" >}}).
 1. At the top, select **Done**.
-1. [Find the to-do item](#search-the-to-do-list) you want to re-add.
-1. Next to this to-do item, select **Re-add this to-do item** **{redo}**.
+1. [Find the to-do item](#filter-the-to-do-list) you want to re-add.
+1. Next to this to-do item, select **Re-add this to-do item** {{< icon name="redo" >}}.
 
-The to-do item is now visible in the **To Do** tab of the To-Do list.
+The to-do item is now visible in the **To Do** tab of the To-Do List.
 
 ## Actions that mark a to-do item as done
 
@@ -170,14 +183,71 @@ You can manually mark a to-do item as done.
 
 There are two ways to do this:
 
-- In the To-Do List, to the right of the to-do item, select **Mark as done** (**{check}**).
-- In the upper-right corner of the resource (for example, issue or merge request), select **Mark as done** (**{todo-done}**).
+- In the To-Do List, to the right of the to-do item, select **Mark as done** ({{< icon name="check" >}}).
+- In the upper-right corner of the resource (for example, issue or merge request), select **Mark as done** ({{< icon name="todo-done" >}}).
 
-### Mark all to-do items as done
+### Bulk edit to-do items
 
-You can mark all your to-do items as done at the same time.
+{{< history >}}
 
-In the To-Do List, in the upper-right corner, select **Mark all as done**.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/16564) in GitLab 17.10.
+
+{{< /history >}}
+
+You can bulk edit your to-do items:
+
+- On the **To Do** tab: Mark to-do items as done or snooze them.
+- On the **Snoozed** tab: Mark to-do items as done or remove them.
+- On the **Done** tab: Restore to-do items.
+
+To bulk edit to-do items:
+
+1. In your To-Do List:
+   - To select individual items, to the left of each item you want to edit, select the checkbox.
+   - To select all items on the page, in the upper-left corner, select the **Select all** checkbox.
+1. In the upper-right corner, select the desired action.
+
+## Snooze to-do items
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/17712) in GitLab 17.9.
+
+{{< /history >}}
+
+You can snooze to-do items to temporarily hide them from your main To-Do List. This allows you to focus on more urgent tasks and return to snoozed items later.
+
+To snooze a to-do item:
+
+1. In your To-Do List, next to the to-do item you want to snooze, select Snooze ({{< icon name="clock" >}}).
+1. If you wish to snooze the to-do item until a specific time and date, select the
+   `Until a specific time and date` option. Otherwise, choose one of the preset snooze durations:
+   - For one hour
+   - Until later today (4 hours later)
+   - Until tomorrow (tomorrow at 8 AM local time)
+
+Snoozed to-do items are removed from your main To-Do List and appear in a separate **Snoozed** tab.
+
+When the snooze period ends, the to-do item automatically returns to your main To-Do List. It appears with an indicator showing when it was originally created.
+
+## View snoozed to-do items
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/17712) in GitLab 17.9.
+
+{{< /history >}}
+
+To view or manage your snoozed to-do items:
+
+1. Go to your To-Do List.
+1. At the top of the list, select the Snoozed tab.
+
+From the Snoozed tab, you can:
+
+- View when a snoozed to-do is scheduled to return to your main list.
+- Remove the snooze to immediately return an item to your main To-Do List.
+- Mark a snoozed to-do as done.
 
 ## How a user's To-Do List is affected when their access changes
 

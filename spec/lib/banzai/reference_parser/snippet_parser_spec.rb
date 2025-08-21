@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::ReferenceParser::SnippetParser, feature_category: :team_planning do
+RSpec.describe Banzai::ReferenceParser::SnippetParser, feature_category: :markdown do
   include ReferenceParserHelpers
 
   let(:project) { create(:project, :public) }
@@ -10,10 +10,9 @@ RSpec.describe Banzai::ReferenceParser::SnippetParser, feature_category: :team_p
   let(:user) { create(:user) }
   let(:external_user) { create(:user, :external) }
   let(:project_member) { create(:user) }
+  let(:link) { empty_html_link }
 
   subject { described_class.new(Banzai::RenderContext.new(project, user)) }
-
-  let(:link) { empty_html_link }
 
   def visible_references(snippet_visibility, user = nil)
     snippet = create(:project_snippet, snippet_visibility, project: project)
@@ -210,7 +209,7 @@ RSpec.describe Banzai::ReferenceParser::SnippetParser, feature_category: :team_p
   end
 
   describe '#referenced_by' do
-    let(:snippet) { create(:snippet, project: project) }
+    let(:snippet) { create(:project_snippet, project: project) }
 
     describe 'when the link has a data-snippet attribute' do
       context 'using an existing snippet ID' do

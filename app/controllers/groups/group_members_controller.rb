@@ -2,6 +2,7 @@
 
 class Groups::GroupMembersController < Groups::ApplicationController
   include MembershipActions
+  include Members::InviteModalActions
   include MembersPresentation
   include SortingHelper
   include Gitlab::Utils::StrongMemoize
@@ -15,12 +16,6 @@ class Groups::GroupMembersController < Groups::ApplicationController
   # Authorize
   before_action :authorize_admin_group_member!, except: admin_not_required_endpoints
   before_action :authorize_read_group_member!, only: :index
-
-  before_action only: [:index] do
-    push_frontend_feature_flag(:bulk_import_user_mapping, @group)
-    push_frontend_feature_flag(:service_accounts_crud, @group)
-    push_frontend_feature_flag(:webui_members_inherited_users, current_user)
-  end
 
   skip_before_action :check_two_factor_requirement, only: :leave
   skip_cross_project_access_check :index, :update, :destroy, :request_access,
@@ -44,6 +39,7 @@ class Groups::GroupMembersController < Groups::ApplicationController
     end
 
     @members = present_group_members(non_invited_members)
+    @placeholder_users_count = placeholder_users_count
 
     @requesters = present_members(
       AccessRequestsFinder.new(@group).execute(current_user)
@@ -55,18 +51,18 @@ class Groups::GroupMembersController < Groups::ApplicationController
 
   private
 
-  def group_members
-    @group_members ||= GroupMembersFinder
+  def members
+    @members ||= GroupMembersFinder
       .new(@group, current_user, params: filter_params)
       .execute(include_relations: requested_relations)
   end
 
   def invited_members
-    group_members.invite.with_invited_user_state
+    members.invite.with_invited_user_state
   end
 
   def non_invited_members
-    group_members.non_invite
+    members.non_invite
   end
 
   def present_invited_members(invited_members)
@@ -82,7 +78,7 @@ class Groups::GroupMembersController < Groups::ApplicationController
   end
 
   def filter_params
-    params.permit(:two_factor, :search, :user_type).merge(sort: @sort)
+    params.permit(:two_factor, :search, :user_type, :max_role).merge(sort: @sort)
   end
 
   def membershipable_members
@@ -97,6 +93,10 @@ class Groups::GroupMembersController < Groups::ApplicationController
     _("group")
   end
 
+  def source
+    group
+  end
+
   def members_page_url
     polymorphic_url([group, :members])
   end
@@ -104,6 +104,21 @@ class Groups::GroupMembersController < Groups::ApplicationController
   def root_params_key
     :group_member
   end
+
+  def placeholder_users_count
+    {
+      pagination: {
+        total_items: placeholder_users.count,
+        awaiting_reassignment_items: placeholder_users.awaiting_reassignment.count,
+        reassigned_items: placeholder_users.reassigned.count
+      }
+    }
+  end
+
+  def placeholder_users
+    Import::SourceUsersFinder.new(@group, current_user).execute
+  end
+  strong_memoize_attr :placeholder_users
 end
 
 Groups::GroupMembersController.prepend_mod_with('Groups::GroupMembersController')

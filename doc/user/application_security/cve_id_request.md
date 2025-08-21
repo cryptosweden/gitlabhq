@@ -1,14 +1,17 @@
 ---
-stage: Govern
-group: Threat Insights
+stage: Security Risk Management
+group: Security Insights
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: CVE ID request
+description: Vulnerability tracking and security disclosure.
 ---
 
-# CVE ID request
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com
+
+{{< /details >}}
 
 For any public project, you can request a CVE identifier (ID).
 
@@ -17,7 +20,7 @@ vulnerability. GitLab is a [CVE Numbering Authority](https://about.gitlab.com/se
 ([CNA](https://cve.mitre.org/cve/cna.html)).
 
 Assigning a CVE ID to a vulnerability in your project helps your users stay secure and informed. For
-example, [dependency scanning tools](../application_security/dependency_scanning/index.md) can
+example, [dependency scanning tools](dependency_scanning/_index.md) can
 detect when vulnerable versions of your project are used as a dependency.
 
 A common vulnerability workflow is:
@@ -42,7 +45,7 @@ To submit a CVE ID request:
 1. Go to the vulnerability's issue and select **Create CVE ID Request**. The new issue page of
    the [GitLab CVE project](https://gitlab.com/gitlab-org/cves) opens.
 
-   ![CVE ID request button](img/cve_id_request_button.png)
+   ![CVE ID request button](img/cve_id_request_button_v13_4.png)
 
 1. In the **Title** box, enter a brief description of the vulnerability.
 
@@ -55,7 +58,7 @@ To submit a CVE ID request:
    - The vulnerability class (a [CWE](https://cwe.mitre.org/data/index.html) identifier)
    - A [CVSS v3 vector](https://nvd.nist.gov/vuln-metrics/cvss/v3-calculator)
 
-   ![New CVE ID request issue](img/new_cve_request_issue.png)
+   ![New CVE ID request issue](img/new_cve_request_issue_v14_4.png)
 
 GitLab updates your CVE ID request issue when:
 

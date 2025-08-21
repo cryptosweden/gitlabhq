@@ -10,11 +10,11 @@ RSpec.describe ::SystemNotes::TimeTrackingService, feature_category: :team_plann
     let_it_be(:issue)     { create(:issue, project: project) }
     let_it_be(:work_item) { create(:work_item, project: project) }
 
-    subject(:note) { described_class.new(noteable: noteable, project: project, author: author).change_start_date_or_due_date(changed_dates) }
-
     let(:start_date) { Date.today }
     let(:due_date) { 1.week.from_now.to_date }
     let(:changed_dates) { { 'due_date' => [nil, due_date], 'start_date' => [nil, start_date] } }
+
+    subject(:note) { described_class.new(noteable: noteable, container: project, author: author).change_start_date_or_due_date(changed_dates) }
 
     shared_examples 'issuable getting date change notes' do
       it_behaves_like 'a note with overridable created_at'
@@ -189,7 +189,7 @@ RSpec.describe ::SystemNotes::TimeTrackingService, feature_category: :team_plann
   end
 
   describe '#change_time_estimate' do
-    subject { described_class.new(noteable: noteable, project: project, author: author).change_time_estimate }
+    subject { described_class.new(noteable: noteable, container: project, author: author).change_time_estimate }
 
     context 'when noteable is an issue' do
       let_it_be(:noteable, reload: true) { create(:issue, project: project) }
@@ -275,7 +275,7 @@ RSpec.describe ::SystemNotes::TimeTrackingService, feature_category: :team_plann
   end
 
   describe '#create_timelog' do
-    subject { described_class.new(noteable: noteable, project: project, author: author).created_timelog(timelog) }
+    subject { described_class.new(noteable: noteable, container: project, author: author).created_timelog(timelog) }
 
     context 'when the timelog has a positive time spent value' do
       let_it_be(:noteable, reload: true) { create(:issue, project: project) }
@@ -283,7 +283,7 @@ RSpec.describe ::SystemNotes::TimeTrackingService, feature_category: :team_plann
       let(:timelog) { create(:timelog, user: author, issue: noteable, time_spent: 1800, spent_at: '2022-03-30T00:00:00.000Z') }
 
       it 'sets the note text' do
-        expect(subject.note).to eq "added 30m of time spent at 2022-03-30"
+        expect(subject.note).to eq "added 30m of time spent at 2022-03-30 00:00:00 UTC"
       end
     end
 
@@ -297,21 +297,37 @@ RSpec.describe ::SystemNotes::TimeTrackingService, feature_category: :team_plann
       let(:timelog) { create(:timelog, user: author, issue: noteable, time_spent: -time_spent.to_i, spent_at: spent_at) }
 
       it 'sets the note text' do
-        expect(subject.note).to eq "subtracted 30m of time spent at 2022-03-30"
+        expect(subject.note).to eq "subtracted 30m of time spent at 2022-03-30 00:00:00 UTC"
+      end
+
+      context 'when the user timezone is set' do
+        let(:author) { create(:user, timezone: 'Hawaii') }
+
+        it 'sets the note text using the user timezone' do
+          expect(subject.note).to eq "subtracted 30m of time spent at 2022-03-29 14:00:00 -1000"
+        end
       end
     end
   end
 
   describe '#remove_timelog' do
-    subject { described_class.new(noteable: noteable, project: project, author: author).remove_timelog(timelog) }
+    subject { described_class.new(noteable: noteable, container: project, author: author).remove_timelog(timelog) }
 
     context 'when the timelog has a positive time spent value' do
       let_it_be(:noteable, reload: true) { create(:issue, project: project) }
 
-      let(:timelog) { create(:timelog, user: author, issue: noteable, time_spent: 1800, spent_at: '2022-03-30T00:00:00.000Z') }
+      let(:timelog) { create(:timelog, user: author, issue: noteable, time_spent: 1800, spent_at: '2022-03-30T12:00:00.000Z') }
 
       it 'sets the note text' do
-        expect(subject.note).to eq "deleted 30m of spent time from 2022-03-30"
+        expect(subject.note).to eq "deleted 30m of spent time from 2022-03-30 12:00:00 UTC"
+      end
+
+      context 'when the user timezone is set' do
+        let(:author) { create(:user, timezone: 'Hawaii') }
+
+        it 'sets the note text using the user timezone' do
+          expect(subject.note).to eq "deleted 30m of spent time from 2022-03-30 02:00:00 -1000"
+        end
       end
     end
 
@@ -325,13 +341,13 @@ RSpec.describe ::SystemNotes::TimeTrackingService, feature_category: :team_plann
       let(:timelog) { create(:timelog, user: author, issue: noteable, time_spent: -time_spent.to_i, spent_at: spent_at) }
 
       it 'sets the note text' do
-        expect(subject.note).to eq "deleted -30m of spent time from 2022-03-30"
+        expect(subject.note).to eq "deleted -30m of spent time from 2022-03-30 00:00:00 UTC"
       end
     end
   end
 
   describe '#change_time_spent' do
-    subject { described_class.new(noteable: noteable, project: project, author: author).change_time_spent }
+    subject { described_class.new(noteable: noteable, container: project, author: author).change_time_spent }
 
     context 'when noteable is an issue' do
       let_it_be(:noteable, reload: true) { create(:issue, project: project) }
@@ -345,10 +361,50 @@ RSpec.describe ::SystemNotes::TimeTrackingService, feature_category: :team_plann
       end
 
       context 'when time was added' do
+        include ActiveSupport::Testing::TimeHelpers
+
+        around do |example|
+          travel_to(Time.utc(2019, 12, 30, 14, 5, 12)) { example.run }
+        end
+
         it 'sets the note text' do
           spend_time!(277200)
 
-          expect(subject.note).to eq "added 1w 4d 5h of time spent"
+          expect(subject.note).to eq "added 1w 4d 5h of time spent at 2019-12-30 14:05:12 UTC"
+        end
+
+        context 'when author timezone is set' do
+          let(:author) { create(:user, timezone: 'Hawaii') }
+
+          it 'sets the note text' do
+            spend_time!(277200)
+
+            expect(subject.note).to eq "added 1w 4d 5h of time spent at 2019-12-30 04:05:12 -1000"
+          end
+        end
+
+        context 'when author timezone is blank' do
+          let(:author) { build(:user, timezone: '') }
+
+          it 'sets the note text using default timezone' do
+            author.save!(validate: false)
+
+            spend_time!(277200)
+
+            expect(subject.note).to eq "added 1w 4d 5h of time spent at 2019-12-30 14:05:12 UTC"
+          end
+        end
+
+        context 'when author timezone is invalid' do
+          let(:author) { build(:user, timezone: 'GitLab') }
+
+          it 'sets the note text using default timezone' do
+            author.save!(validate: false)
+
+            spend_time!(277200)
+
+            expect(subject.note).to eq "added 1w 4d 5h of time spent at 2019-12-30 14:05:12 UTC"
+          end
         end
 
         context 'when time was subtracted' do
@@ -356,7 +412,7 @@ RSpec.describe ::SystemNotes::TimeTrackingService, feature_category: :team_plann
             spend_time!(360000)
             spend_time!(-277200)
 
-            expect(subject.note).to eq "subtracted 1w 4d 5h of time spent"
+            expect(subject.note).to eq "subtracted 1w 4d 5h of time spent at 2019-12-30 14:05:12 UTC"
           end
         end
 
@@ -376,7 +432,7 @@ RSpec.describe ::SystemNotes::TimeTrackingService, feature_category: :team_plann
           it 'sets the note text' do
             spend_time!(277200)
 
-            expect(subject.note).to eq "added 77h of time spent"
+            expect(subject.note).to eq "added 77h of time spent at 2019-12-30 14:05:12 UTC"
           end
         end
 

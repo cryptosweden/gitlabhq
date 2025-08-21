@@ -7,6 +7,7 @@ import GroupFolder from './components/group_folder.vue';
 import {
   ACTIVE_TAB_SUBGROUPS_AND_PROJECTS,
   ACTIVE_TAB_SHARED,
+  ACTIVE_TAB_SHARED_GROUPS,
   ACTIVE_TAB_INACTIVE,
 } from './constants';
 import OverviewTabs from './components/overview_tabs.vue';
@@ -14,8 +15,9 @@ import OverviewTabs from './components/overview_tabs.vue';
 export const createRouter = () => {
   const routes = [
     { name: ACTIVE_TAB_SHARED, path: '/groups/:group*/-/shared' },
+    { name: ACTIVE_TAB_SHARED_GROUPS, path: '/groups/:group*/-/shared_groups' },
     { name: ACTIVE_TAB_INACTIVE, path: '/groups/:group*/-/inactive' },
-    { name: ACTIVE_TAB_SUBGROUPS_AND_PROJECTS, path: '/:group*' },
+    { name: ACTIVE_TAB_SUBGROUPS_AND_PROJECTS, path: '/(groups)?/:group*' },
   ];
 
   const router = new VueRouter({
@@ -43,11 +45,8 @@ export const initGroupOverviewTabs = () => {
     groupId,
     newSubgroupPath,
     newProjectPath,
-    newSubgroupIllustration,
-    newProjectIllustration,
     emptyProjectsIllustration,
     emptySubgroupIllustration,
-    emptySearchIllustration,
     canCreateSubgroups,
     canCreateProjects,
     currentGroupVisibility,
@@ -64,11 +63,8 @@ export const initGroupOverviewTabs = () => {
       groupId,
       newSubgroupPath,
       newProjectPath,
-      newSubgroupIllustration,
-      newProjectIllustration,
       emptyProjectsIllustration,
       emptySubgroupIllustration,
-      emptySearchIllustration,
       canCreateSubgroups: parseBoolean(canCreateSubgroups),
       canCreateProjects: parseBoolean(canCreateProjects),
       currentGroupVisibility,

@@ -2,13 +2,15 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Upgrading deployments for newer Auto Deploy dependencies
 ---
 
-# Upgrading deployments for newer Auto Deploy dependencies
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 [Auto Deploy](stages.md#auto-deploy) is a feature that deploys your application to a Kubernetes cluster.
 It consists of several dependencies:
@@ -29,16 +31,16 @@ This guide explains how to upgrade your deployments with newer or different majo
 The process to check the current versions differs depending on which template you
 are using. First verify which template is in use:
 
-- For self-managed instances, the [stable Auto Deploy template bundled with the GitLab package](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Jobs/Deploy.gitlab-ci.yml)
+- For GitLab Self-Managed instances, the [stable Auto Deploy template bundled with the GitLab package](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Jobs/Deploy.gitlab-ci.yml)
   is being used.
 - [The GitLab.com stable Auto Deploy template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Jobs/Deploy.gitlab-ci.yml)
   is being used if **one** of the following is true:
   - Your Auto DevOps project doesn't have a `.gitlab-ci.yml` file.
-  - Your Auto DevOps project has a `.gitlab-ci.yml` and [includes](../../ci/yaml/index.md#includetemplate)
+  - Your Auto DevOps project has a `.gitlab-ci.yml` and [includes](../../ci/yaml/_index.md#includetemplate)
     the `Auto-DevOps.gitlab-ci.yml` template.
 - [The latest Auto Deploy template](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Jobs/Deploy.latest.gitlab-ci.yml)
   is being used if **both** of the following is true:
-  - Your Auto DevOps project has a `.gitlab-ci.yml` file and [includes](../../ci/yaml/index.md#includetemplate)
+  - Your Auto DevOps project has a `.gitlab-ci.yml` file and [includes](../../ci/yaml/_index.md#includetemplate)
     the `Auto-DevOps.gitlab-ci.yml` template.
   - It also includes [the latest Auto Deploy template](#early-adopters)
 
@@ -103,21 +105,24 @@ If your Auto DevOps project has an active environment that was deployed with the
 
    - `MIGRATE_HELM_2TO3` to `true`. If this variable is not present, migration jobs do not run.
    - `AUTO_DEVOPS_FORCE_DEPLOY_V2` to `1`.
-   - **Optional:** `BACKUP_HELM2_RELEASES` to `1`. If you set this variable, the migration
+   - **Optional**: `BACKUP_HELM2_RELEASES` to `1`. If you set this variable, the migration
      job saves a backup for 1 week in a job artifact called `helm-2-release-backups`.
      If you accidentally delete the Helm v2 releases before you are ready, you can restore
      this backup from a Kubernetes manifest file by using `kubectl apply -f $backup`.
 
-     **WARNING:**
-     *Do not use this if you have public pipelines*.
+     {{< alert type="warning" >}}
+
+     Do not use this if you have public pipelines.
      This artifact can contain secrets and is visible to any
      user who can see your job.
+
+     {{< /alert >}}
 
 1. Run a pipeline and trigger the `<environment-name>:helm-2to3:migrate` job.
 1. Deploy your environment as usual. This deployment uses Helm v3.
 1. If the deployment succeeds, you can safely run `<environment-name>:helm-2to3:cleanup`.
    This deletes all Helm v2 release data from the namespace.
-1. Remove the `MIGRATE_HELM_2TO3` CI/CD variable or set it to `false`. You can do this one environment at a time using [environment scopes](../../ci/environments/index.md#limit-the-environment-scope-of-a-cicd-variable).
+1. Remove the `MIGRATE_HELM_2TO3` CI/CD variable or set it to `false`. You can do this one environment at a time using [environment scopes](../../ci/environments/_index.md#limit-the-environment-scope-of-a-cicd-variable).
 
 #### In-Cluster PostgreSQL Channel 2
 
@@ -176,7 +181,7 @@ used the `v0.17.0` chart, add `AUTO_DEVOPS_FORCE_DEPLOY_V2`.
 
 ## Early adopters
 
-If you want to use the latest [beta](../../policy/experiment-beta-support.md#beta) or unstable version of `auto-deploy-image`, include
+If you want to use the latest [beta](../../policy/development_stages_support.md#beta) or unstable version of `auto-deploy-image`, include
 the latest Auto Deploy template into your `.gitlab-ci.yml`:
 
 ```yaml
@@ -185,9 +190,12 @@ include:
   - template: Jobs/Deploy.latest.gitlab-ci.yml
 ```
 
-WARNING:
-Using a [beta](../../policy/experiment-beta-support.md#beta) or unstable `auto-deploy-image` could cause unrecoverable damage to
+{{< alert type="warning" >}}
+
+Using a [beta](../../policy/development_stages_support.md#beta) or unstable `auto-deploy-image` could cause unrecoverable damage to
 your environments. Do not test it with important projects or environments.
+
+{{< /alert >}}
 
 ## Resource Architectures of the `auto-deploy-app` chart
 

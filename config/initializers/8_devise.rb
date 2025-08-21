@@ -77,10 +77,12 @@ Devise.setup do |config|
   # For bcrypt, this is the cost for hashing the password and defaults to 10. If
   # using other encryptors, it sets how many times you want the password re-encrypted.
   #
-  # Limiting the stretches to just one in testing will increase the performance of
+  # Limiting the stretches to just 5 in testing will increase the performance of
   # your test suite dramatically. However, it is STRONGLY RECOMMENDED to not use
-  # a value less than 10 in other environments.
-  config.stretches = Rails.env.test? ? 1 : 10
+  # a value less than 10 in other environments. (Note that Devise will ignore
+  # a value of 1 for stretches.)
+
+  config.stretches = Rails.env.test? ? 5 : 13
 
   # Set up a pepper to generate the encrypted password.
   # config.pepper = "2ef62d549c4ff98a5d3e0ba211e72cff592060247e3bbbb9f499af1222f876f53d39b39b823132affb32858168c79c1d7741d26499901b63c6030a42129924ef"
@@ -109,15 +111,15 @@ Devise.setup do |config|
   # The time the user will be remembered without asking for credentials again.
   # config.remember_for = 2.weeks
 
-  # If true, a valid remember token can be re-used between multiple browsers.
-  # config.remember_across_browsers = true
+  # Invalidates all the remember me tokens when the user signs out.
+  config.expire_all_remember_me_on_sign_out = false
 
   # If true, extends the user's remember period when remembered via cookie.
   config.extend_remember_period = true
 
   # Options to be passed to the created cookie. For instance, you can set
   # secure: true in order to force SSL only cookies.
-  # config.cookie_options = {}
+  # config.rememberable_options = {}
 
   # When set to false, does not sign a user in automatically after their password is
   # changed. Defaults to true, so a user is signed in automatically after a password

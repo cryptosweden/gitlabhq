@@ -10,14 +10,14 @@ module Types
         graphql_name 'WorkItemWidgetNotifications'
         description 'Represents the notifications widget'
 
-        implements Types::WorkItems::WidgetInterface
+        implements ::Types::WorkItems::WidgetInterface
 
         field :subscribed, GraphQL::Types::Boolean,
           null: false,
           description: 'Whether the current user is subscribed to notifications on the work item.'
 
         def subscribed
-          object.work_item.subscribed?(current_user, object.work_item.project)
+          object.work_item.subscribed?(current_user, object.work_item.project, cache_enforced: false)
         end
       end
       # rubocop:enable Graphql/AuthorizeTypes

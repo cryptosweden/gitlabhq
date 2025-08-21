@@ -130,17 +130,13 @@ export default {
 </script>
 <template>
   <div
-    class="gl-mt-3 gl-py-5 gl-px-3 gl-bg-gray-10 gl-border-b-1 gl-border-b-solid gl-border-t-1 gl-border-t-solid gl-border-gray-100"
+    class="gl-mt-3 gl-border-b-1 gl-border-t-1 gl-border-default gl-bg-subtle gl-p-5 gl-border-b-solid gl-border-t-solid"
   >
-    <filter-bar
-      data-testid="vsa-filter-bar"
-      class="filtered-search-box gl-display-flex gl-border-none"
-      :namespace-path="namespacePath"
-    />
-    <hr v-if="shouldShowFilterDropdowns" class="gl-my-5" />
+    <filter-bar data-testid="vsa-filter-bar" :namespace-path="namespacePath" />
+    <hr v-if="shouldShowFilterDropdowns" class="-gl-mx-5 gl-my-5" />
     <div
       v-if="shouldShowFilterDropdowns"
-      class="gl-display-flex gl-flex-direction-column gl-lg-flex-direction-row gl-gap-5"
+      class="gl-flex gl-flex-col gl-gap-5 lg:gl-flex-row"
       data-testid="vsa-filter-dropdowns-container"
     >
       <projects-dropdown-filter
@@ -155,7 +151,7 @@ export default {
       />
       <div
         v-if="shouldShowDateRangeFilters"
-        class="gl-display-flex gl-flex-direction-column gl-lg-flex-direction-row gl-gap-3"
+        class="gl-flex gl-flex-col gl-gap-3 lg:gl-flex-row"
         data-testid="vsa-date-range-filter-container"
       >
         <date-ranges-dropdown
@@ -163,7 +159,6 @@ export default {
           data-testid="vsa-predefined-date-ranges-dropdown"
           :selected="dateRangeOption"
           :tooltip="maxDateRangeTooltip"
-          include-end-date-in-days-selected
           :include-custom-date-range-option="hasDateRangeFilter"
           @selected="onSelectPredefinedDateRange"
           @customDateRangeSelected="onSelectCustomDateRange"
@@ -175,7 +170,7 @@ export default {
           :end-date="endDate"
           :max-date="currentDate"
           :max-date-range="$options.maxDateRange"
-          :include-selected-date="true"
+          include-selected-date
           class="js-daterange-picker"
           @change="$emit('setDateRange', $event)"
         />

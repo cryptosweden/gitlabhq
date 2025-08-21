@@ -41,6 +41,21 @@ RSpec.describe Git::ProcessRefChangesService, feature_category: :source_code_man
       subject.execute
     end
 
+    context 'when BranchPushService' do
+      it 'calls BranchPushService with process_commit_worker_pool' do
+        next unless push_service_class == Git::BranchPushService
+
+        expect(push_service_class)
+          .to receive(:new)
+          .with(anything, anything, hash_including(
+            process_commit_worker_pool: a_kind_of(Gitlab::Git::ProcessCommitWorkerPool)
+          )).exactly(changes.count).times
+            .and_return(service)
+
+        subject.execute
+      end
+    end
+
     context 'changes exceed push_event_hooks_limit' do
       let(:push_event_hooks_limit) { 3 }
 
@@ -74,9 +89,9 @@ RSpec.describe Git::ProcessRefChangesService, feature_category: :source_code_man
           { oldrev: Gitlab::Git::SHA1_BLANK_SHA, newrev: '789012', ref: "#{ref_prefix}/create" },
           { oldrev: '123456', newrev: '789012', ref: "#{ref_prefix}/update" },
           { oldrev: '123456', newrev: Gitlab::Git::SHA1_BLANK_SHA, ref: "#{ref_prefix}/delete" }
-        ].map do |change|
+        ].flat_map do |change|
           multiple_changes(change, push_event_activities_limit + 1)
-        end.flatten
+        end
       end
 
       before do
@@ -100,7 +115,7 @@ RSpec.describe Git::ProcessRefChangesService, feature_category: :source_code_man
       end
     end
 
-    context 'pipeline creation' do
+    context 'pipeline creation', :sidekiq_inline do
       context 'with valid .gitlab-ci.yml' do
         before do
           stub_ci_pipeline_to_return_yaml_file
@@ -120,33 +135,52 @@ RSpec.describe Git::ProcessRefChangesService, feature_category: :source_code_man
           allow(Gitlab::Git::Commit).to receive(:between) { [] }
         end
 
-        context 'when git_push_create_all_pipelines is disabled' do
-          before do
-            stub_feature_flags(git_push_create_all_pipelines: false)
+        context 'with a git_push_pipeline_limit value that has not reached the limit' do
+          it 'creates all pipelines' do
+            # We don't run a pipeline for a deletion
+            expect { subject.execute }.to change { Ci::Pipeline.count }.by(changes.count - 1)
           end
 
           it 'creates pipeline for branches and tags' do
             subject.execute
 
-            expect(Ci::Pipeline.pluck(:ref)).to contain_exactly('create', 'update', 'delete')
+            # We don't run a pipeline for a deletion
+            expect(Ci::Pipeline.pluck(:ref)).to contain_exactly('create', 'update')
           end
 
-          it "creates exactly #{described_class::PIPELINE_PROCESS_LIMIT} pipelines" do
-            stub_const("#{described_class}::PIPELINE_PROCESS_LIMIT", changes.count - 1)
+          it "calls Gitlab::AppJsonLogger when a Git push is made" do
+            # We expect some logs from Gitlab::Ci::Pipeline::CommandLogger,
+            # but no logs from warn_if_over_process_limit
+            allow(Gitlab::AppJsonLogger).to receive(:info).and_call_original
+            expect(Gitlab::AppJsonLogger).to receive(:info).with(
+              hash_including("class" => "Gitlab::Ci::Pipeline::CommandLogger")
+            ).twice
+            expect(Gitlab::AppJsonLogger).not_to receive(:info).with(message: /ref count exceeded limit/)
 
-            expect(Gitlab::AppJsonLogger).not_to receive(:info)
-
-            expect { subject.execute }.to change { Ci::Pipeline.count }.by(described_class::PIPELINE_PROCESS_LIMIT)
+            expect { subject.execute }.to change { Ci::Pipeline.count }.by(changes.count - 1)
           end
         end
 
-        context 'when git_push_create_all_pipelines is enabled' do
+        context 'when git_push_pipeline_limit is unlimited' do
           before do
-            stub_feature_flags(git_push_create_all_pipelines: true)
+            stub_application_setting(git_push_pipeline_limit: 0)
           end
 
           it 'creates all pipelines' do
-            expect { subject.execute }.to change { Ci::Pipeline.count }.by(changes.count)
+            # We don't run a pipeline for a deletion
+            expect { subject.execute }.to change { Ci::Pipeline.count }.by(changes.count - 1)
+          end
+        end
+
+        context 'when git_push_pipeline_limit is exceeded' do
+          let(:push_pipeline_limit) { 1 }
+
+          before do
+            stub_application_setting(git_push_pipeline_limit: push_pipeline_limit)
+          end
+
+          it 'creates pipelines until the limit is reached and logs the skipped refs' do
+            expect { subject.execute }.to change { Ci::Pipeline.count }.by(push_pipeline_limit)
           end
         end
       end
@@ -165,10 +199,10 @@ RSpec.describe Git::ProcessRefChangesService, feature_category: :source_code_man
     end
 
     describe "housekeeping", :clean_gitlab_redis_cache, :clean_gitlab_redis_queues, :clean_gitlab_redis_shared_state do
-      let(:housekeeping) { Repositories::HousekeepingService.new(project) }
+      let(:housekeeping) { ::Repositories::HousekeepingService.new(project) }
 
       before do
-        allow(Repositories::HousekeepingService).to receive(:new).and_return(housekeeping)
+        allow(::Repositories::HousekeepingService).to receive(:new).and_return(housekeeping)
 
         allow(push_service_class)
           .to receive(:new)
@@ -282,16 +316,14 @@ RSpec.describe Git::ProcessRefChangesService, feature_category: :source_code_man
         subject.execute
       end
 
-      context 'when git_push_create_all_pipelines is disabled' do
-        before do
-          stub_feature_flags(git_push_create_all_pipelines: false)
-        end
-
+      context 'when git_push_pipeline_limit is reached' do
         it 'logs a warning' do
+          allow(Gitlab::AppJsonLogger).to receive(:info).and_call_original
+
           expect(Gitlab::AppJsonLogger).to receive(:info).with(
             hash_including(
               message: "Some pipelines may not have been created because ref count exceeded limit",
-              ref_limit: described_class::PIPELINE_PROCESS_LIMIT,
+              ref_limit: Gitlab::CurrentSettings.git_push_pipeline_limit,
               total_ref_count: branch_changes.count + tag_changes.count,
               possible_omitted_refs: ["#{ref_prefix}/changed2", "refs/tags/v10.0.0"],
               possible_omitted_ref_count: 2

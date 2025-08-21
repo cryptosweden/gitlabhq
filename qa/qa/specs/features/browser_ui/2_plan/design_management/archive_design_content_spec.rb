@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Plan', product_group: :product_planning do
+  RSpec.describe 'Plan', feature_category: :portfolio_management do
     describe 'Design Management' do
       let(:first_design) { Resource::Design.fabricate! }
 
@@ -24,7 +24,7 @@ module QA
       end
 
       it(
-        'user archives a design', :blocking,
+        'user archives a design',
         testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347713'
       ) do
         third_design.issue.visit!

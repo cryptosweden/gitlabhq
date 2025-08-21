@@ -4,6 +4,7 @@ import { GlDatepicker, GlLoadingIcon, GlKeysetPagination } from '@gitlab/ui';
 import getTimelogsEmptyResponse from 'test_fixtures/graphql/get_timelogs_empty_response.json';
 import getPaginatedTimelogsResponse from 'test_fixtures/graphql/get_paginated_timelogs_response.json';
 import getNonPaginatedTimelogsResponse from 'test_fixtures/graphql/get_non_paginated_timelogs_response.json';
+import GroupSelect from '~/vue_shared/components/entity_select/group_select.vue';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import { createAlert } from '~/alert';
 import { mountExtended, extendedWrapper } from 'helpers/vue_test_utils_helper';
@@ -29,6 +30,7 @@ describe('Timelogs app', () => {
   const findTotalTimeSpentContainer = () => wrapper.findByTestId('total-time-spent-container');
   const findTable = () => wrapper.findComponent(TimelogsTable);
   const findPagination = () => wrapper.findComponent(GlKeysetPagination);
+  const findGroupSelect = () => findForm().findComponent(GroupSelect);
 
   const findFormDatePicker = (testId) =>
     findForm()
@@ -101,6 +103,7 @@ describe('Timelogs app', () => {
       findUsernameInput().vm.$emit('input', username);
       findFromDatepicker().vm.$emit('input', fromDateTime);
       findToDatepicker().vm.$emit('input', toDateTime);
+      findGroupSelect().vm.$emit('input', { id: 123 });
 
       resolvedEmptyListMock.mockClear();
 
@@ -112,7 +115,7 @@ describe('Timelogs app', () => {
         username,
         startTime: fromDateTime,
         endTime: toDateTime,
-        groupId: null,
+        groupId: 'gid://gitlab/Group/123',
         projectId: null,
         first: 20,
         last: null,
@@ -125,7 +128,7 @@ describe('Timelogs app', () => {
       );
       // should be 1 day ahead of the initial To Date value
       expect(`${wrapper.vm.queryVariables.endTime}`).toEqual(
-        'Wed Mar 29 2023 00:00:00 GMT+0000 (Greenwich Mean Time)',
+        'Tue Mar 28 2023 23:59:59 GMT+0000 (Greenwich Mean Time)',
       );
 
       expect(createAlert).not.toHaveBeenCalled();
@@ -138,8 +141,13 @@ describe('Timelogs app', () => {
       const username = 'johnsmith';
 
       findUsernameInput().vm.$emit('input', username);
+      findGroupSelect().vm.$emit('input', { id: 123 });
+
+      await nextTick();
+
       findFromDatepicker().vm.$emit('clear');
       findToDatepicker().vm.$emit('clear');
+      findGroupSelect().vm.$emit('clear');
 
       resolvedEmptyListMock.mockClear();
 

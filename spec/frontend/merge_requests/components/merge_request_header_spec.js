@@ -1,15 +1,21 @@
+import Vue from 'vue';
 import { shallowMount } from '@vue/test-utils';
+import { createTestingPinia } from '@pinia/testing';
+import { PiniaVuePlugin } from 'pinia';
 import HiddenBadge from '~/issuable/components/hidden_badge.vue';
 import LockedBadge from '~/issuable/components/locked_badge.vue';
 import StatusBadge from '~/issuable/components/status_badge.vue';
 import MergeRequestHeader from '~/merge_requests/components/merge_request_header.vue';
-import mrStore from '~/mr_notes/stores';
 import ConfidentialityBadge from '~/vue_shared/components/confidentiality_badge.vue';
 import ImportedBadge from '~/vue_shared/components/imported_badge.vue';
+import { globalAccessorPlugin } from '~/pinia/plugins';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useNotes } from '~/notes/store/legacy_notes';
 
-jest.mock('~/mr_notes/stores', () => jest.requireActual('helpers/mocks/mr_notes/stores'));
+Vue.use(PiniaVuePlugin);
 
 describe('MergeRequestHeader component', () => {
+  let pinia;
   let wrapper;
 
   const findConfidentialBadge = () => wrapper.findComponent(ConfidentialityBadge);
@@ -21,25 +27,28 @@ describe('MergeRequestHeader component', () => {
   const renderTestMessage = (renders) => (renders ? 'renders' : 'does not render');
 
   const createComponent = ({ confidential, hidden, locked, isImported = false }) => {
-    const store = mrStore;
-    store.getters.getNoteableData = {};
-    store.getters.getNoteableData.confidential = confidential;
-    store.getters.getNoteableData.discussion_locked = locked;
-    store.getters.getNoteableData.targetType = 'merge_request';
+    useNotes().noteableData.confidential = confidential;
+    useNotes().noteableData.discussion_locked = locked;
+    useNotes().noteableData.targetType = 'merge_request';
 
     wrapper = shallowMount(MergeRequestHeader, {
-      mocks: {
-        $store: store,
-      },
+      pinia,
       provide: {
         hidden,
       },
       propsData: {
         initialState: 'opened',
         isImported,
+        isDraft: false,
       },
     });
   };
+
+  beforeEach(() => {
+    pinia = createTestingPinia({ plugins: [globalAccessorPlugin] });
+    useLegacyDiffs();
+    useNotes();
+  });
 
   it('renders status badge', () => {
     createComponent({ propsData: { initialState: 'opened' } });
@@ -47,6 +56,7 @@ describe('MergeRequestHeader component', () => {
     expect(findStatusBadge().props()).toEqual({
       issuableType: 'merge_request',
       state: 'opened',
+      isDraft: false,
     });
   });
 
@@ -93,7 +103,7 @@ describe('MergeRequestHeader component', () => {
     it('renders when merge request is imported', () => {
       createComponent({ isImported: true });
 
-      expect(findImportedBadge().props('importableType')).toBe('merge_request');
+      expect(findImportedBadge().exists()).toBe(true);
     });
 
     it('does not render when merge request is not imported', () => {

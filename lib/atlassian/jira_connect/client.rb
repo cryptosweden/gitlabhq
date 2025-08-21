@@ -2,7 +2,7 @@
 
 module Atlassian
   module JiraConnect
-    class Client < Gitlab::HTTP
+    class Client
       def self.generate_update_sequence_id
         (Time.now.utc.to_f * 1000).round
       end
@@ -46,7 +46,7 @@ module Atlassian
         uri = URI.join(@base_uri, path)
         uri.query = URI.encode_www_form(query_params)
 
-        self.class.get(uri, headers: headers(uri, 'GET'))
+        Integrations::Clients::HTTP.get(uri, headers: headers(uri, 'GET'))
       end
 
       def store_ff_info(project:, feature_flags:, **opts)
@@ -73,7 +73,7 @@ module Atlassian
 
       def store_deploy_info(project:, deployments:, **opts)
         items = deployments.map { |d| ::Atlassian::JiraConnect::Serializers::DeploymentEntity.represent(d, opts) }
-        items.reject! { |d| d.issue_keys.empty? }
+        items.select! { |d| d.associations.present? }
 
         return if items.empty?
 
@@ -124,13 +124,13 @@ module Atlassian
       def post(path, payload)
         uri = URI.join(@base_uri, path)
 
-        self.class.post(uri, headers: headers(uri), body: metadata.merge(payload).to_json)
+        Integrations::Clients::HTTP.post(uri, headers: headers(uri), body: metadata.merge(payload).to_json)
       end
 
       def delete(path)
         uri = URI.join(@base_uri, path)
 
-        self.class.delete(uri, headers: headers(uri, 'DELETE'))
+        Integrations::Clients::HTTP.delete(uri, headers: headers(uri, 'DELETE'))
       end
 
       def headers(uri, http_method = 'POST')
@@ -152,15 +152,26 @@ module Atlassian
           yield data
         else
           case response.code
-          when 400 then { 'errorMessages' => data.map { |e| e['message'] } }
+          when 400 then { 'errorMessages' => parse_jira_error_messages(data) }
           when 401 then { 'errorMessages' => ['Invalid JWT'] }
           when 403 then { 'errorMessages' => ["App does not support #{name}"] }
-          when 413 then { 'errorMessages' => ['Data too large'] + data.map { |e| e['message'] } }
+          when 413 then { 'errorMessages' => ['Data too large'] + parse_jira_error_messages(data) }
           when 429 then { 'errorMessages' => ['Rate limit exceeded'] }
           when 503 then { 'errorMessages' => ['Service unavailable'] }
           else
             { 'errorMessages' => ['Unknown error'], 'response' => data }
           end.merge('responseCode' => response.code)
+        end
+      end
+
+      def parse_jira_error_messages(data)
+        case data
+        when Array
+          data.map { |e| e['message'] }
+        when Hash
+          [data['message'] || data['error'] || 'Unknown error']
+        else
+          ['Unknown error']
         end
       end
 

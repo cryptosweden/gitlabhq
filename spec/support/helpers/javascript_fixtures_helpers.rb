@@ -51,7 +51,7 @@ module JavaScriptFixturesHelpers
     path = Rails.root / base / query_path
     queries = Gitlab::Graphql::Queries.find(path)
     if queries.length == 1
-      query = queries.first.text(mode: Gitlab.ee? ? :ee : :ce )
+      query = queries.first.text(mode: Gitlab.ee? ? :ee : :ce)
       inflate_query_with_typenames(query)
     else
       raise "Could not find query file at #{path}, please check your query_path" % path
@@ -92,7 +92,7 @@ module JavaScriptFixturesHelpers
   end
 
   def parse_html(fixture)
-    if respond_to?(:use_full_html) && public_send(:use_full_html)
+    if respond_to?(:use_full_html) && use_full_html
       Nokogiri::HTML::Document.parse(fixture)
     else
       Nokogiri::HTML::DocumentFragment.parse(fixture)

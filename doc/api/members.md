@@ -1,14 +1,18 @@
 ---
-stage: Govern
-group: Authentication
+stage: Tenant Scale
+group: Organizations
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Group and project members API
 ---
 
-# Group and project members API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+Use this API to interact with group and project members.
 
 ## Roles
 
@@ -18,16 +22,18 @@ in the `Gitlab::Access` module as `access_level`.
 - No access (`0`)
 - Minimal access (`5`)
 - Guest (`10`)
+- Planner (`15`)
 - Reporter (`20`)
 - Developer (`30`)
 - Maintainer (`40`)
 - Owner (`50`)
+- Admin (`60`)
 
-## Limitations
+## Known issues
 
-The `group_saml_identity` attribute is only visible to group owners for [SSO-enabled groups](../user/group/saml_sso/index.md).
-
-The `email` attribute is only visible to group owners for [enterprise users](../user/enterprise_user/index.md) of the group when an API request is sent to the group itself, or that group's subgroups or projects.
+- The `group_saml_identity` and `group_scim_identity` attributes are only visible to group owners for [SSO-enabled groups](../user/group/saml_sso/_index.md).
+- The `email` attribute is only visible to group owners for [enterprise users](../user/enterprise_user/_index.md)
+  of the group when an API request is sent to the group itself, or that group's subgroups or projects.
 
 ## List all members of a group or project
 
@@ -41,17 +47,19 @@ GET /groups/:id/members
 GET /projects/:id/members
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `query`   | string | no     | A query string to search for members |
-| `user_ids`   | array of integers | no     | Filter the results on the given user IDs |
-| `skip_users`   | array of integers | no     | Filter skipped users out of the results |
-| `show_seat_info`   | boolean | no     | Show seat information for users |
+| Attribute        | Type              | Required | Description |
+|------------------|-------------------|----------|-------------|
+| `id`             | integer or string | yes      | The ID or [URL-encoded path of the project or group](rest/_index.md#namespaced-paths). |
+| `query`          | string            | no       | Filters results based on a given name, email, or username. Use partial values to widen the scope of the query. |
+| `user_ids`       | array of integers | no       | Filter the results on the given user IDs. |
+| `skip_users`     | array of integers | no       | Filter skipped users out of the results. |
+| `show_seat_info` | boolean           | no       | Show seat information for users. |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members"
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/:id/members"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/members"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/:id/members"
 ```
 
 Example response:
@@ -108,12 +116,13 @@ Example response:
 
 ## List all members of a group or project including inherited and invited members
 
-> - [Changed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) to return members of the invited private group if the current user is a member of the shared group or project in GitLab 16.10 [with a flag](../administration/feature_flags.md) named `webui_members_inherited_users`. Disabled by default.
-> - Feature flag `webui_members_inherited_users` was [enabled on GitLab.com and self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) in GitLab 17.0.
+{{< history >}}
 
-FLAG:
-On self-managed GitLab, by default this feature is available. To hide the feature per user, an administrator can [disable the feature flag](../administration/feature_flags.md) named `webui_members_inherited_users`.
-On GitLab.com and GitLab Dedicated, this feature is available.
+- [Changed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) to return members of the invited private group if the current user is a member of the shared group or project in GitLab 16.10 [with a flag](../administration/feature_flags/_index.md) named `webui_members_inherited_users`. Disabled by default.
+- Feature flag `webui_members_inherited_users` was [enabled on GitLab.com and GitLab Self-Managed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) in GitLab 17.0.
+- Feature flag `webui_members_inherited_users` [removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/163627) in GitLab 17.4. Members of invited groups displayed by default.
+
+{{< /history >}}
 
 Gets a list of group or project members viewable by the authenticated user, including inherited members, invited users, and permissions through ancestor groups.
 
@@ -127,10 +136,13 @@ Members from an invited group are returned if either:
 - The requester is also a member of the invited group.
 - The requester is a member of the shared group or project.
 
-NOTE:
+{{< alert type="note" >}}
+
 The invited group members have shared membership in the shared group or project.
 This means that if the requester is a member of a shared group or project, but not a member of an invited private group,
 then using this endpoint the requester can get all the shared group or project members, including the invited private group members.
+
+{{< /alert >}}
 
 This function takes pagination parameters `page` and `per_page` to restrict the list of users.
 
@@ -139,17 +151,19 @@ GET /groups/:id/members/all
 GET /projects/:id/members/all
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `query`   | string | no     | A query string to search for members. |
-| `user_ids`   | array of integers | no     | Filter the results on the given user IDs. |
-| `show_seat_info`   | boolean | no     | Show seat information for users. |
-| `state`   | string | no | Filter results by member state, one of `awaiting` or `active`. Premium and Ultimate only. |
+| Attribute        | Type              | Required | Description |
+|------------------|-------------------|----------|-------------|
+| `id`             | integer or string | yes      | The ID or [URL-encoded path of the project or group](rest/_index.md#namespaced-paths). |
+| `query`          | string            | no       | Filters results based on a given name, email, or username. Use partial values to widen the scope of the query. |
+| `user_ids`       | array of integers | no       | Filter the results on the given user IDs. |
+| `show_seat_info` | boolean           | no       | Show seat information for users. |
+| `state`          | string            | no       | Filter results by member state, one of `awaiting` or `active`. Premium and Ultimate only. |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/all"
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/:id/members/all"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/members/all"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/:id/members/all"
 ```
 
 Example response:
@@ -233,14 +247,31 @@ GET /groups/:id/members/:user_id
 GET /projects/:id/members/:user_id
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `user_id` | integer | yes   | The user ID of the member |
+| Attribute | Type              | Required | Description |
+|-----------|-------------------|----------|-------------|
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the project or group](rest/_index.md#namespaced-paths). |
+| `user_id` | integer           | yes      | The user ID of the member. |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/:user_id"
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/:id/members/:user_id"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/members/:user_id"
+
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/:id/members/:user_id"
+```
+
+To update or remove a custom role from a group member, pass an empty `member_role_id` value:
+
+```shell
+# Updates a project membership
+curl --request PUT --header "Content-Type: application/json" \
+  --header "Authorization: Bearer <your_access_token>" \
+  --data '{"member_role_id": null, "access_level": 10}' "https://gitlab.example.com/api/v4/projects/<project_id>/members/<user_id>"
+
+# Updates a group membership
+curl --request PUT --header "Content-Type: application/json" \
+  --header "Authorization: Bearer <your_access_token>" \
+  --data '{"member_role_id": null, "access_level": 10}' "https://gitlab.example.com/api/v4/groups/<group_id>/members/<user_id>"
 ```
 
 Example response:
@@ -271,20 +302,24 @@ Example response:
 
 ## Get a member of a group or project, including inherited and invited members
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/17744) in GitLab 12.4.
-> - [Changed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) to return members of the invited private group if the current user is a member of the shared group or project in GitLab 16.10 [with a flag](../administration/feature_flags.md) named `webui_members_inherited_users`. Disabled by default.
-> - [Enabled on GitLab.com and self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) in GitLab 17.0.
+{{< history >}}
 
-FLAG:
-On self-managed GitLab, by default this feature is available. To hide the feature per user, an administrator can [disable the feature flag](../administration/feature_flags.md) named `webui_members_inherited_users`.
-On GitLab.com and GitLab Dedicated, this feature is available.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/17744) in GitLab 12.4.
+- [Changed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) to return members of the invited private group if the current user is a member of the shared group or project in GitLab 16.10 [with a flag](../administration/feature_flags/_index.md) named `webui_members_inherited_users`. Disabled by default.
+- [Enabled on GitLab.com and GitLab Self-Managed](https://gitlab.com/gitlab-org/gitlab/-/issues/219230) in GitLab 17.0.
+- Feature flag `webui_members_inherited_users` [removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/163627) in GitLab 17.4. Members of invited groups displayed by default.
+
+{{< /history >}}
 
 Gets a member of a group or project, including members inherited or invited through ancestor groups. See the corresponding [endpoint to list all inherited members](#list-all-members-of-a-group-or-project-including-inherited-and-invited-members) for details.
 
-NOTE:
+{{< alert type="note" >}}
+
 The invited group members have shared membership in the shared group or project.
 This means that if the requester is a member of a shared group or project, but not a member of an invited private group,
 then using this endpoint the requester can get all the shared group or project members, including the invited private group members.
+
+{{< /alert >}}
 
 ```plaintext
 GET /groups/:id/members/all/:user_id
@@ -293,12 +328,14 @@ GET /projects/:id/members/all/:user_id
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `user_id` | integer | yes   | The user ID of the member |
+| `id`      | integer or string | yes | The ID or [URL-encoded path of the project or group](rest/_index.md#namespaced-paths). |
+| `user_id` | integer | yes   | The user ID of the member. |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/all/:user_id"
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/:id/members/all/:user_id"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/members/all/:user_id"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/:id/members/all/:user_id"
 ```
 
 Example response:
@@ -329,27 +366,26 @@ Example response:
 
 ## List all billable members of a group
 
+Gets a list of group members that count as billable. The list includes members in subgroups and projects.
+
 Prerequisites:
 
 - You must have the Owner role to access the API endpoint for billing permissions, as shown in [billing permissions](../user/free_user_limit.md).
+- This API endpoint works on top-level groups only. It does not work on subgroups.
 
-Gets a list of group members that count as billable. The list includes members in subgroups and projects.
+This function takes [pagination](rest/_index.md#pagination) parameters `page` and `per_page` to restrict the list of users.
 
-This API endpoint works on top-level groups only. It does not work on subgroups.
-
-This function takes [pagination](rest/index.md#pagination) parameters `page` and `per_page` to restrict the list of users.
-
-Use the `search` parameter to search for billable group members by name and `sort` to sort the results.
+Use the `search` parameter to search for billable group members by name, and `sort` to sort the results.
 
 ```plaintext
 GET /groups/:id/billable_members
 ```
 
-| Attribute                     | Type            | Required  | Description                                                                                                   |
-| ----------------------------- | --------------- | --------- |-------------------------------------------------------------------------------------------------------------- |
-| `id`                          | integer/string  | yes       | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user  |
-| `search`                      | string          | no        | A query string to search for group members by name, username, or public email.                                |
-| `sort`                        | string          | no        | A query string containing parameters that specify the sort attribute and order. See supported values below.   |
+| Attribute | Type              | Required | Description |
+|-----------|-------------------|----------|-------------|
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths). |
+| `search`  | string            | no       | A query string to search for group members by name, username, or public email. |
+| `sort`    | string            | no       | A query string containing parameters that specify the sort attribute and order. See supported values below. |
 
 The supported values for the `sort` attribute are:
 
@@ -367,7 +403,8 @@ The supported values for the `sort` attribute are:
 | `last_activity_on_desc` | Last active date, descending |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/billable_members"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/billable_members"
 ```
 
 Example response:
@@ -421,28 +458,32 @@ Example response:
 
 Gets a list of memberships for a billable member of a group.
 
-Lists all projects and groups a user is a member of. Only projects and groups within the group hierarchy are included.
-For instance, if the requested group is `Root Group`, and the requested user is a direct member of both `Root Group / Sub Group One` and `Other Group / Sub Group Two`, then only `Root Group / Sub Group One` will be returned, because `Other Group / Sub Group Two` is not within the `Root Group` hierarchy.
+Prerequisites:
 
-The response represents only direct memberships. Inherited memberships are not included.
+- The response represents only direct memberships. Inherited memberships are not included.
+- This API endpoint works on top-level groups only. It does not work on subgroups.
+- This API endpoint requires permission to administer memberships for the group.
 
-This API endpoint works on top-level groups only. It does not work on subgroups.
+Lists all projects and groups a user is a member of. Only projects and groups in the group hierarchy
+are included. For instance, if the requested group is `Top-Level Group`, and the requested user is a direct member
+of both `Top-Level Group / Subgroup One` and `Other Group / Subgroup Two`, then only `Top-Level Group / Subgroup One`
+is returned, because `Other Group / Subgroup Two` is not in the `Top-Level Group` hierarchy.
 
-This API endpoint requires permission to administer memberships for the group.
-
-This API endpoint takes [pagination](rest/index.md#pagination) parameters `page` and `per_page` to restrict the list of memberships.
+This API endpoint takes [pagination](rest/_index.md#pagination) parameters `page` and `per_page` to restrict
+the list of memberships.
 
 ```plaintext
 GET /groups/:id/billable_members/:user_id/memberships
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `user_id` | integer        | yes | The user ID of the billable member |
+| Attribute | Type              | Required | Description |
+|-----------|-------------------|----------|-------------|
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths). |
+| `user_id` | integer           | yes      | The user ID of the billable member. |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/billable_members/:user_id/memberships"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/billable_members/:user_id/memberships"
 ```
 
 Example response:
@@ -452,7 +493,7 @@ Example response:
   {
     "id": 168,
     "source_id": 131,
-    "source_full_name": "Root Group / Sub Group One",
+    "source_full_name": "Top-Level Group / Subgroup One",
     "source_members_url": "https://gitlab.example.com/groups/root-group/sub-group-one/-/group_members",
     "created_at": "2021-03-31T17:28:44.812Z",
     "expires_at": "2022-03-21",
@@ -464,7 +505,7 @@ Example response:
   {
     "id": 169,
     "source_id": 63,
-    "source_full_name": "Root Group / Sub Group One / My Project",
+    "source_full_name": "Top-Level Group / Subgroup One / My Project",
     "source_members_url": "https://gitlab.example.com/root-group/sub-group-one/my-project/-/project_members",
     "created_at": "2021-03-31T17:29:14.934Z",
     "expires_at": null,
@@ -478,35 +519,44 @@ Example response:
 
 ## List indirect memberships for a billable member of a group
 
-DETAILS:
-**Status:** Experiment
+{{< details >}}
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/386583) in GitLab 16.11.
+- Status: Experiment
+
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/386583) in GitLab 16.11.
+
+{{< /history >}}
 
 Gets a list of indirect memberships for a billable member of a group.
 
-Lists all projects and groups that a user is a member of, that have been invited to the requested root group.
-For instance, if the requested group is `Root Group`, and the requested user is a direct member of `Other Group / Sub Group Two`, which was invited to `Root Group`, then only `Other Group / Sub Group Two` is returned.
+Prerequisites:
+
+- This API endpoint works on top-level groups only. It does not work on subgroups.
+- This API endpoint requires permission to administer memberships for the group.
+
+Lists all projects and groups that a user is a member of, that have been invited to the requested top-level group.
+For instance, if the requested group is `Top-Level Group`, and the requested user is a direct member of `Other Group / Subgroup Two`, which was invited to `Top-Level Group`, then only `Other Group / Subgroup Two` is returned.
 
 The response lists only indirect memberships. Direct memberships are not included.
 
-This API endpoint works on top-level groups only. It does not work on subgroups.
-
-This API endpoint requires permission to administer memberships for the group.
-
-This API endpoint takes [pagination](rest/index.md#pagination) parameters `page` and `per_page` to restrict the list of memberships.
+This API endpoint takes [pagination](rest/_index.md#pagination) parameters `page` and `per_page` to restrict the list of memberships.
 
 ```plaintext
 GET /groups/:id/billable_members/:user_id/indirect
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `user_id` | integer        | yes | The user ID of the billable member |
+| Attribute | Type              | Required | Description |
+|-----------|-------------------|----------|-------------|
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths). |
+| `user_id` | integer           | yes      | The user ID of the billable member. |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/billable_members/:user_id/indirect"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/billable_members/:user_id/indirect"
 ```
 
 Example response:
@@ -516,7 +566,7 @@ Example response:
   {
     "id": 168,
     "source_id": 132,
-    "source_full_name": "Invited Group / Sub Group One",
+    "source_full_name": "Invited Group / Subgroup One",
     "source_members_url": "https://gitlab.example.com/groups/invited-group/sub-group-one/-/group_members",
     "created_at": "2021-03-31T17:28:44.812Z",
     "expires_at": "2022-03-21",
@@ -530,45 +580,65 @@ Example response:
 
 ## Remove a billable member from a group
 
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/217851) in GitLab 13.10.
+
+{{< /history >}}
+
 Removes a billable member from a group and its subgroups and projects.
 
 The user does not need to be a group member to qualify for removal.
-For example, if the user was added directly to a project within the group, you can
+For example, if the user was added directly to a project in the group, you can
 still use this API to remove them.
+
+{{< alert type="note" >}}
+
+Member removal is handled asynchronously, so the changes complete within a few minutes.
+
+{{< /alert >}}
 
 ```plaintext
 DELETE /groups/:id/billable_members/:user_id
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `user_id` | integer | yes   | The user ID of the member |
+| Attribute | Type              | Required | Description |
+|-----------|-------------------|----------|-------------|
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths). |
+| `user_id` | integer           | yes      | The user ID of the member. |
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/billable_members/:user_id"
+curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/billable_members/:user_id"
 ```
 
 ## Change membership state of a user in a group
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/86705) in GitLab 15.0.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/86705) in GitLab 15.0.
+
+{{< /history >}}
 
 Changes the membership state of a user in a group.
-When a user is over [the free user limit](../user/free_user_limit.md), changing their membership state for a group or project to `awaiting` or `active` can allow them to
-access that group or project. The change is applied to applied to all subgroups and projects.
+
+When a user is over [the free user limit](../user/free_user_limit.md), changing their membership state
+for a group or project to `awaiting` or `active` can allow them to access that group or project. The change
+is applied to applied to all subgroups and projects.
 
 ```plaintext
 PUT /groups/:id/members/:user_id/state
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `user_id` | integer | yes   | The user ID of the member. |
-| `state`   | string | yes   | The new state for the user. State is either `awaiting` or `active`. |
+| Attribute | Type              | Required | Description |
+|-----------|-------------------|----------|-------------|
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths). |
+| `user_id` | integer           | yes      | The user ID of the member. |
+| `state`   | string            | yes      | The new state for the user. State is either `awaiting` or `active`. |
 
 ```shell
-curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/:user_id/state?state=active"
+curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/members/:user_id/state?state=active"
 ```
 
 Example response:
@@ -588,15 +658,15 @@ POST /groups/:id/members
 POST /projects/:id/members
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `user_id` | integer/string | yes, if `username` is not provided | The user ID of the new member or multiple IDs separated by commas. |
-| `username` | string | yes, if `user_id` is not provided | The username of the new member or multiple usernames separated by commas. |
-| `access_level` | integer | yes | [A valid access level](access_requests.md#valid-access-levels). |
-| `expires_at` | string | no | A date string in the format `YEAR-MONTH-DAY`. |
-| `invite_source` | string | no | The source of the invitation that starts the member creation process. GitLab team members can view more information in this confidential issue: `https://gitlab.com/gitlab-org/gitlab/-/issues/327120>`. |
-| `member_role_id` | integer | no | The ID of a member role. Ultimate only. |
+| Attribute        | Type              | Required                           | Description |
+|------------------|-------------------|------------------------------------|-------------|
+| `id`             | integer or string | yes                                | The ID or [URL-encoded path of the project or group](rest/_index.md#namespaced-paths). |
+| `user_id`        | integer or string | yes, if `username` is not provided | The user ID of the new member or multiple IDs separated by commas. |
+| `username`       | string            | yes, if `user_id` is not provided  | The username of the new member or multiple usernames separated by commas. |
+| `access_level`   | integer           | yes                                | [A valid access level](access_requests.md#valid-access-levels). |
+| `expires_at`     | string            | no                                 | A date string in the format `YEAR-MONTH-DAY`. |
+| `invite_source`  | string            | no                                 | The source of the invitation that starts the member creation process. GitLab team members can view more information in this confidential issue: `https://gitlab.com/gitlab-org/gitlab/-/issues/327120>`. |
+| `member_role_id` | integer           | no                                 | Ultimate only. The ID of a custom member role. |
 
 ```shell
 curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
@@ -631,6 +701,51 @@ Example response:
 }
 ```
 
+{{< alert type="note" >}}
+
+If [administrator approval for role promotions](../administration/settings/sign_up_restrictions.md#turn-on-administrator-approval-for-role-promotions) is turned on, membership requests that promote existing users into a billable role require administrator approval.
+
+{{< /alert >}}
+
+To enable **Manage Non-Billable Promotions**,
+you must first enable the `enable_member_promotion_management` application setting.
+
+Example of queueing a single user:
+
+```shell
+curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
+     --data "user_id=1&access_level=30" "https://gitlab.example.com/api/v4/groups/:id/members"
+curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
+     --data "user_id=1&access_level=30" "https://gitlab.example.com/api/v4/projects/:id/members"
+```
+
+```json
+{
+  "message":{
+    "username_1":"Request queued for administrator approval."
+  }
+}
+```
+
+Example of queueing multiple users:
+
+```shell
+curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
+     --data "user_id=1,2&access_level=30" "https://gitlab.example.com/api/v4/groups/:id/members"
+curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
+     --data "user_id=1,2&access_level=30" "https://gitlab.example.com/api/v4/projects/:id/members"
+```
+
+```json
+{
+  "queued_users": {
+    "username_1": "Request queued for administrator approval.",
+    "username_2": "Request queued for administrator approval."
+  },
+  "status": "success"
+}
+```
+
 ## Edit a member of a group or project
 
 Updates a member of a group or project.
@@ -640,17 +755,19 @@ PUT /groups/:id/members/:user_id
 PUT /projects/:id/members/:user_id
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `user_id` | integer | yes   | The user ID of the member |
-| `access_level` | integer | yes | A [valid access level](access_requests.md#valid-access-levels) |
-| `expires_at` | string | no | A date string in the format `YEAR-MONTH-DAY` |
-| `member_role_id` | integer | no | The ID of a member role. Ultimate only. |
+| Attribute        | Type              | Required | Description |
+|------------------|-------------------|----------|-------------|
+| `id`             | integer or string | yes      | The ID or [URL-encoded path of the project or group](rest/_index.md#namespaced-paths). |
+| `user_id`        | integer           | yes      | The user ID of the member. |
+| `access_level`   | integer           | yes      | A [valid access level](access_requests.md#valid-access-levels). |
+| `expires_at`     | string            | no       | A date string in the format `YEAR-MONTH-DAY`. |
+| `member_role_id` | integer           | no       | Ultimate only. The ID of a custom member role. If no value is specified, removes all roles. |
 
 ```shell
-curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/:user_id?access_level=40"
-curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/:id/members/:user_id?access_level=40"
+curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/members/:user_id?access_level=40"
+curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/:id/members/:user_id?access_level=40"
 ```
 
 Example response:
@@ -679,6 +796,25 @@ Example response:
 }
 ```
 
+{{< alert type="note" >}}
+
+If [administrator approval for role promotions](../administration/settings/sign_up_restrictions.md#turn-on-administrator-approval-for-role-promotions) is turned on, membership requests that promote existing users into a billable role require administrator approval.
+
+{{< /alert >}}
+
+To enable **Manage non-billable promotions**,
+you must first enable the `enable_member_promotion_management` application setting.
+
+Example response:
+
+```json
+{
+  "message":{
+    "username_1":"Request queued for administrator approval."
+  }
+}
+```
+
 ### Set override flag for a member of a group
 
 By default, the access level of LDAP group members is set to the value specified
@@ -688,13 +824,14 @@ by LDAP through Group Sync. You can allow access level overrides by calling this
 POST /groups/:id/members/:user_id/override
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `user_id` | integer | yes   | The user ID of the member |
+| Attribute | Type              | Required | Description |
+|-----------|-------------------|----------|-------------|
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths). |
+| `user_id` | integer           | yes      | The user ID of the member. |
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/:user_id/override"
+curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/members/:user_id/override"
 ```
 
 Example response:
@@ -732,13 +869,14 @@ level to the LDAP-prescribed value.
 DELETE /groups/:id/members/:user_id/override
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `user_id` | integer | yes   | The user ID of the member |
+| Attribute | Type              | Required | Description |
+|-----------|-------------------|----------|-------------|
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths). |
+| `user_id` | integer           | yes      | The user ID of the member. |
 
 ```shell
-curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/:user_id/override"
+curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/members/:user_id/override"
 ```
 
 Example response:
@@ -772,7 +910,7 @@ Example response:
 Removes a user from a group or project where the user has been explicitly assigned a role.
 
 The user needs to be a group member to qualify for removal.
-For example, if the user was added directly to a project within the group but not this
+For example, if the user was added directly to a project in the group but not this
 group explicitly, you cannot use this API to remove them. See
 [Remove a billable member from a group](#remove-a-billable-member-from-a-group) for an alternative approach.
 
@@ -781,18 +919,20 @@ DELETE /groups/:id/members/:user_id
 DELETE /projects/:id/members/:user_id
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the project or group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `user_id` | integer | yes   | The user ID of the member |
-| `skip_subresources` | boolean | false   | Whether the deletion of direct memberships of the removed member in subgroups and projects should be skipped. Default is `false`. |
-| `unassign_issuables` | boolean | false   | Whether the removed member should be unassigned from any issues or merge requests inside a given group or project. Default is `false`. |
+| Attribute            | Type              | Required | Description |
+|----------------------|-------------------|----------|-------------|
+| `id`                 | integer or string | yes      | The ID or [URL-encoded path of the project or group](rest/_index.md#namespaced-paths). |
+| `user_id`            | integer           | yes      | The user ID of the member. |
+| `skip_subresources`  | boolean           | false    | Whether the deletion of direct memberships of the removed member in subgroups and projects should be skipped. Default is `false`. |
+| `unassign_issuables` | boolean           | false    | Whether the removed member should be unassigned from any issues or merge requests inside a given group or project. Default is `false`. |
 
 Example request:
 
 ```shell
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/:user_id"
-curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/:id/members/:user_id"
+curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/members/:user_id"
+curl --request DELETE --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/:id/members/:user_id"
 ```
 
 ## Approve a member for a group
@@ -803,15 +943,16 @@ Approves a pending user for a group and its subgroups and projects.
 PUT /groups/:id/members/:member_id/approve
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the root group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
-| `member_id` | integer | yes   | The ID of the member |
+| Attribute   | Type              | Required | Description |
+|-------------|-------------------|----------|-------------|
+| `id`        | integer or string | yes      | The ID or [URL-encoded path of the top-level group](rest/_index.md#namespaced-paths). |
+| `member_id` | integer           | yes      | The ID of the member. |
 
 Example request:
 
 ```shell
-curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/:member_id/approve"
+curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/members/:member_id/approve"
 ```
 
 ## Approve all pending members for a group
@@ -822,40 +963,44 @@ Approves all pending users for a group and its subgroups and projects.
 POST /groups/:id/members/approve_all
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the root group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| Attribute | Type              | Required | Description |
+|-----------|-------------------|----------|-------------|
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the top-level group](rest/_index.md#namespaced-paths). |
 
 Example request:
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/members/approve_all"
+curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/members/approve_all"
 ```
 
 ## List pending members of a group and its subgroups and projects
 
-For a group and its subgroups and projects, get a list of all members in an `awaiting` state and those who are invited but do not have a GitLab account.
+For a group and its subgroups and projects, get a list of all members in an `awaiting` state and those
+who are invited but do not have a GitLab account.
 
-This request returns all matching group and project members from all groups and projects in the root group's hierarchy.
+Prerequisites:
+
+- This API endpoint works on top-level groups only. It does not work on subgroups.
+- This API endpoint requires permission to administer members for the group.
+
+This request returns all matching group and project members from all groups and projects in the top-level group's hierarchy.
 
 When the member is an invited user that has not signed up for a GitLab account yet, the invited email address is returned.
 
-This API endpoint works on top-level groups only. It does not work on subgroups.
-
-This API endpoint requires permission to administer members for the group.
-
-This API endpoint takes [pagination](rest/index.md#pagination) parameters `page` and `per_page` to restrict the list of members.
+This API endpoint takes [pagination](rest/_index.md#pagination) parameters `page` and `per_page` to restrict the list of members.
 
 ```plaintext
 GET /groups/:id/pending_members
 ```
 
-| Attribute | Type | Required | Description |
-| --------- | ---- | -------- | ----------- |
-| `id`      | integer/string | yes | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| Attribute | Type              | Required | Description |
+|-----------|-------------------|----------|-------------|
+| `id`      | integer or string | yes      | The ID or [URL-encoded path of the group](rest/_index.md#namespaced-paths). |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/:id/pending_members"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/:id/pending_members"
 ```
 
 Example response:
@@ -891,4 +1036,4 @@ Example response:
 
 ## Give a group access to a project
 
-See [share project with group](projects.md#share-project-with-group)
+See [share project with group](projects.md#share-a-project-with-a-group)

@@ -4,6 +4,7 @@ module Ml
   class Model < ApplicationRecord
     include Presentable
     include Sortable
+    include CacheMarkdownField
 
     EXPERIMENT_NAME_PREFIX = '[model]'
 
@@ -15,6 +16,8 @@ module Ml
       length: { maximum: 255 }
 
     validate :valid_default_experiment?
+    validates :description,
+      length: { maximum: 10_000 }
 
     has_one :default_experiment, class_name: 'Ml::Experiment'
     belongs_to :project
@@ -27,12 +30,17 @@ module Ml
     scope :including_latest_version, -> { includes(:latest_version) }
     scope :including_project, -> { includes(:project) }
     scope :with_version_count, -> {
-      left_outer_joins(:versions)
-        .select("ml_models.*, count(ml_model_versions.id) as version_count")
-        .group(:id)
+      version_counts = Ml::ModelVersion
+                         .select(:model_id, 'COUNT(*) as count')
+                         .group(:model_id)
+
+      joins("LEFT OUTER JOIN (#{version_counts.to_sql}) as version_counts ON version_counts.model_id = ml_models.id")
+        .select('ml_models.*, COALESCE(version_counts.count, 0) as version_count')
     }
     scope :by_name, ->(name) { where("ml_models.name LIKE ?", "%#{sanitize_sql_like(name)}%") } # rubocop:disable GitlabSecurity/SqlInjection
     scope :by_project, ->(project) { where(project_id: project.id) }
+
+    cache_markdown_field :description
 
     def all_packages
       Packages::MlModel::Package.where(project: project, id: versions.select(:package_id))

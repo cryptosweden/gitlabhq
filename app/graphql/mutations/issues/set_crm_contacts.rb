@@ -19,7 +19,7 @@ module Mutations
         issue = authorized_find!(project_path: project_path, iid: iid)
         project = issue.project
 
-        raise Gitlab::Graphql::Errors::ResourceNotAvailable, 'Feature disabled' unless feature_enabled?(project)
+        raise_resource_not_available_error! 'Feature disabled' unless feature_enabled?(project)
 
         contact_ids = contact_ids.compact.map do |contact_id|
           unless contact_id.respond_to?(:model_id)
@@ -38,8 +38,11 @@ module Mutations
                            :replace_ids
                          end
 
-        response = ::Issues::SetCrmContactsService.new(project: project, current_user: current_user, params: { attribute_name => contact_ids })
-          .execute(issue)
+        response = ::Issues::SetCrmContactsService.new(
+          container: project,
+          current_user: current_user,
+          params: { attribute_name => contact_ids }
+        ).execute(issue)
 
         {
           issue: issue,

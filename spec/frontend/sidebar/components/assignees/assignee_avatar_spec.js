@@ -1,4 +1,5 @@
 import { shallowMount } from '@vue/test-utils';
+import { GlAvatar, GlIcon } from '@gitlab/ui';
 import { TEST_HOST } from 'helpers/test_constants';
 import AssigneeAvatar from '~/sidebar/components/assignees/assignee_avatar.vue';
 import userDataMock from '../../user_data_mock';
@@ -26,12 +27,13 @@ describe('AssigneeAvatar', () => {
     window.gon = { default_avatar_url: TEST_DEFAULT_AVATAR_URL };
   });
 
-  const findImg = () => wrapper.find('img');
+  const findAvatar = () => wrapper.findComponent(GlAvatar);
+  const findIcon = () => wrapper.findComponent(GlIcon);
 
   it('does not show warning icon if assignee can merge', () => {
     createComponent();
 
-    expect(wrapper.find('.merge-icon').exists()).toBe(false);
+    expect(findIcon().exists()).toBe(false);
   });
 
   it('shows warning icon if assignee cannot merge', () => {
@@ -41,7 +43,7 @@ describe('AssigneeAvatar', () => {
       },
     });
 
-    expect(wrapper.find('.merge-icon').exists()).toBe(true);
+    expect(findIcon().exists()).toBe(true);
   });
 
   it('does not show warning icon for issuableType = "issue"', () => {
@@ -49,7 +51,7 @@ describe('AssigneeAvatar', () => {
       issuableType: 'issue',
     });
 
-    expect(wrapper.find('.merge-icon').exists()).toBe(false);
+    expect(findIcon().exists()).toBe(false);
   });
 
   it.each`
@@ -65,6 +67,6 @@ describe('AssigneeAvatar', () => {
       },
     });
 
-    expect(findImg().attributes('src')).toEqual(expected);
+    expect(findAvatar().props('src')).toEqual(expected);
   });
 });

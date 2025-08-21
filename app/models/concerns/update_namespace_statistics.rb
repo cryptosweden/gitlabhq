@@ -11,7 +11,7 @@
 #   include UpdateNamespaceStatistics
 #
 #   belongs_to :group
-#   alias_attribute :namespace, :group
+#   alias_method :namespace, :group
 #
 #   update_namespace_statistics namespace_statistics_name: :dependency_proxy_size
 # end
@@ -46,8 +46,10 @@ module UpdateNamespaceStatistics
     end
 
     def schedule_namespace_statistics_refresh
+      return unless namespace
+
       run_after_commit do
-        Groups::UpdateStatisticsWorker.perform_async(namespace.id, [self.class.namespace_statistics_name])
+        Groups::UpdateStatisticsWorker.perform_async(namespace.id, [self.class.namespace_statistics_name.to_s])
       end
     end
   end

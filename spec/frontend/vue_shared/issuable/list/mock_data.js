@@ -41,6 +41,7 @@ export const mockCurrentUserTodo = {
 };
 
 export const mockIssuable = {
+  id: '1',
   iid: '30',
   title: 'Dismiss Cipher with no integrity',
   titleHtml: 'Dismiss Cipher with no integrity',
@@ -63,6 +64,40 @@ export const mockIssuable = {
     completedCount: 1,
   },
   type: 'issue',
+  namespace: {
+    fullPath: 'gitlab-org/gitlab-shell',
+  },
+};
+
+export const mockDraftIssuable = {
+  id: '1',
+  iid: '30',
+  title: 'Dismiss Cipher with no integrity',
+  titleHtml: 'Dismiss Cipher with no integrity',
+  description: 'fortitudinis _fomentis_ dolor mitigari solet.',
+  descriptionHtml: 'fortitudinis <i>fomentis</i> dolor mitigari solet.',
+  state: 'opened',
+  draft: true,
+  createdAt: '2020-06-29T13:52:56Z',
+  updatedAt: '2020-09-10T11:41:13Z',
+  webUrl: 'http://0.0.0.0:3000/gitlab-org/gitlab-shell/-/issues/30',
+  blocked: false,
+  confidential: false,
+  author: mockAuthor,
+  labels: {
+    nodes: mockLabels,
+  },
+  assignees: [mockAuthor],
+  userDiscussionsCount: 2,
+  taskCompletionStatus: {
+    count: 2,
+    completedCount: 1,
+  },
+  type: 'merge_request',
+  __typename: 'MergeRequest',
+  namespace: {
+    fullPath: 'gitlab-org/gitlab-shell',
+  },
 };
 
 export const mockIssuableItems = (n) =>
@@ -74,6 +109,7 @@ export const mockIssuableItems = (n) =>
 export const mockIssuables = [
   mockIssuable,
   {
+    id: '2',
     iid: '28',
     title: 'Dismiss Cipher with no integrity',
     description: null,
@@ -86,6 +122,7 @@ export const mockIssuables = [
     },
   },
   {
+    id: '3',
     iid: '7',
     title: 'Temporibus in veritatis labore explicabo velit molestiae sed.',
     description: 'Quo consequatur rem aliquid laborum quibusdam molestiae saepe.',
@@ -98,6 +135,7 @@ export const mockIssuables = [
     },
   },
   {
+    id: '4',
     iid: '17',
     title: 'Vel voluptatem quaerat est hic incidunt qui ut aliquid sit exercitationem.',
     description: 'Incidunt accusamus perspiciatis aut excepturi.',
@@ -110,6 +148,7 @@ export const mockIssuables = [
     },
   },
   {
+    id: '5',
     iid: '16',
     title: 'Vero qui quo labore libero omnis quisquam et cumque.',
     description: 'Ipsa ipsum magni nostrum alias aut exercitationem.',

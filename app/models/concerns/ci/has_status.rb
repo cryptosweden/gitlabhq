@@ -6,17 +6,46 @@ module Ci
 
     DEFAULT_STATUS = 'created'
     BLOCKED_STATUS = %w[manual scheduled].freeze
-    AVAILABLE_STATUSES = %w[created waiting_for_resource preparing waiting_for_callback pending running success failed canceling canceled skipped manual scheduled].freeze
+    AVAILABLE_STATUSES = %w[
+      created
+      waiting_for_resource
+      preparing
+      waiting_for_callback
+      pending
+      running
+      success
+      failed
+      canceling
+      canceled
+      skipped
+      manual
+      scheduled
+    ].freeze
     STARTED_STATUSES = %w[running success failed].freeze
     ACTIVE_STATUSES = %w[waiting_for_resource preparing waiting_for_callback pending running].freeze
     COMPLETED_STATUSES = %w[success failed canceled skipped].freeze
     COMPLETED_WITH_MANUAL_STATUSES = COMPLETED_STATUSES + %w[manual]
     STOPPED_STATUSES = COMPLETED_STATUSES + BLOCKED_STATUS
-    ORDERED_STATUSES = %w[failed preparing pending running waiting_for_callback waiting_for_resource manual scheduled canceling canceled success skipped created].freeze
+    ORDERED_STATUSES = %w[
+      failed
+      preparing
+      pending
+      running
+      waiting_for_callback
+      waiting_for_resource
+      manual
+      scheduled
+      canceling
+      canceled
+      success
+      skipped
+      created
+    ].freeze
     PASSED_WITH_WARNINGS_STATUSES = %w[failed canceled].to_set.freeze
     IGNORED_STATUSES = %w[manual].to_set.freeze
+    EXECUTING_STATUSES = %w[running canceling].freeze
     ALIVE_STATUSES = ORDERED_STATUSES - COMPLETED_STATUSES - BLOCKED_STATUS
-    CANCELABLE_STATUSES = (ALIVE_STATUSES + ['scheduled'] - ['canceling']).freeze
+    CANCELABLE_STATUSES = (ORDERED_STATUSES - COMPLETED_STATUSES - ['canceling']).freeze
     STATUSES_ENUM = { created: 0, pending: 1, running: 2, success: 3,
                       failed: 4, canceled: 5, skipped: 6, manual: 7,
                       scheduled: 8, preparing: 9, waiting_for_resource: 10,
@@ -93,6 +122,7 @@ module Ci
       scope :alive, -> { with_status(*ALIVE_STATUSES) }
       scope :created_or_pending, -> { with_status(:created, :pending) }
       scope :running_or_pending, -> { with_status(:running, :pending) }
+      scope :executing, -> { with_status(*EXECUTING_STATUSES) }
       scope :finished, -> { with_status(:success, :failed, :canceled) }
       scope :failed_or_canceled, -> { with_status(:failed, :canceled, :canceling) }
       scope :complete, -> { with_status(completed_statuses) }

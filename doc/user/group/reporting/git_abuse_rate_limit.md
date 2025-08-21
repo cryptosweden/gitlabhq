@@ -1,25 +1,30 @@
 ---
-stage: Govern
-group: Anti-Abuse
+stage: Software Supply Chain Security
+group: Authorization
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Git abuse rate limit
 ---
 
-# Git abuse rate limit
+{{< details >}}
 
-DETAILS:
-**Tier:** Ultimate
-**Offering:** GitLab.com, Self-managed
+- Tier: Ultimate
+- Offering: GitLab.com, GitLab Self-Managed
 
-> - [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/8066) in GitLab 15.2 [with a flag](../../../administration/feature_flags.md) named `limit_unique_project_downloads_per_namespace_user`. Disabled by default.
+{{< /details >}}
 
-FLAG:
-On self-managed GitLab, by default this feature is not available. To make it available, an administrator can [enable the feature flag](../../../administration/feature_flags.md) named `limit_unique_project_downloads_per_namespace_user`. On GitLab.com, this feature is available. On GitLab Dedicated, this feature is not available.
+{{< history >}}
 
-This is the group-level documentation. For self-managed instances, see the [administration documentation](../../../administration/reporting/git_abuse_rate_limit.md).
+- [Introduced](https://gitlab.com/groups/gitlab-org/-/epics/8066) in GitLab 15.2 [with a flag](../../../administration/feature_flags/_index.md) named `limit_unique_project_downloads_per_namespace_user`. Disabled by default.
+- [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/365724) in GitLab 15.6.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/183101) in GitLab 18.0. Feature flag `limit_unique_project_downloads_per_namespace_user` removed.
 
-Git abuse rate limiting is a feature to automatically ban users who download, clone, pull, fetch, or fork more than a specified number of repositories of a group in a given time frame. Banned users cannot access the top-level group or any of its non-public subgroups via HTTP or SSH. The rate limit also applies to users who authenticate with [personal](../../../user/profile/personal_access_tokens.md) or [group access tokens](../../../user/group/settings/group_access_tokens.md), as well as [CI/CD job tokens](../../../ci/jobs/ci_job_token.md). Access to unrelated groups is unaffected.
+{{< /history >}}
 
-Git abuse rate limiting does not apply to top-level group owners, [deploy tokens](../../../user/project/deploy_tokens/index.md), or [deploy keys](../../../user/project/deploy_keys/index.md).
+This is the group-level documentation. For GitLab Self-Managed instances, see the [administration documentation](../../../administration/reporting/git_abuse_rate_limit.md).
+
+Git abuse rate limiting is a feature to automatically ban users who download, clone, pull, fetch, or fork more than a specified number of repositories of a group in a given time frame. Banned users cannot access the top-level group or any of its non-public subgroups through HTTP or SSH. The rate limit also applies to users who authenticate with [personal](../../profile/personal_access_tokens.md) or [group access tokens](../settings/group_access_tokens.md), as well as [CI/CD job tokens](../../../ci/jobs/ci_job_token.md). Access to unrelated groups is unaffected.
+
+Git abuse rate limiting does not apply to top-level group owners, [deploy tokens](../../project/deploy_tokens/_index.md), or [deploy keys](../../project/deploy_keys/_index.md).
 
 How GitLab determines a user's rate limit is under development.
 GitLab team members can view more information in this confidential epic:
@@ -27,7 +32,7 @@ GitLab team members can view more information in this confidential epic:
 
 ## Automatic ban notifications
 
-If the `limit_unique_project_downloads_per_namespace_user` feature flag is enabled, selected users receive an email when a user is about to be banned.
+Selected users receive an email notification when a user is banned.
 
 If automatic banning is disabled, a user is not banned automatically when they exceed the limit. However, notifications are still sent. You can use this setup to determine the correct values of the rate limit settings before enabling automatic banning.
 

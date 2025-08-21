@@ -18,6 +18,9 @@ development:
   queues_metadata:
     cluster:
       - redis://localhost:7001
+  sessions:
+    cluster:
+      - redis://localhost:7001
   shared_state:
     cluster:
       - redis://localhost:7001
@@ -41,6 +44,9 @@ test:
     cluster:
       - redis://localhost:7001
   queues_metadata:
+    cluster:
+      - redis://localhost:7001
+  sessions:
     cluster:
       - redis://localhost:7001
   shared_state:

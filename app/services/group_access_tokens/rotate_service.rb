@@ -14,7 +14,22 @@ module GroupAccessTokens
       token_access_level = group.max_member_access_for_user(token.user).to_i
       current_user_access_level = group.max_member_access_for_user(current_user).to_i
 
-      token_access_level <= current_user_access_level
+      Authz::Role.access_level_encompasses?(
+        current_access_level: current_user_access_level,
+        level_to_assign: token_access_level
+      )
+    end
+
+    private
+
+    override :track_rotation_event
+    def track_rotation_event
+      track_internal_event(
+        'rotate_grat',
+        user: target_user,
+        namespace: group,
+        project: nil
+      )
     end
   end
 end

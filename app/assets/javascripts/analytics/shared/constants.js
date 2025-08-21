@@ -2,8 +2,6 @@ import dateFormat, { masks } from '~/lib/dateformat';
 import {
   nDaysBefore,
   getStartOfDay,
-  dayAfter,
-  getDateInPast,
   getCurrentUtcDate,
   nWeeksBefore,
   nYearsBefore,
@@ -12,7 +10,6 @@ import { s__, __, sprintf, n__ } from '~/locale';
 import { helpPagePath } from '~/helpers/help_page_helper';
 
 export const DATE_RANGE_LIMIT = 180;
-export const DEFAULT_DATE_RANGE = 29; // 30 including current date
 export const PROJECTS_PER_PAGE = 50;
 
 const { isoDate } = masks;
@@ -24,21 +21,23 @@ export const dateFormats = {
 };
 
 const TODAY = getCurrentUtcDate();
-const TOMORROW = dayAfter(TODAY, { utc: true });
-export const LAST_30_DAYS = getDateInPast(TOMORROW, 30, { utc: true });
+const SAME_DAY_OFFSET = 1;
 
 const startOfToday = getStartOfDay(new Date(), { utc: true });
+
+export const LAST_30_DAYS = nDaysBefore(TODAY, 30 - SAME_DAY_OFFSET, { utc: true });
+
 const lastXDays = __('Last %{days} days');
-const lastWeek = nWeeksBefore(TOMORROW, 1, { utc: true });
-const last90Days = getDateInPast(TOMORROW, 90, { utc: true });
-const last180Days = getDateInPast(TOMORROW, DATE_RANGE_LIMIT, { utc: true });
+const lastWeek = nWeeksBefore(TODAY, 1, { utc: true });
+const last90Days = nDaysBefore(TODAY, 90 - SAME_DAY_OFFSET, { utc: true });
+const last180Days = nDaysBefore(TODAY, 180 - SAME_DAY_OFFSET, { utc: true });
 const mrThroughputStartDate = nDaysBefore(startOfToday, DATE_RANGE_LIMIT, { utc: true });
 const formatDateParam = (d) => dateFormat(d, dateFormats.isoDate, true);
 
 export const DATE_RANGE_CUSTOM_VALUE = 'custom';
 export const DATE_RANGE_LAST_30_DAYS_VALUE = 'last_30_days';
 
-export const DEFAULT_DATE_RANGE_OPTIONS = [
+export const DEFAULT_DROPDOWN_DATE_RANGES = [
   {
     text: __('Last week'),
     value: 'last_week',
@@ -76,13 +75,27 @@ export const MAX_DATE_RANGE_TEXT = (maxDateRange) => {
   );
 };
 
+// Limits the number of decimals we round values to
+export const MAX_METRIC_PRECISION = 4;
+
+export const UNITS = {
+  COUNT: 'COUNT',
+  DAYS: 'DAYS',
+  PER_DAY: 'PER_DAY',
+  PERCENT: 'PERCENT',
+  TIME_INTERVAL: 'TIME_INTERVAL',
+  MINUTES: 'MINUTES',
+};
+
 export const NUMBER_OF_DAYS_SELECTED = (numDays) => {
   return n__('1 day selected', '%d days selected', numDays);
 };
 
-export const METRIC_POPOVER_LABEL = s__('ValueStreamAnalytics|View details');
-
 export const ISSUES_COMPLETED_TYPE = 'issues_completed';
+
+export const ALL_METRICS_QUERY_TYPE = 'ALL_METRICS_QUERY_TYPE';
+export const DORA_METRICS_QUERY_TYPE = 'DORA_METRICS_QUERY_TYPE';
+export const FLOW_METRICS_QUERY_TYPE = 'FLOW_METRICS_QUERY_TYPE';
 
 export const FLOW_METRICS = {
   LEAD_TIME: 'lead_time',
@@ -101,13 +114,50 @@ export const DORA_METRICS = {
   CHANGE_FAILURE_RATE: 'change_failure_rate',
 };
 
-const VSA_FLOW_METRICS_GROUP = {
-  key: 'lifecycle_metrics',
-  title: s__('ValueStreamAnalytics|Lifecycle metrics'),
-  keys: Object.values(FLOW_METRICS),
+export const LEAD_TIME_NO_DATA_MESSAGE = s__(
+  'DORA4Metrics|No merge requests were deployed during this period',
+);
+
+export const DORA_METRICS_NULL_SERIES_TITLE = {
+  [DORA_METRICS.CHANGE_FAILURE_RATE]: s__('DORA4Metrics|No incidents during this period'),
+  [DORA_METRICS.TIME_TO_RESTORE_SERVICE]: s__('DORA4Metrics|No incidents during this period'),
+  [DORA_METRICS.LEAD_TIME_FOR_CHANGES]: LEAD_TIME_NO_DATA_MESSAGE,
+  [DORA_METRICS.DEPLOYMENT_FREQUENCY]: s__('DORA4Metrics|No deployments during this period'),
 };
 
-export const VSA_METRICS_GROUPS = [VSA_FLOW_METRICS_GROUP];
+export const LEAD_TIME_FOR_CHANGES_SECONDARY_SERIES_NAME = s__(
+  'DORA4Metrics|Median (last %{days}d)',
+);
+export const DEPLOYMENT_FREQUENCY_SECONDARY_SERIES_NAME = s__(
+  'DORA4Metrics|Average (last %{days}d)',
+);
+export const CHANGE_FAILURE_RATE_SECONDARY_SERIES_NAME = s__(
+  'DORA4Metrics|Median time (last %{days}d)',
+);
+export const TIME_TO_RESTORE_SERVICE_SECONDARY_SERIES_NAME = s__(
+  'DORA4Metrics|Median time (last %{days}d)',
+);
+
+export const DORA_METRICS_SECONDARY_SERIES_NAME = {
+  [DORA_METRICS.CHANGE_FAILURE_RATE]: CHANGE_FAILURE_RATE_SECONDARY_SERIES_NAME,
+  [DORA_METRICS.DEPLOYMENT_FREQUENCY]: DEPLOYMENT_FREQUENCY_SECONDARY_SERIES_NAME,
+  [DORA_METRICS.TIME_TO_RESTORE_SERVICE]: TIME_TO_RESTORE_SERVICE_SECONDARY_SERIES_NAME,
+  [DORA_METRICS.LEAD_TIME_FOR_CHANGES]: LEAD_TIME_FOR_CHANGES_SECONDARY_SERIES_NAME,
+};
+
+export const VSA_METRICS_GROUPS = [
+  {
+    key: 'lifecycle_metrics',
+    title: s__('ValueStreamAnalytics|Lifecycle metrics'),
+    keys: [
+      FLOW_METRICS.LEAD_TIME,
+      FLOW_METRICS.CYCLE_TIME,
+      FLOW_METRICS.ISSUES,
+      FLOW_METRICS.COMMITS,
+      FLOW_METRICS.DEPLOYS,
+    ],
+  },
+];
 
 export const VULNERABILITY_CRITICAL_TYPE = 'vulnerability_critical';
 export const VULNERABILITY_HIGH_TYPE = 'vulnerability_high';
@@ -115,6 +165,18 @@ export const VULNERABILITY_HIGH_TYPE = 'vulnerability_high';
 export const VULNERABILITY_METRICS = {
   CRITICAL: VULNERABILITY_CRITICAL_TYPE,
   HIGH: VULNERABILITY_HIGH_TYPE,
+};
+
+export const PIPELINE_ANALYTICS_TYPE_COUNT = 'pipeline_count';
+export const PIPELINE_ANALYTICS_TYPE_SUCCESS_RATE = 'pipeline_success_rate';
+export const PIPELINE_ANALYTICS_TYPE_FAILURE_RATE = 'pipeline_failed_rate';
+export const PIPELINE_ANALYTICS_TYPE_MEDIAN = 'pipeline_duration_median';
+
+export const PIPELINE_ANALYTICS_METRICS = {
+  COUNT: PIPELINE_ANALYTICS_TYPE_COUNT,
+  SUCCESS_RATE: PIPELINE_ANALYTICS_TYPE_SUCCESS_RATE,
+  FAILURE_RATE: PIPELINE_ANALYTICS_TYPE_FAILURE_RATE,
+  MEDIAN: PIPELINE_ANALYTICS_TYPE_MEDIAN,
 };
 
 export const MERGE_REQUEST_THROUGHPUT_TYPE = 'merge_request_throughput';
@@ -131,10 +193,26 @@ export const CONTRIBUTOR_METRICS = {
 
 export const AI_METRICS = {
   CODE_SUGGESTIONS_USAGE_RATE: 'code_suggestions_usage_rate',
+  CODE_SUGGESTIONS_ACCEPTANCE_RATE: 'code_suggestions_acceptance_rate',
+  DUO_CHAT_USAGE_RATE: 'duo_chat_usage_rate',
+  DUO_USAGE_RATE: 'duo_usage_rate',
+  DUO_RCA_USAGE_RATE: 'duo_rca_usage_rate',
 };
 
-export const METRIC_TOOLTIPS = {
+export const VALUE_STREAM_METRIC_DISPLAY_UNITS = {
+  [UNITS.COUNT]: '',
+  [UNITS.DAYS]: __('days'),
+  [UNITS.PER_DAY]: __('/day'),
+  [UNITS.PERCENT]: '%',
+};
+
+// NOTE: ideally we would return these fields in the metrics queries
+//       the flow metrics query returns some but not all fields we need
+//        while the DORA query do not return any.
+export const VALUE_STREAM_METRIC_TILE_METADATA = {
   [DORA_METRICS.DEPLOYMENT_FREQUENCY]: {
+    label: s__('DORA4Metrics|Deployment frequency'),
+    unit: UNITS.PER_DAY,
     description: s__(
       'ValueStreamAnalytics|Average number of deployments to production per day. This metric measures how often value is delivered to end users.',
     ),
@@ -143,6 +221,8 @@ export const METRIC_TOOLTIPS = {
     docsLink: helpPagePath('user/analytics/dora_metrics', { anchor: 'deployment-frequency' }),
   },
   [DORA_METRICS.LEAD_TIME_FOR_CHANGES]: {
+    label: s__('DORA4Metrics|Lead time for changes'),
+    unit: UNITS.DAYS,
     description: s__(
       'ValueStreamAnalytics|The time to successfully deliver a commit into production. This metric reflects the efficiency of CI/CD pipelines.',
     ),
@@ -151,6 +231,8 @@ export const METRIC_TOOLTIPS = {
     docsLink: helpPagePath('user/analytics/dora_metrics', { anchor: 'lead-time-for-changes' }),
   },
   [DORA_METRICS.TIME_TO_RESTORE_SERVICE]: {
+    label: s__('DORA4Metrics|Time to restore service'),
+    unit: UNITS.DAYS,
     description: s__(
       'ValueStreamAnalytics|The time it takes an organization to recover from a failure in production.',
     ),
@@ -159,60 +241,109 @@ export const METRIC_TOOLTIPS = {
     docsLink: helpPagePath('user/analytics/dora_metrics', { anchor: 'time-to-restore-service' }),
   },
   [DORA_METRICS.CHANGE_FAILURE_RATE]: {
+    label: s__('DORA4Metrics|Change failure rate'),
     description: s__(
       'ValueStreamAnalytics|Percentage of deployments that cause an incident in production.',
     ),
     groupLink: '-/analytics/ci_cd?tab=change-failure-rate',
     projectLink: '-/pipelines/charts?chart=change-failure-rate',
     docsLink: helpPagePath('user/analytics/dora_metrics', { anchor: 'change-failure-rate' }),
+    unit: UNITS.PERCENT,
   },
   [FLOW_METRICS.LEAD_TIME]: {
+    label: s__('DORA4Metrics|Lead time'),
     description: s__('ValueStreamAnalytics|Median time from issue created to issue closed.'),
     groupLink: '-/analytics/value_stream_analytics',
     projectLink: '-/value_stream_analytics',
-    docsLink: helpPagePath('user/group/value_stream_analytics/index', {
+    docsLink: helpPagePath('user/group/value_stream_analytics/_index', {
       anchor: 'lifecycle-metrics',
     }),
+    unit: UNITS.DAYS,
   },
   [FLOW_METRICS.CYCLE_TIME]: {
+    label: s__('DORA4Metrics|Cycle time'),
     description: s__(
-      "ValueStreamAnalytics|Median time from the earliest commit of a linked issue's merge request to when that issue is closed.",
+      'ValueStreamAnalytics|Median time between when an issue is first referenced in the commit message of a merge request and when that referenced issue is closed.',
     ),
     groupLink: '-/analytics/value_stream_analytics',
     projectLink: '-/value_stream_analytics',
-    docsLink: helpPagePath('user/group/value_stream_analytics/index', {
+    docsLink: helpPagePath('user/group/value_stream_analytics/_index', {
       anchor: 'lifecycle-metrics',
     }),
+    unit: UNITS.DAYS,
   },
   [FLOW_METRICS.ISSUES]: {
+    label: s__('DORA4Metrics|New issues'),
+    unit: UNITS.COUNT,
     description: s__('ValueStreamAnalytics|Number of new issues created.'),
     groupLink: '-/issues_analytics',
     projectLink: '-/analytics/issues_analytics',
-    docsLink: helpPagePath('user/analytics/issue_analytics'),
+    docsLink: helpPagePath('user/group/issues_analytics/_index'),
   },
-  [FLOW_METRICS.ISSUES_COMPLETED]: {
-    description: s__('ValueStreamAnalytics|Number of issues closed by month.'),
-    groupLink: '-/issues_analytics',
-    projectLink: '-/analytics/issues_analytics',
-    docsLink: helpPagePath('user/analytics/issue_analytics'),
+  [FLOW_METRICS.COMMITS]: {
+    label: s__('DORA4Metrics|Commits'),
+    unit: UNITS.COUNT,
+    description: s__('ValueStreamAnalytics|Number of commits pushed to the default branch'),
   },
   [FLOW_METRICS.DEPLOYS]: {
+    label: s__('DORA4Metrics|Deploys'),
+    unit: UNITS.COUNT,
     description: s__('ValueStreamAnalytics|Total number of deploys to production.'),
     groupLink: '-/analytics/productivity_analytics',
     projectLink: '-/analytics/merge_request_analytics',
     docsLink: helpPagePath('user/analytics/merge_request_analytics'),
   },
-  [CONTRIBUTOR_METRICS.COUNT]: {
+};
+
+export const PIPELINE_ANALYTICS_METRIC_METADATA = {
+  [PIPELINE_ANALYTICS_METRICS.COUNT]: {
     description: s__(
-      'ValueStreamAnalytics|Number of monthly unique users with contributions in the group.',
+      'CICDAnalytics|The total number of pipelines that have run in the selected time period.',
     ),
+    groupLink: '',
+    projectLink: '-/pipelines/charts',
+    docsLink: helpPagePath('user/analytics/ci_cd_analytics#pipeline-metrics'),
+  },
+  [PIPELINE_ANALYTICS_METRICS.SUCCESS_RATE]: {
+    description: s__('CICDAnalytics|The percentage of pipelines that completed successfully.'),
+    groupLink: '',
+    projectLink: '-/pipelines/charts',
+    docsLink: helpPagePath('user/analytics/ci_cd_analytics#pipeline-metrics'),
+  },
+  [PIPELINE_ANALYTICS_METRICS.FAILURE_RATE]: {
+    description: s__('CICDAnalytics|The percentage of pipelines that failed.'),
+    groupLink: '',
+    projectLink: '-/pipelines/charts',
+    docsLink: helpPagePath('user/analytics/ci_cd_analytics#pipeline-metrics'),
+  },
+  [PIPELINE_ANALYTICS_METRICS.MEDIAN]: {
+    description: s__('CICDAnalytics|The median time it takes for pipelines to complete.'),
+    groupLink: '',
+    projectLink: '-/pipelines/charts',
+    docsLink: helpPagePath('user/analytics/ci_cd_analytics#pipeline-metrics'),
+  },
+};
+
+export const VALUE_STREAM_METRIC_METADATA = {
+  ...VALUE_STREAM_METRIC_TILE_METADATA,
+  [FLOW_METRICS.ISSUES_COMPLETED]: {
+    description: s__('ValueStreamAnalytics|Number of issues closed by month.'),
+    groupLink: '-/issues_analytics',
+    projectLink: '-/analytics/issues_analytics',
+    docsLink: helpPagePath('user/group/issues_analytics/_index'),
+  },
+  [CONTRIBUTOR_METRICS.COUNT]: {
+    description: s__('ValueStreamAnalytics|Number of monthly unique users with contributions.'),
     groupLink: '-/contribution_analytics',
+    projectLink: '-/graphs/master?ref_type=heads',
     docsLink: helpPagePath('user/profile/contributions_calendar.html', {
       anchor: 'user-contribution-events',
     }),
   },
   [VULNERABILITY_METRICS.CRITICAL]: {
-    description: s__('ValueStreamAnalytics|Critical vulnerabilities over time.'),
+    description: s__(
+      'ValueStreamAnalytics|Number of critical vulnerabilities identified per month.',
+    ),
     groupLink: '-/security/vulnerabilities?severity=CRITICAL',
     projectLink: '-/security/vulnerability_report?severity=CRITICAL',
     docsLink: helpPagePath('user/application_security/vulnerabilities/severities.html'),
@@ -224,7 +355,7 @@ export const METRIC_TOOLTIPS = {
     docsLink: helpPagePath('user/application_security/vulnerabilities/severities.html'),
   },
   [MERGE_REQUEST_METRICS.THROUGHPUT]: {
-    description: s__('ValueStreamAnalytics|The number of merge requests merged by month.'),
+    description: s__('ValueStreamAnalytics|Number of merge requests merged by month.'),
     groupLink: '-/analytics/productivity_analytics',
     projectLink: `-/analytics/merge_request_analytics?start_date=${formatDateParam(
       mrThroughputStartDate,
@@ -243,48 +374,41 @@ export const METRIC_TOOLTIPS = {
   },
   [AI_METRICS.CODE_SUGGESTIONS_USAGE_RATE]: {
     description: s__(
+      'AiImpactAnalytics|Monthly user engagement with GitLab Duo Code Suggestions. Percentage ratio calculated as monthly unique Code Suggestions users / total monthly unique code contributors.',
+    ),
+    groupLink: '',
+    projectLink: '',
+    docsLink: helpPagePath('user/project/repository/code_suggestions/_index'),
+  },
+  [AI_METRICS.CODE_SUGGESTIONS_ACCEPTANCE_RATE]: {
+    description: s__(
+      'AiImpactAnalytics|Monthly GitLab Duo Code Suggestions accepted / total Code Suggestions generated.',
+    ),
+    groupLink: '',
+    projectLink: '',
+    docsLink: helpPagePath('user/project/repository/code_suggestions/_index', {
+      anchor: 'use-code-suggestions',
+    }),
+  },
+  [AI_METRICS.DUO_CHAT_USAGE_RATE]: {
+    description: s__(
       'AiImpactAnalytics|Monthly user engagement with AI Code Suggestions. Percentage ratio calculated as monthly unique Code Suggestions users / total monthly unique code contributors.',
     ),
     groupLink: '',
     projectLink: '',
-    docsLink: helpPagePath('user/project/repository/code_suggestions/index'),
+    docsLink: helpPagePath('user/gitlab_duo_chat/_index'),
   },
-};
-
-// TODO: Remove this once the migration to METRIC_TOOLTIPS is complete
-// https://gitlab.com/gitlab-org/gitlab/-/issues/388067
-export const METRICS_POPOVER_CONTENT = {
-  lead_time: {
-    description: s__('ValueStreamAnalytics|Median time from issue created to issue closed.'),
-  },
-  cycle_time: {
+  [AI_METRICS.DUO_RCA_USAGE_RATE]: {
     description: s__(
-      "ValueStreamAnalytics|Median time from the earliest commit of a linked issue's merge request to when that issue is closed.",
+      'AiImpactAnalytics|Monthly user engagement with Duo Root Cause Analysis. Percentage ratio calculated as total monthly unique Duo Root Cause Analysis users / monthly unique Duo Chat users.',
     ),
+    groupLink: '',
+    projectLink: '',
+    docsLink: helpPagePath('user/gitlab_duo/use_cases', {
+      anchor: 'root-cause-analysis-use-cases',
+    }),
   },
-  lead_time_for_changes: {
-    description: s__(
-      'ValueStreamAnalytics|Median time between merge request merge and deployment to a production environment for all MRs deployed in the given time period.',
-    ),
-  },
-  issues: { description: s__('ValueStreamAnalytics|Number of new issues created.') },
-  deploys: { description: s__('ValueStreamAnalytics|Total number of deploys to production.') },
-  deployment_frequency: {
-    description: s__('ValueStreamAnalytics|Average number of deployments to production per day.'),
-  },
-  commits: {
-    description: s__('ValueStreamAnalytics|Number of commits pushed to the default branch'),
-  },
-  time_to_restore_service: {
-    description: s__(
-      'ValueStreamAnalytics|Median time an incident was open on a production environment in the given time period.',
-    ),
-  },
-  change_failure_rate: {
-    description: s__(
-      'ValueStreamAnalytics|Percentage of deployments that cause an incident in production.',
-    ),
-  },
+  ...PIPELINE_ANALYTICS_METRIC_METADATA,
 };
 
 export const USAGE_OVERVIEW_NO_DATA_ERROR = s__(
@@ -331,3 +455,9 @@ export const USAGE_OVERVIEW_QUERY_INCLUDE_KEYS = {
   [USAGE_OVERVIEW_IDENTIFIER_MERGE_REQUESTS]: 'includeMergeRequests',
   [USAGE_OVERVIEW_IDENTIFIER_PIPELINES]: 'includePipelines',
 };
+
+export const USAGE_OVERVIEW_GROUP_ONLY_IDENTIFIERS = [
+  USAGE_OVERVIEW_IDENTIFIER_GROUPS,
+  USAGE_OVERVIEW_IDENTIFIER_USERS,
+  USAGE_OVERVIEW_IDENTIFIER_PROJECTS,
+];

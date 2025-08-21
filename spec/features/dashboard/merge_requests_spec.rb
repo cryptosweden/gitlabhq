@@ -13,10 +13,19 @@ RSpec.describe 'Dashboard Merge Requests', :js, feature_category: :code_review_w
 
   let(:public_project) { create(:project, :public, :repository) }
   let(:forked_project) { fork_project(public_project, current_user, repository: true) }
+  let(:page_path) { merge_requests_dashboard_path(assignee_username: [user.username]) }
 
   before do
     project.add_maintainer(current_user)
     sign_in(current_user)
+  end
+
+  context 'when the test is flaky',
+    quarantine: {
+      issue: 'https://gitlab.com/gitlab-org/gitlab/-/issues/535181',
+      type: :flaky
+    } do
+    it_behaves_like 'page with product usage data collection banner'
   end
 
   describe 'sidebar' do
@@ -246,7 +255,7 @@ RSpec.describe 'Dashboard Merge Requests', :js, feature_category: :code_review_w
 
       visit project_merge_requests_path(project)
 
-      expect(find('.issues-filters')).to have_content(s_('SortOptions|Priority'))
+      expect(find_by_testid('issuable-search-container')).to have_content(s_('SortOptions|Priority'))
     end
 
     it 'passes axe automated accessibility testing' do

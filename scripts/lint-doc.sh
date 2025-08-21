@@ -3,7 +3,11 @@ set -o pipefail
 
 COLOR_RED="\e[31m"
 COLOR_GREEN="\e[32m"
+COLOR_YELLOW="\e[33m"
 COLOR_RESET="\e[39m"
+
+# Projects that are included on the Docs website besides gitlab
+EXTERNAL_DOCS_PROJECTS="omnibus charts runner operator"
 
 cd "$(dirname "$0")/.." || exit 1
 # shellcheck disable=2059
@@ -19,33 +23,6 @@ then
   printf "${COLOR_RED}ERROR: Short options for curl should not be used in documentation!${COLOR_RESET}"
   printf " Use long options (for example, --header instead of -H):\n" >&2
   grep --extended-regexp --recursive --color=auto 'curl (.+ )?-[^- ].*' doc
-  ((ERRORCODE++))
-fi
-
-# Documentation pages need front matter for tracking purposes.
-# shellcheck disable=2059
-printf "${COLOR_GREEN}INFO: Checking documentation for front matter...${COLOR_RESET}\n"
-if ! scripts/lint-docs-metadata.sh
-then
-  # shellcheck disable=2059
-  printf "${COLOR_RED}ERROR: These documentation pages need front matter!${COLOR_RESET}"
-  printf " See https://docs.gitlab.com/ee/development/documentation/index.html#stage-and-group-metadata for how to add it.\n" >&2
-  ((ERRORCODE++))
-fi
-
-# Test for non-standard spaces (NBSP, NNBSP, ZWSP) in documentation.
-# shellcheck disable=2059
-printf "${COLOR_GREEN}INFO: Checking for non-standard spaces...${COLOR_RESET}\n"
-if grep --extended-regexp --binary-file=without-match --recursive '[  ​]' doc/ >/dev/null 2>&1;
-then
-  # shellcheck disable=2059
-  printf "${COLOR_RED}ERROR: Non-standard spaces (NBSP, NNBSP, ZWSP) should not be used in documentation!${COLOR_RESET}"
-  printf " https://docs.gitlab.com/ee/development/documentation/styleguide/index.html#spaces-between-words\n"
-  printf "Replace with standard spaces:\n" >&2
-  # Find the spaces, then add color codes with sed to highlight each NBSP or NNBSP in the output.
-  # shellcheck disable=SC1018
-  grep --extended-regexp --binary-file=without-match --recursive --color=auto '[  ]' doc \
-       | sed -e ''/ /s//"$(printf "\033[0;101m \033[0m")"/'' -e ''/ /s//"$(printf "\033[0;101m \033[0m")"/''
   ((ERRORCODE++))
 fi
 
@@ -84,13 +61,13 @@ then
   # shellcheck disable=2059
   printf "${COLOR_RED}ERROR: The number of README.md files has changed!${COLOR_RESET} Use index.md instead of README.md.\n" >&2
   printf "If removing a README.md file, update NUMBER_READMES in lint-doc.sh.\n" >&2
-  printf "https://docs.gitlab.com/ee/development/documentation/site_architecture/folder_structure.html#work-with-directories-and-files\n"
+  printf "https://docs.gitlab.com/development/documentation/site_architecture/folder_structure/#work-with-directories-and-files\n"
   ((ERRORCODE++))
 fi
 
 # Do not use dashes (-) in directory names, use underscores (_) instead.
-# Number of directories with dashes as of 2021-09-17
-DIR_NUMBER_DASHES=2
+# Number of directories with dashes as of 2024-12-28
+DIR_NUMBER_DASHES=0
 DIR_FIND_DASHES=$(find doc -type d -name "*-*" | wc -l)
 # shellcheck disable=2059
 printf "${COLOR_GREEN}INFO: Checking for directory names containing dashes...${COLOR_RESET}\n"
@@ -99,13 +76,13 @@ then
   # shellcheck disable=2059
   printf "${COLOR_RED}ERROR: The number of directory names containing dashes has changed!${COLOR_RESET} Use underscores instead of dashes for the directory names.\n" >&2
   printf "If removing a directory containing dashes, update NUMBER_DASHES in lint-doc.sh.\n" >&2
-  printf "https://docs.gitlab.com/ee/development/documentation/site_architecture/folder_structure.html#work-with-directories-and-files\n"
+  printf "https://docs.gitlab.com/development/documentation/site_architecture/folder_structure/#work-with-directories-and-files\n"
    ((ERRORCODE++))
 fi
 
 # Do not use dashes (-) in filenames, use underscores (_) instead.
-# Number of filenames with dashes as of 2024-06-17
-FILE_NUMBER_DASHES=70
+# Number of filenames with dashes as of 2025-05-09
+FILE_NUMBER_DASHES=64
 FILE_FIND_DASHES=$(find doc -type f -name "*-*.md" | wc -l)
 # shellcheck disable=2059
 printf "${COLOR_GREEN}INFO: Checking for filenames containing dashes...${COLOR_RESET}\n"
@@ -114,7 +91,7 @@ then
   # shellcheck disable=2059
   printf "${COLOR_RED}ERROR: The number of filenames containing dashes has changed!${COLOR_RESET} Use underscores instead of dashes for the filenames.\n" >&2
   printf "If removing a file containing dashes, update the filename NUMBER_DASHES in lint-doc.sh.\n" >&2
-  printf "https://docs.gitlab.com/ee/development/documentation/site_architecture/folder_structure.html#work-with-directories-and-files\n"
+  printf "https://docs.gitlab.com/development/documentation/site_architecture/folder_structure/#work-with-directories-and-files\n"
    ((ERRORCODE++))
 fi
 
@@ -127,8 +104,25 @@ if echo "${FIND_UPPERCASE_DIRS}" | grep . &>/dev/null
 then
   # shellcheck disable=2059
   printf "${COLOR_RED}ERROR: Found one or more directories with an uppercase letter in their name!${COLOR_RESET} Use lowercase instead of uppercase for the directory names.\n" >&2
-  printf "https://docs.gitlab.com/ee/development/documentation/site_architecture/folder_structure.html#work-with-directories-and-files\n" >&2
+  printf "https://docs.gitlab.com/development/documentation/site_architecture/folder_structure/#work-with-directories-and-files\n" >&2
   echo "${FIND_UPPERCASE_DIRS}"
+  ((ERRORCODE++))
+fi
+
+# Images in documentation must contain a milestone number in
+# the name.
+VERSIONLESS_IMAGES=$(find doc -name "*.png" | grep -Ev '_v[0-9][0-9]?_.+\.png$')
+
+# shellcheck disable=2059
+printf "${COLOR_GREEN}INFO: Checking for images without a milestone in the name...${COLOR_RESET}\n"
+if [ -n "${VERSIONLESS_IMAGES}" ]
+then
+  # shellcheck disable=2059
+  printf "${COLOR_RED}ERROR: Image names must include a milestone!\n" >&2
+  printf "${COLOR_RESET}Append a milestone to the image filename\n\n" >&2
+  printf "  in the format '_vXX_Y'. For example, 'sample_image_v18_5.png'.\n" >&2
+  printf "${COLOR_RED}${VERSIONLESS_IMAGES}${COLOR_RESET}\n\n"
+  printf "For help, see https://docs.gitlab.com/development/documentation/styleguide/#image-requirements\n"
   ((ERRORCODE++))
 fi
 
@@ -139,7 +133,7 @@ if echo "${FIND_UPPERCASE_FILES}" | grep . &>/dev/null
 then
   # shellcheck disable=2059
   printf "${COLOR_RED}ERROR: Found one or more file names with an uppercase letter in their name!${COLOR_RESET} Use lowercase instead of uppercase for the file names.\n" >&2
-  printf "https://docs.gitlab.com/ee/development/documentation/site_architecture/folder_structure.html#work-with-directories-and-files\n" >&2
+  printf "https://docs.gitlab.com/development/documentation/site_architecture/folder_structure/#work-with-directories-and-files\n" >&2
   echo "${FIND_UPPERCASE_FILES}"
   ((ERRORCODE++))
 fi
@@ -150,6 +144,7 @@ fi
 if [ -n "$1" ]
 then
   MD_DOC_PATH="$@"
+  MD_DOC_PATH_VALE="$@"
   # shellcheck disable=2059
   printf "${COLOR_GREEN}INFO: List of files specified on command line. Running Markdownlint and Vale for only those files...${COLOR_RESET}\n"
 elif [ -n "${CI_MERGE_REQUEST_IID}" ]
@@ -164,10 +159,12 @@ then
   if grep -E "\.vale|\.markdownlint|lint-doc\.sh|docs\.gitlab-ci\.yml" < $DOC_CHANGES_FILE
   then
     MD_DOC_PATH=${MD_DOC_PATH:-'doc/{*,**/*}.md'}
+    MD_DOC_PATH_VALE=${MD_DOC_PATH_VALE:-'doc/'}
     # shellcheck disable=2059
     printf "${COLOR_GREEN}INFO: Vale, Markdownlint, lint-doc.sh, or pipeline configuration changed. Testing all files.${COLOR_RESET}\n"
   else
     MD_DOC_PATH=$(cat $DOC_CHANGES_FILE)
+    MD_DOC_PATH_VALE=$(cat $DOC_CHANGES_FILE)
     if [ -n "${MD_DOC_PATH}" ]
     then
       # shellcheck disable=2059
@@ -177,6 +174,7 @@ then
   rm $DOC_CHANGES_FILE
 else
   MD_DOC_PATH=${MD_DOC_PATH:-'doc/{*,**/*}.md'}
+  MD_DOC_PATH_VALE=${MD_DOC_PATH_VALE:-'doc/'}
   # shellcheck disable=2059
   printf "${COLOR_GREEN}INFO: No merge request pipeline detected. Running Markdownlint and Vale on all files...${COLOR_RESET}\n"
 fi
@@ -185,7 +183,7 @@ function run_locally_or_in_container() {
   local cmd=$1
   local args=$2
   local files=$3
-  local registry_url="registry.gitlab.com/gitlab-org/gitlab-docs/lint-markdown:alpine-3.20-vale-3.4.2-markdownlint2-0.13.0-lychee-0.15.1"
+  local registry_url="registry.gitlab.com/gitlab-org/technical-writing/docs-gitlab-com/lint-markdown:alpine-3.21-vale-3.11.2-markdownlint2-0.17.2-lychee-0.18.1"
 
   if hash "${cmd}" 2>/dev/null
   then
@@ -225,7 +223,7 @@ then
   # shellcheck disable=2059
   printf "${COLOR_GREEN}INFO: Merge request pipeline detected, but no markdown files found. Skipping.${COLOR_RESET}\n"
 else
-  if ! yarn markdownlint ${MD_DOC_PATH};
+  if ! markdownlint-cli2 ${MD_DOC_PATH};
   then
     # shellcheck disable=2059
     printf "${COLOR_RED}ERROR: Markdownlint failed with errors!${COLOR_RESET}\n" >&2
@@ -235,7 +233,20 @@ fi
 
 # shellcheck disable=2059
 printf "${COLOR_GREEN}INFO: Looking for Vale to lint prose, either installed locally or available in documentation linting image...${COLOR_RESET}\n"
-run_locally_or_in_container 'vale' "--minAlertLevel error --output=doc/.vale/vale.tmpl" "${MD_DOC_PATH}"
+run_locally_or_in_container 'vale' "--minAlertLevel error --output=doc/.vale/vale.tmpl" "${MD_DOC_PATH_VALE}"
+
+# Check for restricted directory names that would conflict with other project's docs
+# shellcheck disable=2059
+printf "${COLOR_GREEN}INFO: Checking for restricted directory names...${COLOR_RESET}\n"
+for dir in $EXTERNAL_DOCS_PROJECTS; do
+  if [ -d "doc/$dir" ]; then
+    # shellcheck disable=2059
+    printf "${COLOR_RED}ERROR: Found restricted directory name '${dir}' in doc/ directory.${COLOR_RESET}\n"
+    printf "This directory name conflicts with existing documentation repositories.\n" >&2
+    ((ERRORCODE++))
+    break
+  fi
+done
 
 if [ "$ERRORCODE" -ne 0 ]
 then

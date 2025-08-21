@@ -65,7 +65,7 @@ class Import::GiteaController < Import::GithubController
   def provider_auth
     if session[access_token_key].blank? || provider_url.blank?
       redirect_to new_import_gitea_url,
-        alert: _('You need to specify both an Access Token and a Host URL.')
+        alert: _('You need to specify both an access token and a Host URL.')
     end
   end
 
@@ -86,7 +86,11 @@ class Import::GiteaController < Import::GithubController
   def client_options
     verified_url, provider_hostname = verify_blocked_uri
 
-    { host: verified_url.scheme == 'https' ? provider_url : verified_url.to_s, api_version: 'v1', hostname: provider_hostname }
+    {
+      host: verified_url.scheme == 'https' ? provider_url : verified_url.to_s,
+      api_version: 'v1',
+      hostname: provider_hostname
+    }
   end
 
   def verify_blocked_uri
@@ -101,7 +105,7 @@ class Import::GiteaController < Import::GithubController
   rescue Gitlab::HTTP_V2::UrlBlocker::BlockedUrlError => e
     session[access_token_key] = nil
 
-    redirect_to new_import_url, alert: _('Specified URL cannot be used: "%{reason}"') % { reason: e.message }
+    redirect_to new_import_url, alert: safe_format(_('Specified URL cannot be used: "%{reason}"'), reason: e.message)
   end
 
   def allow_local_requests?

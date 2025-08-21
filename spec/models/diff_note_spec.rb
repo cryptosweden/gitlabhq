@@ -8,6 +8,10 @@ RSpec.describe DiffNote do
   let_it_be(:merge_request) { create(:merge_request) }
   let_it_be(:project) { merge_request.project }
   let_it_be(:commit) { project.commit(sample_commit.id) }
+  let_it_be(:diff_project) { create(:project, :repository) }
+  let_it_be(:diff_mr) do
+    create(:merge_request, source_project: diff_project, target_project: diff_project)
+  end
 
   let_it_be(:path) { "files/ruby/popen.rb" }
 
@@ -39,6 +43,27 @@ RSpec.describe DiffNote do
       subject { build(:diff_note_on_commit, project: project, commit_id: commit_id, position: position) }
     end
 
+    it 'traces the line_code when no line_code is not already set' do
+      note = build(:diff_note_on_merge_request, project: project, position: position, noteable: merge_request)
+
+      expect(note.position).to receive(:line_code).and_return('new_line_code')
+
+      note.valid?
+
+      expect(note.line_code).to eq('new_line_code')
+    end
+
+    it 'does not trace the line code when already set' do
+      note = build(:diff_note_on_merge_request, project: project, position: position, noteable: merge_request,
+        line_code: 'test_line_code')
+
+      expect(note.position).not_to receive(:line_code)
+
+      note.valid?
+
+      expect(note.line_code).to eq('test_line_code')
+    end
+
     it "is not valid when noteable is empty" do
       note = build(:diff_note_on_merge_request, project: project, noteable: nil)
 
@@ -47,9 +72,49 @@ RSpec.describe DiffNote do
       expect(note.errors[:noteable]).to include("doesn't support new-style diff notes")
     end
 
+    context 'when diff note is set on SHA256 repository' do
+      let(:feature_branch) { 'feature' }
+      let(:target_branch) { 'master' }
+      let(:project) do
+        create(
+          :project,
+          :custom_repo,
+          object_format: Repository::FORMAT_SHA256,
+          files: { 'README.md' => 'Test' }
+        ).tap do |p|
+          p.repository.create_file(p.creator, 'foo', 'bar', message: 'Add foo', branch_name: feature_branch)
+        end
+      end
+
+      let(:merge_request) do
+        create(
+          :merge_request,
+          source_project: project,
+          source_branch: feature_branch,
+          target_branch: target_branch
+        )
+      end
+
+      let(:position) do
+        Gitlab::Diff::Position.new(
+          old_path: 'foo',
+          new_path: 'foo',
+          old_line: nil,
+          new_line: 1,
+          diff_refs: merge_request.diff_refs
+        )
+      end
+
+      it 'creates a note without an error' do
+        note = build(:diff_note_on_merge_request, project: project, position: position, noteable: merge_request)
+
+        expect(note).to be_valid
+      end
+    end
+
     context 'when importing' do
       it "does not check if it's supported" do
-        note = build(:diff_note_on_merge_request, project: project, noteable: nil)
+        note = build(:diff_note_on_merge_request, project: project, noteable: merge_request)
         note.importing = true
         note.valid?
 
@@ -124,8 +189,6 @@ RSpec.describe DiffNote do
         )
       end
 
-      subject { build(:diff_note_on_merge_request, project: project, position: position, noteable: merge_request) }
-
       let(:diff_file_from_repository) do
         position.diff_file(project.repository)
       end
@@ -144,6 +207,8 @@ RSpec.describe DiffNote do
       let(:diff_line) { diff_file.diff_lines.first }
 
       let(:line_code) { '2f6fcd96b88b36ce98c38da085c795a27d92a3dd_15_14' }
+
+      subject { build(:diff_note_on_merge_request, project: project, position: position, noteable: merge_request) }
 
       before do
         allow(subject.position).to receive(:line_code).and_return('2f6fcd96b88b36ce98c38da085c795a27d92a3dd_15_14')
@@ -319,6 +384,14 @@ RSpec.describe DiffNote do
     context 'when noteable is a Design' do
       it 'does not return a diff file' do
         diff_note = create(:diff_note_on_design)
+
+        expect(diff_note.diff_file).to be_nil
+      end
+    end
+
+    context 'when noteable is nil' do
+      it 'does not return a diff file' do
+        diff_note = build(:diff_note_on_commit, noteable: nil)
 
         expect(diff_note.diff_file).to be_nil
       end
@@ -522,7 +595,7 @@ RSpec.describe DiffNote do
       it "does not validate diff line" do
         diff_line = subject.diff_line
 
-        expect(diff_line).to be nil
+        expect(diff_line).to be_nil
         expect(subject).to be_valid
       end
 
@@ -570,6 +643,168 @@ RSpec.describe DiffNote do
             new_position.head_sha
           ])
       end
+    end
+  end
+
+  describe '#latest_diff_file_path' do
+    let(:diff_note) { create(:diff_note_on_merge_request, noteable: merge_request, project: project) }
+
+    it 'returns the file_path of latest_diff_file' do
+      expect(diff_note.latest_diff_file_path).to eq(diff_note.latest_diff_file.file_path)
+    end
+  end
+
+  describe '#raw_truncated_diff_lines' do
+    let(:diff_note) { build_stubbed(:diff_note_on_merge_request, noteable: merge_request, project: project) }
+
+    before do
+      allow(diff_note)
+        .to receive_message_chain(:discussion, :truncated_diff_lines)
+        .and_return([
+          instance_double(Gitlab::Diff::Line, text: "+line 1"),
+          instance_double(Gitlab::Diff::Line, text: "+line 2"),
+          instance_double(Gitlab::Diff::Line, text: "-line 3")
+        ])
+    end
+
+    it 'returns raw truncated diff lines' do
+      expect(diff_note.raw_truncated_diff_lines).to eq("+line 1\n+line 2\n-line 3")
+    end
+  end
+
+  describe '#validate_diff_file_and_line' do
+    let(:modified_file_path) do
+      "bar/branch-test.txt"
+    end
+
+    let(:valid_position) do
+      Gitlab::Diff::Position.new(
+        old_path: modified_file_path,
+        new_path: modified_file_path,
+        old_line: nil,
+        new_line: 1,
+        base_sha: diff_project.repository.commit.parent_id,
+        start_sha: diff_project.repository.commit.parent_id,
+        head_sha: diff_project.repository.commit.id
+      )
+    end
+
+    let(:invalid_line_position) do
+      Gitlab::Diff::Position.new(
+        old_path: modified_file_path,
+        new_path: modified_file_path,
+        old_line: nil,
+        new_line: 9999,
+        base_sha: diff_project.repository.commit.parent_id,
+        start_sha: diff_project.repository.commit.parent_id,
+        head_sha: diff_project.repository.commit.id
+      )
+    end
+
+    let(:diff_note) do
+      build(:diff_note_on_merge_request,
+        project: diff_project,
+        noteable: diff_mr,
+        importing: true,
+        position: valid_position,
+        original_position: valid_position
+      )
+    end
+
+    context 'when diff file exists' do
+      before do
+        diff_file = valid_position.diff_file(diff_project.repository)
+
+        allow(diff_note).to receive(:diff_file).and_return(diff_file)
+      end
+
+      it 'does not add errors when diff line exists' do
+        diff_note.validate_diff_file_and_line
+
+        expect(diff_note.errors).to be_empty
+      end
+
+      it 'adds an error when diff line does not exist' do
+        diff_note.original_position = invalid_line_position
+
+        diff_note.validate_diff_file_and_line
+
+        expect(diff_note.errors[:base]).to include(
+          "Failed to find diff line for: #{modified_file_path}, old_line: #{invalid_line_position.old_line}, "\
+          "new_line: #{invalid_line_position.new_line}"
+        )
+
+        expect(diff_note.errors.details[:base]).to contain_exactly(error: :missing_diff_line)
+      end
+    end
+
+    context 'when diff file does not exist' do
+      before do
+        allow(diff_note).to receive_messages(diff_file: nil, fetch_diff_file: nil)
+      end
+
+      it 'adds an error about the missing file' do
+        diff_note.validate_diff_file_and_line
+
+        expect(diff_note.errors[:base]).to include("Failed to find diff file")
+
+        expect(diff_note.errors.details[:base]).to contain_exactly(error: :missing_diff_file)
+      end
+    end
+  end
+
+  describe '#requires_diff_file_validation_during_import?' do
+    let(:modified_file_path) do
+      "bar/branch-test.txt"
+    end
+
+    let(:position) do
+      Gitlab::Diff::Position.new(
+        old_path: modified_file_path,
+        new_path: modified_file_path,
+        old_line: nil,
+        new_line: 1,
+        base_sha: diff_project.repository.commit.parent_id,
+        start_sha: diff_project.repository.commit.parent_id,
+        head_sha: diff_project.repository.commit.id
+      )
+    end
+
+    let(:diff_note) do
+      build(:diff_note_on_merge_request,
+        project: diff_project,
+        noteable: diff_mr,
+        position: position,
+        original_position: position
+      )
+    end
+
+    before do
+      diff_note.importing = true
+      allow(diff_note).to receive(:should_create_diff_file?).and_return(true)
+    end
+
+    it 'returns true when both importing? and should_create_diff_file? are true' do
+      expect(diff_note.requires_diff_file_validation_during_import?).to be(true)
+    end
+
+    it 'returns false when importing? is false' do
+      diff_note.importing = false
+
+      expect(diff_note.requires_diff_file_validation_during_import?).to be(false)
+    end
+
+    it 'returns false when should_create_diff_file? is false' do
+      allow(diff_note).to receive(:should_create_diff_file?).and_return(false)
+
+      expect(diff_note.requires_diff_file_validation_during_import?).to be(false)
+    end
+
+    it 'returns false when both importing? and should_create_diff_file? are false' do
+      diff_note.importing = false
+      allow(diff_note).to receive(:should_create_diff_file?).and_return(false)
+
+      expect(diff_note.requires_diff_file_validation_during_import?).to be(false)
     end
   end
 end

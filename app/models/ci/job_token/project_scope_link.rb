@@ -6,6 +6,9 @@
 module Ci
   module JobToken
     class ProjectScopeLink < Ci::ApplicationRecord
+      include BulkInsertSafe
+      include ExpandedJobTokenPolicies
+
       self.table_name = 'ci_job_token_project_scope_links'
 
       PROJECT_LINK_DIRECTIONAL_LIMIT = 200
@@ -15,18 +18,20 @@ module Ci
       belongs_to :target_project, class_name: 'Project'
       belongs_to :added_by, class_name: 'User'
 
+      validates :job_token_policies, json_schema: { filename: 'ci_job_token_policies' }, allow_blank: true
+
       scope :with_access_direction, ->(direction) { where(direction: direction) }
       scope :with_source, ->(project)   { where(source_project: project) }
       scope :with_target, ->(project)   { where(target_project: project) }
+      scope :autopopulated, -> { where(autopopulated: true) }
 
       validates :source_project, presence: true
       validates :target_project, presence: true
-      validate :not_self_referential_link
       validate :source_project_under_link_limit, on: :create
 
       # When outbound the target project is allowed to be accessed by the source job token.
       # When inbound the source project is allowed to be accessed by the target job token.
-      enum direction: {
+      enum :direction, {
         outbound: 0,
         inbound: 1
       }
@@ -36,14 +41,6 @@ module Ci
       end
 
       private
-
-      def not_self_referential_link
-        return unless source_project && target_project
-
-        if source_project == target_project
-          self.errors.add(:target_project, _("can't be the same as the source project"))
-        end
-      end
 
       def source_project_under_link_limit
         return unless source_project

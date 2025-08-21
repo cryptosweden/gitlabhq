@@ -17,13 +17,22 @@ module Types
         :admin_wiki, :admin_project, :update_pages,
         :admin_remote_mirror, :create_label, :update_wiki, :destroy_wiki,
         :create_pages, :destroy_pages, :read_pages_content, :admin_operations,
-        :read_merge_request, :read_design, :create_design, :destroy_design,
-        :read_environment, :view_edit_page
+        :read_merge_request, :read_design, :create_design, :update_design, :destroy_design,
+        :move_design, :read_environment, :view_edit_page, :admin_issue, :create_work_item,
+        :import_issues, :read_crm_contact, :read_crm_organization
 
       permission_field :create_snippet
+      permission_field :admin_all_resources,
+        description: 'If `true`, the user is an instance administrator.'
 
       def create_snippet
         Ability.allowed?(context[:current_user], :create_snippet, object)
+      end
+
+      def admin_all_resources
+        return false unless current_user
+
+        current_user.can_admin_all_resources?
       end
     end
   end

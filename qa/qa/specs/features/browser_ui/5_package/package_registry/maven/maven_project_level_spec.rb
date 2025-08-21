@@ -1,23 +1,24 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Package', :object_storage, :external_api_calls do
-    describe 'Maven project level endpoint', product_group: :package_registry do
+  RSpec.describe 'Package', :object_storage, :external_api_calls, feature_category: :package_registry do
+    describe 'Maven project level endpoint' do
       include Runtime::Fixtures
       include Support::Helpers::MaskToken
 
+      let(:api_client) { Runtime::User::Store.default_api_client }
+      let(:personal_access_token) { api_client.personal_access_token }
       let(:group_id) { 'com.gitlab.qa' }
       let(:artifact_id) { "maven-#{SecureRandom.hex(8)}" }
       let(:package_name) { "#{group_id}/#{artifact_id}".tr('.', '/') }
       let(:package_version) { '1.3.7' }
       let(:package_type) { 'maven' }
-      let(:personal_access_token) { Runtime::Env.personal_access_token }
       let(:package_project) { create(:project, :with_readme, :private, name: "#{package_type}_package_project") }
       let(:package) { build(:package, name: package_name, project: package_project) }
 
-      let(:runner) do
+      let!(:runner) do
         create(:project_runner,
-          name: "qa-runner-#{Time.now.to_i}",
+          name: "qa-runner-#{SecureRandom.hex(6)}",
           tags: ["runner-for-#{package_project.name}"],
           executor: :docker,
           project: package_project)
@@ -40,13 +41,10 @@ module QA
 
       before do
         Flow::Login.sign_in_unless_signed_in
-        runner
       end
 
       after do
         runner.remove_via_api!
-        package.remove_via_api!
-        package_project.remove_via_api!
       end
 
       where do
@@ -89,28 +87,21 @@ module QA
           settings_xml = ERB.new(read_fixture('package_managers/maven/project', 'settings.xml.erb'))
                                     .result(binding)
 
-          Support::Retrier.retry_on_exception(max_attempts: 3, sleep_interval: 2) do
-            create(:commit, project: package_project, actions: [
-              { action: 'create', file_path: '.gitlab-ci.yml', content: gitlab_ci_yaml },
-              { action: 'create', file_path: 'pom.xml', content: pom_xml },
-              { action: 'create', file_path: 'settings.xml', content: settings_xml }
-            ])
-          end
+          create(:commit, project: package_project, actions: [
+            { action: 'create', file_path: '.gitlab-ci.yml', content: gitlab_ci_yaml },
+            { action: 'create', file_path: 'pom.xml', content: pom_xml },
+            { action: 'create', file_path: 'settings.xml', content: settings_xml }
+          ])
 
           package_project.visit!
+          Flow::Pipeline.wait_for_pipeline_creation_via_api(project: package_project)
 
-          Flow::Pipeline.visit_latest_pipeline
-
-          Page::Project::Pipeline::Show.perform do |pipeline|
-            pipeline.click_job('deploy-and-install')
-          end
-
+          package_project.visit_job('deploy-and-install')
           Page::Project::Job::Show.perform do |job|
             expect(job).to be_successful(timeout: 800)
           end
 
           Page::Project::Menu.perform(&:go_to_package_registry)
-
           Page::Project::Packages::Index.perform do |index|
             expect(index).to have_package(package_name)
 
@@ -118,7 +109,7 @@ module QA
           end
 
           Page::Project::Packages::Show.perform do |show|
-            expect(show).to have_package_info(package_name, package_version)
+            expect(show).to have_package_info(name: nil, version: package_version)
           end
         end
       end

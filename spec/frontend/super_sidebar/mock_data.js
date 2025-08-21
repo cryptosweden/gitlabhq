@@ -13,7 +13,41 @@ export const createNewMenuGroups = [
         href: '/groups/new?parent_id=22#create-group-pane',
       },
       {
-        text: 'New epic',
+        text: 'New work item',
+        component: 'create_new_work_item_modal',
+      },
+      {
+        text: 'Invite members',
+        component: 'invite_members',
+      },
+    ],
+  },
+  {
+    name: 'GitLab',
+    items: [
+      {
+        text: 'New project/repository',
+        href: '/projects/new',
+      },
+      {
+        text: 'New group',
+        href: '/groups/new',
+      },
+      {
+        text: 'New snippet',
+        href: '/-/snippets/new',
+      },
+    ],
+  },
+];
+
+export const createNewMenuProjects = [
+  {
+    name: 'This project',
+    items: [
+      {
+        text: 'New work item',
+        href: 'issues/new',
         component: 'create_new_work_item_modal',
       },
       {
@@ -120,7 +154,9 @@ export const contextSwitcherLinks = [
 
 export const sidebarData = {
   is_logged_in: true,
-  is_admin: false,
+  admin_mode: {
+    user_is_admin: false,
+  },
   admin_url: '/admin',
   current_menu_items: [],
   current_context: {},
@@ -242,8 +278,8 @@ export const frecentGroupsMock = [
     id: 'gid://gitlab/Group/1',
     name: 'Frecent group 1',
     namespace: 'Frecent Namespace 1',
-    webUrl: '/frecent-namespace-1/frecent-group-1',
     avatarUrl: '/uploads/-/avatar1.png',
+    fullPath: 'frecent-namespace-1/frecent-group-1',
   },
 ];
 
@@ -252,8 +288,8 @@ export const frecentProjectsMock = [
     id: 'gid://gitlab/Project/1',
     name: 'Frecent project 1',
     namespace: 'Frecent Namespace 1 / Frecent project 1',
-    webUrl: '/frecent-namespace-1/frecent-project-1',
     avatarUrl: '/uploads/-/avatar1.png',
+    fullPath: 'frecent-namespace-1/frecent-project-1',
   },
 ];
 
@@ -285,3 +321,22 @@ export const sortedFrequentItems = [
   { id: 1, frequency: 12, lastAccessedOn: 1491400843391 },
   { id: 4, frequency: 8, lastAccessedOn: 1497979281815 },
 ];
+
+export const sidebarDataCountResponse = ({
+  openIssuesCount = 8,
+  openMergeRequestsCount = 236456,
+} = {}) => {
+  return {
+    data: {
+      namespace: {
+        id: 'gid://gitlab/Project/11',
+        sidebar: {
+          openIssuesCount,
+          openMergeRequestsCount,
+          __typename: 'NamespaceSidebar',
+        },
+        __typename: 'Namespace',
+      },
+    },
+  };
+};

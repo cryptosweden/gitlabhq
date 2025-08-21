@@ -1,4 +1,3 @@
-# rubocop:disable Naming/FileName
 # frozen_string_literal: true
 
 module Gitlab
@@ -8,37 +7,28 @@ module Gitlab
         Command = Struct.new(
           :source, :project, :current_user,
           :origin_ref, :checkout_sha, :after_sha, :before_sha, :source_sha, :target_sha,
-          :trigger_request, :schedule, :merge_request, :external_pull_request,
+          :schedule, :merge_request, :external_pull_request,
           :ignore_skip_ci, :save_incompleted,
           :seeds_block, :variables_attributes, :push_options,
-          :chat_data, :allow_mirror_update, :bridge, :content, :dry_run, :logger, :execution_policy_dry_run,
+          :chat_data, :allow_mirror_update, :bridge, :content, :dry_run, :linting, :logger, :pipeline_policy_context,
           # These attributes are set by Chains during processing:
           :config_content, :yaml_processor_result, :workflow_rules_result, :pipeline_seed,
-          :pipeline_config, :execution_policy_pipelines
+          :pipeline_config, :partition_id, :inputs, :gitaly_context,
+          keyword_init: true
         ) do
           include Gitlab::Utils::StrongMemoize
 
-          def initialize(params = {})
-            params.each do |key, value|
-              self[key] = value
-            end
+          def readonly?
+            dry_run? || linting?
           end
 
           def dry_run?
-            dry_run || execution_policy_dry_run
+            dry_run
           end
 
-          # rubocop:disable Gitlab/NoCodeCoverageComment -- method is tested in EE
-          # :nocov:
-          def execution_policy_mode?
-            false # to be overridden in EE
+          def linting?
+            linting
           end
-
-          def pipeline_policy_context
-            # to be overridden in EE
-          end
-          # :nocov:
-          # rubocop:enable Gitlab/NoCodeCoverageComment
 
           def branch_exists?
             strong_memoize(:is_branch) do
@@ -53,10 +43,7 @@ module Gitlab
           end
 
           def merge_request_ref_exists?
-            strong_memoize(:merge_request_ref_exists) do
-              MergeRequest.merge_request_ref?(origin_ref) &&
-                project.repository.ref_exists?(origin_ref)
-            end
+            check_merge_request_ref
           end
 
           def ref
@@ -176,11 +163,14 @@ module Gitlab
           def gitlab_org_project?
             project.full_path == 'gitlab-org/gitlab'
           end
+
+          def check_merge_request_ref
+            MergeRequest.merge_request_ref?(origin_ref) && project.repository.ref_exists?(origin_ref)
+          end
         end
       end
     end
   end
 end
 
-# rubocop:enable Naming/FileName
 Gitlab::Ci::Pipeline::Chain::Command.prepend_mod

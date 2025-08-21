@@ -16,7 +16,7 @@ import {
   extendedWrapper,
 } from 'helpers/vue_test_utils_helper';
 
-import { visitUrl } from '~/lib/utils/url_utility';
+import { visitUrl, appendLineRangeHashToUrl } from '~/lib/utils/url_utility';
 import getWritableForksQuery from '~/vue_shared/components/web_ide/get_writable_forks.query.graphql';
 
 jest.mock('~/lib/utils/url_utility');
@@ -25,8 +25,6 @@ const TEST_EDIT_URL = '/gitlab-test/test/-/edit/main/';
 const TEST_WEB_IDE_URL = '/-/ide/project/gitlab-test/test/edit/main/-/';
 const TEST_GITPOD_URL = 'https://gitpod.test/';
 const TEST_PIPELINE_EDITOR_URL = '/-/ci/editor?branch_name="main"';
-const TEST_USER_PREFERENCES_GITPOD_PATH = '/-/profile/preferences#user_gitpod_enabled';
-const TEST_USER_PROFILE_ENABLE_GITPOD_PATH = '/-/profile?user%5Bgitpod_enabled%5D=true';
 const forkPath = '/some/fork/path';
 
 const ACTION_EDIT = {
@@ -66,8 +64,8 @@ const ACTION_WEB_IDE_CONFIRM_FORK = {
 };
 const ACTION_WEB_IDE_EDIT_FORK = { ...ACTION_WEB_IDE, text: 'Edit fork in Web IDE' };
 const ACTION_GITPOD = {
-  href: TEST_GITPOD_URL,
-  handle: undefined,
+  href: undefined,
+  handle: expect.any(Function),
   secondaryText: 'Launch a ready-to-code development environment for your project.',
   text: 'Gitpod',
   attrs: {
@@ -78,11 +76,6 @@ const ACTION_GITPOD = {
     label: 'gitpod',
   },
 };
-const ACTION_GITPOD_ENABLE = {
-  ...ACTION_GITPOD,
-  href: undefined,
-  handle: expect.any(Function),
-};
 const ACTION_PIPELINE_EDITOR = {
   href: TEST_PIPELINE_EDITOR_URL,
   secondaryText: 'Edit, lint, and visualize your pipeline.',
@@ -90,6 +83,7 @@ const ACTION_PIPELINE_EDITOR = {
   attrs: {
     'data-testid': 'pipeline_editor-menu-item',
   },
+  handle: undefined,
   tracking: {
     action: 'click_consolidated_edit',
     label: 'pipeline_editor',
@@ -102,7 +96,10 @@ describe('vue_shared/components/web_ide_link', () => {
   let wrapper;
   let trackingSpy;
 
-  function createComponent(props, { mountFn = shallowMountExtended, slots = {} } = {}) {
+  function createComponent(
+    props,
+    { mountFn = shallowMountExtended, slots = {}, featureFlagValue = false } = {},
+  ) {
     const fakeApollo = createMockApollo([
       [getWritableForksQuery, jest.fn().mockResolvedValue(getWritableForksResponse)],
     ]);
@@ -128,6 +125,11 @@ describe('vue_shared/components/web_ide_link', () => {
         GlDisclosureDropdownItem,
       },
       apolloProvider: fakeApollo,
+      provide: {
+        glFeatures: {
+          directoryCodeDropdownUpdates: featureFlagValue,
+        },
+      },
     });
 
     trackingSpy = mockTracking(undefined, wrapper.element, jest.spyOn);
@@ -135,7 +137,6 @@ describe('vue_shared/components/web_ide_link', () => {
 
   const findDisclosureDropdown = () => wrapper.findComponent(GlDisclosureDropdown);
   const findDisclosureDropdownItems = () => wrapper.findAllComponents(GlDisclosureDropdownItem);
-  const findModal = () => wrapper.findComponent(GlModal);
   const findForkConfirmModal = () => wrapper.findComponent(ConfirmForkModal);
   const getDropdownItemsAsData = () =>
     findDisclosureDropdownItems().wrappers.map((item) => {
@@ -173,81 +174,72 @@ describe('vue_shared/components/web_ide_link', () => {
       expectedActions: [ACTION_WEB_IDE_EDIT_FORK, ACTION_EDIT],
     },
     {
-      props: { needsToFork: true },
+      props: { needsToFork: true, needsToForkWithWebIde: true },
       expectedActions: [ACTION_WEB_IDE_CONFIRM_FORK, ACTION_EDIT_CONFIRM_FORK],
     },
     {
       props: {
         showWebIdeButton: false,
-        showGitpodButton: true,
-        userPreferencesGitpodPath: TEST_USER_PREFERENCES_GITPOD_PATH,
-        userProfileEnableGitpodPath: TEST_USER_PROFILE_ENABLE_GITPOD_PATH,
-        gitpodEnabled: true,
+        isGitpodEnabledForInstance: true,
+        isGitpodEnabledForUser: true,
       },
       expectedActions: [ACTION_EDIT, ACTION_GITPOD],
     },
     {
       props: {
         showWebIdeButton: false,
-        showGitpodButton: true,
-        userPreferencesGitpodPath: TEST_USER_PREFERENCES_GITPOD_PATH,
-        gitpodEnabled: true,
+        isGitpodEnabledForInstance: true,
+        isGitpodEnabledForUser: false,
       },
       expectedActions: [ACTION_EDIT],
     },
     {
       props: {
-        showWebIdeButton: false,
-        showGitpodButton: true,
-        userProfileEnableGitpodPath: TEST_USER_PROFILE_ENABLE_GITPOD_PATH,
-        gitpodEnabled: true,
+        isGitpodEnabledForInstance: true,
+        isGitpodEnabledForUser: false,
       },
-      expectedActions: [ACTION_EDIT],
-    },
-    {
-      props: {
-        showWebIdeButton: false,
-        showGitpodButton: true,
-        gitpodEnabled: true,
-      },
-      expectedActions: [ACTION_EDIT],
-    },
-    {
-      props: {
-        showWebIdeButton: false,
-        showGitpodButton: true,
-        userPreferencesGitpodPath: TEST_USER_PREFERENCES_GITPOD_PATH,
-        userProfileEnableGitpodPath: TEST_USER_PROFILE_ENABLE_GITPOD_PATH,
-        gitpodEnabled: false,
-      },
-      expectedActions: [ACTION_EDIT, ACTION_GITPOD_ENABLE],
-    },
-    {
-      props: {
-        showGitpodButton: true,
-        userPreferencesGitpodPath: TEST_USER_PREFERENCES_GITPOD_PATH,
-        userProfileEnableGitpodPath: TEST_USER_PROFILE_ENABLE_GITPOD_PATH,
-        gitpodEnabled: false,
-      },
-      expectedActions: [ACTION_WEB_IDE, ACTION_EDIT, ACTION_GITPOD_ENABLE],
+      expectedActions: [ACTION_WEB_IDE, ACTION_EDIT],
     },
     {
       props: {
         showEditButton: false,
-        showGitpodButton: true,
-        userPreferencesGitpodPath: TEST_USER_PREFERENCES_GITPOD_PATH,
-        userProfileEnableGitpodPath: TEST_USER_PROFILE_ENABLE_GITPOD_PATH,
+        isGitpodEnabledForInstance: true,
+        isGitpodEnabledForUser: true,
         gitpodText: 'Test Gitpod',
       },
-      expectedActions: [ACTION_WEB_IDE, { ...ACTION_GITPOD_ENABLE, text: 'Test Gitpod' }],
+      expectedActions: [ACTION_WEB_IDE, { ...ACTION_GITPOD, text: 'Test Gitpod' }],
     },
     {
       props: { showEditButton: false },
       expectedActions: [ACTION_WEB_IDE],
     },
-  ])('for a set of props', ({ props, expectedActions }) => {
+    {
+      props: {
+        showWebIdeButton: true,
+        isGitpodEnabledForInstance: true,
+        isGitpodEnabledForUser: true,
+        isBlob: true,
+      },
+      expectedActions: [
+        { ...ACTION_WEB_IDE, text: 'Open in Web IDE' },
+        ACTION_EDIT,
+        { ...ACTION_GITPOD, text: 'Open in Gitpod' },
+      ],
+      featureFlagValue: true,
+    },
+    {
+      props: {
+        showWebIdeButton: true,
+        isGitpodEnabledForInstance: true,
+        isGitpodEnabledForUser: true,
+        isBlob: false,
+      },
+      expectedActions: [ACTION_EDIT],
+      featureFlagValue: true,
+    },
+  ])('for a set of props', ({ props, expectedActions, featureFlagValue }) => {
     beforeEach(() => {
-      createComponent(props);
+      createComponent(props, { featureFlagValue });
     });
 
     it('renders the appropiate actions', () => {
@@ -294,11 +286,9 @@ describe('vue_shared/components/web_ide_link', () => {
       createComponent({
         showEditButton: false,
         showWebIdeButton: true,
-        showGitpodButton: true,
+        isGitpodEnabledForInstance: true,
         showPipelineEditorButton: true,
-        userPreferencesGitpodPath: TEST_USER_PREFERENCES_GITPOD_PATH,
-        userProfileEnableGitpodPath: TEST_USER_PROFILE_ENABLE_GITPOD_PATH,
-        gitpodEnabled: true,
+        isGitpodEnabledForUser: true,
       });
     });
 
@@ -309,9 +299,33 @@ describe('vue_shared/components/web_ide_link', () => {
     });
 
     it('when web ide button is clicked it opens in a new tab', async () => {
+      const transformation = 'foo';
+      appendLineRangeHashToUrl.mockReturnValueOnce(transformation);
       findDisclosureDropdownItems().at(1).props().item.handle();
       await nextTick();
-      expect(visitUrl).toHaveBeenCalledWith(TEST_WEB_IDE_URL, true);
+      expect(appendLineRangeHashToUrl).toHaveBeenCalledWith(TEST_WEB_IDE_URL);
+      expect(visitUrl).toHaveBeenCalledWith(transformation, true);
+    });
+  });
+
+  describe('when gitpod editor action is available', () => {
+    const GITPOD_URL = '/gitpod';
+
+    beforeEach(() => {
+      createComponent({
+        showEditButton: false,
+        showWebIdeButton: false,
+        isGitpodEnabledForInstance: true,
+        showPipelineEditorButton: false,
+        isGitpodEnabledForUser: true,
+        gitpodUrl: GITPOD_URL,
+      });
+    });
+
+    it('visits GitPod URL when gitpod option is clicked', async () => {
+      expect(visitUrl).not.toHaveBeenCalled();
+      await wrapper.findByTestId('gitpod-menu-item').find('button').trigger('click');
+      expect(visitUrl).toHaveBeenCalledWith(GITPOD_URL, true);
     });
   });
 
@@ -342,7 +356,12 @@ describe('vue_shared/components/web_ide_link', () => {
     it.each(testActions)(
       'emits the correct event when an action handler is called',
       ({ props, expectedEventPayload }) => {
-        createComponent({ ...props, needsToFork: true, disableForkModal: true });
+        createComponent({
+          ...props,
+          needsToFork: true,
+          needsToForkWithWebIde: true,
+          disableForkModal: true,
+        });
 
         findDisclosureDropdownItems().at(0).props().item.handle();
 
@@ -351,7 +370,7 @@ describe('vue_shared/components/web_ide_link', () => {
     );
 
     it.each(testActions)('renders the fork confirmation modal', ({ props }) => {
-      createComponent({ ...props, needsToFork: true });
+      createComponent({ ...props, needsToFork: true, needsToForkWithWebIde: true });
 
       expect(findForkConfirmModal().exists()).toBe(true);
       expect(findForkConfirmModal().props()).toEqual({
@@ -362,7 +381,10 @@ describe('vue_shared/components/web_ide_link', () => {
     });
 
     it.each(testActions)('opens the modal when the button is clicked', async ({ props }) => {
-      createComponent({ ...props, needsToFork: true }, { mountFn: mountExtended });
+      createComponent(
+        { ...props, needsToFork: true, needsToForkWithWebIde: true },
+        { mountFn: mountExtended },
+      );
 
       findDisclosureDropdownItems().at(0).props().item.handle();
 
@@ -377,69 +399,24 @@ describe('vue_shared/components/web_ide_link', () => {
     });
   });
 
-  describe('when Gitpod is not enabled', () => {
-    it('renders closed modal to enable Gitpod', () => {
-      createComponent({
-        showGitpodButton: true,
-        userPreferencesGitpodPath: TEST_USER_PREFERENCES_GITPOD_PATH,
-        userProfileEnableGitpodPath: TEST_USER_PROFILE_ENABLE_GITPOD_PATH,
-        gitpodEnabled: false,
-      });
+  describe('disabled state', () => {
+    it('renders default tooltip', () => {
+      createComponent({ disabled: true });
 
-      const modal = findModal();
-
-      expect(modal.exists()).toBe(true);
-      expect(modal.props()).toMatchObject({
-        visible: false,
-        modalId: 'enable-gitpod-modal',
-        size: 'sm',
-        title: WebIdeLink.i18n.modal.title,
-        actionCancel: {
-          text: WebIdeLink.i18n.modal.actionCancelText,
-        },
-        actionPrimary: {
-          text: WebIdeLink.i18n.modal.actionPrimaryText,
-          attributes: {
-            variant: 'confirm',
-            category: 'primary',
-            href: TEST_USER_PROFILE_ENABLE_GITPOD_PATH,
-            'data-method': 'put',
-          },
-        },
-      });
+      expect(findDisclosureDropdown().props('disabled')).toBe(true);
+      expect(findDisclosureDropdown().attributes('aria-label')).toBe('You cannot edit this file');
     });
 
-    it('opens modal when `Gitpod` action is clicked', async () => {
-      const gitpodText = 'Open in Gitpod';
+    it('renders custom tooltip', () => {
+      createComponent({
+        disabled: true,
+        customTooltipText: 'You cannot edit files in read-only repositories',
+      });
 
-      createComponent(
-        {
-          showGitpodButton: true,
-          userPreferencesGitpodPath: TEST_USER_PREFERENCES_GITPOD_PATH,
-          userProfileEnableGitpodPath: TEST_USER_PROFILE_ENABLE_GITPOD_PATH,
-          gitpodEnabled: false,
-          gitpodText,
-        },
-        { mountFn: mountExtended },
+      expect(findDisclosureDropdown().props('disabled')).toBe(true);
+      expect(findDisclosureDropdown().attributes('aria-label')).toBe(
+        'You cannot edit files in read-only repositories',
       );
-
-      await nextTick();
-      await wrapper.findByRole('button', { name: new RegExp(gitpodText, 'm') }).trigger('click');
-
-      expect(findModal().props('visible')).toBe(true);
-    });
-  });
-
-  describe('when Gitpod is enabled', () => {
-    it('does not render modal', () => {
-      createComponent({
-        showGitpodButton: true,
-        userPreferencesGitpodPath: TEST_USER_PREFERENCES_GITPOD_PATH,
-        userProfileEnableGitpodPath: TEST_USER_PROFILE_ENABLE_GITPOD_PATH,
-        gitpodEnabled: true,
-      });
-
-      expect(findModal().exists()).toBe(false);
     });
   });
 });

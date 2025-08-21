@@ -72,14 +72,19 @@ module Gitlab
         def async_perform_request(http_method, path, options, options_with_timeouts, log_info, &block)
           start_time = nil
           read_total_timeout = options.fetch(:timeout, DEFAULT_READ_TOTAL_TIMEOUT)
+          byte_size = 0
+          max_bytesize = options.fetch(:max_bytes, 0)
 
           promise = Concurrent::Promise.new do
             Gitlab::Utils.restrict_within_concurrent_ruby do
               httparty_perform_request(http_method, path, options_with_timeouts) do |fragment|
                 start_time ||= system_monotonic_time
                 elapsed = system_monotonic_time - start_time
+                byte_size += fragment.bytesize
 
                 raise ReadTotalTimeout, "Request timed out after #{elapsed} seconds" if elapsed > read_total_timeout
+
+                check_max_byte_size_limit!(max_bytesize, byte_size)
 
                 yield fragment if block
               end
@@ -92,12 +97,17 @@ module Gitlab
         def sync_perform_request(http_method, path, options, options_with_timeouts, log_info, &block)
           start_time = nil
           read_total_timeout = options.fetch(:timeout, DEFAULT_READ_TOTAL_TIMEOUT)
+          byte_size = 0
+          max_bytesize = options.fetch(:max_bytes, 0)
 
           httparty_perform_request(http_method, path, options_with_timeouts) do |fragment|
             start_time ||= system_monotonic_time
             elapsed = system_monotonic_time - start_time
+            byte_size += fragment.bytesize
 
             raise ReadTotalTimeout, "Request timed out after #{elapsed} seconds" if elapsed > read_total_timeout
+
+            check_max_byte_size_limit!(max_bytesize, byte_size)
 
             yield fragment if block
           end
@@ -123,6 +133,15 @@ module Gitlab
           configuration.silent_mode_log_info('Outbound HTTP request blocked', http_method.to_s)
 
           raise SilentModeBlockedError, 'only get, head, options, and trace methods are allowed in silent mode'
+        end
+
+        def check_max_byte_size_limit!(max_bytesize, byte_size)
+          return unless max_bytesize > 0 && byte_size > max_bytesize
+
+          configuration.log_with_level(:error,
+            { message: 'Gitlab::HTTP - Response size too large', size: byte_size })
+
+          raise ResponseSizeTooLarge, "Response size over #{max_bytesize} bytes"
         end
 
         def system_monotonic_time

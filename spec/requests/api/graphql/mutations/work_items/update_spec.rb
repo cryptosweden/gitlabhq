@@ -11,6 +11,7 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
   let_it_be(:developer) { create(:user, developer_of: group) }
   let_it_be(:reporter) { create(:user, reporter_of: group) }
   let_it_be(:guest) { create(:user, guest_of: group) }
+  let_it_be(:planner) { create(:user, planner_of: group) }
   let_it_be(:work_item, refind: true) { create(:work_item, project: project, author: author) }
 
   let(:input) { { 'stateEvent' => 'CLOSE', 'title' => 'updated title' } }
@@ -28,15 +29,40 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
   let(:mutation) { graphql_mutation(:workItemUpdate, input.merge('id' => mutation_work_item.to_gid.to_s), fields) }
 
   let(:mutation_response) { graphql_mutation_response(:work_item_update) }
+  let(:widgets_response) { mutation_response['workItem']['widgets'] }
+
+  before_all do
+    # Ensure support bot user is created so creation doesn't count towards query limit
+    # and we don't try to obtain an exclusive lease within a transaction.
+    # See https://gitlab.com/gitlab-org/gitlab/-/issues/509629
+    Users::Internal.support_bot_id
+  end
+
+  shared_examples 'request with error' do |message|
+    it 'ignores update and returns an error' do
+      post_graphql_mutation(mutation, current_user: current_user)
+
+      expect(response).to have_gitlab_http_status(:success)
+      expect(mutation_response['workItem']).to be_nil
+      expect(mutation_response['errors'].first).to include(message)
+    end
+  end
 
   context 'the user is not allowed to update a work item' do
-    let(:current_user) { create(:user) }
+    let(:current_user) { guest }
 
     it_behaves_like 'a mutation that returns a top-level access error'
+
+    context 'with incident type' do
+      let(:work_item) { create(:work_item, :incident, project: project) }
+      let(:current_user) { planner }
+
+      it_behaves_like 'a mutation that returns a top-level access error'
+    end
   end
 
   context 'when user has permissions to update a work item' do
-    let(:current_user) { developer }
+    let(:current_user) { planner }
 
     it_behaves_like 'has spam protection' do
       let(:mutation_class) { ::Mutations::WorkItems::Update }
@@ -124,7 +150,7 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
       end
     end
 
-    context 'with description widget input' do
+    context 'with description widget input', :freeze_time do
       let(:fields) do
         <<~FIELDS
           workItem {
@@ -134,7 +160,11 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
             widgets {
               type
               ... on WorkItemWidgetDescription {
-                      description
+                description
+                lastEditedAt
+                lastEditedBy {
+                  id
+                }
               }
             }
           }
@@ -216,15 +246,41 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           it_behaves_like 'mutation updating work item labels'
         end
 
-        context 'when work item belongs directly to the group' do
+        context 'when work item belongs directly to the group', if: Gitlab.ee? do
           let(:mutation_work_item) { group_work_item }
 
+          before do
+            stub_licensed_features(epics: true)
+          end
+
           it_behaves_like 'mutation updating work item labels'
+
+          context 'without group level work item license' do
+            before do
+              stub_licensed_features(epics: false)
+            end
+
+            it_behaves_like 'a mutation that returns top-level errors', errors: [
+              "The resource that you are attempting to access does not exist or you don't have " \
+                "permission to perform this action"
+            ]
+          end
 
           context 'with quick action' do
             let(:input) { { 'descriptionWidget' => { 'description' => "/remove_label ~\"#{existing_label.name}\"" } } }
 
             it_behaves_like 'mutation updating work item labels'
+
+            context 'without group level work item license' do
+              before do
+                stub_licensed_features(epics: false)
+              end
+
+              it_behaves_like 'a mutation that returns top-level errors', errors: [
+                "The resource that you are attempting to access does not exist or you don't have " \
+                  "permission to perform this action"
+              ]
+            end
           end
         end
       end
@@ -243,10 +299,25 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           it_behaves_like 'mutation updating work item labels'
         end
 
-        context 'when work item belongs directly to the group' do
+        context 'when work item belongs directly to the group', if: Gitlab.ee? do
           let(:mutation_work_item) { group_work_item }
 
+          before do
+            stub_licensed_features(epics: true)
+          end
+
           it_behaves_like 'mutation updating work item labels'
+
+          context 'without group level work item license' do
+            before do
+              stub_licensed_features(epics: false)
+            end
+
+            it_behaves_like 'a mutation that returns top-level errors', errors: [
+              "The resource that you are attempting to access does not exist or you don't have " \
+                "permission to perform this action"
+            ]
+          end
 
           context 'with quick action' do
             let(:input) do
@@ -254,6 +325,17 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
             end
 
             it_behaves_like 'mutation updating work item labels'
+
+            context 'without group level work item license' do
+              before do
+                stub_licensed_features(epics: false)
+              end
+
+              it_behaves_like 'a mutation that returns top-level errors', errors: [
+                "The resource that you are attempting to access does not exist or you don't have " \
+                  "permission to perform this action"
+              ]
+            end
           end
         end
       end
@@ -274,10 +356,25 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           it_behaves_like 'mutation updating work item labels'
         end
 
-        context 'when work item belongs directly to the group' do
+        context 'when work item belongs directly to the group', if: Gitlab.ee? do
           let(:mutation_work_item) { group_work_item }
 
+          before do
+            stub_licensed_features(epics: true)
+          end
+
           it_behaves_like 'mutation updating work item labels'
+
+          context 'without group level work item license' do
+            before do
+              stub_licensed_features(epics: false)
+            end
+
+            it_behaves_like 'a mutation that returns top-level errors', errors: [
+              "The resource that you are attempting to access does not exist or you don't have " \
+                "permission to perform this action"
+            ]
+          end
         end
       end
 
@@ -360,16 +457,16 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           let(:input) { { 'descriptionWidget' => { 'description' => "/remove_due_date" } } }
 
           before do
-            work_item.update!(due_date: due_date)
+            (work_item.dates_source || work_item.build_dates_source)
+              .update!(due_date: due_date)
           end
 
           it 'updates start and due date' do
-            expect do
-              post_graphql_mutation(mutation, current_user: current_user)
-              work_item.reload
-            end.to not_change(work_item, :start_date).and(
-              change(work_item, :due_date).from(due_date).to(nil)
-            )
+            expect { post_graphql_mutation(mutation, current_user: current_user) }
+              .to change { work_item.reload.due_date }.from(due_date).to(nil)
+              .and change { work_item.dates_source&.due_date }.from(due_date).to(nil)
+              .and not_change { work_item.start_date }
+              .and not_change { work_item.dates_source&.start_date }
 
             expect(response).to have_gitlab_http_status(:success)
             expect(mutation_response['workItem']['widgets']).to include({
@@ -441,7 +538,8 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
 
       context 'when dates were already set for the work item' do
         before do
-          work_item.update!(start_date: start_date, due_date: due_date)
+          (work_item.dates_source || work_item.build_dates_source)
+            .update!(start_date: start_date, start_date_fixed: start_date, due_date: due_date, due_date_fixed: due_date)
         end
 
         context 'when updating only start date' do
@@ -449,13 +547,12 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
             { 'startAndDueDateWidget' => { 'startDate' => nil } }
           end
 
-          it 'allows setting a single date to null' do
-            expect do
-              post_graphql_mutation(mutation, current_user: current_user)
-              work_item.reload
-            end.to change(work_item, :start_date).from(start_date).to(nil).and(
-              not_change(work_item, :due_date).from(due_date)
-            )
+          it 'allows setting a single date to null', :aggregate_failures do
+            expect { post_graphql_mutation(mutation, current_user: current_user) }
+              .to change { work_item.reload.start_date }.from(start_date).to(nil)
+              .and change { work_item.dates_source.start_date }.from(start_date).to(nil)
+              .and not_change { work_item.due_date }.from(due_date)
+              .and not_change { work_item.dates_source.due_date }.from(due_date)
           end
         end
 
@@ -465,19 +562,17 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           end
 
           it 'allows setting a single date to null' do
-            expect do
-              post_graphql_mutation(mutation, current_user: current_user)
-              work_item.reload
-            end.to change(work_item, :due_date).from(due_date).to(nil).and(
-              not_change(work_item, :start_date).from(start_date)
-            )
+            expect { post_graphql_mutation(mutation, current_user: current_user) }
+              .to change { work_item.reload.due_date }.from(due_date).to(nil)
+              .and change { work_item.dates_source.due_date }.from(due_date).to(nil)
+              .and not_change { work_item.start_date }.from(start_date)
+              .and not_change { work_item.dates_source.start_date }.from(start_date)
           end
         end
       end
     end
 
     context 'with hierarchy widget input' do
-      let(:widgets_response) { mutation_response['workItem']['widgets'] }
       let(:fields) do
         <<~FIELDS
           workItem {
@@ -509,10 +604,6 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
       let(:child1_ref) { { adjacentWorkItemId: valid_child1.to_global_id.to_s } }
       let(:child2_ref) { { adjacentWorkItemId: valid_child2.to_global_id.to_s } }
       let(:relative_range) { [valid_child1, valid_child2].map(&:parent_link).map(&:relative_position) }
-
-      let(:invalid_relative_position_error) do
-        WorkItems::Widgets::HierarchyService::UpdateService::INVALID_RELATIVE_POSITION_ERROR
-      end
 
       shared_examples 'updates work item parent and sets the relative position' do
         it do
@@ -552,7 +643,8 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           end.to not_change(work_item, :work_item_parent)
 
           expect(mutation_response['workItem']).to be_nil
-          expect(mutation_response['errors']).to match_array([invalid_relative_position_error])
+          expect(mutation_response['errors'])
+            .to match_array([WorkItems::Callbacks::Hierarchy::INVALID_RELATIVE_POSITION_ERROR])
         end
       end
 
@@ -773,6 +865,62 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           end
         end
       end
+
+      context 'when updating hierarchy for incident' do
+        let_it_be(:incident) { create(:work_item, :incident, project: project) }
+        let_it_be(:child_item) { create(:work_item, :task, project: project) }
+        let(:mutation_work_item) { incident }
+
+        let(:input) do
+          { 'hierarchyWidget' => { 'childrenIds' => [child_item.to_global_id.to_s] } }
+        end
+
+        context 'when user is a guest' do
+          let(:current_user) { guest }
+
+          it 'returns an error and does not update' do
+            expect do
+              post_graphql_mutation(mutation, current_user: current_user)
+              incident.reload
+            end.not_to change { incident.work_item_children.count }
+
+            expect(mutation_response['workItem']).to be_nil
+            expect(mutation_response['errors']).to include(
+              "No matching work item found. Make sure that you are adding a valid work item ID."
+            )
+          end
+        end
+
+        context 'when user is an admin' do
+          let_it_be(:admin) { create(:admin) }
+          let(:current_user) { admin }
+
+          it 'successfully updates the incident hierarchy' do
+            expect do
+              post_graphql_mutation(mutation, current_user: current_user)
+              incident.reload
+            end.to change { incident.work_item_children.count }.by(1)
+
+            expect(response).to have_gitlab_http_status(:success)
+            expect(mutation_response['workItem']).not_to be_nil
+          end
+        end
+
+        context 'when guest updates hierarchy for non-incident work item' do
+          let(:current_user) { guest }
+          let(:mutation_work_item) { work_item } # regular work item, not incident
+
+          it 'successfully updates the work item hierarchy' do
+            expect do
+              post_graphql_mutation(mutation, current_user: current_user)
+              work_item.reload
+            end.to change { work_item.work_item_children.count }.by(1)
+
+            expect(response).to have_gitlab_http_status(:success)
+            expect(mutation_response['workItem']).not_to be_nil
+          end
+        end
+      end
     end
 
     context 'when updating assignees' do
@@ -886,10 +1034,12 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
             let(:description) { "Updating work item\n/type issue\n/due tomorrow\n/title Foo" }
 
             it 'updates the work item type and other attributes' do
-              expect do
-                post_graphql_mutation(mutation, current_user: current_user)
-                work_item.reload
-              end.to change { work_item.work_item_type.base_type }.from('task').to('issue')
+              tomorrow = 1.day.from_now.to_date
+
+              expect { post_graphql_mutation(mutation, current_user: current_user) }
+                .to change { work_item.reload.work_item_type.base_type }.from('task').to('issue')
+                .and change { work_item.dates_source&.due_date }.to(tomorrow)
+                .and change { work_item.due_date }.to(tomorrow)
 
               expect(response).to have_gitlab_http_status(:success)
               expect(mutation_response['workItem']['workItemType']['name']).to eq('Issue')
@@ -903,16 +1053,15 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           end
 
           context 'when conversion is not permitted' do
+            let_it_be(:work_item) { create(:work_item, :task, project: project) }
             let_it_be(:issue) { create(:work_item, project: project) }
             let_it_be(:link) { create(:parent_link, work_item_parent: issue, work_item: work_item) }
 
             let(:error_msg) { 'Work item type cannot be changed to issue when linked to a parent issue.' }
 
             it 'does not update the work item type' do
-              expect do
-                post_graphql_mutation(mutation, current_user: current_user)
-                work_item.reload
-              end.not_to change { work_item.work_item_type.base_type }
+              expect { post_graphql_mutation(mutation, current_user: current_user) }
+                .not_to change { work_item.reload.work_item_type.base_type }
 
               expect(response).to have_gitlab_http_status(:success)
               expect(mutation_response['errors']).to include(error_msg)
@@ -921,18 +1070,20 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
 
           context 'when new type does not support a widget' do
             before do
-              work_item.update!(start_date: Date.current, due_date: Date.tomorrow)
+              (work_item.dates_source || work_item.build_dates_source)
+                .update!(start_date: Date.current, due_date: Date.tomorrow)
+
               WorkItems::Type.default_by_type(:issue).widget_definitions
                 .find_by_widget_type(:start_and_due_date).update!(disabled: true)
             end
 
             it 'updates the work item type and clear widget attributes' do
-              expect do
-                post_graphql_mutation(mutation, current_user: current_user)
-                work_item.reload
-              end.to change { work_item.work_item_type.base_type }.from('task').to('issue')
-                 .and change { work_item.start_date }.to(nil)
-                 .and change { work_item.start_date }.to(nil)
+              expect { post_graphql_mutation(mutation, current_user: current_user) }
+                .to change { work_item.reload.work_item_type.base_type }.from('task').to('issue')
+                .and change { work_item.due_date }.to(nil)
+                .and change { work_item.dates_source&.due_date }.to(nil)
+                .and change { work_item.start_date }.to(nil)
+                .and change { work_item.dates_source&.start_date }.to(nil)
 
               expect(response).to have_gitlab_http_status(:success)
               expect(mutation_response['workItem']['workItemType']['name']).to eq('Issue')
@@ -1257,7 +1408,7 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           let_it_be(:current_user) { create(:user) }
 
           it 'does not create a new todo' do
-            expect { update_work_item }.to change { Todo.count }.by(0)
+            expect { update_work_item }.not_to change { Todo.count }
 
             expect(response).to have_gitlab_http_status(:success)
           end
@@ -1298,7 +1449,7 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           let_it_be(:current_user) { create(:user) }
 
           it 'does not mark todos as done' do
-            expect { update_work_item }.to change { Todo.done.count }.by(0)
+            expect { update_work_item }.not_to change { Todo.done.count }
 
             expect(response).to have_gitlab_http_status(:success)
           end
@@ -1341,7 +1492,7 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           let_it_be(:current_user) { create(:user) }
 
           it 'does not mark the todo as done' do
-            expect { update_work_item }.to change { Todo.done.count }.by(0)
+            expect { update_work_item }.not_to change { Todo.done.count }
 
             expect(response).to have_gitlab_http_status(:success)
           end
@@ -1398,18 +1549,6 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
       end
 
       context 'when user can award work item' do
-        shared_examples 'request with error' do |message|
-          it 'ignores update and returns an error' do
-            expect do
-              update_work_item
-            end.not_to change(AwardEmoji, :count)
-
-            expect(response).to have_gitlab_http_status(:success)
-            expect(mutation_response['workItem']).to be_nil
-            expect(mutation_response['errors'].first).to include(message)
-          end
-        end
-
         shared_examples 'request that removes emoji' do
           it "updates work item's award emoji" do
             expect do
@@ -1440,7 +1579,7 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
                 'upvotes' => 1,
                 'downvotes' => 0,
                 'awardEmoji' => { 'nodes' => [
-                  { 'name' => 'thumbsup', 'user' => { 'id' => current_user.to_gid.to_s } },
+                  { 'name' => AwardEmoji::THUMBS_UP, 'user' => { 'id' => current_user.to_gid.to_s } },
                   { 'name' => award_name, 'user' => { 'id' => current_user.to_gid.to_s } }
                 ] },
                 'type' => 'AWARD_EMOJI'
@@ -1463,7 +1602,7 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           let(:award_action) { 'REMOVE' }
 
           context 'when emoji was awarded by current user' do
-            let(:award_name) { 'thumbsup' }
+            let(:award_name) { AwardEmoji::THUMBS_UP }
 
             it_behaves_like 'request that removes emoji'
           end
@@ -1476,7 +1615,7 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
             end
 
             it_behaves_like 'request with error',
-              'User has not awarded emoji of type thumbsdown on the awardable'
+              "User has not awarded emoji of type #{AwardEmoji::THUMBS_DOWN} on the awardable"
           end
         end
 
@@ -1484,7 +1623,7 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           let(:award_action) { 'TOGGLE' }
 
           context 'when emoji award is present' do
-            let(:award_name) { 'thumbsup' }
+            let(:award_name) { AwardEmoji::THUMBS_UP }
 
             it_behaves_like 'request that removes emoji'
           end
@@ -1529,7 +1668,7 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
       end
 
       context 'when user has permissions to update the work item' do
-        let(:current_user) { reporter }
+        let(:current_user) { planner }
 
         it 'updates work item discussion locked attribute on notes widget' do
           expect do
@@ -1600,16 +1739,6 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
     end
 
     context 'with time tracking widget input', time_travel_to: "2024-02-20" do
-      shared_examples 'request with error' do |message|
-        it 'ignores update and returns an error' do
-          post_graphql_mutation(mutation, current_user: current_user)
-
-          expect(response).to have_gitlab_http_status(:success)
-          expect(mutation_response['workItem']).to be_nil
-          expect(mutation_response['errors'].first).to include(message)
-        end
-      end
-
       shared_examples 'mutation updating work item with time tracking data' do
         it 'updates time tracking' do
           expect do
@@ -1622,6 +1751,10 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
           expect(mutation_response['workItem']['widgets']).to include(
             'timeEstimate' => expected_result[:time_estimate],
             'totalTimeSpent' => expected_result[:time_spent],
+            'humanReadableAttributes' => {
+              'timeEstimate' => Gitlab::TimeTrackingFormatter.output(mutation_work_item.time_estimate),
+              'totalTimeSpent' => Gitlab::TimeTrackingFormatter.output(mutation_work_item.total_time_spent)
+            },
             'timelogs' => {
               'nodes' => [
                 {
@@ -1650,6 +1783,10 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
                 type
                 timeEstimate
                 totalTimeSpent
+                humanReadableAttributes {
+                  timeEstimate
+                  totalTimeSpent
+                }
                 timelogs {
                   nodes {
                     timeSpent
@@ -1704,10 +1841,25 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
             it_behaves_like 'mutation updating work item with time tracking data'
           end
 
-          context 'when work item belongs to a group' do
+          context 'when work item belongs to a group', if: Gitlab.ee? do
             let(:mutation_work_item) { group_work_item }
 
+            before do
+              stub_licensed_features(epics: true)
+            end
+
             it_behaves_like 'mutation updating work item with time tracking data'
+
+            context 'without group level work item license' do
+              before do
+                stub_licensed_features(epics: false)
+              end
+
+              it_behaves_like 'a mutation that returns top-level errors', errors: [
+                "The resource that you are attempting to access does not exist or you don't have " \
+                  "permission to perform this action"
+              ]
+            end
           end
 
           context 'when time estimate format is invalid' do
@@ -1740,10 +1892,25 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
             it_behaves_like 'mutation updating work item with time tracking data'
           end
 
-          context 'when work item belongs to a group' do
+          context 'when work item belongs to a group', if: Gitlab.ee? do
             let(:mutation_work_item) { group_work_item }
 
+            before do
+              stub_licensed_features(epics: true)
+            end
+
             it_behaves_like 'mutation updating work item with time tracking data'
+
+            context 'without group level work item license' do
+              before do
+                stub_licensed_features(epics: false)
+              end
+
+              it_behaves_like 'a mutation that returns top-level errors', errors: [
+                "The resource that you are attempting to access does not exist or you don't have " \
+                  "permission to perform this action"
+              ]
+            end
           end
         end
       end
@@ -1783,6 +1950,88 @@ RSpec.describe 'Update a work item', feature_category: :team_planning do
               'type' => 'TIME_TRACKING'
             )
           end
+        end
+      end
+    end
+
+    context 'with CRM contacts widget input' do
+      let(:fields) do
+        <<~FIELDS
+          workItem {
+            widgets {
+              ... on WorkItemWidgetCrmContacts {
+                type
+                contacts {
+                  nodes {
+                    id
+                    firstName
+                  }
+                }
+              }
+            }
+          }
+          errors
+        FIELDS
+      end
+
+      let_it_be(:contact) { create(:contact, group: project.group) }
+
+      context 'when adding contacts' do
+        let(:input) do
+          {
+            'crmContactsWidget' => {
+              'contactIds' => [global_id_of(contact)]
+            }
+          }
+        end
+
+        it 'updates contacts' do
+          expect do
+            post_graphql_mutation(mutation, current_user: current_user)
+            mutation_work_item.reload
+          end.to change { mutation_work_item.customer_relations_contacts.to_a }.from([]).to([
+            contact
+          ])
+
+          expect(mutation_response['workItem']['widgets']).to include(
+            'contacts' => {
+              'nodes' => [
+                {
+                  'id' => global_id_of(contact).to_s,
+                  'firstName' => contact.first_name
+                }
+              ]
+            },
+            'type' => 'CRM_CONTACTS'
+          )
+        end
+      end
+
+      context 'when clearing contacts' do
+        before do
+          mutation_work_item.issue_customer_relations_contacts.create!(contact: contact)
+        end
+
+        let(:input) do
+          {
+            'crmContactsWidget' => {
+              'contactIds' => []
+            }
+          }
+        end
+
+        it 'updates contacts' do
+          expect do
+            post_graphql_mutation(mutation, current_user: current_user)
+            mutation_work_item.reload
+          end.to change { mutation_work_item.customer_relations_contacts.to_a }.from([contact]).to([])
+
+          expect(mutation_response['workItem']['widgets']).to include(
+            'contacts' => {
+              'nodes' => []
+            },
+            'type' => 'CRM_CONTACTS'
+          )
         end
       end
     end

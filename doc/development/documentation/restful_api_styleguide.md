@@ -1,27 +1,25 @@
 ---
-info: For assistance with this Style Guide page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-other-projects-and-subjects.
 stage: none
 group: unassigned
-description: 'Writing styles, markup, formatting, and other standards for the GitLab RESTful APIs.'
+info: For assistance with this Style Guide page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-other-projects-and-subjects.
+description: Writing styles, markup, formatting, and other standards for the GitLab RESTful APIs.
+title: Documenting REST API resources
 ---
-
-# Documenting REST API resources
 
 REST API resources are documented in Markdown under
 [`/doc/api`](https://gitlab.com/gitlab-org/gitlab/-/tree/master/doc/api). Each
 resource has its own Markdown file, which is linked from
 [`api_resources.md`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/doc/api/api_resources.md).
 
-When modifying the Markdown, also update the corresponding
-[OpenAPI definition](https://gitlab.com/gitlab-org/gitlab/-/tree/master/doc/api/openapi)
-if one exists for the resource. If not, consider creating one. Match the latest
-[OpenAPI 3.0.x specification](https://swagger.io/specification/). (For more
-information, see the discussion in this
-[issue](https://gitlab.com/gitlab-org/gitlab/-/issues/16023#note_370901810).)
+When modifying the Markdown or API code, also update the corresponding
+[OpenAPI definition](https://gitlab.com/gitlab-org/gitlab/-/tree/master/doc/api/openapi), by running `bin/rake gitlab:openapi:generate`.
+To check if the OpenAPI definition needs to be updated, you can run `bin/rake gitlab:openapi:check_docs`.
+This is also checked by the `openapi-doc-check` CI/CD job that runs for commits that modify API code or documentation.
 
-In the Markdown doc for a resource (AKA endpoint):
+In the Markdown doc for a resource (the API endpoint):
 
-- Every method must have the REST API request. For example:
+- Every method must have the REST API request. The request should include the HTTP method
+(like GET, PUT, DELETE) followed by the request path. The path should always start with a `/`. For example:
 
   ```plaintext
   GET /api/v4/projects/:id/repository/branches
@@ -35,9 +33,9 @@ In the Markdown doc for a resource (AKA endpoint):
   for Premium, include that it's also available for Ultimate.
 - If an attribute is available only in certain offerings, add the offerings to the **Description**. If the attribute's
   description also has both offering and tier, combine them. For
-  example: _Self-managed, Premium and Ultimate only._
+  example: _GitLab Self-Managed, Premium and Ultimate only._
 
-After a new API documentation page is added, [add an entry in the global navigation](site_architecture/global_nav.md#add-a-navigation-entry). [Example](https://gitlab.com/gitlab-org/gitlab-docs/-/merge_requests/3497).
+After a new API documentation page is added, [add an entry in the global navigation](site_architecture/global_nav.md#add-a-navigation-entry). [Examples](https://gitlab.com/gitlab-org/technical-writing/docs-gitlab-com/-/commits/main/data/en-us/navigation.yaml).
 
 ## API topic template
 
@@ -47,13 +45,21 @@ required attributes first in the table.
 ````markdown
 ## API name
 
-> - History note.
+{{</* history */>}}
+
+- History note.
+
+{{</* /history */>}}
 
 One or two sentence description of what endpoint does.
 
 ### Method title
 
-> - History note.
+{{</* history */>}}
+
+- History note.
+
+{{</* /history */>}}
 
 Description of the method.
 
@@ -70,7 +76,7 @@ Supported attributes:
 | `attribute`              | datatype | No       | Detailed description. |
 | `attribute`              | datatype | No       | Detailed description. |
 
-If successful, returns [`<status_code>`](rest/index.md#status-codes) and the following
+If successful, returns [`<status_code>`](rest/troubleshooting.md#status-codes) and the following
 response attributes:
 
 | Attribute                | Type     | Description           |
@@ -97,7 +103,7 @@ Example response:
 
 ## History
 
-Add [history](versions.md#documenting-version-specific-features)
+Add [history](styleguide/availability_details.md#history)
 to describe new or updated API calls.
 
 To add history for an individual attribute, include it in the history
@@ -106,7 +112,11 @@ for the section. For example:
 ```markdown
 ### Edit a widget
 
-> - `widget_message` [introduced](https://link-to-issue) in GitLab 14.3.
+{{</* history */>}}
+
+ - `widget_message` [introduced](https://link-to-issue) in GitLab 14.3.
+
+{{</* /history */>}}
 ```
 
 If the API or attribute is deployed behind a feature flag,
@@ -115,14 +125,18 @@ If the API or attribute is deployed behind a feature flag,
 ## Deprecations
 
 To document the deprecation of an API endpoint, follow the steps to
-[deprecate a page or topic](versions.md#deprecate-a-page-or-topic).
+[deprecate a page or topic](styleguide/deprecations_and_removals.md).
 
 To deprecate an attribute:
 
 1. Add a history note.
 
    ```markdown
-   > - `widget_name` [deprecated](https://link-to-issue) in GitLab 14.7.
+   {{</* history */>}}
+
+   - `widget_name` [deprecated](https://link-to-issue) in GitLab 14.7.
+
+   {{</* /history */>}}
    ```
 
 1. Add inline deprecation text to the description.
@@ -130,11 +144,10 @@ To deprecate an attribute:
    ```markdown
    | Attribute     | Type   | Required | Description |
    |---------------|--------|----------|-------------|
-   | `widget_name` | string | No       | [Deprecated](https://link-to-issue) in GitLab 14.7 and is planned for removal in 15.4. Use `widget_id` instead. The name of the widget. |
+   | `widget_name` | string | No       | [Deprecated](https://link-to-issue) in GitLab 14.7. Use `widget_id` instead. The name of the widget. |
    ```
 
-To widely announce a deprecation, or if it's a breaking change,
-[update the REST API deprecations and removals page](../../api/rest/deprecations.md).
+To widely announce a deprecation, [update the REST API deprecations page](../../api/rest/deprecations.md).
 
 ## Method description
 
@@ -161,13 +174,33 @@ Rendered example:
 
 For information about writing attribute descriptions, see the [GraphQL API description style guide](../api_graphql_styleguide.md#description-style-guide).
 
+### Conditionally required attributes
+
+If there are attributes where either one or both are required to make an API
+request:
+
+1. Add `Conditionally` in the `Required` column.
+1. Clearly describe the related attributes in the description.
+   You can use the following template:
+
+   ```markdown
+   At least one of `attribute1` or `attribute2` must be included in the API call. Both may be used if needed.
+   ```
+
+For example:
+
+| Attribute                  | Type           | Required       | Description                                                                                         |
+|:---------------------------|:---------------|:---------------|:--------------------------------------------------------------------------------------------------- |
+| `include_saml_users`       | boolean        | Conditionally  | Include users with a SAML identity. At least one of `include_saml_users` or `include_service_accounts` must be `true`. Both may be used if needed. |
+| `include_service_accounts` | boolean        | Conditionally  | Include service account users. At least one of `include_saml_users` or `include_service_accounts` must be `true`. Both may be used if needed. |
+
 ## Response body description
 
 Start the description with the following sentence, replacing `status code` with the
-relevant [HTTP status code](../../api/rest/index.md#status-codes), for example:
+relevant [HTTP status code](../../api/rest/troubleshooting.md#status-codes), for example:
 
 ```markdown
-If successful, returns [`200 OK`](../../api/rest/index.md#status-codes) and the
+If successful, returns [`200 OK`](../../api/rest/troubleshooting.md#status-codes) and the
 following response attributes:
 ```
 
@@ -208,7 +241,7 @@ For information about writing attribute descriptions, see the [GraphQL API descr
 - Declare URLs with the `--url` parameter, and wrap the URL in double quotes (`"`).
 - Prefer to use examples using the personal access token and don't pass data of
   username and password.
-- For legibility, use the <code>&#92;</code> character and indentation to break long single-line
+- For legibility, use the ` \ ` character and indentation to break long single-line
   commands apart into multiple lines.
 
 | Methods                                         | Description                                            |
@@ -223,10 +256,13 @@ For information about writing attribute descriptions, see the [GraphQL API descr
 The following sections include a set of [cURL](https://curl.se/) examples
 you can use in the API documentation.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Do not use information for real users, URLs, or tokens. For documentation, refer to our
-relevant style guide sections on [Fake user information](styleguide/index.md#fake-user-information),
-[Fake URLs](styleguide/index.md#fake-urls), and [Fake tokens](styleguide/index.md#fake-tokens).
+relevant style guide sections on [fake user information](styleguide/_index.md#fake-user-information),
+[fake URLs](styleguide/_index.md#fake-urls), and [fake tokens](styleguide/_index.md#fake-tokens).
+
+{{< /alert >}}
 
 ### Simple cURL command
 
@@ -297,13 +333,13 @@ curl --request POST \
   --url "https://gitlab.example.com/api/v4/users/25/keys"
 ```
 
-The above example is run by and administrator and will add an SSH public key
-titled `ssh-key` to user's account which has an ID of 25.
+The above example adds an SSH public key titled `ssh-key` to the account of
+a user with ID 25. The operation requires administrator access.
 
 ### Escape special characters
 
-Spaces or slashes (`/`) may sometimes result to errors, thus it is recommended
-to escape them when possible. In the example below we create a new issue which
+Spaces or slashes (`/`) can sometimes result in errors, so you should
+escape them when possible. In the example below we create a new issue which
 contains spaces in its title. Observe how spaces are escaped using the `%20`
 ASCII code.
 

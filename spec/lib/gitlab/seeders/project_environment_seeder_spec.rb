@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ::Gitlab::Seeders::ProjectEnvironmentSeeder, feature_category: :secrets_management do
+RSpec.describe ::Gitlab::Seeders::ProjectEnvironmentSeeder, feature_category: :ci_variables do
   let_it_be(:project) { create(:project) }
 
   let(:seeder) { described_class.new(project_path: project.full_path) }
@@ -32,9 +32,8 @@ RSpec.describe ::Gitlab::Seeders::ProjectEnvironmentSeeder, feature_category: :s
     end
 
     it 'skips seeding when project path is invalid' do
-      expect { invalid_project_path_seeder.seed }.to change {
-        project.environments.count
-      }.by(0)
+      expect { invalid_project_path_seeder.seed }
+        .not_to change { project.environments.count }
     end
 
     it 'skips environment creation if environment already exists' do

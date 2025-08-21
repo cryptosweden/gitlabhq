@@ -7,22 +7,23 @@ import {
   GlFormRadioGroup,
   GlSprintf,
   GlLink,
-  GlModal,
 } from '@gitlab/ui';
-import { toSafeInteger } from 'lodash';
 import csrf from '~/lib/utils/csrf';
-import { __, n__, s__, sprintf } from '~/locale';
+import { s__, sprintf } from '~/locale';
 import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import BeforeSubmitApproveUsersModal from './before_submit_approve_users_modal.vue';
 import SignupCheckbox from './signup_checkbox.vue';
 
 const DENYLIST_TYPE_RAW = 'raw';
 const DENYLIST_TYPE_FILE = 'file';
 
 export default {
+  name: 'SignUpRestrictionsApp',
   csrf,
   DENYLIST_TYPE_RAW,
   DENYLIST_TYPE_FILE,
   components: {
+    BeforeSubmitApproveUsersModal,
     GlButton,
     GlFormGroup,
     GlFormInput,
@@ -31,13 +32,34 @@ export default {
     GlSprintf,
     GlLink,
     SignupCheckbox,
-    GlModal,
+    SeatControlSection: () =>
+      import(
+        'ee_component/pages/admin/application_settings/general/components/seat_control_section.vue'
+      ),
     PasswordComplexityCheckboxGroup: () =>
       import(
         'ee_component/pages/admin/application_settings/general/components/password_complexity_checkbox_group.vue'
       ),
   },
   mixins: [glFeatureFlagMixin()],
+  provide() {
+    return {
+      /**
+       * This enables different components to register their own pre-submission checks without conflicts (collected
+       * in `beforeSubmitHooks` data prop). Additionally, the hook registration being injected (instead of passed as a prop),
+       * allows all descendant to use it, avoiding useless props proxying. For instance,
+       *
+       * `SignUpRestrictionsApp` > `ApproveUsersModal` receives the hook registration function
+       * `SignUpRestrictionsApp` > `SeatControlSection` > `UserCapOverLicensedUsersModal` receives the hook registration function
+       *
+       * See more at https://gitlab.com/gitlab-org/gitlab/-/issues/548052#why-a-beforesubmithook
+       */
+      addBeforeSubmitHook: this.addBeforeSubmitHook,
+      beforeSubmitHookContexts: {
+        [this.approveUsersModalId]: { shouldPreventSubmit: () => this.shouldShowUserApprovalModal },
+      },
+    };
+  },
   inject: [
     'host',
     'settingsPath',
@@ -49,7 +71,6 @@ export default {
     'minimumPasswordLengthMax',
     'minimumPasswordLengthHelpLink',
     'domainAllowlistRaw',
-    'newUserSignupsCap',
     'domainDenylistEnabled',
     'denylistTypeRawSelected',
     'domainDenylistRaw',
@@ -61,7 +82,8 @@ export default {
   ],
   data() {
     return {
-      showModal: false,
+      beforeSubmitHooks: [],
+      canUsersBeAccidentallyApproved: false,
       form: {
         signupEnabled: this.signupEnabled,
         requireAdminApproval: this.requireAdminApprovalAfterUserSignup,
@@ -71,7 +93,6 @@ export default {
         minimumPasswordLengthMax: this.minimumPasswordLengthMax,
         minimumPasswordLengthHelpLink: this.minimumPasswordLengthHelpLink,
         domainAllowlistRaw: this.domainAllowlistRaw,
-        userCap: this.newUserSignupsCap,
         domainDenylistEnabled: this.domainDenylistEnabled,
         denylistType: this.denylistTypeRawSelected
           ? this.$options.DENYLIST_TYPE_RAW
@@ -81,53 +102,35 @@ export default {
         supportedSyntaxLinkUrl: this.supportedSyntaxLinkUrl,
         emailRestrictions: this.emailRestrictions,
         afterSignUpText: this.afterSignUpText,
+        shouldProceedWithAutoApproval: false,
       },
     };
   },
   computed: {
-    isOldUserCapUnlimited() {
-      // User cap is set to unlimited if no value is provided in the field
-      return this.newUserSignupsCap === '';
+    approveUsersModalId() {
+      return 'before-submit-approve-users-modal';
     },
-    isNewUserCapUnlimited() {
-      // User cap is set to unlimited if no value is provided in the field
-      return this.form.userCap === '';
+    shouldShowUserApprovalModal() {
+      if (!this.hasPendingUsers) return false;
+      if (this.hasSignupApprovalBeenToggledOff) return true;
+      return this.canUsersBeAccidentallyApproved;
     },
-    hasUserCapChangedFromUnlimitedToLimited() {
-      return this.isOldUserCapUnlimited && !this.isNewUserCapUnlimited;
+    hasPendingUsers() {
+      return this.pendingUserCount > 0;
     },
-    hasUserCapChangedFromLimitedToUnlimited() {
-      return !this.isOldUserCapUnlimited && this.isNewUserCapUnlimited;
-    },
-    hasUserCapBeenIncreased() {
-      if (this.hasUserCapChangedFromUnlimitedToLimited) {
-        return false;
-      }
-
-      const oldValueAsInteger = toSafeInteger(this.newUserSignupsCap);
-      const newValueAsInteger = toSafeInteger(this.form.userCap);
-
-      return this.hasUserCapChangedFromLimitedToUnlimited || newValueAsInteger > oldValueAsInteger;
-    },
-    canUsersBeAccidentallyApproved() {
-      const hasUserCapBeenToggledOff =
-        this.requireAdminApprovalAfterUserSignup && !this.form.requireAdminApproval;
-      const currentlyPendingUsers = this.pendingUserCount > 0;
-
-      return (this.hasUserCapBeenIncreased || hasUserCapBeenToggledOff) && currentlyPendingUsers;
+    hasSignupApprovalBeenToggledOff() {
+      return this.requireAdminApprovalAfterUserSignup && !this.form.requireAdminApproval;
     },
     signupEnabledHelpText() {
-      const text = sprintf(
+      return sprintf(
         s__('ApplicationSettings|Any user that visits %{host} can create an account.'),
         {
           host: this.host,
         },
       );
-
-      return text;
     },
     requireAdminApprovalHelpText() {
-      const text = sprintf(
+      return sprintf(
         s__(
           'ApplicationSettings|Any user that visits %{host} and creates an account must be explicitly approved by an administrator before they can sign in. Only effective if sign-ups are enabled.',
         ),
@@ -135,63 +138,38 @@ export default {
           host: this.host,
         },
       );
-
-      return text;
-    },
-    approveUsersModal() {
-      const { pendingUserCount } = this;
-
-      return {
-        id: 'signup-settings-modal',
-        text: n__(
-          'ApplicationSettings|By making this change, you will automatically approve %d user who is pending approval.',
-          'ApplicationSettings|By making this change, you will automatically approve %d users who are pending approval.',
-          pendingUserCount,
-        ),
-        actionPrimary: {
-          text: n__(
-            'ApplicationSettings|Approve %d user',
-            'ApplicationSettings|Approve %d users',
-            pendingUserCount,
-          ),
-          attributes: {
-            variant: 'confirm',
-          },
-        },
-        actionCancel: {
-          text: __('Cancel'),
-        },
-        title: s__('ApplicationSettings|Approve users who are pending approval?'),
-      };
-    },
-  },
-  watch: {
-    showModal(value) {
-      if (value === true) {
-        this.$refs[this.approveUsersModal.id].show();
-      } else {
-        this.$refs[this.approveUsersModal.id].hide();
-      }
     },
   },
   methods: {
-    submitButtonHandler() {
-      if (this.canUsersBeAccidentallyApproved) {
-        this.showModal = true;
-
-        return;
-      }
-
+    addBeforeSubmitHook(hook) {
+      this.beforeSubmitHooks.push(hook);
+    },
+    handleFormSubmit() {
+      const shouldPreventSubmit = this.beforeSubmitHooks.some((hook) => hook());
+      if (shouldPreventSubmit) return;
       this.submitForm();
     },
-    setPasswordComplexity({ name, value }) {
-      this.$set(this.form, name, value);
+    setFormValue({ name, value }) {
+      this.form = {
+        ...this.form,
+        [name]: value,
+      };
     },
-    submitForm() {
+    handleCheckUsersAutoApproval(value) {
+      this.canUsersBeAccidentallyApproved = value;
+    },
+    async submitForm() {
+      // the nextTick is to ensure the form is updated before we submit it
+      await this.$nextTick();
       this.$refs.form.submit();
     },
-    modalHideHandler() {
-      this.showModal = false;
+    submitFormWithAutoApproval() {
+      this.form.shouldProceedWithAutoApproval = true;
+      this.submitForm();
+    },
+    submitFormWithoutAutoApproval() {
+      this.form.shouldProceedWithAutoApproval = false;
+      this.submitForm();
     },
   },
   i18n: {
@@ -217,10 +195,6 @@ export default {
     domainAllowListLabel: s__('ApplicationSettings|Allowed domains for sign-ups'),
     domainAllowListDescription: s__(
       'ApplicationSettings|Only users with e-mail addresses that match these domain(s) can sign up. Wildcards allowed. Enter multiple entries on separate lines. Example: domain.com, *.domain.com',
-    ),
-    userCapLabel: s__('ApplicationSettings|User cap'),
-    userCapDescription: s__(
-      'ApplicationSettings|After the instance reaches the user cap, any user who is added or requests access must be approved by an administrator. Leave blank for unlimited.',
     ),
     domainDenyListGroupLabel: s__('ApplicationSettings|Domain denylist'),
     domainDenyListLabel: s__('ApplicationSettings|Enable domain denylist for sign-ups'),
@@ -287,7 +261,6 @@ export default {
         >
           <gl-form-radio value="off">
             {{ $options.i18n.emailConfirmationSettingsOffLabel }}
-
             <template #help> {{ $options.i18n.emailConfirmationSettingsOffHelpText }} </template>
           </gl-form-radio>
 
@@ -299,26 +272,28 @@ export default {
 
           <gl-form-radio value="hard">
             {{ $options.i18n.emailConfirmationSettingsHardLabel }}
-
             <template #help> {{ $options.i18n.emailConfirmationSettingsHardHelpText }} </template>
           </gl-form-radio>
         </gl-form-radio-group>
       </gl-form-group>
 
+      <input
+        type="hidden"
+        name="application_setting[auto_approve_pending_users]"
+        :value="form.shouldProceedWithAutoApproval"
+      />
+
+      <seat-control-section
+        @checkUsersAutoApproval="handleCheckUsersAutoApproval"
+        @submit="submitForm"
+      />
+
       <gl-form-group
-        :label="$options.i18n.userCapLabel"
-        :description="$options.i18n.userCapDescription"
+        :label="$options.i18n.minimumPasswordLengthLabel"
+        label-for="minimum_password_length"
       >
         <gl-form-input
-          v-model="form.userCap"
-          type="text"
-          name="application_setting[new_user_signups_cap]"
-          data-testid="user-cap-input"
-        />
-      </gl-form-group>
-
-      <gl-form-group :label="$options.i18n.minimumPasswordLengthLabel">
-        <gl-form-input
+          id="minimum_password_length"
           v-model="form.minimumPasswordLength"
           :min="form.minimumPasswordLengthMin"
           :max="form.minimumPasswordLengthMax"
@@ -343,7 +318,7 @@ export default {
 
       <password-complexity-checkbox-group
         v-if="glFeatures.passwordComplexity"
-        @set-password-complexity="setPasswordComplexity"
+        @set-password-complexity="setFormValue"
       />
       <gl-form-group
         :description="$options.i18n.domainAllowListDescription"
@@ -358,8 +333,12 @@ export default {
         ></textarea>
       </gl-form-group>
 
-      <gl-form-group :label="$options.i18n.domainDenyListGroupLabel">
+      <gl-form-group
+        :label="$options.i18n.domainDenyListGroupLabel"
+        label-for="domain_denylist_enabled"
+      >
         <signup-checkbox
+          id="domain_denylist_enabled"
           v-model="form.domainDenylistEnabled"
           name="application_setting[domain_denylist_enabled]"
           :label="$options.i18n.domainDenyListLabel"
@@ -406,16 +385,24 @@ export default {
         ></textarea>
       </gl-form-group>
 
-      <gl-form-group :label="$options.i18n.emailRestrictionsEnabledGroupLabel">
+      <gl-form-group
+        :label="$options.i18n.emailRestrictionsEnabledGroupLabel"
+        label-for="email_restrictions_enabled"
+      >
         <signup-checkbox
+          id="email_restrictions_enabled"
           v-model="form.emailRestrictionsEnabled"
           name="application_setting[email_restrictions_enabled]"
           :label="$options.i18n.emailRestrictionsEnabledLabel"
         />
       </gl-form-group>
 
-      <gl-form-group :label="$options.i18n.emailRestrictionsGroupLabel">
+      <gl-form-group
+        :label="$options.i18n.emailRestrictionsGroupLabel"
+        label-for="email_restrictions"
+      >
         <textarea
+          id="email_restrictions"
           v-model="form.emailRestrictions"
           rows="4"
           class="form-control gl-form-input"
@@ -439,9 +426,11 @@ export default {
 
       <gl-form-group
         :label="$options.i18n.afterSignUpTextGroupLabel"
+        label-for="after_sign_up_text"
         :description="$options.i18n.afterSignUpTextGroupDescription"
       >
         <textarea
+          id="after_sign_up_text"
           v-model="form.afterSignUpText"
           rows="4"
           class="form-control gl-form-input"
@@ -453,21 +442,14 @@ export default {
     <gl-button
       data-testid="save-changes-button"
       variant="confirm"
-      @click.prevent="submitButtonHandler"
+      @click.prevent="handleFormSubmit"
+      >{{ $options.i18n.buttonText }}</gl-button
     >
-      {{ $options.i18n.buttonText }}
-    </gl-button>
 
-    <gl-modal
-      :ref="approveUsersModal.id"
-      :modal-id="approveUsersModal.id"
-      :action-cancel="approveUsersModal.actionCancel"
-      :action-primary="approveUsersModal.actionPrimary"
-      :title="approveUsersModal.title"
-      @primary="submitForm"
-      @hide="modalHideHandler"
-    >
-      {{ approveUsersModal.text }}
-    </gl-modal>
+    <before-submit-approve-users-modal
+      :id="approveUsersModalId"
+      @primary="submitFormWithAutoApproval"
+      @secondary="submitFormWithoutAutoApproval"
+    />
   </form>
 </template>

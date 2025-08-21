@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Semantic Versioning of Database Records
 ---
-
-# Semantic Versioning of Database Records
 
 [Semantic Versioning](https://semver.org/) of records in a database introduces complexity when it comes to filtering and sorting. Since the database doesn't natively understand semantic versions it is necessary to extract the version components to separate columns in the database. The [SemanticVersionable](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/142228) module was introduced to make this process easier.
 
@@ -14,8 +13,6 @@ In order to use SemanticVersionable you must first create a database migration t
 
 ```ruby
 class AddVersionPartsToModelVersions < Gitlab::Database::Migration[2.2]
-  enable_lock_retries!
-
   milestone '16.9'
 
   def up

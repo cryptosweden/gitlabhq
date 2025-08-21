@@ -1,15 +1,20 @@
 ---
-description: "Merge request analytics help you understand the efficiency of your code review process, and the productivity of your team." # Up to ~200 chars long. They will be displayed in Google Search snippets. It may help to write the page intro first, and then reuse it here.
 stage: Plan
 group: Optimize
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: Merge request analytics help you understand the efficiency of your code review process, and the productivity of your team.
+title: Merge request analytics
 ---
 
-# Merge request analytics
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+Merge request analytics provide DevOps managers with valuable insights into their team's code review and merging workflows.
+Based on the detailed metrics and trends related to merge requests, organizations can monitor and optimize their development processes.
 
 Use merge request analytics to view:
 
@@ -22,6 +27,13 @@ You can use merge request analytics to identify:
 - Low or high productivity months.
 - The efficiency and productivity of your merge request and code review processes.
 
+These insights can help you make data-driven decisions like:
+
+- Resource allocation: Address low productivity periods by reallocating resources or adjusting timelines.
+- Performance benchmarking: Highlight high-performing teams and share best practices.
+- Milestone planning: Adjust timelines based on historical merging trends.
+- Process optimization: Identify and resolve bottlenecks in code review and merging workflows.
+
 ## View merge request analytics
 
 Prerequisites:
@@ -32,6 +44,8 @@ To view merge request analytics:
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Analyze > Merge request analytics**.
+
+![Merge request analytics chart](img/mr_analytics_chart_v17_7.png)
 
 ## View the number of merge requests in a date range
 

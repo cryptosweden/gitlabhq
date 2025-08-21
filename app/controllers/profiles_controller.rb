@@ -3,6 +3,7 @@
 class ProfilesController < Profiles::ApplicationController
   include ActionView::Helpers::SanitizeHelper
   include Gitlab::Tracking
+  include SafeFormatHelper
 
   before_action :user
   before_action :authorize_change_username!, only: :update_username
@@ -14,9 +15,7 @@ class ProfilesController < Profiles::ApplicationController
     :reset_static_object_token, :update_username]
 
   def reset_incoming_email_token
-    Users::UpdateService.new(current_user, user: @user).execute! do |user|
-      user.reset_incoming_email_token!
-    end
+    Users::UpdateService.new(current_user, user: @user).execute!(&:reset_incoming_email_token!)
 
     flash[:notice] = s_("Profiles|Incoming email token was successfully reset")
 
@@ -24,19 +23,19 @@ class ProfilesController < Profiles::ApplicationController
   end
 
   def reset_feed_token
-    Users::UpdateService.new(current_user, user: @user).execute! do |user|
-      user.reset_feed_token!
-    end
+    service = Users::ResetFeedTokenService.new(current_user, user: @user).execute
 
-    flash[:notice] = s_('Profiles|Feed token was successfully reset')
+    if service.success?
+      flash[:notice] = service.message
+    else
+      flash[:alert] = service.message
+    end
 
     redirect_to user_settings_personal_access_tokens_path
   end
 
   def reset_static_object_token
-    Users::UpdateService.new(current_user, user: @user).execute! do |user|
-      user.reset_static_object_token!
-    end
+    Users::UpdateService.new(current_user, user: @user).execute!(&:reset_static_object_token!)
 
     redirect_to user_settings_personal_access_tokens_path,
       notice: s_('Profiles|Static object token was successfully reset')
@@ -52,7 +51,7 @@ class ProfilesController < Profiles::ApplicationController
         format.html { redirect_back_or_default(default: user_settings_profile_path, options: { notice: message }) }
         format.json { render json: { message: message }, status: :ok }
       else
-        message = s_("Profiles|Username change failed - %{message}") % { message: result[:message] }
+        message = safe_format(s_("Profiles|Username change failed - %{message}"), message: result[:message])
 
         format.html { redirect_back_or_default(default: user_settings_profile_path, options: { alert: message }) }
         format.json { render json: { message: message }, status: :unprocessable_entity }
@@ -76,34 +75,35 @@ class ProfilesController < Profiles::ApplicationController
 
   def user_params_attributes
     [
+      :achievements_enabled,
       :avatar,
       :bio,
+      :bluesky,
+      :commit_email,
       :discord,
       :email,
-      :role,
       :gitpod_enabled,
       :hide_no_password,
       :hide_no_ssh_key,
       :hide_project_limit,
+      :include_private_contributions,
+      :job_title,
       :linkedin,
       :location,
       :mastodon,
       :name,
-      :public_email,
-      :commit_email,
-      :skype,
-      :twitter,
-      :username,
-      :website_url,
-      :organization,
+      :user_detail_organization,
       :private_profile,
-      :include_private_contributions,
-      :achievements_enabled,
-      :timezone,
-      :job_title,
       :pronouns,
       :pronunciation,
+      :public_email,
+      :role,
+      :timezone,
+      :twitter,
+      :username,
       :validation_password,
+      :website_url,
+      :github,
       { status: [:emoji, :message, :availability, :clear_status_after] }
     ]
   end

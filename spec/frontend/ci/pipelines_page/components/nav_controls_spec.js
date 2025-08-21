@@ -4,36 +4,47 @@ import NavControls from '~/ci/pipelines_page/components/nav_controls.vue';
 describe('Pipelines Nav Controls', () => {
   let wrapper;
 
-  const createComponent = (props) => {
+  const createComponent = (props = {}) => {
     wrapper = shallowMountExtended(NavControls, {
       propsData: {
         ...props,
+      },
+      provide: {
+        pipelinesAnalyticsPath: '/pipelines/charts',
       },
     });
   };
 
   const findRunPipelineButton = () => wrapper.findByTestId('run-pipeline-button');
-  const findCiLintButton = () => wrapper.findByTestId('ci-lint-button');
   const findClearCacheButton = () => wrapper.findByTestId('clear-cache-button');
+  const findViewAnalyticsLink = () => wrapper.findByTestId('view-analytics-link');
+
+  it('should render link to navigate to CI/CD analytics', () => {
+    createComponent();
+
+    const link = findViewAnalyticsLink();
+
+    expect(link.exists()).toBe(true);
+    expect(link.text()).toContain('View analytics');
+    expect(link.attributes('href')).toBe('/pipelines/charts');
+  });
 
   it('should render link to create a new pipeline', () => {
     const mockData = {
       newPipelinePath: 'foo',
-      ciLintPath: 'foo',
       resetCachePath: 'foo',
     };
 
     createComponent(mockData);
 
     const runPipelineButton = findRunPipelineButton();
-    expect(runPipelineButton.text()).toContain('Run pipeline');
+    expect(runPipelineButton.text()).toContain('New pipeline');
     expect(runPipelineButton.attributes('href')).toBe(mockData.newPipelinePath);
   });
 
   it('should not render link to create pipeline if no path is provided', () => {
     const mockData = {
       helpPagePath: 'foo',
-      ciLintPath: 'foo',
       resetCachePath: 'foo',
     };
 
@@ -42,26 +53,10 @@ describe('Pipelines Nav Controls', () => {
     expect(findRunPipelineButton().exists()).toBe(false);
   });
 
-  it('should render link for CI lint', () => {
-    const mockData = {
-      newPipelinePath: 'foo',
-      helpPagePath: 'foo',
-      ciLintPath: 'foo',
-      resetCachePath: 'foo',
-    };
-
-    createComponent(mockData);
-    const ciLintButton = findCiLintButton();
-
-    expect(ciLintButton.text()).toContain('CI lint');
-    expect(ciLintButton.attributes('href')).toBe(mockData.ciLintPath);
-  });
-
   describe('Reset Runners Cache', () => {
     beforeEach(() => {
       const mockData = {
         newPipelinePath: 'foo',
-        ciLintPath: 'foo',
         resetCachePath: 'foo',
       };
       createComponent(mockData);

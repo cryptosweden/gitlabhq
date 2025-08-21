@@ -7,10 +7,9 @@ import createMockApollo from 'helpers/mock_apollo_helper';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 import axios from '~/lib/utils/axios_utils';
-import { HTTP_STATUS_BAD_REQUEST } from '~/lib/utils/http_status';
 import PipelineNewForm from '~/ci/pipeline_new/components/pipeline_new_form.vue';
+import pipelineCreateMutation from '~/ci/pipeline_new/graphql/mutations/create_pipeline.mutation.graphql';
 import ciConfigVariablesQuery from '~/ci/pipeline_new/graphql/queries/ci_config_variables.graphql';
-import { resolvers } from '~/ci/pipeline_new/graphql/resolvers';
 import {
   mockIdentityVerificationRequiredError,
   mockEmptyCiConfigVariablesResponse,
@@ -19,9 +18,6 @@ import {
 
 Vue.use(VueApollo);
 
-const pipelinesPath = '/root/project/-/pipelines';
-const pipelinesEditorPath = '/root/project/-/ci/editor';
-const projectPath = '/root/project/-/pipelines/config_variables';
 const defaultBranch = 'main';
 
 describe('Pipeline New Form', () => {
@@ -30,6 +26,7 @@ describe('Pipeline New Form', () => {
   let mockApollo;
   let mockCiConfigVariables;
   let dummySubmitEvent;
+  const pipelineCreateMutationHandler = jest.fn();
 
   const findForm = () => wrapper.findComponent(GlForm);
   const findErrorAlert = () => wrapper.findByTestId('run-pipeline-error-alert');
@@ -37,21 +34,26 @@ describe('Pipeline New Form', () => {
     wrapper.findComponent(PipelineAccountVerificationAlert);
 
   const createComponentWithApollo = ({ props = {} } = {}) => {
-    const handlers = [[ciConfigVariablesQuery, mockCiConfigVariables]];
-    mockApollo = createMockApollo(handlers, resolvers);
+    const handlers = [
+      [ciConfigVariablesQuery, mockCiConfigVariables],
+      [pipelineCreateMutation, pipelineCreateMutationHandler],
+    ];
+    mockApollo = createMockApollo(handlers);
 
     wrapper = shallowMountExtended(PipelineNewForm, {
       apolloProvider: mockApollo,
       provide: {
+        canViewPipelineEditor: true,
         identityVerificationRequired: true,
         identityVerificationPath: '/test',
+        pipelineEditorPath: '/root/project/-/ci/editor',
+        pipelinesPath: '/root/project/-/pipelines',
+        projectPath: '/root/project/-/pipelines/config_variables',
+        userRole: 'Maintainer',
+        canSetPipelineVariables: true,
       },
       propsData: {
         projectId: mockProjectId,
-        pipelinesPath,
-        pipelinesEditorPath,
-        canViewPipelineEditor: true,
-        projectPath,
         defaultBranch,
         refParam: defaultBranch,
         settingsLink: '',
@@ -77,12 +79,9 @@ describe('Pipeline New Form', () => {
   describe('Form errors and warnings', () => {
     describe('when the error response is identity verification required', () => {
       beforeEach(async () => {
+        pipelineCreateMutationHandler.mockResolvedValue(mockIdentityVerificationRequiredError);
         mockCiConfigVariables.mockResolvedValue(mockEmptyCiConfigVariablesResponse);
         createComponentWithApollo();
-
-        mock
-          .onPost(pipelinesPath)
-          .reply(HTTP_STATUS_BAD_REQUEST, mockIdentityVerificationRequiredError);
 
         findForm().vm.$emit('submit', dummySubmitEvent);
 

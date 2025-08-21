@@ -8,7 +8,10 @@ class MergeRequestDiffFile < ApplicationRecord
   include DiffFile
 
   belongs_to :merge_request_diff, inverse_of: :merge_request_diff_files
+
   alias_attribute :index, :relative_order
+
+  before_validation :update_project_id
 
   scope :by_paths, ->(paths) do
     where("new_path in (?) OR old_path in (?)", paths, paths)
@@ -50,10 +53,20 @@ class MergeRequestDiffFile < ApplicationRecord
     end
   end
 
+  def new_path
+    super.presence || old_path
+  end
+
   private
 
+  def update_project_id
+    return unless respond_to?(:project_id) && merge_request_diff
+
+    self.project_id = merge_request_diff&.project_id
+  end
+
   # This method is meant to be used during Project Export.
-  # It is identical to the behaviour in #diff with the only
+  # It is identical to the behavior in #diff with the only
   # difference of caching externally stored diffs on local disk in
   # temp storage location in order to improve diff export performance.
   def diff_export

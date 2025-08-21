@@ -66,7 +66,7 @@ export default {
     <div
       v-for="(service, index) in job.services"
       :key="index"
-      class="gl-relative gl-bg-gray-10 gl-mb-5 gl-p-5"
+      class="gl-relative gl-mb-5 gl-bg-subtle gl-p-5"
     >
       <gl-button
         v-if="canDeleteServices"
@@ -77,8 +77,9 @@ export default {
         :aria-label="`delete-job-service-button-${index}`"
         @click="deleteService(index)"
       />
-      <gl-form-group :label="$options.i18n.SERVICE_NAME">
+      <gl-form-group :label="$options.i18n.SERVICE_NAME" :label-for="`service-name-input-${index}`">
         <gl-form-input
+          :id="`service-name-input-${index}`"
           :data-testid="`service-name-input-${index}`"
           :value="service.name"
           @input="$emit('update-job', `services[${index}].name`, $event)"
@@ -86,10 +87,12 @@ export default {
       </gl-form-group>
       <gl-form-group
         :label="$options.i18n.SERVICE_ENTRYPOINT"
+        :label-for="`service-entrypoint-input-${index}`"
         :description="$options.i18n.ARRAY_FIELD_DESCRIPTION"
         class="gl-mb-0"
       >
         <gl-form-textarea
+          :id="`service-entrypoint-input-${index}`"
           :no-resize="false"
           :placeholder="$options.placeholderText"
           :data-testid="`service-entrypoint-input-${index}`"

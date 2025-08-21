@@ -3,12 +3,12 @@ const targetProjectRefsPath = 'some/refs/path';
 const paramsName = 'to';
 const paramsBranch = 'main';
 const sourceProject = {
-  name: 'some-to-name',
-  id: '2',
+  text: 'some-to-name',
+  value: '2',
 };
 const targetProject = {
-  name: 'some-to-name',
-  id: '1',
+  text: 'some-to-name',
+  value: '1',
 };
 
 export const appDefaultProps = {
@@ -43,3 +43,41 @@ export const revisionDropdownDefaultProps = {
   paramsBranch,
   paramsName,
 };
+
+export const expectedTagsItems = [
+  {
+    options: [
+      {
+        text: 'tag-1',
+        value: 'tag-1',
+      },
+      {
+        text: 'tag-2',
+        value: 'tag-2',
+      },
+      {
+        text: 'tag-3',
+        value: 'tag-3',
+      },
+    ],
+    text: 'Tags',
+  },
+];
+
+export const expectedBranchesItems = [
+  {
+    options: [
+      {
+        text: 'branch-1',
+        value: 'branch-1',
+      },
+      {
+        text: 'branch-2',
+        value: 'branch-2',
+      },
+    ],
+    text: 'Branches',
+  },
+];
+
+export const expectedItems = [...expectedBranchesItems, ...expectedTagsItems];

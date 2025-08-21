@@ -21,6 +21,10 @@
 #                                 Both parent and include_parent_descendants params must be present.
 #     include_ancestors: boolean (defaults to true)
 #     organization: Scope the groups to the Organizations::Organization
+#     active: boolean - filters for active groups.
+#     archived: boolean - default is nil which returns all groups, true returns only archived groups, and false returns
+#                         non archived groups
+#     with_statistics - load project statistics.
 #
 # Users with full private access can see all groups. The `owned` and `parent`
 # params can be used to restrict the groups that are returned.
@@ -29,6 +33,7 @@
 # public groups instead, even if `all_available` is set to false.
 class GroupsFinder < UnionFinder
   include CustomAttributesFilter
+  include Namespaces::GroupsFilter
 
   attr_reader :current_user, :params
 
@@ -41,6 +46,7 @@ class GroupsFinder < UnionFinder
     # filtered_groups can contain an array of scopes, so these
     # are combined into a single query using UNION.
     groups = find_union(filtered_groups, Group)
+    groups = groups.with_statistics if params[:with_statistics] == true
     sort(groups).with_route
   end
 
@@ -55,7 +61,7 @@ class GroupsFinder < UnionFinder
   def all_groups
     return [owned_groups] if params[:owned]
     return [groups_with_min_access_level] if min_access_level?
-    return [Group.all] if current_user&.can_read_all_resources? && all_available?
+    return [Group.all] if can_read_all_groups? && all_available?
 
     groups = [
       authorized_groups,
@@ -73,10 +79,12 @@ class GroupsFinder < UnionFinder
 
   # rubocop: disable CodeReuse/ActiveRecord
   def groups_with_min_access_level
-    current_user
+    inner_query = current_user
       .groups
       .where('members.access_level >= ?', params[:min_access_level])
       .self_and_descendants
+    cte = Gitlab::SQL::CTE.new(:groups_with_min_access_level_cte, inner_query)
+    cte.apply_to(Group.where({}))
   end
   # rubocop: enable CodeReuse/ActiveRecord
 
@@ -100,11 +108,16 @@ class GroupsFinder < UnionFinder
 
   def filter_groups(groups)
     groups = by_organization(groups)
+    groups = by_active(groups)
     groups = by_parent(groups)
     groups = by_custom_attributes(groups)
     groups = filter_group_ids(groups)
     groups = exclude_group_ids(groups)
     groups = by_visibility(groups)
+    groups = by_ids(groups)
+    groups = top_level_only(groups)
+    groups = marked_for_deletion_on(groups)
+    groups = by_archived(groups)
     by_search(groups)
   end
 
@@ -113,12 +126,6 @@ class GroupsFinder < UnionFinder
     return groups unless organization
 
     groups.in_organization(organization)
-  end
-
-  def by_visibility(groups)
-    return groups unless params[:visibility]
-
-    groups.by_visibility_level(params[:visibility])
   end
 
   def by_parent(groups)
@@ -143,6 +150,18 @@ class GroupsFinder < UnionFinder
     groups.by_parent(parent)
   end
 
+  def marked_for_deletion_on(groups)
+    return groups unless params[:marked_for_deletion_on].present?
+
+    groups.marked_for_deletion_on(params[:marked_for_deletion_on])
+  end
+
+  def by_archived(groups)
+    return groups if params[:archived].nil?
+
+    params[:archived] ? groups.self_or_ancestors_archived : groups.self_and_ancestors_non_archived
+  end
+
   def filter_group_ids(groups)
     return groups unless params[:filter_group_ids]
 
@@ -155,16 +174,10 @@ class GroupsFinder < UnionFinder
     groups.id_not_in(params[:exclude_group_ids])
   end
 
-  def by_search(groups)
-    return groups unless params[:search].present?
+  def by_active(groups)
+    return groups if params[:active].nil?
 
-    groups.search(params[:search], include_parents: params[:parent].blank?)
-  end
-
-  def sort(groups)
-    return groups.order_id_desc unless params[:sort]
-
-    groups.sort_by_attribute(params[:sort])
+    params[:active] ? groups.self_and_ancestors_active : groups.self_or_ancestors_inactive
   end
 
   def include_parent_shared_groups?
@@ -175,12 +188,17 @@ class GroupsFinder < UnionFinder
     params.fetch(:include_parent_descendants, false)
   end
 
-  def min_access_level?
-    current_user && params[:min_access_level].present?
-  end
-
   def include_public_groups?
     current_user.nil? || all_available?
+  end
+
+  def can_read_all_groups?
+    return false unless current_user
+
+    # Auditors can :read_all_resources while admins can :read_all_resources and
+    # read_admin_groups. In EE, a regular user can read_admin_groups through
+    # custom admin roles.
+    current_user.can_read_all_resources? || current_user.can?(:read_admin_groups)
   end
 
   def all_available?

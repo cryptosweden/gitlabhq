@@ -10,12 +10,10 @@ data_source: system
 instrumentation_class: GitlabSettingsMetric
 options:
   setting_method: allow_signup?
-distribution:
-- ce
-- ee
-tier:
+tiers:
 - free
 - premium
 - ultimate
 performance_indicator_type: []
 milestone: "<13.9"
+introduced_by_url: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/51974

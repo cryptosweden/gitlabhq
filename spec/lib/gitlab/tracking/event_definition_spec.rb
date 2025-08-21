@@ -40,8 +40,8 @@ RSpec.describe Gitlab::Tracking::EventDefinition, feature_category: :service_pin
   it 'has no duplicated actions in InternalEventTracking events', :aggregate_failures do
     definitions_by_action = described_class
                               .definitions
-                              .select { |d| d.attributes[:internal_events] }
-                              .group_by { |d| d.attributes[:action] }
+                              .select(&:internal_events?)
+                              .group_by(&:action)
 
     definitions_by_action.each do |action, definitions|
       expect(definitions.size).to eq(1),
@@ -52,10 +52,10 @@ RSpec.describe Gitlab::Tracking::EventDefinition, feature_category: :service_pin
   it 'only has internal events without category', :aggregate_failures do
     internal_events = described_class
       .definitions
-      .select { |d| d.attributes[:internal_events] }
+      .select(&:internal_events?)
 
     internal_events.each do |event|
-      expect(event.attributes[:category]).to be_nil,
+      expect(event.category).to be_nil,
         "Event definition with internal_events: true should not have a category: #{event.path}"
     end
   end
@@ -68,38 +68,11 @@ RSpec.describe Gitlab::Tracking::EventDefinition, feature_category: :service_pin
       .compact
       .uniq
 
-    event_names = Gitlab::Tracking::EventDefinition.definitions.map { |e| e.attributes[:action] }
+    event_names = described_class.definitions.map(&:action)
 
     from_metric_definitions.each do |event|
       expect(event_names).to include(event),
         "Event '#{event}' is used in Internal Events but does not have an event definition yet. Please define it."
-    end
-  end
-
-  describe '#validate' do
-    using RSpec::Parameterized::TableSyntax
-
-    where(:attribute, :value) do
-      :description          | 1
-      :category             | nil
-      :action               | nil
-      :label_description    | 1
-      :property_description | 1
-      :value_description    | 1
-      :extra_properties     | 'smth'
-      :product_group        | nil
-      :distributions        | %(be eb)
-      :tiers                | %(pro)
-    end
-
-    with_them do
-      before do
-        attributes[attribute] = value
-      end
-
-      it 'has validation errors' do
-        expect(described_class.new(path, attributes).validation_errors).not_to be_empty
-      end
     end
   end
 
@@ -166,6 +139,77 @@ RSpec.describe Gitlab::Tracking::EventDefinition, feature_category: :service_pin
         described_class.find('event1')
         described_class.find('event2')
         described_class.find('non-existing-event')
+      end
+    end
+  end
+
+  describe '.extra_trackers' do
+    let(:dummy_tracking_class) { Class.new }
+
+    before do
+      stub_const('Gitlab::Tracking::DummyTracking', dummy_tracking_class)
+    end
+
+    it 'returns an empty hash when no extra tracking classes are set' do
+      expect(described_class.new(nil, {}).extra_trackers).to eq([])
+    end
+
+    it 'returns the hash with extra tracking class and props when they are set' do
+      extra_trackers = {
+        extra_trackers:
+         [
+           {
+             tracking_class: 'Gitlab::Tracking::DummyTracking',
+             protected_properties: { prop: { description: 'description' } }
+           }
+         ]
+      }
+      config = attributes.merge(extra_trackers)
+
+      expect(described_class.new(nil, config).extra_trackers)
+        .to eq({ dummy_tracking_class => { protected_properties: [:prop] } })
+    end
+
+    it 'returns the hash with extra tracking class with empty array when props are not set' do
+      extra_trackers = {
+        extra_trackers:
+         [
+           {
+             tracking_class: 'Gitlab::Tracking::DummyTracking'
+           }
+         ]
+      }
+      config = attributes.merge(extra_trackers)
+
+      expect(described_class.new(nil, config).extra_trackers)
+        .to eq({ dummy_tracking_class => { protected_properties: [] } })
+    end
+  end
+
+  describe '#duo_event?' do
+    context 'when classification is set to duo' do
+      let(:attributes) do
+        super().merge(classification: 'duo')
+      end
+
+      it 'returns true' do
+        expect(definition.duo_event?).to be(true)
+      end
+    end
+
+    context 'when classification is set to something else' do
+      let(:attributes) do
+        super().merge(classification: 'other')
+      end
+
+      it 'returns false' do
+        expect(definition.duo_event?).to be(false)
+      end
+    end
+
+    context 'when classification is not set' do
+      it 'returns false' do
+        expect(definition.duo_event?).to be(false)
       end
     end
   end

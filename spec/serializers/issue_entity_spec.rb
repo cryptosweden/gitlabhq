@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe IssueEntity do
+RSpec.describe IssueEntity, feature_category: :team_planning do
   include Gitlab::Routing.url_helpers
 
   let(:project)  { create(:project) }
@@ -58,7 +58,9 @@ RSpec.describe IssueEntity do
     before do
       project.add_developer(member)
       public_project.add_developer(member)
-      Issues::MoveService.new(container: public_project, current_user: member).execute(issue, project)
+      ::WorkItems::DataSync::MoveService.new(
+        work_item: issue, current_user: member, target_namespace: project.project_namespace
+      ).execute
     end
 
     context 'when user cannot read target project' do
@@ -135,7 +137,7 @@ RSpec.describe IssueEntity do
       it 'returns nil for archived project doc' do
         response = described_class.new(resource, request: request).as_json
 
-        expect(response[:archived_project_docs_path]).to be nil
+        expect(response[:archived_project_docs_path]).to be_nil
       end
     end
 
@@ -149,7 +151,9 @@ RSpec.describe IssueEntity do
       end
 
       it 'returns archived project doc' do
-        expect(subject[:archived_project_docs_path]).to eq('/help/user/project/settings/index#archive-a-project')
+        expect(subject[:archived_project_docs_path]).to eq(
+          '/help/user/project/working_with_projects.md#delete-a-project'
+        )
       end
     end
   end

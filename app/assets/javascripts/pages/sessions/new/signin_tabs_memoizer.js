@@ -1,5 +1,5 @@
-import AccessorUtilities from '~/lib/utils/accessor';
 import { GlTabsBehavior } from '~/tabs';
+import { getCookie, setCookie } from '~/lib/utils/common_utils';
 
 /**
  * Memorize the last selected tab after reloading a page.
@@ -9,7 +9,6 @@ export default class SigninTabsMemoizer {
   constructor({ currentTabKey = 'current_signin_tab', tabSelector = '#js-signin-tabs' } = {}) {
     this.currentTabKey = currentTabKey;
     this.tabSelector = tabSelector;
-    this.isLocalStorageAvailable = AccessorUtilities.canUseLocalStorage();
     // sets selected tab if given as hash tag
     if (window.location.hash) {
       this.saveData(window.location.hash);
@@ -36,10 +35,14 @@ export default class SigninTabsMemoizer {
 
   showTab() {
     const anchorName = this.readData();
+
     if (anchorName) {
       const tab = document.querySelector(`${this.tabSelector} a[href="${anchorName}"]`);
       if (tab) {
         tab.click();
+        const section = document.querySelector(anchorName);
+        section.querySelector('[autocomplete=current-password]')?.focus();
+        section.querySelector('[autocomplete=username]')?.focus();
       } else {
         const firstTab = document.querySelector(`${this.tabSelector} a`);
         if (firstTab) {
@@ -50,14 +53,10 @@ export default class SigninTabsMemoizer {
   }
 
   saveData(val) {
-    if (!this.isLocalStorageAvailable) return undefined;
-
-    return window.localStorage.setItem(this.currentTabKey, val);
+    setCookie(this.currentTabKey, val);
   }
 
   readData() {
-    if (!this.isLocalStorageAvailable) return null;
-
-    return window.localStorage.getItem(this.currentTabKey);
+    return getCookie(this.currentTabKey);
   }
 }

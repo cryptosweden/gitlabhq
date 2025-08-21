@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: 'Database case study: Namespaces storage statistics'
 ---
-
-# Database case study: Namespaces storage statistics
 
 ## Introduction
 
@@ -14,7 +13,7 @@ storage consumed by a group, and allow easy management.
 
 ## Proposal
 
-1. Create a new ActiveRecord model to hold the namespaces' statistics in an aggregated form (only for root [namespaces](../../user/namespace/index.md)).
+1. Create a new ActiveRecord model to hold the namespaces' statistics in an aggregated form (only for root [namespaces](../../user/namespace/_index.md)).
 1. Refresh the statistics in this model every time a project belonging to this namespace is changed.
 
 ## Problem
@@ -44,7 +43,7 @@ alternative method.
 
 ### Attempt A: PostgreSQL materialized view
 
-Model can be updated through a refresh strategy based on a project routes SQL and a [materialized view](https://www.postgresql.org/docs/11/rules-materializedviews.html):
+Model can be updated through a refresh strategy based on a project routes SQL and a [materialized view](https://www.postgresql.org/docs/16/rules-materializedviews.html):
 
 ```sql
 SELECT split_part("rs".path, '/', 1) as root_path,
@@ -187,7 +186,7 @@ performant approach of aggregating the root namespaces.
 All the details regarding this use case can be found on:
 
 - <https://gitlab.com/gitlab-org/gitlab-foss/-/issues/62214>
-- Merge Request with the implementation: <https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/28996>
+- Merge request with the implementation: <https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/28996>
 
 Performance of the namespace storage statistics were measured in staging and production (GitLab.com). All results were posted
 on <https://gitlab.com/gitlab-org/gitlab-foss/-/issues/64092>: No problem has been reported so far.

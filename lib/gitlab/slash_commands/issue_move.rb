@@ -8,7 +8,7 @@ module Gitlab
           \A                                 # the beginning of a string
           issue\s+move\s+                    # the command
           \#?(?<iid>\d+)\s+                  # the issue id, may preceded by hash sign
-          (to\s+)?                           # aid the command to be much more human-ly
+          (?:to\s+)?                         # aid the command to be much more human-ly
           (?<project_path>[^\s]+)            # named group for id of dest. project
         }x.match(text)
       end
@@ -29,12 +29,16 @@ module Gitlab
           return Gitlab::SlashCommands::Presenters::Access.new.not_found
         end
 
-        new_issue = ::Issues::MoveService.new(container: project, current_user: current_user)
-                      .execute(old_issue, target_project)
+        response = ::WorkItems::DataSync::MoveService.new(
+          work_item: old_issue, current_user: current_user,
+          target_namespace: target_project.project_namespace
+        ).execute
+
+        return presenter(old_issue).display_move_error(response.message) if response.error?
+
+        new_issue = response[:work_item]
 
         presenter(new_issue).present(old_issue)
-      rescue ::Issues::MoveService::MoveError => e
-        presenter(old_issue).display_move_error(e.message)
       end
 
       private

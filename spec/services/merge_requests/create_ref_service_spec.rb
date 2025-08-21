@@ -14,6 +14,8 @@ RSpec.describe MergeRequests::CreateRefService, feature_category: :merge_trains 
     let(:source_sha) { project.commit(source_branch).sha }
     let(:squash) { false }
     let(:default_commit_message) { merge_request.default_merge_commit_message(user: user) }
+    let(:expected_commit_message) { "#{merge_request.title}\n" }
+    let(:merge_params) { {} }
 
     let(:merge_request) do
       create(
@@ -28,14 +30,19 @@ RSpec.describe MergeRequests::CreateRefService, feature_category: :merge_trains 
       )
     end
 
-    subject(:result) do
+    let(:service) do
       described_class.new(
         current_user: user,
         merge_request: merge_request,
         target_ref: target_ref,
         source_sha: source_sha,
-        first_parent_ref: first_parent_ref
-      ).execute
+        first_parent_ref: first_parent_ref,
+        merge_params: merge_params
+      )
+    end
+
+    subject(:result) do
+      service.execute
     end
 
     context 'when there is a user-caused gitaly error' do
@@ -85,6 +92,14 @@ RSpec.describe MergeRequests::CreateRefService, feature_category: :merge_trains 
         )
       end
 
+      shared_examples 'does not generate ref merge request commits' do
+        it 'does not create generated ref merge request commits' do
+          result
+
+          expect(MergeRequests::GeneratedRefCommit.exists?).to be false
+        end
+      end
+
       shared_examples_for 'writing with a merge commit' do
         it 'merges with a merge commit', :aggregate_failures do
           expect(result[:status]).to eq :success
@@ -119,7 +134,7 @@ RSpec.describe MergeRequests::CreateRefService, feature_category: :merge_trains 
             match(
               [
                 expected_merge_commit,
-                "#{merge_request.title}\n",
+                expected_commit_message,
                 'Base parent commit 2',
                 'Base parent commit 1'
               ]
@@ -139,7 +154,7 @@ RSpec.describe MergeRequests::CreateRefService, feature_category: :merge_trains 
           expect(project.repository.commits(target_ref, limit: 10, order: 'topo').map(&:message)).to(
             match(
               [
-                "#{merge_request.title}\n",
+                expected_commit_message,
                 'Base parent commit 2',
                 'Base parent commit 1'
               ]
@@ -201,14 +216,30 @@ RSpec.describe MergeRequests::CreateRefService, feature_category: :merge_trains 
           end
 
           it_behaves_like 'writing with a squash and merge commit'
+
+          context 'when squash commit message is passed as a param' do
+            let(:merge_params) { { 'squash_commit_message' => '1111' } }
+            let(:expected_commit_message) { "1111\n" }
+
+            it_behaves_like 'writing with a squash and merge commit'
+
+            context 'when the MR merge param is set' do
+              before do
+                merge_request.update!(merge_params: { squash_commit_message: 'not 1111' })
+              end
+
+              it_behaves_like 'writing with a squash and merge commit'
+            end
+          end
         end
       end
 
       context 'when the merge commit message is provided at time of merge' do
         let(:expected_merge_commit) { 'something custom' }
+        let(:extra_mr_merge_params) { {} }
 
         before do
-          merge_request.merge_params['commit_message'] = expected_merge_commit
+          merge_request.merge_params = { 'commit_message' => expected_merge_commit }.merge(extra_mr_merge_params)
         end
 
         it 'writes the merged result', :aggregate_failures do
@@ -218,10 +249,29 @@ RSpec.describe MergeRequests::CreateRefService, feature_category: :merge_trains 
           )
         end
 
+        context 'when commit message is passed' do
+          let(:merge_params) { { 'commit_message' => '1111' } }
+
+          it 'writes the merged result', :aggregate_failures do
+            expect(result[:status]).to eq :success
+            expect(project.repository.commits(target_ref, limit: 1, order: 'topo').map(&:message)).to(
+              match(['1111'])
+            )
+          end
+        end
+
         context 'when squash set' do
           let(:squash) { true }
+          let(:merge_params) { { 'squash_commit_message' => '1111' } }
+          let(:expected_commit_message) { "1111\n" }
 
           it_behaves_like 'writing with a squash and merge commit'
+
+          context 'when the MR merge param is set' do
+            let(:extra_mr_merge_params) { { squash_commit_message: 'not 1111' } }
+
+            it_behaves_like 'writing with a squash and merge commit'
+          end
         end
       end
 
@@ -274,7 +324,26 @@ RSpec.describe MergeRequests::CreateRefService, feature_category: :merge_trains 
           let(:squash) { true }
 
           it_behaves_like 'writing with a squash and no merge commit'
+
+          context 'when squash commit message is passed as a param' do
+            let(:merge_params) { { 'squash_commit_message' => '1111' } }
+            let(:expected_commit_message) { "1111\n" }
+
+            it_behaves_like 'writing with a squash and no merge commit'
+
+            context 'when the MR merge param is set' do
+              before do
+                merge_request.update!(merge_params: { squash_commit_message: 'not 1111' })
+              end
+
+              it_behaves_like 'writing with a squash and no merge commit'
+            end
+          end
         end
+      end
+
+      context 'when we are not on ee' do
+        include_examples 'does not generate ref merge request commits'
       end
     end
   end

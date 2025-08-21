@@ -1,14 +1,17 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Group import and export API
+description: "Import and export groups with the REST API."
 ---
 
-# Group import and export API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Use the group import and export API to export a group structure and import it to a new location.
 When you use the group import and export API with the [project import and export API](project_import_export.md), you can preserve connections with
@@ -22,7 +25,7 @@ Group exports include the following:
 - Group badges
 - Group members
 - Group wikis (Premium and Ultimate only)
-- Subgroups. Each subgroup includes all data above
+- Subgroups. Each subgroup includes all previous data in the list.
 
 To preserve group-level relationships from imported projects, you should run group export and import first. This way,
 you can import project exports into the desired group structure.
@@ -48,10 +51,12 @@ POST /groups/:id/export
 
 | Attribute | Type           | Required | Description                              |
 | --------- | -------------- | -------- | ---------------------------------------- |
-| `id`      | integer/string | yes      | ID of the group owned by the authenticated user |
+| `id`      | integer/string | yes      | ID of the group |
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/1/export"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/groups/1/export"
 ```
 
 ```json
@@ -70,15 +75,16 @@ GET /groups/:id/export/download
 
 | Attribute | Type           | Required | Description                              |
 | --------- | -------------- | -------- | ---------------------------------------- |
-| `id`      | integer/string | yes      | ID of the group owned by the authenticated user |
+| `id`      | integer/string | yes      | ID of the group |
 
 ```shell
 group=1
 token=secret
-curl --request GET\
-     --header "PRIVATE-TOKEN: ${token}" \
-     --output download_group_${group}.tar.gz \
-     "https://gitlab.example.com/api/v4/groups/${group}/export/download"
+
+curl --request GET \
+  --header "PRIVATE-TOKEN: ${token}" \
+  --output download_group_${group}.tar.gz \
+  --url "https://gitlab.example.com/api/v4/groups/${group}/export/download"
 ```
 
 ```shell
@@ -94,14 +100,14 @@ returns either:
 
 ## Import a file
 
-The maximum import file size can be set by the Administrator on self-managed instances (default is `0` (unlimited)).
+The maximum import file size can be set by the Administrator on GitLab Self-Managed (default is `0` (unlimited)).
 As an administrator, you can modify the maximum import file size either:
 
-- In the [Admin Area](../administration/settings/import_and_export_settings.md).
-- By using the `max_import_size` option in the [Application settings API](settings.md#change-application-settings).
+- In the [**Admin** area](../administration/settings/import_and_export_settings.md).
+- By using the `max_import_size` option in the [Application settings API](settings.md#update-application-settings).
 
 For information on the maximum import file size on GitLab.com, see
-[Account and limit settings](../user/gitlab_com/index.md#account-and-limit-settings).
+[Account and limit settings](../user/gitlab_com/_index.md#account-and-limit-settings).
 
 ```plaintext
 POST /groups/import
@@ -120,9 +126,11 @@ The `file=` parameter must point to a file on your file system and be preceded
 by `@`. For example:
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" \
-     --form "name=imported-group" --form "path=imported-group" \
-     --form "file=@/path/to/file" "https://gitlab.example.com/api/v4/groups/import"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --form "name=imported-group" --form "path=imported-group" \
+  --form "file=@/path/to/file" \
+  --url "https://gitlab.example.com/api/v4/groups/import"
 ```
 
 ## Related topics

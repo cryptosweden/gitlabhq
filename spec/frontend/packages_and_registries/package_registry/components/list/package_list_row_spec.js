@@ -2,17 +2,21 @@ import { GlFormCheckbox, GlSprintf, GlTruncate, GlBadge } from '@gitlab/ui';
 import Vue from 'vue';
 import VueRouter from 'vue-router';
 import { RouterLinkStub } from '@vue/test-utils';
+import ProtectedBadge from '~/vue_shared/components/badges/protected_badge.vue';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
-import { createMockDirective, getBinding } from 'helpers/vue_mock_directive';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import PackagesListRow from '~/packages_and_registries/package_registry/components/list/package_list_row.vue';
 import PackageTags from '~/packages_and_registries/shared/components/package_tags.vue';
 import PublishMessage from '~/packages_and_registries/shared/components/publish_message.vue';
 import PublishMethod from '~/packages_and_registries/package_registry/components/list/publish_method.vue';
-import { PACKAGE_ERROR_STATUS } from '~/packages_and_registries/package_registry/constants';
+import {
+  PACKAGE_ERROR_STATUS,
+  PACKAGE_DEPRECATED_STATUS,
+} from '~/packages_and_registries/package_registry/constants';
 
 import ListItem from '~/vue_shared/components/registry/list_item.vue';
 import {
+  conanMetadata,
   linksData,
   packageData,
   packagePipelines,
@@ -34,6 +38,7 @@ describe('packages_list_row', () => {
   const packageWithTags = { ...packageWithoutTags, tags: { nodes: packageTags() } };
 
   const findPackageTags = () => wrapper.findComponent(PackageTags);
+  const findDeprecatedBadge = () => wrapper.findComponent(GlBadge);
   const findDeleteDropdown = () => wrapper.findByTestId('delete-dropdown');
   const findDeleteButton = () => wrapper.findByTestId('action-delete');
   const findErrorMessage = () => wrapper.findByTestId('error-message');
@@ -47,6 +52,9 @@ describe('packages_list_row', () => {
   const findListItem = () => wrapper.findComponent(ListItem);
   const findBulkDeleteAction = () => wrapper.findComponent(GlFormCheckbox);
   const findPackageName = () => wrapper.findByTestId('package-name');
+  const findConanMetadata = () => wrapper.findByTestId('conan-metadata');
+  const findPackageUsername = () => wrapper.findByTestId('package-username');
+  const findPackageChannel = () => wrapper.findByTestId('package-channel');
 
   const mountComponent = ({
     packageEntity = packageWithoutTags,
@@ -64,9 +72,6 @@ describe('packages_list_row', () => {
       propsData: {
         packageEntity,
         selected,
-      },
-      directives: {
-        GlTooltip: createMockDirective('gl-tooltip'),
       },
     });
   };
@@ -346,10 +351,7 @@ describe('packages_list_row', () => {
   });
 
   describe('badge "protected"', () => {
-    const mountComponentForBadgeProtected = ({
-      packageEntityProtectionRuleExists = true,
-      glFeaturesPackagesProtectedPackages = true,
-    } = {}) =>
+    const mountComponentForBadgeProtected = ({ packageEntityProtectionRuleExists = true } = {}) =>
       mountComponent({
         packageEntity: {
           ...packageWithoutTags,
@@ -357,26 +359,19 @@ describe('packages_list_row', () => {
         },
         provide: {
           ...defaultProvide,
-          glFeatures: { packagesProtectedPackages: glFeaturesPackagesProtectedPackages },
         },
       });
 
-    const findBadgeProtected = () => wrapper.findComponent(GlBadge);
+    const findProtectedBadge = () => wrapper.findComponent(ProtectedBadge);
 
     describe('when package is protected', () => {
       it('shows badge', () => {
         mountComponentForBadgeProtected();
 
-        expect(findBadgeProtected().text()).toBe('protected');
-      });
-
-      it('binds tooltip directive', () => {
-        mountComponentForBadgeProtected();
-
-        const badgeProtectedTooltipBinding = getBinding(findBadgeProtected().element, 'gl-tooltip');
-        expect(badgeProtectedTooltipBinding.value).toMatchObject({
-          title: 'A protection rule exists for this package.',
-        });
+        expect(findProtectedBadge().exists()).toBe(true);
+        expect(findProtectedBadge().props('tooltipText')).toMatch(
+          'A protection rule exists for this package.',
+        );
       });
     });
 
@@ -384,16 +379,69 @@ describe('packages_list_row', () => {
       it('does not show badge', () => {
         mountComponentForBadgeProtected({ packageEntityProtectionRuleExists: false });
 
-        expect(findBadgeProtected().exists()).toBe(false);
+        expect(findProtectedBadge().exists()).toBe(false);
       });
     });
+  });
 
-    describe('when feature flag ":packages_protected_packages" disabled', () => {
-      it('does not show badge', () => {
-        mountComponentForBadgeProtected({ glFeaturesPackagesProtectedPackages: false });
+  describe('deprecated badge', () => {
+    it('is not rendered by default', () => {
+      mountComponent();
 
-        expect(findBadgeProtected().exists()).toBe(false);
+      expect(findDeprecatedBadge().exists()).toBe(false);
+    });
+
+    describe('when package has deprecated status', () => {
+      beforeEach(() => {
+        mountComponent({
+          packageEntity: {
+            ...packageWithoutTags,
+            status: PACKAGE_DEPRECATED_STATUS,
+          },
+        });
       });
+
+      it('renders GlBadge component', () => {
+        expect(findDeprecatedBadge().props('variant')).toBe('warning');
+      });
+
+      it('renders the text `deprecated`', () => {
+        expect(findDeprecatedBadge().text()).toBe('deprecated');
+      });
+    });
+  });
+
+  describe('conan metadata', () => {
+    it('does not render `packageUsername` and `packageChannel` for any packages other than conan', () => {
+      mountComponent();
+
+      expect(findConanMetadata().exists()).toBe(false);
+    });
+
+    it('renders correct `packageUsername` and `packageChannel` when package type is conan', () => {
+      mountComponent({
+        packageEntity: {
+          ...packageWithoutTags,
+          packageType: 'CONAN',
+          metadata: conanMetadata(),
+        },
+      });
+
+      expect(findConanMetadata().exists()).toBe(true);
+      expect(findPackageUsername().text()).toBe('gitlab-org+gitlab-test');
+      expect(findPackageChannel().text()).toBe('stable');
+    });
+
+    it('hides Conan metadata with default values', () => {
+      mountComponent({
+        packageEntity: {
+          ...packageWithoutTags,
+          packageType: 'CONAN',
+          metadata: { ...conanMetadata(), packageChannel: '_', packageUsername: '_' },
+        },
+      });
+
+      expect(findConanMetadata().exists()).toBe(false);
     });
   });
 });

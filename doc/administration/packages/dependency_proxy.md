@@ -2,21 +2,30 @@
 stage: Package
 group: Container Registry
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: GitLab Dependency Proxy administration
 ---
 
-# GitLab Dependency Proxy administration
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/7934) in [GitLab Premium](https://about.gitlab.com/pricing/) 11.11.
-> - [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/273655) from GitLab Premium to GitLab Free in 13.6.
+{{< /details >}}
 
-GitLab can be used as a dependency proxy for your frequently-accessed upstream images.
+{{< history >}}
 
-This is the administration documentation. If you want to learn how to use the
-dependency proxies, see the [user guide](../../user/packages/dependency_proxy/index.md).
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/7934) in [GitLab Premium](https://about.gitlab.com/pricing/) 11.11.
+- [Moved](https://gitlab.com/gitlab-org/gitlab/-/issues/273655) from GitLab Premium to GitLab Free in 13.6.
+
+{{< /history >}}
+
+You can use GitLab as a dependency proxy for frequently-accessed upstream artifacts, including container images and packages.
+
+This is the administration documentation. To learn how to use the
+dependency proxies, see:
+
+- The [dependency proxy for container images](../../user/packages/dependency_proxy/_index.md) user guide
+- The [virtual registry](../../user/packages/virtual_registry/_index.md) user guide
 
 The GitLab Dependency Proxy:
 
@@ -29,9 +38,9 @@ The Dependency Proxy is enabled by default. If you are an administrator, you
 can turn off the Dependency Proxy. To turn off the Dependency Proxy, follow the instructions that
 correspond to your GitLab installation.
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb` and add the following line:
 
@@ -42,7 +51,9 @@ correspond to your GitLab installation.
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation)
    for the changes to take effect.
 
-:::TabTitle Helm chart (Kubernetes)
+{{< /tab >}}
+
+{{< tab title="Helm chart (Kubernetes)" >}}
 
 After the installation is complete, update the global `appConfig` to turn off the Dependency Proxy:
 
@@ -52,14 +63,16 @@ global:
     dependencyProxy:
       enabled: false
       bucket: gitlab-dependency-proxy
-      connection: {}
-       secret:
-       key:
+      connection:
+        secret:
+        key:
 ```
 
 For more information, see [Configure Charts using Globals](https://docs.gitlab.com/charts/charts/globals.html#configure-appconfig-settings).
 
-:::TabTitle Self-compiled (source)
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
 
 1. After the installation is complete, configure the `dependency_proxy` section in
    `config/gitlab.yml`. Set `enabled` to `false` to turn off the Dependency Proxy:
@@ -71,7 +84,9 @@ For more information, see [Configure Charts using Globals](https://docs.gitlab.c
 
 1. [Restart GitLab](../restart_gitlab.md#self-compiled-installations) for the changes to take effect.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### Multi-node GitLab installations
 
@@ -94,9 +109,9 @@ The Dependency Proxy files for Linux package installations are stored under
 `/var/opt/gitlab/gitlab-rails/shared/dependency_proxy/` and for source
 installations under `shared/dependency_proxy/` (relative to the Git home directory).
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb` and add the following line:
 
@@ -106,7 +121,9 @@ installations under `shared/dependency_proxy/` (relative to the Git home directo
 
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation) for the changes to take effect.
 
-:::TabTitle Self-compiled (source)
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
 
 1. Edit the `dependency_proxy` section in `config/gitlab.yml`:
 
@@ -118,7 +135,9 @@ installations under `shared/dependency_proxy/` (relative to the Git home directo
 
 1. [Restart GitLab](../restart_gitlab.md#self-compiled-installations) for the changes to take effect.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 ### Using object storage
 
@@ -128,9 +147,9 @@ This section describes the earlier configuration format. [Migration steps still 
 
 [Read more about using object storage with GitLab](../object_storage.md).
 
-::Tabs
+{{< tabs >}}
 
-:::TabTitle Linux package (Omnibus)
+{{< tab title="Linux package (Omnibus)" >}}
 
 1. Edit `/etc/gitlab/gitlab.rb` and add the following lines (uncomment where
    necessary):
@@ -161,7 +180,9 @@ This section describes the earlier configuration format. [Migration steps still 
 
 1. Save the file and [reconfigure GitLab](../restart_gitlab.md#reconfigure-a-linux-package-installation) for the changes to take effect.
 
-:::TabTitle Self-compiled (source)
+{{< /tab >}}
+
+{{< tab title="Self-compiled (source)" >}}
 
 1. Edit the `dependency_proxy` section in `config/gitlab.yml` (uncomment where necessary):
 
@@ -195,7 +216,9 @@ This section describes the earlier configuration format. [Migration steps still 
 
 1. [Restart GitLab](../restart_gitlab.md#self-compiled-installations) for the changes to take effect.
 
-::EndTabs
+{{< /tab >}}
+
+{{< /tabs >}}
 
 #### Migrate local Dependency Proxy blobs and manifests to object storage
 

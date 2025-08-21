@@ -21,7 +21,8 @@ export default () => {
   const {
     emptyStateImage,
     defaultBranchName,
-    projectPath,
+    fullPath,
+    isGroup,
     kasAddress,
     addClusterPath,
     newClusterDocsPath,
@@ -30,7 +31,6 @@ export default () => {
     canAddCluster,
     canAdminCluster,
     kasInstallVersion,
-    kasCheckVersion,
     displayClusterAgents,
     certificateBasedClustersEnabled,
   } = el.dataset;
@@ -40,7 +40,8 @@ export default () => {
     apolloProvider: new VueApollo({ defaultClient }),
     provide: {
       emptyStateImage,
-      projectPath,
+      fullPath,
+      isGroup: parseBoolean(isGroup),
       kasAddress,
       addClusterPath,
       newClusterDocsPath,
@@ -49,7 +50,6 @@ export default () => {
       canAddCluster: parseBoolean(canAddCluster),
       canAdminCluster: parseBoolean(canAdminCluster),
       kasInstallVersion,
-      kasCheckVersion,
       displayClusterAgents: parseBoolean(displayClusterAgents),
       certificateBasedClustersEnabled: parseBoolean(certificateBasedClustersEnabled),
     },

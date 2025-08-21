@@ -94,8 +94,7 @@ module Gitlab
         # use a markdown based pipeline to grab possible paragraphs that might
         # contain quick actions. This ensures they are not in HTML blocks, quote blocks,
         # or code blocks.
-        pipeline = Banzai::Pipeline::QuickActionPipeline.html_pipeline
-        possible_paragraphs = pipeline.call(content, {}, {})[:quick_action_paragraphs]
+        possible_paragraphs = Banzai.render_result(content, { pipeline: :quick_action })[:quick_action_paragraphs]
 
         if possible_paragraphs.present?
           content_lines = content.lines
@@ -139,7 +138,7 @@ module Gitlab
           output = ''
 
           if redact
-            output = "`/#{matched_text[:cmd]}#{" " + matched_text[:arg] if matched_text[:arg]}`"
+            output = "`/#{matched_text[:cmd]}#{' ' + matched_text[:arg] if matched_text[:arg]}`"
             output += "\n" if matched_text[0].include?("\n")
           elsif keep_actions
             # put the command in a new paragraph, but without introducing newlines

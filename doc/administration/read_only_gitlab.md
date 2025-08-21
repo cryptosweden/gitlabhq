@@ -1,18 +1,23 @@
 ---
-stage: Systems
-group: Distribution
+stage: GitLab Delivery
+group: Operate
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Place GitLab into a read-only state
 ---
 
-# Place GitLab into a read-only state
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-NOTE:
+{{< /details >}}
+
+{{< alert type="note" >}}
+
 The recommended method to place GitLab in a read-only state is to enable
-[maintenance mode](../administration/maintenance_mode/index.md).
+[maintenance mode](maintenance_mode/_index.md).
+
+{{< /alert >}}
 
 In some cases, you might want to place GitLab under a read-only state.
 The configuration for doing so depends on your desired outcome.
@@ -40,7 +45,22 @@ made to your repositories. There's two ways you can accomplish that:
   Project.all.find_each { |project| project.update!(repository_read_only: true) }
   ```
 
-  When you're ready to revert this, you can do so with the following command:
+  To set only a subset of repositories to read-only, run the following:
+
+  ```ruby
+  # List of project IDs of projects to set to read-only.
+  projects = [1,2,3]
+
+  projects.each do |p|
+   project =  Project.find p
+   project.update!(repository_read_only: true)
+   rescue ActiveRecord::RecordNotFound
+   puts "Project ID #{p} not found"
+
+  end
+  ```
+
+  When you're ready to revert this, change `repository_read_only` to `false` on the projects. For example, run the following:
 
   ```ruby
   Project.all.find_each { |project| project.update!(repository_read_only: false) }
@@ -69,7 +89,7 @@ sudo gitlab-ctl start puma
 If you want to allow users to use the GitLab UI, ensure that
 the database is read-only:
 
-1. Take a [GitLab backup](../administration/backup_restore/index.md)
+1. Take a [GitLab backup](backup_restore/_index.md)
    in case things don't go as expected.
 1. Enter PostgreSQL on the console as an administrator user:
 

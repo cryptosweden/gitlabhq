@@ -6,7 +6,7 @@ module Ci
       include Gitlab::Utils::StrongMemoize
       include ExclusiveLeaseGuard
 
-      attr_reader :pipeline
+      attr_reader :pipeline, :collection
 
       DEFAULT_LEASE_TIMEOUT = 1.minute
       BATCH_SIZE = 20
@@ -184,3 +184,5 @@ module Ci
     end
   end
 end
+
+Ci::PipelineProcessing::AtomicProcessingService.prepend_mod

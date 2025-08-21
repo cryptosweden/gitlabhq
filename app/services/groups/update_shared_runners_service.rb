@@ -3,7 +3,7 @@
 module Groups
   class UpdateSharedRunnersService < Groups::BaseService
     def execute
-      return error('Operation not allowed', 403) unless can?(current_user, :admin_runner, group)
+      return error('Operation not allowed', 403) unless can?(current_user, :admin_runners, group)
 
       validate_params
 
@@ -43,7 +43,7 @@ module Groups
       return unless update_pending_builds?
 
       group.run_after_commit_or_now do |group|
-        pending_builds_params = { instance_runners_enabled: group.shared_runners_enabled }
+        pending_builds_params = { 'instance_runners_enabled' => group.shared_runners_enabled }
 
         ::Ci::PendingBuilds::UpdateGroupWorker.perform_async(group.id, pending_builds_params)
       end

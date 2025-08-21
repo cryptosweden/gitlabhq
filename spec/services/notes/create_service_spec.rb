@@ -151,6 +151,14 @@ RSpec.describe Notes::CreateService, feature_category: :team_planning do
         described_class.new(project, user, opts).execute
       end
 
+      context 'when importing execute option is set to true' do
+        it 'does not enqueue NewNoteWorker' do
+          expect(NewNoteWorker).not_to receive(:perform_async)
+
+          described_class.new(project, user, opts).execute(importing: true)
+        end
+      end
+
       context 'issue is an incident' do
         let(:issue) { create(:incident, project: project) }
 
@@ -432,7 +440,8 @@ RSpec.describe Notes::CreateService, feature_category: :team_planning do
               QuickAction.new(
                 action_text: '/due 2016-08-28',
                 expectation: ->(noteable, can_use_quick_action) {
-                  expect(noteable.due_date == Date.new(2016, 8, 28)).to eq(can_use_quick_action)
+                  expect(noteable.due_date == Date.new(2016, 8, 28) &&
+                         noteable.dates_source.due_date_is_fixed).to eq(can_use_quick_action)
                 }
               ),
               QuickAction.new(
@@ -513,14 +522,16 @@ RSpec.describe Notes::CreateService, feature_category: :team_planning do
 
           note = described_class.new(project, user, opts.merge(note: note_text)).execute
 
-          expect(note.errors[:commands_only]).to be_present
+          expect(note.quick_actions_status.messages).to be_present
+          expect(note.quick_actions_status.error_messages).to be_empty
         end
 
         it 'adds commands failed message to note errors' do
           note_text = %(/reopen)
           note = described_class.new(project, user, opts.merge(note: note_text)).execute
 
-          expect(note.errors[:commands_only]).to contain_exactly('Could not apply reopen command.')
+          expect(note.quick_actions_status.messages).to eq(['Could not apply reopen command.'])
+          expect(note.quick_actions_status.error_messages).to be_empty
         end
 
         it 'generates success and failed error messages' do
@@ -531,7 +542,10 @@ RSpec.describe Notes::CreateService, feature_category: :team_planning do
 
           note = described_class.new(project, user, opts.merge(note: note_text)).execute
 
-          expect(note.errors[:commands_only]).to contain_exactly('Closed this issue. Could not apply reopen command.')
+          expect(note.quick_actions_status.error?).to be(false)
+          expect(note.quick_actions_status.command_names).to eq(%w[close reopen])
+          expect(note.quick_actions_status.messages).to eq(['Closed this issue. Could not apply reopen command.'])
+          expect(note.quick_actions_status.error_messages).to be_empty
         end
 
         it 'does not check for spam' do
@@ -553,7 +567,10 @@ RSpec.describe Notes::CreateService, feature_category: :team_planning do
           end
 
           note = described_class.new(project, user, opts.merge(note: note_text)).execute
-          expect(note.errors[:commands_only]).to contain_exactly('Confidential an error occurred')
+
+          expect(note.quick_actions_status.error?).to be(true)
+          expect(note.quick_actions_status.command_names).to eq(['confidential'])
+          expect(note.quick_actions_status.error_messages).to eq(['Confidential an error occurred'])
         end
       end
     end
@@ -746,6 +763,50 @@ RSpec.describe Notes::CreateService, feature_category: :team_planning do
         let(:opts) { { note: 'reply', noteable_type: 'Issue', noteable_id: issue.id, project: project } }
 
         it_behaves_like 'internal event not tracked'
+      end
+
+      context 'wiki page note' do
+        let_it_be(:wiki_page_meta) { create(:wiki_page_meta, :for_wiki_page, container: project) }
+        let(:opts) { { note: 'reply', noteable_type: 'WikiPage::Meta', noteable_id: wiki_page_meta.id, project: wiki_page_meta.project } }
+
+        it_behaves_like 'internal event tracking' do
+          let(:event) { 'create_wiki_page_note' }
+          let(:category) { described_class.name }
+          let(:project) { wiki_page_meta.project }
+
+          subject(:track_event) { described_class.new(wiki_page_meta.project, user, opts).execute }
+        end
+
+        context 'for a non-first note in a discussion' do
+          let_it_be(:previous_note) do
+            create(:note, noteable: wiki_page_meta, project: wiki_page_meta.project)
+          end
+
+          let(:opts) do
+            {
+              in_reply_to_discussion_id: previous_note.discussion_id,
+              note: 'reply',
+              noteable_type: 'WikiPage::Meta',
+              noteable_id: wiki_page_meta.id,
+              project: wiki_page_meta.project
+            }
+          end
+
+          it 'creates the note' do
+            note = described_class.new(wiki_page_meta.project, user, opts).execute
+
+            expect(note).to be_valid
+          end
+
+          it_behaves_like 'internal event tracking' do
+            let(:event) { 'create_wiki_page_reply_note' }
+            let(:category) { described_class.name }
+            let(:project) { wiki_page_meta.project }
+            let(:namespace) { nil }
+
+            subject(:track_event) { described_class.new(wiki_page_meta.project, user, opts).execute }
+          end
+        end
       end
     end
   end

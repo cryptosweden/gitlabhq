@@ -25,7 +25,6 @@ module Banzai
         issuables = extractor.extract([doc])
 
         issuables.each do |node, issuable|
-          next if !can_read_cross_project? && cross_referenced?(issuable)
           next unless should_expand?(node, issuable)
 
           case node.attr('data-reference-format')
@@ -101,19 +100,6 @@ module Banzai
         CGI.unescapeHTML(node.inner_html) == issuable.reference_link_text(project || group)
       end
 
-      def cross_referenced?(issuable)
-        return true if issuable.project != project
-        return true if issuable.respond_to?(:group) && issuable.group != group
-
-        false
-      end
-
-      def can_read_cross_project?
-        strong_memoize(:can_read_cross_project) do
-          Ability.allowed?(current_user, :read_cross_project)
-        end
-      end
-
       def current_user
         context[:current_user]
       end
@@ -135,3 +121,5 @@ module Banzai
     end
   end
 end
+
+Banzai::Filter::IssuableReferenceExpansionFilter.prepend_mod

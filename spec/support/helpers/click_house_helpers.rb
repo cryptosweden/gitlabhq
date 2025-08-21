@@ -4,18 +4,25 @@ module ClickHouseHelpers
   extend ActiveRecord::ConnectionAdapters::Quoting
 
   def insert_events_into_click_house(events = Event.all)
-    clickhouse_fixture(:events, events.map do |event|
-      {
-        id: event.id,
-        path: "#{event.project.reload.project_namespace.traversal_ids.join('/')}/",
-        author_id: event.author_id,
-        target_id: event.target_id,
-        target_type: event.target_type,
-        action: Event.actions[event.action],
-        created_at: event.created_at,
-        updated_at: event.updated_at
-      }
-    end)
+    # Insert into both events table until legacy table is removed
+    %i[events events_new].each do |clickhouse_table_name|
+      clickhouse_fixture(clickhouse_table_name, events.map do |event|
+        project_namespace = event.project.reload.project_namespace
+        include_organization_on_path = clickhouse_table_name == :events_new
+        path = project_namespace.traversal_path(with_organization: include_organization_on_path)
+
+        {
+          id: event.id,
+          path: path,
+          author_id: event.author_id,
+          target_id: event.target_id,
+          target_type: event.target_type,
+          action: Event.actions[event.action],
+          created_at: event.created_at,
+          updated_at: event.updated_at
+        }
+      end)
+    end
   end
 
   # rubocop:disable Metrics/CyclomaticComplexity -- the method is straightforward, just a lot of &.
@@ -23,7 +30,8 @@ module ClickHouseHelpers
   def insert_ci_builds_to_click_house(builds)
     result = clickhouse_fixture(:ci_finished_builds, builds.map do |build|
       build.slice(
-        %i[id project_id pipeline_id status finished_at created_at started_at queued_at runner_id]).symbolize_keys
+        %i[id project_id pipeline_id status finished_at created_at started_at queued_at runner_id name
+          stage_id]).symbolize_keys
           .merge(
             runner_run_untagged: build.runner&.run_untagged,
             runner_type: Ci::Runner.runner_types[build.runner&.runner_type],
@@ -40,6 +48,22 @@ module ClickHouseHelpers
   end
   # rubocop:enable Metrics/CyclomaticComplexity
   # rubocop:enable Metrics/PerceivedComplexity
+
+  def insert_ci_pipelines_to_click_house(pipelines)
+    result = clickhouse_fixture(:ci_finished_pipelines, pipelines.map do |pipeline|
+      pipeline.slice(
+        %i[id duration status source ref committed_at created_at started_at finished_at]).symbolize_keys
+           .merge(
+             path: pipeline.project&.project_namespace&.traversal_path || '0/'
+           )
+    end)
+
+    expect(result).to eq(true)
+  end
+
+  def self.default_timezone
+    ActiveRecord.default_timezone
+  end
 
   def clickhouse_fixture(table, data, db = :main)
     return if data.empty?

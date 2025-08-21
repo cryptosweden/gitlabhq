@@ -1,121 +1,6 @@
 @import 'mixins_and_variables_and_functions';
-@import '../highlight/conflict_colors';
-
-@mixin color-scheme($color) {
-  .header.line_content,
-  .diff-line-num {
-    &.origin {
-      background-color: map-get($conflict-colors, #{$color}-header-origin-neutral);
-      border-color: map-get($conflict-colors, #{$color}-header-origin-neutral);
-
-      button {
-        background-color: map-get($conflict-colors, #{$color}-button-origin-neutral);
-        border-color: darken(map-get($conflict-colors, #{$color}-button-origin-neutral), 15);
-      }
-
-      &.selected {
-        background-color: map-get($conflict-colors, #{$color}-header-origin-chosen);
-        border-color: map-get($conflict-colors, #{$color}-header-origin-chosen);
-
-        button {
-          background-color: map-get($conflict-colors, #{$color}-button-origin-chosen);
-          border-color: darken(map-get($conflict-colors, #{$color}-button-origin-chosen), 15);
-        }
-      }
-
-      &.unselected {
-        background-color: map-get($conflict-colors, #{$color}-header-not-chosen);
-        border-color: map-get($conflict-colors, #{$color}-header-not-chosen);
-
-        button {
-          background-color: lighten(map-get($conflict-colors, #{$color}-button-origin-neutral), 15);
-          border-color: map-get($conflict-colors, #{$color}-button-origin-neutral);
-        }
-      }
-    }
-
-    &.head {
-      background-color: map-get($conflict-colors, #{$color}-header-head-neutral);
-      border-color: map-get($conflict-colors, #{$color}-header-head-neutral);
-
-      button {
-        background-color: map-get($conflict-colors, #{$color}-button-head-neutral);
-        border-color: darken(map-get($conflict-colors, #{$color}-button-head-neutral), 15);
-      }
-
-      &.selected {
-        background-color: map-get($conflict-colors, #{$color}-header-head-chosen);
-        border-color: map-get($conflict-colors, #{$color}-header-head-chosen);
-
-        button {
-          background-color: map-get($conflict-colors, #{$color}-button-head-chosen);
-          border-color: darken(map-get($conflict-colors, #{$color}-button-head-chosen), 15);
-        }
-      }
-
-      &.unselected {
-        background-color: map-get($conflict-colors, #{$color}-header-not-chosen);
-        border-color: map-get($conflict-colors, #{$color}-header-not-chosen);
-
-        button {
-          background-color: lighten(map-get($conflict-colors, #{$color}-button-head-neutral), 15);
-          border-color: map-get($conflict-colors, #{$color}-button-head-neutral);
-        }
-      }
-    }
-  }
-
-  .line_content {
-    &.origin {
-      background-color: map-get($conflict-colors, #{$color}-line-origin-neutral);
-
-      &.selected {
-        background-color: map-get($conflict-colors, #{$color}-line-origin-chosen);
-      }
-
-      &.unselected {
-        background-color: map-get($conflict-colors, #{$color}-line-not-chosen);
-      }
-    }
-
-    &.head {
-      background-color: map-get($conflict-colors, #{$color}-line-head-neutral);
-
-      &.selected {
-        background-color: map-get($conflict-colors, #{$color}-line-head-chosen);
-      }
-
-      &.unselected {
-        background-color: map-get($conflict-colors, #{$color}-line-not-chosen);
-      }
-    }
-  }
-}
 
 #conflicts {
-  .white {
-    @include color-scheme('white'); }
-
-  .dark {
-    @include color-scheme('dark'); }
-
-  .monokai {
-    @include color-scheme('monokai'); }
-
-  .solarized-light {
-    @include color-scheme('solarized-light'); }
-
-  .solarized-dark {
-    @include color-scheme('solarized-dark'); }
-
-  .none {
-    .line_content.header {
-      button {
-        color: $gray-900;
-      }
-    }
-  }
-
   .diff-wrap-lines .line_content {
     white-space: normal;
     min-height: 19px;
@@ -125,16 +10,18 @@
     position: relative;
 
     button {
-      border-radius: 2px;
       font-size: 10px;
       position: absolute;
-      right: 10px;
-      padding: 0;
-      outline: none;
-      color: var(--white, $white);
-      width: 75px; // static width to make 2 buttons have same width
-      height: 19px;
+      right: $gl-spacing-scale-5;
+      top: 1px;
+      height: 18px;
+      opacity: 85%;
+      min-height: 18px;
     }
+  }
+
+  .line_content:has(button) {
+    padding-right: $gl-spacing-scale-13;
   }
 
   .editor-wrap {
@@ -169,9 +56,9 @@
   }
 
   .discard-changes-alert {
-    background-color: var(--gray-10, $gray-10);
+    @apply gl-bg-subtle;
     text-align: right;
     padding: $gl-padding-top $gl-padding;
-    color: var(--gl-text-color, $gl-text-color);
+    color: var(--gl-text-color-default);
   }
 }

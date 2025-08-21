@@ -1,21 +1,22 @@
 ---
-stage: Systems
+stage: Tenant Scale
 group: Geo
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Container registry for a secondary site
 ---
 
-# Container registry for a secondary site
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-You can set up a container registry on your **secondary** Geo site that mirrors the one on the **primary** Geo site.
+{{< /details >}}
 
-NOTE:
-The container registry replication is used only for disaster recovery purposes. We do not recommend
-pulling the container registry data from the secondary. For a feature proposal to implement it in the
-future, see [Geo: Accelerate container images by serving read request from secondary site](https://gitlab.com/gitlab-org/gitlab/-/issues/365864) for details. You or your GitLab representative are encouraged to upvote this feature to register your interest.
+You can set up a container registry on your **secondary** Geo site that mirrors the one on the **primary** Geo site. This container registry replication is used only for disaster recovery purposes.
+
+Do not push to the container registry on the **secondary** Geo site, because the data is not propagated to the **primary** site.
+
+We do not recommend pulling container registry data from the **secondary** site because it may be stale. The feature request [issue 365864](https://gitlab.com/gitlab-org/gitlab/-/issues/365864) would solve this problem. You are encouraged to upvote the issue to register your interest.
 
 ## Supported container registries
 
@@ -71,7 +72,7 @@ To configure container registry replication:
 1. Configure the [**secondary** site](#configure-secondary-site).
 1. Verify container registry [replication](#verify-replication).
 
-### Configure **primary** site
+### Configure primary site
 
 Make sure that you have container registry set up and working on
 the **primary** site before following the next steps.
@@ -80,7 +81,7 @@ To be able to replicate new container images, the container registry must send n
 **primary** site for every push. The token shared between the container registry and the web nodes on the
 **primary** is used to make communication more secure.
 
-1. SSH into your GitLab **primary** server and log in as root (for GitLab HA, you only need a Registry node):
+1. SSH into your GitLab **primary** server and sign in as root (for GitLab HA, you only need a Registry node):
 
    ```shell
    sudo -i
@@ -89,6 +90,9 @@ To be able to replicate new container images, the container registry must send n
 1. Edit `/etc/gitlab/gitlab.rb`:
 
    ```ruby
+   # Configure the registry to listen on the public/internal interface
+   # Replace with the appropriate interface (for example, '0.0.0.0' for all interfaces)
+   registry['registry_http_addr'] = '0.0.0.0:5000'
    registry['notifications'] = [
      {
        'name' => 'geo_event',
@@ -103,15 +107,21 @@ To be able to replicate new container images, the container registry must send n
    ]
    ```
 
-   NOTE:
+   {{< alert type="note" >}}
+
    Replace `<example.com>` with the `external_url` defined in your primary site's `/etc/gitlab/gitlab.rb` file, and
-   replace `<replace_with_a_secret_token>` with a case sensitive alphanumeric string
+   replace `<replace_with_a_secret_token>` with a case-sensitive alphanumeric string
    that starts with a letter. You can generate one with `< /dev/urandom tr -dc _A-Z-a-z-0-9 | head -c 32 | sed "s/^[0-9]*//"; echo`
 
-   NOTE:
+   {{< /alert >}}
+
+   {{< alert type="note" >}}
+
    If you use an external Registry (not the one integrated with GitLab), you only need to specify
    the notification secret (`registry['notification_secret']`) in the
    `/etc/gitlab/gitlab.rb` file.
+
+   {{< /alert >}}
 
 1. For GitLab HA only. Edit `/etc/gitlab/gitlab.rb` on every web node:
 
@@ -125,7 +135,7 @@ To be able to replicate new container images, the container registry must send n
    gitlab-ctl reconfigure
    ```
 
-### Configure **secondary** site
+### Configure secondary site
 
 Make sure you have container registry set up and working on
 the **secondary** site before following the next steps.
@@ -141,7 +151,7 @@ generate a short-lived JWT that is pull-only-capable to access the
 
 For each application and Sidekiq node on the **secondary** site:
 
-1. SSH into the node and log in as the `root` user:
+1. SSH into the node and sign in as the `root` user:
 
    ```shell
    sudo -i
@@ -169,8 +179,8 @@ For each application and Sidekiq node on the **secondary** site:
 
 To verify container registry replication is working, on the **secondary** site:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Geo > Nodes**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Geo** > **Nodes**.
    The initial replication, or "backfill", is probably still in progress.
 
 You can monitor the synchronization process on each Geo site from the **primary** site's **Geo Nodes** dashboard in your browser.
@@ -187,7 +197,7 @@ Geo::ContainerRepositoryRegistry.replication_enabled?
 
 ### Missing container registry notification event
 
-1. When an image is pushed to the primary site's container registry, it should trigger a [Container Registry notification](../../../administration/packages/container_registry.md#configure-container-registry-notifications)
+1. When an image is pushed to the primary site's container registry, it should trigger a [Container Registry notification](../../packages/container_registry.md#configure-container-registry-notifications)
 1. The primary site's container registry calls the primary site's API on `https://<example.com>/api/v4/container_registry_event/events`
 1. The primary site inserts a record to the `geo_events` table with `replicable_name: 'container_repository', model_record_id: <ID of the container repository>`.
 1. The record gets replicated by PostgreSQL to the secondary site's database.
@@ -209,18 +219,26 @@ To fix this, make sure that the authorization headers being sent with the regist
 
 #### Registry error: `token from untrusted issuer: "<token>"`
 
-To replicate a container image, Sidekiq uses JWT to authenticate itself towards the container registry. Geo replication takes it as a prerequisite that the [container registry configuration](../../../administration/packages/container_registry.md) has been done correctly.
+When replicating container images in Geo, you might see the error `token from untrusted issuer: "<token>"`.
 
-Make sure that both sites share a single signing key pair, as instructed under [Configure secondary site](#configure-secondary-site), and that both container registries, plus primary and secondary sites are [all configured to use the same token issuer](../../../administration/packages/container_registry.md#configure-gitlab-and-registry-to-run-on-separate-nodes-linux-package-installations).
+This issue occurs when the container registry configuration is incorrect, causing Sidekiq's JWT
+authentication to fail.
 
-On multinode deployments, make sure that the issuer configured on the Sidekiq node matches the value configured on the registries.
+To resolve this issue:
+
+1. Ensure both sites share a single signing key pair, as described in [configure secondary site](#configure-secondary-site).
+1. Verify that both container registries and both primary and secondary sites are configured
+   to use the same token issuer. For more information, see
+   [configure GitLab and registry on separate nodes](../../packages/container_registry.md#configure-gitlab-and-registry-on-separate-nodes-linux-package-installations).
+1. For multi-node deployments, confirm that the issuer configured on the Sidekiq node matches
+   the value configured on the registries.
 
 ### Manually trigger a container registry sync event
 
 To help with troubleshooting, you can manually trigger the container registry replication process:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Geo > Sites**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Geo** > **Sites**.
 1. In **Replication Details** for a **Secondary Site**, select **Container Repositories**.
 1. Select **Resync** for one row, or **Resync all**.
 
@@ -228,7 +246,7 @@ You can also manually trigger a resync by running the following commands on the 
 
 ```ruby
 registry = Geo::ContainerRepositoryRegistry.first # Choose a Geo registry entry
-registry.replicator.resync # Resync the container repository
+registry.replicator.sync # Resync the container repository
 pp registry.reload # Look at replication state fields
 
 #<Geo::ContainerRepositoryRegistry:0x00007f54c2a36060

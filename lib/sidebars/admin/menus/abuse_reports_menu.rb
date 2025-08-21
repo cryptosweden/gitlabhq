@@ -11,7 +11,7 @@ module Sidebars
 
         override :title
         def title
-          s_('Admin|Abuse Reports')
+          s_('Admin|Abuse reports')
         end
 
         override :sprite_icon
@@ -26,7 +26,7 @@ module Sidebars
 
         override :pill_count
         def pill_count
-          @pill_count ||= AbuseReport.count(:all)
+          @pill_count ||= AbuseReport.open.count
         end
 
         override :active_routes

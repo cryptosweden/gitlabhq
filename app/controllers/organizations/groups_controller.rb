@@ -4,7 +4,7 @@ module Organizations
   class GroupsController < ApplicationController
     include ::Groups::Params
 
-    feature_category :cell
+    feature_category :organization
     urgency :low, [:create, :new, :destroy]
 
     before_action :authorize_create_group!, only: [:new]
@@ -28,16 +28,30 @@ module Organizations
     end
 
     def destroy
-      Groups::DestroyService.new(group, current_user).async_execute
-      render json: { message: format(_("Group '%{group_name}' is being deleted."), group_name: group.full_name) }
-    rescue Groups::DestroyService::DestroyError => error
-      render json: { message: error.message }, status: :unprocessable_entity
+      if group.self_deletion_scheduled? &&
+          ::Gitlab::Utils.to_boolean(params.permit(:permanently_remove)[:permanently_remove])
+        return destroy_immediately
+      end
+
+      result = ::Groups::MarkForDeletionService.new(group, current_user).execute
+
+      if result.success?
+        render json: {
+          message: format(
+            _("'%{group_name}' has been scheduled for deletion and will be deleted on %{date}."),
+            group_name: group.name,
+            date: helpers.permanent_deletion_date_formatted(group)
+          )
+        }
+      else
+        render json: { message: result.message }, status: :unprocessable_entity
+      end
     end
 
     private
 
     def group
-      @group ||= Group.in_organization(organization).find_by_full_path(params[:id])
+      @group ||= Group.in_organization(organization).find_by_full_path(params.permit(:id)[:id])
     end
 
     def create_group
@@ -55,6 +69,13 @@ module Organizations
       return render_404 if group.nil?
 
       access_denied! unless can?(current_user, :remove_group, group)
+    end
+
+    def destroy_immediately
+      Groups::DestroyService.new(group, current_user).async_execute
+      render json: { message: format(_("Group '%{group_name}' is being deleted."), group_name: group.full_name) }
+    rescue Groups::DestroyService::DestroyError => error
+      render json: { message: error.message }, status: :unprocessable_entity
     end
   end
 end

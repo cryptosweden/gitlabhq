@@ -1,24 +1,26 @@
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import createDefaultClient from '~/lib/graphql';
+import { parseBoolean } from '~/lib/utils/common_utils';
 import PipelineNewForm from './components/pipeline_new_form.vue';
-import { resolvers } from './graphql/resolvers';
 
 const mountPipelineNewForm = (el) => {
   const {
     // provide/inject
-    projectRefsEndpoint,
+    canViewPipelineEditor,
     identityVerificationPath,
+    pipelineEditorPath,
+    pipelinesPath,
+    projectPath,
+    projectRefsEndpoint,
+    userRole,
+    canSetPipelineVariables,
 
     // props
     defaultBranch,
     fileParam,
     maxWarnings,
-    pipelinesPath,
-    pipelinesEditorPath,
-    canViewPipelineEditor,
     projectId,
-    projectPath,
     refParam,
     settingsLink,
     varParam,
@@ -30,20 +32,26 @@ const mountPipelineNewForm = (el) => {
   Vue.use(VueApollo);
 
   const apolloProvider = new VueApollo({
-    defaultClient: createDefaultClient(resolvers),
+    defaultClient: createDefaultClient(),
   });
 
   return new Vue({
     el,
     apolloProvider,
     provide: {
-      projectRefsEndpoint,
+      canViewPipelineEditor: parseBoolean(canViewPipelineEditor),
+      canSetPipelineVariables: parseBoolean(canSetPipelineVariables),
       identityVerificationPath,
       // Normally this will have a value from a helper. In this case, this is
       // set to true because the alert that uses this field is dynamically
       // rendered if a specific error is returned from the backend after
       // the create pipeline XHR request completes
       identityVerificationRequired: true,
+      pipelineEditorPath,
+      pipelinesPath,
+      projectPath,
+      projectRefsEndpoint,
+      userRole,
     },
     render(createElement) {
       return createElement(PipelineNewForm, {
@@ -51,11 +59,7 @@ const mountPipelineNewForm = (el) => {
           defaultBranch,
           fileParams,
           maxWarnings: Number(maxWarnings),
-          pipelinesPath,
-          pipelinesEditorPath,
-          canViewPipelineEditor,
           projectId,
-          projectPath,
           refParam,
           settingsLink,
           variableParams,

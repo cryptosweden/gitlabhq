@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+
 module Types
   module Ci
     # rubocop: disable Graphql/AuthorizeTypes
@@ -11,6 +12,8 @@ module Types
         null: true,
         calls_gitaly: true,
         description: 'Action information for the status. This includes method, button title, icon, path, and title.'
+      field :deployment_details_path, GraphQL::Types::String, null: true,
+        description: 'Path of the deployment details for the status.'
       field :details_path, GraphQL::Types::String, null: true,
         description: 'Path of the details for the status.'
       field :favicon, GraphQL::Types::String, null: true,
@@ -28,14 +31,15 @@ module Types
         description: 'Icon of the status.',
         deprecated: {
           reason: 'The `icon` attribute is deprecated. Use `name` to ' \
-                  'identify the status to display instead',
+            'identify the status to display instead',
           milestone: '16.4'
         }
       field :id, GraphQL::Types::String, null: false,
         description: 'ID for a detailed status.',
         extras: [:parent]
       field :label, GraphQL::Types::String, null: true,
-        description: 'Human-readable label of the status (e.g. success).'
+        description: 'Human-readable label of the status (e.g. success).',
+        calls_gitaly: true
       field :name, GraphQL::Types::String, null: true,
         description: 'Machine-readable status name (e.g. SUCCESS).'
       field :text, GraphQL::Types::String, null: true,

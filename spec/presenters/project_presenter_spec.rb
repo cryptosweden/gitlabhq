@@ -285,7 +285,7 @@ RSpec.describe ProjectPresenter do
 
     describe '#storage_anchor_data' do
       it 'does not return storage data for non-admin users' do
-        expect(presenter.storage_anchor_data).to be(nil)
+        expect(presenter.storage_anchor_data).to be_nil
       end
 
       it 'returns storage data with usage quotas link for admin users' do
@@ -305,7 +305,7 @@ RSpec.describe ProjectPresenter do
 
         context 'when user cannot collaborate' do
           it 'returns no value' do
-            expect(presenter.gitlab_ci_anchor_data).to be(nil)
+            expect(presenter.gitlab_ci_anchor_data).to be_nil
           end
         end
 
@@ -674,10 +674,12 @@ RSpec.describe ProjectPresenter do
             label: a_string_including('Upload file'),
             data: {
               "can_push_code" => "true",
+              "can_push_to_branch" => "true",
               "original_branch" => "master",
               "path" => "/#{project.full_path}/-/create/master",
               "project_path" => project.full_path,
-              "target_branch" => "master"
+              "target_branch" => "master",
+              "full_name" => project.name_with_namespace
             }
           )
         end
@@ -751,7 +753,7 @@ RSpec.describe ProjectPresenter do
           label: a_string_ending_with('GitLab Pages'),
           link: Gitlab::Pages::UrlBuilder
           .new(project)
-          .pages_url(with_unique_domain: true),
+          .pages_url,
           class_modifier: 'btn-default'
         )
       end

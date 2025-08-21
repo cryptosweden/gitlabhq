@@ -25,6 +25,7 @@ FactoryBot.define do
   factory :datadog_integration, class: 'Integrations::Datadog' do
     project
     active { true }
+    datadog_ci_visibility { false }
     datadog_site { 'datadoghq.com' }
     datadog_tags { 'key:value' }
     api_key { 'secret' }
@@ -94,8 +95,6 @@ FactoryBot.define do
     active { true }
     api_url { 'https://prometheus.example.com/' }
     manual_configuration { true }
-    google_iap_audience_client_id { 'IAP_CLIENT_ID.apps.googleusercontent.com' }
-    google_iap_service_account_json { '{ type: "service_account", project_id: "123" }' }
   end
 
   factory :bamboo_integration, class: 'Integrations::Bamboo' do
@@ -137,6 +136,13 @@ FactoryBot.define do
       vulnerabilities_enabled { false }
       vulnerabilities_issuetype { nil }
       deployment_type { 'cloud' }
+    end
+
+    trait :jira_cloud do
+      url { 'https://mysite.atlassian.net' }
+      username { 'jira_user' }
+      password { 'my-secret-password' }
+      jira_auth_type { 0 }
     end
 
     after(:build) do |integration, evaluator|
@@ -250,13 +256,6 @@ FactoryBot.define do
     external_wiki_url { 'http://external-wiki-url.com' }
   end
 
-  trait :jira_cloud_service do
-    url { 'https://mysite.atlassian.net' }
-    username { 'jira_user' }
-    password { 'my-secret-password' }
-    jira_auth_type { 0 }
-  end
-
   trait :chat_notification do
     sequence(:webhook) { |n| "https://example.com/webhook/#{n}" }
     push_events { false }
@@ -279,6 +278,7 @@ FactoryBot.define do
     project
     active { true }
     type { 'Integrations::Discord' }
+    webhook { 'https://discord.com/api/webhooks/12345/token_12-34' }
   end
 
   factory :mattermost_integration, class: 'Integrations::Mattermost' do
@@ -467,6 +467,15 @@ FactoryBot.define do
     google_play_protected_refs { true }
   end
 
+  factory :matrix_integration, class: 'Integrations::Matrix' do
+    project
+    type { 'Integrations::Matrix' }
+    active { true }
+
+    token { 'syt-zyx57W2v1u123ew11' }
+    room { '!qPKKM111FFKKsfoCVy:matrix.org' }
+  end
+
   factory :squash_tm_integration, class: 'Integrations::SquashTm' do
     project
     active { true }
@@ -486,6 +495,20 @@ FactoryBot.define do
     thread { nil }
   end
 
+  factory :jira_cloud_app_integration, class: 'Integrations::JiraCloudApp' do
+    project
+    active { true }
+    type { 'Integrations::JiraCloudApp' }
+    jira_cloud_app_service_ids { 'b:YXJpOmNsb3VkOmdyYXBoOjpzZXJ2aWNlLzI=' }
+  end
+
+  factory :linear_integration, class: 'Integrations::Linear' do
+    project
+    active { true }
+    type { 'Integrations::Linear' }
+    workspace_url { 'https://linear.app/example' }
+  end
+
   # this is for testing storing values inside properties, which is deprecated and will be removed in
   # https://gitlab.com/gitlab-org/gitlab/issues/29404
   trait :without_properties_callback do
@@ -493,14 +516,14 @@ FactoryBot.define do
     issue_tracker_data { nil }
     create_data { false }
 
-    after(:build) do
-      Integrations::BaseIssueTracker.skip_callback(:validation, :before, :handle_properties)
+    after(:build) do |integration|
+      integration.class.skip_callback(:validation, :before, :handle_properties)
     end
 
     to_create { |instance| instance.save!(validate: false) }
 
-    after(:create) do
-      Integrations::BaseIssueTracker.set_callback(:validation, :before, :handle_properties)
+    after(:create) do |integration|
+      integration.class.set_callback(:validation, :before, :handle_properties)
     end
   end
 
@@ -512,5 +535,6 @@ FactoryBot.define do
   trait :instance do
     project { nil }
     instance { true }
+    organization { association(:common_organization) }
   end
 end

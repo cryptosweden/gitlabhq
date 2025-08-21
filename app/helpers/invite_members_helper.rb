@@ -4,9 +4,9 @@ module InviteMembersHelper
   include Gitlab::Utils::StrongMemoize
 
   def can_invite_members_for_project?(project)
-    # do not use the can_admin_project_member? helper here due to structure of the view and how membership_locked?
+    # Do not use the invite_member policy here due to structure of the view and how membership_locked?
     # is leveraged for inviting groups
-    can?(current_user, :admin_project_member, project)
+    can?(current_user, :invite_project_members, project)
   end
 
   def invite_accepted_notice(member)
@@ -19,15 +19,15 @@ module InviteMembersHelper
   end
 
   # Overridden in EE
-  def common_invite_group_modal_data(source, member_class, is_project)
+  def common_invite_group_modal_data(source, member_class)
     {
       id: source.id,
       root_id: source.root_ancestor.id,
       name: source.name,
       default_access_level: Gitlab::Access::GUEST,
       invalid_groups: source.related_group_ids,
-      help_link: help_page_url('user/permissions'),
-      is_project: is_project,
+      help_link: help_page_url('user/permissions.md'),
+      is_project: source.is_a?(Project).to_s,
       access_levels: member_class.permissible_access_level_roles(current_user, source).to_json,
       full_path: source.full_path
     }.merge(group_select_data(source))
@@ -52,11 +52,6 @@ module InviteMembersHelper
     else
       {}
     end
-  end
-
-  # Overridden in EE
-  def users_filter_data(group)
-    {}
   end
 end
 

@@ -9,56 +9,16 @@
   z-index: #{$zindex-modal-backdrop - 1};
 
   height: $performance-bar-height;
-  background: $black;
   font-size: $gl-font-size-small;
   line-height: $performance-bar-height;
   color: $gray-50;
-
-  select {
-    width: 200px;
-  }
-
-  input {
-    width: $input-short-width - 60px;
-  }
-
-  select,
-  input {
-    color: inherit;
-    background-color: rgba($white, 0.2);
-
-    &::placeholder {
-      color: rgba($white, 0.7);
-    }
-  }
 
   option {
     color: initial;
   }
 
-  .gl-link,
-  .gl-button {
-    color: $white;
-  }
-
   &.disabled {
     display: none;
-  }
-
-  &.production {
-    background-color: $perf-bar-production;
-  }
-
-  &.staging {
-    background-color: $perf-bar-staging;
-  }
-
-  &.development {
-    background-color: $perf-bar-development;
-
-    .gl-dark & {
-      background-color: $red-950;
-    }
   }
 
   // UI Elements
@@ -81,24 +41,8 @@
     }
   }
 
-  .current-host.canary {
+  .canary {
     color: $perf-bar-canary-text;
-  }
-
-  strong {
-    color: $white;
-  }
-
-  table {
-    color: $black;
-
-    td {
-      vertical-align: top;
-    }
-
-    .backtrace-row {
-      display: none;
-    }
   }
 
   .view {
@@ -124,36 +68,4 @@
       }
     }
   }
-
-  .css-truncate {
-    &.css-truncate-target,
-    .css-truncate-target {
-      display: inline-block;
-      max-width: 125px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      vertical-align: top;
-    }
-
-    &.expandable:hover .css-truncate-target,
-    &.expandable:hover.css-truncate-target {
-      max-width: 10000px !important;
-    }
-  }
-
-  .performance-bar-modal {
-    .modal-body {
-      padding: 0;
-    }
-
-    .modal-footer {
-      display: none;
-    }
-  }
 }
-
-#modal-peek-pg-queries-content {
-  color: $black;
-}
-

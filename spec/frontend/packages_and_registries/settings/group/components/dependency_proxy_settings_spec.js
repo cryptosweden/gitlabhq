@@ -5,7 +5,9 @@ import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
 
-import component from '~/packages_and_registries/settings/group/components/dependency_proxy_settings.vue';
+import DependencyProxySettings from '~/packages_and_registries/settings/group/components/dependency_proxy_settings.vue';
+import DockerHubAuthenticationSection from '~/packages_and_registries/settings/group/components/docker_hub_authentication_section.vue';
+
 import {
   DEPENDENCY_PROXY_HEADER,
   DEPENDENCY_PROXY_DESCRIPTION,
@@ -14,7 +16,7 @@ import {
 import updateDependencyProxySettings from '~/packages_and_registries/settings/group/graphql/mutations/update_dependency_proxy_settings.mutation.graphql';
 import updateDependencyProxyImageTtlGroupPolicy from '~/packages_and_registries/settings/group/graphql/mutations/update_dependency_proxy_image_ttl_group_policy.mutation.graphql';
 import getGroupPackagesSettingsQuery from '~/packages_and_registries/settings/group/graphql/queries/get_group_packages_settings.query.graphql';
-import SettingsBlock from '~/packages_and_registries/shared/components/settings_block.vue';
+import SettingsSection from '~/vue_shared/components/settings/settings_section.vue';
 import {
   updateGroupDependencyProxySettingsOptimisticResponse,
   updateDependencyProxyImageTtlGroupPolicyOptimisticResponse,
@@ -57,7 +59,7 @@ describe('DependencyProxySettings', () => {
 
     apolloProvider = createMockApollo(requestHandlers);
 
-    wrapper = shallowMountExtended(component, {
+    wrapper = shallowMountExtended(DependencyProxySettings, {
       apolloProvider,
       provide,
       propsData: {
@@ -68,7 +70,6 @@ describe('DependencyProxySettings', () => {
       stubs: {
         GlSprintf,
         GlToggle,
-        SettingsBlock,
       },
     });
   };
@@ -82,7 +83,9 @@ describe('DependencyProxySettings', () => {
       .mockResolvedValue(dependencyProxyUpdateTllPolicyMutationMock());
   });
 
-  const findSettingsBlock = () => wrapper.findComponent(SettingsBlock);
+  const findSettingsSection = () => wrapper.findComponent(SettingsSection);
+  const findDockerHubAuthenticationSection = () =>
+    wrapper.findComponent(DockerHubAuthenticationSection);
   const findEnableProxyToggle = () => wrapper.findByTestId('dependency-proxy-setting-toggle');
   const findEnableTtlPoliciesToggle = () =>
     wrapper.findByTestId('dependency-proxy-ttl-policies-toggle');
@@ -98,17 +101,17 @@ describe('DependencyProxySettings', () => {
     });
   };
 
-  it('renders a settings block', () => {
+  it('renders a settings section', () => {
     mountComponent();
 
-    expect(findSettingsBlock().exists()).toBe(true);
+    expect(findSettingsSection().exists()).toBe(true);
   });
 
   it('has the correct header text and description', () => {
     mountComponent();
 
-    expect(wrapper.text()).toContain(DEPENDENCY_PROXY_HEADER);
-    expect(wrapper.text()).toContain(DEPENDENCY_PROXY_DESCRIPTION);
+    expect(findSettingsSection().props('heading')).toContain(DEPENDENCY_PROXY_HEADER);
+    expect(findSettingsSection().props('description')).toContain(DEPENDENCY_PROXY_DESCRIPTION);
   });
 
   describe('enable toggle', () => {
@@ -116,7 +119,7 @@ describe('DependencyProxySettings', () => {
       mountComponent();
 
       expect(findEnableProxyToggle().props()).toMatchObject({
-        label: component.i18n.enabledProxyLabel,
+        label: 'Enable Dependency Proxy',
       });
     });
 
@@ -145,6 +148,28 @@ describe('DependencyProxySettings', () => {
       it('the help text is not visible', () => {
         expect(findToggleHelpLink().exists()).toBe(false);
       });
+
+      it('hides the Docker Hub authentication section', () => {
+        expect(findDockerHubAuthenticationSection().exists()).toBe(false);
+      });
+    });
+  });
+
+  describe('Docker Hub authentication section', () => {
+    beforeEach(() => {
+      mountComponent();
+    });
+
+    it('exists', () => {
+      expect(findDockerHubAuthenticationSection().props('formData')).toMatchObject(
+        dependencyProxySettingsMock(),
+      );
+    });
+
+    it('emits a success event', () => {
+      findDockerHubAuthenticationSection().vm.$emit('success');
+
+      expect(wrapper.emitted('success')).toEqual([[]]);
     });
   });
 
@@ -154,8 +179,8 @@ describe('DependencyProxySettings', () => {
         mountComponent();
 
         expect(findEnableTtlPoliciesToggle().props()).toMatchObject({
-          label: component.i18n.ttlPolicyEnabledLabel,
-          help: component.i18n.ttlPolicyEnabledHelpText,
+          help: 'Automatically remove cached images older than 90 days.',
+          label: 'Automatic cache cleanup',
         });
       });
     });
@@ -231,15 +256,19 @@ describe('DependencyProxySettings', () => {
   });
 
   describe('when isLoading is true', () => {
-    it('disables enable proxy toggle', () => {
+    beforeEach(() => {
       mountComponent({ isLoading: true });
+    });
 
+    it('disables enable proxy toggle', () => {
       expect(findEnableProxyToggle().props('disabled')).toBe(true);
     });
 
-    it('disables enable ttl policies toggle', () => {
-      mountComponent({ isLoading: true });
+    it('hides the Docker Hub authentication section', () => {
+      expect(findDockerHubAuthenticationSection().exists()).toBe(false);
+    });
 
+    it('disables enable ttl policies toggle', () => {
       expect(findEnableTtlPoliciesToggle().props('disabled')).toBe(true);
     });
   });

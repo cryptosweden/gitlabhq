@@ -1,47 +1,17 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Using review apps in the development of GitLab
 ---
-
-# Using review apps in the development of GitLab
 
 Review apps are deployed using the `start-review-app-pipeline` job which triggers a child pipeline containing a series of jobs to perform the various tasks needed to deploy a review app.
 
-![start-review-app-pipeline job](img/review-app-parent-pipeline.png)
+![start-review-app-pipeline job](img/review-app-parent-pipeline_v14_4.png)
 
-For any of the following scenarios, the `start-review-app-pipeline` job would be automatically started (only when the merge request is approved):
+To start a review-app, add the `pipeline:run-review-app` label on your merge request, and trigger a new CI/CD pipeline.
 
-- for merge requests with CI configuration changes
-- for merge requests with frontend changes
-- for merge requests with changes to `{,ee/,jh/}{app/controllers}/**/*`
-- for merge requests with changes to `{,ee/,jh/}{app/models}/**/*`
-- for merge requests with changes to `{,ee/,jh/}lib/{,ee/,jh/}gitlab/**/*`
-- for merge requests with QA changes
-- for scheduled pipelines
-- the MR has the `pipeline:run-review-app` label set
-
-## E2E test runs on review apps
-
-On every pipeline in the `qa` stage (which comes after the `review` stage), the `review-qa-smoke` and `review-qa-blocking` jobs are automatically started.
-
-`qa` stage consists of following jobs:
-
-- `review-qa-smoke`: small and fast subset of tests to validate core functionality of GitLab.
-- `review-qa-blocking`: subset of tests that block the merge request. These tests are
-  considered stable and are not allowed to fail.
-- `review-qa-non-blocking`: rest of the e2e tests that can be triggered manually.
-
-`review-qa-*` jobs ensure that end-to-end tests for the changes in the merge request pass in a live environment. This shifts the identification of e2e failures from an environment
-on the path to production to the merge request to prevent breaking features on GitLab.com or costly GitLab.com deployment blockers. If needed, `review-qa-*` failures should be
-investigated with an SET (software engineer in test) counterpart to help determine the root cause of the error.
-
-After the end-to-end test runs have finished, [Allure reports](https://github.com/allure-framework/allure2) are generated and published by
-the `e2e-test-report` job. A comment with links to the reports is added to the merge request.
-
-Errors can be found in the `gitlab-review-apps` Sentry project and [filterable by review app URL](https://sentry.gitlab.net/gitlab/gitlab-review-apps/?query=url%3A%22https%3A%2F%2Fgitlab-review-require-ve-u92nn2.gitlab-review.app%2F%22) or [commit SHA](https://sentry.gitlab.net/gitlab/gitlab-review-apps/releases/6095b501da7/all-events/).
-
-### Bypass failed review app deployment to merge a broken `master` fix
+## Bypass failed review app deployment to merge a broken `master` fix
 
 Maintainers can elect to use the [process for merging during broken `master`](https://handbook.gitlab.com/handbook/engineering/workflow/#instructions-for-the-maintainer) if a customer-critical merge request is blocked by pipelines failing due to review app deployment failures.
 
@@ -136,26 +106,23 @@ graph TD
   A["build-qa-image, compile-production-assets<br/>(canonical default refs only)"];
   B1[start-review-app-pipeline];
   B[review-build-cng];
-  C["review-deploy<br><br>Helm deploys the review app using the Cloud<br/>Native images built by the CNG-mirror pipeline.<br><br>Cloud Native images are deployed to the `review-apps`<br>Kubernetes (GKE) cluster, in the GCP `gitlab-review-apps` project."];
+  C["review-deploy<br><br>Helm deploys the review app using the Cloud<br/>Native images built by the CNG-mirror pipeline.<br><br>Cloud Native images are deployed to the #96;review-apps#96;<br>Kubernetes (GKE) cluster, in the GCP #96;gitlab-review-apps#96; project."];
   D[CNG-mirror];
-  E[review-qa-smoke, review-qa-blocking, review-qa-non-blocking<br><br>gitlab-qa runs the e2e tests against the review app.];
 
   A --> B1
   B1 --> B
   B -.->|triggers a CNG-mirror pipeline| D
   D -.->|depends on the multi-project pipeline| B
   B --> C
-  C --> E
 
-subgraph "1. gitlab-org/gitlab parent pipeline"
+subgraph "1#46; gitlab-org/gitlab parent pipeline"
   A
   B1
   end
 
-subgraph "2. gitlab-org/gitlab child pipeline"
+subgraph "2#46; gitlab-org/gitlab child pipeline"
   B
   C
-  E
   end
 
 subgraph "CNG-mirror pipeline"
@@ -200,34 +167,27 @@ subgraph "CNG-mirror pipeline"
    use your review app thanks to the direct link to it from the MR widget. To log
    into the review app, see "Sign in to my review app?" below.
 
-**Additional notes:**
+**Additional notes**:
 
 - If the `review-deploy` job keeps failing (and a manual retry didn't help),
-  post a message in the `#g_qe_engineering_productivity` channel and/or create a `~"Engineering Productivity"` `~"ep::review apps"` `~"type::bug"`
+  post a message in the `#g_qe_engineering_productivity` channel and/or create a `~"Engineering Productivity"` `~"dx::review apps"` `~"type::bug"`
   issue with a link to your merge request. The deployment failure can
   reveal an actual problem introduced in your merge request (that is, this isn't
   necessarily a transient failure)!
-- If the `review-qa-smoke` job keeps failing (we already retry them once),
-  check the job's logs: you could discover an actual problem introduced in
-  your merge request. You can also download the artifacts to see screenshots of
-  the page at the time the failures occurred. If you don't find the cause of the
-  failure or if it seems unrelated to your change, post a message in the
-  `#test-platform` channel and/or create a ~Quality ~"type::bug" issue with a link to your
-  merge request.
 - The manual `review-stop` can be used to
   stop a review app manually, and is also started by GitLab once a merge
   request's branch is deleted after being merged.
 - The Kubernetes cluster is connected to the `gitlab` projects using the
-  [GitLab Kubernetes integration](../../user/infrastructure/clusters/index.md). This basically
+  [GitLab Kubernetes integration](../../user/infrastructure/clusters/_index.md). This basically
   allows to have a link to the review app directly from the merge request widget.
 
 ### Auto-stopping of review apps
 
 Review apps are automatically stopped 2 days after the last deployment thanks to
-the [Environment auto-stop](../../ci/environments/index.md#stop-an-environment-after-a-certain-time-period) feature.
+the [Environment auto-stop](../../ci/environments/_index.md#stop-an-environment-after-a-certain-time-period) feature.
 
 If you need your review app to stay up for a longer time, you can
-[pin its environment](../../ci/environments/index.md#override-an-environments-scheduled-stop-date-and-time) or retry the
+[pin its environment](../../ci/environments/_index.md#override-an-environments-scheduled-stop-date-and-time) or retry the
 `review-deploy` job to update the "latest deployed at" time.
 
 The `review-cleanup` job that automatically runs in scheduled
@@ -281,8 +241,8 @@ find a way to limit it to only us.**
 ### Helpful command-line tools
 
 - [K9s](https://github.com/derailed/k9s) - enables CLI dashboard across pods and enabling filtering by labels
-- [Stern](https://github.com/wercker/stern) - enables cross pod log tailing based on label/field selectors
+- [Stern](https://github.com/stern/stern) - enables cross pod log tailing based on label/field selectors
 
 ---
 
-[Return to Testing documentation](index.md)
+[Return to Testing documentation](_index.md)

@@ -54,16 +54,11 @@ module Integrations
     end
 
     def self.help
-      docs_link = ActionController::Base.helpers.link_to(
-        _('Learn more.'),
-        Rails.application.routes.url_helpers.help_page_url('api/integrations', anchor: 'campfire'),
-        target: '_blank',
-        rel: 'noopener noreferrer'
+      build_help_page_url(
+        'api/integrations.md',
+        s_('CampfireService|Send notifications about push events to Campfire chat rooms.'),
+        { anchor: 'campfire' }
       )
-
-      format(ERB::Util.html_escape(
-        s_('CampfireService|Send notifications about push events to Campfire chat rooms. %{docs_link}')
-      ), docs_link: docs_link.html_safe)
     end
 
     def self.to_param
@@ -114,14 +109,14 @@ module Integrations
           }
         }
       }
-      res = Gitlab::HTTP.post(path, base_uri: base_uri, **auth.merge(body))
+      res = Clients::HTTP.post(path, base_uri: base_uri, **auth.merge(body))
       res.code == 201 ? res : nil
     end
 
     # Returns a list of rooms, or [].
     # https://github.com/basecamp/campfire-api/blob/master/sections/rooms.md#get-rooms
     def rooms(auth)
-      res = Gitlab::HTTP.get("/rooms.json", base_uri: base_uri, **auth)
+      res = Clients::HTTP.get("/rooms.json", base_uri: base_uri, **auth)
       res.code == 200 ? res["rooms"] : []
     end
 

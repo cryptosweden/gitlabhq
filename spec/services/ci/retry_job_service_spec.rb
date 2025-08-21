@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::RetryJobService, feature_category: :continuous_integration do
+RSpec.describe Ci::RetryJobService, :clean_gitlab_redis_shared_state, feature_category: :continuous_integration do
   using RSpec::Parameterized::TableSyntax
   let_it_be(:reporter) { create(:user) }
   let_it_be(:developer) { create(:user) }
@@ -183,15 +183,29 @@ RSpec.describe Ci::RetryJobService, feature_category: :continuous_integration do
       end
     end
 
-    context 'when the pipeline is a child pipeline and the bridge uses strategy:depend' do
+    context 'when the pipeline is a child pipeline and the bridge uses a strategy' do
       let!(:parent_pipeline) { create(:ci_pipeline, project: project) }
-      let!(:bridge) { create(:ci_bridge, :strategy_depend, pipeline: parent_pipeline, status: 'success') }
-      let!(:source_pipeline) { create(:ci_sources_pipeline, pipeline: pipeline, source_job: bridge) }
 
-      it 'marks the source bridge as pending' do
-        service.execute(job)
+      context 'when the strategy is strategy:depend' do
+        it 'marks the source bridge as pending' do
+          bridge = create(:ci_bridge, :strategy_depend, pipeline: parent_pipeline, status: 'success')
+          create(:ci_sources_pipeline, pipeline: pipeline, source_job: bridge)
 
-        expect(bridge.reload).to be_pending
+          service.execute(job)
+
+          expect(bridge.reload).to be_pending
+        end
+      end
+
+      context 'when the strategy is strategy:mirror' do
+        it 'marks the source bridge as pending' do
+          bridge = create(:ci_bridge, :strategy_mirror, pipeline: parent_pipeline, status: 'success')
+          create(:ci_sources_pipeline, pipeline: pipeline, source_job: bridge)
+
+          service.execute(job)
+
+          expect(bridge.reload).to be_pending
+        end
       end
     end
   end
@@ -416,6 +430,7 @@ RSpec.describe Ci::RetryJobService, feature_category: :continuous_integration do
             expect(new_job.job_variables.count).to be(1)
             expect(new_job.job_variables.first.key).to eq('MANUAL_VAR')
             expect(new_job.job_variables.first.value).to eq('manual test var')
+            expect(new_job.job_variables.first.project_id).to eq(job.project_id)
           end
         end
 

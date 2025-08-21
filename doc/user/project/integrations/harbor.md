@@ -2,13 +2,15 @@
 stage: Package
 group: Container Registry
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Harbor
 ---
 
-# Harbor
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 You can use Harbor as the container registry for your GitLab project.
 
@@ -28,7 +30,7 @@ In the Harbor instance, ensure that:
 GitLab supports integrating Harbor projects at the group or project level. Complete these steps in GitLab:
 
 1. On the left sidebar, select **Search or go to** and find your project.
-1. Select **Settings > Integrations**.
+1. Select **Settings** > **Integrations**.
 1. Select **Harbor**.
 1. Under **Enable integration**, select the **Active** checkbox.
 1. Provide the Harbor configuration information:
@@ -59,31 +61,9 @@ the `username:password` combination. The following are suggestions for safe use:
 
 Malicious code pushed to your `.gitlab-ci.yml` file could compromise your variables, including
 `$HARBOR_PASSWORD`, and send them to a third-party server. For more details, see
-[CI/CD variable security](../../../ci/variables/index.md#cicd-variable-security).
+[CI/CD variable security](../../../ci/variables/_index.md#cicd-variable-security).
 
-## Examples of Harbor variables in CI/CD
-
-### Push a Docker image with kaniko
-
-For more information, see [Use kaniko to build Docker images](../../../ci/docker/using_kaniko.md).
-
-```yaml
-docker:
-  stage: docker
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: ['']
-  script:
-    - mkdir -p /kaniko/.docker
-    - echo "{\"auths\":{\"${HARBOR_HOST}\":{\"auth\":\"$(echo -n ${HARBOR_USERNAME}:${HARBOR_PASSWORD} | base64)\"}}}" > /kaniko/.docker/config.json
-    - >-
-      /kaniko/executor
-      --context "${CI_PROJECT_DIR}"
-      --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
-      --destination "${HARBOR_HOST}/${HARBOR_PROJECT}/${CI_PROJECT_NAME}:${CI_COMMIT_TAG}"
-  rules:
-  - if: $CI_COMMIT_TAG
-```
+## Use Harbor variables
 
 ### Push a Helm chart with an OCI registry
 

@@ -79,7 +79,7 @@ export default {
 </script>
 
 <template>
-  <div class="gl-display-flex gl-align-items-center">
+  <div class="gl-flex gl-items-center">
     <local-storage-sync
       v-if="storageKey"
       :storage-key="storageKey"
@@ -113,7 +113,7 @@ export default {
       </gl-disclosure-dropdown-item>
     </gl-disclosure-dropdown>
     <div class="gl-ml-2" data-testid="information">
-      <gl-sprintf :message="s__('BulkImport|Showing %{start}-%{end} of %{total}')">
+      <gl-sprintf :message="s__('BulkImport|Showing %{start} - %{end} of %{total}')">
         <template #start>
           {{ paginationInfo.start }}
         </template>

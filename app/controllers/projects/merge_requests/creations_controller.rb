@@ -5,17 +5,14 @@ class Projects::MergeRequests::CreationsController < Projects::MergeRequests::Ap
   include DiffHelper
   include RendersCommits
   include ProductAnalyticsTracking
+  include RapidDiffs::Resource
 
   skip_before_action :merge_request
   before_action :authorize_create_merge_request_from!
   before_action :apply_diff_view_cookie!, only: [:diffs, :diff_for_path]
   before_action :build_merge_request, except: [:create]
 
-  before_action only: [:new] do
-    if can?(current_user, :fill_in_merge_request_template, project)
-      push_frontend_feature_flag(:fill_in_mr_template, project)
-    end
-  end
+  feature_category :continuous_integration, [:pipelines]
 
   urgency :low, [
     :new,
@@ -34,6 +31,14 @@ class Projects::MergeRequests::CreationsController < Projects::MergeRequests::Ap
 
   def new
     define_new_vars
+
+    @rapid_diffs_presenter = ::RapidDiffs::MergeRequestCreationPresenter.new(
+      @merge_request,
+      project,
+      diff_view,
+      diff_options,
+      { merge_request: merge_request_params }
+    )
   end
 
   def create
@@ -111,24 +116,16 @@ class Projects::MergeRequests::CreationsController < Projects::MergeRequests::Ap
     render json: ProjectSerializer.new.represent(get_target_projects)
   end
 
+  def diffs_resource(options = {})
+    @merge_request&.compare&.diffs(options)
+  end
+
   private
 
   def get_target_projects
     MergeRequestTargetProjectFinder
       .new(current_user: current_user, source_project: @project, project_feature: :repository)
-      .execute(include_routes: false, search: params[:search]).limit(20)
-  end
-
-  def build_merge_request
-    params[:merge_request] ||= ActionController::Parameters.new(source_project: @project)
-    new_params = merge_request_params.merge(diff_options: diff_options)
-
-    # Gitaly N+1 issue: https://gitlab.com/gitlab-org/gitlab-foss/issues/58096
-    Gitlab::GitalyClient.allow_n_plus_1_calls do
-      @merge_request = ::MergeRequests::BuildService
-        .new(project: project, current_user: current_user, params: new_params)
-        .execute
-    end
+      .execute(include_routes: false, include_fork_networks: true, search: params[:search]).limit(20)
   end
 
   def define_new_vars
@@ -136,8 +133,12 @@ class Projects::MergeRequests::CreationsController < Projects::MergeRequests::Ap
     @target_project = @merge_request.target_project
     @source_project = @merge_request.source_project
 
+    recent_commits = @merge_request.recent_commits(
+      load_from_gitaly: true
+    ).with_latest_pipeline(@merge_request.source_branch)
+
     @commits = set_commits_for_rendering(
-      @merge_request.recent_commits.with_latest_pipeline(@merge_request.source_branch),
+      recent_commits,
       commits_count: @merge_request.commits_count
     )
 

@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Sentry monitoring in the frontend development of GitLab
 ---
-
-# Sentry monitoring in the frontend development of GitLab
 
 The GitLab Frontend team uses Sentry as an observability tool to monitor how the UI performs for
 users on `gitlab.com`.
@@ -13,16 +12,19 @@ GitLab.com is configured to report to our Sentry instance at **Admin > Metrics a
 
 We monitor two kinds of data: **Errors** and **Performance**.
 
-NOTE:
+{{< alert type="note" >}}
+
 The [Frontend Observability Working Group](https://handbook.gitlab.com/handbook/company/working-groups/frontend-observability/) is looking to improve how we use Sentry. GitLab team members can provide feedback at
 [issue #427402](https://gitlab.com/gitlab-org/gitlab/-/issues/427402).
+
+{{< /alert >}}
 
 ## Start using Sentry
 
 Our Sentry instance is located at [https://new-sentry.gitlab.net/](https://new-sentry.gitlab.net/).
 Only GitLab team members can access Sentry.
 
-After your first log-in you can join the `#gitlab` team by selecting **Join a team**. Confirm that
+After your first sign in you can join the `#gitlab` team by selecting **Join a team**. Confirm that
 `#gitlab` appears under `YOUR TEAMS` in the [teams page](https://new-sentry.gitlab.net/settings/gitlab/teams/).
 
 ## Error reporting
@@ -67,9 +69,12 @@ Once errors are captured, they appear in Sentry. For example you can see the
 
 In the list, select any error to see more details... and ideally propose a solution for it!
 
-NOTE:
+{{< alert type="note" >}}
+
 We suggest filtering errors by the environments `gprd` and `gprd-cny`, as there is some spam in our
 environment data.
+
+{{< /alert >}}
 
 ### Exploring error data
 
@@ -88,8 +93,8 @@ work area.
 
 We mark errors with two additional custom `tags` to help identify their source:
 
-- `feature_category`: The feature area of the page. (For example, `code_review_workflow` or `continuous_integration`.) **Source:** `gon.feature_category`
-- `page`: Identifier of method called in the controller to render the page. (For example, `projects:merge_requests:index` or `projects:pipelines:index`.) **Source:** [`body_data_page`](https://gitlab.com/gitlab-org/gitlab/blob/b2ea95b8b1f15228a2fd5fa3fbd316857d5676b8/app/helpers/application_helper.rb#L144).
+- `feature_category`: The feature area of the page. (For example, `code_review_workflow` or `continuous_integration`.) **Source**: `gon.feature_category`
+- `page`: Identifier of method called in the controller to render the page. (For example, `projects:merge_requests:index` or `projects:pipelines:index`.) **Source**: [`body_data_page`](https://gitlab.com/gitlab-org/gitlab/blob/b2ea95b8b1f15228a2fd5fa3fbd316857d5676b8/app/helpers/application_helper.rb#L144).
 
 Frontend engineering team members can filter errors relevant to their group and/or page.
 
@@ -98,3 +103,7 @@ Frontend engineering team members can filter errors relevant to their group and/
 We use [BrowserTracing](https://docs.sentry.io/platforms/javascript/performance/) to report performance metrics to Sentry.
 
 You can visit [our performance data of the last 24 hours](https://new-sentry.gitlab.net/organizations/gitlab/performance/?environment=gprd-cny&environment=gprd&project=4&statsPeriod=24h) and use the filters to drill down and learn more.
+
+## Sentry instance infrastructure
+
+The GitLab infrastructure team manages the Sentry instance, you can find more details about its architecture and data management in its [runbook documentation](https://gitlab.com/gitlab-com/runbooks/-/blob/master/docs/sentry/sentry.md).

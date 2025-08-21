@@ -3,28 +3,32 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::BitbucketImport::Importers::PullRequestsImporter, :clean_gitlab_redis_shared_state, feature_category: :importers do
-  let_it_be(:project) do
-    create(:project, :import_started,
-      import_data_attributes: {
-        data: { 'project_key' => 'key', 'repo_slug' => 'slug' },
-        credentials: { 'base_uri' => 'http://bitbucket.org/', 'user' => 'bitbucket', 'password' => 'password' }
-      }
-    )
-  end
-
   subject(:importer) { described_class.new(project) }
 
   describe '#execute' do
+    let_it_be(:project) do
+      create(:project, :import_started,
+        import_data_attributes: {
+          data: {
+            'project_key' => 'key',
+            'repo_slug' => 'slug'
+          },
+          credentials: { 'base_uri' => 'http://bitbucket.org/', 'user' => 'bitbucket', 'password' => 'password' }
+        }
+      )
+    end
+
     before do
       allow_next_instance_of(Bitbucket::Client) do |client|
-        allow(client).to receive(:pull_requests).and_return(
-          [
-            Bitbucket::Representation::PullRequest.new({ 'id' => 1, 'state' => 'OPENED' }),
-            Bitbucket::Representation::PullRequest.new({ 'id' => 2, 'state' => 'DECLINED' }),
-            Bitbucket::Representation::PullRequest.new({ 'id' => 3, 'state' => 'MERGED' })
-          ],
-          []
-        )
+        page = instance_double('Bitbucket::Page', attrs: [], items: [
+          Bitbucket::Representation::PullRequest.new({ 'id' => 1, 'state' => 'OPENED' }),
+          Bitbucket::Representation::PullRequest.new({ 'id' => 2, 'state' => 'DECLINED' }),
+          Bitbucket::Representation::PullRequest.new({ 'id' => 3, 'state' => 'MERGED' })
+        ])
+
+        allow(client).to receive(:each_page).and_yield(page)
+        allow(page).to receive(:next?).and_return(true)
+        allow(page).to receive(:next).and_return('https://example.com/next')
       end
     end
 
@@ -39,20 +43,6 @@ RSpec.describe Gitlab::BitbucketImport::Importers::PullRequestsImporter, :clean_
         .to match_array(%w[1 2 3])
     end
 
-    context 'when the client raises an error' do
-      before do
-        allow_next_instance_of(Bitbucket::Client) do |client|
-          allow(client).to receive(:pull_requests).and_raise(StandardError)
-        end
-      end
-
-      it 'tracks the failure and does not fail' do
-        expect(Gitlab::Import::ImportFailureService).to receive(:track).once
-
-        expect(importer.execute).to be_a(Gitlab::JobWaiter)
-      end
-    end
-
     context 'when pull request was already enqueued' do
       before do
         Gitlab::Cache::Import::Caching.set_add(importer.already_enqueued_cache_key, 1)
@@ -65,6 +55,18 @@ RSpec.describe Gitlab::BitbucketImport::Importers::PullRequestsImporter, :clean_
 
         expect(waiter).to be_an_instance_of(Gitlab::JobWaiter)
         expect(waiter.jobs_remaining).to eq(3)
+      end
+    end
+
+    context 'when the client raises an error' do
+      before do
+        allow_next_instance_of(Bitbucket::Client) do |client|
+          allow(client).to receive(:pull_requests).and_raise(StandardError.new('error fetching PRs'))
+        end
+      end
+
+      it 'raises the error' do
+        expect { importer.execute }.to raise_error(StandardError, 'error fetching PRs')
       end
     end
   end

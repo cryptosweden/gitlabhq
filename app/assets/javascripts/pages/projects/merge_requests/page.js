@@ -1,15 +1,15 @@
 import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import initMrNotes from 'ee_else_ce/mr_notes';
-import StickyHeader from '~/merge_requests/components/sticky_header.vue';
 import { start as startCodeReviewMessaging } from '~/code_review/signals';
 import diffsEventHub from '~/diffs/event_hub';
 import { EVT_MR_DIFF_GENERATED } from '~/diffs/constants';
-import store from '~/mr_notes/stores';
 import initSidebarBundle from '~/sidebar/sidebar_bundle';
 import { apolloProvider } from '~/graphql_shared/issuable_client';
 import { parseBoolean } from '~/lib/utils/common_utils';
 import { initMrMoreDropdown } from '~/mr_more_dropdown';
+import { pinia } from '~/pinia/instance';
+import ReviewDrawer from '~/batch_comments/components/review_drawer.vue';
 import initShow from './init_merge_request_show';
 import getStateQuery from './queries/get_state.query.graphql';
 
@@ -19,9 +19,90 @@ const tabData = Vue.observable({
   tabs: [],
 });
 
-export function initMrPage() {
-  initMrNotes();
-  initShow(store);
+const initMrStickyHeader = () => {
+  const el = document.getElementById('js-merge-sticky-header');
+
+  if (el && !CSS.supports('container-type: scroll-state')) {
+    const { data } = el.dataset;
+
+    let parsedData;
+
+    try {
+      parsedData = JSON.parse(data);
+    } catch {
+      parsedData = {};
+    }
+
+    const {
+      iid,
+      projectPath,
+      title,
+      tabs,
+      defaultBranchName,
+      isFluidLayout,
+      sourceProjectPath,
+      blocksMerge,
+      imported,
+      isDraft,
+    } = parsedData;
+
+    tabData.tabs = tabs;
+
+    // eslint-disable-next-line no-new
+    new Vue({
+      el,
+      name: 'MergeRequestStickyHeaderRoot',
+      pinia,
+      apolloProvider,
+      components: {
+        StickyHeader: () => import('~/merge_requests/components/sticky_header.vue'),
+      },
+      provide: {
+        query: getStateQuery,
+        iid,
+        defaultBranchName,
+        projectPath,
+        title,
+        isFluidLayout: parseBoolean(isFluidLayout),
+        blocksMerge: parseBoolean(blocksMerge),
+        sourceProjectPath,
+      },
+      render(h) {
+        return h('sticky-header', {
+          props: {
+            tabs: tabData.tabs,
+            isImported: parseBoolean(imported),
+            isDraft: parseBoolean(isDraft),
+          },
+        });
+      },
+    });
+  }
+};
+
+const initReviewDrawer = () => {
+  // Review drawer has to be located outside the MR sticky/non-sticky header
+  // Otherwise it will disappear when header switches between sticky/non-sticky components
+  const el = document.querySelector('#js-review-drawer');
+
+  // eslint-disable-next-line no-new
+  new Vue({
+    el,
+    pinia,
+    apolloProvider,
+    provide: {
+      newCommentTemplatePaths: JSON.parse(el.dataset.newCommentTemplatePaths),
+      canSummarize: parseBoolean(el.dataset.canSummarize),
+    },
+    render(h) {
+      return h(ReviewDrawer);
+    },
+  });
+};
+
+export function initMrPage(createRapidDiffsApp) {
+  initMrNotes(createRapidDiffsApp);
+  initShow();
   initMrMoreDropdown();
   startCodeReviewMessaging({ signalBus: diffsEventHub });
 
@@ -31,54 +112,20 @@ export function initMrPage() {
 
     if (changesCountBadge.textContent === '-') {
       changesCountBadge.textContent = fileCount;
-      Vue.set(tabData.tabs[tabData.tabs.length - 1], 3, fileCount);
+
+      const DIFF_TAB_INDEX = 3;
+      const diffTab = tabData.tabs ? tabData.tabs[tabData.tabs.length - 1] : [];
+
+      const hasDiffTab = diffTab?.length >= DIFF_TAB_INDEX + 1;
+      if (hasDiffTab) {
+        diffTab[DIFF_TAB_INDEX] = fileCount;
+      }
     }
   });
+
+  requestIdleCallback(() => {
+    initSidebarBundle();
+    initMrStickyHeader();
+    initReviewDrawer();
+  });
 }
-
-requestIdleCallback(() => {
-  initSidebarBundle(store);
-
-  const el = document.getElementById('js-merge-sticky-header');
-
-  if (el) {
-    const { data } = el.dataset;
-    const {
-      iid,
-      projectPath,
-      title,
-      tabs,
-      isFluidLayout,
-      sourceProjectPath,
-      blocksMerge,
-      imported,
-    } = JSON.parse(data);
-
-    tabData.tabs = tabs;
-
-    // eslint-disable-next-line no-new
-    new Vue({
-      el,
-      name: 'MergeRequestStickyHeaderRoot',
-      store,
-      apolloProvider,
-      provide: {
-        query: getStateQuery,
-        iid,
-        projectPath,
-        title,
-        isFluidLayout: parseBoolean(isFluidLayout),
-        blocksMerge: parseBoolean(blocksMerge),
-        sourceProjectPath,
-      },
-      render(h) {
-        return h(StickyHeader, {
-          props: {
-            tabs: tabData.tabs,
-            isImported: parseBoolean(imported),
-          },
-        });
-      },
-    });
-  }
-});

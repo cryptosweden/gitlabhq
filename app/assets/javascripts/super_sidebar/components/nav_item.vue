@@ -65,15 +65,29 @@ export default {
       required: false,
       default: false,
     },
+    asyncCount: {
+      type: Object,
+      required: false,
+      default: () => ({}),
+    },
   },
   data() {
     return {
       isMouseIn: false,
       canClickPinButton: false,
+      localPillCount: this.item.pill_count,
     };
   },
   computed: {
     pillData() {
+      if (this.item.pill_count_field) {
+        return this.asyncCount[this.item.pill_count_field];
+      }
+
+      if (this.item.pill_count_dynamic) {
+        return this.localPillCount;
+      }
+
       return this.item.pill_count;
     },
     hasPill() {
@@ -134,7 +148,7 @@ export default {
       return {
         'gl-px-2 gl-mx-2 gl-leading-normal': this.isSubitem,
         'gl-px-3': !this.isSubitem,
-        'gl-pl-5! gl-rounded-small': this.isFlyout,
+        '!gl-pl-5 gl-rounded-small': this.isFlyout,
         'gl-rounded-base': !this.isFlyout,
         [this.item.link_classes]: this.item.link_classes,
         ...this.linkClasses,
@@ -205,11 +219,7 @@ export default {
     },
     updatePillValue({ value, itemId }) {
       if (this.item.id === itemId) {
-        // https://gitlab.com/gitlab-org/gitlab/-/issues/428246
-        // fixing this linting issue is causing the pills not to async update
-        //
-        // eslint-disable-next-line vue/no-mutating-props
-        this.item.pill_count = value;
+        this.localPillCount = value;
       }
     },
   },
@@ -218,7 +228,7 @@ export default {
 
 <template>
   <li
-    class="gl-relative show-on-focus-or-hover--context hide-on-focus-or-hover--context transition-opacity-on-hover--context"
+    class="show-on-focus-or-hover--context hide-on-focus-or-hover--context transition-opacity-on-hover--context gl-relative"
     data-testid="nav-item"
     @mouseenter="isMouseIn = true"
     @mouseleave="isMouseIn = false"
@@ -227,19 +237,25 @@ export default {
       :is="navItemLinkComponent"
       #default="{ isActive }"
       v-bind="linkProps"
-      class="super-sidebar-nav-item gl-relative gl-display-flex gl-align-items-center gl-min-h-7 gl-gap-3 gl-mb-1 gl-py-2 gl-text-black-normal! gl-text-decoration-none! gl-focus--focus show-on-focus-or-hover--control hide-on-focus-or-hover--control"
+      class="super-sidebar-nav-item show-on-focus-or-hover--control hide-on-focus-or-hover--control gl-relative gl-mb-1 gl-flex gl-items-center gl-gap-3 gl-py-2 gl-font-semibold gl-text-default !gl-no-underline focus:gl-focus"
       :class="computedLinkClasses"
       data-testid="nav-item-link"
+      :aria-label="item.title"
       @nav-link-click="$emit('nav-link-click')"
     >
       <div
+        v-if="!isFlyout"
         :class="[isActive ? 'gl-opacity-10' : 'gl-opacity-0']"
-        class="active-indicator gl-absolute gl-left-2 gl-top-2 gl-bottom-2 gl-transition-all gl-duration-slow"
+        class="active-indicator gl-absolute gl-bottom-2 gl-left-2 gl-top-2 gl-transition-all gl-duration-slow"
         aria-hidden="true"
         :style="activeIndicatorStyle"
         data-testid="active-indicator"
       ></div>
-      <div v-if="!isFlyout" class="gl-flex-shrink-0 gl-w-6 gl-display-flex">
+      <div
+        v-if="!isFlyout"
+        class="gl-flex gl-w-6 gl-shrink-0"
+        :class="{ 'gl-self-start': hasAvatar }"
+      >
         <slot name="icon">
           <gl-icon
             v-if="item.icon"
@@ -249,7 +265,8 @@ export default {
           <gl-icon
             v-else-if="isInPinnedSection"
             name="grip"
-            class="gl-m-auto gl-text-gray-400 js-draggable-icon gl-cursor-grab show-on-focus-or-hover--target super-sidebar-mix-blend-mode"
+            class="js-draggable-icon show-on-focus-or-hover--target super-sidebar-mix-blend-mode gl-m-auto gl-cursor-grab"
+            variant="subtle"
           />
           <gl-avatar
             v-else-if="hasAvatar"
@@ -261,17 +278,18 @@ export default {
           />
         </slot>
       </div>
-      <div class="gl-flex-grow-1 gl-text-gray-900" :class="{ 'gl-w-max': isFlyout }">
+      <div
+        class="gl-grow gl-text-default gl-break-anywhere"
+        :class="{ 'gl-w-max': isFlyout }"
+        data-testid="nav-item-link-label"
+      >
         {{ item.title }}
-        <div v-if="item.subtitle" class="gl-font-sm gl-text-gray-500 gl-truncate-end">
+        <div v-if="item.subtitle" class="gl-truncate-end gl-text-sm gl-text-subtle">
           {{ item.subtitle }}
         </div>
       </div>
       <slot name="actions"></slot>
-      <span
-        v-if="hasEndSpace"
-        class="gl-display-flex gl-align-items-start gl-justify-content-end gl-min-w-6"
-      >
+      <span v-if="hasEndSpace" class="gl-flex gl-min-w-6 gl-items-start gl-justify-end">
         <gl-badge
           v-if="hasPill"
           variant="neutral"
@@ -289,7 +307,7 @@ export default {
         v-gl-tooltip.noninteractive.right.viewport="$options.i18n.unpinItem"
         :aria-label="unpinAriaLabel"
         category="tertiary"
-        class="show-on-focus-or-hover--target transition-opacity-on-hover--target always-animate gl-absolute gl-right-3 -gl-translate-y-1/2 gl-top-1/2"
+        class="show-on-focus-or-hover--target transition-opacity-on-hover--target always-animate gl-absolute gl-right-3 gl-top-1/2 -gl-translate-y-1/2"
         :class="{ 'gl-pointer-events-none': !canClickPinButton }"
         data-testid="nav-item-unpin"
         icon="thumbtack-solid"
@@ -302,7 +320,7 @@ export default {
         v-gl-tooltip.noninteractive.right.viewport="$options.i18n.pinItem"
         :aria-label="pinAriaLabel"
         category="tertiary"
-        class="show-on-focus-or-hover--target transition-opacity-on-hover--target always-animate gl-absolute gl-right-3 -gl-translate-y-1/2 gl-top-1/2"
+        class="show-on-focus-or-hover--target transition-opacity-on-hover--target always-animate gl-absolute gl-right-3 gl-top-1/2 -gl-translate-y-1/2"
         :class="{ 'gl-pointer-events-none': !canClickPinButton }"
         data-testid="nav-item-pin"
         icon="thumbtack"

@@ -17,6 +17,7 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
   it { is_expected.to nullify_if_blank(:external_url) }
   it { is_expected.to nullify_if_blank(:kubernetes_namespace) }
   it { is_expected.to nullify_if_blank(:flux_resource_path) }
+  it { is_expected.to nullify_if_blank(:description) }
 
   it { is_expected.to belong_to(:project).required }
   it { is_expected.to belong_to(:merge_request).optional }
@@ -24,6 +25,7 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
 
   it { is_expected.to have_many(:deployments) }
   it { is_expected.to have_many(:alert_management_alerts) }
+  it { is_expected.to have_many(:managed_resources) }
   it { is_expected.to have_one(:upcoming_deployment) }
   it { is_expected.to have_one(:latest_opened_most_severe_alert) }
 
@@ -39,6 +41,8 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
   it { is_expected.to validate_length_of(:external_url).is_at_most(255) }
   it { is_expected.to validate_length_of(:kubernetes_namespace).is_at_most(63) }
   it { is_expected.to validate_length_of(:flux_resource_path).is_at_most(255) }
+  it { is_expected.to validate_length_of(:description).is_at_most(10000) }
+  it { is_expected.to validate_length_of(:description_html).is_at_most(50000) }
 
   describe 'validation' do
     it 'does not become invalid record when external_url is empty' do
@@ -82,6 +86,27 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
           expect(env).to validate_presence_of(:tier).on(:create)
           expect(env).to validate_presence_of(:tier).on(:update)
         end
+      end
+    end
+
+    context 'with cluster agent related fields' do
+      let(:cluster_agent) { create(:cluster_agent, project: project) }
+
+      it 'fails when configuring kubernetes namespace without cluster agent is invalid' do
+        environment.kubernetes_namespace = 'default'
+
+        environment.valid?
+
+        expect(environment.errors[:kubernetes_namespace].first).to eq('cannot be set without a cluster agent')
+      end
+
+      it 'fails when configuring flux resource path without kubernetes namespace is invalid' do
+        environment.cluster_agent_id = cluster_agent.id
+        environment.flux_resource_path = 'HelmRelease/default'
+
+        environment.valid?
+
+        expect(environment.errors[:flux_resource_path].first).to eq('cannot be set without a kubernetes namespace')
       end
     end
   end
@@ -258,6 +283,14 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
       expect(environment).to receive(:expire_etag_cache)
 
       environment.stop
+    end
+
+    it 'allows to start environment in stopping state' do
+      environment.update!(state: :stopping)
+
+      environment.start
+
+      expect(environment.state).to eq('available')
     end
 
     context 'when environment has auto stop period' do
@@ -774,16 +807,12 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
     end
   end
 
-  describe '#stop_with_actions!' do
+  describe '#stop_with_actions!', :request_store do
     let(:user) { create(:user) }
 
-    subject { environment.stop_with_actions!(user) }
+    subject { environment.stop_with_actions! }
 
     shared_examples_for 'stop with playing a teardown job' do
-      before do
-        expect(environment).to receive(:available?).and_call_original
-      end
-
       context 'when no other actions' do
         context 'environment is available' do
           before do
@@ -794,7 +823,20 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
             actions = subject
 
             expect(environment).to be_stopped
-            expect(actions).to match_array([])
+            expect(actions).to be_empty
+          end
+
+          context 'when the auto stop setting is set to :with_action' do
+            before do
+              environment.update!(auto_stop_setting: :with_action)
+            end
+
+            it 'does not stop the environment' do
+              actions = subject
+
+              expect(environment).to be_available
+              expect(actions).to be_empty
+            end
           end
         end
 
@@ -958,6 +1000,73 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
           expect(actions.pluck(:user)).to match_array(close_actions.pluck(:user))
         end
 
+        context 'when stop actions are associated to users requiring composite identity' do
+          let(:user) { create(:user, :service_account, composite_identity_enforced: true) }
+          let(:scoped_user) { create(:user) }
+          let(:user_a) { user }
+          let(:user_b) { user }
+
+          before do
+            project.add_maintainer(user_a)
+            project.add_maintainer(user_b)
+            project.add_maintainer(scoped_user)
+
+            job = close_actions.first
+            job.update!(user: user_a, options: job.options.merge(scoped_user_id: scoped_user.id))
+            job = close_actions.last
+            job.update!(user: user_b, options: job.options.merge(scoped_user_id: scoped_user.id))
+          end
+
+          it 'ensures composite identity is present when checking permissions to run the actions' do
+            expect(::Gitlab::Auth::Identity).to receive(:link_from_job).twice.and_call_original
+
+            actions = subject
+
+            expect(actions.count).to eq(close_actions.count)
+            expect(actions.pluck(:id)).to match_array(close_actions.pluck(:id))
+            expect(actions.pluck(:user)).to match_array(close_actions.pluck(:user))
+          end
+
+          context 'when request has composite identity is already linked under different users' do
+            let(:another_scoped_user) { create(:user) }
+
+            before do
+              ::Gitlab::Auth::Identity.new(user).link!(another_scoped_user)
+            end
+
+            it 'denies access' do
+              expect { subject }.to raise_error(::Gitlab::Access::AccessDeniedError)
+            end
+          end
+
+          context 'when stop actions have different users' do
+            context 'when stop actions have different human users' do
+              let(:user_a) { create(:user) }
+              let(:user_b) { create(:user) }
+
+              it 'process the jobs' do
+                expect(subject.count).to eq(close_actions.count)
+              end
+            end
+
+            context 'when stop actions have composite identity user and human user' do
+              let(:user_b) { create(:user) }
+
+              it 'process the jobs' do
+                expect(subject.count).to eq(close_actions.count)
+              end
+            end
+
+            context 'when stop actions have different composite identity users' do
+              let(:user_b) { create(:user, :service_account, composite_identity_enforced: true) }
+
+              it 'raises an error' do
+                expect { subject }.to raise_error(Gitlab::Auth::Identity::TooManyIdentitiesLinkedError)
+              end
+            end
+          end
+        end
+
         context 'when there are failed builds' do
           before do
             create(factory_type, :failed, pipeline: pipeline, name: 'close_app_c', **factory_options)
@@ -980,12 +1089,12 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
 
     it_behaves_like 'stop with playing a teardown job' do
       let(:factory_type) { :ci_build }
-      let(:factory_options) { {} }
+      let(:factory_options) { { user: user } }
     end
 
     it_behaves_like 'stop with playing a teardown job' do
       let(:factory_type) { :ci_bridge }
-      let(:factory_options) { { downstream: project } }
+      let(:factory_options) { { user: user, downstream: project } }
     end
   end
 
@@ -1534,7 +1643,7 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
     subject { environment.calculate_reactive_cache }
 
     it 'overrides default reactive_cache_hard_limit to 10 Mb' do
-      expect(described_class.reactive_cache_hard_limit).to eq(10.megabyte)
+      expect(described_class.reactive_cache_hard_limit).to eq(10.megabytes)
     end
 
     it 'returns cache data from the deployment platform' do
@@ -1561,94 +1670,6 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
     end
   end
 
-  describe '#has_metrics?' do
-    subject { environment.has_metrics? }
-
-    context 'when the environment is available' do
-      context 'with a deployment service' do
-        let_it_be(:project) { create(:project, :with_prometheus_integration, :repository) }
-
-        context 'and a deployment' do
-          let!(:deployment) { create(:deployment, environment: environment) }
-
-          it { is_expected.to be_truthy }
-        end
-
-        context 'and no deployments' do
-          it { is_expected.to be_truthy }
-        end
-
-        context 'and the prometheus adapter is not configured' do
-          before do
-            allow(environment.prometheus_adapter).to receive(:configured?).and_return(false)
-          end
-
-          it { is_expected.to be_falsy }
-        end
-      end
-
-      context 'without a monitoring service' do
-        it { is_expected.to be_falsy }
-      end
-
-      context 'when sample metrics are enabled' do
-        before do
-          stub_env('USE_SAMPLE_METRICS', 'true')
-        end
-
-        context 'with no prometheus adapter configured' do
-          before do
-            allow(environment.prometheus_adapter).to receive(:configured?).and_return(false)
-          end
-
-          it { is_expected.to be_truthy }
-        end
-      end
-    end
-
-    describe '#has_sample_metrics?' do
-      subject { environment.has_metrics? }
-
-      let(:project) { create(:project) }
-
-      context 'when sample metrics are enabled' do
-        before do
-          stub_env('USE_SAMPLE_METRICS', 'true')
-        end
-
-        context 'with no prometheus adapter configured' do
-          before do
-            allow(environment.prometheus_adapter).to receive(:configured?).and_return(false)
-          end
-
-          it { is_expected.to be_truthy }
-        end
-
-        context 'with the environment stopped' do
-          before do
-            environment.stop
-          end
-
-          it { is_expected.to be_falsy }
-        end
-      end
-
-      context 'when sample metrics are not enabled' do
-        it { is_expected.to be_falsy }
-      end
-    end
-
-    context 'when the environment is unavailable' do
-      let_it_be(:project) { create(:project, :with_prometheus_integration) }
-
-      before do
-        environment.stop
-      end
-
-      it { is_expected.to be_falsy }
-    end
-  end
-
   describe '#has_running_deployments?' do
     subject { environment.has_running_deployments? }
 
@@ -1662,49 +1683,6 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
       it 'return true' do
         is_expected.to eq(true)
       end
-    end
-  end
-
-  describe '#additional_metrics' do
-    let_it_be(:project) { create(:project, :with_prometheus_integration) }
-    let(:metric_params) { [] }
-
-    subject { environment.additional_metrics(*metric_params) }
-
-    context 'when the environment has additional metrics' do
-      before do
-        allow(environment).to receive(:has_metrics?).and_return(true)
-      end
-
-      it 'returns the additional metrics from the deployment service' do
-        expect(environment.prometheus_adapter)
-          .to receive(:query)
-          .with(:additional_metrics_environment, environment)
-          .and_return(:fake_metrics)
-
-        is_expected.to eq(:fake_metrics)
-      end
-
-      context 'when time window arguments are provided' do
-        let(:metric_params) { [1552642245.067, Time.current] }
-
-        it 'queries with the expected parameters' do
-          expect(environment.prometheus_adapter)
-            .to receive(:query)
-            .with(:additional_metrics_environment, environment, *metric_params.map(&:to_f))
-            .and_return(:fake_metrics)
-
-          is_expected.to eq(:fake_metrics)
-        end
-      end
-    end
-
-    context 'when the environment does not have metrics' do
-      before do
-        allow(environment).to receive(:has_metrics?).and_return(false)
-      end
-
-      it { is_expected.to be_nil }
     end
   end
 
@@ -2172,7 +2150,9 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
     end
 
     it 'caches the freeze periods' do
-      expect(Gitlab::SafeRequestStore).to receive(:fetch)
+      allow(Gitlab::SafeRequestStore).to receive(:fetch).and_call_original
+
+      expect(Gitlab::SafeRequestStore).to receive(:fetch).with("project:#{project.id}:freeze_periods_for_environments")
         .at_least(:once)
         .and_return([freeze_period])
 
@@ -2213,6 +2193,50 @@ RSpec.describe Environment, :use_clean_rails_memory_store_caching, feature_categ
       create(:deployment, environment: environment1, updated_at: 2.weeks.ago)
 
       is_expected.to match_array([environment])
+    end
+  end
+
+  describe '#set_default_auto_stop_setting' do
+    let(:environment) { create(:environment, project: project) }
+
+    subject { environment.set_default_auto_stop_setting }
+
+    context 'when auto_stop_setting is not set' do
+      %w[production staging].each do |tier|
+        context "when #{tier} environment" do
+          let(:environment) { create(:environment, project: project, name: 'production', tier: :production) }
+
+          it 'sets auto_stop_setting to :with_action' do
+            expect { subject }.to change { environment.auto_stop_setting }.from('always').to('with_action')
+          end
+        end
+      end
+
+      %w[testing development other].each do |tier|
+        context "when #{tier} environment" do
+          let(:environment) { create(:environment, project: project, name: tier, tier: tier.to_sym) }
+
+          it 'sets auto_stop_setting to :always' do
+            expect { subject }.not_to change { environment.auto_stop_setting }
+          end
+        end
+      end
+
+      context 'when feature flag is disabled' do
+        before do
+          stub_feature_flags(new_default_for_auto_stop: false)
+        end
+
+        %w[production staging testing development other].each do |tier|
+          context "when #{tier} environment" do
+            let(:environment) { create(:environment, project: project, name: tier, tier: tier.to_sym) }
+
+            it 'sets auto_stop_setting to :always' do
+              expect { subject }.not_to change { environment.auto_stop_setting }
+            end
+          end
+        end
+      end
     end
   end
 end

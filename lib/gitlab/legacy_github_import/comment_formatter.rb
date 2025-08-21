@@ -3,7 +3,11 @@
 module Gitlab
   module LegacyGithubImport
     class CommentFormatter < BaseFormatter
+      include Import::UsernameMentionRewriter
+
       attr_writer :author_id
+
+      attr_accessor :gitlab_issuable
 
       def attributes
         {
@@ -14,14 +18,29 @@ module Gitlab
           author_id: author_id,
           type: type,
           created_at: raw_data[:created_at],
-          updated_at: raw_data[:updated_at]
+          updated_at: raw_data[:updated_at],
+          imported_from: imported_from
+        }
+      end
+
+      def project_association
+        :notes
+      end
+
+      def create_record
+        gitlab_issuable.notes.create!(attributes)
+      end
+
+      def contributing_user_formatters
+        {
+          author_id: author
         }
       end
 
       private
 
       def author
-        @author ||= UserFormatter.new(client, raw_data[:user])
+        @author ||= UserFormatter.new(client, raw_data[:user], project, source_user_mapper)
       end
 
       def author_id
@@ -29,7 +48,7 @@ module Gitlab
       end
 
       def body
-        raw_data[:body] || ""
+        wrap_mentions_in_backticks(raw_data[:body]) || ""
       end
 
       def line_code

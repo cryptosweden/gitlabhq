@@ -3,9 +3,10 @@ import { GlModal, GlCollapsibleListbox, GlFormGroup, GlSprintf, GlLink } from '@
 import { helpPagePath } from '~/helpers/help_page_helper';
 import { s__ } from '~/locale';
 import getProtectableBranches from '../graphql/queries/protectable_branches.query.graphql';
-import { WILDCARDS_HELP_PATH } from '../constants';
 
-const wildcardsHelpDocLink = helpPagePath(WILDCARDS_HELP_PATH);
+const wildcardsHelpDocLink = helpPagePath('user/project/repository/branches/protected', {
+  anchor: 'use-wildcard-rules',
+});
 export default {
   name: 'BranchRuleModal',
   wildcardsHelpDocLink,
@@ -36,6 +37,7 @@ export default {
     },
   },
   apollo: {
+    // eslint-disable-next-line @gitlab/vue-no-undef-apollo-properties
     project: {
       query: getProtectableBranches,
       variables() {
@@ -91,7 +93,7 @@ export default {
     },
     formDescriptionText() {
       return s__(
-        'BranchRules|%{linkStart}Wildcards%{linkEnd} such as *-stable or production/ are supported',
+        'BranchRules|Wildcards such as %{stable} or %{production} are supported. Branch names are case-sensitive. %{linkStart}Learn more.%{linkEnd}',
       );
     },
   },
@@ -135,15 +137,21 @@ export default {
           <code>{{ searchQuery }}</code>
         </template>
       </gl-collapsible-listbox>
-      <span data-testid="help-text" class="gl-text-secondary">
+      <div data-testid="help-text" class="gl-mt-2 gl-text-subtle">
         <gl-sprintf :message="formDescriptionText">
+          <template #stable
+            ><code>{{ __('*-stable') }}</code></template
+          >
+          <template #production
+            ><code>{{ __('production/*') }}</code></template
+          >
           <template #link="{ content }">
             <gl-link :href="$options.wildcardsHelpDocLink">
               {{ content }}
             </gl-link>
           </template>
         </gl-sprintf>
-      </span>
+      </div>
     </gl-form-group>
   </gl-modal>
 </template>

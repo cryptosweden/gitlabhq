@@ -5,25 +5,30 @@ module Projects
     class CandidatesController < ApplicationController
       before_action :set_candidate
       before_action :check_read, only: [:show]
-      before_action :check_write, only: [:destroy]
+      before_action :check_write, only: [:destroy, :promote]
 
       feature_category :mlops
 
       def show; end
 
+      def promote; end
+
       def destroy
         @experiment = @candidate.experiment
-        @candidate.destroy!
 
-        redirect_to project_ml_experiment_path(@project, @experiment.iid),
-          status: :found,
-          notice: s_("MlExperimentTracking|Candidate removed")
+        if @candidate.destroy
+          flash[:notice] = s_("MlExperimentTracking|Run removed")
+        else
+          flash[:alert] = s_("MlExperimentTracking|Failed to remove run")
+        end
+
+        redirect_to project_ml_experiment_path(@project, @candidate.experiment.iid), status: :found
       end
 
       private
 
       def set_candidate
-        @candidate = ::Ml::Candidate.with_project_id_and_iid(@project.id, params['iid'])
+        @candidate = ::Ml::Candidate.with_project_id_and_iid(@project.id, params.permit(:iid)[:iid])
 
         render_404 unless @candidate.present?
       end

@@ -47,6 +47,18 @@ RSpec.describe Notes::UpdateService, feature_category: :team_planning do
       end
     end
 
+    context 'when the note is an invalid command' do
+      let(:edit_note_text) { { note: '/spend asdf' } }
+
+      it 'deletes the note and reports command errors' do
+        updated_note = described_class.new(project, user, edit_note_text).execute(note)
+
+        expect(updated_note.destroyed?).to eq(true)
+        expect(updated_note.quick_actions_status.error?).to be(true)
+        expect(updated_note.quick_actions_status.error_messages).to eq(['Commands did not apply'])
+      end
+    end
+
     context 'when the note is invalid' do
       let(:edit_note_text) { { note: 'new text' } }
 
@@ -130,9 +142,40 @@ RSpec.describe Notes::UpdateService, feature_category: :team_planning do
 
           expect(updated_note.destroyed?).to eq(true)
           expect(updated_note.errors).to match_array([
-            "Note can't be blank",
-            "Commands only Closed this issue."
+            "Note can't be blank"
           ])
+          expect(updated_note.quick_actions_status.error?).to be(false)
+          expect(updated_note.quick_actions_status.command_names).to eq(['close'])
+          expect(updated_note.quick_actions_status.messages).to eq(['Closed this issue.'])
+        end
+      end
+
+      context 'when existing note contains quick actions' do
+        let!(:note) { create(:note, project: project, noteable: issue, author: user2, note: "foo\n/close\nbar") }
+
+        before do
+          update_note(edit_note_text)
+          note.reload
+          note.noteable.reload
+        end
+
+        context 'when a quick action exists in original note' do
+          let(:edit_note_text) { { note: "foo\n/close\nbar\nbaz" } }
+
+          it 'sanitizes/removes any quick actions and does not execute them' do
+            expect(note.note).to eq "foo\nbar\nbaz"
+            expect(note.noteable.open?).to be_truthy
+          end
+        end
+
+        context 'when a new quick action is used in new note' do
+          let(:edit_note_text) { { note: "bar\n/react :smile:\nfoo" } }
+
+          it 'executes any quick actions not in unedited note' do
+            expect(note.note).to eq "bar\nfoo"
+            expect(note.noteable.award_emoji.first.name).to eq 'smile'
+            expect(note.noteable.open?).to be_truthy
+          end
         end
       end
     end
@@ -350,6 +393,19 @@ RSpec.describe Notes::UpdateService, feature_category: :team_planning do
         expect(project).not_to receive(:execute_hooks)
 
         update_note(note: 'new text')
+      end
+    end
+
+    context 'wiki page note' do
+      let(:wiki_page_meta) { create(:wiki_page_meta, :for_wiki_page, container: project) }
+      let(:note) { create(:note, project: project, noteable: wiki_page_meta, author: user, note: "Old note #{user2.to_reference}") }
+
+      it_behaves_like 'internal event tracking' do
+        let(:event) { 'update_wiki_page_note' }
+        let(:category) { described_class.name }
+        let(:namespace) { nil }
+
+        subject(:track_event) { update_note(note: 'edited') }
       end
     end
   end

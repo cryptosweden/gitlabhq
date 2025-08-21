@@ -103,6 +103,19 @@ RSpec.describe Projects::MergeRequests::CreationsController, feature_category: :
         end
       end
     end
+
+    context 'for a new new request' do
+      render_views
+
+      let(:params) { get_diff_params }
+
+      it 'renders the default template' do
+        get :new, params: params
+
+        expect(response).to be_successful
+        expect(response).to render_template(:new)
+      end
+    end
   end
 
   describe 'GET diffs' do
@@ -243,10 +256,10 @@ RSpec.describe Projects::MergeRequests::CreationsController, feature_category: :
       it 'selects itself as a target project' do
         get :branch_to,
           params: {
-          namespace_id: project.namespace,
-          project_id: project,
-          ref: 'master'
-        }
+            namespace_id: project.namespace,
+            project_id: project,
+            ref: 'master'
+          }
 
         expect(assigns(:target_project)).to eq(project)
         expect(response).to have_gitlab_http_status(:ok)
@@ -323,11 +336,12 @@ RSpec.describe Projects::MergeRequests::CreationsController, feature_category: :
 
       expect(json_response.size).to be(2)
 
-      forked_project = json_response.first
+      forked_project = json_response.detect { |project| project['id'] == fork_project.id }
       expect(forked_project).to have_key('id')
       expect(forked_project).to have_key('name')
       expect(forked_project).to have_key('full_path')
       expect(forked_project).to have_key('refs_url')
+      expect(forked_project).to have_key('forked')
     end
   end
 end

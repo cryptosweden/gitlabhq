@@ -23,3 +23,15 @@ ISO3166::Data.register(
                .deep_symbolize_keys
                .merge({ name: 'Taiwan' })
 )
+
+ISO3166::Data.register(
+  alpha2: 'XK',
+  alpha3: 'XKX',
+  name: 'Kosovo',
+  translations: {
+    'en' => 'Kosovo'
+  },
+  country_code: '383',
+  continent: 'EU',
+  region: 'Southern Europe'
+)

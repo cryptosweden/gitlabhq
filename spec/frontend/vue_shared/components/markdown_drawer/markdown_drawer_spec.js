@@ -43,7 +43,7 @@ describe('MarkdownDrawer', () => {
   const findDrawer = () => wrapper.findComponent(GlDrawer);
   const findAlert = () => wrapper.findComponent(GlAlert);
   const findSkeleton = () => wrapper.findComponent(GlSkeletonLoader);
-  const findDrawerTitle = () => wrapper.findComponent('[data-testid="title-element"]');
+  const findDrawerTitle = () => wrapper.findByTestId('title-element');
   const findDrawerBody = () => wrapper.findComponent({ ref: 'content-element' });
 
   describe('component', () => {
@@ -126,17 +126,9 @@ describe('MarkdownDrawer', () => {
 
     it('triggers renderGLFM in openDrawer', async () => {
       wrapper.vm.fetchMarkdown();
-      wrapper.vm.openDrawer();
+      wrapper.vm.toggleDrawer();
       await nextTick();
       expect(renderGLFMSpy).toHaveBeenCalled();
-    });
-
-    it('triggers height calculation in openDrawer', async () => {
-      expect(findDrawer().attributes('headerheight')).toBe(`${0}px`);
-      wrapper.vm.fetchMarkdown();
-      wrapper.vm.openDrawer();
-      await nextTick();
-      expect(findDrawer().attributes('headerheight')).toBe(`${100}px`);
     });
 
     it('triggers height calculation in toggleDrawer', async () => {

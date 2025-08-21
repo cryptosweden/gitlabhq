@@ -18,12 +18,12 @@ RSpec.describe 'Group Dependency Proxy for containers', :js, feature_category: :
   let(:token) { 'token' }
   let(:headers) { { 'Authorization' => "Bearer #{build_jwt(user).encoded}" } }
 
-  subject do
+  subject(:response) do
     HTTParty.get(url, headers: headers)
   end
 
   let_it_be(:external_server) do
-    handler = lambda do |env|
+    handler = ->(env) do
       if env['REQUEST_PATH'] == '/token'
         [200, {}, [{ token: 'token' }.to_json]]
       else
@@ -110,19 +110,15 @@ RSpec.describe 'Group Dependency Proxy for containers', :js, feature_category: :
       end
 
       context 'with a group deploy token' do
-        before do
-          create(:group_deploy_token, group: group, deploy_token: deploy_token)
-        end
-
         context 'with sufficient scopes' do
-          let_it_be(:deploy_token) { create(:deploy_token, :group, :dependency_proxy_scopes) }
+          let_it_be(:deploy_token) { create(:deploy_token, :group, :dependency_proxy_scopes, groups: [group]) }
           let_it_be(:headers) { { 'Authorization' => "Bearer #{build_jwt(deploy_token).encoded}" } }
 
           it_behaves_like 'responds with the file'
         end
 
         context 'with insufficient scopes' do
-          let_it_be(:deploy_token) { create(:deploy_token, :group) }
+          let_it_be(:deploy_token) { create(:deploy_token, :group, groups: [group]) }
           let_it_be(:headers) { { 'Authorization' => "Bearer #{build_jwt(deploy_token).encoded}" } }
 
           it_behaves_like 'returns not found'
@@ -134,5 +130,13 @@ RSpec.describe 'Group Dependency Proxy for containers', :js, feature_category: :
   context 'when the blob must be downloaded' do
     it_behaves_like 'responds with the file'
     it_behaves_like 'caches the file'
+  end
+
+  context 'when calling the authentication endpoint' do
+    let(:url) { capybara_url('/v2') }
+
+    it 'does not set session cookies' do
+      expect(response.headers).not_to include('set-cookie')
+    end
   end
 end

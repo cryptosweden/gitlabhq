@@ -7,8 +7,9 @@ module Analytics
 
       extend ::Gitlab::Utils::Override
       include ApplicationWorker
+      include CronjobChildWorker
 
-      data_consistency :always
+      data_consistency :sticky
 
       sidekiq_options retry: 3
 

@@ -12,7 +12,14 @@ RSpec.describe ::SystemNotes::IssuablesService, feature_category: :team_planning
   let(:noteable)      { create(:issue, project: project) }
   let(:issue)         { noteable }
 
-  let(:service) { described_class.new(noteable: noteable, project: project, author: author) }
+  let(:service) { described_class.new(noteable: noteable, container: project, author: author) }
+
+  before_all do
+    # Ensure support bot user is created so creation doesn't count towards query limit
+    # and we don't try to obtain an exclusive lease within a transaction.
+    # See https://gitlab.com/gitlab-org/gitlab/-/issues/509629
+    Users::Internal.support_bot_id
+  end
 
   describe '#relate_issuable' do
     let_it_be(:issue1) { create(:issue, project: project) }
@@ -297,11 +304,14 @@ RSpec.describe ::SystemNotes::IssuablesService, feature_category: :team_planning
   end
 
   describe '#change_title' do
-    let(:noteable) { create(:issue, project: project, title: 'Lorem ipsum') }
+    let(:noteable) { create(:issue, project: project, title: new_title) }
 
-    subject { service.change_title('Old title') }
+    subject { service.change_title(old_title) }
 
     context 'when noteable responds to `title`' do
+      let(:new_title) { '_Lorem_ ipsum' }
+      let(:old_title) { 'Old **title**' }
+
       it_behaves_like 'a system note' do
         let(:action) { 'title' }
       end
@@ -310,7 +320,17 @@ RSpec.describe ::SystemNotes::IssuablesService, feature_category: :team_planning
 
       it 'sets the note text' do
         expect(subject.note)
-          .to eq "changed title from **{-Old title-}** to **{+Lorem ipsum+}**"
+          .to eq %q(<p>changed title from <code class="idiff"><span class="idiff left right deletion">Old **title**</span></code> to <code class="idiff"><span class="idiff left right addition">_Lorem_ ipsum</span></code></p>)
+      end
+
+      context 'when changes are only parts of the title' do
+        let(:new_title) { '_title_ (foo)' }
+        let(:old_title) { 'Resolve "**title** (foo)"' }
+
+        it 'sets the note text' do
+          expect(subject.note)
+            .to eq %q(<p>changed title from <code class="idiff"><span class="idiff left deletion">Resolve &quot;**</span>title<span class="idiff deletion">**</span> (foo)<span class="idiff right deletion">&quot;</span></code> to <code class="idiff"><span class="idiff left addition">_</span>title<span class="idiff right addition">_</span> (foo)</code></p>)
+        end
       end
     end
   end
@@ -408,6 +428,16 @@ RSpec.describe ::SystemNotes::IssuablesService, feature_category: :team_planning
 
       it_behaves_like 'a note with overridable created_at'
 
+      it 'does not touch the updated_at column of the noteable' do
+        existing_updated_at = noteable.updated_at
+
+        travel_to(2.days.from_now) do
+          subject
+
+          expect(noteable.reload.updated_at).to be_like_time(existing_updated_at)
+        end
+      end
+
       describe 'note_body' do
         context 'cross-project' do
           let(:project2) { create(:project, :repository) }
@@ -441,6 +471,36 @@ RSpec.describe ::SystemNotes::IssuablesService, feature_category: :team_planning
             it 'references the mentioning object' do
               expect(subject.note).to eq "mentioned in issue #{mentioned_in.to_reference}"
             end
+          end
+        end
+      end
+
+      describe 'note_date' do
+        let(:mentioned_in) { project.repository.commit }
+
+        it 'uses commit date with USE_COMMIT_DATE_FOR_CROSS_REFERENCE_NOTE' do
+          stub_const("#{described_class}::USE_COMMIT_DATE_FOR_CROSS_REFERENCE_NOTE", true)
+
+          note = service.cross_reference(mentioned_in)
+
+          expect(note.created_at).to be_like_time(mentioned_in.created_at)
+        end
+      end
+
+      context 'with WorkItem' do
+        context 'on project level' do
+          let(:noteable) { create(:work_item, project: project) }
+
+          it 'references the mentioning object' do
+            expect(subject.note).to eq "mentioned in issue #{mentioned_in.to_reference(project)}"
+          end
+        end
+
+        context 'on group level' do
+          let(:noteable) { create(:work_item, :group_level) }
+
+          it 'references the mentioning object' do
+            expect(subject.note).to eq "mentioned in issue #{mentioned_in.to_reference(noteable.namespace)}"
           end
         end
       end
@@ -953,7 +1013,7 @@ RSpec.describe ::SystemNotes::IssuablesService, feature_category: :team_planning
     let_it_be_with_reload(:work_item) { create(:work_item, project: project) }
     let_it_be_with_reload(:task) { create(:work_item, :task, project: project) }
 
-    let(:service) { described_class.new(noteable: work_item, project: project, author: author) }
+    let(:service) { described_class.new(noteable: work_item, container: project, author: author) }
 
     subject { service.hierarchy_changed(task, hierarchy_change_action) }
 

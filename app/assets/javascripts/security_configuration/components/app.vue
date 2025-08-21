@@ -5,26 +5,37 @@ import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
 import UserCalloutDismisser from '~/vue_shared/components/user_callout_dismisser.vue';
 import SectionLayout from '~/vue_shared/security_configuration/components/section_layout.vue';
 import SafeHtml from '~/vue_shared/directives/safe_html';
+import PageHeading from '~/vue_shared/components/page_heading.vue';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { SERVICE_PING_SECURITY_CONFIGURATION_THREAT_MANAGEMENT_VISIT } from '~/tracking/constants';
+import { REPORT_TYPE_CONTAINER_SCANNING_FOR_REGISTRY } from '~/vue_shared/security_reports/constants';
 import {
   AUTO_DEVOPS_ENABLED_ALERT_DISMISSED_STORAGE_KEY,
   TAB_VULNERABILITY_MANAGEMENT_INDEX,
   i18n,
-  PRE_RECEIVE_SECRET_DETECTION,
+  SECRET_PUSH_PROTECTION,
+  SECRET_DETECTION,
+  LICENSE_INFORMATION_SOURCE,
 } from '../constants';
 import AutoDevOpsAlert from './auto_dev_ops_alert.vue';
 import AutoDevOpsEnabledAlert from './auto_dev_ops_enabled_alert.vue';
 import FeatureCard from './feature_card.vue';
-import PreReceiveSecretDetectionFeatureCard from './pre_receive_secret_detection_feature_card.vue';
+import PipelineSecretDetectionFeatureCard from './pipeline_secret_detection_feature_card.vue';
+import SecretPushProtectionFeatureCard from './secret_push_protection_feature_card.vue';
 import TrainingProviderList from './training_provider_list.vue';
 
 export default {
   i18n,
   components: {
+    ApplySecurityAttributes: () =>
+      import(
+        'ee_component/security_configuration/security_attributes/components/apply_security_attributes.vue'
+      ),
     AutoDevOpsAlert,
     AutoDevOpsEnabledAlert,
     FeatureCard,
-    PreReceiveSecretDetectionFeatureCard,
+    SecretPushProtectionFeatureCard,
+    PipelineSecretDetectionFeatureCard,
     GlAlert,
     GlLink,
     GlSprintf,
@@ -36,8 +47,20 @@ export default {
       import('ee_component/security_configuration/components/upgrade_banner.vue'),
     UserCalloutDismisser,
     TrainingProviderList,
+    ContainerScanningForRegistryFeatureCard: () =>
+      import(
+        'ee_component/security_configuration/components/container_scanning_for_registry_feature_card.vue'
+      ),
+    PageHeading,
+    VulnerabilityArchives: () =>
+      import('ee_component/security_configuration/components/vulnerability_archives.vue'),
+    LicenseInformationSourceFeatureCard: () =>
+      import(
+        'ee_component/security_configuration/components/license_information_source_feature_card.vue'
+      ),
   },
   directives: { SafeHtml },
+  mixins: [glFeatureFlagsMixin()],
   inject: ['projectFullPath', 'vulnerabilityTrainingDocsPath'],
   props: {
     augmentedSecurityFeatures: {
@@ -96,12 +119,30 @@ export default {
         !this.autoDevopsEnabledAlertDismissedProjects.includes(this.projectFullPath)
       );
     },
+    shouldShowVulnerabilityArchives() {
+      return this.glFeatures?.vulnerabilityArchival;
+    },
+    shouldShowSecurityAttributes() {
+      return (
+        window.gon?.licensed_features?.securityAttributes && this.glFeatures?.securityContextLabels
+      );
+    },
   },
   methods: {
     getComponentName(feature) {
-      if (feature.type === PRE_RECEIVE_SECRET_DETECTION) {
-        return 'pre-receive-secret-detection-feature-card';
+      if (feature.type === SECRET_PUSH_PROTECTION) {
+        return 'secret-push-protection-feature-card';
       }
+      if (feature.type === REPORT_TYPE_CONTAINER_SCANNING_FOR_REGISTRY) {
+        return 'container-scanning-for-registry-feature-card';
+      }
+      if (feature.type === SECRET_DETECTION) {
+        return 'pipeline-secret-detection-feature-card';
+      }
+      if (feature.type === LICENSE_INFORMATION_SOURCE) {
+        return 'license-information-source-feature-card';
+      }
+
       return 'feature-card';
     },
     dismissAutoDevopsEnabledAlert() {
@@ -150,9 +191,9 @@ export default {
         <auto-dev-ops-alert v-if="shouldShowCallout" class="gl-mt-3" @dismiss="dismiss" />
       </template>
     </user-callout-dismisser>
-    <header>
-      <h1 class="gl-font-size-h1">{{ $options.i18n.securityConfiguration }}</h1>
-    </header>
+
+    <page-heading :heading="$options.i18n.securityConfiguration" />
+
     <user-callout-dismisser v-if="canUpgrade" feature-name="security_configuration_upgrade_banner">
       <template #default="{ dismiss, shouldShowCallout }">
         <upgrade-banner v-if="shouldShowCallout" @close="dismiss" />
@@ -234,6 +275,14 @@ export default {
             <training-provider-list :security-training-enabled="securityTrainingEnabled" />
           </template>
         </section-layout>
+        <vulnerability-archives v-if="shouldShowVulnerabilityArchives" />
+      </gl-tab>
+      <gl-tab
+        v-if="shouldShowSecurityAttributes"
+        :title="s__('SecurityAttributes|Security attributes')"
+        query-param-value="security-attributes"
+      >
+        <apply-security-attributes />
       </gl-tab>
     </gl-tabs>
   </article>

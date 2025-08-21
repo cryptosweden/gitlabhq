@@ -17,6 +17,14 @@ azure_storage_account_name = "azuretester"
 azure_storage_access_key = "deadbeef"
 `
 
+const azureConfigWithManagedIdentity = `
+[object_storage]
+provider = "AzureRM"
+
+[object_storage.azurerm]
+azure_storage_account_name = "azuretester"
+`
+
 const googleConfigWithKeyLocation = `
 [object_storage]
 provider = "Google"
@@ -94,6 +102,21 @@ func TestRegisterGoCloudAzureURLOpeners(t *testing.T) {
 		AzureCredentials: AzureCredentials{
 			AccountName: "azuretester",
 			AccountKey:  "deadbeef",
+		},
+	}
+
+	require.Equal(t, expected, cfg.ObjectStorageCredentials)
+	testRegisterGoCloudURLOpener(t, cfg, "azblob")
+}
+
+func TestRegisterGoCloudAzureURLOpenersWithManagedIdentity(t *testing.T) {
+	cfg, err := LoadConfig(azureConfigWithManagedIdentity)
+	require.NoError(t, err)
+
+	expected := ObjectStorageCredentials{
+		Provider: "AzureRM",
+		AzureCredentials: AzureCredentials{
+			AccountName: "azuretester",
 		},
 	}
 
@@ -223,4 +246,30 @@ func createTempFile(t *testing.T, contents []byte) string {
 	require.NoError(t, err)
 
 	return tmpFile.Name()
+}
+
+func TestCircuitBreakerConfig(t *testing.T) {
+	config := `
+[circuit_breaker]
+enabled = true
+timeout = 90
+interval = 360
+max_requests = 2
+consecutive_failures = 10
+`
+
+	cfg, err := LoadConfig(config)
+	require.NoError(t, err)
+
+	require.NotNil(t, cfg.CircuitBreakerConfig, "Expected circuit breaker config")
+
+	expected := CircuitBreakerConfig{
+		Enabled:             true,
+		Timeout:             90,
+		Interval:            360,
+		MaxRequests:         2,
+		ConsecutiveFailures: 10,
+	}
+
+	require.Equal(t, expected, cfg.CircuitBreakerConfig)
 }

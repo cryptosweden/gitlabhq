@@ -4,13 +4,13 @@ import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import Api from '~/api';
 import InviteGroupsModal from '~/invite_members/components/invite_groups_modal.vue';
 import InviteModalBase from '~/invite_members/components/invite_modal_base.vue';
-import ContentTransition from '~/vue_shared/components/content_transition.vue';
+import ContentTransition from '~/invite_members/components/content_transition.vue';
 import GroupSelect from '~/invite_members/components/group_select.vue';
 import InviteGroupNotification from '~/invite_members/components/invite_group_notification.vue';
 import { stubComponent } from 'helpers/stub_component';
 import {
   displaySuccessfulInvitationAlert,
-  reloadOnInvitationSuccess,
+  reloadOnGroupInvitationSuccess,
 } from '~/invite_members/utils/trigger_successful_invite_alert';
 import {
   GROUP_MODAL_TO_GROUP_ALERT_BODY,
@@ -18,6 +18,7 @@ import {
   GROUP_MODAL_TO_PROJECT_ALERT_BODY,
   GROUP_MODAL_TO_PROJECT_ALERT_LINK,
 } from '~/invite_members/constants';
+import { helpPagePath } from '~/helpers/help_page_helper';
 import { propsData, sharedGroup } from '../mock_data/group_modal';
 
 jest.mock('~/invite_members/utils/trigger_successful_invite_alert');
@@ -85,6 +86,30 @@ describe('InviteGroupsModal', () => {
         validRoles: propsData.accessLevels,
       });
     });
+
+    describe('when inviting a group to a project', () => {
+      it('set accessExpirationHelpLink for projects', () => {
+        createInviteGroupToProjectWrapper();
+
+        expect(findBase().props('accessExpirationHelpLink')).toBe(
+          helpPagePath('user/project/members/sharing_projects_groups', {
+            anchor: 'invite-a-group-to-a-project',
+          }),
+        );
+      });
+    });
+
+    describe('when inviting a group to a group', () => {
+      it('set accessExpirationHelpLink for groups', () => {
+        createInviteGroupToGroupWrapper();
+
+        expect(findBase().props('accessExpirationHelpLink')).toBe(
+          helpPagePath('user/project/members/sharing_projects_groups', {
+            anchor: 'invite-a-group-to-a-group',
+          }),
+        );
+      });
+    });
   });
 
   describe('displaying the correct introText and form group description', () => {
@@ -122,7 +147,6 @@ describe('InviteGroupsModal', () => {
       createComponent({ freeUserCapEnabled: true });
 
       expect(findInviteGroupAlert().props()).toMatchObject({
-        name: propsData.name,
         notificationText: GROUP_MODAL_TO_GROUP_ALERT_BODY,
         notificationLink: GROUP_MODAL_TO_GROUP_ALERT_LINK,
       });
@@ -132,7 +156,6 @@ describe('InviteGroupsModal', () => {
       createComponent({ freeUserCapEnabled: true, isProject: true });
 
       expect(findInviteGroupAlert().props()).toMatchObject({
-        name: propsData.name,
         notificationText: GROUP_MODAL_TO_PROJECT_ALERT_BODY,
         notificationLink: GROUP_MODAL_TO_PROJECT_ALERT_LINK,
       });
@@ -186,17 +209,20 @@ describe('InviteGroupsModal', () => {
       });
 
       it('displays the successful toastMessage', () => {
-        expect(mockToastShow).toHaveBeenCalledWith('Members were successfully added', {
-          onComplete: expect.any(Function),
-        });
+        expect(mockToastShow).toHaveBeenCalledWith(
+          'Group was successfully invited. It might take a few minutes for the changes to user access levels to take effect.',
+          {
+            onComplete: expect.any(Function),
+          },
+        );
       });
 
       it('does not call displaySuccessfulInvitationAlert on mount', () => {
         expect(displaySuccessfulInvitationAlert).not.toHaveBeenCalled();
       });
 
-      it('does not call reloadOnInvitationSuccess', () => {
-        expect(reloadOnInvitationSuccess).not.toHaveBeenCalled();
+      it('does not call reloadOnGroupInvitationSuccess', () => {
+        expect(reloadOnGroupInvitationSuccess).not.toHaveBeenCalled();
       });
     });
 
@@ -234,6 +260,7 @@ describe('InviteGroupsModal', () => {
       group_id: sharedGroup.id,
       group_access: propsData.defaultAccessLevel,
       expires_at: undefined,
+      member_role_id: null,
       format: 'json',
     };
 
@@ -251,8 +278,8 @@ describe('InviteGroupsModal', () => {
         expect(displaySuccessfulInvitationAlert).toHaveBeenCalled();
       });
 
-      it('calls reloadOnInvitationSuccess', () => {
-        expect(reloadOnInvitationSuccess).toHaveBeenCalled();
+      it('calls reloadOnGroupInvitationSuccess', () => {
+        expect(reloadOnGroupInvitationSuccess).toHaveBeenCalled();
       });
 
       it('does not show the toast message on failure', () => {

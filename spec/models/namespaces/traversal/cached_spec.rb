@@ -9,25 +9,6 @@ RSpec.describe Namespaces::Traversal::Cached, feature_category: :database do
     let_it_be_with_refind(:group) { create(:group, parent: old_parent) }
     let_it_be_with_refind(:subgroup) { create(:group, parent: group) }
 
-    context 'when the namespace_descendants_cache_expiration feature flag is off' do
-      let!(:cache) { create(:namespace_descendants, namespace: group) }
-
-      before do
-        stub_feature_flags(namespace_descendants_cache_expiration: false)
-      end
-
-      it 'does not invalidate the cache' do
-        expect { group.update!(parent: new_parent) }.not_to change { cache.reload.outdated_at }
-      end
-
-      context 'when the group is deleted' do
-        it 'invalidates the cache' do
-          subgroup.destroy!
-          expect { group.destroy! }.not_to change { cache.reload.outdated_at }
-        end
-      end
-    end
-
     context 'when no cached records are present' do
       it 'does nothing' do
         group.parent = new_parent
@@ -114,15 +95,21 @@ RSpec.describe Namespaces::Traversal::Cached, feature_category: :database do
 
     let_it_be(:project1) { create(:project, group: group) }
     let_it_be(:project2) { create(:project, group: subsubgroup) }
+    let_it_be(:project3) { create(:project, group: subsubgroup, archived: true) }
 
-    # deliberately making self_and_descendant_group_ids different from  the actual
-    # self_and_descendant_ids so we can verify that the cached query is running.
+    # deliberately making the created record different from the actual
+    # data so we can verify that the cached query is running.
+    # self_and_descendant_group_ids should be [group.id, subgroup.id, subsubgroup.id]
+    # all_project_ids should be [project1.id, project2.id, project3.id]
+    # all_unarchived_project_ids should be [project1.id, project2.id]
     let_it_be_with_refind(:namespace_descendants) do
       create(:namespace_descendants,
         :up_to_date,
         namespace: group,
+        self_and_descendant_ids: [group.id, subgroup.id, project1.project_namespace.id],
         self_and_descendant_group_ids: [group.id, subgroup.id],
-        all_project_ids: [project1.id]
+        all_project_ids: [project1.id],
+        all_unarchived_project_ids: [project1.id]
       )
     end
 
@@ -141,13 +128,24 @@ RSpec.describe Namespaces::Traversal::Cached, feature_category: :database do
         end
       end
 
-      context 'when the group_hierarchy_optimization feature flag is disabled' do
-        before do
-          stub_feature_flags(group_hierarchy_optimization: false)
+      context 'when the scope is specified' do
+        subject(:ids) { group.self_and_descendant_ids(skope: Namespace).pluck(:id) }
+
+        it 'returns the cached values' do
+          expect(ids).to eq(namespace_descendants.self_and_descendant_ids)
         end
 
-        it 'returns the values from the uncached self_and_descendant_ids query' do
-          expect(ids.sort).to eq([group.id, subgroup.id, subsubgroup.id])
+        context 'when the cache is outdated' do
+          it 'returns the values from the uncached self_and_descendant_ids query' do
+            namespace_descendants.update!(outdated_at: Time.current)
+
+            expect(ids.sort).to eq([
+              group.id, subgroup.id, subsubgroup.id,
+              project1.project_namespace_id,
+              project2.project_namespace_id,
+              project3.project_namespace_id
+            ])
+          end
         end
       end
     end
@@ -163,17 +161,7 @@ RSpec.describe Namespaces::Traversal::Cached, feature_category: :database do
         it 'returns the values from the uncached all_project_ids query' do
           namespace_descendants.update!(outdated_at: Time.current)
 
-          expect(ids.sort).to eq([project1.id, project2.id])
-        end
-      end
-
-      context 'when the group_hierarchy_optimization feature flag is disabled' do
-        before do
-          stub_feature_flags(group_hierarchy_optimization: false)
-        end
-
-        it 'returns the values from the uncached all_project_ids query' do
-          expect(ids.sort).to eq([project1.id, project2.id])
+          expect(ids.sort).to eq([project1.id, project2.id, project3.id])
         end
       end
     end

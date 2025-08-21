@@ -9,32 +9,35 @@ module RuboCop
       # must implement the method #handle_event(event) and
       # must not override the method #perform(*args)
       #
-      #  # bad
-      #  class MySubscriber
-      #    include Gitlab::EventStore::Subscriber
+      # @example
       #
-      #    def perform(*args)
-      #    end
-      #  end
+      #   # bad
+      #   class MySubscriber
+      #     include Gitlab::EventStore::Subscriber
       #
-      #  # bad
-      #  class MySubscriber
-      #    include Gitlab::EventStore::Subscriber
-      #  end
+      #     def perform(*args)
+      #     end
+      #   end
       #
-      #  # good
-      #  class MySubscriber
-      #    include Gitlab::EventStore::Subscriber
+      #   # bad
+      #   class MySubscriber
+      #     include Gitlab::EventStore::Subscriber
+      #   end
       #
-      #    def handle_event(event)
-      #    end
-      #  end
+      #   # good
+      #   class MySubscriber
+      #     include Gitlab::EventStore::Subscriber
+      #
+      #     def handle_event(event)
+      #     end
+      #   end
       #
       class EventStoreSubscriber < RuboCop::Cop::Base
         SUBSCRIBER_MODULE_NAME = 'Gitlab::EventStore::Subscriber'
         FORBID_PERFORM_OVERRIDE = "Do not override `perform` in a `#{SUBSCRIBER_MODULE_NAME}`.".freeze
         REQUIRE_HANDLE_EVENT = "A `#{SUBSCRIBER_MODULE_NAME}` must implement `#handle_event(event)`.".freeze
 
+        # @!method includes_subscriber?(node)
         def_node_matcher :includes_subscriber?, <<~PATTERN
           (send nil? :include (const (const (const nil? :Gitlab) :EventStore) :Subscriber))
         PATTERN
@@ -47,11 +50,11 @@ module RuboCop
         end
 
         def on_def(node)
-          if is_subscriber && node.method_name == :perform
+          if is_subscriber && node.method?(:perform)
             add_offense(node, message: FORBID_PERFORM_OVERRIDE)
           end
 
-          self.implements_handle_event ||= true if node.method_name == :handle_event
+          self.implements_handle_event ||= true if node.method?(:handle_event)
         end
 
         def on_investigation_end

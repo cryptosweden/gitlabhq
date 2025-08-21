@@ -1,3 +1,7 @@
+#!/usr/bin/env bash
+export STABLE_BRANCH_PATTERN="^[0-9-]+-stable(-ee)?$"
+export VERSION_TAG_PATTERN="^v([0-9]+)\.([0-9]+)\.([0-9]+).+(ee)$"
+
 function retry() {
   retry_times_sleep 2 3 "$@"
 }
@@ -80,21 +84,12 @@ function section_end () {
 
 function rspec_section() {
   section_start "rspec" "RSpec" "false"
-  "$@"
+  run_with_custom_exit_code "$@"
   section_end "rspec"
 }
 
 function bundle_install_script() {
-  local extra_install_args="${1}"
-
-  if [[ "${extra_install_args}" =~ "--without" ]]; then
-    echoerr "The '--without' flag shouldn't be passed as it would replace the default \${BUNDLE_WITHOUT} (currently set to '${BUNDLE_WITHOUT}')."
-    echoerr "Set the 'BUNDLE_WITHOUT' variable instead, e.g. '- export BUNDLE_WITHOUT=\"\${BUNDLE_WITHOUT}:any:other:group:not:to:install\"'."
-    exit 1;
-  fi;
-
-  section_start "bundle-install" "Installing gems"
-
+  section_start "bundle-info" "Ruby env info and bundle config"
   gem --version
   bundle --version
   test -d jh && bundle config set --local gemfile 'jh/Gemfile'
@@ -103,14 +98,14 @@ function bundle_install_script() {
 
   echo "${BUNDLE_WITHOUT}"
   bundle config
+  section_end "bundle-info"
 
-  run_timed_command "bundle install ${BUNDLE_INSTALL_FLAGS} ${extra_install_args}"
+  section_start "bundle-install" "Installing gems"
 
-  if [[ $(bundle info pg) ]]; then
-    # When we test multiple versions of PG in the same pipeline, we have a single `setup-test-env`
-    # job but the `pg` gem needs to be rebuilt since it includes extensions (https://guides.rubygems.org/gems-with-extensions).
-    # Uncomment the following line if multiple versions of PG are tested in the same pipeline.
-    run_timed_command "bundle pristine pg"
+  echo "Checking if all dependencies are satisfied"
+  if ! bundle check; then
+    # Call `eval` explicitly to run the shell functions stored inside BUNDLE_INSTALL_FLAGS
+    eval "bundle install ${BUNDLE_INSTALL_FLAGS}"
   fi
 
   section_end "bundle-install"
@@ -132,19 +127,11 @@ function yarn_install_script_storybook() {
   section_end "yarn-install-storybook"
 }
 
-function assets_compile_script() {
-  section_start "assets-compile" "Compiling frontend assets"
-
-  bin/rake gitlab:assets:compile
-
-  section_end "assets-compile"
-}
-
 function setup_database_yml() {
   if [ "$DECOMPOSED_DB" == "true" ]; then
-    if [ "$CLUSTERWIDE_DB" == "true" ]; then
-      echo "Using decomposed database config, containing clusterwide connection (config/database.yml.decomposed-clusterwide-postgresql)"
-      cp config/database.yml.decomposed-clusterwide-postgresql config/database.yml
+    if [ "$SEC_DECOMPOSED_DB" == "true" ]; then
+      echo "Using SEC decomposed database config (config/database.yml.decomposed-sec-postgresql)"
+      cp config/database.yml.decomposed-sec-postgresql config/database.yml
     else
       echo "Using decomposed database config (config/database.yml.decomposed-postgresql)"
       cp config/database.yml.decomposed-postgresql config/database.yml
@@ -161,7 +148,7 @@ function setup_database_yml() {
 
   # Set up Geo database if the job name matches `rspec-ee` or `geo`.
   # Since Geo is an EE feature, we shouldn't set it up for non-EE tests.
-  if [[ "${CI_JOB_NAME}" =~ "rspec-ee" ]] || [[ "${CI_JOB_NAME}" =~ "geo" ]]; then
+  if [[ "${CI_JOB_NAME}" =~ "rspec-ee" ]] || [[ "${CI_JOB_NAME}" =~ "geo" ]] || [[ "${CI_JOB_NAME}" =~ "db:setup-ee" ]]; then
     echoinfo "Geo DB will be set up."
   else
     echoinfo "Geo DB won't be set up."
@@ -170,7 +157,7 @@ function setup_database_yml() {
 
   # Set up Embedding database if the job name matches `rspec-ee`
   # Since Embedding is an EE feature, we shouldn't set it up for non-EE tests.
-  if [[ "${CI_JOB_NAME}" =~ "rspec-ee" ]]; then
+  if [[ "${CI_JOB_NAME}" =~ "rspec-ee" ]] || [[ "${CI_JOB_NAME}" =~ "db:setup-ee" ]]; then
     echoinfo "Embedding DB will be set up."
   else
     echoinfo "Embedding DB won't be set up."
@@ -195,6 +182,21 @@ function setup_db_praefect() {
 function setup_db() {
   section_start "setup-db" "Setting up DBs"
 
+  if [[ -f pg_dumpall.sql ]] && ! [[ "$DECOMPOSED_DB" =~ "false" ]]; then
+    echo "Found pg_dumpall.sql, applying!"
+
+    psql -h postgres -U postgres -q < pg_dumpall.sql > /dev/null
+    rm pg_dumpall.sql
+
+    section_end "setup-db"
+    return 0
+  fi
+
+  if [[ -f pg_dumpall.sql ]]; then
+    echo "Found pg_dumpall.sql but we're not using a standard multi-db (decomposed) setup. Performing a regular db setup instead."
+    rm pg_dumpall.sql
+  fi
+
   setup_db_user_only
   run_timed_command_with_metric "bundle exec rake db:drop db:create db:schema:load db:migrate gitlab:db:lock_writes" "setup_db"
   setup_db_praefect
@@ -203,20 +205,20 @@ function setup_db() {
 }
 
 function install_gitlab_gem() {
-  run_timed_command "gem install httparty --no-document --version 0.20.0"
-  run_timed_command "gem install gitlab --no-document --version 4.19.0"
+  gem install httparty --no-document --version 0.20.0
+  gem install gitlab --no-document --version 4.19.0
 }
 
 function install_tff_gem() {
-  run_timed_command "gem install test_file_finder --no-document --version 0.3.1"
+  gem install test_file_finder --no-document --version 0.3.1
 }
 
 function install_activesupport_gem() {
-  run_timed_command "gem install activesupport --no-document --version 6.1.7.2"
+  gem install activesupport --no-document --version 7.0.8.4
 }
 
 function install_junit_merge_gem() {
-  run_timed_command "gem install junit_merge --no-document --version 0.1.2"
+  gem install junit_merge --no-document --version 0.1.2
 }
 
 function select_existing_files() {
@@ -353,14 +355,11 @@ function fail_pipeline_early() {
   fi
 }
 
-# We're inlining this function in `.gitlab/ci/package-and-test/main.gitlab-ci.yml` so make sure to reflect any changes there
 function assets_image_tag() {
-  local cache_assets_hash_file="cached-assets-hash.txt"
-
   if [[ -n "${CI_COMMIT_TAG}" ]]; then
     echo -n "${CI_COMMIT_REF_NAME}"
-  elif [[ -f "${cache_assets_hash_file}" ]]; then
-    echo -n "assets-hash-$(cat ${cache_assets_hash_file} | cut -c1-10)"
+  elif [[ -f "${GLCI_GITLAB_ASSETS_HASH_FILE}" ]]; then
+    echo -n "assets-hash-$(cat ${GLCI_GITLAB_ASSETS_HASH_FILE} | cut -c1-10)"
   else
     echo -n "${CI_COMMIT_SHA}"
   fi
@@ -467,12 +466,22 @@ function download_local_gems() {
 }
 
 function define_trigger_branch_in_build_env() {
-  target_branch_name="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-${CI_COMMIT_REF_NAME}}"
-  stable_branch_regex="^[0-9-]+-stable(-ee)?$"
+  target_branch_name="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-${CI_COMMIT_BRANCH}}"
+
+  # If target_branch_name is empty and CI_COMMIT_TAG has version format, derive from tag
+  if [[ -z "$target_branch_name" && -n "$CI_COMMIT_TAG" ]]; then
+    # Match pattern like v42.2.0-rc42-ee and extract version parts
+    if [[ $CI_COMMIT_TAG =~ $VERSION_TAG_PATTERN ]]; then
+      major="${BASH_REMATCH[1]}"
+      minor="${BASH_REMATCH[2]}"
+      ee_suffix="${BASH_REMATCH[4]}"
+      target_branch_name="${major}-${minor}-stable-${ee_suffix}"
+    fi
+  fi
 
   echo "target_branch_name: ${target_branch_name}"
 
-  if [[ $target_branch_name =~ $stable_branch_regex  ]]
+  if [[ $target_branch_name =~ $STABLE_BRANCH_PATTERN  ]]
   then
     export TRIGGER_BRANCH="${target_branch_name%-ee}"
   else
@@ -482,4 +491,161 @@ function define_trigger_branch_in_build_env() {
   if [ -f "$BUILD_ENV" ]; then
     echo "TRIGGER_BRANCH=${TRIGGER_BRANCH}" >> $BUILD_ENV
   fi
+}
+
+function log_disk_usage() {
+  local exit_on_low_space="${1:-false}"
+  local space_threshold_gb=2 # 2GB
+
+  available_space=$(df -h | awk 'NR==2 {print $4}') # value at the 2nd row 4th column of the df -h output
+
+  section_start "log_disk_usage" "Disk usage detail"
+
+  echo "*******************************************************"
+  echo "This runner currently has ${available_space} free disk space."
+  echo "*******************************************************"
+
+  echo -e "df -h"
+  df -h
+  section_end "log_disk_usage"
+
+  if [[ "$exit_on_low_space" = "true" ]]; then
+
+    if [[ $OSTYPE == 'darwin'* ]]; then
+      available_space_gb=$(df -g | awk 'NR==2 {print $4}')
+    else
+      available_space_gb=$(df -BG | awk 'NR==2 {print $4}' | sed 's/G//')
+    fi
+
+    if (( $(echo "$available_space_gb < $space_threshold_gb") )); then
+      echo "********************************************************************"
+      echo "This job requires ${space_threshold_gb}G free disk space, but the runner only has ${available_space}."
+      echo "Exiting now in anticipation of a 'no space left on device' error."
+      echo "If this problem persists, please contact #g_hosted_runners team."
+      echo "NOTE: This job will be retried automatically."
+      echo "********************************************************************"
+
+      exit_code=111
+
+      exit $exit_code
+    fi
+  fi
+}
+
+# all functions below are for customizing CI job exit code
+function run_with_custom_exit_code() {
+  "$@"
+
+  # set -o pipefail # Take the exit status of the rightmost command that failed
+  # set +e          # temporarily disable exit on error to prevent premature exit
+
+  # local trace_file="/tmp/stdout_stderr_log.out"
+
+  # # Run the command and tee output to both the terminal and the file
+  # "$@" 2>&1 | tee "$trace_file"
+  # initial_exit_code=$?
+
+  # echo "initial_exit_code: $initial_exit_code"
+
+  # find_custom_exit_code "$initial_exit_code" "$trace_file"
+  # new_exit_code=$?
+
+  # echo "new_exit_code=$new_exit_code"
+
+  # # Restore shell default behavior
+  # set -e
+  # set +o pipefail
+
+  # exit "$new_exit_code"
+}
+
+function find_custom_exit_code() {
+  local exit_code="$1"
+  local trace_file="$2"
+
+  # Early return if exit code is 0
+  [ "$exit_code" -eq 0 ] && return 0
+
+  # Check if trace_file is set
+  if [ -z "$trace_file" ] || [ ! -f "$trace_file" ]; then
+      echoerr "$trace_file is not set or file does not exist"
+      exit "$exit_code"
+  fi
+
+  if grep -i -q \
+    -e "Failed to connect to 127.0.0.1" \
+    -e "Failed to open TCP connection to" \
+    -e "connection reset by peer" \
+    -e "OpenSSL::SSL::SSLError" "$trace_file"; then
+    echoerr "Detected network connection error. Changing exit code to 110."
+    exit_code=110
+
+  elif grep -i -q -e "no space left on device" "$trace_file"; then
+    echoerr "Detected no space left on device. Changing exit code to 111."
+    exit_code=111
+
+  elif grep -i -q \
+    -e "error: downloading artifacts from coordinator" \
+    -e "error: uploading artifacts as \"archive\" to coordinator" "$trace_file"; then
+    echoerr "Detected artifact transit error. Changing exit code to 160."
+    exit_code=160
+
+  elif grep -i -q \
+    -e "500 Internal Server Error" \
+    -e "Internal Server Error 500" \
+    -e "502 Bad Gateway" \
+    -e "502 Server Error" \
+    -e "502 \"Bad Gateway\"" \
+    -e "status code: 502" \
+    -e "503 Service Unavailable" "$trace_file"; then
+    echoerr "Detected 5XX error. Changing exit code to 161."
+    exit_code=161
+
+  elif grep -i -q -e "gitaly spawn failed" "$trace_file"; then
+    echoerr "Detected gitaly spawn failure error. Changing exit code to 162."
+    exit_code=162
+
+  elif grep -i -q -e \
+    "Rspec suite is exceeding the 80 minute limit and is forced to exit with error" "$trace_file"; then
+    echoerr "Detected rspec timeout risk. Changing exit code to 163."
+    exit_code=163
+
+  elif grep -i -q \
+    -e "Redis client could not fetch cluster information: Connection refused" \
+    -e "Redis::Cluster::CommandErrorCollection" \
+    -e "CLUSTERDOWN The cluster is down" "$trace_file"; then
+    echoerr "Detected Redis cluster error. Changing exit code to 164."
+    exit_code=164
+
+  elif grep -i -q -e "segmentation fault" "$trace_file"; then
+    echoerr "Detected segmentation fault. Changing exit code to 165."
+    exit_code=165
+
+  elif grep -i -q -e "Error: EEXIST: file already exists" "$trace_file"; then
+    echoerr "Detected EEXIST error. Changing exit code to 166."
+    exit_code=166
+
+  elif grep -i -q -e \
+    "fatal: remote error: GitLab is currently unable to handle this request due to load" "$trace_file"; then
+    echoerr "Detected GitLab overload error in job trace. Changing exit code to 167."
+    exit_code=167
+
+  elif grep -i -q -e "GRPC::ResourceExhausted" "$trace_file"; then
+    echoerr "Detected GRPC::ResourceExhausted. Changing exit code to 168."
+    exit_code=168
+
+  elif grep -i -q -e "Gitlab::QueryLimiting::Transaction::ThresholdExceededError" "$trace_file"; then
+    echoerr "Detected Gitlab::QueryLimiting::Transaction::ThresholdExceededError. Changing exit code to 169."
+    exit_code=169
+
+  elif grep -i -q -e \
+    "is write protected within this Gitlab database" "$trace_file"; then
+    echoerr "Detected SQL table is write-protected error in job trace. Changing exit code to 170."
+    exit_code=170
+  else
+    echoinfo "not changing exit code"
+  fi
+
+  echoinfo "will exit with $exit_code"
+  return "$exit_code"
 }

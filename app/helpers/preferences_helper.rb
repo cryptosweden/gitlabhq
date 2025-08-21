@@ -9,12 +9,18 @@ module PreferencesHelper
     ]
   end
 
+  def dashboard_value
+    current_user.dashboard
+  end
+
   # Returns an Array usable by a select field for more user-friendly option text
   def dashboard_choices
     dashboards = User.dashboards.keys
 
     validate_dashboard_choices!(dashboards)
     dashboards -= excluded_dashboard_choices
+
+    dashboards -= ['homepage'] unless Feature.enabled?(:personal_homepage, current_user)
 
     dashboards.map do |key|
       {
@@ -28,8 +34,9 @@ module PreferencesHelper
   # Maps `dashboard` values to more user-friendly option text
   def localized_dashboard_choices
     {
-      projects: _("Your Projects (default)"),
+      projects: _("Your Contributed Projects (default)"),
       stars: _("Starred Projects"),
+      member_projects: _("Member Projects"),
       your_activity: _("Your Activity"),
       project_activity: _("Your Projects' Activity"),
       starred_project_activity: _("Starred Projects' Activity"),
@@ -38,8 +45,9 @@ module PreferencesHelper
       todos: _("Your To-Do List"),
       issues: _("Assigned issues"),
       merge_requests: _("Assigned merge requests"),
-      operations: _("Operations Dashboard")
-    }.with_indifferent_access.freeze
+      operations: _("Operations Dashboard"),
+      homepage: _("Personal homepage")
+    }.compact.with_indifferent_access.freeze
   end
 
   def project_view_choices
@@ -75,6 +83,10 @@ module PreferencesHelper
     @user_color_mode ||= Gitlab::ColorModes.for_user(current_user).css_class
   end
 
+  def user_application_light_mode?
+    user_application_color_mode == 'gl-light'
+  end
+
   def user_application_dark_mode?
     user_application_color_mode == 'gl-dark'
   end
@@ -89,6 +101,14 @@ module PreferencesHelper
 
   def user_color_scheme
     Gitlab::ColorSchemes.for_user(current_user).css_class
+  end
+
+  def user_light_color_scheme
+    Gitlab::ColorSchemes.light_for_user(current_user).css_class
+  end
+
+  def user_dark_color_scheme
+    Gitlab::ColorSchemes.dark_for_user(current_user).css_class
   end
 
   def user_tab_width
@@ -130,24 +150,53 @@ module PreferencesHelper
 
   def integration_views
     [].tap do |views|
-      views << { name: 'gitpod', message: gitpod_enable_description, message_url: gitpod_url_placeholder, help_link: help_page_path('integration/gitpod') } if Gitlab::CurrentSettings.gitpod_enabled
-      views << { name: 'sourcegraph', message: sourcegraph_url_message, message_url: Gitlab::CurrentSettings.sourcegraph_url, help_link: help_page_path('user/profile/preferences', anchor: 'sourcegraph') } if Gitlab::Sourcegraph.feature_available? && Gitlab::CurrentSettings.sourcegraph_enabled
-      views << extensions_marketplace_view if Gitlab::WebIde::ExtensionsMarketplace.feature_enabled?(user: current_user)
-    end
+      if Gitlab::CurrentSettings.gitpod_enabled
+        views << {
+          name: 'gitpod',
+          message: gitpod_enable_description,
+          message_url: gitpod_url_placeholder,
+          help_link: help_page_path('integration/gitpod.md')
+        }
+      end
+
+      if Gitlab::CurrentSettings.sourcegraph_enabled
+        views << {
+          name: 'sourcegraph',
+          message: sourcegraph_url_message,
+          message_url: Gitlab::CurrentSettings.sourcegraph_url,
+          help_link: help_page_path(
+            'user/profile/preferences.md',
+            anchor: 'integrate-your-gitlab-instance-with-sourcegraph'
+          )
+        }
+      end
+
+      views << extensions_marketplace_view
+    end.compact
   end
 
   private
 
   def extensions_marketplace_view
-    # We handle the linkStart / linkEnd inside of a Vue sprintf
-    extensions_marketplace_home = "%{linkStart}#{::Gitlab::WebIde::ExtensionsMarketplace.marketplace_home_url}%{linkEnd}"
-    message = format(s_('PreferencesIntegrations|Uses %{extensions_marketplace_home} as the extension marketplace for the Web IDE.'), extensions_marketplace_home: extensions_marketplace_home)
+    return unless WebIde::ExtensionMarketplace.feature_enabled_from_application_settings?
 
+    build_extensions_marketplace_view(
+      title: s_("Preferences|Web IDE"),
+      message: s_(
+        "PreferencesIntegrations|Uses %{extensions_marketplace_home} as the extension marketplace for the Web IDE.")
+    )
+  end
+
+  def build_extensions_marketplace_view(title:, message:)
+    marketplace_home_url = ::WebIde::ExtensionMarketplace.marketplace_home_url(user: current_user)
+
+    extensions_marketplace_home = "%{linkStart}#{marketplace_home_url}%{linkEnd}"
     {
       name: 'extensions_marketplace',
-      message: message,
-      message_url: Gitlab::WebIde::ExtensionsMarketplace.marketplace_home_url,
-      help_link: Gitlab::WebIde::ExtensionsMarketplace.help_preferences_url
+      message: format(message, extensions_marketplace_home: extensions_marketplace_home),
+      title: title,
+      message_url: marketplace_home_url,
+      help_link: WebIde::ExtensionMarketplace.help_preferences_url
     }
   end
 

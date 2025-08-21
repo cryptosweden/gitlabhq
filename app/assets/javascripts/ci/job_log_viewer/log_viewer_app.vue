@@ -27,6 +27,11 @@ export default {
       loading: false,
     };
   },
+  computed: {
+    hasTimestamps() {
+      return Boolean(this.log[0]?.timestamp);
+    },
+  },
   async mounted() {
     performance.mark('LogViewerApp-showLogStart');
     await this.fetchLog();
@@ -68,8 +73,8 @@ export default {
 };
 </script>
 <template>
-  <div class="build-page gl-m-3">
-    <log-viewer-top-bar />
+  <div class="build-page">
+    <log-viewer-top-bar :has-timestamps="hasTimestamps" />
     <log-viewer :log="log" :loading="loading" />
   </div>
 </template>

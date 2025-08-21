@@ -4,67 +4,60 @@ import Vue from 'vue';
 import VueApollo from 'vue-apollo';
 import createMockApollo from 'helpers/mock_apollo_helper';
 import waitForPromises from 'helpers/wait_for_promises';
+import HiddenBadge from '~/issuable/components/hidden_badge.vue';
 import LockedBadge from '~/issuable/components/locked_badge.vue';
 import WorkItemCreatedUpdated from '~/work_items/components/work_item_created_updated.vue';
 import ConfidentialityBadge from '~/vue_shared/components/confidentiality_badge.vue';
+import ImportedBadge from '~/vue_shared/components/imported_badge.vue';
 import WorkItemTypeIcon from '~/work_items/components/work_item_type_icon.vue';
-import groupWorkItemByIidQuery from '~/work_items/graphql/group_work_item_by_iid.query.graphql';
+import WorkItemStateBadge from '~/work_items/components/work_item_state_badge.vue';
 import workItemByIidQuery from '~/work_items/graphql/work_item_by_iid.query.graphql';
-import {
-  groupWorkItemByIidResponseFactory,
-  mockAssignees,
-  workItemByIidResponseFactory,
-} from '../mock_data';
+import { workItemByIidResponseFactory, mockAssignees } from 'ee_else_ce_jest/work_items/mock_data';
 
 describe('WorkItemCreatedUpdated component', () => {
   let wrapper;
   let successHandler;
-  let groupSuccessHandler;
 
   Vue.use(VueApollo);
 
   const findCreatedAt = () => wrapper.find('[data-testid="work-item-created"]');
-  const findUpdatedAt = () => wrapper.find('[data-testid="work-item-updated"]');
 
   const findCreatedAtText = () => findCreatedAt().text().replace(/\s+/g, ' ');
   const findWorkItemTypeIcon = () => wrapper.findComponent(WorkItemTypeIcon);
   const findConfidentialityBadge = () => wrapper.findComponent(ConfidentialityBadge);
+  const findHiddenBadge = () => wrapper.findComponent(HiddenBadge);
+  const findImportedBadge = () => wrapper.findComponent(ImportedBadge);
   const findLockedBadge = () => wrapper.findComponent(LockedBadge);
   const findLoadingIcon = () => wrapper.findComponent(GlLoadingIcon);
+  const findWorkItemStateBadge = () => wrapper.findComponent(WorkItemStateBadge);
 
   const createComponent = async ({
     workItemIid = '1',
     author = null,
+    hidden = false,
+    imported = false,
     updatedAt,
     confidential = false,
     discussionLocked = false,
     updateInProgress = false,
-    isGroup = false,
+    movedToWorkItemUrl = null,
+    duplicatedToWorkItemUrl = null,
   } = {}) => {
     const workItemQueryResponse = workItemByIidResponseFactory({
       author,
+      hidden,
+      imported,
       updatedAt,
       confidential,
       discussionLocked,
-    });
-    const groupWorkItemQueryResponse = groupWorkItemByIidResponseFactory({
-      author,
-      updatedAt,
-      confidential,
-      discussionLocked,
+      movedToWorkItemUrl,
+      duplicatedToWorkItemUrl,
     });
 
     successHandler = jest.fn().mockResolvedValue(workItemQueryResponse);
-    groupSuccessHandler = jest.fn().mockResolvedValue(groupWorkItemQueryResponse);
 
     wrapper = shallowMount(WorkItemCreatedUpdated, {
-      apolloProvider: createMockApollo([
-        [workItemByIidQuery, successHandler],
-        [groupWorkItemByIidQuery, groupSuccessHandler],
-      ]),
-      provide: {
-        isGroup,
-      },
+      apolloProvider: createMockApollo([[workItemByIidQuery, successHandler]]),
       propsData: {
         fullPath: '/some/project',
         workItemIid,
@@ -79,43 +72,45 @@ describe('WorkItemCreatedUpdated component', () => {
     await waitForPromises();
   };
 
-  describe('when project context', () => {
-    it('calls the project work item query', async () => {
-      await createComponent();
+  it('calls the successHandler when the query is completed', async () => {
+    await createComponent();
 
-      expect(successHandler).toHaveBeenCalled();
-    });
-
-    it('skips calling the group work item query', async () => {
-      await createComponent();
-
-      expect(groupSuccessHandler).not.toHaveBeenCalled();
-    });
-
-    it('skips calling the project work item query when workItemIid is not defined', async () => {
-      await createComponent({ workItemIid: null });
-
-      expect(successHandler).not.toHaveBeenCalled();
-    });
+    expect(successHandler).toHaveBeenCalled();
+    expect(findLoadingIcon().exists()).toBe(false);
   });
 
-  describe('when group context', () => {
-    it('skips calling the project work item query', async () => {
-      await createComponent({ isGroup: true });
+  it('shows loading icon when the query is still loading', () => {
+    createComponent();
 
-      expect(successHandler).not.toHaveBeenCalled();
-    });
+    expect(findLoadingIcon().exists()).toBe(true);
+  });
 
-    it('calls the group work item query', async () => {
-      await createComponent({ isGroup: true });
+  it('skips calling the work item query when workItemIid is not defined', async () => {
+    await createComponent({ workItemIid: null });
 
-      expect(groupSuccessHandler).toHaveBeenCalled();
-    });
+    expect(successHandler).not.toHaveBeenCalled();
+  });
 
-    it('skips calling the group work item query when workItemIid is not defined', async () => {
-      await createComponent({ isGroup: true, workItemIid: null });
+  describe('WorkItemStateBadge props', () => {
+    it('passes URL props correctly when they exist', async () => {
+      // We'll never populate all of these attributes because
+      // a work item can only have one closed reason.
+      // For simplicity we're passing all of them to easily assert
+      // that the props are passed correctly.
+      //
+      // Leaves out promotedToEpicUrl because it's only available in
+      // the EE work items query which is not using in FOSS_ONLY mode
+      const workItemAttributes = {
+        movedToWorkItemUrl: 'http://example.com/moved',
+        duplicatedToWorkItemUrl: 'http://example.com/duplicated',
+      };
 
-      expect(groupSuccessHandler).not.toHaveBeenCalled();
+      await createComponent(workItemAttributes);
+
+      const stateBadgeProps = findWorkItemStateBadge().props();
+      Object.entries(workItemAttributes).forEach(([prop, url]) => {
+        expect(stateBadgeProps[prop]).toBe(url);
+      });
     });
   });
 
@@ -128,7 +123,6 @@ describe('WorkItemCreatedUpdated component', () => {
 
     expect(findWorkItemTypeIcon().props()).toMatchObject({
       showText: true,
-      workItemIconName: workItem.workItemType.iconName,
       workItemType: workItem.workItemType.name,
     });
   });
@@ -146,18 +140,6 @@ describe('WorkItemCreatedUpdated component', () => {
     expect(findCreatedAtText()).toBe('created');
   });
 
-  it('shows updated time', async () => {
-    await createComponent();
-
-    expect(findUpdatedAt().exists()).toBe(true);
-  });
-
-  it('does not show updated time for new work items', async () => {
-    await createComponent({ updatedAt: null });
-
-    expect(findUpdatedAt().exists()).toBe(false);
-  });
-
   describe('confidential badge', () => {
     it('renders badge when the work item is confidential', async () => {
       await createComponent({ confidential: true });
@@ -169,12 +151,6 @@ describe('WorkItemCreatedUpdated component', () => {
       await createComponent({ confidential: false });
 
       expect(findConfidentialityBadge().exists()).toBe(false);
-    });
-
-    it('shows loading icon badge when the work item is confidential', async () => {
-      await createComponent({ updateInProgress: true });
-
-      expect(findLoadingIcon().exists()).toBe(true);
     });
   });
 
@@ -189,6 +165,34 @@ describe('WorkItemCreatedUpdated component', () => {
       await createComponent({ discussionLocked: false });
 
       expect(findLockedBadge().exists()).toBe(false);
+    });
+  });
+
+  describe('hidden badge', () => {
+    it('renders when the work item is hidden', async () => {
+      await createComponent({ hidden: true });
+
+      expect(findHiddenBadge().exists()).toBe(true);
+    });
+
+    it('does not render when the work item is not hidden', async () => {
+      await createComponent({ hidden: false });
+
+      expect(findHiddenBadge().exists()).toBe(false);
+    });
+  });
+
+  describe('imported badge', () => {
+    it('renders when the work item is imported', async () => {
+      await createComponent({ imported: true });
+
+      expect(findImportedBadge().exists()).toBe(true);
+    });
+
+    it('does not render when the work item is not imported', async () => {
+      await createComponent({ imported: false });
+
+      expect(findImportedBadge().exists()).toBe(false);
     });
   });
 });

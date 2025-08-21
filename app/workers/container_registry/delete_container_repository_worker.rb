@@ -3,6 +3,7 @@
 module ContainerRegistry
   class DeleteContainerRepositoryWorker
     include ApplicationWorker
+    include CronjobChildWorker
     include LimitedCapacity::Worker
     include Gitlab::Utils::StrongMemoize
     extend ::Gitlab::Utils::Override
@@ -11,14 +12,15 @@ module ContainerRegistry
     queue_namespace :container_repository_delete
     feature_category :container_registry
     urgency :low
-    worker_resource_boundary :unknown
+    worker_resource_boundary :cpu
     idempotent!
 
     MAX_CAPACITY = 2
     CLEANUP_TAGS_SERVICE_PARAMS = {
       'name_regex_delete' => '.*',
       'keep_latest' => false,
-      'container_expiration_policy' => true # to avoid permissions checks
+      'container_expiration_policy' => true, # to avoid permissions checks
+      'skip_protected_tags' => true
     }.freeze
 
     def perform_work
@@ -28,14 +30,14 @@ module ContainerRegistry
       log_delete_tags_service_result(next_container_repository, result)
 
       if result[:status] == :error || next_container_repository.tags_count != 0
-        return next_container_repository.set_delete_scheduled_status
+        return update_next_container_repository_status
       end
 
       next_container_repository.destroy!
 
       audit_event(next_container_repository)
     rescue StandardError => exception
-      next_container_repository&.set_delete_scheduled_status
+      update_next_container_repository_status
 
       Gitlab::ErrorTracking.log_exception(exception, class: self.class.name)
     end
@@ -49,6 +51,16 @@ module ContainerRegistry
     end
 
     private
+
+    def update_next_container_repository_status
+      return unless next_container_repository
+
+      if next_container_repository.failed_deletion_count >= ContainerRepository::MAX_DELETION_FAILURES
+        next_container_repository.set_delete_failed_status
+      else
+        next_container_repository.set_delete_scheduled_status
+      end
+    end
 
     def delete_tags
       service = Projects::ContainerRepository::CleanupTagsService.new(

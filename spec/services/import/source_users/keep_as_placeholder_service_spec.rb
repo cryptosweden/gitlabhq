@@ -4,17 +4,33 @@ require 'spec_helper'
 
 RSpec.describe Import::SourceUsers::KeepAsPlaceholderService, feature_category: :importers do
   let(:import_source_user) { create(:import_source_user) }
-  let(:user) { import_source_user.namespace.owner }
+  let(:user) { create(:user) }
   let(:current_user) { user }
   let(:service) { described_class.new(import_source_user, current_user: current_user) }
+  let(:result) { service.execute }
 
   describe '#execute' do
+    before do
+      import_source_user.namespace.add_owner(user)
+    end
+
     context 'when reassignment is successful' do
       it 'returns success' do
-        result = service.execute
+        expect { result }
+          .to trigger_internal_events('keep_as_placeholder_user')
+          .with(
+            user: current_user,
+            namespace: import_source_user.namespace,
+            additional_properties: {
+              label: Gitlab::GlobalAnonymousId.user_id(import_source_user.placeholder_user),
+              property: nil,
+              import_type: import_source_user.import_type
+            }
+          )
 
         expect(result).to be_success
         expect(result.payload.reload).to eq(import_source_user)
+        expect(result.payload.reassign_to_user).to eq(nil)
         expect(result.payload.reassigned_by_user).to eq(current_user)
         expect(result.payload.keep_as_placeholder?).to eq(true)
       end
@@ -24,8 +40,6 @@ RSpec.describe Import::SourceUsers::KeepAsPlaceholderService, feature_category: 
       let(:current_user) { create(:user) }
 
       it 'returns error no permissions' do
-        result = service.execute
-
         expect(result).to be_error
         expect(result.message).to eq('You have insufficient permissions to update the import source user')
       end
@@ -38,7 +52,6 @@ RSpec.describe Import::SourceUsers::KeepAsPlaceholderService, feature_category: 
       end
 
       it 'returns error invalid status' do
-        result = service.execute
         expect(result).to be_error
         expect(result.message).to eq('Import source user has an invalid status for this operation')
       end
@@ -52,8 +65,6 @@ RSpec.describe Import::SourceUsers::KeepAsPlaceholderService, feature_category: 
       end
 
       it 'returns an error' do
-        result = service.execute
-
         expect(result).to be_error
         expect(result.message).to eq(['Error'])
       end

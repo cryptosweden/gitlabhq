@@ -1,6 +1,6 @@
 import { memoize } from 'lodash';
 import AccessorUtilities from '~/lib/utils/accessor';
-import { __ } from '~/locale';
+import { __, s__ } from '~/locale';
 
 /**
  * @param {object} command
@@ -54,12 +54,6 @@ export const GO_TO_YOUR_GROUPS = {
   defaultKeys: ['shift+g'],
 };
 
-export const TOGGLE_DUO_CHAT = {
-  id: 'globalShortcuts.toggleDuoChat',
-  description: __('Toggle DuoChat'),
-  defaultKeys: ['option+d'],
-};
-
 export const GO_TO_ACTIVITY_FEED = {
   id: 'globalShortcuts.goToActivityFeed',
   description: __('Go to the activity feed'),
@@ -110,7 +104,7 @@ export const GO_TO_YOUR_REVIEW_REQUESTS = {
 
 export const GO_TO_YOUR_TODO_LIST = {
   id: 'globalShortcuts.goToYourTodoList',
-  description: __('Go to your To-Do list'),
+  description: __('Go to your To-Do List'),
   defaultKeys: ['shift+t'],
 };
 
@@ -136,6 +130,12 @@ export const TOGGLE_CANARY = {
   id: 'globalShortcuts.toggleCanary',
   description: __('Toggle GitLab Next'),
   defaultKeys: ['g x'], // eslint-disable-line @gitlab/require-i18n-strings
+};
+
+export const DUO_CHAT = {
+  id: 'globalShortcuts.duoChat',
+  description: __('Open GitLab Duo Chat'),
+  defaultKeys: ['d'],
 };
 
 export const BOLD_TEXT = {
@@ -180,6 +180,13 @@ export const OUTDENT_LINE = {
   customizable: false,
 };
 
+export const FIND_AND_REPLACE = {
+  id: 'editing.findAndReplace',
+  description: s__('MarkdownEditor|Find and replace'),
+  defaultKeys: ['mod+f'],
+  customizable: false,
+};
+
 export const TOGGLE_MARKDOWN_PREVIEW = {
   id: 'editing.toggleMarkdownPreview',
   description: __('Toggle Markdown preview'),
@@ -189,7 +196,10 @@ export const TOGGLE_MARKDOWN_PREVIEW = {
   // However, this particular shortcut has been in place since before the `mod` key was available.
   // We've chosen to leave this implemented as-is for the time being to avoid breaking people's workflows.
   // See discussion in https://gitlab.com/gitlab-org/gitlab/-/merge_requests/45308#note_527490548.
-  defaultKeys: ['ctrl+shift+p', 'command+shift+p'],
+  // Update 2025-07-17: Adding `alt` version to fix an issue in Windows
+  // This new combination is compatible across Mac, Linux and Windows.
+  // See https://gitlab.com/gitlab-org/gitlab/-/issues/17600#note_2633177789
+  defaultKeys: ['ctrl+shift+p', 'command+shift+p', 'alt+shift+p'],
 };
 
 /**
@@ -385,11 +395,13 @@ export const PROJECT_FILES_GO_BACK = {
   id: 'projectFiles.goBack',
   description: __('Go back (while searching for files)'),
   defaultKeys: ['esc'],
+  // ESC is OK to have multiple actions
+  overrideGlobalHotkey: true,
 };
 
-export const PROJECT_FILES_GO_TO_PERMALINK = {
-  id: 'projectFiles.goToFilePermalink',
-  description: __('Go to file permalink (while viewing a file)'),
+export const PROJECT_FILES_COPY_FILE_PERMALINK = {
+  id: 'projectFiles.copyFilePermalink',
+  description: __('Copy file permalink'),
   defaultKeys: ['y'],
 };
 
@@ -397,6 +409,13 @@ export const PROJECT_FILES_GO_TO_COMPARE = {
   id: 'projectFiles.goToCompare',
   description: __('Compare Branches'),
   defaultKeys: ['shift+c'],
+};
+
+export const FOCUS_FILE_TREE_BROWSER_FILTER_BAR = {
+  id: 'projectFiles.focusFTBFilterBar',
+  description: __('Focus file tree browser filter bar'),
+  defaultKeys: ['f'],
+  overrideGlobalHotkey: true,
 };
 
 export const ISSUABLE_COMMENT_OR_REPLY = {
@@ -454,10 +473,19 @@ export const MR_GO_TO_FILE = {
   customizable: false,
 };
 
+export const MR_FOCUS_FILE_BROWSER = {
+  id: 'mergeRequests.focusFileBrowser',
+  description: __('Focus file browser'),
+  defaultKeys: ['f'],
+  customizable: false,
+  // there's no filtered search on the page, instead we focus the file browser search manually
+  overrideGlobalHotkey: true,
+};
+
 export const MR_TOGGLE_FILE_BROWSER = {
   id: 'mergeRequests.toggleFileBrowser',
   description: __('Toggle file browser'),
-  defaultKeys: ['f'],
+  defaultKeys: ['shift+f'],
   customizable: false,
 };
 
@@ -475,15 +503,22 @@ export const MR_ADD_COMMENT_NOW = {
   customizable: false,
 };
 
+export const MR_TOGGLE_REVIEW = {
+  id: 'mergeRequests.toggleReview',
+  description: s__('MergeRequest|Viewed by me'),
+  defaultKeys: ['v'],
+  customizable: false,
+};
+
 export const MR_NEXT_UNRESOLVED_DISCUSSION = {
   id: 'mergeRequests.nextUnresolvedDiscussion',
-  description: __('Next unresolved thread'),
+  description: __('Next open thread'),
   defaultKeys: ['n'],
 };
 
 export const MR_PREVIOUS_UNRESOLVED_DISCUSSION = {
   id: 'mergeRequests.previousUnresolvedDiscussion',
-  description: __('Previous unresolved thread'),
+  description: __('Previous open thread'),
   defaultKeys: ['p'],
 };
 
@@ -491,6 +526,19 @@ export const MR_COPY_SOURCE_BRANCH_NAME = {
   id: 'mergeRequests.copySourceBranchName',
   description: __('Copy source branch name'),
   defaultKeys: ['b'],
+};
+
+export const MR_EXPAND_ALL_FILES = {
+  id: 'mergeRequests.expandAllFiles',
+  description: __('Expand all files'),
+  defaultKeys: [';'],
+};
+
+export const MR_COLLAPSE_ALL_FILES = {
+  id: 'mergeRequests.collapseAllFiles',
+  description: __('Collapse all files'),
+  // eslint-disable-next-line @gitlab/require-i18n-strings
+  defaultKeys: ['shift+;'],
 };
 
 export const MR_COMMITS_NEXT_COMMIT = {
@@ -521,12 +569,24 @@ export const ISSUE_CLOSE_DESIGN = {
   id: 'issues.closeDesign',
   description: __('Close design'),
   defaultKeys: ['esc'],
+  // ESC is OK to have multiple actions
+  overrideGlobalHotkey: true,
 };
 
 export const SIDEBAR_CLOSE_WIDGET = {
   id: 'sidebar.closeWidget',
   description: __('Close sidebar widget'),
   defaultKeys: ['esc'],
+  // ESC is OK to have multiple actions
+  overrideGlobalHotkey: true,
+};
+
+export const WORK_ITEM_TOGGLE_SIDEBAR = {
+  id: 'workitems.toggleSidebar',
+  description: __('Show or hide sidebar'),
+  defaultKeys: ['mod+/', 'shift+mod+7'], // eslint-disable-line @gitlab/require-i18n-strings
+  // Shift+7 is equivalent to forward-slash on some keyboards without a dedicated key
+  customizable: false,
 };
 
 /**
@@ -542,7 +602,7 @@ const WEB_IDE_GO_TO_FILE = {
 
 /**
  * Legacy Web IDE uses @keydown.ctrl.enter and @keydown.meta.enter events here:
- * https://gitlab.com/gitlab-org/gitlab/-/blob/f3e807cdff5cf25765894163b4e92f8b2bcf8a68/app/assets/javascripts/ide/components/shared/commit_message_field.vue#L131-132
+ * https://gitlab.com/gitlab-org/gitlab/-/blob/f3e807cdff5cf25765894163b4e92f8b2bcf8a68/app/assets/javascripts/ide/components/commit_sidebar/message_field.vue#L122-123
  */
 const WEB_IDE_COMMIT = {
   id: 'webIDE.commit',
@@ -550,13 +610,11 @@ const WEB_IDE_COMMIT = {
   defaultKeys: ['mod+enter'],
   customizable: false,
 };
-
 // All keybinding groups
 const GLOBAL_SHORTCUTS_GROUP = {
   id: 'globalShortcuts',
   name: __('Global Shortcuts'),
   keybindings: [
-    TOGGLE_DUO_CHAT,
     TOGGLE_KEYBOARD_SHORTCUTS_DIALOG,
     GO_TO_YOUR_PROJECTS,
     GO_TO_YOUR_GROUPS,
@@ -572,6 +630,7 @@ const GLOBAL_SHORTCUTS_GROUP = {
     TOGGLE_PERFORMANCE_BAR,
     HIDE_APPEARING_CONTENT,
     TOGGLE_SUPER_SIDEBAR,
+    DUO_CHAT,
   ],
 };
 
@@ -584,6 +643,7 @@ export const EDITING_SHORTCUTS_GROUP = {
     STRIKETHROUGH_TEXT,
     LINK_TEXT,
     TOGGLE_MARKDOWN_PREVIEW,
+    FIND_AND_REPLACE,
     EDIT_RECENT_COMMENT,
     SAVE_CHANGES,
   ],
@@ -642,7 +702,7 @@ const PROJECT_FILES_SHORTCUTS_GROUP = {
     PROJECT_FILES_MOVE_SELECTION_DOWN,
     PROJECT_FILES_OPEN_SELECTION,
     PROJECT_FILES_GO_BACK,
-    PROJECT_FILES_GO_TO_PERMALINK,
+    PROJECT_FILES_COPY_FILE_PERMALINK,
     PROJECT_FILES_GO_TO_COMPARE,
   ],
 };
@@ -674,9 +734,11 @@ const MR_SHORTCUTS_GROUP = {
     MR_NEXT_UNRESOLVED_DISCUSSION,
     MR_PREVIOUS_UNRESOLVED_DISCUSSION,
     MR_COPY_SOURCE_BRANCH_NAME,
+    MR_FOCUS_FILE_BROWSER,
     MR_TOGGLE_FILE_BROWSER,
     MR_ADD_TO_REVIEW,
     MR_ADD_COMMENT_NOW,
+    MR_TOGGLE_REVIEW,
   ],
 };
 

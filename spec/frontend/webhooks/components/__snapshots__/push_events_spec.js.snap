@@ -92,11 +92,12 @@ exports[`Webhook push events form editor component Different push events rules w
     <gl-form-input-stub
       data-testid="webhook_branch_filter_field"
       name="hook[push_events_branch_filter]"
+      type="text"
       value="foo"
     />
   </div>
   <p
-    class="custom-control form-text text-muted"
+    class="custom-control form-text gl-text-subtle"
   >
     <gl-sprintf-stub
       message="Regular expressions such as %{REGEX_CODE} are supported."
@@ -139,11 +140,12 @@ exports[`Webhook push events form editor component Different push events rules w
     <gl-form-input-stub
       data-testid="webhook_branch_filter_field"
       name="hook[push_events_branch_filter]"
+      type="text"
       value="foo"
     />
   </div>
   <p
-    class="custom-control form-text text-muted"
+    class="custom-control form-text gl-text-subtle"
   >
     <gl-sprintf-stub
       message="Wildcards such as %{WILDCARD_CODE_STABLE} or %{WILDCARD_CODE_PRODUCTION} are supported."
@@ -256,11 +258,12 @@ exports[`Webhook push events form editor component Different push events rules w
     <gl-form-input-stub
       data-testid="webhook_branch_filter_field"
       name="hook[push_events_branch_filter]"
+      type="text"
       value=""
     />
   </div>
   <p
-    class="custom-control form-text text-muted"
+    class="custom-control form-text gl-text-subtle"
   >
     <gl-sprintf-stub
       message="Regular expressions such as %{REGEX_CODE} are supported."
@@ -303,11 +306,12 @@ exports[`Webhook push events form editor component Different push events rules w
     <gl-form-input-stub
       data-testid="webhook_branch_filter_field"
       name="hook[push_events_branch_filter]"
+      type="text"
       value=""
     />
   </div>
   <p
-    class="custom-control form-text text-muted"
+    class="custom-control form-text gl-text-subtle"
   >
     <gl-sprintf-stub
       message="Wildcards such as %{WILDCARD_CODE_STABLE} or %{WILDCARD_CODE_PRODUCTION} are supported."

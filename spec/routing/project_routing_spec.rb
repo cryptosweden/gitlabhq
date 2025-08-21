@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe 'project routing' do
+RSpec.describe 'project routing', feature_category: :groups_and_projects do
   let(:base_params) { { namespace_id: 'gitlab', project_id: 'gitlabhq' } }
 
   before do
@@ -75,6 +75,7 @@ RSpec.describe 'project routing' do
   describe Projects::RedirectController, 'routing' do
     it 'to #redirect_from_id' do
       expect(get('/projects/1')).to route_to('projects/redirect#redirect_from_id', id: '1')
+      expect(get('/-/p/1')).to route_to('projects/redirect#redirect_from_id', id: '1')
     end
   end
 
@@ -236,10 +237,6 @@ RSpec.describe 'project routing' do
     it_behaves_like 'redirecting a legacy path',
       '/gitlab/gitlabhq/refs/stable/logs_tree/new%0A%0Aline.txt',
       '/gitlab/gitlabhq/-/refs/stable/logs_tree/new%0A%0Aline.txt'
-
-    it_behaves_like 'redirecting a legacy path',
-      '/gitlab/gitlabhq/refs/feature%2345/logs_tree/../../../../../@example.com/tree/a',
-      '/gitlab/gitlabhq/-/refs/feature#45/logs_tree/../../../../../-/example.com/tree/a'
   end
 
   describe Projects::MergeRequestsController, 'routing' do
@@ -415,6 +412,25 @@ RSpec.describe 'project routing' do
 
     it 'to #show' do
       expect(get('/gitlab/gitlabhq/-/commits/master.atom')).to route_to('projects/commits#show', namespace_id: 'gitlab', project_id: 'gitlabhq', id: 'master.atom')
+      expect(get('/gitlab/gitlabhq/-/commits/master')).to route_to('projects/commits#show', namespace_id: 'gitlab', project_id: 'gitlabhq', id: 'master')
+      expect(get('/gitlab/gitlabhq/-/commits/master?format=json')).to route_to('projects/commits#show', namespace_id: 'gitlab', project_id: 'gitlabhq', id: 'master', format: 'json')
+
+      # complex branch name without encoding (incorrect format)
+      expect(get('/gitlab/gitlabhq/-/commits/feature/name')).to route_to('projects/commits#show', namespace_id: 'gitlab', project_id: 'gitlabhq', id: 'feature/name')
+      expect(get('/gitlab/gitlabhq/-/commits/feature/name?format=json')).to route_to('projects/commits#show', namespace_id: 'gitlab', project_id: 'gitlabhq', id: 'feature/name', format: 'json')
+
+      # complex branch name with encoding
+      expect(get('/gitlab/gitlabhq/-/commits/feature%2Fname')).to route_to('projects/commits#show', namespace_id: 'gitlab', project_id: 'gitlabhq', id: 'feature/name')
+      expect(get('/gitlab/gitlabhq/-/commits/feature%2Fname?format=json')).to route_to('projects/commits#show', namespace_id: 'gitlab', project_id: 'gitlabhq', id: 'feature/name', format: 'json')
+
+      # collision with signatures route
+      expect(get('/gitlab/gitlabhq/-/commits/feature/signatures')).to route_to('projects/commits#show', namespace_id: 'gitlab', project_id: 'gitlabhq', id: 'feature/signatures')
+      expect(get('/gitlab/gitlabhq/-/commits/feature/signatures?format=json&offset=40')).to route_to('projects/commits#show', namespace_id: 'gitlab', project_id: 'gitlabhq', id: 'feature/signatures', format: 'json', offset: '40')
+    end
+
+    it 'to #signatures' do
+      expect(get('/gitlab/gitlabhq/-/commits/feature/signatures?format=json')).to route_to('projects/commits#signatures', namespace_id: 'gitlab', project_id: 'gitlabhq', id: 'feature', format: 'json')
+      expect(get('/gitlab/gitlabhq/-/commits/feature%2Fsignatures/signatures?format=json')).to route_to('projects/commits#signatures', namespace_id: 'gitlab', project_id: 'gitlabhq', id: 'feature/signatures', format: 'json')
     end
 
     it_behaves_like 'redirecting a legacy path', "/gitlab/gitlabhq/commits/master", "/gitlab/gitlabhq/-/commits/master"
@@ -857,12 +873,6 @@ RSpec.describe 'project routing' do
     it_behaves_like 'redirecting a legacy path', '/gitlab/gitlabhq/pipeline_schedules', '/gitlab/gitlabhq/-/pipeline_schedules'
   end
 
-  describe Projects::Settings::OperationsController, 'routing' do
-    it 'to #reset_alerting_token' do
-      expect(post('/gitlab/gitlabhq/-/settings/operations/reset_alerting_token')).to route_to('projects/settings/operations#reset_alerting_token', namespace_id: 'gitlab', project_id: 'gitlabhq')
-    end
-  end
-
   describe Projects::Settings::RepositoryController, 'routing' do
     it 'to #show' do
       expect(get('/gitlab/gitlabhq/-/settings/repository')).to route_to('projects/settings/repository#show', namespace_id: 'gitlab', project_id: 'gitlabhq')
@@ -943,12 +953,6 @@ RSpec.describe 'project routing' do
     end
   end
 
-  describe Projects::ServicePingController, 'routing' do
-    it 'routes to service_ping#web_ide_pipelines_count' do
-      expect(post('/gitlab/gitlabhq/service_ping/web_ide_pipelines_count')).to route_to('projects/service_ping#web_ide_pipelines_count', namespace_id: 'gitlab', project_id: 'gitlabhq')
-    end
-  end
-
   describe Projects::EnvironmentsController, 'routing' do
     describe 'legacy routing' do
       it_behaves_like 'redirecting a legacy path', "/gitlab/gitlabhq/environments", "/gitlab/gitlabhq/-/environments"
@@ -994,6 +998,14 @@ RSpec.describe 'project routing' do
       expect(get('/gitlab/gitlabhq/-/snippets/1/raw/master/lib/version.rb'))
         .to route_to('projects/snippets/blobs#raw',
           namespace_id: 'gitlab', project_id: 'gitlabhq', snippet_id: '1', ref: 'master', path: 'lib/version.rb')
+    end
+
+    context 'when reference has special symbols' do
+      it "to #raw" do
+        expect(get('/gitlab/gitlabhq/-/snippets/1/raw/0.0.x-rc/lib/version.rb'))
+          .to route_to('projects/snippets/blobs#raw',
+            namespace_id: 'gitlab', project_id: 'gitlabhq', snippet_id: '1', ref: '0.0.x-rc', path: 'lib/version.rb')
+      end
     end
   end
 

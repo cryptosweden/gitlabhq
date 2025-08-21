@@ -443,4 +443,234 @@ RSpec.describe Tooling::Danger::AnalyticsInstrumentation, feature_category: :ser
       end
     end
   end
+
+  describe '#warn_about_migrated_redis_keys_specs!' do
+    let(:redis_hll_file) { 'lib/gitlab/usage_data_counters/hll_redis_key_overrides.yml' }
+    let(:total_counter_file) { 'lib/gitlab/usage_data_counters/total_counter_redis_key_overrides.yml' }
+
+    subject(:check_redis_keys_files_overrides) { analytics_instrumentation.warn_about_migrated_redis_keys_specs! }
+
+    before do
+      allow(fake_helper).to receive(:changed_lines).with(redis_hll_file).and_return([file_diff_hll])
+      allow(fake_helper).to receive(:changed_lines).with(total_counter_file).and_return([file_diff_total])
+    end
+
+    context 'when new keys added to overrides files' do
+      let(:file_diff_hll) { "+user_viewed_cluster_configuration-user: user_viewed_cluster_configuration" }
+      let(:file_diff_total) { "+user_viewed_cluster_configuration-user: USER_VIEWED_CLUSTER_CONFIGURATION" }
+
+      it 'adds suggestion to add specs' do
+        expect(analytics_instrumentation).to receive(:warn)
+
+        check_redis_keys_files_overrides
+      end
+
+      context 'when spec files are added' do
+        before do
+          filename1 = 'app/not_spec.rb'
+          filename2 = 'spec/controller/credentials_controller_spec.rb'
+
+          allow(fake_helper).to receive(:modified_files).and_return([filename1, filename2])
+          allow(fake_helper).to receive(:changed_lines).with(filename2).and_return(file_diff)
+        end
+
+        context 'when migration specs are not added' do
+          let(:file_diff) do
+            [
+              "+     it_behaves_like 'internal event' do",
+              "+       let(:event) {'credentials_show'}",
+              "+     end"
+            ]
+          end
+
+          it "adds a suggestion to add specs" do
+            expect(analytics_instrumentation).to receive(:warn)
+
+            check_redis_keys_files_overrides
+          end
+        end
+
+        context 'when migration specs are already added' do
+          let(:file_diff) do
+            [
+              "+     it_behaves_like 'migrated internal event' do",
+              "+       let(:event) {'credentials_show'}",
+              "+     end"
+            ]
+          end
+
+          it "doesn't add a suggestion to add specs" do
+            expect(analytics_instrumentation).not_to receive(:warn)
+
+            check_redis_keys_files_overrides
+          end
+        end
+      end
+    end
+
+    context 'when no new keys added to overrides files' do
+      let(:file_diff_hll) { "-user_viewed_cluster_configuration-user: user_viewed_cluster_configuration" }
+      let(:file_diff_total) { "-user_viewed_cluster_configuration-user: USER_VIEWED_CLUSTER_CONFIGURATION" }
+
+      it "doesn't add a suggestion to add specs" do
+        expect(analytics_instrumentation).not_to receive(:warn)
+
+        check_redis_keys_files_overrides
+      end
+    end
+  end
+
+  describe '#warn_about_potential_pii_tracking' do
+    let(:file_diff) do
+      [
+        "+additional_properties: {",
+        "+  property: 'user_email'}",
+        "+  additional_properties = {",
+        "+  property: 'user_email'",
+        "+}"
+      ]
+    end
+
+    before do
+      allow(fake_helper).to receive(:added_files).and_return([])
+      allow(fake_helper).to receive(:modified_files).and_return([])
+      allow(fake_helper).to receive(:changed_lines).with(anything).and_return(file_diff)
+      allow(analytics_instrumentation).to receive(:project_helper).and_return(fake_project_helper)
+      allow(analytics_instrumentation.project_helper).to receive(:file_lines).and_return(file_diff.map { |line| line.delete_prefix('+') })
+    end
+
+    subject(:warn_about_potential_pii_tracking) { analytics_instrumentation.warn_about_potential_pii_tracking }
+
+    shared_examples 'correct pii warning' do
+      it 'adds suggestions to files with new additional properties' do
+        expect(analytics_instrumentation).to receive(:markdown).twice
+
+        warn_about_potential_pii_tracking
+      end
+
+      context 'when no new additional properties are added' do
+        let(:file_diff) { [] }
+
+        it 'does not add suggestions' do
+          expect(analytics_instrumentation).not_to receive(:markdown)
+
+          warn_about_potential_pii_tracking
+        end
+      end
+    end
+
+    context 'with added file' do
+      let(:added_file) { 'lib/new.rb' }
+
+      before do
+        allow(fake_helper).to receive(:added_files).and_return([added_file])
+      end
+
+      it_behaves_like 'correct pii warning'
+    end
+
+    context 'with changed file' do
+      let(:changed_file) { 'lib/changed.rb' }
+
+      before do
+        allow(fake_helper).to receive(:modified_files).and_return([changed_file])
+        allow(fake_helper).to receive(:changed_lines).with(changed_file).and_return(file_diff)
+      end
+
+      it_behaves_like 'correct pii warning'
+    end
+
+    context 'with spec files' do
+      let(:added_spec) { 'spec/lib/new_spec.rb' }
+      let(:changed_spec) { 'spec/lib/changed_spec.rb' }
+
+      before do
+        allow(fake_helper).to receive(:added_files).and_return([added_spec])
+        allow(fake_helper).to receive(:modified_files).and_return([changed_spec])
+      end
+
+      it 'does not add suggestions' do
+        expect(analytics_instrumentation).not_to receive(:markdown)
+
+        warn_about_potential_pii_tracking
+      end
+    end
+  end
+
+  describe '#prohibit_key_path_changes!' do
+    subject(:prohibit_key_path_changes) { analytics_instrumentation.prohibit_key_path_changes! }
+
+    let(:metric_files) { ['config/metrics/new_metric.yml'] }
+    let(:changed_file_lines) { changed_lines.map { |line| line.delete_prefix('+') } }
+
+    before do
+      allow(fake_helper).to receive(:changed_lines).with(metric_files.first).and_return(changed_lines)
+      allow(fake_project_helper).to receive(:file_lines).with(metric_files.first).and_return(changed_file_lines)
+      allow(analytics_instrumentation).to receive(:project_helper).and_return(fake_project_helper)
+    end
+
+    context 'when a metric was added' do
+      let(:changed_lines) { ['+key_path: user.email'] }
+
+      before do
+        allow(fake_helper).to receive(:added_files).and_return(metric_files)
+      end
+
+      it 'does not add warning' do
+        expect(analytics_instrumentation).not_to receive(:markdown)
+
+        prohibit_key_path_changes
+      end
+    end
+
+    context 'when a metric was removed' do
+      let(:changed_lines) { ['-key_path: user.email'] }
+
+      before do
+        allow(fake_helper).to receive(:deleted_files).and_return(metric_files)
+      end
+
+      it 'does not add warning' do
+        expect(analytics_instrumentation).not_to receive(:markdown)
+
+        prohibit_key_path_changes
+      end
+    end
+
+    context 'when a metric was modified' do
+      before do
+        allow(fake_helper).to receive(:modified_files).and_return(metric_files)
+      end
+
+      context 'when key_path is not changed' do
+        let(:changed_lines) do
+          [
+            "-source: database",
+            "+source: non_database"
+          ]
+        end
+
+        it 'does not add warning' do
+          expect(analytics_instrumentation).not_to receive(:markdown)
+
+          prohibit_key_path_changes
+        end
+      end
+
+      context 'when key_path is changed' do
+        let(:changed_lines) do
+          [
+            "-key_path: 'user.email'",
+            "+key_path: 'user.e_mail'"
+          ]
+        end
+
+        it 'adds warning' do
+          expect(analytics_instrumentation).to receive(:markdown)
+
+          prohibit_key_path_changes
+        end
+      end
+    end
+  end
 end

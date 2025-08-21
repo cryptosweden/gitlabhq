@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
+RSpec.describe Gitlab::Ci::Pipeline::Chain::Command, feature_category: :pipeline_composition do
   let_it_be(:project) { create(:project, :repository) }
 
   describe '#initialize' do
@@ -18,9 +18,8 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
   describe '#dry_run?' do
     subject { command.dry_run? }
 
-    let(:command) { described_class.new(dry_run: dry_run, execution_policy_dry_run: execution_policy_dry_run) }
+    let(:command) { described_class.new(dry_run: dry_run, origin_ref: project.default_branch_or_main) }
     let(:dry_run) { false }
-    let(:execution_policy_dry_run) { false }
 
     it { is_expected.to eq(false) }
 
@@ -29,11 +28,40 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
 
       it { is_expected.to eq(true) }
     end
+  end
 
-    context 'when execution_policy_dry_run is true' do
-      let(:execution_policy_dry_run) { true }
+  describe '#linting?' do
+    subject { command.linting? }
+
+    let(:command) { described_class.new(linting: linting) }
+    let(:linting) { false }
+
+    it { is_expected.to eq(false) }
+
+    context 'when linting is true' do
+      let(:linting) { true }
 
       it { is_expected.to eq(true) }
+    end
+  end
+
+  describe '#readonly?' do
+    using RSpec::Parameterized::TableSyntax
+
+    subject { command.readonly? }
+
+    let(:command) do
+      described_class.new(dry_run: dry_run, linting: linting, origin_ref: project.default_branch_or_main)
+    end
+
+    where(:dry_run, :linting, :result) do
+      false | false | false
+      true  | false | true
+      false | true  | true
+    end
+
+    with_them do
+      it { is_expected.to eq(result) }
     end
   end
 
@@ -100,6 +128,7 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
       subject { command.merge_request_ref_exists? }
 
       let!(:merge_request) { create(:merge_request, source_project: project, target_project: project) }
+      let(:origin_ref) { merge_request.source_branch }
 
       context 'for existing merge request ref' do
         let(:origin_ref) { merge_request.ref_path }
@@ -108,9 +137,13 @@ RSpec.describe Gitlab::Ci::Pipeline::Chain::Command do
       end
 
       context 'for branch ref' do
-        let(:origin_ref) { merge_request.source_branch }
-
         it { is_expected.to eq(false) }
+      end
+
+      it 'does not memoize the result' do
+        expect(command).to receive(:check_merge_request_ref).twice
+
+        2.times { command.merge_request_ref_exists? }
       end
     end
 

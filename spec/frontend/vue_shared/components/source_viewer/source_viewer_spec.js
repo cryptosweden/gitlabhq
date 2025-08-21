@@ -4,7 +4,7 @@ import createMockApollo from 'helpers/mock_apollo_helper';
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import { setHTMLFixture } from 'helpers/fixtures';
 import SourceViewer from '~/vue_shared/components/source_viewer/source_viewer.vue';
-import Chunk from '~/vue_shared/components/source_viewer/components/chunk_new.vue';
+import Chunk from '~/vue_shared/components/source_viewer/components/chunk.vue';
 import {
   EVENT_ACTION,
   EVENT_LABEL_VIEWER,
@@ -86,6 +86,16 @@ describe('Source Viewer component', () => {
   describe('when mounted', () => {
     it('should highlight the hash', () => {
       expect(lineHighlighter.highlightHash).toHaveBeenCalledWith(hash);
+    });
+
+    it('hides the blame viewer if showBlame changes to false', async () => {
+      await triggerChunkAppear();
+      expect(findBlameComponents()).toHaveLength(1);
+
+      await wrapper.setProps({ showBlame: false });
+      await nextTick();
+
+      expect(findBlameComponents()).toHaveLength(0);
     });
   });
 

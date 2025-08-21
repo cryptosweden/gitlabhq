@@ -23,7 +23,7 @@ RSpec.describe 'Environments page', :js, feature_category: :continuous_delivery 
   end
 
   def stop_button_selector
-    'button[title="Stop environment"]'
+    'button[aria-label="Stop environment"]'
   end
 
   def upcoming_deployment_content_selector
@@ -58,11 +58,11 @@ RSpec.describe 'Environments page', :js, feature_category: :continuous_delivery 
         it 'renders second page of pipelines' do
           visit_environments(project, scope: 'active')
 
-          find('.page-link.next-page-item').click
+          find_by_testid('gl-pagination-next').click
           wait_for_requests
 
-          expect(page).to have_selector('.gl-pagination .page-link', count: 4)
-          expect(find('.gl-pagination .page-link.active').text).to eq("2")
+          expect(page).to have_selector('[data-testid="gl-pagination-li"]', count: 4)
+          expect(find('[data-testid="gl-pagination-item"].active').text).to eq("2")
         end
       end
 
@@ -71,23 +71,6 @@ RSpec.describe 'Environments page', :js, feature_category: :continuous_delivery 
           visit_environments(project, scope: 'stopped')
 
           expect(page).to have_content(s_('Environments|Get started with environments'))
-        end
-      end
-
-      context 'when cluster is not reachable' do
-        let!(:cluster) { create(:cluster, :provided_by_gcp, projects: [project]) }
-        let!(:integration_prometheus) { create(:clusters_integrations_prometheus, cluster: cluster) }
-
-        before do
-          allow_next_instance_of(Kubeclient::Client) do |instance|
-            allow(instance).to receive(:proxy_url).and_raise(Kubeclient::HttpError.new(401, 'Unauthorized', nil))
-          end
-        end
-
-        it 'shows one environment without error' do
-          visit_environments(project, scope: 'active')
-
-          expect(page).to have_link(environment.name, href: project_environment_path(project, environment))
         end
       end
     end
@@ -135,8 +118,6 @@ RSpec.describe 'Environments page', :js, feature_category: :continuous_delivery 
     context 'when there are no deployments' do
       before do
         visit_environments(project)
-
-        page.click_button _('Expand')
       end
 
       it 'shows environments names and counters' do
@@ -162,13 +143,11 @@ RSpec.describe 'Environments page', :js, feature_category: :continuous_delivery 
         create(:deployment, :success, environment: environment, sha: project.commit.id)
       end
 
-      it 'shows deployment SHA and internal ID' do
+      it 'shows deployment SHA' do
         visit_environments(project)
-        page.click_button _('Expand')
 
         expect(page).to have_text(deployment.short_sha)
         expect(page).to have_link(deployment.commit.full_title)
-        expect(page).to have_content(deployment.iid)
       end
 
       context 'when builds and manual actions are present' do
@@ -353,7 +332,6 @@ RSpec.describe 'Environments page', :js, feature_category: :continuous_delivery 
       it 'does not show deployments', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/409990' do
         visit_environments(project)
 
-        page.click_button _('Expand')
         expect(page).to have_content(s_('Environments|There are no deployments for this environment yet. Learn more about setting up deployments.'))
       end
     end
@@ -368,10 +346,8 @@ RSpec.describe 'Environments page', :js, feature_category: :continuous_delivery 
       it "renders the upcoming deployment", :aggregate_failures do
         visit_environments(project)
 
-        page.click_button _('Expand')
-
         within(upcoming_deployment_content_selector) do
-          expect(page).to have_content("##{deployment.iid}")
+          expect(page).to have_content(project.commit.short_id)
           expect(page).to have_link(href: /#{deployment.user.username}/)
         end
       end
@@ -458,18 +434,20 @@ RSpec.describe 'Environments page', :js, feature_category: :continuous_delivery 
         create(:environment, :will_auto_stop, project: project, name: 'staging/review-2', state: :available)
       end
 
-      it 'users unfurls an environment folder' do
+      it 'shows folder name linked to the folder page' do
         visit_environments(project)
+        wait_for_requests
 
         expect(page).not_to have_content 'review-1'
         expect(page).not_to have_content 'review-2'
         expect(page).to have_content 'staging 2'
 
-        page.click_button _('Expand')
+        expect(page).to have_link('staging')
 
-        expect(page).to have_content 'review-1'
-        expect(page).to have_content 'review-2'
-        expect(page).to have_content 'Auto stop in'
+        click_link 'staging'
+
+        expect(page).to have_current_path(folder_project_environments_path(project, 'staging'))
+        expect(page).to have_content 'Environments / staging'
       end
     end
 
@@ -479,17 +457,20 @@ RSpec.describe 'Environments page', :js, feature_category: :continuous_delivery 
         create(:environment, :will_auto_stop, project: project, name: 'staging/review-2', state: :stopped)
       end
 
-      it 'users unfurls an environment folder' do
+      it 'shows folder name linked to the folder page' do
         visit_environments(project, scope: 'stopped')
+        wait_for_requests
 
         expect(page).not_to have_content 'review-1'
         expect(page).not_to have_content 'review-2'
         expect(page).to have_content 'staging 2'
 
-        page.click_button _('Expand')
+        expect(page).to have_link('staging')
 
-        expect(page).to have_content 'review-1'
-        expect(page).to have_content 'review-2'
+        click_link 'staging'
+
+        expect(page).to have_current_path(folder_project_environments_path(project, 'staging'))
+        expect(page).to have_content 'Environments / staging'
       end
     end
   end

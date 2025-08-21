@@ -1,31 +1,26 @@
-import { GlEmptyState } from '@gitlab/ui';
-
 import { shallowMountExtended } from 'helpers/vue_test_utils_helper';
 import GroupsExploreEmptyState from '~/groups/components/empty_states/groups_explore_empty_state.vue';
+import ResourceListsEmptyState from '~/vue_shared/components/resource_lists/empty_state.vue';
+
+jest.mock(
+  '@gitlab/svgs/dist/illustrations/empty-state/empty-groups-md.svg?url',
+  () => 'empty-groups-md.svg',
+);
 
 let wrapper;
 
-const defaultProvide = {
-  groupsEmptyStateIllustration: '/assets/illustrations/empty-state/empty-groups-md.svg',
-};
-
 const createComponent = () => {
-  wrapper = shallowMountExtended(GroupsExploreEmptyState, {
-    provide: defaultProvide,
-  });
+  wrapper = shallowMountExtended(GroupsExploreEmptyState);
 };
-
-afterEach(() => {
-  window.gon = {};
-});
 
 describe('GroupsExploreEmptyState', () => {
   it('renders empty state', () => {
     createComponent();
 
-    expect(wrapper.findComponent(GlEmptyState).props()).toMatchObject({
+    expect(wrapper.findComponent(ResourceListsEmptyState).props()).toMatchObject({
       title: 'No public or internal groups',
-      svgPath: defaultProvide.groupsEmptyStateIllustration,
+      svgPath: 'empty-groups-md.svg',
+      search: '',
     });
   });
 });

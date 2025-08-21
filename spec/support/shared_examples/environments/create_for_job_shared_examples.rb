@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.shared_examples 'create environment for job' do
-  let!(:job) { build(factory_type, project: project, pipeline: pipeline, **attributes) }
+  let!(:job) { build(factory_type, project: project, pipeline: pipeline, user: user, **attributes) }
   let(:merge_request) {} # rubocop:disable Lint/EmptyBlock
 
   describe '#execute' do
@@ -40,6 +40,14 @@ RSpec.shared_examples 'create environment for job' do
 
           expect(subject).to be_persisted
           expect(subject).to eq(environment)
+        end
+
+        it_behaves_like 'internal event tracking' do
+          let(:event) { 'create_job_with_environment' }
+          let(:category) { described_class.name }
+          let(:additional_properties) do
+            { label: job.environment_action, value: environment.id, property: environment.tier }
+          end
         end
       end
     end
@@ -145,6 +153,120 @@ RSpec.shared_examples 'create environment for job' do
         it 'does not overwrite the specified deployment tier' do
           # This is to be updated when a deployment succeeded i.e. Deployments::UpdateEnvironmentService.
           is_expected.to be_staging
+        end
+      end
+    end
+
+    context 'when job has a cluster agent attribute' do
+      let_it_be(:agent) { create(:cluster_agent, project: project) }
+
+      let(:environment_name) { 'production' }
+      let(:agent_path) { "#{project.full_path}:#{agent.name}" }
+      let(:attributes) do
+        {
+          environment: environment_name,
+          options: {
+            environment: {
+              name: environment_name,
+              kubernetes: {
+                agent: agent_path
+              }
+            }
+          }
+        }
+      end
+
+      let(:authorizations) { [ci_access_authorization] }
+      let(:ci_access_authorization) do
+        create(:agent_ci_access_project_authorization,
+          resource_management_enabled: true,
+          project: project,
+          agent: agent
+        )
+      end
+
+      before do
+        allow_next_instance_of(Clusters::Agents::Authorizations::CiAccess::Finder, project) do |finder|
+          allow(finder).to receive(:execute).and_return(authorizations)
+        end
+      end
+
+      context 'when the agent has resource management enabled' do
+        before do
+          allow(agent).to receive(:resource_management_enabled?).and_return(true)
+        end
+
+        it 'creates an environment with the specified cluster agent' do
+          expect { subject }.to change { Environment.count }.by(1)
+
+          expect(subject).to be_a(Environment)
+          expect(subject).to be_persisted
+          expect(subject.cluster_agent).to eq(agent)
+        end
+
+        context 'when the agent is not configured for resource_management' do
+          let(:ci_access_authorization) do
+            create(:agent_ci_access_project_authorization,
+              project: project,
+              agent: agent,
+              config: {} # resource_management is not enabled
+            )
+          end
+
+          it 'creates an environment without the specified cluster agent' do
+            expect { subject }.to change { Environment.count }.by(1)
+
+            expect(subject).to be_a(Environment)
+            expect(subject).to be_persisted
+            expect(subject.cluster_agent).to be_nil
+          end
+        end
+
+        context 'when the agent is not authorized for this project' do
+          let(:authorizations) { [] }
+
+          it 'creates an environment without the specified cluster agent' do
+            expect { subject }.to change { Environment.count }.by(1)
+
+            expect(subject).to be_a(Environment)
+            expect(subject).to be_persisted
+            expect(subject.cluster_agent).to be_nil
+          end
+        end
+
+        context 'when the environment already exists' do
+          context 'when the environment does not have a cluster agent' do
+            let(:environment) { create(:environment, project: project, name: environment_name) }
+
+            it 'updates the environment with the specified cluster agent' do
+              expect { subject }.to change { environment.reload.cluster_agent }.from(nil).to(agent)
+            end
+          end
+
+          context 'when the environment has a associated cluster agent' do
+            let_it_be(:another_agent) { create(:cluster_agent, project: project) }
+            let(:environment) do
+              create(:environment, project: project, name: environment_name, cluster_agent: another_agent)
+            end
+
+            it 'does not update the environment' do
+              expect { subject }.not_to change { environment.reload.cluster_agent }
+            end
+          end
+        end
+      end
+
+      context 'when the agent does not have resource management enabled' do
+        before do
+          allow(agent).to receive(:resource_management_enabled).and_return(false)
+        end
+
+        it 'creates an environment without the specified cluster agent' do
+          expect { subject }.to change { Environment.count }.by(1)
+
+          expect(subject).to be_a(Environment)
+          expect(subject).to be_persisted
+          expect(subject.cluster_agent).to be_nil
         end
       end
     end

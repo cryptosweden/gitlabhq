@@ -14,6 +14,7 @@ Gitlab::Seeder.quiet do
     user.personal_access_tokens.build(params).tap do |pat|
       pat.expires_at = 365.days.from_now
       pat.set_token(token)
+      pat.organization = user.organization
       pat.save!
     end
   end

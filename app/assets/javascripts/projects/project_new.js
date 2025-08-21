@@ -81,11 +81,11 @@ const validateGroupNamespaceDropdown = (e) => {
     e.preventDefault();
     dropdownButton().classList.add(invalidDropdownClass);
     namespaceButton().classList.add(invalidDropdownClass);
-    namespaceError().classList.remove('gl-display-none');
+    namespaceError().classList.remove('gl-hidden');
   } else {
     dropdownButton().classList.remove(invalidDropdownClass);
     namespaceButton().classList.remove(invalidDropdownClass);
-    namespaceError().classList.add('gl-display-none');
+    namespaceError().classList.add('gl-hidden');
   }
 };
 
@@ -96,12 +96,15 @@ const checkProjectName = (projectNameInput) => {
   if (!projectNameError) return;
   if (msg) {
     projectNameError.innerText = msg;
-    projectNameError.classList.remove('gl-display-none');
-    projectNameDescription.classList.add('gl-display-none');
+    projectNameError.classList.remove('gl-hidden');
+    projectNameDescription.classList.add('gl-hidden');
+    projectNameInput.setAttribute('aria-describedby', projectNameError.id);
   } else {
-    projectNameError.classList.add('gl-display-none');
-    projectNameDescription.classList.remove('gl-display-none');
+    projectNameError.classList.add('gl-hidden');
+    projectNameDescription.classList.remove('gl-hidden');
+    projectNameInput.setAttribute('aria-describedby', projectNameDescription.id);
   }
+  projectNameInput.setAttribute('aria-invalid', Boolean(msg));
 };
 
 const setProjectNamePathHandlers = ($projectNameInput, $projectPathInput) => {
@@ -123,7 +126,7 @@ const setProjectNamePathHandlers = ($projectNameInput, $projectPathInput) => {
     hasUserDefinedProjectPath = $projectPathInput.value.trim().length > 0;
 
     specialRepo.classList.toggle(
-      'gl-display-none',
+      'gl-hidden',
       $projectPathInput.value !== $projectPathInput.dataset.username,
     );
   };
@@ -236,8 +239,8 @@ const bindEvents = () => {
 
   bindHowToImport();
 
-  $('.btn_import_gitlab_project').on('click contextmenu', () => {
-    const importGitlabProjectBtn = document.querySelector('.btn_import_gitlab_project');
+  $('.js-import-gitlab-project-btn').on('click contextmenu', () => {
+    const importGitlabProjectBtn = document.querySelector('.js-import-gitlab-project-btn');
     const projectNamespaceId = document.querySelector('#project_namespace_id');
 
     const { href: importHref } = importGitlabProjectBtn.dataset;

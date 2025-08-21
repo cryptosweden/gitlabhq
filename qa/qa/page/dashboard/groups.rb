@@ -10,7 +10,13 @@ module QA
           element 'new-group-button'
         end
 
+        view 'app/assets/javascripts/groups/your_work/constants.js' do
+          element 'groups-empty-state'
+        end
+
         def has_group?(name)
+          return false if has_element?('groups-empty-state', wait: 5)
+
           has_filtered_group?(name)
         end
 

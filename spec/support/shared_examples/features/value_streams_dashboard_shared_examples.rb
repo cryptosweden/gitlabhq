@@ -1,23 +1,16 @@
 # frozen_string_literal: true
 
-RSpec.shared_examples 'renders usage overview metrics' do |has_data: true|
+RSpec.shared_examples 'renders usage overview metrics' do
   let(:usage_overview) { find_by_testid('panel-usage-overview') }
 
   it 'renders the metrics panel' do
     expect(usage_overview).to be_visible
-    expect(usage_overview).to have_content format(_("Usage overview for %{title}"), title: panel_title)
+    expect(usage_overview).to have_content format(_("Usage overview for the %{title}"), title: panel_title)
   end
 
-  it 'renders each of the available metrics' do
+  it 'renders each of the available metrics with the correct values' do
     within usage_overview do
-      [
-        ['groups', _('Groups'), has_data ? '5' : '-'],
-        ['projects', _('Projects'), has_data ? '10' : '-'],
-        ['users', _('Users'), has_data ? '100' : '-'],
-        ['issues', _('Issues'), has_data ? '1,500' : '-'],
-        ['merge_requests', _('Merge requests'), has_data ? '1,000' : '-'],
-        ['pipelines', _('Pipelines'), has_data ? '2,000' : '-']
-      ].each do |id, name, value|
+      usage_overview_metrics.each do |id, name, value|
         stat = find_by_testid("usage-overview-metric-#{id}")
         expect(stat).to be_visible
         expect(stat).to have_content name
@@ -25,6 +18,14 @@ RSpec.shared_examples 'renders usage overview metrics' do |has_data: true|
       end
     end
   end
+end
+
+RSpec.shared_examples 'renders usage overview metrics with zero values' do
+  it_behaves_like 'renders usage overview metrics'
+end
+
+RSpec.shared_examples 'renders usage overview metrics with empty values' do
+  it_behaves_like 'renders usage overview metrics'
 end
 
 RSpec.shared_examples 'does not render usage overview metrics' do
@@ -35,41 +36,72 @@ RSpec.shared_examples 'does not render usage overview metrics' do
   end
 end
 
-RSpec.shared_examples 'renders metrics comparison table' do
-  let(:metric_table) { find_by_testid('panel-dora-chart') }
+RSpec.shared_examples 'does not render usage overview background aggregation not enabled alert' do
+  let(:vsd_background_aggregation_disabled_alert) { "[data-testid='vsd-background-aggregation-disabled-warning']" }
 
-  it 'renders the metrics comparison visualization' do
-    expect(metric_table).to be_visible
-    expect(metric_table).to have_content format(_("Metrics comparison for %{title}"), title: panel_title)
+  it 'does not render background aggregation not enabled alert' do
+    expect(page).not_to have_selector vsd_background_aggregation_disabled_alert
+  end
+end
+
+RSpec.shared_examples 'renders metrics comparison tables' do
+  let(:lifecycle_metrics_table) { find_by_testid('panel-vsd-lifecycle-metrics-table') }
+  let(:dora_metrics_table) { find_by_testid('panel-vsd-dora-metrics-table') }
+  let(:security_metrics_table) { find_by_testid('panel-vsd-security-metrics-table') }
+
+  def expect_row_content(id, name, values)
+    row = find_by_testid("dora-chart-metric-#{id}")
+
+    expect(row).to be_visible
+    expect(row).to have_content name
+    expect(row).to have_content values
   end
 
-  it "renders the available metrics" do
+  before do
     wait_for_all_requests
+  end
 
+  it 'renders the Lifecycle metrics table' do
+    expect(lifecycle_metrics_table).to be_visible
+    expect(lifecycle_metrics_table).to have_content format(_("Lifecycle metrics for the %{title}"), title: panel_title)
     [
-      ['lead-time-for-changes', _('Lead time for changes'), '0.0 d 1.0 d 66.7% 3.0 d 40.0%'],
-      ['time-to-restore-service', _('Time to restore service'), '0.0 d 5.0 d 66.7% 3.0 d 57.1%'],
-      ['lead-time', _('Lead time'), '- 2.0 d 50.0% 4.0 d 33.3%'],
-      ['cycle-time', _('Cycle time'), '- 1.0 d 66.7% 3.0 d 50.0%'],
-      ['issues', _('Issues created'), '- 10 50.0% 20 33.3%'],
-      ['issues-completed', _('Issues closed'), '- 10 50.0% 20 33.3%'],
-      ['deploys', _('Deploys'), '- 5 50.0% 10 25.0%'],
-      ['merge-request-throughput', _('Merge request throughput'), '- 5 28.6% 7 16.7%'],
-      ['median-time-to-merge', _('Median time to merge'), '- - -'],
-      ['vulnerability-critical', _('Critical vulnerabilities over time'), '- 3 5'],
-      ['vulnerability-high', _('High vulnerabilities over time'), '- 2 4'],
+      ['lead-time', _('Lead time'), '4.0 d 33.3% 2.0 d 50.0% -'],
+      ['cycle-time', _('Cycle time'), '3.0 d 50.0% 1.0 d 66.7% -'],
+      ['issues', _('Issues created'), '1 66.7% 2 100.0% -'],
+      ['issues-completed', _('Issues closed'), '1 66.7% 2 100.0% -'],
+      ['deploys', _('Deploys'), '10 25.0% 5 50.0% -'],
+      ['merge-request-throughput', _('Merge request throughput'), '1 50.0% 3 200.0% -'],
+      ['median-time-to-merge', _('Median time to merge'), '- - -']
+    ].each do |id, name, values|
+      expect_row_content(id, name, values)
+    end
+  end
+
+  it 'renders the DORA metrics table' do
+    expect(dora_metrics_table).to be_visible
+    expect(dora_metrics_table).to have_content format(_("DORA metrics for the %{title}"), title: panel_title)
+    [
+      ['lead-time-for-changes', _('Lead time for changes'), '3.0 d 40.0% 1.0 d 66.7% 0.0 d'],
+      ['time-to-restore-service', _('Time to restore service'), '3.0 d 57.1% 5.0 d 66.7% 0.0 d'],
 
       # The values of these metrics are dependent on the length of the month they are in. Due to the high
       # flake risk associated with them, we only validate the expected structure of the table row instead
       # of the actual metric values.
-      ['deployment-frequency', _('Deployment frequency'), %r{0\.0/d 0\.\d+/d \d+\.\d% 0\.\d+/d \d+\.\d%}],
+      ['deployment-frequency', _('Deployment frequency'), %r{ 0\.\d+/d \d+\.\d% 0\.\d+/d \d+\.\d% 0\.0/d}],
       ['change-failure-rate', _('Change failure rate'), %r{0\.0% \d+\.\d% \d+\.\d% \d+\.\d% \d+\.\d%}]
     ].each do |id, name, values|
-      row = find_by_testid("dora-chart-metric-#{id}")
+      expect_row_content(id, name, values)
+    end
+  end
 
-      expect(row).to be_visible
-      expect(row).to have_content name
-      expect(row).to have_content values
+  it 'renders the Security metrics table' do
+    expect(security_metrics_table).to be_visible
+    expect(security_metrics_table).to have_content format(_("Security metrics for the %{title}"), title: panel_title)
+    [
+      ['vulnerability-critical', _('Critical vulnerabilities over time'), '5 3 -'],
+      ['vulnerability-high', _('High vulnerabilities over time'), '4 2 -']
+    ].each do |id, name, values|
+      expect_row_content(id, name, values)
     end
   end
 end
@@ -81,40 +113,31 @@ RSpec.shared_examples 'renders dora performers score' do
   it 'renders the dora performers score visualization' do
     expect(dora_performers_score).to be_visible
 
-    expect(dora_performers_score).to have_content format(_("DORA performers score for %{name} group"), name: group.name)
+    expect(dora_performers_score).to have_content format(
+      _("DORA performers score for the %{name} group (Last full calendar month)"),
+      name: group.name
+    )
     expect(dora_performers_chart_title).to have_content _("Total projects (3) with DORA metrics")
-
-    within dora_performers_score do
-      legend = find_by_testid('gl-chart-legend')
-      expect(legend).to have_content 'High Avg: 1 · Max: 1'
-      expect(legend).to have_content 'Medium Avg: 750m · Max: 1'
-      expect(legend).to have_content 'Low Avg: 750m · Max: 2'
-      expect(legend).to have_content 'Not included Avg: 500m · Max: 1'
-    end
-  end
-end
-
-RSpec.shared_examples 'renders link to the feedback survey' do
-  let(:feedback_survey) { find_by_testid('vsd-feedback-survey') }
-
-  it 'renders feedback survey' do
-    expect(feedback_survey).to be_visible
-    expect(feedback_survey).to have_content _("To help us improve the Value Stream Management Dashboard, " \
-                                              "please share feedback about your experience in this survey.")
   end
 end
 
 RSpec.shared_examples 'VSD renders as an analytics dashboard' do
   let(:dashboard_list_item_testid) { "[data-testid='dashboard-list-item']" }
+  let(:feedback_survey) { find_by_testid('vsd-feedback-survey') }
+  let(:vsd_background_aggregation_disabled_alert) { find_by_testid('vsd-background-aggregation-disabled-warning') }
 
-  it 'renders as an analytics dashboard' do
+  it 'renders VSD page correctly' do
     expect(find_by_testid('gridstack-grid')).to be_visible
-  end
-
-  it 'does not render the group dashboard listing' do
     expect(page).not_to have_selector(dashboard_list_item_testid)
-
     expect(page).to have_content _('Value Streams Dashboard')
+    expect(feedback_survey).to be_visible
+    expect(feedback_survey).to have_content _("To help us improve the Value Stream Management Dashboard, " \
+                                              "please share feedback about your experience in this survey.")
+    expect(vsd_background_aggregation_disabled_alert).to be_visible
+
+    expect(vsd_background_aggregation_disabled_alert).to have_content _('Background aggregation not enabled')
+    expect(vsd_background_aggregation_disabled_alert).to have_content _("To see usage overview, you must enable " \
+    "background aggregation.")
   end
 end
 
@@ -138,10 +161,61 @@ RSpec.shared_examples 'has value streams dashboard link' do
   it 'renders the value streams dashboard link' do
     dashboard_items = page.all(dashboard_list_item_testid)
 
-    first_dashboard = dashboard_items[0]
+    vsd_dashboard = dashboard_items[0]
 
-    expect(dashboard_items.length).to eq(1)
-    expect(first_dashboard).to have_content _('Value Streams Dashboard')
-    expect(first_dashboard).to have_selector dashboard_by_gitlab_testid
+    expect(vsd_dashboard).to have_content _('Value Streams Dashboard')
+    expect(vsd_dashboard).to have_selector dashboard_by_gitlab_testid
+  end
+end
+
+RSpec.shared_examples 'renders unlicensed DORA performers score visualization' do
+  let(:dora_performers_score) { find_by_testid('panel-dora-performers-score') }
+
+  it 'renders the dora performers score visualization with a missing license message' do
+    expect(dora_performers_score).to be_visible
+    expect(dora_performers_score).to have_text "This feature requires an Ultimate plan Learn more."
+  end
+end
+
+RSpec.shared_examples 'renders unlicensed DORA projects comparison visualization' do
+  let(:dora_projects_comparison) { find_by_testid('panel-dora-projects-comparison') }
+
+  it 'renders the DORA projects comparison with a missing license message' do
+    expect(dora_projects_comparison).to be_visible
+    expect(dora_projects_comparison).to have_text "This feature requires an Ultimate plan Learn more."
+  end
+end
+
+RSpec.shared_examples 'renders unlicensed DORA metrics table visualization' do
+  let(:dora_metrics_table) { find_by_testid('panel-vsd-dora-metrics-table') }
+
+  it 'renders the DORA metrics table with a missing license message' do
+    expect(dora_metrics_table).to be_visible
+    expect(dora_metrics_table).to have_text "This feature requires an Ultimate plan Learn more."
+  end
+end
+
+RSpec.shared_examples 'renders unlicensed security metrics visualization' do
+  let(:security_metrics_table) { find_by_testid('panel-vsd-security-metrics-table') }
+
+  it 'renders the security metrics visualization with a missing license message' do
+    expect(security_metrics_table).to be_visible
+    expect(security_metrics_table).to have_text "This feature requires an Ultimate plan Learn more."
+  end
+end
+
+RSpec.shared_examples 'renders licensed project VSD for a reporter' do
+  let(:lifecycle_metrics_table) { find_by_testid('panel-vsd-lifecycle-metrics-table') }
+  let(:security_metrics_table) { find_by_testid('panel-vsd-security-metrics-table') }
+  let(:dora_metrics_table) { find_by_testid('panel-vsd-dora-metrics-table') }
+
+  it 'renders the available visualizations' do
+    [lifecycle_metrics_table, dora_metrics_table].each do |table|
+      expect(table).to be_visible
+      expect(table).not_to have_text "This feature requires an Ultimate plan Learn more."
+    end
+
+    expect(security_metrics_table).to be_visible
+    expect(security_metrics_table).to have_text "This feature requires an Ultimate plan Learn more."
   end
 end

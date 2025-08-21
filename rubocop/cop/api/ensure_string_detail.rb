@@ -5,25 +5,25 @@ require_relative '../../code_reuse_helpers'
 module RuboCop
   module Cop
     module API
+      # This cop checks that API detail entries use Strings
+      #
+      # https://gitlab.com/gitlab-org/gitlab/-/issues/379037
+      #
+      # @example
+      #
+      #   # bad
+      #   detail ['Foo bar baz bat', 'http://example.com']
+      #
+      #   # good
+      #   detail 'Foo bar baz bat. http://example.com'
+      #
+      #   end
       class EnsureStringDetail < RuboCop::Cop::Base
         include CodeReuseHelpers
 
-        # This cop checks that API detail entries use Strings
-        #
-        # https://gitlab.com/gitlab-org/gitlab/-/issues/379037
-        #
-        # @example
-        #
-        # # bad
-        # detail ['Foo bar baz bat', 'http://example.com']
-        #
-        # # good
-        # detail 'Foo bar baz bat. http://example.com'
-        #
-        # end
-        #
         MSG = 'Only String objects are permitted in API detail field.'
 
+        # @!method detail_in_desc(node)
         def_node_matcher :detail_in_desc, <<~PATTERN
           (block
             (send nil? :desc ...)

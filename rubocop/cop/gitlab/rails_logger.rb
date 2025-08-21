@@ -5,7 +5,7 @@ require_relative '../../code_reuse_helpers'
 module RuboCop
   module Cop
     module Gitlab
-      class RailsLogger < ::RuboCop::Cop::Cop
+      class RailsLogger < ::RuboCop::Cop::Base
         include CodeReuseHelpers
 
         # This cop checks for the Rails.logger log methods in the codebase
@@ -28,6 +28,7 @@ module RuboCop
         LOG_METHODS = %i[debug error fatal info warn].freeze
         LOG_METHODS_PATTERN = LOG_METHODS.map(&:inspect).join(' ').freeze
 
+        # @!method rails_logger_log?(node)
         def_node_matcher :rails_logger_log?, <<~PATTERN
           (send
             (send (const nil? :Rails) :logger)

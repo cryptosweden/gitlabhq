@@ -2,8 +2,11 @@
 
 # frozen_string_literal: true
 
-require 'optparse'
+# We need to take some precautions when using the `gitlab` gem in this project.
+#
+# See https://docs.gitlab.com/ee/development/pipelines/internals.html#using-the-gitlab-ruby-gem-in-the-canonical-project.
 require 'gitlab'
+require 'optparse'
 
 module Packages
   class AutomatedCleanup
@@ -120,6 +123,7 @@ if $PROGRAM_NAME == __FILE__
     automated_cleanup.perform_gitlab_package_cleanup!(package_name: 'gitlab-workhorse', days_for_delete: 30)
   end
 
+  # todo: remove once there are no more `assets` packages in package registry
   timed('"assets" packages cleanup') do
     automated_cleanup.perform_gitlab_package_cleanup!(package_name: 'assets', days_for_delete: 7)
   end

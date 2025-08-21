@@ -5,7 +5,7 @@ require 'spec_helper'
 RSpec.describe Integrations::GitlabSlackApplication, feature_category: :integrations do
   include AfterNextHelpers
 
-  it_behaves_like Integrations::BaseSlackNotification, factory: :gitlab_slack_application_integration do
+  it_behaves_like Integrations::Base::SlackNotification, factory: :gitlab_slack_application_integration do
     before do
       stub_request(:post, "#{::Slack::API::BASE_URL}/chat.postMessage").to_return(body: '{"ok":true}')
     end
@@ -332,6 +332,31 @@ RSpec.describe Integrations::GitlabSlackApplication, feature_category: :integrat
       it 'is false' do
         expect(integration).not_to be_upgrade_needed
       end
+    end
+  end
+
+  describe '#dup' do
+    let_it_be(:project) { create(:project) }
+    let_it_be(:slack_integration) { create(:slack_integration, :all_features_supported) }
+
+    let(:original) do
+      build(:gitlab_slack_application_integration, slack_integration: slack_integration, project: project)
+    end
+
+    it 'copies the slack_integration, and scopes records' do
+      copy = original.dup
+
+      expect(copy.save).to be_truthy
+      expect(copy).to have_attributes(
+        slack_integration: have_attributes(
+          alias: project.full_path,
+          team_id: slack_integration.team_id,
+          team_name: slack_integration.team_name,
+          bot_user_id: slack_integration.bot_user_id,
+          bot_access_token: slack_integration.bot_access_token,
+          authorized_scope_names: slack_integration.authorized_scope_names
+        )
+      )
     end
   end
 end

@@ -1,3 +1,6 @@
+@use 'sass:map';
+@import '@gitlab/ui/src/scss/variables';
+
 /**
  * Prefilled mixins
  * Mixins with fixed values
@@ -42,7 +45,7 @@
     @include clearfix;
 
     padding: 10px 0;
-    border-bottom: 1px solid $gray-100;
+    @apply gl-border-b gl-border-b-subtle;
     display: block;
     margin: 0;
 
@@ -51,10 +54,10 @@
     }
 
     &.active {
-      background: $gray-10;
+      @apply gl-bg-subtle;
 
       a {
-        font-weight: $gl-font-weight-bold;
+        @apply gl-font-bold;
       }
     }
 
@@ -64,24 +67,8 @@
 
     &.light {
       a {
-        color: $gl-text-color;
+        @apply gl-text-default;
       }
-    }
-  }
-}
-
-@mixin basic-list-stats {
-  .stats {
-    float: right;
-    line-height: $list-text-height;
-    color: $gl-text-color-secondary;
-
-    @include media-breakpoint-down(xs) {
-      padding-top: $gl-padding-6;
-    }
-
-    span {
-      margin-right: 15px;
     }
   }
 }
@@ -89,14 +76,6 @@
 @mixin webkit-prefix($property, $value) {
   #{'-webkit-' + $property}: $value;
   #{$property}: $value;
-}
-
-/* http://phrappe.com/css/conditional-css-for-webkit-based-browsers/ */
-@mixin on-webkit-only {
-  /* stylelint-disable-next-line media-feature-name-no-vendor-prefix */
-  @media screen and (-webkit-min-device-pixel-ratio: 0) {
-    @content;
-  }
 }
 
 @mixin keyframes($animation-name) {
@@ -126,14 +105,6 @@
   }
 }
 
-@mixin green-status-color {
-  @include status-color(
-    var(--green-100, $green-100),
-    var(--green-500, $green-500),
-    var(--green-700, $green-700)
-  );
-}
-
 @mixin fade($gradient-direction, $gradient-color) {
   visibility: hidden;
   opacity: 0;
@@ -151,7 +122,7 @@
   padding: 0;
 
   &:hover {
-    @include gl-focus;
+    @apply gl-focus;
   }
 
   &.scrolling {
@@ -224,7 +195,7 @@
 */
 @mixin build-log($background: $black) {
   background: $background;
-  color: $gray-200;
+  @apply gl-text-disabled;
   white-space: pre;
   overflow-x: auto;
   font-size: 12px;
@@ -235,20 +206,15 @@
   .bash {
     display: block;
   }
-
-  &.build-log-rounded {
-    border-radius: $gl-border-radius-base;
-  }
 }
 
 // Used in EE for Web Terminal
 @mixin build-log-bar($height) {
-  height: $height;
+  height: auto;
   min-height: $height;
-  background: var(--white, $white);
-  border: 1px solid var(--border-color, $border-color);
-  color: var(--gl-text-color, $gl-text-color);
   padding: $grid-size;
+  @apply gl-bg-section gl-border gl-border-section gl-text-default;
+  box-shadow: 0 -6px 0 0 var(--gl-background-color-default);
 }
 
 @mixin job-log-top-bar {
@@ -256,12 +222,7 @@
   z-index: 2;
   position: sticky;
   top: calc(#{$calc-application-header-height} - 1px);
-  border-radius: $gl-border-radius-base $gl-border-radius-base 0 0;
-  box-shadow: 0 -4px 0 0 var(--white);
-
-  .gl-dark & {
-    box-shadow: 0 -4px 0 0 var(--gray-10);
-  }
+  @apply gl-rounded-t-lg;
 }
 
 /*
@@ -285,7 +246,7 @@
   }
 
   .controllers-buttons {
-    color: $gl-text-color;
+    @apply gl-text-default;
     margin: 0 $grid-size;
 
     &:last-child {
@@ -321,8 +282,6 @@
   line-height: 1;
   padding: 0;
   min-width: 16px;
-  color: $gray-500;
-  fill: $gray-500;
 
   .award-control-icon-positive,
   .award-control-icon-super-positive {
@@ -334,15 +293,6 @@
 
   &:hover,
   &.is-active {
-    .danger-highlight {
-      color: $red-500;
-    }
-
-    .link-highlight {
-      color: $blue-600;
-      fill: $blue-600;
-    }
-
     .award-control-icon-neutral {
       opacity: 0;
     }
@@ -400,7 +350,7 @@
 
       // Rouge `Comment` token (quoted text in email body)
       .c {
-        color: $gl-grayish-blue;
+        color: $gl-text-color-subtle;
         font-style: italic;
       }
     }
@@ -418,42 +368,219 @@
   text-align: center;
 }
 
-@mixin middle-dot-divider {
-  &::after {
-    // Duplicate `content` property used as a fallback
-    content: '\00B7'; // middle dot fallback if browser does not support alternative content
-    content: '\00B7' / ''; // tell screen readers to ignore the content https://www.w3.org/TR/css-content-3/#accessibility
-    padding: 0 0.375rem;
-    font-weight: $gl-font-weight-bold;
-  }
-
-  &:last-child {
-    &::after {
-      display: none;
-    }
-  }
-}
-
-@mixin side-panel-toggle {
-  transition: width $gl-transition-duration-medium;
-  height: $toggle-sidebar-height;
-  padding: 0 $gl-padding;
-  background-color: $gray-10;
-  border: 0;
-  color: $gl-text-color-secondary;
-  display: flex;
-  align-items: center;
-
-  &:hover {
-    background-color: $border-color;
-    color: $gl-text-color;
-  }
-}
-
 @mixin devise-errors {
   h2 {
     margin-top: 0;
     font-size: $gl-font-size;
     color: var(--red-700, $red-700);
+  }
+}
+
+@mixin notes-media($condition, $breakpoint-width) {
+  @media (#{$condition}-width: ($breakpoint-width)) {
+    @content;
+  }
+
+  // Diff is side by side
+  .notes-content.parallel & {
+    // We hide at double what we normally hide at because
+    // there are two columns of notes
+    @media (#{$condition}-width: (2 * $breakpoint-width)) {
+      @content;
+    }
+  }
+}
+
+/**
+* Style to apply to, for example, search results matches or text wrapped
+* around <mark> (allowed in Markdown).
+*/
+@mixin str-highlighted {
+  background-color: var(--orange-100);
+  box-shadow: 0 0 0 $gl-spacing-scale-1 var(--orange-100);
+  color: var(--gl-text-color-default);
+  padding: 0;
+  position: relative;
+  z-index: -1;
+}
+
+/**
+* Line connecting activity entries, used in issuables, work items etc
+*/
+@mixin vertical-line($top, $left) {
+  content: '';
+  position: absolute;
+  width: 2px;
+  left: $left;
+  top: $top;
+  height: calc(100% - #{$top});
+}
+
+/**
+ * Deprecated mixin for dark mode
+ */
+@mixin gl-dark-invert-keep-hue {
+  .gl-dark & {
+    filter: invert(0.8) hue-rotate(180deg);
+  }
+}
+
+/**
+* CI/CD Job item failed status background
+*
+* Sets background color of items to visually
+* highlight failed jobs in the UI.
+*/
+@mixin ci-job-item-failed-status-bg {
+  --ci-job-item-failed: var(--gl-color-red-50);
+
+  .gl-dark & {
+    --ci-job-item-failed: var(--gl-action-danger-background-color-active);
+  }
+
+  background: var(--ci-job-item-failed);
+}
+
+/**
+* Translucent glass background
+*
+* Sets background color to semi transparent
+* with a glass shine though apperance
+*
+* Respects user preference setting for transparency
+*/
+@mixin translucent-glass-background($bgcolor: var(--gl-background-color-default)) {
+  // Fallback for users with prefers-reduced-transparency: reduce
+  background-color: $bgcolor;
+
+  @media (prefers-reduced-transparency: no-preference) {
+    background-color: rgb(from #{$bgcolor} r g b / 92%) !important;
+    backdrop-filter: blur(24px);
+
+    .gl-dark & {
+      background-color: rgb(from #{$bgcolor} r g b / 84%) !important;
+    }
+  }
+}
+
+@mixin panel-container-width-up($name) {
+  $min: map.get($breakpoints, $name);
+  @if $min == null {
+    @error "#{$name} is not a valid breakpoint for this @container query.";
+  }
+  @container panel (width >= #{$min}) {
+    @content;
+  }
+}
+
+@mixin panel-container-width-down($name) {
+  $max: map.get($breakpoints, $name);
+  @if ($max == null or $max == 0) {
+    @error "#{$name} is not a valid breakpoint for this @media query.";
+  }
+  // The maximum value is reduced by 0.02px to work around the limitations of
+  // `min-` and `max-` prefixes and with fractional viewport sizes.
+  // See: https://www.w3.org/TR/mediaqueries-4/#mq-min-max
+  // Use 0.02px rather than 0.01px to work around a current rounding bug in Safari.
+  // See https://bugs.webkit.org/show_bug.cgi?id=178261
+  $breakpoint-max-range-precision: 0.02px;
+
+  @container panel (width <= #{$max - $breakpoint-max-range-precision}) {
+    @content;
+  }
+}
+
+@mixin make-container-grid-columns($columns: $grid-columns, $gutter: $grid-gutter-width, $breakpoints: $grid-breakpoints) {
+  // Common properties for all breakpoints
+  %grid-column {
+    position: relative;
+    width: 100%;
+    padding-right: $gutter * .5;
+    padding-left: $gutter * .5;
+  }
+
+  .gl-row {
+    @include make-row();
+  }
+
+  // Remove the negative margin from default .row, then the horizontal padding
+  // from all immediate children columns (to prevent runaway style inheritance).
+  .gl-no-gutters {
+    margin-right: 0;
+    margin-left: 0;
+
+    > .gl-col,
+    > [class*="gl-col-"] {
+      padding-right: 0;
+      padding-left: 0;
+    }
+  }
+
+  @each $breakpoint in map.keys($breakpoints) {
+    $breakpoint-value: breakpoint-min($breakpoint, $breakpoints);
+    $min: if($breakpoint-value, $breakpoint-value, "0px");
+    $infix: breakpoint-infix($breakpoint, $breakpoints);
+
+    @if $columns > 0 {
+      // Allow columns to stretch full width below their breakpoints
+      @for $i from 1 through $columns {
+        .gl-col#{$infix}-#{$i} {
+          @extend %grid-column; // stylelint-disable-line at-rule-disallowed-list
+        }
+      }
+    }
+
+    .gl-col#{$infix},
+    .gl-col#{$infix}-auto {
+      @extend %grid-column; // stylelint-disable-line at-rule-disallowed-list
+    }
+
+    @container (width >= #{$min}) {
+      // Provide basic `.gl-col-{bp}` classes for equal-width flexbox columns
+      .gl-col#{$infix} {
+        flex-basis: 0;
+        flex-grow: 1;
+        max-width: 100%;
+      }
+
+      @if $grid-row-columns > 0 {
+        @for $i from 1 through $grid-row-columns {
+          .gl-row-cols#{$infix}-#{$i} {
+            @include row-cols($i);
+          }
+        }
+      }
+
+      .gl-col#{$infix}-auto {
+        @include make-col-auto();
+      }
+
+      @if $columns > 0 {
+        @for $i from 1 through $columns {
+          .gl-col#{$infix}-#{$i} {
+            @include make-col($i, $columns);
+          }
+        }
+      }
+
+     .gl-order#{$infix}-first { order: -1; }
+
+     .gl-order#{$infix}-last { order: $columns + 1; }
+
+      @for $i from 0 through $columns {
+       .gl-order#{$infix}-#{$i} { order: $i; }
+      }
+
+      @if $columns > 0 {
+        // `$columns - 1` because offsetting by the width of an entire row isn't possible
+        @for $i from 0 through ($columns - 1) {
+          @if not ($infix == "" and $i == 0) { // Avoid emitting useless.gl-offset-0
+           .gl-offset#{$infix}-#{$i} {
+              @include make-col-offset($i, $columns);
+            }
+          }
+        }
+      }
+    }
   }
 }

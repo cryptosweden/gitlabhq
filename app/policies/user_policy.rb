@@ -8,7 +8,7 @@ class UserPolicy < BasePolicy
   condition(:subject_ghost, scope: :subject, score: 0) { @subject.ghost? }
 
   desc "The profile is private"
-  condition(:private_profile, scope: :subject, score: 0) { @subject.private_profile? }
+  condition(:private_profile, scope: :subject, score: 0) { private_profile? }
 
   desc "The user is blocked"
   condition(:blocked_user, scope: :subject, score: 0) { @subject.blocked? }
@@ -27,13 +27,14 @@ class UserPolicy < BasePolicy
     enable :update_saved_replies
     enable :destroy_saved_replies
     enable :read_user_personal_access_tokens
-    enable :read_group_count
+    enable :read_user_membership_counts
     enable :read_user_groups
     enable :read_user_organizations
     enable :read_saved_replies
     enable :read_user_email_address
     enable :admin_user_email_address
     enable :make_profile_private
+    enable :read_user_preference
   end
 
   rule { default }.enable :read_user_profile
@@ -42,6 +43,10 @@ class UserPolicy < BasePolicy
   rule { (user_is_self | admin) & ~blocked }.enable :create_user_personal_access_token
   rule { (user_is_self | admin) & ~blocked }.enable :manage_user_personal_access_token
   rule { (user_is_self | admin) & ~blocked }.enable :get_user_associations_count
+
+  def private_profile?
+    @subject.private_profile?
+  end
 end
 
 UserPolicy.prepend_mod_with('UserPolicy')

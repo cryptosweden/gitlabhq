@@ -97,6 +97,7 @@ describe('Markdown field component', () => {
   }
 
   const getPreviewToggle = () => subject.findByTestId('preview-toggle');
+  const getSkipButton = () => subject.findByTestId('skip-to-input');
   const getMarkdownButton = () => subject.find('.js-md');
   const getListBulletedButton = () => subject.findAll('.js-md[title="Add a bullet list"]');
   const getVideo = () => subject.find('video');
@@ -137,6 +138,38 @@ describe('Markdown field component', () => {
       expect(subject.find('.zen-backdrop textarea').element).not.toBeNull();
     });
 
+    describe('skip to input button', () => {
+      it('renders skip button when not in preview mode', () => {
+        expect(getSkipButton().exists()).toBe(true);
+      });
+
+      it('does not render skip button when in preview mode', async () => {
+        const markdownField = subject.findComponent(MarkdownField);
+        markdownField.vm.showPreview();
+        await nextTick();
+
+        expect(getSkipButton().exists()).toBe(false);
+      });
+
+      it('focuses textarea when skip button is clicked', async () => {
+        const textarea = subject.find('textarea').element;
+        const focusSpy = jest.spyOn(textarea, 'focus');
+
+        getSkipButton().trigger('click');
+        await nextTick();
+
+        expect(focusSpy).toHaveBeenCalled();
+      });
+
+      it('has correct accessibility attributes', () => {
+        const skipButton = getSkipButton();
+
+        expect(skipButton.text()).toBe('Skip to input');
+        expect(skipButton.attributes('data-testid')).toBe('skip-to-input');
+        expect(skipButton.classes()).toContain('gl-sr-only');
+      });
+    });
+
     it('renders referenced commands on markdown preview', async () => {
       axiosMock
         .onPost(markdownPreviewPath)
@@ -165,75 +198,86 @@ describe('Markdown field component', () => {
     });
 
     describe('markdown preview', () => {
-      beforeEach(() => {
-        axiosMock.onPost(markdownPreviewPath).reply(HTTP_STATUS_OK, { body: previewHTML });
-      });
-
-      it('sets preview toggle as active', async () => {
-        previewToggle = getPreviewToggle();
-
-        expect(previewToggle.text()).toBe('Preview');
-
-        previewToggle.vm.$emit('click', true);
-
-        await nextTick();
-        expect(previewToggle.text()).toBe('Continue editing');
-      });
-
-      it('shows preview loading text', async () => {
-        previewToggle = getPreviewToggle();
-        previewToggle.vm.$emit('click', true);
-
-        await nextTick();
-        expect(subject.find('.md-preview-holder').element.textContent.trim()).toContain('Loading…');
-      });
-
-      it('renders markdown preview and GFM', async () => {
-        previewToggle = getPreviewToggle();
-
-        previewToggle.vm.$emit('click', true);
-
-        await axios.waitFor(markdownPreviewPath);
-        expect(subject.find('.md-preview-holder').element.innerHTML).toContain(previewHTML);
-        expect(renderGFM).toHaveBeenCalled();
-      });
-
-      it('calls video.pause() on comment input when isSubmitting is changed to true', async () => {
-        previewToggle = getPreviewToggle();
-        previewToggle.vm.$emit('click', true);
-
-        await axios.waitFor(markdownPreviewPath);
-        const video = getVideo();
-        const callPause = jest.spyOn(video.element, 'pause').mockImplementation(() => true);
-
-        subject.setProps({ isSubmitting: true });
-
-        await nextTick();
-        expect(callPause).toHaveBeenCalled();
-      });
-
-      it('switches between preview/write on toggle', async () => {
-        previewToggle = getPreviewToggle();
-
-        previewToggle.vm.$emit('click', true);
-        await nextTick();
-        expect(subject.find('.md-preview-holder').element.style.display).toBe(''); // visible
-
-        previewToggle.vm.$emit('click', false);
-        await nextTick();
-        expect(subject.find('.md-preview-holder').element.style.display).toBe('none');
-      });
-
-      it('passes correct props to MarkdownHeader and MarkdownToolbar', () => {
-        expect(findMarkdownToolbar().props()).toEqual({
-          canAttachFile: true,
-          markdownDocsPath,
-          showCommentToolBar: true,
-          showContentEditorSwitcher: false,
+      describe.each`
+        data
+        ${{ body: previewHTML }}
+        ${{ html: previewHTML }}
+      `('when api returns $data', ({ data }) => {
+        beforeEach(() => {
+          axiosMock.onPost(markdownPreviewPath).reply(HTTP_STATUS_OK, data);
         });
 
-        expect(findMarkdownHeader().props()).toMatchObject({
-          supportsQuickActions: true,
+        it('sets preview toggle as active', async () => {
+          previewToggle = getPreviewToggle();
+
+          expect(previewToggle.text()).toBe('Preview');
+
+          previewToggle.vm.$emit('click');
+
+          await nextTick();
+          previewToggle = getPreviewToggle();
+          expect(previewToggle.text()).toBe('Continue editing');
+        });
+
+        it('shows preview loading text', async () => {
+          previewToggle = getPreviewToggle();
+          previewToggle.vm.$emit('click', true);
+
+          await nextTick();
+          expect(subject.find('.md-preview-holder').element.textContent.trim()).toContain(
+            'Loading…',
+          );
+        });
+
+        it('renders markdown preview and GFM', async () => {
+          previewToggle = getPreviewToggle();
+
+          previewToggle.vm.$emit('click', true);
+
+          await axios.waitFor(markdownPreviewPath);
+          expect(subject.find('.md-preview-holder').element.innerHTML).toContain(previewHTML);
+          expect(renderGFM).toHaveBeenCalled();
+        });
+
+        it('calls video.pause() on comment input when isSubmitting is changed to true', async () => {
+          previewToggle = getPreviewToggle();
+          previewToggle.vm.$emit('click', true);
+
+          await axios.waitFor(markdownPreviewPath);
+          const video = getVideo();
+          const callPause = jest.spyOn(video.element, 'pause').mockImplementation(() => true);
+
+          subject.setProps({ isSubmitting: true });
+
+          await nextTick();
+          expect(callPause).toHaveBeenCalled();
+        });
+
+        it('switches between preview/write on toggle', async () => {
+          previewToggle = getPreviewToggle();
+
+          previewToggle.trigger('click');
+          await nextTick();
+          expect(subject.find('.md-preview-holder').element.style.display).toBe(''); // visible
+
+          previewToggle = getPreviewToggle();
+
+          previewToggle.trigger('click');
+          await nextTick();
+          expect(subject.find('.md-preview-holder').element.style.display).toBe('none');
+        });
+
+        it('passes correct props to MarkdownHeader and MarkdownToolbar', () => {
+          expect(findMarkdownToolbar().props()).toEqual({
+            canAttachFile: true,
+            markdownDocsPath,
+            showCommentToolBar: true,
+            showContentEditorSwitcher: false,
+          });
+
+          expect(findMarkdownHeader().props()).toMatchObject({
+            supportsQuickActions: true,
+          });
         });
       });
     });

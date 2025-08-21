@@ -55,7 +55,7 @@ module Gitlab
         types Issue
         condition do
           current_user.can?(:"set_#{quick_action_target.to_ability_name}_metadata", quick_action_target) &&
-            quick_action_target.project.boards.count == 1
+            quick_action_target.project&.boards&.count == 1
         end
         command :board_move do |target_list_name|
           labels = find_labels(target_list_name)
@@ -69,7 +69,7 @@ module Gitlab
             label_id = label_ids.first
 
             @updates[:remove_label_ids] =
-              quick_action_target.labels.on_project_boards(quick_action_target.project_id).where.not(id: label_id).pluck(:id) # rubocop: disable CodeReuse/ActiveRecord
+              quick_action_target.labels.on_project_boards(quick_action_target.project_id).id_not_in(label_id).pluck(:id) # rubocop: disable CodeReuse/ActiveRecord
             @updates[:add_label_ids] = [label_id]
 
             message = _("Moved issue to %{label} column in the board.") % { label: labels_to_reference(labels).first }
@@ -79,38 +79,37 @@ module Gitlab
         end
 
         desc { _('Mark this issue as a duplicate of another issue') }
-        explanation do |duplicate_reference|
-          _("Closes this issue. Marks as related to, and a duplicate of, %{duplicate_reference}.") % { duplicate_reference: duplicate_reference }
+        explanation do |canonical_item|
+          _, message = mark_as_duplicate(canonical_item, for_explain: true)
+
+          message
         end
-        params '#issue'
+        params '<#item | group/project#item | item URL>'
         types Issue
         condition do
           quick_action_target.persisted? &&
             current_user.can?(:"set_#{quick_action_target.to_ability_name}_metadata", quick_action_target)
         end
-        command :duplicate do |duplicate_param|
-          canonical_issue = extract_references(duplicate_param, :issue).first
-
-          if canonical_issue.present?
-            @updates[:canonical_issue_id] = canonical_issue.id
-
-            message = _("Closed this issue. Marked as related to, and a duplicate of, %{duplicate_param}.") % { duplicate_param: duplicate_param }
-          else
-            message = _('Failed to mark this issue as a duplicate because referenced issue was not found.')
-          end
-
+        parse_params do |duplicate_param|
+          extract_references(duplicate_param, :issue).first ||
+            extract_references(duplicate_param, :work_item).first ||
+            extract_references(duplicate_param, :epic).first&.sync_object
+        end
+        command :duplicate do |canonical_item|
+          can_duplicate_flag, message = mark_as_duplicate(canonical_item)
+          @updates[:canonical_issue_id] = canonical_item.id if can_duplicate_flag
           @execution_message[:duplicate] = message
         end
 
-        desc { _('Clone this issue') }
-        explanation do |project = quick_action_target.project.full_path|
-          _("Clones this issue, without comments, to %{project}.") % { project: project }
+        desc { _('Clone this item') }
+        explanation do |target_container_path = quick_action_target.namespace.full_path|
+          _("Clones this item, without comments, to %{group_or_project}.") % { group_or_project: target_container_path }
         end
-        params 'path/to/project [--with_notes]'
-        types Issue
+        params 'path/to/group_or_project [--with_notes]'
+        types Issue, WorkItem
         condition do
           quick_action_target.persisted? &&
-            current_user.can?(:"admin_#{quick_action_target.to_ability_name}", project)
+            current_user.can?(:"clone_#{quick_action_target.to_ability_name}", quick_action_target)
         end
         command :clone do |params = ''|
           params = params.split(' ')
@@ -118,45 +117,49 @@ module Gitlab
 
           # If we have more than 1 param, then the user supplied too many spaces, or mistyped `--with_notes`
           if params.size > 1
-            @execution_message[:clone] = _('Failed to clone this issue: wrong parameters.')
+            @execution_message[:clone] = _('Failed to clone this item: wrong parameters.')
             next
           end
 
-          target_project_path = params[0]
-          target_project = target_project_path.present? ? Project.find_by_full_path(target_project_path) : quick_action_target.project
+          target_container_path = params[0]
+          target_container = fetch_target_container(target_container_path)
 
-          if target_project.present?
-            @updates[:target_clone_project] = target_project
-            @updates[:clone_with_notes] = with_notes
-
-            message = _("Cloned this issue to %{path_to_project}.") % { path_to_project: target_project_path || quick_action_target.project.full_path }
-          else
-            message = _("Failed to clone this issue because target project doesn't exist.")
-          end
+          message =
+            if target_container.nil?
+              _("Unable to clone. Target project or group doesn't exist or doesn't support this item type.")
+            elsif current_user.can?(:admin_issue, target_container)
+              @updates[:target_clone_container] = target_container
+              @updates[:clone_with_notes] = with_notes
+              _("Cloned this item to %{path_to_group_or_project}.") % { path_to_group_or_project: target_container_path || target_container.full_path }
+            else
+              _("Unable to clone. Insufficient permissions.")
+            end
 
           @execution_message[:clone] = message
         end
 
-        desc { _('Move this issue to another project') }
-        explanation do |path_to_project|
-          _("Moves this issue to %{path_to_project}.") % { path_to_project: path_to_project }
+        desc { _('Move this item to another group or project') }
+        explanation do |path_to_container|
+          _("Moves this item to %{group_or_project}.") % { group_or_project: path_to_container }
         end
-        params 'path/to/project'
-        types Issue
+        params 'path/to/group_or_project'
+        types Issue, WorkItem
         condition do
           quick_action_target.persisted? &&
-            current_user.can?(:"admin_#{quick_action_target.to_ability_name}", project)
+            current_user.can?(:"move_#{quick_action_target.to_ability_name}", quick_action_target)
         end
-        command :move do |target_project_path|
-          target_project = Project.find_by_full_path(target_project_path)
+        command :move do |target_container_path|
+          target_container = fetch_target_container(target_container_path)
 
-          if target_project.present?
-            @updates[:target_project] = target_project
-
-            message = _("Moved this issue to %{path_to_project}.") % { path_to_project: target_project_path }
-          else
-            message = _("Failed to move this issue because target project doesn't exist.")
-          end
+          message =
+            if target_container.nil?
+              _("Unable to move. Target project or group doesn't exist or doesn't support this item type.")
+            elsif current_user.can?(:admin_issue, target_container)
+              @updates[:target_container] = target_container
+              _("Moved this item to %{path_to_container}.") % { path_to_container: target_container_path }
+            else
+              _("Unable to move. Insufficient permissions.")
+            end
 
           @execution_message[:move] = message
         end
@@ -228,7 +231,8 @@ module Gitlab
         condition do
           quick_action_target.persisted? &&
             Feature.enabled?(:issue_email_participants, parent) &&
-            current_user.can?(:"admin_#{quick_action_target.to_ability_name}", quick_action_target)
+            current_user.can?(:"admin_#{quick_action_target.to_ability_name}", quick_action_target) &&
+            quick_action_target.resource_parent.is_a?(Project)
         end
         command :add_email do |emails = ""|
           response = ::IssueEmailParticipants::CreateService.new(
@@ -266,6 +270,7 @@ module Gitlab
         types Issue
         condition do
           quick_action_target.persisted? &&
+            ServiceDesk.enabled?(quick_action_target.resource_parent) &&
             current_user.can?(:"admin_#{quick_action_target.to_ability_name}", quick_action_target) &&
             quick_action_target.respond_to?(:from_service_desk?) &&
             !quick_action_target.from_service_desk?
@@ -298,7 +303,7 @@ module Gitlab
         types Issue
         condition do
           current_user.can?(:set_issue_crm_contacts, quick_action_target) &&
-            CustomerRelations::Contact.exists_for_group?(quick_action_target.project.root_ancestor)
+            CustomerRelations::Contact.exists_for_group?(quick_action_target.resource_parent.crm_group)
         end
         execution_message do
           _('One or more contacts were successfully added.')
@@ -351,6 +356,68 @@ module Gitlab
 
       private
 
+      def mark_as_duplicate(canonical_item, for_explain: false)
+        return [false, item_not_found_message(for_explain)] if canonical_item.blank?
+        return [false, same_item_message(for_explain)] if canonical_item.id == quick_action_target.id
+        return [false, insufficient_permission_message(for_explain)] unless can_mark_as_duplicate?(canonical_item)
+
+        [true, mark_as_duplicate_message(canonical_item, for_explain)]
+      end
+
+      def mark_as_duplicate_message(canonical_item, for_explain)
+        canonical_item_url = Gitlab::UrlBuilder.build(canonical_item)
+        if for_explain
+          _("Closes this %{work_item_type}. Marks as related to, and a duplicate of, %{duplicate_param}.") % {
+            work_item_type: quick_action_target.work_item_type.name, duplicate_param: canonical_item_url
+          }
+        else
+          _("Closed this %{work_item_type}. Marked as related to, and a duplicate of, %{duplicate_param}.") % {
+            work_item_type: quick_action_target.work_item_type.name, duplicate_param: canonical_item_url
+          }
+        end
+      end
+
+      def can_mark_as_duplicate?(canonical_item)
+        current_user.can?("update_#{quick_action_target.to_ability_name}", quick_action_target) &&
+          current_user.can?(:create_note, canonical_item)
+      end
+
+      def insufficient_permission_message(for_explain)
+        if for_explain
+          _('Cannot mark this %{work_item_type} as duplicate due to insufficient permissions.') % {
+            work_item_type: quick_action_target.work_item_type.name
+          }
+        else
+          _('Failed to mark this %{work_item_type} as duplicate due to insufficient permissions.') % {
+            work_item_type: quick_action_target.work_item_type.name
+          }
+        end
+      end
+
+      def same_item_message(for_explain)
+        if for_explain
+          _('Cannot mark the %{work_item_type} as duplicate of itself.') % {
+            work_item_type: quick_action_target.work_item_type.name
+          }
+        else
+          _('Failed to mark the %{work_item_type} as duplicate of itself.') % {
+            work_item_type: quick_action_target.work_item_type.name
+          }
+        end
+      end
+
+      def item_not_found_message(for_explain)
+        if for_explain
+          _('Cannot mark this %{work_item_type} as a duplicate because referenced item was not found.') % {
+            work_item_type: quick_action_target.work_item_type.name
+          }
+        else
+          _('Failed to mark this %{work_item_type} as a duplicate because referenced item was not found.') % {
+            work_item_type: quick_action_target.work_item_type.name
+          }
+        end
+      end
+
       def zoom_link_service
         ::Issues::ZoomLinkService.new(container: quick_action_target.project, current_user: current_user, params: { issue: quick_action_target })
       end
@@ -369,6 +436,16 @@ module Gitlab
 
       def timeline_event_create_service(event_text, event_date_time)
         ::IncidentManagement::TimelineEvents::CreateService.new(quick_action_target, current_user, { note: event_text, occurred_at: event_date_time, editable: true })
+      end
+
+      def fetch_target_container(target_container_path)
+        return quick_action_target.namespace unless target_container_path
+
+        if quick_action_target.namespace.is_a?(Namespaces::ProjectNamespace)
+          Project.find_by_full_path(target_container_path)
+        else
+          Group.find_by_full_path(target_container_path)
+        end
       end
     end
   end

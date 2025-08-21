@@ -11,7 +11,8 @@ class DeleteUserWorker # rubocop:disable Scalability/IdempotentWorker
   loggable_arguments 2
 
   def perform(current_user_id, delete_user_id, options = {})
-    Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/464672')
+    # Deleting a user deletes many different resources, so a higher threshold is OK for now
+    Gitlab::QueryLimiting.disable!('https://gitlab.com/gitlab-org/gitlab/-/issues/464672', new_threshold: 200)
 
     delete_user = User.find_by_id(delete_user_id)
     return unless delete_user.present?
@@ -29,7 +30,7 @@ class DeleteUserWorker # rubocop:disable Scalability/IdempotentWorker
   private
 
   def skip_own_account_deletion?(user)
-    return false unless ::Feature.enabled?(:delay_delete_own_user)
+    return false unless ::Gitlab::CurrentSettings.delay_user_account_self_deletion
 
     skip =
       if user.banned?

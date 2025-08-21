@@ -1,15 +1,18 @@
 ---
 stage: Create
 group: Source Code
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
-description: "Configure a collection of file templates available for all projects on your self-managed GitLab instance."
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+gitlab_dedicated: yes
+description: Configure a collection of file templates available for all projects.
+title: Instance template repository
 ---
 
-# Instance template repository
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 In hosted systems, enterprises often have a need to share their own templates
 across teams. This feature allows an administrator to pick a project to be the
@@ -21,7 +24,7 @@ while the project remains secure.
 
 To select a project to serve as the custom template repository:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Templates**.
 1. Expand **Templates**
 1. From the dropdown list, select the project to use as the template repository.
@@ -33,13 +36,22 @@ They are available in the [Web Editor](../../user/project/repository/web_editor.
 and through the [API settings](../../api/settings.md).
 
 These templates cannot be used as a value of the
-[`include:template`](../../ci/yaml/index.md#includetemplate) key in `.gitlab-ci.yml`.
+[`include:template`](../../ci/yaml/_index.md#includetemplate) key in `.gitlab-ci.yml`.
 
 ## Supported file types and locations
 
-Templates must be added to a specific subdirectory in the repository,
-corresponding to the kind of template. The following types of custom templates
-are supported:
+GitLab supports Markdown files for issue and merge request templates and other file type templates.
+
+The following Markdown description templates are supported:
+
+| Type               | Directory                         | Extension         |
+| :---------------:  | :-----------:                     | :-----------:     |
+| Issue              | `.gitlab/issue_templates`         | `.md`             |
+| Merge request      | `.gitlab/merge_request_templates` | `.md`             |
+
+For more information, see [description templates](../../user/project/description_templates.md).
+
+Other supported file type templates include:
 
 | Type                    | Directory            | Extension     |
 | :---------------:       | :-----------:        | :-----------: |
@@ -48,11 +60,15 @@ are supported:
 | `.gitlab-ci.yml`        | `gitlab-ci`          | `.yml`        |
 | `LICENSE`               | `LICENSE`            | `.txt`        |
 
-Each template must go in its respective subdirectory, have the correct
-extension and not be empty. So, the hierarchy should look like this:
+Each template must be in its respective subdirectory, have the correct
+extension, and not be empty. The hierarchy should look like this:
 
 ```plaintext
 |-- README.md
+    |-- issue_templates
+        |-- feature_request.md
+    |-- merge_request_templates
+        |-- default.md
 |-- Dockerfile
     |-- custom_dockerfile.dockerfile
     |-- another_dockerfile.dockerfile
@@ -67,21 +83,9 @@ extension and not be empty. So, the hierarchy should look like this:
     |-- another_license.txt
 ```
 
-Your custom templates are displayed on the dropdown list when a new file is added through the GitLab UI:
+Your custom templates are displayed in the dropdown list when a new file is added through the GitLab UI:
 
-![Custom template dropdown list](img/file_template_user_dropdown.png)
+![The GitLab UI for creating a new file, with a dropdown list displaying the Dockerfile templates to choose from.](img/file_template_user_dropdown_v17_10.png)
 
 If this feature is disabled or no templates are present,
-no **Custom** section displays in the selection dropdown.
-
-<!-- ## Troubleshooting
-
-Include any troubleshooting steps that you can foresee. If you know beforehand what issues
-one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
-This is important to minimize requests for support, and to avoid doc comments with
-questions that you know someone might ask.
-
-Each scenario can be a third-level heading, for example `### Getting error message X`.
-If you have none to add when creating a doc, leave this section in place
-but commented out to help encourage others to add to it in the future. -->
+no **Custom** section displays in the selection dropdown list.

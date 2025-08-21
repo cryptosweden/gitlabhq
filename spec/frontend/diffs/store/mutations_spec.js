@@ -58,7 +58,7 @@ describe('DiffsStoreMutations', () => {
 
       mutations[types.SET_DIFF_FILES](state, ['file', 'another file']);
 
-      expect(state.diffFiles.length).toEqual(2);
+      expect(state.diffFiles).toHaveLength(2);
     });
 
     it('should not set anything except diffFiles in state', () => {
@@ -309,7 +309,7 @@ describe('DiffsStoreMutations', () => {
         diffPositionByLineCode,
       });
 
-      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions.length).toEqual(1);
+      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions).toHaveLength(1);
       expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions[0].id).toEqual(1);
     });
 
@@ -356,7 +356,7 @@ describe('DiffsStoreMutations', () => {
         diffPositionByLineCode,
       });
 
-      expect(state.diffFiles[0].discussions.length).toEqual(1);
+      expect(state.diffFiles[0].discussions).toHaveLength(1);
       expect(state.diffFiles[0].discussions[0].id).toEqual(1);
     });
 
@@ -406,7 +406,7 @@ describe('DiffsStoreMutations', () => {
         diffPositionByLineCode,
       });
 
-      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions.length).toEqual(1);
+      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions).toHaveLength(1);
       expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions[0].id).toEqual(1);
 
       mutations[types.SET_LINE_DISCUSSIONS_FOR_FILE](state, {
@@ -414,7 +414,7 @@ describe('DiffsStoreMutations', () => {
         diffPositionByLineCode,
       });
 
-      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions.length).toEqual(1);
+      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions).toHaveLength(1);
       expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions[0].id).toEqual(1);
     });
 
@@ -464,7 +464,7 @@ describe('DiffsStoreMutations', () => {
         diffPositionByLineCode,
       });
 
-      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions.length).toEqual(1);
+      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions).toHaveLength(1);
       expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions[0].id).toEqual(1);
 
       mutations[types.SET_LINE_DISCUSSIONS_FOR_FILE](state, {
@@ -476,7 +476,7 @@ describe('DiffsStoreMutations', () => {
         diffPositionByLineCode,
       });
 
-      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions[0].notes.length).toBe(1);
+      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions[0].notes).toHaveLength(1);
       expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions[0].resolved).toBe(true);
     });
 
@@ -542,7 +542,7 @@ describe('DiffsStoreMutations', () => {
         diffPositionByLineCode,
       });
 
-      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions.length).toBe(1);
+      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions).toHaveLength(1);
     });
 
     it('should add legacy discussions to the given line', () => {
@@ -590,7 +590,7 @@ describe('DiffsStoreMutations', () => {
         diffPositionByLineCode,
       });
 
-      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions.length).toEqual(1);
+      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions).toHaveLength(1);
       expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions[0].id).toEqual(1);
     });
 
@@ -672,7 +672,7 @@ describe('DiffsStoreMutations', () => {
         diffPositionByLineCode: null,
       });
 
-      expect(state.diffFiles[0].discussions.length).toEqual(1);
+      expect(state.diffFiles[0].discussions).toHaveLength(1);
     });
 
     describe('expanded state', () => {
@@ -834,6 +834,65 @@ describe('DiffsStoreMutations', () => {
 
         expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussionsExpanded).toBe(true);
       });
+
+      it('should keep expanded state when re-adding existing discussions', () => {
+        const diffPosition = {
+          base_sha: 'ed13df29948c41ba367caa757ab3ec4892509910',
+          head_sha: 'b921914f9a834ac47e6fd9420f78db0f83559130',
+          new_line: null,
+          new_path: '500-lines-4.txt',
+          old_line: 5,
+          old_path: '500-lines-4.txt',
+          start_sha: 'ed13df29948c41ba367caa757ab3ec4892509910',
+        };
+
+        const state = {
+          latestDiff: true,
+          diffFiles: [
+            {
+              file_hash: 'ABC',
+              discussions: [],
+              [INLINE_DIFF_LINES_KEY]: [
+                {
+                  line_code: 'ABC_1',
+                  discussions: [],
+                },
+              ],
+            },
+          ],
+        };
+        const discussion = {
+          id: 1,
+          line_code: 'ABC_2',
+          line_codes: ['ABC_1'],
+          diff_discussion: true,
+          resolvable: true,
+          original_position: {},
+          position: {},
+          positions: [diffPosition],
+          diff_file: {
+            file_hash: state.diffFiles[0].file_hash,
+          },
+        };
+
+        const diffPositionByLineCode = {
+          ABC_1: diffPosition,
+        };
+
+        mutations[types.SET_LINE_DISCUSSIONS_FOR_FILE](state, {
+          discussion,
+          diffPositionByLineCode,
+        });
+
+        mutations[types.SET_EXPAND_ALL_DIFF_DISCUSSIONS](state, false);
+
+        mutations[types.SET_LINE_DISCUSSIONS_FOR_FILE](state, {
+          discussion,
+          diffPositionByLineCode,
+        });
+
+        expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussionsExpanded).toBe(false);
+      });
     });
   });
 
@@ -869,7 +928,7 @@ describe('DiffsStoreMutations', () => {
         lineCode: 'ABC_1',
       });
 
-      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions.length).toEqual(0);
+      expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussions).toHaveLength(0);
     });
   });
 
@@ -884,6 +943,22 @@ describe('DiffsStoreMutations', () => {
       };
 
       mutations[types.TOGGLE_FOLDER_OPEN](state, 'path');
+
+      expect(state.treeEntries.path.opened).toBe(true);
+    });
+  });
+
+  describe('SET_FOLDER_OPEN', () => {
+    it('toggles entry opened prop', () => {
+      const state = {
+        treeEntries: {
+          path: {
+            opened: false,
+          },
+        },
+      };
+
+      mutations[types.SET_FOLDER_OPEN](state, { path: 'path', opened: true });
 
       expect(state.treeEntries.path.opened).toBe(true);
     });
@@ -916,16 +991,6 @@ describe('DiffsStoreMutations', () => {
       mutations[types.TREE_ENTRY_DIFF_LOADING](state, { path: 'path', loading: false });
 
       expect(state.treeEntries.path.diffLoading).toBe(false);
-    });
-  });
-
-  describe('SET_SHOW_TREE_LIST', () => {
-    it('sets showTreeList', () => {
-      const state = createState();
-
-      mutations[types.SET_SHOW_TREE_LIST](state, true);
-
-      expect(state.showTreeList).toBe(true, 'Failed to toggle showTreeList to true');
     });
   });
 
@@ -1267,7 +1332,7 @@ describe('DiffsStoreMutations', () => {
 
       mutations[types.ADD_DRAFT_TO_FILE](state, { filePath: 'path', draft: 'test' });
 
-      expect(state.diffFiles[0].drafts.length).toEqual(1);
+      expect(state.diffFiles[0].drafts).toHaveLength(1);
       expect(state.diffFiles[0].drafts[0]).toEqual('test');
     });
   });
@@ -1294,7 +1359,7 @@ describe('DiffsStoreMutations', () => {
         diffFiles: [{ file_hash: fileHash, discussions: [discussion] }],
       };
 
-      mutations[types.TOGGLE_FILE_DISCUSSION_EXPAND](state, discussion);
+      mutations[types.TOGGLE_FILE_DISCUSSION_EXPAND](state, { discussion });
 
       expect(state.diffFiles[0].discussions[0].expandedOnDiff).toBe(true);
     });
@@ -1308,7 +1373,7 @@ describe('DiffsStoreMutations', () => {
         diffFiles: [{ file_hash: fileHash, discussions: [discussion] }],
       };
 
-      mutations[types.TOGGLE_FILE_DISCUSSION_EXPAND](state, discussion);
+      mutations[types.TOGGLE_FILE_DISCUSSION_EXPAND](state, { discussion });
 
       expect(state.diffFiles[0].discussions[0].expandedOnDiff).toBe(false);
     });
@@ -1322,6 +1387,7 @@ describe('DiffsStoreMutations', () => {
             [INLINE_DIFF_LINES_KEY]: [
               { line_code: 'foo', discussions: [{}], discussionsExpanded: false },
             ],
+            discussions: [{ expandedOnDiff: false }],
           },
           {
             [INLINE_DIFF_LINES_KEY]: [],
@@ -1333,18 +1399,35 @@ describe('DiffsStoreMutations', () => {
       mutations[types.SET_EXPAND_ALL_DIFF_DISCUSSIONS](state, true);
 
       expect(state.diffFiles[0][INLINE_DIFF_LINES_KEY][0].discussionsExpanded).toBe(true);
+      expect(state.diffFiles[0].discussions[0].expandedOnDiff).toBe(true);
       expect(state.diffFiles[1].discussions[0].expandedOnDiff).toBe(true);
     });
   });
 
-  describe('SET_PINNED_FILE_HASH', () => {
-    it('set pinned file hash', () => {
+  describe('SET_LINKED_FILE_HASH', () => {
+    it('set linked file hash', () => {
       const state = {};
       const file = getDiffFileMock();
 
-      mutations[types.SET_PINNED_FILE_HASH](state, file.file_hash);
+      mutations[types.SET_LINKED_FILE_HASH](state, file.file_hash);
 
-      expect(state.pinnedFileHash).toBe(file.file_hash);
+      expect(state.linkedFileHash).toBe(file.file_hash);
+    });
+  });
+
+  describe('SET_COLLAPSED_STATE_FOR_ALL_FILES', () => {
+    it('sets collapsed state for all files', () => {
+      const state = {
+        diffFiles: [getDiffFileMock(), getDiffFileMock()],
+      };
+
+      mutations[types.SET_COLLAPSED_STATE_FOR_ALL_FILES](state, { collapsed: true });
+
+      expect(
+        state.diffFiles.every(
+          ({ viewer }) => viewer.manuallyCollapsed && !viewer.automaticallyCollapsed,
+        ),
+      ).toBe(true);
     });
   });
 });

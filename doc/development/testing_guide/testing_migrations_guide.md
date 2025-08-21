@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Testing Rails migrations at GitLab
 ---
-
-# Testing Rails migrations at GitLab
 
 In order to reliably check Rails migrations, we need to test them against
 a database schema.
@@ -448,3 +447,7 @@ end
 
 These tests do not run within a database transaction, as we use a deletion database
 cleanup strategy. Do not depend on a transaction being present.
+
+When testing migrations that alter seeded data in `deletion_except_tables`, you may add the
+`:migration_with_transaction` metadata so the test runs within a transaction and the data
+is rolled back to their original values.

@@ -18,6 +18,34 @@ module QA
         def focus
           @tags.to_a
         end
+
+        # Pipeline mapping for this scenario
+        #
+        # Defines pipeline mapping hash for this scenario
+        # Mapping must use one of the pipeline types defined in QA::Ci::Tools::PipelineCreator::SUPPORTED_PIPELINES
+        # and an array of jobs which must exist in that pipeline
+        #
+        # @example
+        # pipeline_mappings test_on_cng: ['cng-instance'], test_on_gdk: ['gdk-instance']
+        #
+        # @return [Hash<String, Array<String>>]
+        def pipeline_mappings(**kwargs)
+          @pipeline_mapping = kwargs
+        end
+
+        # Glob pattern limiting which specs scenario can run
+        #
+        # @param pattern [String]
+        # @return [String]
+        def spec_glob_pattern(pattern)
+          unless pattern.is_a?(String) && pattern.end_with?("_spec.rb")
+            raise ArgumentError, "Scenario #{self.class.name} defines pattern that is not matching only spec files"
+          end
+
+          @spec_pattern = pattern
+        end
+
+        attr_reader :pipeline_mapping, :spec_pattern
       end
 
       def perform(options, *args)
@@ -35,6 +63,7 @@ module QA
         Specs::Runner.perform do |specs|
           specs.tty = true
           specs.tags = self.class.focus
+          specs.spec_pattern = self.class.spec_pattern
           specs.options = args if args.any?
         end
       end

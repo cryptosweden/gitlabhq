@@ -6,7 +6,7 @@ class X509Certificate < ApplicationRecord
 
   x509_serial_number_attribute :serial_number
 
-  enum certificate_status: {
+  enum :certificate_status, {
     good: 0,
     revoked: 1
   }
@@ -35,6 +35,10 @@ class X509Certificate < ApplicationRecord
 
   def self.serial_numbers(issuer)
     by_x509_issuer(issuer).pluck(:serial_number)
+  end
+
+  def all_emails
+    [email, emails].flatten.compact.uniq
   end
 
   def mark_commit_signatures_unverified

@@ -1,28 +1,37 @@
 <script>
 import {
   GlDisclosureDropdown,
-  GlTooltipDirective,
   GlDisclosureDropdownGroup,
   GlDisclosureDropdownItem,
+  GlLink,
+  GlTooltipDirective,
 } from '@gitlab/ui';
+import { isMetaClick } from '~/lib/utils/common_utils';
 import InviteMembersTrigger from '~/invite_members/components/invite_members_trigger.vue';
 import { __ } from '~/locale';
 import {
   TOP_NAV_INVITE_MEMBERS_COMPONENT,
   TRIGGER_ELEMENT_DISCLOSURE_DROPDOWN,
 } from '~/invite_members/constants';
-import { WORK_ITEM_TYPE_ENUM_EPIC, CREATE_NEW_WORK_ITEM_MODAL } from '~/work_items/constants';
-import { DROPDOWN_Y_OFFSET, IMPERSONATING_OFFSET } from '../constants';
+import {
+  BASE_ALLOWED_CREATE_TYPES,
+  CREATE_NEW_WORK_ITEM_MODAL,
+  CREATION_CONTEXT_SUPER_SIDEBAR,
+  WORK_ITEM_TYPE_NAME_EPIC,
+} from '~/work_items/constants';
+import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import { DROPDOWN_Y_OFFSET } from '../constants';
 
 // Left offset required for the dropdown to be aligned with the super sidebar
-const DROPDOWN_X_OFFSET_BASE = -177;
-const DROPDOWN_X_OFFSET_IMPERSONATING = DROPDOWN_X_OFFSET_BASE + IMPERSONATING_OFFSET;
+const DROPDOWN_X_OFFSET_BASE = -158;
 
 export default {
+  CREATION_CONTEXT_SUPER_SIDEBAR,
   components: {
     GlDisclosureDropdown,
     GlDisclosureDropdownGroup,
     GlDisclosureDropdownItem,
+    GlLink,
     InviteMembersTrigger,
     CreateWorkItemModal: () => import('~/work_items/components/create_work_item_modal.vue'),
   },
@@ -30,9 +39,10 @@ export default {
     GlTooltip: GlTooltipDirective,
   },
   i18n: {
-    createNew: __('Create new...'),
+    createNew: __('Create new…'),
   },
-  inject: ['isImpersonating'],
+  mixins: [glFeatureFlagsMixin()],
+  inject: ['isGroup', 'fullPath', 'workItemPlanningViewEnabled'],
   props: {
     groups: {
       type: Array,
@@ -42,14 +52,30 @@ export default {
   data() {
     return {
       dropdownOpen: false,
+      isCreateWorkItemModalVisible: false,
+      loadCreateWorkItemModal: false,
     };
   },
   computed: {
+    superTopbarEnabled() {
+      return this.glFeatures.globalTopbar;
+    },
+    allowedWorkItemTypes() {
+      if (this.isGroup) {
+        return [];
+      }
+      return BASE_ALLOWED_CREATE_TYPES;
+    },
     dropdownOffset() {
       return {
         mainAxis: DROPDOWN_Y_OFFSET,
-        crossAxis: this.isImpersonating ? DROPDOWN_X_OFFSET_IMPERSONATING : DROPDOWN_X_OFFSET_BASE,
+        crossAxis: this.superTopbarEnabled ? -8 : DROPDOWN_X_OFFSET_BASE,
       };
+    },
+    preselectedWorkItemType() {
+      return !this.workItemPlanningViewEnabled && this.isGroup
+        ? WORK_ITEM_TYPE_NAME_EPIC
+        : undefined;
     },
   },
   methods: {
@@ -59,23 +85,45 @@ export default {
     isCreateWorkItem(groupItem) {
       return groupItem.component === CREATE_NEW_WORK_ITEM_MODAL;
     },
+    getCreateWorkItemItem(groupItem) {
+      // Make sure <gl-disclosure-dropdown-item> doesn't have an href so it's
+      // not rendered as <a> which prevents us from opening the create modal
+      return { ...groupItem, href: undefined };
+    },
+    getCreateWorkItemHref(groupItem) {
+      return this.workItemPlanningViewEnabled ? undefined : groupItem.href;
+    },
+    handleCreateWorkItemClick(event) {
+      if (event && isMetaClick(event)) {
+        // opening in a new tab
+        return;
+      }
+
+      // don't follow the link for normal clicks - open in modal
+      event?.preventDefault?.();
+
+      this.loadCreateWorkItemModal = true;
+      this.isCreateWorkItemModalVisible = true;
+    },
   },
   toggleId: 'create-menu-toggle',
   TRIGGER_ELEMENT_DISCLOSURE_DROPDOWN,
-  WORK_ITEM_TYPE_ENUM_EPIC,
+  WORK_ITEM_TYPE_NAME_EPIC,
 };
 </script>
 
 <template>
   <gl-disclosure-dropdown
-    v-gl-tooltip:super-sidebar.bottom="dropdownOpen ? '' : $options.i18n.createNew"
+    v-gl-tooltip.bottom="dropdownOpen ? '' : $options.i18n.createNew"
     category="tertiary"
-    icon="plus"
+    :icon="superTopbarEnabled ? 'plus-square-o' : 'plus'"
     no-caret
     text-sr-only
     :toggle-text="$options.i18n.createNew"
     :toggle-id="$options.toggleId"
     :dropdown-offset="dropdownOffset"
+    class="super-sidebar-new-menu-dropdown"
+    :toggle-class="{ '!gl-rounded-lg': superTopbarEnabled }"
     data-testid="new-menu-toggle"
     @shown="dropdownOpen = true"
     @hidden="dropdownOpen = false"
@@ -93,14 +141,39 @@ export default {
           trigger-source="top_nav"
           :trigger-element="$options.TRIGGER_ELEMENT_DISCLOSURE_DROPDOWN"
         />
-        <create-work-item-modal
+        <gl-disclosure-dropdown-item
           v-else-if="isCreateWorkItem(groupItem)"
           :key="`${groupItem.text}-modal-trigger`"
-          as-dropdown-item
-          :work-item-type-name="$options.WORK_ITEM_TYPE_ENUM_EPIC"
-        />
+          :item="getCreateWorkItemItem(groupItem)"
+          data-testid="new-work-item-trigger"
+          @action="handleCreateWorkItemClick"
+        >
+          <template #list-item>
+            <gl-link
+              v-if="getCreateWorkItemHref(groupItem)"
+              class="gl-block gl-text-default hover:gl-text-default hover:gl-no-underline"
+              :href="getCreateWorkItemHref(groupItem)"
+              @click.stop="handleCreateWorkItemClick"
+            >
+              {{ groupItem.text }}
+            </gl-link>
+          </template>
+        </gl-disclosure-dropdown-item>
         <gl-disclosure-dropdown-item v-else :key="groupItem.text" :item="groupItem" />
       </template>
     </gl-disclosure-dropdown-group>
+    <create-work-item-modal
+      v-if="loadCreateWorkItemModal"
+      :allowed-work-item-types="allowedWorkItemTypes"
+      :always-show-work-item-type-select="!isGroup"
+      :creation-context="$options.CREATION_CONTEXT_SUPER_SIDEBAR"
+      :full-path="fullPath"
+      hide-button
+      :is-group="isGroup"
+      :preselected-work-item-type="preselectedWorkItemType"
+      :visible="isCreateWorkItemModalVisible"
+      data-testid="new-work-item-modal"
+      @hideModal="isCreateWorkItemModalVisible = false"
+    />
   </gl-disclosure-dropdown>
 </template>

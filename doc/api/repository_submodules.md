@@ -2,20 +2,24 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Repository submodules API
 ---
 
-# Repository submodules API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
+
+Use this API to update a
+[Git submodule](https://git-scm.com/book/en/v2/Git-Tools-Submodules) reference in a specific
+branch of your Git repository.
 
 ## Update existing submodule reference in repository
 
-In some workflows, especially automated ones, it can be useful to update a
+In some workflows, especially automated ones, you can update a
 submodule's reference to keep up to date other projects that use it.
-This endpoint allows you to update a [Git submodule](https://git-scm.com/book/en/v2/Git-Tools-Submodules) reference in a
-specific branch.
 
 ```plaintext
 PUT /projects/:id/repository/submodules/:submodule
@@ -23,14 +27,16 @@ PUT /projects/:id/repository/submodules/:submodule
 
 | Attribute | Type | Required | Description |
 | --------- | ---- | -------- | ----------- |
-| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/index.md#namespaced-path-encoding) owned by the authenticated user |
+| `id` | integer/string | yes | The ID or [URL-encoded path of the project](rest/_index.md#namespaced-paths) |
 | `submodule` | string | yes | URL-encoded full path to the submodule. For example, `lib%2Fclass%2Erb` |
 | `branch` | string | yes | Name of the branch to commit into |
 | `commit_sha` | string | yes | Full commit SHA to update the submodule to |
 | `commit_message` | string | no | Commit message. If no message is provided, a default is set |
 
 ```shell
-curl --request PUT --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/5/repository/submodules/lib%2Fmodules%2Fexample" \
+curl --request PUT \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/5/repository/submodules/lib%2Fmodules%2Fexample" \
 --data "branch=main&commit_sha=3ddec28ea23acc5caa5d8331a6ecb2a65fc03e88&commit_message=Update submodule reference"
 ```
 

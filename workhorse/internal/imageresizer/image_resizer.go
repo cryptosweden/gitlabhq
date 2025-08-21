@@ -17,6 +17,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/helper"
+	"gitlab.com/gitlab-org/gitlab/workhorse/internal/metrics"
+
 	"gitlab.com/gitlab-org/labkit/tracing"
 
 	"gitlab.com/gitlab-org/gitlab/workhorse/internal/config"
@@ -163,6 +166,13 @@ func (r *Resizer) Inject(w http.ResponseWriter, req *http.Request, paramsData st
 		return
 	}
 
+	if helper.IsURL(params.Location) {
+		// Get the tracker from context and set flags
+		if tracker, ok := metrics.FromContext(req.Context()); ok {
+			tracker.SetFlag(metrics.KeyFetchedExternalURL, strconv.FormatBool(true))
+		}
+	}
+
 	imageFile, err := openSourceImage(params.Location)
 	if err != nil {
 		// This means we cannot even read the input image; fail fast.
@@ -227,7 +237,7 @@ func serveImage(r io.Reader, w io.Writer, resizeCmd *exec.Cmd) (int64, error) {
 			// err will be an ExitError; this is not useful beyond knowing the exit code since anything
 			// interesting has been written to stderr, so we turn that into an error we can return.
 			stdErr := resizeCmd.Stderr.(*strings.Builder)
-			return bytesWritten, fmt.Errorf(stdErr.String())
+			return bytesWritten, fmt.Errorf("%s", stdErr.String())
 		}
 	}
 
@@ -319,12 +329,8 @@ func startResizeImageCommand(ctx context.Context, imageReader io.Reader, params 
 	return cmd, stdout, nil
 }
 
-func isURL(location string) bool {
-	return strings.HasPrefix(location, "http://") || strings.HasPrefix(location, "https://")
-}
-
 func openSourceImage(location string) (*imageFile, error) {
-	if isURL(location) {
+	if helper.IsURL(location) {
 		return openFromURL(location)
 	}
 

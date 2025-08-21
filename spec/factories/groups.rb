@@ -11,6 +11,7 @@ FactoryBot.define do
     transient do
       # rubocop:disable Lint/EmptyBlock -- block is required by factorybot
       guests {}
+      planners {}
       reporters {}
       developers {}
       maintainers {}
@@ -29,15 +30,12 @@ FactoryBot.define do
       create(:namespace_settings, namespace: group) unless group.namespace_settings
 
       group.add_members(Array.wrap(evaluator.guests), :guest)
+      group.add_members(Array.wrap(evaluator.planners), :planner)
       group.add_members(Array.wrap(evaluator.reporters), :reporter)
       group.add_members(Array.wrap(evaluator.developers), :developer)
       group.add_members(Array.wrap(evaluator.maintainers), :maintainer)
       group.add_members(Array.wrap(evaluator.owners), :owner)
       group.add_creator(evaluator.creator) if evaluator.creator
-    end
-
-    trait :with_organization do
-      association :organization
     end
 
     trait :public do
@@ -116,7 +114,7 @@ FactoryBot.define do
 
           children.times do
             factory_name = parent.model_name.singular
-            child = FactoryBot.create(factory_name, parent: parent)
+            child = create(factory_name, parent: parent, organization: parent.organization)
             create_graph(parent: child, children: children, depth: depth - 1)
           end
 
@@ -139,6 +137,21 @@ FactoryBot.define do
 
     trait :with_root_storage_statistics do
       association :root_storage_statistics, factory: :namespace_root_storage_statistics
+    end
+  end
+
+  factory :group_with_deletion_schedule, parent: :group do
+    transient do
+      deleting_user { association(:user) }
+      marked_for_deletion_on { Date.current }
+    end
+
+    after(:create) do |group, evaluator|
+      create(:group_deletion_schedule,
+        group: group,
+        deleting_user: evaluator.deleting_user,
+        marked_for_deletion_on: evaluator.marked_for_deletion_on
+      )
     end
   end
 end

@@ -1,20 +1,28 @@
 ---
-stage: Data Stores
-group: Database
+stage: Data Access
+group: Database Frameworks
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Database migrations API
 ---
 
-# Database migrations API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/123408) in GitLab 16.2.
+{{< /details >}}
 
-This API is for managing database migrations used in the development of GitLab.
+{{< history >}}
 
-All methods require administrator authorization.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/123408) in GitLab 16.2.
+
+{{< /history >}}
+
+Use this API to manage GitLab database migrations.
+
+Prerequisites:
+
+- You must have administrator access to the instance.
 
 ## Mark a migration as successful
 

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Gitlab do
+RSpec.describe Gitlab, feature_category: :shared do
   %w[root extensions ee? jh?].each do |method_name|
     it "delegates #{method_name} to GitlabEdition" do
       expect(GitlabEdition).to receive(method_name)

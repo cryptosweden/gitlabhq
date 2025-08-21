@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Repositories
-  class LfsStorageController < Repositories::GitHttpClientController
+  class LfsStorageController < ::Repositories::GitHttpClientController
     include LfsRequest
     include WorkhorseRequest
     include SendFileUpload
@@ -15,8 +15,13 @@ module Repositories
     urgency :low, [:upload_finalize]
 
     def download
+      return render_lfs_not_found unless project
+
       lfs_object = LfsObject.find_by_oid(oid)
+
       return render_lfs_not_found unless lfs_object&.file&.exists?
+
+      return render_lfs_not_found unless lfs_object.project_allowed_access?(project)
 
       send_upload(lfs_object.file, send_params: { content_type: "application/octet-stream" })
     end
@@ -45,7 +50,8 @@ module Repositories
         oid: oid,
         size: size,
         uploaded_file: uploaded_file,
-        project: project
+        project: project,
+        repository_type: repo_type.name
       )
 
       response = service.execute

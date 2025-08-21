@@ -9,6 +9,7 @@ RSpec.describe 'Alert Management index', :js, feature_category: :incident_manage
   context 'when a developer displays the alert list' do
     before do
       sign_in(developer)
+      stub_feature_flags(hide_incident_management_features: false)
 
       visit project_alert_management_index_path(project)
       wait_for_requests
@@ -18,7 +19,7 @@ RSpec.describe 'Alert Management index', :js, feature_category: :incident_manage
       expect(page).to have_content('Alerts')
       expect(page).to have_content('Surface alerts in GitLab')
       expect(page).not_to have_selector('.gl-table')
-      page.within('.content-wrapper') do
+      page.within('#content-body') do
         expect(page).not_to have_css('[data-testid="search-icon"]')
       end
     end
@@ -27,7 +28,7 @@ RSpec.describe 'Alert Management index', :js, feature_category: :incident_manage
       it 'renders correctly' do
         expect(page).to have_content('Alerts')
         expect(page).to have_selector('.gl-table')
-        page.within('.content-wrapper') do
+        page.within('#content-body') do
           expect(page).to have_css('[data-testid="search-icon"]')
         end
       end
@@ -46,7 +47,7 @@ RSpec.describe 'Alert Management index', :js, feature_category: :incident_manage
     end
 
     context 'when the prometheus integration is enabled' do
-      let_it_be(:integration) { create(:prometheus_integration, project: project) }
+      let_it_be(:integration) { create(:alert_management_prometheus_integration, project: project) }
 
       it_behaves_like 'alert page with title, filtered search, and table'
     end

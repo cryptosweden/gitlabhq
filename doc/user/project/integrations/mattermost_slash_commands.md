@@ -1,14 +1,17 @@
 ---
-stage: Manage
-group: Import and Integrate
+stage: Create
+group: Import
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Mattermost slash commands
+description: "Configure Mattermost slash commands to run common GitLab operations from a Mattermost chat environment."
 ---
 
-# Mattermost slash commands
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 You can use [slash commands](gitlab_slack_application.md#slash-commands) to run common GitLab operations,
 like creating an issue, from a [Mattermost](https://mattermost.com/) chat environment.
@@ -25,7 +28,7 @@ you must have Mattermost [3.4 or later](https://mattermost.com/blog/category/pla
 
 - **Linux package installations**: Mattermost is bundled with
   [Linux package](https://docs.gitlab.com/omnibus/). To configure Mattermost for Linux package
-  installations, read the [Linux package Mattermost documentation](../../../integration/mattermost/index.md).
+  installations, read the [Linux package Mattermost documentation](../../../integration/mattermost/_index.md).
 - **If Mattermost is installed on the same server as GitLab**, use the
   [automated configuration](#configure-automatically).
 - **For all other installations**, use the [manual configuration](#configure-manually).
@@ -36,7 +39,7 @@ If Mattermost is installed on the same server as GitLab,
 you can automatically configure Mattermost slash commands:
 
 1. On the left sidebar, select **Search or go to** and find your project.
-1. Select **Settings > Integrations**.
+1. Select **Settings** > **Integrations**.
 1. Select **Mattermost slash commands**.
 1. Under **Enable integration**, ensure the **Active** checkbox is selected.
 1. Select **Add to Mattermost**, and select **Save changes**.
@@ -56,7 +59,7 @@ To manually configure slash commands in Mattermost, you must:
 To enable custom slash commands from the Mattermost administrator console:
 
 1. Sign in to Mattermost as a user with administrator privileges.
-1. Next to your username, select the **{ellipsis_v}** **Settings** icon, and
+1. Next to your username, select the {{< icon name="ellipsis_v" >}} **Settings** icon, and
    select **System Console**.
 1. Select **Integration Management**, and set these values to `TRUE`:
    - **Enable Custom Slash Commands**
@@ -71,8 +74,8 @@ To get configuration values from GitLab:
 
 1. In a different browser tab, sign in to
    GitLab as a user with administrator access.
-1. On the left sidebar, at the bottom, select **Admin Area**.
-1. Select **Settings > Integrations**.
+1. On the left sidebar, at the bottom, select **Admin**.
+1. Select **Settings** > **Integrations**.
 1. Select **Mattermost slash commands**. GitLab displays potential values for Mattermost settings.
 1. Copy the **Request URL** value. All other values are suggestions.
 1. Do not close this browser tab. You need it in a later step.
@@ -83,7 +86,7 @@ To create a slash command in Mattermost:
 
 1. [In the Mattermost browser tab](#enable-custom-slash-commands-in-mattermost),
    go to your team page.
-1. Select the **{ellipsis_v}** **Settings** icon, and select **Integrations**.
+1. Select the {{< icon name="ellipsis_v" >}} **Settings** icon, and select **Integrations**.
 1. On the left sidebar, select **Slash commands**.
 1. Select **Add Slash Command**.
 1. Provide a **Display Name** and **Description** for your new command.
@@ -127,7 +130,7 @@ You can see all authorized chat accounts in your Mattermost profile page under *
 
 ## Related topics
 
-- [Mattermost Linux package](../../../integration/mattermost/index.md)
+- [Mattermost Linux package](../../../integration/mattermost/_index.md)
 - [Slash commands at Mattermost](https://developers.mattermost.com/integrate/slash-commands/)
 
 ## Troubleshooting

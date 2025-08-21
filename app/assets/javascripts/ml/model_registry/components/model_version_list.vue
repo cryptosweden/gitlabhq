@@ -1,26 +1,24 @@
 <script>
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
-import { makeLoadVersionsErrorMessage } from '~/ml/model_registry/translations';
-import { s__ } from '~/locale';
+import { s__, sprintf } from '~/locale';
+import ModelVersionsTable from '~/ml/model_registry/components/model_versions_table.vue';
 import getModelVersionsQuery from '../graphql/queries/get_model_versions.query.graphql';
 import {
   GRAPHQL_PAGE_SIZE,
   LIST_KEY_CREATED_AT,
   LIST_KEY_VERSION,
-  MODEL_VERSION_CREATION_MODAL_ID,
   SORT_KEY_CREATED_AT,
   SORT_KEY_ORDER,
 } from '../constants';
-import SearchableList from './searchable_list.vue';
+import SearchableTable from './searchable_table.vue';
 import EmptyState from './model_list_empty_state.vue';
-import ModelVersionRow from './model_version_row.vue';
 
 export default {
   components: {
     EmptyState,
-    ModelVersionRow,
-    SearchableList,
+    SearchableTable,
   },
+  inject: ['createModelVersionPath', 'latestVersion'],
   props: {
     modelId: {
       type: String,
@@ -53,6 +51,9 @@ export default {
     },
   },
   computed: {
+    modelVersionsTableComponent() {
+      return ModelVersionsTable;
+    },
     isLoading() {
       return this.$apollo.queries.modelVersions.loading;
     },
@@ -61,6 +62,9 @@ export default {
     },
     versions() {
       return this.modelVersions?.nodes ?? [];
+    },
+    showSearch() {
+      return Boolean(this.latestVersion);
     },
   },
   methods: {
@@ -80,35 +84,39 @@ export default {
       this.$apollo.queries.modelVersions.fetchMore({});
     },
     handleError(error) {
-      this.errorMessage = makeLoadVersionsErrorMessage(error.message);
+      this.errorMessage = sprintf(
+        s__('MlModelRegistry|Failed to load model versions with error: %{message}'),
+        {
+          message: error.message,
+        },
+      );
+
       Sentry.captureException(error);
     },
   },
   sortableFields: [
     {
       orderBy: LIST_KEY_VERSION,
-      label: s__('MlExperimentTracking|Version'),
+      label: s__('MlModelRegistry|Version'),
     },
     {
       orderBy: LIST_KEY_CREATED_AT,
-      label: s__('MlExperimentTracking|Created at'),
+      label: s__('MlModelRegistry|Created'),
     },
   ],
   emptyState: {
-    title: s__(
-      'MlModelRegistry|Manage versions of your machine learning modelManage versions of your machine learning model',
-    ),
+    title: s__('MlModelRegistry|Manage versions of your machine learning model'),
     description: s__('MlModelRegistry|Use versions to track performance, parameters, and metadata'),
     primaryText: s__('MlModelRegistry|Create model version'),
-    modalId: MODEL_VERSION_CREATION_MODAL_ID,
   },
 };
 </script>
 <template>
-  <searchable-list
-    show-search
+  <searchable-table
+    :show-search="showSearch"
     :page-info="pageInfo"
     :items="versions"
+    :table="modelVersionsTableComponent"
     :error-message="errorMessage"
     :is-loading="isLoading"
     :sortable-fields="$options.sortableFields"
@@ -119,12 +127,8 @@ export default {
         :title="$options.emptyState.title"
         :description="$options.emptyState.description"
         :primary-text="$options.emptyState.primaryText"
-        :modal-id="$options.emptyState.modalId"
+        :primary-link="createModelVersionPath"
       />
     </template>
-
-    <template #item="{ item }">
-      <model-version-row :model-version="item" />
-    </template>
-  </searchable-list>
+  </searchable-table>
 </template>

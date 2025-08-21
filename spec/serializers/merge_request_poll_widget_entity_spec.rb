@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe MergeRequestPollWidgetEntity do
+RSpec.describe MergeRequestPollWidgetEntity, feature_category: :merge_trains do
   include ProjectForksHelper
   using RSpec::Parameterized::TableSyntax
 
@@ -17,9 +17,21 @@ RSpec.describe MergeRequestPollWidgetEntity do
     described_class.new(resource, { request: request }.merge(options)).as_json
   end
 
-  it 'has default_merge_commit_message_with_description' do
-    expect(subject[:default_merge_commit_message_with_description])
-      .to eq(resource.default_merge_commit_message(include_description: true))
+  describe '#default_merge_commit_message_with_description' do
+    it 'returns empty string' do
+      expect(subject[:default_merge_commit_message_with_description]).to eq('')
+    end
+
+    context 'when "disable_widget_responses" is disabled' do
+      before do
+        stub_feature_flags(disable_widget_responses: false)
+      end
+
+      it 'has default_merge_commit_message_with_description' do
+        expect(subject[:default_merge_commit_message_with_description])
+          .to eq(resource.default_merge_commit_message(include_description: true))
+      end
+    end
   end
 
   it { is_expected.to include(ff_only_enabled: false) }
@@ -49,20 +61,10 @@ RSpec.describe MergeRequestPollWidgetEntity do
     end
 
     context 'when auto merge is enabled' do
-      let(:resource) { create(:merge_request, :merge_when_pipeline_succeeds) }
+      let(:resource) { create(:merge_request, :merge_when_checks_pass) }
 
       it 'returns auto merge related information' do
         expect(subject[:auto_merge_strategy]).to eq('merge_when_checks_pass')
-      end
-
-      context 'when merge_when_checks_pass is false' do
-        before do
-          stub_feature_flags(merge_when_checks_pass: false)
-        end
-
-        it 'returns auto merge related information' do
-          expect(subject[:auto_merge_strategy]).to eq('merge_when_pipeline_succeeds')
-        end
       end
     end
 
@@ -82,16 +84,6 @@ RSpec.describe MergeRequestPollWidgetEntity do
 
       it 'returns available auto merge strategies' do
         expect(subject[:available_auto_merge_strategies]).to eq(%w[merge_when_checks_pass])
-      end
-
-      context 'when the merge_when_checks_pass is false' do
-        before do
-          stub_feature_flags(merge_when_checks_pass: false)
-        end
-
-        it 'returns available auto merge strategies' do
-          expect(subject[:available_auto_merge_strategies]).to eq(%w[merge_when_pipeline_succeeds])
-        end
       end
     end
 

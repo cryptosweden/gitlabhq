@@ -4,13 +4,12 @@
  */
 import { GlModal, GlSprintf, GlLink } from '@gitlab/ui';
 import { escape } from 'lodash';
-import * as Sentry from '~/sentry/sentry_browser_wrapper';
 import csrf from '~/lib/utils/csrf';
 import { __, s__, sprintf } from '~/locale';
 import { helpPagePath } from '~/helpers/help_page_helper';
+import { createAlert } from '~/alert';
 
 import rollbackEnvironment from '../graphql/mutations/rollback_environment.mutation.graphql';
-import eventHub from '../event_hub';
 
 export default {
   name: 'ConfirmRollbackModal',
@@ -43,11 +42,6 @@ export default {
       required: false,
       default: null,
     },
-    graphql: {
-      type: Boolean,
-      required: false,
-      default: false,
-    },
   },
   computed: {
     modalTitle() {
@@ -61,31 +55,18 @@ export default {
     },
     commitShortSha() {
       if (this.hasMultipleCommits) {
-        if (this.graphql) {
-          const { lastDeployment } = this.environment;
-          return this.commitData(lastDeployment, 'shortId');
-        }
-
-        const { last_deployment } = this.environment;
-        return this.commitData(last_deployment, 'short_id');
+        const { lastDeployment } = this.environment;
+        return this.commitData(lastDeployment, 'shortId');
       }
 
       return this.environment.commitShortSha;
     },
     commitUrl() {
       if (this.hasMultipleCommits) {
-        if (this.graphql) {
-          const { lastDeployment } = this.environment;
-          return (
-            // data shape comming from REST and GraphQL is unfortunately different
-            // once we fully migrate to GraphQL it could be streamlined
-            this.commitData(lastDeployment, 'commitPath') ||
-            this.commitData(lastDeployment, 'webUrl')
-          );
-        }
-
-        const { last_deployment } = this.environment;
-        return this.commitData(last_deployment, 'commit_path');
+        const { lastDeployment } = this.environment;
+        return (
+          this.commitData(lastDeployment, 'commitPath') || this.commitData(lastDeployment, 'webUrl')
+        );
       }
 
       return this.environment.commitUrl;
@@ -124,21 +105,30 @@ export default {
     handleChange(event) {
       this.$emit('change', event);
     },
-    onOk() {
-      if (this.graphql) {
-        this.$apollo
-          .mutate({
-            mutation: rollbackEnvironment,
-            variables: { environment: this.environment },
-          })
-          .then(() => {
-            this.$emit('rollback');
-          })
-          .catch((e) => {
-            Sentry.captureException(e);
+    async onConfirm() {
+      try {
+        const { data } = await this.$apollo.mutate({
+          mutation: rollbackEnvironment,
+          variables: {
+            environment: this.environment,
+          },
+        });
+        const errors = data?.rollbackEnvironment?.errors;
+        if (errors?.length) {
+          createAlert({
+            message: errors?.[0],
+            error: new Error(errors?.join(', ')),
+            captureError: true,
           });
-      } else {
-        eventHub.$emit('rollbackEnvironment', this.environment);
+        } else {
+          this.$emit('rollback');
+        }
+      } catch (error) {
+        createAlert({
+          message: __('Something went wrong. Please try again.'),
+          error,
+          captureError: true,
+        });
       }
     },
     commitData(lastDeployment, key) {
@@ -149,7 +139,9 @@ export default {
   cancelProps: {
     text: __('Cancel'),
   },
-  docsPath: helpPagePath('ci/environments/index.md', { anchor: 'retry-or-roll-back-a-deployment' }),
+  docsPath: helpPagePath('ci/environments/deployments.md', {
+    anchor: 'retry-or-roll-back-a-deployment',
+  }),
 };
 </script>
 <template>
@@ -159,7 +151,7 @@ export default {
     :action-cancel="$options.cancelProps"
     :action-primary="primaryProps"
     modal-id="confirm-rollback-modal"
-    @ok="onOk"
+    @primary="onConfirm"
     @change="handleChange"
   >
     <gl-sprintf :message="modalBodyText">

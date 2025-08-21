@@ -31,7 +31,6 @@ Issue:
 - last_edited_by_id
 - discussion_locked
 - health_status
-- external_key
 - issue_type
 - email_message_id
 - imported
@@ -127,6 +126,8 @@ Milestone:
 - updated_at
 - state
 - iid
+MilestoneRelease:
+- project_id
 ProjectSnippet:
 - id
 - title
@@ -258,6 +259,12 @@ MergeRequest::DiffCommitUser:
 - id
 - name
 - email
+MergeRequest::CommitsMetadata:
+- sha
+- message
+- trailers
+- authored_date
+- committed_date
 MergeRequestDiffFile:
 - merge_request_diff_id
 - relative_order
@@ -270,6 +277,7 @@ MergeRequestDiffFile:
 - b_mode
 - too_large
 - binary
+- encoded_file_path
 MergeRequestContextCommit:
 - id
 - authored_date
@@ -383,7 +391,6 @@ Ci::Build:
 - options
 - allow_failure
 - stage
-- trigger_request_id
 - stage_idx
 - stage_id
 - tag
@@ -435,7 +442,6 @@ Ci::Bridge:
 - options
 - allow_failure
 - stage
-- trigger_request_id
 - stage_idx
 - stage_id
 - tag
@@ -487,7 +493,6 @@ GenericCommitStatus:
 - options
 - allow_failure
 - stage
-- trigger_request_id
 - stage_idx
 - stage_id
 - tag
@@ -619,6 +624,7 @@ ProjectHook:
 - confidential_note_events
 - repository_update_events
 - releases_events
+- milestone_events
 - emoji_events
 - resource_access_token_events
 ProtectedBranch:
@@ -692,6 +698,8 @@ Project:
 - merge_commit_template
 - squash_commit_template
 - issue_branch_template
+- merge_request_title_regex
+- merge_request_title_regex_description
 Author:
 - name
 ProjectFeature:
@@ -795,26 +803,6 @@ ProjectCustomAttribute:
 - project_id
 - key
 - value
-PrometheusMetric:
-- id
-- created_at
-- updated_at
-- project_id
-- y_label
-- unit
-- legend
-- title
-- query
-- group
-- common
-- identifier
-- dashboard_path
-PrometheusAlert:
-- threshold
-- operator
-- environment_id
-- project_id
-- prometheus_metric_id
 Badge:
 - id
 - name
@@ -830,6 +818,8 @@ ProjectCiCdSetting:
 - runner_token_expiration_interval
 - default_git_depth
 ProjectSetting:
+- merge_commit_template
+- squash_commit_template
 - squash_option
 - allow_merge_on_skipped_pipeline
 - only_allow_merge_if_all_status_checks_passed
@@ -947,6 +937,7 @@ DesignManagement::Version:
 - created_at
 - sha
 - author_id
+- namespace_id
 ZoomMeeting:
 - id
 - project_id
@@ -1000,7 +991,6 @@ Epic:
   - start_date_sourcing_epic_id
   - due_date_sourcing_epic_id
   - health_status
-  - external_key
   - confidential
   - color
   - total_opened_issue_weight
@@ -1012,6 +1002,7 @@ Epic:
 EpicIssue:
   - id
   - relative_position
+  - namespace_id
 SystemNoteMetadata:
   - id
   - commit_count
@@ -1026,8 +1017,6 @@ IssuableSla:
   - issue_id
   - due_at
 PushRule:
-  - force_push_regex
-  - delete_branch_regex
   - commit_message_regex
   - author_email_regex
   - file_name_regex
@@ -1113,3 +1102,37 @@ NoteDiffFile:
   - b_mode
   - new_path
   - old_path
+Vulnerability:
+  - project_id
+  - author_id
+  - title
+  - description
+  - severity
+  - report_type
+Vulnerabilities::Finding:
+  - severity
+  - report_type
+  - project_id
+  - location_fingerprint
+  - name
+  - metadata_version
+  - raw_metadata
+  - detection_method
+  - uuid
+Vulnerabilities::Scanner:
+  - project_id
+  - external_id
+  - name
+  - vendor
+Vulnerabilities::Identifier:
+  - project_id
+  - fingerprint
+  - external_type
+  - external_id
+  - name
+  - url
+Vulnerabilities::Read:
+  - project_id
+Projects::BranchRules::SquashOption:
+  - squash_option
+  - project_id

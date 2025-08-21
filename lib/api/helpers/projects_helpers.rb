@@ -81,6 +81,8 @@ module API
         optional :squash_option, type: String, values: %w[never always default_on default_off], desc: 'Squash default for project. One of `never`, `always`, `default_on`, or `default_off`.'
         optional :mr_default_target_self, type: Boolean, desc: 'Merge requests of this forked project targets itself by default'
         optional :warn_about_potentially_unwanted_characters, type: Boolean, desc: 'Warn about potentially unwanted characters'
+        optional :merge_request_title_regex, type: String, desc: 'The regex the Merge Request must adhere to'
+        optional :merge_request_title_regex_description, type: String, desc: 'The description for the regex the Merge Request must adhere to'
       end
 
       params :optional_project_params_ee do
@@ -118,6 +120,9 @@ module API
         optional :restrict_user_defined_variables, type: Boolean, desc: 'Restrict use of user-defined variables when triggering a pipeline'
         optional :ci_pipeline_variables_minimum_override_role, values: %w[no_one_allowed developer maintainer owner], type: String, desc: 'Limit ability to override CI/CD variables when triggering a pipeline to only users with at least the set minimum role'
         optional :ci_push_repository_for_job_token_allowed, type: Boolean, desc: "Allow pushing to this project's repository by authenticating with a CI/CD job token generated in this project."
+        optional :ci_id_token_sub_claim_components, type: Array[String], desc: 'Claims that will be used to build the sub claim in id tokens'
+        optional :ci_delete_pipelines_in_seconds, type: Integer, desc: 'Pipelines older than the configured time are deleted'
+        optional :max_artifacts_size, type: Integer, desc: "Set the maximum file size for each job's artifacts"
       end
 
       params :optional_update_params_ee do
@@ -137,6 +142,10 @@ module API
         optional :enabled, type: Boolean, desc: 'Flag indication if container expiration policy is enabled'
       end
 
+      params :share_project_params_ee do
+        # Overriden in EE
+      end
+
       def self.update_params_at_least_one_of
         [
           :allow_merge_on_skipped_pipeline,
@@ -151,6 +160,7 @@ module API
           :ci_config_path,
           :ci_default_git_depth,
           :ci_allow_fork_pipelines_to_run_in_parent_project,
+          :ci_id_token_sub_claim_components,
           :ci_forward_deployment_enabled,
           :ci_forward_deployment_rollback_allowed,
           :ci_separated_caches,
@@ -168,6 +178,8 @@ module API
           :merge_requests_template,
           :merge_trains_enabled,
           :merge_method,
+          :merge_request_title_regex,
+          :merge_request_title_regex_description,
           :name,
           :only_allow_merge_if_all_discussions_are_resolved,
           :only_allow_merge_if_pipeline_succeeds,
@@ -212,6 +224,8 @@ module API
           :warn_about_potentially_unwanted_characters,
           :ci_pipeline_variables_minimum_override_role,
           :ci_push_repository_for_job_token_allowed,
+          :ci_delete_pipelines_in_seconds,
+          :max_artifacts_size,
 
           # TODO: remove in API v5, replaced by *_access_level
           :issues_enabled,
@@ -223,8 +237,7 @@ module API
         ]
       end
 
-      def filter_attributes_using_license!(attrs)
-      end
+      def filter_attributes_using_license!(attrs); end
 
       def validate_git_import_url!(import_url)
         return if import_url.blank?

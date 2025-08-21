@@ -276,6 +276,8 @@ RSpec.describe Admin::ApplicationSettingsController, :do_not_mock_admin_mode_set
       it_behaves_like 'updates boolean attribute', :admin_mode
       it_behaves_like 'updates boolean attribute', :require_admin_approval_after_user_signup
       it_behaves_like 'updates boolean attribute', :remember_me_enabled
+      it_behaves_like 'updates boolean attribute', :require_personal_access_token_expiry
+      it_behaves_like 'updates boolean attribute', :organization_cluster_agent_authorization_enabled
     end
 
     context "personal access token prefix settings" do
@@ -313,6 +315,42 @@ RSpec.describe Admin::ApplicationSettingsController, :do_not_mock_admin_mode_set
 
       context "with invalid characters prefix" do
         include_examples("rejects prefix setting", "a_préfixñ:")
+      end
+    end
+
+    context 'instance wide token prefix' do
+      let(:application_settings) { ApplicationSetting.current }
+
+      context 'with valid prefix' do
+        let(:prefix) { 'instanceprefix' }
+
+        it 'updates instance_token_prefix setting' do
+          put :update, params: { application_setting: { instance_token_prefix: prefix } }
+
+          expect(response).to redirect_to(general_admin_application_settings_path)
+          expect(application_settings.reload.instance_token_prefix).to eq(prefix)
+        end
+      end
+
+      context 'with invalid prefix' do
+        where(:prefix) do
+          %w[
+            è
+            this-prefix-is-longer-than-20-characters
+            @
+            :
+            -
+          ]
+        end
+
+        with_them do
+          it 'rejects prefix', :aggregate_failures do
+            put :update, params: { application_setting: { instance_token_prefix: prefix } }
+
+            expect(response).not_to redirect_to(general_admin_application_settings_path)
+            expect(application_settings.reload.personal_access_token_prefix).not_to eq(prefix)
+          end
+        end
       end
     end
 
@@ -424,6 +462,29 @@ RSpec.describe Admin::ApplicationSettingsController, :do_not_mock_admin_mode_set
         expect(application_settings.reload.ci_max_includes).to eq(200)
       end
     end
+
+    context 'deletion adjourned period' do
+      let(:application_settings) { ApplicationSetting.current }
+
+      it 'updates deletion_adjourned_period setting' do
+        put :update, params: { application_setting: { deletion_adjourned_period: 6 } }
+
+        expect(response).to redirect_to(general_admin_application_settings_path)
+        expect(application_settings.reload.deletion_adjourned_period).to eq(6)
+      end
+    end
+
+    context 'for project and group access tokens settings' do
+      let(:application_settings) { ApplicationSetting.current }
+
+      it 'updates inactive_resource_access_tokens_delete_after_days setting' do
+        expect do
+          put :update, params: { application_setting: { inactive_resource_access_tokens_delete_after_days: 42 } }
+        end.to change { application_settings.reload.inactive_resource_access_tokens_delete_after_days }.from(30).to(42)
+
+        expect(response).to redirect_to(general_admin_application_settings_path)
+      end
+    end
   end
 
   describe 'PUT #reset_registration_token', feature_category: :user_management do
@@ -444,7 +505,7 @@ RSpec.describe Admin::ApplicationSettingsController, :do_not_mock_admin_mode_set
     end
   end
 
-  describe 'PUT #reset_error_tracking_access_token', feature_category: :error_tracking do
+  describe 'PUT #reset_error_tracking_access_token', feature_category: :observability do
     before do
       sign_in(admin)
     end

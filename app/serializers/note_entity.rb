@@ -12,7 +12,9 @@ class NoteEntity < API::Entities::Note
 
   expose :type
 
-  expose :external_author
+  expose :external_author do |note|
+    note_presenter(note).external_author
+  end
 
   expose :author, using: NoteUserEntity
 
@@ -82,14 +84,14 @@ class NoteEntity < API::Entities::Note
   end
 
   expose :resolve_path, if: ->(note, _) { note.part_of_discussion? && note.resolvable? } do |note|
+    next unless discussion.project
+
     resolve_project_discussion_path(discussion.project, discussion.noteable_collection_name, discussion.noteable, discussion.id)
   end
 
   expose :resolve_with_issue_path, if: ->(note, _) { note.part_of_discussion? && note.resolvable? && note.noteable.is_a?(MergeRequest) } do |note|
     new_project_issue_path(note.project, merge_request_to_resolve_discussions_of: note.noteable.iid, discussion_to_resolve: note.discussion_id)
   end
-
-  expose :attachment, using: NoteAttachmentEntity, if: ->(note, _) { note.attachment? }
 
   expose :cached_markdown_version
 
@@ -111,16 +113,6 @@ class NoteEntity < API::Entities::Note
 
   def with_base_discussion?
     options.fetch(:with_base_discussion, true)
-  end
-
-  def external_author
-    return unless object.note_metadata&.external_author
-
-    if can?(current_user, :read_external_emails, object.project)
-      object.note_metadata.external_author
-    else
-      Gitlab::Utils::Email.obfuscated_email(object.note_metadata.external_author, deform: true)
-    end
   end
 
   def note_presenter(note)

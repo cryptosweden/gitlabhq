@@ -4,6 +4,7 @@ class RemoteMirror < ApplicationRecord
   include AfterCommitQueue
   include MirrorAuthentication
   include SafeUrl
+  include Gitlab::EncryptedAttribute
 
   MAX_FIRST_RUNTIME = 3.hours
   MAX_INCREMENTAL_RUNTIME = 1.hour
@@ -11,7 +12,7 @@ class RemoteMirror < ApplicationRecord
   UNPROTECTED_BACKOFF_DELAY = 5.minutes
 
   attr_encrypted :credentials,
-    key: Settings.attr_encrypted_db_key_base,
+    key: :db_key_base,
     marshal: true,
     encode: true,
     mode: :per_attribute_iv_and_salt,
@@ -20,6 +21,7 @@ class RemoteMirror < ApplicationRecord
 
   belongs_to :project, inverse_of: :remote_mirrors
 
+  validates :project, presence: true
   validates :url, presence: true, public_url: { schemes: Project::VALID_MIRROR_PROTOCOLS, allow_blank: true, enforce_user: true }
   validates :only_protected_branches, inclusion: { in: [true, false], message: :blank }
 
@@ -159,7 +161,7 @@ class RemoteMirror < ApplicationRecord
   end
 
   def update_error_message(error_message)
-    self.last_error = Gitlab::UrlSanitizer.sanitize(error_message)
+    self.last_error = Gitlab::UrlSanitizer.sanitize(error_message, user: user, password: password)
   end
 
   def mark_for_retry!(error_message)

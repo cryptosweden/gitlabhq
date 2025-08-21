@@ -2,20 +2,22 @@
 stage: Package
 group: Container Registry
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Google Artifact Management
 ---
 
-# Google Artifact Management
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com
-**Status:** Beta
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/141127) in GitLab 16.10 [with a flag](../../../administration/feature_flags.md) named
-`google_cloud_support_feature_flag`. This feature is in [beta](../../../policy/experiment-beta-support.md).
-> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/150472) in GitLab 17.1. Feature flag `google_cloud_support_feature_flag` removed.
+{{< /details >}}
 
-This feature is in [beta](../../../policy/experiment-beta-support.md).
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/141127) in GitLab 16.10 [with a flag](../../../administration/feature_flags/_index.md) named `google_cloud_support_feature_flag`. This feature is in [beta](../../../policy/development_stages_support.md).
+- [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/150472) in GitLab 17.1. Feature flag `google_cloud_support_feature_flag` removed.
+
+{{< /history >}}
 
 You can use the Google Artifact Management integration to
 configure and connect a [Google Artifact Registry](https://cloud.google.com/artifact-registry) repository to your GitLab project.
@@ -68,11 +70,11 @@ To view the list of images in the connected Artifact Registry repository in the 
 After the Artifact Registry integration is activated, the following predefined environment variables are available in CI/CD.
 You can use these environment variables to interact with the Artifact Registry, like pulling or pushing an image to the connected repository.
 
-| Variable | GitLab | Runner | Description |
-|-|-|-|-|
-| `GOOGLE_ARTIFACT_REGISTRY_PROJECT_ID` | 16.10 | 16.10 | The Google Cloud project ID where the Artifact Registry repository is located. |
-| `GOOGLE_ARTIFACT_REGISTRY_REPOSITORY_NAME` | 16.10  | 16.10 | The name of the connected Artifact Registry repository. |
-| `GOOGLE_ARTIFACT_REGISTRY_REPOSITORY_LOCATION` | 16.10  | 16.10 | The Google Cloud location of the connected Artifact Registry repository. |
+| Variable                                       | GitLab | Runner | Description |
+|------------------------------------------------|--------|--------|-------------|
+| `GOOGLE_ARTIFACT_REGISTRY_PROJECT_ID`          | 16.10  | 16.10  | The Google Cloud project ID where the Artifact Registry repository is located. |
+| `GOOGLE_ARTIFACT_REGISTRY_REPOSITORY_NAME`     | 16.10  | 16.10  | The name of the connected Artifact Registry repository. |
+| `GOOGLE_ARTIFACT_REGISTRY_REPOSITORY_LOCATION` | 16.10  | 16.10  | The Google Cloud location of the connected Artifact Registry repository. |
 
 ### Authenticate with the Google Artifact Registry
 
@@ -82,7 +84,7 @@ and populates the `GOOGLE_APPLICATION_CREDENTIALS` and `CLOUDSDK_AUTH_CREDENTIAL
 environment credentials. These environment credentials are automatically detected by client tools,
 like [gcloud CLI](https://cloud.google.com/sdk/gcloud) and [crane](https://github.com/google/go-containerregistry/blob/main/cmd/crane/README.md).
 
-To authenticate with the Google Artifact Registry, in the project's `.gitlab-ci.yml` file, use the [`identity`](../../../ci/yaml/index.md#identity) keyword set to `google_cloud`.
+To authenticate with the Google Artifact Registry, in the project's `.gitlab-ci.yml` file, use the [`identity`](../../../ci/yaml/_index.md#identity) keyword set to `google_cloud`.
 
 #### IAM policies
 
@@ -127,7 +129,7 @@ list-images:
 
 ```yaml
 list-images:
-  image: 
+  image:
     name: gcr.io/go-containerregistry/crane:debug
     entrypoint: [""]
   identity: google_cloud
@@ -209,7 +211,7 @@ copy-image:
 
 ```yaml
 copy-image:
-  image: 
+  image:
     name: gcr.io/go-containerregistry/crane:debug
     entrypoint: [""]
   identity: google_cloud

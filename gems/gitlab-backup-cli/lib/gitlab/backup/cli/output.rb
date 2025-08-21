@@ -10,11 +10,11 @@ module Gitlab
         using Rainbow
 
         ICONS = {
-          info: "\u2139\ufe0f ", # requires an extra space
-          success: "\u2705\ufe0f",
-          warning: "\u26A0\ufe0f ", # requires an extra space
-          error: "\u274C\ufe0f",
-          debug: "\u26CF\ufe0f " # requires an extra space
+          info: "\u2139\ufe0f ",
+          success: "\u2705\ufe0f ",
+          warning: "\u26A0\ufe0f ",
+          error: "\u274C\ufe0f ",
+          debug: "\u26CF\ufe0f "
         }.freeze
 
         STATES = [
@@ -46,11 +46,11 @@ module Gitlab
             output =
               case status
               when :success
-                "[DONE]\n".color(:green)
+                Rainbow("[DONE]\n").green
               when :failure
-                "[FAILED]\n".color(:red)
+                Rainbow("[FAILED]\n").red
               when :skipped
-                "[SKIPPED]\n".color(:yellow)
+                Rainbow("[SKIPPED]\n").yellow
               else
                 raise ArgumentError, "State must be one of the following: #{STATES.join(', ')}"
               end

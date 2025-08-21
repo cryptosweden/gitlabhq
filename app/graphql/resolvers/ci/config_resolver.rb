@@ -6,7 +6,7 @@ module Resolvers
       include Gitlab::Graphql::Authorize::AuthorizeResource
       include ResolvesProject
 
-      type Types::Ci::Config::ConfigType, null: true
+      type Types::Ci::LegacyConfig::ConfigType, null: true
       description <<~MD
         Linted and processed contents of a CI config.
         Should not be requested more than once per request.
@@ -32,11 +32,11 @@ module Resolvers
 
       argument :skip_verify_project_sha, GraphQL::Types::Boolean,
         required: false,
-        alpha: { milestone: '16.5' },
+        experiment: { milestone: '16.5' },
         description: "If the provided `sha` is found in the project's repository but is not " \
-                     "associated with a Git reference (a detached commit), the verification fails and a " \
-                     "validation error is returned. Otherwise, verification passes, even if the `sha` is " \
-                     "invalid. Set to `true` to skip this verification process."
+          "associated with a Git reference (a detached commit), the verification fails and a " \
+          "validation error is returned. Otherwise, verification passes, even if the `sha` is " \
+          "invalid. Set to `true` to skip this verification process."
 
       def resolve(project_path:, content:, sha: nil, dry_run: false, skip_verify_project_sha: false)
         project = authorized_find!(project_path: project_path)
@@ -44,7 +44,7 @@ module Resolvers
         result = ::Gitlab::Ci::Lint
           .new(project: project, current_user: context[:current_user], sha: sha,
             verify_project_sha: !skip_verify_project_sha)
-          .validate(content, dry_run: dry_run)
+          .legacy_validate(content, dry_run: dry_run)
 
         response(result)
       rescue GRPC::InvalidArgument => e

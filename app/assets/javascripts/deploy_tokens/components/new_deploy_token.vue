@@ -45,6 +45,10 @@ export default {
       type: Boolean,
       required: true,
     },
+    dependencyProxyEnabled: {
+      type: Boolean,
+      required: true,
+    },
     packagesRegistryEnabled: {
       type: Boolean,
       required: true,
@@ -52,6 +56,11 @@ export default {
     tokenType: {
       type: String,
       required: true,
+    },
+    readVirtualRegistryHelpText: {
+      type: String,
+      required: false,
+      default: translations.readVirtualRegistryHelp,
     },
   },
 
@@ -84,6 +93,8 @@ export default {
         writeRepository: false,
         readRegistry: false,
         writeRegistry: false,
+        readVirtualRegistry: false,
+        writeVirtualRegistry: false,
         readPackageRegistry: false,
         writePackageRegistry: false,
         scopes: [
@@ -107,6 +118,20 @@ export default {
             value: false,
             helpText: this.$options.translations.writeRegistryHelp,
             scopeName: 'write_registry',
+          },
+          {
+            id: 'deploy_token_read_virtual_registry',
+            isShown: this.$props.dependencyProxyEnabled,
+            value: false,
+            helpText: this.readVirtualRegistryHelpText,
+            scopeName: 'read_virtual_registry',
+          },
+          {
+            id: 'deploy_token_write_virtual_registry',
+            isShown: this.$props.dependencyProxyEnabled,
+            value: false,
+            helpText: this.$options.translations.writeVirtualRegistryHelp,
+            scopeName: 'write_virtual_registry',
           },
           {
             id: 'deploy_token_read_package_registry',
@@ -181,7 +206,7 @@ export default {
         class="gl-mb-4"
         @dismiss="newTokenDetails = null"
       >
-        <h5 class="gl-mt-0!">{{ $options.translations.newTokenMessage }}</h5>
+        <h5 class="!gl-mt-0">{{ $options.translations.newTokenMessage }}</h5>
         <gl-form-group>
           <template #description>
             <div class="gl-mt-2">
@@ -309,7 +334,7 @@ export default {
       <gl-button variant="confirm" @click="createDeployToken">
         {{ $options.translations.addTokenButton }}
       </gl-button>
-      <gl-button class="gl-ml-3 js-toggle-button">
+      <gl-button class="js-toggle-button gl-ml-3">
         {{ $options.translations.cancelTokenCreation }}
       </gl-button>
     </div>

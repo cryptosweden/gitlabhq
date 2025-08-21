@@ -78,11 +78,28 @@ RSpec.describe Groups::GroupLinks::CreateService, '#execute', feature_category: 
       end
 
       context 'project authorizations refresh' do
-        it 'is executed only for the direct members of the group' do
-          expect(UserProjectAccessChangedService).to receive(:new).with(contain_exactly(group_user.id))
-                                                                  .and_call_original
+        it 'schedules worker only for the direct members of the group with medium priority' do
+          expect(AuthorizedProjectUpdate::EnqueueGroupMembersRefreshAuthorizedProjectsWorker).to receive(:perform_async)
+            .with(shared_with_group.id, { 'priority' => UserProjectAccessChangedService::MEDIUM_PRIORITY,
+'direct_members_only' => true })
+            .and_call_original
 
           subject.execute
+        end
+
+        context 'when project_authorizations_update_in_background_for_group_shares feature flag is disabled' do
+          before do
+            stub_feature_flags(project_authorizations_update_in_background_for_group_shares: false)
+          end
+
+          it 'is executed only for the direct members of the group' do
+            expect(shared_with_group)
+              .to receive(:refresh_members_authorized_projects)
+              .with(direct_members_only: true, priority: UserProjectAccessChangedService::MEDIUM_PRIORITY)
+              .once
+
+            subject.execute
+          end
         end
       end
 

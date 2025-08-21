@@ -33,7 +33,7 @@ RSpec.describe 'Projects > Files > User creates files', :js, feature_category: :
         click_link('New file')
 
         expect(page).to have_content('New file')
-        expect(page).to have_content('Commit message')
+        expect(page).to have_button('Commit changes')
       end
     end
 
@@ -50,7 +50,7 @@ RSpec.describe 'Projects > Files > User creates files', :js, feature_category: :
         expect(page).to have_selector('.file-editor')
         expect(page).to have_content(fork_message)
         expect(page).to have_content('New file')
-        expect(page).to have_content('Commit message')
+        expect(page).to have_button('Commit changes')
       end
     end
   end
@@ -83,6 +83,9 @@ RSpec.describe 'Projects > Files > User creates files', :js, feature_category: :
         find('.monaco-editor textarea').send_keys.native.send_keys options[:file_content] || 'Some content'
 
         click_button 'Commit changes'
+        within_testid('commit-change-modal') do
+          click_button 'Commit changes'
+        end
       end
 
       it 'allows Chinese characters in file name' do
@@ -95,6 +98,11 @@ RSpec.describe 'Projects > Files > User creates files', :js, feature_category: :
         expect(page).to have_content 'The file has been successfully created'
       end
 
+      it 'allows special characters in file name' do
+        submit_new_file(file_name: '-un:usually;named#file?.md')
+        expect(page).to have_content 'The file has been successfully created'
+      end
+
       it 'does not allow directory traversal in file name' do
         submit_new_file(file_name: '../README.md')
         expect(page).to have_content 'Path cannot include directory traversal'
@@ -103,9 +111,12 @@ RSpec.describe 'Projects > Files > User creates files', :js, feature_category: :
       it 'creates and commits a new file' do
         editor_set_value(file_content)
         fill_in(:file_name, with: file_name)
-        fill_in(:commit_message, with: 'New commit message', visible: true)
 
         click_button('Commit changes')
+        fill_in(:commit_message, with: 'New commit message', visible: true)
+        within_testid('commit-change-modal') do
+          click_button 'Commit changes'
+        end
 
         new_file_path = project_blob_path(project, "master/#{file_name}")
 
@@ -114,14 +125,18 @@ RSpec.describe 'Projects > Files > User creates files', :js, feature_category: :
         wait_for_requests
 
         expect(page).to have_content(file_content)
+        expect(page).to have_content('New commit message')
       end
 
       it 'creates and commits a new file with new lines at the end of file' do
         editor_set_value('Sample\n\n\n')
         fill_in(:file_name, with: file_name)
-        fill_in(:commit_message, with: 'New commit message', visible: true)
 
         click_button('Commit changes')
+        fill_in(:commit_message, with: 'New commit message', visible: true)
+        within_testid('commit-change-modal') do
+          click_button 'Commit changes'
+        end
 
         new_file_path = project_blob_path(project, "master/#{file_name}")
 
@@ -138,9 +153,12 @@ RSpec.describe 'Projects > Files > User creates files', :js, feature_category: :
         expect(page).to have_selector('.file-editor')
 
         editor_set_value(file_content)
-        fill_in(:commit_message, with: 'New commit message', visible: true)
 
         click_button('Commit changes')
+        fill_in(:commit_message, with: 'New commit message', visible: true)
+        within_testid('commit-change-modal') do
+          click_button 'Commit changes'
+        end
 
         expect(page).to have_current_path(project_blob_path(project, 'master/foo/bar/baz.txt'), ignore_query: true)
 
@@ -155,11 +173,15 @@ RSpec.describe 'Projects > Files > User creates files', :js, feature_category: :
 
           editor_set_value(file_content)
           fill_in(:file_name, with: file_name)
-          fill_in(:commit_message, with: 'New commit message', visible: true)
-          fill_in(:branch_name, with: branch_name, visible: true)
-          find_field('Start a new merge request with these changes').uncheck
 
           click_button('Commit changes')
+          fill_in(:commit_message, with: 'New commit message', visible: true)
+          choose(option: true)
+          fill_in(:branch_name, with: branch_name, visible: true)
+          find_field('Create a merge request for this change').uncheck
+          within_testid('commit-change-modal') do
+            click_button 'Commit changes'
+          end
 
           new_file_path = project_blob_path(project, "#{branch_name}/#{file_name}")
 
@@ -177,10 +199,14 @@ RSpec.describe 'Projects > Files > User creates files', :js, feature_category: :
 
           editor_set_value(file_content)
           fill_in(:file_name, with: file_name)
-          fill_in(:commit_message, with: 'New commit message', visible: true)
-          fill_in(:branch_name, with: branch_name, visible: true)
 
           click_button('Commit changes')
+          fill_in(:commit_message, with: 'New commit message', visible: true)
+          choose(option: true)
+          fill_in(:branch_name, with: branch_name, visible: true)
+          within_testid('commit-change-modal') do
+            click_button 'Commit changes'
+          end
 
           expect(page).to have_current_path(project_new_merge_request_path(project), ignore_query: true)
 
@@ -202,20 +228,21 @@ RSpec.describe 'Projects > Files > User creates files', :js, feature_category: :
         click_link('New file')
       end
 
-      it 'shows a message saying the file will be committed in a fork' do
+      it 'creates and commits a new file in forked project' do
         message = "GitLab will create a branch in your fork and start a merge request."
 
-        expect(page).to have_content(message)
-      end
-
-      it 'creates and commits a new file in forked project' do
         expect(page).to have_selector('.file-editor')
 
         editor_set_value(file_content)
-
         fill_in(:file_name, with: file_name)
-        fill_in(:commit_message, with: 'New commit message', visible: true)
+
         click_button('Commit changes')
+        expect(page).to have_content(message)
+
+        fill_in(:commit_message, with: 'New commit message', visible: true)
+        within_testid('commit-change-modal') do
+          click_button 'Commit changes'
+        end
 
         fork = user.fork_of(project2.reload)
 

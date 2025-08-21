@@ -34,10 +34,10 @@ RSpec.describe 'Project > Settings > Packages and registries > Container registr
     it 'shows available section' do
       subject
 
-      expect(find_by_testid('breadcrumb-links')).to have_content('Cleanup policies')
+      expect(find_by_testid('breadcrumb-links')).to have_content('Container registry cleanup policies')
 
       section = find_by_testid('container-expiration-policy-project-settings')
-      expect(section).to have_text 'Cleanup policies'
+      expect(section).to have_text 'Container registry cleanup policies'
     end
 
     it 'passes axe automated accessibility testing' do
@@ -45,7 +45,7 @@ RSpec.describe 'Project > Settings > Packages and registries > Container registr
 
       wait_for_requests
 
-      expect(page).to be_axe_clean.within('[data-testid="container-expiration-policy-project-settings"]') # rubocop:todo Capybara/TestidFinders -- Doesn't cover use case, see https://gitlab.com/gitlab-org/gitlab/-/issues/442224
+      expect(page).to be_axe_clean.within_testid('container-expiration-policy-project-settings')
                                   .skipping :'link-in-text-block'
     end
 
@@ -65,7 +65,7 @@ RSpec.describe 'Project > Settings > Packages and registries > Container registr
       end
 
       expect(page).to have_current_path(project_settings_packages_and_registries_path(project))
-      expect(find('.gl-alert-body')).to have_content('Cleanup policy successfully saved.')
+      expect(find_by_testid('registry-update-settings-alert')).to have_content('Cleanup policy successfully saved.')
     end
 
     it 'does not save cleanup policy submit form with invalid regex' do
@@ -98,7 +98,7 @@ RSpec.describe 'Project > Settings > Packages and registries > Container registr
 
         within_testid 'container-expiration-policy-project-settings' do
           expect(find_by_testid('enable-toggle'))
-            .to have_content('Disabled - Tags will not be automatically deleted.')
+            .to have_content('Disabled - tags will not be automatically deleted.')
         end
       end
     end

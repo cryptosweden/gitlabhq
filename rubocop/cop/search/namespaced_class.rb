@@ -21,10 +21,10 @@ module RuboCop
         # These namespaces are considered acceptable.
         # Note: Nested namespace like Foo::Bar are also supported.
         PERMITTED_NAMESPACES = %w[
-          Search EE::Search API::Search EE::API::Search API::Admin::Search RuboCop::Cop::Search
-          API::Entities::Search::Zoekt
-          API::Internal::Search::Zoekt
+          Search EE::Search API::Search EE::API::Search API::Admin::Search RuboCop::Cop::Search Types Resolvers
+          API::Entities::Search::Zoekt API::Internal::Search::Zoekt
           Keeps
+          Gitlab::SidekiqMiddleware::PauseControl::Strategies::AdvancedSearch
         ].map { |x| x.split('::') }.freeze
 
         SEARCH_REGEXES = [

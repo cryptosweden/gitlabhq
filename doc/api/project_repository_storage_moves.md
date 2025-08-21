@@ -1,17 +1,19 @@
 ---
-stage: Systems
+stage: Data Access
 group: Gitaly
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Project repository storage moves API
 ---
 
-# Project repository storage moves API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 Project repositories including wiki and design repositories can be moved between storages. This API can help you when
-[migrating to Gitaly Cluster](../administration/gitaly/index.md#migrate-to-gitaly-cluster), for example.
+[migrating to Gitaly Cluster (Praefect)](../administration/gitaly/praefect/_index.md#migrate-to-gitaly-cluster-praefect), for example.
 
 As project repository storage moves are processed, they transition through different states. Values
 of `state` are:
@@ -28,7 +30,7 @@ To ensure data integrity, projects are put in a temporary read-only state for th
 duration of the move. During this time, users receive a `The repository is temporarily read-only. Please try again later.`
 message if they try to push new commits.
 
-This API requires you to [authenticate yourself](rest/index.md#authentication) as an administrator.
+This API requires you to [authenticate yourself](rest/authentication.md) as an administrator.
 
 For other repository types see:
 
@@ -42,12 +44,13 @@ GET /project_repository_storage_moves
 ```
 
 By default, `GET` requests return 20 results at a time because the API results
-are [paginated](rest/index.md#pagination).
+are [paginated](rest/_index.md#pagination).
 
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/project_repository_storage_moves"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/project_repository_storage_moves"
 ```
 
 Example response:
@@ -80,7 +83,7 @@ GET /projects/:project_id/repository_storage_moves
 ```
 
 By default, `GET` requests return 20 results at a time because the API results
-are [paginated](rest/index.md#pagination).
+are [paginated](rest/_index.md#pagination).
 
 Parameters:
 
@@ -91,7 +94,8 @@ Parameters:
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/repository_storage_moves"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/repository_storage_moves"
 ```
 
 Example response:
@@ -132,7 +136,8 @@ Parameters:
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/project_repository_storage_moves/1"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/project_repository_storage_moves/1"
 ```
 
 Example response:
@@ -172,7 +177,8 @@ Parameters:
 Example request:
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/projects/1/repository_storage_moves/1"
+curl --header "PRIVATE-TOKEN: <your_access_token>" \
+  --url "https://gitlab.example.com/api/v4/projects/1/repository_storage_moves/1"
 ```
 
 Example response:
@@ -212,9 +218,11 @@ Parameters:
 Example request:
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" --header "Content-Type: application/json" \
-     --data '{"destination_storage_name":"storage2"}' \
-     "https://gitlab.example.com/api/v4/projects/1/repository_storage_moves"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --header "Content-Type: application/json" \
+  --data '{"destination_storage_name":"storage2"}' \
+  --url "https://gitlab.example.com/api/v4/projects/1/repository_storage_moves"
 ```
 
 Example response:
@@ -258,9 +266,11 @@ Parameters:
 Example request:
 
 ```shell
-curl --request POST --header "PRIVATE-TOKEN: <your_access_token>" --header "Content-Type: application/json" \
-     --data '{"source_storage_name":"default"}' \
-     "https://gitlab.example.com/api/v4/project_repository_storage_moves"
+curl --request POST \
+  --header "PRIVATE-TOKEN: <your_access_token>" \
+  --header "Content-Type: application/json" \
+  --data '{"source_storage_name":"default"}' \
+  --url "https://gitlab.example.com/api/v4/project_repository_storage_moves"
 ```
 
 Example response:

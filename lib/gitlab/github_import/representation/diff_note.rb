@@ -52,6 +52,7 @@ module Gitlab
         # Builds a new note using a Hash that was built from a JSON payload.
         def self.from_json_hash(raw_hash)
           hash = Representation.symbolize_hash(raw_hash)
+
           hash[:author] &&= Representation::User.from_json_hash(hash[:author])
 
           new(hash)

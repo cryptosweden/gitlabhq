@@ -3,6 +3,14 @@ import { mount, shallowMount } from '@vue/test-utils';
 
 import ColorPicker from '~/vue_shared/components/color_picker/color_picker.vue';
 
+const BORDER_COLOR_ERROR_MOCK = 'red';
+const BORDER_COLOR_DEFAULT_MOCK = 'gray';
+
+jest.mock('~/vue_shared/components/color_picker/constants.js', () => ({
+  BORDER_COLOR_ERROR: BORDER_COLOR_ERROR_MOCK,
+  BORDER_COLOR_DEFAULT: BORDER_COLOR_DEFAULT_MOCK,
+}));
+
 jest.mock('lodash/uniqueId', () => (prefix) => (prefix ? `${prefix}1` : 1));
 
 describe('ColorPicker', () => {
@@ -68,10 +76,11 @@ describe('ColorPicker', () => {
     it('by default has no values', () => {
       createComponent();
 
-      expect(colorPreview().attributes('style')).toBe(undefined);
-      expect(colorPicker().attributes('value')).toBe(undefined);
+      expect(colorPreview().attributes('style')).toBe(
+        `border-color: ${BORDER_COLOR_DEFAULT_MOCK};`,
+      );
+      expect(colorPicker().props('value')).toBe('');
       expect(colorTextInput().props('value')).toBe('');
-      expect(colorPreview().attributes('class')).toContain('gl-shadow-inner-1-gray-400');
     });
 
     it('has a color set on initialization', () => {
@@ -92,7 +101,6 @@ describe('ColorPicker', () => {
       await colorTextInput().setValue(`    ${setColor}    `);
 
       expect(wrapper.emitted().input[0]).toStrictEqual([setColor]);
-      expect(colorPreview().attributes('class')).toContain('gl-shadow-inner-1-gray-400');
       expect(colorTextInput().attributes('class')).not.toContain('is-invalid');
     });
 
@@ -100,8 +108,8 @@ describe('ColorPicker', () => {
       createComponent(mount, { invalidFeedback: invalidText, state: false });
 
       expect(invalidFeedback().text()).toBe(invalidText);
-      expect(colorPreview().attributes('class')).toContain('gl-shadow-inner-1-red-500');
       expect(colorTextInput().attributes('class')).toContain('is-invalid');
+      expect(colorPreview().attributes('style')).toBe(`border-color: ${BORDER_COLOR_ERROR_MOCK};`);
     });
   });
 
@@ -126,13 +134,15 @@ describe('ColorPicker', () => {
       gon.suggested_label_colors = {};
       createComponent(shallowMount);
 
-      expect(description()).toBe('Enter any color.');
+      expect(description()).toBe('Enter any hex color.');
       expect(presetColors().exists()).toBe(false);
     });
 
     it('shows the suggested colors', () => {
       createComponent(shallowMount);
-      expect(description()).toBe('Enter any color or choose one of the suggested colors below.');
+      expect(description()).toBe(
+        'Enter any hex color or choose one of the suggested colors below.',
+      );
       expect(presetColors()).toHaveLength(4);
     });
 
@@ -150,7 +160,9 @@ describe('ColorPicker', () => {
       };
 
       createComponent(shallowMount, { suggestedColors: customColors });
-      expect(description()).toBe('Enter any color or choose one of the suggested colors below.');
+      expect(description()).toBe(
+        'Enter any hex color or choose one of the suggested colors below.',
+      );
       expect(presetColors()).toHaveLength(2);
       expect(presetColors().at(0).attributes('title')).toBe('Red');
       expect(presetColors().at(1).attributes('title')).toBe('Gray');

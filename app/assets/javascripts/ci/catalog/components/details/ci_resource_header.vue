@@ -14,8 +14,10 @@ import { cleanLeadingSeparator } from '~/lib/utils/url_utility';
 import { formatDate } from '~/lib/utils/datetime_utility';
 import AbuseCategorySelector from '~/abuse_reports/components/abuse_category_selector.vue';
 import Markdown from '~/vue_shared/components/markdown/non_gfm_markdown.vue';
-import { VERIFICATION_LEVEL_UNVERIFIED } from '../../constants';
+import TopicBadges from '~/vue_shared/components/topic_badges.vue';
+import { VERIFICATION_LEVEL_UNVERIFIED, VISIBILITY_LEVEL_PRIVATE } from '../../constants';
 import CiVerificationBadge from '../shared/ci_verification_badge.vue';
+import ProjectVisibilityIcon from '../shared/project_visibility_icon.vue';
 import CiResourceHeaderSkeletonLoader from './ci_resource_header_skeleton_loader.vue';
 
 export default {
@@ -36,6 +38,8 @@ export default {
     GlDisclosureDropdownItem,
     GlLink,
     Markdown,
+    ProjectVisibilityIcon,
+    TopicBadges,
   },
   directives: {
     GlTooltip: GlTooltipDirective,
@@ -68,6 +72,12 @@ export default {
     hasLatestVersion() {
       return this.latestVersion?.name;
     },
+    hasTopics() {
+      return this.resource?.topics?.length;
+    },
+    isProjectPrivate() {
+      return this.resource?.visibilityLevel === VISIBILITY_LEVEL_PRIVATE;
+    },
     isVerified() {
       return this.resource?.verificationLevel !== VERIFICATION_LEVEL_UNVERIFIED;
     },
@@ -91,6 +101,9 @@ export default {
     webPath() {
       return cleanLeadingSeparator(this.resource?.webPath);
     },
+    isArchived() {
+      return Boolean(this.resource.archived);
+    },
   },
   methods: {
     onAbuseButtonClicked() {
@@ -105,8 +118,8 @@ export default {
 <template>
   <div>
     <ci-resource-header-skeleton-loader v-if="isLoadingData" class="gl-py-5" />
-    <div v-else class="gl-display-flex gl-justify-content-space-between gl-py-5">
-      <div class="gl-display-flex">
+    <div v-else class="gl-flex gl-justify-between gl-py-5">
+      <div class="gl-flex">
         <gl-avatar-link :href="resource.webPath">
           <gl-avatar
             class="gl-mr-4"
@@ -117,29 +130,36 @@ export default {
             :src="resource.icon"
           />
         </gl-avatar-link>
-        <div
-          class="gl-display-flex gl-flex-direction-column gl-align-items-flex-start gl-justify-content-center"
-        >
-          <div class="gl-font-sm gl-text-secondary">
+        <div class="gl-flex gl-flex-col gl-items-start gl-justify-center">
+          <div class="gl-text-sm gl-text-subtle">
             {{ webPath }}
           </div>
-          <span class="gl-display-flex">
+          <span class="gl-flex gl-items-center gl-gap-3">
             <gl-link
-              class="gl-font-lg gl-font-bold gl-text-gray-900 gl-hover-text-gray-900"
+              class="gl-text-lg gl-font-bold gl-text-default hover:gl-text-default"
               :href="resource.webPath"
             >
               {{ resource.name }}
             </gl-link>
+            <project-visibility-icon v-if="isProjectPrivate" />
             <gl-badge
               v-if="hasLatestVersion"
               v-gl-tooltip
-              class="gl-ml-3 gl-my-1"
+              class="gl-my-1"
               variant="info"
+              data-testid="latest-version-badge"
               :href="latestVersion.path"
               :title="lastReleaseText"
             >
               {{ versionBadgeText }}
             </gl-badge>
+            <gl-badge
+              v-if="isArchived"
+              data-testid="archive-badge"
+              class="gl-my-1"
+              variant="info"
+              >{{ __('Archived') }}</gl-badge
+            >
           </span>
           <ci-verification-badge
             v-if="isVerified"
@@ -174,9 +194,10 @@ export default {
     </div>
     <div
       v-if="isLoadingData"
-      class="gl-animate-skeleton-loader gl-h-4 gl-rounded-base gl-my-3 gl-max-w-20!"
+      class="gl-animate-skeleton-loader gl-my-3 gl-h-4 !gl-max-w-20 gl-rounded-base"
     ></div>
-    <markdown v-else class="gl-mb-5" :markdown="resource.description" />
+    <markdown v-else-if="resource.description" class="gl-mb-3" :markdown="resource.description" />
+    <topic-badges v-if="hasTopics" :topics="resource.topics" :show-label="false" class="gl-mb-5" />
     <abuse-category-selector
       v-if="hasLatestVersion && isReportAbuseDrawerOpen && reportAbusePath"
       :reported-user-id="authorId"

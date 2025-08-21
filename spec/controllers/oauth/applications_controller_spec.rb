@@ -3,8 +3,8 @@
 require 'spec_helper'
 
 RSpec.describe Oauth::ApplicationsController, feature_category: :system_access do
-  let(:user) { create(:user) }
-  let(:application) { create(:oauth_application, owner: user) }
+  let_it_be(:user) { create(:user) }
+  let_it_be(:application) { create(:oauth_application, owner: user) }
 
   context 'project members' do
     before do
@@ -63,7 +63,7 @@ RSpec.describe Oauth::ApplicationsController, feature_category: :system_access d
     end
 
     describe 'PUT #update' do
-      subject { put :update, params: { id: application.id, doorkeeper_application: { name: 'application' } } }
+      subject { put :update, params: { id: application.id, authn_oauth_application: { name: 'application' } } }
 
       it { is_expected.to redirect_to(oauth_application_url(application)) }
 
@@ -94,7 +94,7 @@ RSpec.describe Oauth::ApplicationsController, feature_category: :system_access d
 
       context 'when renew fails' do
         before do
-          allow_next_found_instance_of(Doorkeeper::Application) do |application|
+          allow_next_found_instance_of(Authn::OauthApplication) do |application|
             allow(application).to receive(:save).and_return(false)
           end
         end
@@ -114,9 +114,29 @@ RSpec.describe Oauth::ApplicationsController, feature_category: :system_access d
     end
 
     describe 'GET #index' do
-      subject { get :index }
+      subject(:get_index) { get :index }
 
       it { is_expected.to have_gitlab_http_status(:ok) }
+
+      it 'sets the total count' do
+        get_index
+
+        expect(assigns(:applications_total_count)).to eq(1)
+        expect(assigns(:applications).has_next_page?).to be_falsey
+      end
+
+      context 'when more than 20 applications' do
+        before do
+          create_list(:oauth_application, 20, owner: user) # rubocop:disable FactoryBot/ExcessiveCreateList -- paginator shows if > 20 applications
+        end
+
+        it 'has paginator' do
+          get_index
+
+          expect(assigns(:applications_total_count)).to eq(21)
+          expect(assigns(:applications).has_next_page?).to be_truthy
+        end
+      end
 
       context 'when OAuth applications are disabled' do
         before do
@@ -133,7 +153,7 @@ RSpec.describe Oauth::ApplicationsController, feature_category: :system_access d
     describe 'POST #create' do
       let(:oauth_params) do
         {
-          doorkeeper_application: {
+          authn_oauth_application: {
             name: 'foo',
             redirect_uri: redirect_uri,
             scopes: scopes

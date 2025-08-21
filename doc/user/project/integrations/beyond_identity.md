@@ -2,19 +2,32 @@
 stage: Create
 group: Source Code
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
-description: "Integrate GitLab with Beyond Identity to verify GPG keys added to user accounts."
+description: Integrate GitLab with Beyond Identity to verify GPG keys added to user accounts.
+title: Beyond Identity
 ---
 
-# Beyond Identity
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed, GitLab Dedicated
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/431433) in GitLab 16.9.
+{{< /details >}}
 
-Configure GitLab to verify GPG keys issued by [Beyond Identity](https://www.beyondidentity.com/)
-added to a user profile.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/431433) in GitLab 16.9.
+
+{{< /history >}}
+
+In GitLab, users can sign their commits after [adding a GPG key to their profile](../repository/signed_commits/gpg.md).
+The GitLab integration with [Beyond Identity](https://www.beyondidentity.com/) extends this feature.
+
+When configured, this integration uses Beyond Identity to validate any new GPG key that a user adds
+to their profile. Keys that do not pass validation are rejected, and the user must upload a new key.
+
+When a user pushes a signed commit to the GitLab instance, GitLab runs a pre-receive
+check to validate those commits against the GPG key stored in the user's profile.
+This ensures that only commits signed with validated keys are accepted.
 
 ## Set up the Beyond Identity integration for your instance
 
@@ -27,7 +40,7 @@ Prerequisites:
 To enable the Beyond Identity integration for your instance:
 
 1. Sign in to GitLab as an administrator.
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Integrations**.
 1. Select **Beyond Identity**.
 1. Under **Enable integration**, select the **Active** checkbox.
@@ -52,7 +65,11 @@ Web commits are accepted without a signature.
 
 ## Skip push check for service accounts
 
+{{< history >}}
+
 - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/454369) in GitLab 16.11.
+
+{{< /history >}}
 
 Prerequisites:
 
@@ -61,32 +78,33 @@ Prerequisites:
 To skip the push check for [service accounts](../../profile/service_accounts.md):
 
 1. Sign in to GitLab as an administrator.
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Integrations**.
 1. Select **Beyond Identity**.
 1. Select the **Exclude service accounts** checkbox.
 1. Select **Save changes**.
 
-## Exclude projects from the Beyond Identity check
+## Exclude groups or projects from the Beyond Identity check
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/454372) in GitLab 17.0 [with a flag](../../../administration/feature_flags.md) named `beyond_identity_exclusions`. Enabled by default.
+{{< history >}}
 
-FLAG:
-The availability of this feature is controlled by a feature flag.
-For more information, see the history.
-This feature is available for testing, but not ready for production use.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/454372) in GitLab 17.0 [with a flag](../../../administration/feature_flags/_index.md) named `beyond_identity_exclusions`. Enabled by default.
+- Option to exclude groups [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/454372) in GitLab 17.1.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/457893) in GitLab 17.7. Feature flag `beyond_identity_exclusions` removed.
+
+{{< /history >}}
 
 Prerequisites:
 
 - You must have administrator access to the GitLab instance.
 
-To exclude projects from the Beyond Identity check:
+To exclude groups or projects from the Beyond Identity check:
 
 1. Sign in to GitLab as an administrator.
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Integrations**.
 1. Select **Beyond Identity**.
 1. Select the **Exclusions** tab.
 1. Select **Add exclusions**.
-1. On the drawer, search and select projects to exclude.
+1. On the drawer, search and select groups or projects to exclude.
 1. Select **Add exclusions**.

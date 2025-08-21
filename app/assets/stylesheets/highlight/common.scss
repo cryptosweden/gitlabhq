@@ -1,3 +1,6 @@
+@use "sass:map";
+@use "sass:color";
+
 @import '../framework/variables';
 @import './conflict_colors';
 @import 'page_bundles/mixins_and_variables_and_functions';
@@ -7,10 +10,6 @@
 
   &.line_content span.idiff {
     background: $idiff;
-  }
-
-  &.diff-line-num {
-    border-color: $border;
   }
 }
 
@@ -49,20 +48,20 @@
 }
 
 @mixin line-number-hover {
-  background-color: $purple-100;
-  border-color: $purple-200;
+  background-color: $gl-color-purple-100;
+  border-color: $gl-color-purple-200;
 
   a {
-    color: $gray-600;
+    color: $gl-color-neutral-600;
   }
 }
 
 @mixin line-number-hover-dark {
-  background-color: $purple-800;
-  border-color: $purple-300;
+  background-color: $gl-color-purple-800;
+  border-color: $gl-color-purple-300;
 
   a {
-    color: $purple-50;
+    color: $gl-color-purple-50;
   }
 }
 
@@ -70,14 +69,14 @@
   .diff-line-num {
     &.conflict_marker_our,
     &.conflict_our {
-      background-color: map-get($conflict-colors, #{$theme}-header-head-neutral);
-      border-color: map-get($conflict-colors, #{$theme}-header-head-neutral);
+      background-color: map.get($conflict-colors, #{$theme}-header-head-neutral);
+      border-color: map.get($conflict-colors, #{$theme}-header-head-neutral);
     }
 
     &.conflict_marker_their,
     &.conflict_their {
-      background-color: map-get($conflict-colors, #{$theme}-header-origin-neutral);
-      border-color: map-get($conflict-colors, #{$theme}-header-origin-neutral);
+      background-color: map.get($conflict-colors, #{$theme}-header-origin-neutral);
+      border-color: map.get($conflict-colors, #{$theme}-header-origin-neutral);
     }
   }
 
@@ -87,23 +86,23 @@
       position: relative;
 
       &.conflict_marker_our {
-        background-color: map-get($conflict-colors, #{$theme}-header-head-neutral);
-        border-color: map-get($conflict-colors, #{$theme}-header-head-neutral);
+        background-color: map.get($conflict-colors, #{$theme}-header-head-neutral);
+        border-color: map.get($conflict-colors, #{$theme}-header-head-neutral);
       }
 
       &.conflict_marker_their {
-        background-color: map-get($conflict-colors, #{$theme}-header-origin-neutral);
-        border-color: map-get($conflict-colors, #{$theme}-header-origin-neutral);
+        background-color: map.get($conflict-colors, #{$theme}-header-origin-neutral);
+        border-color: map.get($conflict-colors, #{$theme}-header-origin-neutral);
       }
 
       &.conflict_our {
-        background-color: map-get($conflict-colors, #{$theme}-line-head-neutral);
-        border-color: map-get($conflict-colors, #{$theme}-line-head-neutral);
+        background-color: map.get($conflict-colors, #{$theme}-line-head-neutral);
+        border-color: map.get($conflict-colors, #{$theme}-line-head-neutral);
       }
 
       &.conflict_their {
-        background-color: map-get($conflict-colors, #{$theme}-line-origin-neutral);
-        border-color: map-get($conflict-colors, #{$theme}-line-origin-neutral);
+        background-color: map.get($conflict-colors, #{$theme}-line-origin-neutral);
+        border-color: map.get($conflict-colors, #{$theme}-line-origin-neutral);
       }
     }
   }
@@ -132,10 +131,10 @@
   }
 }
 
-@mixin line-hover-bg($color: $gray-50) {
+@mixin line-hover-bg($color: $gl-color-neutral-50) {
   &:hover,
   &:focus-within {
-    background-color: darken($color, 10);
+    background-color: color.adjust($color, $lightness: -10);
   }
 }
 
@@ -143,6 +142,72 @@
   &.blob-viewer {
     .hljs-#{$suffix} {
       color: $color;
+    }
+  }
+}
+
+/**
+* Extends values from syntax highlight themes for merge conflict view.
+*/
+@mixin merge-conflicts-syntax-highlight-theme($theme) {
+  #conflicts {
+    .header.line_content,
+    .diff-line-num {
+      &.origin {
+        background-color: map.get($conflict-colors, #{$theme}-header-origin-neutral);
+        border-color: map.get($conflict-colors, #{$theme}-header-origin-neutral);
+
+        &.selected {
+          background-color: map.get($conflict-colors, #{$theme}-header-origin-chosen);
+          border-color: map.get($conflict-colors, #{$theme}-header-origin-chosen);
+        }
+
+        &.unselected {
+          background-color: map.get($conflict-colors, #{$theme}-header-not-chosen);
+          border-color: map.get($conflict-colors, #{$theme}-header-not-chosen);
+        }
+      }
+
+      &.head {
+        background-color: map.get($conflict-colors, #{$theme}-header-head-neutral);
+        border-color: map.get($conflict-colors, #{$theme}-header-head-neutral);
+
+        &.selected {
+          background-color: map.get($conflict-colors, #{$theme}-header-head-chosen);
+          border-color: map.get($conflict-colors, #{$theme}-header-head-chosen);
+        }
+
+        &.unselected {
+          background-color: map.get($conflict-colors, #{$theme}-header-not-chosen);
+          border-color: map.get($conflict-colors, #{$theme}-header-not-chosen);
+        }
+      }
+    }
+
+    .line_content {
+      &.origin {
+        background-color: map.get($conflict-colors, #{$theme}-line-origin-neutral);
+
+        &.selected {
+          background-color: map.get($conflict-colors, #{$theme}-line-origin-chosen);
+        }
+
+        &.unselected {
+          background-color: map.get($conflict-colors, #{$theme}-line-not-chosen);
+        }
+      }
+
+      &.head {
+        background-color: map.get($conflict-colors, #{$theme}-line-head-neutral);
+
+        &.selected {
+          background-color: map.get($conflict-colors, #{$theme}-line-head-chosen);
+        }
+
+        &.unselected {
+          background-color: map.get($conflict-colors, #{$theme}-line-not-chosen);
+        }
+      }
     }
   }
 }

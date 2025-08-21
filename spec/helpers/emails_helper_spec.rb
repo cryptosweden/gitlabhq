@@ -2,10 +2,17 @@
 
 require 'spec_helper'
 
-RSpec.describe EmailsHelper do
+RSpec.describe EmailsHelper, feature_category: :shared do
   include EmailsHelperTestHelper
+  include NotifyHelper
 
   describe 'closure_reason_text' do
+    let(:issue) { create(:issue) }
+
+    before do
+      self.instance_variable_set(:@issue, issue)
+    end
+
     context 'when given a MergeRequest' do
       let(:merge_request) { create(:merge_request) }
       let(:merge_request_presenter) { merge_request.present }
@@ -303,6 +310,28 @@ RSpec.describe EmailsHelper do
 
         expect(list_id).to eq("12345.#{list_id_path}.#{Gitlab.config.gitlab.host}")
         expect(list_id).to satisfy { |s| s.length <= max_length }
+      end
+    end
+  end
+
+  describe '#subject_with_prefix_and_suffix' do
+    using RSpec::Parameterized::TableSyntax
+
+    where(:email_subject_prefix, :email_subject_suffix, :output) do
+      nil   | nil   | 'A message from GitLab'
+      'AAA' | nil   | 'AAA | A message from GitLab'
+      nil   | 'BBB' | 'A message from GitLab | BBB'
+      'AAA' | 'BBB' | 'AAA | A message from GitLab | BBB'
+    end
+
+    with_them do
+      before do
+        stub_config_setting(email_subject_prefix: email_subject_prefix)
+        stub_config_setting(email_subject_suffix: email_subject_suffix)
+      end
+
+      it 'pads the email subject correctly' do
+        expect(described_class.subject_with_prefix_and_suffix(['A message from GitLab'])).to eq(output)
       end
     end
   end

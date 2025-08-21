@@ -6,6 +6,7 @@ RSpec.describe RepositoryUpdateRemoteMirrorWorker, :clean_gitlab_redis_shared_st
   let_it_be(:remote_mirror) { create(:remote_mirror) }
 
   let(:scheduled_time) { Time.current - 5.minutes }
+  let(:retry_time) { Time.current + 1.second }
 
   around do |example|
     freeze_time { example.run }
@@ -40,9 +41,21 @@ RSpec.describe RepositoryUpdateRemoteMirrorWorker, :clean_gitlab_redis_shared_st
 
       expect(described_class)
         .to receive(:perform_in)
-              .with(remote_mirror.backoff_delay, remote_mirror.id, scheduled_time, 1)
+              .with(remote_mirror.backoff_delay, remote_mirror.id, kind_of(Time), 1)
 
       subject.perform(remote_mirror.id, scheduled_time)
+    end
+
+    it 'continues scheduling retries after successive failures' do
+      remote_mirror.update_start!
+      remote_mirror.hard_retry!('Error!')
+      expect_mirror_service_to_return(remote_mirror, { status: :error, message: 'Retry!' }, 1)
+
+      expect(described_class)
+        .to receive(:perform_in)
+        .with(remote_mirror.backoff_delay, remote_mirror.id, retry_time, 2)
+
+      subject.perform(remote_mirror.id, Time.current, 1)
     end
 
     it 'clears the lease if there was an unexpected exception' do

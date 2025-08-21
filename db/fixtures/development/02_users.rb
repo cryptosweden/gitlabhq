@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require './spec/support/sidekiq_middleware'
+require './lib/gitlab/faker/internet'
 
 class Gitlab::Seeder::Users
   include ActionView::Helpers::NumberHelper
@@ -8,10 +9,10 @@ class Gitlab::Seeder::Users
   RANDOM_USERS_COUNT = 20
   MASS_NAMESPACES_COUNT = ENV['CI'] ? 1 : 100
   MASS_USERS_COUNT = ENV['CI'] ? 10 : 1_000_000
-  attr_reader :opts
+  attr_reader :organization
 
-  def initialize(opts = {})
-    @opts = opts
+  def initialize(organization: )
+    @organization = organization
   end
 
   def seed!
@@ -29,7 +30,7 @@ class Gitlab::Seeder::Users
 
     Gitlab::Seeder.with_mass_insert(MASS_USERS_COUNT, User) do
       ActiveRecord::Base.connection.execute <<~SQL
-        INSERT INTO users (username, name, email, state, confirmed_at, projects_limit, encrypted_password)
+        INSERT INTO users (username, name, email, state, confirmed_at, projects_limit, encrypted_password, organization_id)
         SELECT
           '#{Gitlab::Seeder::MASS_INSERT_USER_START}' || seq,
           'Seed user ' || seq,
@@ -37,7 +38,8 @@ class Gitlab::Seeder::Users
           'active',
           to_timestamp(seq),
           #{MASS_USERS_COUNT},
-          '#{encrypted_password}'
+          '#{encrypted_password}',
+          '#{organization.id}'
         FROM generate_series(1, #{MASS_USERS_COUNT}) AS seq
         ON CONFLICT DO NOTHING;
       SQL
@@ -46,12 +48,13 @@ class Gitlab::Seeder::Users
     relation = User.where(admin: false)
     Gitlab::Seeder.with_mass_insert(relation.count, 'user namespaces') do
       ActiveRecord::Base.connection.execute <<~SQL
-        INSERT INTO namespaces (name, path, owner_id, type)
+        INSERT INTO namespaces (name, path, owner_id, type, organization_id)
         SELECT
           username,
           username,
           id,
-          'User'
+          'User',
+          #{organization.id}
         FROM users WHERE NOT admin
         ON CONFLICT DO NOTHING;
       SQL
@@ -75,13 +78,14 @@ class Gitlab::Seeder::Users
     RANDOM_USERS_COUNT.times do |i|
       begin
         User.create!(
-          username: FFaker::Internet.user_name,
+          username: Gitlab::Faker::Internet.unique_username,
           name: FFaker::Name.name,
           email: FFaker::Internet.email,
           confirmed_at: DateTime.now,
-          password: random_password
+          password: random_password,
+          organization: organization
         ) do |user|
-          user.assign_personal_namespace(Organizations::Organization.default_organization)
+          user.assign_personal_namespace(user.organization)
         end
 
         print '.'
@@ -94,11 +98,12 @@ class Gitlab::Seeder::Users
   def create_mass_namespaces!
     Gitlab::Seeder.with_mass_insert(MASS_NAMESPACES_COUNT, "root namespaces and subgroups 9 levels deep") do
       ActiveRecord::Base.connection.execute <<~SQL
-        INSERT INTO namespaces (name, path, type)
+        INSERT INTO namespaces (name, path, type, organization_id)
         SELECT
           'mass insert group level 0 - ' || seq,
           '#{Gitlab::Seeder::MASS_INSERT_GROUP_START}_0_' || seq,
-          'Group'
+          'Group',
+          #{organization.id}
         FROM generate_series(1, #{MASS_NAMESPACES_COUNT}) AS seq
         ON CONFLICT DO NOTHING;
       SQL
@@ -107,12 +112,13 @@ class Gitlab::Seeder::Users
         count = Namespace.where("path LIKE '#{Gitlab::Seeder::MASS_INSERT_PREFIX}%'").where(type: 'Group').count * 2
         Gitlab::Seeder.log_message("Creating subgroups at level #{idx}: #{count}")
         ActiveRecord::Base.connection.execute <<~SQL
-          INSERT INTO namespaces (name, path, type, parent_id)
+          INSERT INTO namespaces (name, path, type, parent_id, organization_id)
           SELECT
             'mass insert group level #{idx} - ' || seq,
             '#{Gitlab::Seeder::MASS_INSERT_GROUP_START}_#{idx}_' || seq,
             'Group',
-            namespaces.id
+            namespaces.id,
+            namespaces.organization_id
           FROM namespaces
           CROSS JOIN generate_series(1, 2) AS seq
           WHERE namespaces.type='Group' AND namespaces.path like '#{Gitlab::Seeder::MASS_INSERT_GROUP_START}_#{idx-1}_%'
@@ -188,6 +194,7 @@ class Gitlab::Seeder::Users
 end
 
 Gitlab::Seeder.quiet do
-  users = Gitlab::Seeder::Users.new
+  organization = User.admins.first.organizations.first
+  users = Gitlab::Seeder::Users.new(organization: organization)
   users.seed!
 end

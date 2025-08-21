@@ -26,12 +26,12 @@ module Projects
 
       return unless admin_bot
 
-      notified_inactive_projects = Gitlab::InactiveProjectsDeletionWarningTracker.notified_projects
+      notified_inactive_projects = Gitlab::DormantProjectsDeletionWarningTracker.notified_projects
 
       project_id = last_processed_project_id
 
       Project.where('projects.id > ?', project_id).each_batch(of: 100) do |batch| # rubocop: disable CodeReuse/ActiveRecord
-        inactive_projects = batch.inactive.without_deleted
+        inactive_projects = batch.inactive.not_aimed_for_deletion
 
         inactive_projects.each do |project|
           if over_time?
@@ -42,10 +42,11 @@ module Projects
           with_context(project: project, user: admin_bot) do
             deletion_warning_email_sent_on = notified_inactive_projects["project:#{project.id}"]
 
-            if send_deletion_warning_email?(deletion_warning_email_sent_on, project)
-              send_notification(project, admin_bot)
-            elsif deletion_warning_email_sent_on && delete_due_to_inactivity?(deletion_warning_email_sent_on)
-              Gitlab::InactiveProjectsDeletionWarningTracker.new(project.id).reset
+            if deletion_warning_email_sent_on.blank?
+              send_notification(project)
+              log_audit_event(project, admin_bot)
+            elsif grace_period_is_over?(deletion_warning_email_sent_on)
+              Gitlab::DormantProjectsDeletionWarningTracker.new(project.id).reset
               delete_project(project, admin_bot)
             end
           end
@@ -58,6 +59,10 @@ module Projects
 
     private
 
+    def grace_period_is_over?(deletion_warning_email_sent_on)
+      deletion_warning_email_sent_on < grace_months_after_deletion_notification.ago
+    end
+
     def grace_months_after_deletion_notification
       strong_memoize(:grace_months_after_deletion_notification) do
         (::Gitlab::CurrentSettings.inactive_projects_delete_after_months -
@@ -65,24 +70,20 @@ module Projects
       end
     end
 
-    def send_deletion_warning_email?(deletion_warning_email_sent_on, project)
-      deletion_warning_email_sent_on.blank?
-    end
-
-    def delete_due_to_inactivity?(deletion_warning_email_sent_on)
-      deletion_warning_email_sent_on < grace_months_after_deletion_notification.ago
-    end
-
     def deletion_date
       grace_months_after_deletion_notification.from_now.to_date.to_s
     end
 
     def delete_project(project, user)
-      ::Projects::DestroyService.new(project, user, {}).async_execute
+      ::Projects::MarkForDeletionService.new(project, user, {}).execute
     end
 
-    def send_notification(project, user)
+    def send_notification(project)
       ::Projects::InactiveProjectsDeletionNotificationWorker.perform_async(project.id, deletion_date)
+    end
+
+    def log_audit_event(_project, _user)
+      # Defined in EE
     end
 
     def over_time?

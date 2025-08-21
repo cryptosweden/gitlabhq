@@ -10,7 +10,6 @@ import {
   fromSearchToVariables,
   isSearchFiltered,
 } from 'ee_else_ce/ci/runner/runner_search_utils';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import groupRunnersCountQuery from 'ee_else_ce/ci/runner/graphql/list/group_runners_count.query.graphql';
 import groupRunnersQuery from 'ee_else_ce/ci/runner/graphql/list/group_runners.query.graphql';
 
@@ -25,7 +24,6 @@ import RunnerPagination from '../components/runner_pagination.vue';
 import RunnerTypeTabs from '../components/runner_type_tabs.vue';
 import RunnerActionsCell from '../components/cells/runner_actions_cell.vue';
 import RunnerMembershipToggle from '../components/runner_membership_toggle.vue';
-import RunnerJobStatusBadge from '../components/runner_job_status_badge.vue';
 
 import { pausedTokenConfig } from '../components/search_tokens/paused_token_config';
 import { statusTokenConfig } from '../components/search_tokens/status_token_config';
@@ -36,7 +34,6 @@ import {
   PROJECT_TYPE,
   I18N_FETCH_ERROR,
   FILTER_CSS_CLASSES,
-  JOBS_ROUTE_PATH,
 } from '../constants';
 import { captureException } from '../sentry_utils';
 
@@ -56,11 +53,9 @@ export default {
     RunnerPagination,
     RunnerTypeTabs,
     RunnerActionsCell,
-    RunnerJobStatusBadge,
     RunnerDashboardLink: () =>
       import('ee_component/ci/runner/components/runner_dashboard_link.vue'),
   },
-  mixins: [glFeatureFlagMixin()],
   props: {
     newRunnerPath: {
       type: String,
@@ -95,7 +90,10 @@ export default {
   apollo: {
     runners: {
       query: groupRunnersQuery,
-      fetchPolicy: fetchPolicies.NETWORK_ONLY,
+      // Runners can be updated by users directly in this list.
+      // A "cache and network" policy prevents outdated filtered
+      // results.
+      fetchPolicy: fetchPolicies.CACHE_AND_NETWORK,
       variables() {
         return this.variables;
       },
@@ -175,21 +173,12 @@ export default {
       },
     },
   },
-  errorCaptured(error) {
-    this.reportToSentry(error);
-  },
   methods: {
     webUrl(runner) {
       return this.runners.urlsById[runner.id]?.web;
     },
     editUrl(runner) {
       return this.runners.urlsById[runner.id]?.edit;
-    },
-    jobsUrl(runner) {
-      const url = new URL(this.webUrl(runner));
-      url.hash = `#${JOBS_ROUTE_PATH}`;
-
-      return url.href;
     },
     refetchCounts() {
       this.$apollo.getClient().refetchQueries({ include: [groupRunnersCountQuery] });
@@ -228,7 +217,7 @@ export default {
           variant="confirm"
           data-testid="new-group-runner-button"
         >
-          {{ s__('Runners|New group runner') }}
+          {{ s__('Runners|Create group runner') }}
         </gl-button>
         <registration-dropdown
           :allow-registration-token="allowRegistrationToken"
@@ -238,34 +227,21 @@ export default {
       </template>
     </runner-list-header>
 
-    <div
-      class="gl-display-flex gl-align-items-center gl-flex-direction-column-reverse gl-md-flex-direction-row gl-mt-3 gl-md-mt-0"
-    >
-      <runner-type-tabs
-        ref="runner-type-tabs"
-        v-model="search"
-        :count-scope="$options.GROUP_TYPE"
-        :count-variables="countVariables"
-        :runner-types="$options.TABS_RUNNER_TYPES"
-        class="gl-w-full"
-        content-class="gl-display-none"
-        nav-class="gl-border-none!"
-      />
-    </div>
-    <div
-      class="gl-display-flex gl-flex-direction-column gl-md-flex-direction-row gl-gap-3"
-      :class="$options.FILTER_CSS_CLASSES"
-    >
+    <runner-type-tabs
+      v-model="search"
+      :count-scope="$options.GROUP_TYPE"
+      :count-variables="countVariables"
+      :runner-types="$options.TABS_RUNNER_TYPES"
+    />
+
+    <div class="gl-flex gl-flex-col gl-gap-3 md:gl-flex-row" :class="$options.FILTER_CSS_CLASSES">
       <runner-filtered-search-bar
         v-model="search"
         :tokens="searchTokens"
         :namespace="filteredSearchNamespace"
-        class="gl-flex-grow-1 gl-align-self-stretch"
+        class="gl-flex-grow gl-self-stretch"
       />
-      <runner-membership-toggle
-        v-model="search.membership"
-        class="gl-align-self-end gl-md-align-self-center"
-      />
+      <runner-membership-toggle v-model="search.membership" class="gl-self-end md:gl-self-center" />
     </div>
 
     <runner-stats :scope="$options.GROUP_TYPE" :variables="countVariables" />
@@ -282,13 +258,8 @@ export default {
         :checkable="true"
         :loading="runnersLoading"
         @deleted="onDeleted"
+        @toggledPaused="onToggledPaused"
       >
-        <template #runner-job-status-badge="{ runner }">
-          <runner-job-status-badge
-            :href="jobsUrl(runner)"
-            :job-status="runner.jobExecutionStatus"
-          />
-        </template>
         <template #runner-name="{ runner }">
           <gl-link :href="webUrl(runner)">
             <runner-name :runner="runner" />

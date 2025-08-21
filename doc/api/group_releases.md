@@ -2,25 +2,34 @@
 stage: Deploy
 group: Environments
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Group release API
 ---
 
-# Group releases API
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/351703) in GitLab 14.10 [with a flag](../administration/feature_flags.md) named `group_releases_finder_inoperator`. Disabled by default.
-> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/355463) in GitLab 15.0. Feature flag `group_releases_finder_inoperator` removed.
+{{< /details >}}
 
-Review your groups' [releases](../user/project/releases/index.md) with the REST API.
+{{< history >}}
 
-NOTE:
-For more information about the project releases API, see [Releases API](releases/index.md).
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/351703) in GitLab 14.10 [with a flag](../administration/feature_flags/_index.md) named `group_releases_finder_inoperator`. Disabled by default.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/355463) in GitLab 15.0. Feature flag `group_releases_finder_inoperator` removed.
 
-## List group releases
+{{< /history >}}
 
-Returns a list of group releases.
+Use this API to interact with [projects releases](../user/project/releases/_index.md) in groups.
+
+{{< alert type="note" >}}
+
+To interact with project releases directly, see the [project release API](releases/_index.md).
+
+{{< /alert >}}
+
+## List all releases in a group
+
+Lists all releases for projects in a specified group.
 
 ```plaintext
 GET /groups/:id/releases
@@ -29,14 +38,15 @@ GET /groups/:id/releases?simple=true
 
 Parameters:
 
-| Attribute           | Type           | Required | Description                                                                                                   |
-|---------------------|----------------|----------|---------------------------------------------------------------------------------------------------------------|
-| `id`                | integer/string | yes      | The ID or [URL-encoded path of the group](rest/index.md#namespaced-path-encoding) owned by the authenticated user. |
-| `sort`              | string         | no       | The direction of the order. Either `desc` (default) for descending order or `asc` for ascending order.        |
-| `simple`            | boolean        | no       | Return only limited fields for each release.                                                                  |
+| Attribute | Type           | Required | Description |
+| --------- | -------------- | -------- | ----------- |
+| `id`      | integer/string | yes      | The ID or [URL-encoded path](rest/_index.md#namespaced-paths) of the group. |
+| `sort`    | string         | no       | The direction of the order. Possible values: `desc` or `asc`. |
+| `simple`  | boolean        | no       | If `true`, only returns limited fields for each release. |
 
 ```shell
-curl --header "PRIVATE-TOKEN: <your_access_token>" "https://gitlab.example.com/api/v4/groups/5/releases"
+curl --header "PRIVATE-TOKEN: <your_access_token>"
+   --url "https://gitlab.example.com/api/v4/groups/5/releases"
 ```
 
 Example response:

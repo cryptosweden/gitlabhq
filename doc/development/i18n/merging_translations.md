@@ -1,10 +1,9 @@
 ---
-stage: Manage
-group: Import and Integrate
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Create
+group: Import
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Merging translations from Crowdin
 ---
-
-# Merging translations from Crowdin
 
 Crowdin automatically syncs the `gitlab.pot` file with the Crowdin service, presenting
 newly added externalized strings to the community of translators.
@@ -23,13 +22,20 @@ translations. Static analysis validates things Crowdin doesn't do. Create
 a new pipeline at [`https://gitlab.com/gitlab-org/gitlab/pipelines/new`](https://gitlab.com/gitlab-org/gitlab/pipelines/new)
 (requires the Developer role) for the `master-i18n` branch.
 
-If there are validation errors, the easiest solution is to disapprove
-the offending string in Crowdin, leaving a comment with what is
-required to fix the errors. There's an
-[issue](https://gitlab.com/gitlab-org/gitlab/-/issues/23256)
-that suggests automating this process. Disapproving excludes the
-invalid translation. The merge request is then updated within a few
-minutes.
+The pipeline job validates translations with the [`PoLinter` class](https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/i18n/po_linter.rb).
+If the linter finds any errors, they appear in the job log.
+For an example of a failed pipeline, see [these error messages](https://gitlab.com/gitlab-org/gitlab/-/jobs/6771832489#L873).
+
+If validation errors occur, you must manually disapprove the offending string
+in Crowdin and leave a comment about how to fix the errors:
+
+1. Sign in to Crowdin with the `gitlab-crowdin-bot` account.
+1. Find the offending string.
+1. Select **Current translation is wrong** to disapprove the translation for the specific target language.
+1. Include the error message from the job log as a comment.
+
+The invalid translation is then excluded, and the merge request is updated.
+Automating this process is proposed in [issue 23256](https://gitlab.com/gitlab-org/gitlab/-/issues/23256).
 
 If the translation fails validation due to angle brackets (`<` or `>`),
 it should be disapproved in Crowdin. Our strings must use [variables](externalization.md#html)
@@ -61,8 +67,11 @@ have been fixed on the default branch.
 
 ## Recreate the GitLab integration in Crowdin
 
-NOTE:
+{{< alert type="note" >}}
+
 These instructions work only for GitLab Team Members.
+
+{{< /alert >}}
 
 If for some reason the GitLab integration in Crowdin doesn't exist, you can
 recreate it with the following steps:

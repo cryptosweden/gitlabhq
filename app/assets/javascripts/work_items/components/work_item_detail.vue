@@ -1,68 +1,126 @@
 <script>
 import { isEmpty } from 'lodash';
-import { GlAlert, GlButton, GlTooltipDirective, GlEmptyState } from '@gitlab/ui';
-import noAccessSvg from '@gitlab/svgs/dist/illustrations/analytics/no-access.svg?raw';
+import {
+  GlAlert,
+  GlButton,
+  GlTooltipDirective,
+  GlEmptyState,
+  GlIntersectionObserver,
+} from '@gitlab/ui';
+import noAccessSvg from '@gitlab/svgs/dist/illustrations/empty-state/empty-search-md.svg';
+import DuoWorkflowAction from 'ee_component/ai/components/duo_workflow_action.vue';
+import DesignDropzone from '~/vue_shared/components/upload_dropzone/upload_dropzone.vue';
 import * as Sentry from '~/sentry/sentry_browser_wrapper';
-import { s__ } from '~/locale';
-import { getParameterByName, updateHistory, setUrlParams } from '~/lib/utils/url_utility';
+import { s__, __ } from '~/locale';
+import { InternalEvents } from '~/tracking';
+import { getParameterByName, updateHistory, removeParams } from '~/lib/utils/url_utility';
 import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import LocalStorageSync from '~/vue_shared/components/local_storage_sync.vue';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
+import { TYPENAME_GROUP } from '~/graphql_shared/constants';
 import { isLoggedIn } from '~/lib/utils/common_utils';
-import AbuseCategorySelector from '~/abuse_reports/components/abuse_category_selector.vue';
 import { WORKSPACE_PROJECT } from '~/issues/constants';
+import { addShortcutsExtension } from '~/behaviors/shortcuts';
+import { sanitize } from '~/lib/dompurify';
+import { shouldDisableShortcuts } from '~/behaviors/shortcuts/shortcuts_toggle';
+import { keysFor, ISSUABLE_EDIT_DESCRIPTION } from '~/behaviors/shortcuts/keybindings';
+import ShortcutsWorkItems from '~/behaviors/shortcuts/shortcuts_work_items';
+import { buildApiUrl } from '~/api/api_utils';
 import {
   i18n,
   WIDGET_TYPE_ASSIGNEES,
-  WIDGET_TYPE_NOTIFICATIONS,
   WIDGET_TYPE_CURRENT_USER_TODOS,
   WIDGET_TYPE_DESCRIPTION,
   WIDGET_TYPE_AWARD_EMOJI,
   WIDGET_TYPE_HIERARCHY,
-  WORK_ITEM_TYPE_VALUE_OBJECTIVE,
+  WORK_ITEM_TYPE_NAME_OBJECTIVE,
   WIDGET_TYPE_NOTES,
   WIDGET_TYPE_LINKED_ITEMS,
   WIDGET_TYPE_DESIGNS,
-  LINKED_ITEMS_ANCHOR,
   WORK_ITEM_REFERENCE_CHAR,
-  WORK_ITEM_TYPE_VALUE_TASK,
+  WORK_ITEM_TYPE_NAME_EPIC,
+  WIDGET_TYPE_DEVELOPMENT,
+  STATE_OPEN,
+  WIDGET_TYPE_ERROR_TRACKING,
+  WIDGET_TYPE_ITERATION,
+  WIDGET_TYPE_LINKED_RESOURCES,
+  WIDGET_TYPE_MILESTONE,
+  WORK_ITEM_TYPE_NAME_INCIDENT,
 } from '../constants';
 
 import workItemUpdatedSubscription from '../graphql/work_item_updated.subscription.graphql';
 import updateWorkItemMutation from '../graphql/update_work_item.mutation.graphql';
-import groupWorkItemByIidQuery from '../graphql/group_work_item_by_iid.query.graphql';
+import workItemByIdQuery from '../graphql/work_item_by_id.query.graphql';
 import workItemByIidQuery from '../graphql/work_item_by_iid.query.graphql';
-import { findHierarchyWidgetChildren } from '../utils';
+import getAllowedWorkItemChildTypes from '../graphql/work_item_allowed_children.query.graphql';
+import workspacePermissionsQuery from '../graphql/workspace_permissions.query.graphql';
+import { findHierarchyWidgetDefinition } from '../utils';
+import { updateWorkItemCurrentTodosWidget } from '../graphql/cache_utils';
+
+import getWorkItemDesignListQuery from './design_management/graphql/design_collection.query.graphql';
+import uploadDesignMutation from './design_management/graphql/upload_design.mutation.graphql';
+import { designUploadOptimisticResponse } from './design_management/utils';
+import { updateStoreAfterUploadDesign } from './design_management/cache_updates';
+import {
+  MAXIMUM_FILE_UPLOAD_LIMIT,
+  MAXIMUM_FILE_UPLOAD_LIMIT_REACHED,
+  designUploadSkippedWarning,
+  UPLOAD_DESIGN_ERROR_MESSAGE,
+  ALERT_VARIANTS,
+  VALID_DESIGN_FILE_MIMETYPE,
+} from './design_management/constants';
 
 import WorkItemTree from './work_item_links/work_item_tree.vue';
 import WorkItemActions from './work_item_actions.vue';
-import WorkItemTodos from './work_item_todos.vue';
+import TodosToggle from './shared/todos_toggle.vue';
 import WorkItemNotificationsWidget from './work_item_notifications_widget.vue';
 import WorkItemAttributesWrapper from './work_item_attributes_wrapper.vue';
 import WorkItemCreatedUpdated from './work_item_created_updated.vue';
 import WorkItemDescription from './work_item_description.vue';
 import WorkItemNotes from './work_item_notes.vue';
-import WorkItemDetailModal from './work_item_detail_modal.vue';
 import WorkItemAwardEmoji from './work_item_award_emoji.vue';
 import WorkItemRelationships from './work_item_relationships/work_item_relationships.vue';
 import WorkItemStickyHeader from './work_item_sticky_header.vue';
 import WorkItemAncestors from './work_item_ancestors/work_item_ancestors.vue';
 import WorkItemTitle from './work_item_title.vue';
 import WorkItemLoading from './work_item_loading.vue';
+import WorkItemAbuseModal from './work_item_abuse_modal.vue';
+import WorkItemDrawer from './work_item_drawer.vue';
 import DesignWidget from './design_management/design_management_widget.vue';
+import DesignUploadButton from './design_management/upload_button.vue';
+import WorkItemDevelopment from './work_item_development/work_item_development.vue';
+import WorkItemCreateBranchMergeRequestSplitButton from './work_item_development/work_item_create_branch_merge_request_split_button.vue';
+import WorkItemMetadataProvider from './work_item_metadata_provider.vue';
+
+const defaultWorkspacePermissions = {
+  createDesign: false,
+  updateDesign: false,
+  moveDesign: false,
+};
+
+const trackingMixin = InternalEvents.mixin();
 
 export default {
+  name: 'WorkItemDetail',
   i18n,
   directives: {
     GlTooltip: GlTooltipDirective,
   },
   isLoggedIn: isLoggedIn(),
+  VALID_DESIGN_FILE_MIMETYPE,
+  SHOW_SIDEBAR_STORAGE_KEY: 'work_item_show_sidebar',
+  ENABLE_TRUNCATION_STORAGE_KEY: 'work_item_truncate_descriptions',
   components: {
+    DesignDropzone,
     DesignWidget,
+    DesignUploadButton,
     GlAlert,
     GlButton,
     GlEmptyState,
+    GlIntersectionObserver,
+    LocalStorageSync,
     WorkItemActions,
-    WorkItemTodos,
+    TodosToggle,
     WorkItemNotificationsWidget,
     WorkItemCreatedUpdated,
     WorkItemDescription,
@@ -70,33 +128,70 @@ export default {
     WorkItemAttributesWrapper,
     WorkItemTree,
     WorkItemNotes,
-    WorkItemDetailModal,
-    AbuseCategorySelector,
     WorkItemRelationships,
+    WorkItemErrorTracking: () => import('~/work_items/components/work_item_error_tracking.vue'),
+    WorkItemLinkedResources: () => import('~/work_items/components/work_item_linked_resources.vue'),
     WorkItemStickyHeader,
     WorkItemAncestors,
     WorkItemTitle,
     WorkItemLoading,
+    WorkItemAbuseModal,
+    WorkItemDrawer,
+    WorkItemDevelopment,
+    WorkItemCreateBranchMergeRequestSplitButton,
+    WorkItemVulnerabilities: () =>
+      import('ee_component/work_items/components/work_item_vulnerabilities.vue'),
+    WorkItemMetadataProvider,
+    DuoWorkflowAction,
   },
-  mixins: [glFeatureFlagMixin()],
-  inject: ['fullPath', 'isGroup', 'reportAbusePath', 'groupPath'],
+  mixins: [glFeatureFlagMixin(), trackingMixin],
+  inject: {
+    groupPath: {
+      from: 'groupPath',
+    },
+    hasSubepicsFeature: {
+      from: 'hasSubepicsFeature',
+    },
+    hasLinkedItemsEpicsFeature: {
+      from: 'hasLinkedItemsEpicsFeature',
+    },
+    duoRemoteFlowsEnabled: {
+      from: 'duoRemoteFlowsEnabled',
+      default: false,
+    },
+  },
   props: {
     isModal: {
       type: Boolean,
       required: false,
       default: false,
     },
+    workItemId: {
+      type: String,
+      required: false,
+      default: null,
+    },
     workItemIid: {
       type: String,
       required: false,
       default: null,
     },
-    modalWorkItemFullPath: {
+    workItemFullPath: {
       type: String,
       required: false,
       default: '',
     },
+    modalIsGroup: {
+      type: Boolean,
+      required: false,
+      default: null,
+    },
     isDrawer: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    isBoard: {
       type: Boolean,
       required: false,
       default: false,
@@ -108,35 +203,65 @@ export default {
       updateError: undefined,
       workItem: {},
       updateInProgress: false,
-      modalWorkItemId: undefined,
-      modalWorkItemIid: getParameterByName('work_item_iid'),
-      modalWorkItemNamespaceFullPath: '',
-      isReportDrawerOpen: false,
+      isReportModalOpen: false,
       reportedUrl: '',
       reportedUserId: 0,
       isStickyHeaderShowing: false,
       editMode: false,
       draftData: {},
+      filesToBeSaved: [],
+      allowedChildTypes: [],
+      designUploadError: null,
+      designUploadErrorVariant: ALERT_VARIANTS.danger,
+      workspacePermissions: defaultWorkspacePermissions,
+      activeChildItem: null,
+      isEmptyStateVisible: false,
+      dragCounter: 0,
+      isDesignUploadButtonInViewport: false,
+      isDragDataValid: false,
+      isAddingNotes: false,
+      info: getParameterByName('resolves_discussion'),
+      showSidebar: true,
+      truncationEnabled: true,
+      lastRealtimeUpdatedAt: new Date(),
+      refetchError: null,
     };
   },
   apollo: {
     workItem: {
       query() {
-        return this.isGroup ? groupWorkItemByIidQuery : workItemByIidQuery;
+        if (this.workItemId) {
+          return workItemByIdQuery;
+        }
+        return workItemByIidQuery;
       },
       variables() {
+        if (this.workItemId) {
+          return {
+            id: this.workItemId,
+          };
+        }
         return {
           fullPath: this.workItemFullPath,
           iid: this.workItemIid,
         };
       },
       skip() {
-        return !this.workItemIid;
+        return !this.workItemIid && !this.workItemId;
       },
       update(data) {
-        return data.workspace.workItem ?? {};
+        if (this.workItemId) {
+          return data.workItem ?? {};
+        }
+        return data.workspace?.workItem ?? {};
       },
       error() {
+        if (this.workItem?.id === this.workItemId || this.workItem?.iid === this.workItemIid) {
+          this.refetchError = s__(
+            'WorkItem|Your data might be out of date. Refresh to see the latest information.',
+          );
+          return;
+        }
         this.setEmptyState();
       },
       result(res) {
@@ -148,7 +273,12 @@ export default {
         if (isEmpty(this.workItem)) {
           this.setEmptyState();
         }
-        if (!this.isModal && this.workItem.namespace) {
+        if (!res.error) {
+          this.error = null;
+          this.refetchError = null;
+        }
+
+        if (!(this.isModal || this.isDrawer) && this.workItem.namespace) {
           const path = this.workItem.namespace.fullPath
             ? ` · ${this.workItem.namespace.fullPath}`
             : '';
@@ -168,10 +298,24 @@ export default {
         },
       },
     },
+    workspacePermissions: {
+      query: workspacePermissionsQuery,
+      variables() {
+        return {
+          fullPath: this.workItemFullPath,
+        };
+      },
+      skip() {
+        return this.isGroupWorkItem || this.workItemLoading;
+      },
+      update(data) {
+        return data.workspace?.userPermissions ?? defaultWorkspacePermissions;
+      },
+    },
   },
   computed: {
-    workItemFullPath() {
-      return this.modalWorkItemFullPath || this.fullPath;
+    workItemProjectId() {
+      return this.workItem?.project?.id;
     },
     workItemLoading() {
       return isEmpty(this.workItem) && this.$apollo.queries.workItem.loading;
@@ -179,8 +323,8 @@ export default {
     workItemType() {
       return this.workItem.workItemType?.name;
     },
-    workItemTypeId() {
-      return this.workItem.workItemType?.id;
+    workItemAuthorId() {
+      return getIdFromGraphQLId(this.workItem.author?.id);
     },
     canUpdate() {
       return this.workItem.userPermissions?.updateWorkItem;
@@ -191,11 +335,29 @@ export default {
     canDelete() {
       return this.workItem.userPermissions?.deleteWorkItem;
     },
-    canSetWorkItemMetadata() {
+    canMove() {
+      return this.workItem.userPermissions?.moveWorkItem;
+    },
+    canReportSpam() {
+      return this.workItem.userPermissions?.reportSpam;
+    },
+    canUpdateMetadata() {
       return this.workItem.userPermissions?.setWorkItemMetadata;
     },
+    canAdminWorkItemLink() {
+      return this.workItem.userPermissions?.adminWorkItemLink;
+    },
     canAssignUnassignUser() {
-      return this.workItemAssignees && this.canSetWorkItemMetadata;
+      return this.workItemAssignees && this.canUpdateMetadata;
+    },
+    canSummarizeComments() {
+      return this.workItem.userPermissions?.summarizeComments;
+    },
+    hasBlockedWorkItemsFeature() {
+      return this.workItem.userPermissions?.blockedWorkItems;
+    },
+    canCreateNote() {
+      return this.workItem.userPermissions?.createNote;
     },
     isDiscussionLocked() {
       return this.workItemNotes?.discussionLocked;
@@ -207,35 +369,42 @@ export default {
       return this.glFeatures.notificationsTodosButtons;
     },
     parentWorkItem() {
-      return this.isWidgetPresent(WIDGET_TYPE_HIERARCHY)?.parent;
+      return this.findWidget(WIDGET_TYPE_HIERARCHY)?.parent;
     },
-    showAncestors() {
-      // TODO: This is a temporary check till the issue work item migration is completed
-      // Issue: https://gitlab.com/gitlab-org/gitlab/-/issues/468114
-      return this.workItemType === WORK_ITEM_TYPE_VALUE_TASK
-        ? this.glFeatures.namespaceLevelWorkItems && this.parentWorkItem
-        : this.parentWorkItem;
+    parentWorkItemId() {
+      return this.parentWorkItem?.id;
+    },
+    hasParent() {
+      const { workItemType, parentWorkItem, hasSubepicsFeature } = this;
+
+      if (workItemType === WORK_ITEM_TYPE_NAME_EPIC) {
+        return Boolean(hasSubepicsFeature && parentWorkItem);
+      }
+
+      return Boolean(parentWorkItem);
+    },
+    shouldShowAncestors() {
+      // Checks whether current work item has parent
+      // or it is in hierarchy but there is no permission to view the parent
+      return this.hasParent || this.workItemHierarchy?.hasParent;
     },
     parentWorkItemConfidentiality() {
       return this.parentWorkItem?.confidential;
     },
-    workItemIconName() {
-      return this.workItem.workItemType?.iconName;
-    },
-    noAccessSvgPath() {
-      return `data:image/svg+xml;utf8,${encodeURIComponent(noAccessSvg)}`;
-    },
     hasDescriptionWidget() {
-      return this.isWidgetPresent(WIDGET_TYPE_DESCRIPTION);
+      return this.findWidget(WIDGET_TYPE_DESCRIPTION);
     },
     hasDesignWidget() {
-      return this.isWidgetPresent(WIDGET_TYPE_DESIGNS);
+      return this.findWidget(WIDGET_TYPE_DESIGNS) && (this.$router || this.isBoard);
     },
-    workItemNotificationsSubscribed() {
-      return Boolean(this.isWidgetPresent(WIDGET_TYPE_NOTIFICATIONS)?.subscribed);
+    showUploadDesign() {
+      return this.hasDesignWidget && this.canAddDesign;
+    },
+    canReorderDesign() {
+      return this.hasDesignWidget && this.workspacePermissions.moveDesign;
     },
     workItemCurrentUserTodos() {
-      return this.isWidgetPresent(WIDGET_TYPE_CURRENT_USER_TODOS);
+      return this.findWidget(WIDGET_TYPE_CURRENT_USER_TODOS);
     },
     showWorkItemCurrentUserTodos() {
       return Boolean(this.$options.isLoggedIn && this.workItemCurrentUserTodos);
@@ -244,54 +413,81 @@ export default {
       return this.workItemCurrentUserTodos?.currentUserTodos?.nodes;
     },
     workItemAssignees() {
-      return this.isWidgetPresent(WIDGET_TYPE_ASSIGNEES);
+      return this.findWidget(WIDGET_TYPE_ASSIGNEES);
     },
     workItemAwardEmoji() {
-      return this.isWidgetPresent(WIDGET_TYPE_AWARD_EMOJI);
+      return this.findWidget(WIDGET_TYPE_AWARD_EMOJI);
+    },
+    workItemErrorTracking() {
+      return this.findWidget(WIDGET_TYPE_ERROR_TRACKING) ?? {};
+    },
+    workItemLinkedResources() {
+      return this.findWidget(WIDGET_TYPE_LINKED_RESOURCES)?.linkedResources.nodes ?? [];
     },
     workItemHierarchy() {
-      return this.isWidgetPresent(WIDGET_TYPE_HIERARCHY);
+      return this.findWidget(WIDGET_TYPE_HIERARCHY);
     },
     workItemNotes() {
-      return this.isWidgetPresent(WIDGET_TYPE_NOTES);
+      return this.findWidget(WIDGET_TYPE_NOTES);
     },
-    children() {
-      return this.workItem ? findHierarchyWidgetChildren(this.workItem) : [];
+    workItemDevelopment() {
+      return this.findWidget(WIDGET_TYPE_DEVELOPMENT);
     },
-    hasChildren() {
-      return !isEmpty(this.children);
+    workItemIteration() {
+      return this.findWidget(WIDGET_TYPE_ITERATION)?.iteration;
+    },
+    workItemMilestone() {
+      return this.findWidget(WIDGET_TYPE_MILESTONE)?.milestone;
     },
     workItemBodyClass() {
       return {
         'gl-pt-5': !this.updateError && !this.isModal,
       };
     },
+    flashNoticeMessage() {
+      const numberOfDiscussionsResolved = getParameterByName('resolves_discussion');
+      return numberOfDiscussionsResolved === 'all'
+        ? __('Resolved all discussions.')
+        : __('Resolved 1 discussion.');
+    },
     showIntersectionObserver() {
-      return !this.isModal && !this.editMode && !this.isDrawer;
+      return !this.isModal && !this.editMode;
     },
     workItemLinkedItems() {
-      return this.isWidgetPresent(WIDGET_TYPE_LINKED_ITEMS);
+      return this.workItemType === WORK_ITEM_TYPE_NAME_EPIC
+        ? this.findWidget(WIDGET_TYPE_LINKED_ITEMS) && this.hasLinkedItemsEpicsFeature
+        : this.findWidget(WIDGET_TYPE_LINKED_ITEMS);
     },
     showWorkItemTree() {
-      return this.isWidgetPresent(WIDGET_TYPE_HIERARCHY);
+      return this.findWidget(WIDGET_TYPE_HIERARCHY) && this.allowedChildTypes?.length > 0;
     },
     titleClassHeader() {
       return {
-        'sm:!gl-hidden gl-mt-3': this.showAncestors,
-        'sm:!gl-block': !this.showAncestors,
-        'gl-w-full': !this.showAncestors && !this.editMode,
-        'editable-wi-title': this.editMode && !this.showAncestors,
+        'sm:!gl-hidden !gl-mt-3': this.shouldShowAncestors,
+        'sm:!gl-block': !this.shouldShowAncestors,
+        'gl-w-full': !this.shouldShowAncestors && !this.editMode,
+        'editable-wi-title': this.editMode && !this.shouldShowAncestors,
       };
     },
     titleClassComponent() {
       return {
-        'sm:!gl-block': !this.showAncestors,
-        'gl-hidden sm:!gl-block gl-mt-3': this.showAncestors,
+        'sm:!gl-block': !this.shouldShowAncestors,
+        'gl-hidden sm:!gl-block !gl-mt-3': this.shouldShowAncestors,
         'editable-wi-title': this.workItemsAlphaEnabled,
       };
     },
     shouldShowEditButton() {
       return !this.editMode && this.canUpdate;
+    },
+    editShortcutKey() {
+      return shouldDisableShortcuts() ? null : keysFor(ISSUABLE_EDIT_DESCRIPTION)[0];
+    },
+    editTooltip() {
+      const description = __('Edit title and description');
+      const key = this.editShortcutKey;
+      return shouldDisableShortcuts()
+        ? description
+        : sanitize(`${description} <kbd class="flat gl-ml-1" aria-hidden=true>${key}</kbd>`);
     },
     modalCloseButtonClass() {
       return {
@@ -299,21 +495,156 @@ export default {
         'gl-flex': true,
       };
     },
+    workItemPresent() {
+      return !isEmpty(this.workItem);
+    },
+    isGroupWorkItem() {
+      return Boolean(this.modalIsGroup ?? this.workItem.namespace?.id.includes(TYPENAME_GROUP));
+    },
+    isSaving() {
+      return this.filesToBeSaved.length > 0;
+    },
+    designCollectionQueryBody() {
+      return {
+        query: getWorkItemDesignListQuery,
+        variables: { id: this.workItem.id, atVersion: null },
+      };
+    },
+    iid() {
+      return this.workItemIid || this.workItem.iid;
+    },
+    widgets() {
+      return this.workItem.widgets;
+    },
+    isItemSelected() {
+      return !isEmpty(this.activeChildItem);
+    },
+    activeChildItemType() {
+      return this.activeChildItem?.workItemType?.name;
+    },
+    activeChildItemId() {
+      return this.activeChildItem?.id;
+    },
+    workItemIsOpen() {
+      return this.workItem?.state === STATE_OPEN;
+    },
+    showCreateBranchMergeRequestSplitButton() {
+      return this.workItemDevelopment && this.workItemIsOpen;
+    },
+    namespaceFullName() {
+      return this.workItem?.namespace?.fullName || '';
+    },
+    contextualViewEnabled() {
+      return this.workItemsAlphaEnabled || this.glFeatures?.workItemViewForIssues;
+    },
+    hasChildren() {
+      return this.workItemHierarchy?.hasChildren;
+    },
+    isModalOrDrawer() {
+      return this.isModal || this.isDrawer;
+    },
+    workItemActionProps() {
+      return {
+        fullPath: this.workItemFullPath,
+        workItemId: this.workItem.id,
+        hideSubscribe: this.newTodoAndNotificationsEnabled,
+        workItemType: this.workItemType,
+        workItemIid: this.iid,
+        projectId: this.workItemProjectId,
+        canDelete: this.canDelete,
+        canReportSpam: this.canReportSpam,
+        canUpdate: this.canUpdate,
+        canUpdateMetadata: this.canUpdateMetadata,
+        canMove: this.canMove,
+        isConfidential: this.workItem.confidential,
+        isDiscussionLocked: this.isDiscussionLocked,
+        isParentConfidential: this.parentWorkItemConfidentiality,
+        workItemReference: this.workItem.reference,
+        workItemWebUrl: this.workItem.webUrl,
+        workItemCreateNoteEmail: this.workItem.createNoteEmail,
+        isModal: this.isModalOrDrawer,
+        workItemState: this.workItem.state,
+        hasChildren: this.hasChildren,
+        hasParent: this.shouldShowAncestors,
+        parentId: this.parentWorkItemId,
+        workItemAuthorId: this.workItemAuthorId,
+        canCreateRelatedItem: this.workItemLinkedItems !== undefined,
+        isGroup: this.isGroupWorkItem,
+        widgets: this.widgets,
+        allowedChildTypes: this.allowedChildTypes,
+        namespaceFullName: this.namespaceFullName,
+        showSidebar: this.showSidebar,
+        truncationEnabled: this.truncationEnabled,
+      };
+    },
+    uploadsPath() {
+      const rootPath = this.workItem?.namespace?.webUrl || '';
+      return this.isGroupWorkItem ? `${rootPath}/-/uploads` : `${rootPath}/uploads`;
+    },
+    canAddDesign() {
+      return this.workspacePermissions.createDesign;
+    },
+    canUpdateDesign() {
+      return this.workspacePermissions.updateDesign;
+    },
+    canPasteDesign() {
+      return !this.isSaving && !this.isAddingNotes && !this.editMode && !this.activeChildItem;
+    },
+    isDuoWorkflowEnabled() {
+      return this.duoRemoteFlowsEnabled && this.glFeatures.duoWorkflowInCi;
+    },
+    projectIdAsNumber() {
+      return getIdFromGraphQLId(this.workItemProjectId);
+    },
+    agentPrivileges() {
+      return [1, 2, 3, 4, 5];
+    },
+    agentInvokePath() {
+      return buildApiUrl(`/api/:version/ai/duo_workflows/workflows`);
+    },
+  },
+  watch: {
+    'workItem.id': {
+      immediate: true,
+      async handler(newId) {
+        // Update allowedChildTypes using manual query instead of a smart query to prevent cache inconsistency (issue: #521771)
+        const { workItem } = await this.fetchAllowedChildTypes(newId);
+        this.allowedChildTypes = workItem
+          ? findHierarchyWidgetDefinition(workItem)?.allowedChildTypes?.nodes
+          : [];
+      },
+    },
+  },
+  beforeDestroy() {
+    document.removeEventListener('actioncable:reconnected', this.refetchIfStale);
   },
   mounted() {
-    if (this.modalWorkItemIid) {
-      this.openInModal({
-        event: undefined,
-        modalWorkItem: { iid: this.modalWorkItemIid },
-      });
-    }
+    addShortcutsExtension(ShortcutsWorkItems);
+    document.addEventListener('actioncable:reconnected', this.refetchIfStale);
   },
   methods: {
+    async fetchAllowedChildTypes(workItemId) {
+      if (!workItemId) return { workItem: null };
+
+      try {
+        const { data } = await this.$apollo.query({
+          query: getAllowedWorkItemChildTypes,
+          variables: { id: workItemId },
+        });
+
+        return data;
+      } catch (error) {
+        return { workItem: null };
+      }
+    },
+    handleWorkItemCreated() {
+      this.$apollo.queries.workItem.refetch();
+    },
     enableEditMode() {
       this.editMode = true;
     },
-    isWidgetPresent(type) {
-      return this.workItem.widgets?.find((widget) => widget.type === type);
+    findWidget(type) {
+      return this.workItem?.widgets?.find((widget) => widget.type === type);
     },
     toggleConfidentiality(confidentialStatus) {
       this.updateInProgress = true;
@@ -354,24 +685,21 @@ export default {
       this.error = this.$options.i18n.fetchError;
       document.title = s__('404|Not found');
     },
-    updateHasNotes() {
-      this.$emit('has-notes');
-    },
-    updateUrl(modalWorkItem) {
-      updateHistory({
-        url: setUrlParams({ work_item_iid: modalWorkItem?.iid }),
-        replace: true,
-      });
-    },
-    openInModal({ event, modalWorkItem, context }) {
-      if (!this.workItemsAlphaEnabled || context === LINKED_ITEMS_ANCHOR) {
+    openContextualView({ event, modalWorkItem }) {
+      if (!modalWorkItem) {
+        this.activeChildItem = null;
         return;
       }
 
+      if (
+        !this.contextualViewEnabled ||
+        modalWorkItem.workItemType?.name === WORK_ITEM_TYPE_NAME_INCIDENT ||
+        this.isDrawer
+      ) {
+        return;
+      }
       if (event) {
         event.preventDefault();
-
-        this.updateUrl(modalWorkItem);
       }
 
       if (this.isModal) {
@@ -379,39 +707,34 @@ export default {
         return;
       }
 
-      this.modalWorkItemId = modalWorkItem.id;
-      this.modalWorkItemIid = modalWorkItem.iid;
-      this.modalWorkItemNamespaceFullPath = modalWorkItem?.reference?.replace(
-        `#${modalWorkItem.iid}`,
-        '',
-      );
-      this.$refs.modal.show();
+      if (this.activeChildItem && this.activeChildItem.iid === modalWorkItem.iid) {
+        this.activeChildItem = null;
+      } else {
+        this.activeChildItem = modalWorkItem;
+      }
     },
-    openReportAbuseDrawer(reply) {
+    openReportAbuseModal(reply) {
       if (this.isModal) {
         this.$emit('openReportAbuse', reply);
       } else {
-        this.toggleReportAbuseDrawer(true, reply);
+        this.toggleReportAbuseModal(true, reply);
       }
     },
-    toggleReportAbuseDrawer(isOpen, reply = {}) {
-      this.isReportDrawerOpen = isOpen;
-      this.reportedUrl = reply.url || {};
-      this.reportedUserId = reply.author ? getIdFromGraphQLId(reply.author.id) : 0;
+    toggleReportAbuseModal(isOpen, workItem = this.workItem) {
+      this.isReportModalOpen = isOpen;
+      this.reportedUrl = workItem.webUrl || workItem.url || {};
+      this.reportedUserId = workItem.author ? getIdFromGraphQLId(workItem.author.id) : 0;
     },
     hideStickyHeader() {
       this.isStickyHeaderShowing = false;
     },
     showStickyHeader() {
-      // only if scrolled under the work item's title
-      if (this.$refs?.title?.$el.offsetTop < window.pageYOffset) {
-        this.isStickyHeaderShowing = true;
-      }
+      this.isStickyHeaderShowing = true;
     },
     updateDraft(type, value) {
       this.draftData[type] = value;
     },
-    async updateWorkItem() {
+    async updateWorkItem({ clearDraft } = {}) {
       this.updateInProgress = true;
       try {
         const {
@@ -436,6 +759,10 @@ export default {
           throw new Error(this.updateError);
         }
 
+        if (clearDraft) {
+          clearDraft();
+        }
+
         this.editMode = false;
       } catch (error) {
         Sentry.captureException(error);
@@ -447,126 +774,247 @@ export default {
       this.draftData = {};
       this.editMode = false;
     },
+    isValidDesignUpload(files) {
+      if (!this.canAddDesign) return false;
+
+      if (files.length > MAXIMUM_FILE_UPLOAD_LIMIT) {
+        this.designUploadError = MAXIMUM_FILE_UPLOAD_LIMIT_REACHED;
+
+        return false;
+      }
+      return true;
+    },
+    onUploadDesign(files) {
+      // Redirect to latest version before uploading to avoid cache reading errors
+      if (this.$route?.query?.version) {
+        this.$router.push({
+          path: this.$route.path,
+          query: {},
+        });
+      }
+
+      // convert to Array so that we have Array methods (.map, .some, etc.)
+      this.filesToBeSaved = Array.from(files);
+      if (!this.isValidDesignUpload(this.filesToBeSaved)) return null;
+
+      const mutationPayload = {
+        optimisticResponse: designUploadOptimisticResponse(this.filesToBeSaved),
+        variables: {
+          files: this.filesToBeSaved,
+          projectPath: this.workItemFullPath,
+          iid: this.iid,
+        },
+        context: {
+          hasUpload: true,
+        },
+        mutation: uploadDesignMutation,
+        update: this.afterUploadDesign,
+      };
+
+      this.designUploadErrorVariant = ALERT_VARIANTS.danger;
+      return this.$apollo
+        .mutate(mutationPayload)
+        .then((res) => this.onUploadDesignDone(res))
+        .catch((error) => this.onUploadDesignError(error));
+    },
+    afterUploadDesign(store, { data: { designManagementUpload } }) {
+      updateStoreAfterUploadDesign(store, designManagementUpload, this.designCollectionQueryBody);
+    },
+    resetFilesToBeSaved() {
+      this.filesToBeSaved = [];
+    },
+    onUploadDesignDone(res) {
+      // display any warnings, if necessary
+      const skippedFiles = res?.data?.designManagementUpload?.skippedDesigns || [];
+      const skippedWarningMessage = designUploadSkippedWarning(this.filesToBeSaved, skippedFiles);
+      if (skippedWarningMessage) {
+        this.designUploadError = skippedWarningMessage;
+        this.designUploadErrorVariant = ALERT_VARIANTS.info;
+      }
+
+      // reset state
+      this.resetFilesToBeSaved();
+    },
+    onUploadDesignError(error) {
+      Sentry.captureException(error);
+      this.resetFilesToBeSaved();
+      this.designUploadError = UPLOAD_DESIGN_ERROR_MESSAGE;
+    },
+    updateWorkItemCurrentTodosWidgetCache({ cache, todos }) {
+      updateWorkItemCurrentTodosWidget({
+        cache,
+        todos,
+        fullPath: this.workItemFullPath,
+        iid: this.iid,
+      });
+    },
+    async deleteChildItem({ id }) {
+      this.activeChildItem = null;
+      await this.$nextTick();
+
+      const { cache } = this.$apollo.provider.clients.defaultClient;
+      cache.evict({
+        id: cache.identify({
+          __typename: 'WorkItem',
+          id,
+        }),
+      });
+      cache.gc();
+    },
+    workItemTypeChanged() {
+      this.$apollo.queries.workItem.refetch();
+      this.$emit('workItemTypeChanged', this.workItem);
+    },
+    isValidDragDataType({ dataTransfer }) {
+      this.isDragDataValid = Array.from(dataTransfer.items).some((item) =>
+        this.$options.VALID_DESIGN_FILE_MIMETYPE.mimetype.includes(item.type),
+      );
+    },
+    onDragEnter(event) {
+      this.dragCounter += 1;
+      this.isValidDragDataType(event);
+    },
+    onDragOver(event) {
+      this.isValidDragDataType(event);
+      if (this.isDesignUploadButtonInViewport) this.isEmptyStateVisible = true;
+    },
+    onDragLeaveMain(event) {
+      // Check if the drag is leaving the main container entirely
+      const mainContainerRef = this.$refs.workItemDetail;
+      if (!mainContainerRef.contains(event.relatedTarget)) {
+        this.dragCounter = 0;
+        this.isEmptyStateVisible = false; // Hide dropzone
+      }
+    },
+    onDrop() {
+      this.dragCounter = 0; // Reset drag state
+      this.isEmptyStateVisible = false; // Hide dropzone after drop
+    },
+    dismissInfo() {
+      this.info = undefined;
+      updateHistory({ url: removeParams(['resolves_discussion']) });
+    },
+    handleToggleSidebar() {
+      this.showSidebar = !this.showSidebar;
+      this.trackEvent('change_work_item_sidebar_visibility', {
+        label: this.showSidebar.toString(), // New sidebar visibility
+      });
+    },
+    handleTruncationEnabled() {
+      this.truncationEnabled = !this.truncationEnabled;
+      this.trackEvent('change_work_item_description_truncation', {
+        label: this.truncationEnabled.toString(), // New user truncation setting
+      });
+    },
+    refetchIfStale() {
+      const now = new Date();
+      const staleThreshold = 5 * 60 * 1000; // 5 minutes in milliseconds
+      if (now - this.lastRealtimeUpdatedAt > staleThreshold) {
+        this.$apollo.queries.workItem.refetch();
+        this.lastRealtimeUpdatedAt = now;
+      }
+    },
   },
-  WORK_ITEM_TYPE_VALUE_OBJECTIVE,
+  WORK_ITEM_TYPE_NAME_OBJECTIVE,
   WORKSPACE_PROJECT,
+  noAccessSvg,
 };
 </script>
 
 <template>
-  <div>
-    <work-item-sticky-header
-      v-if="showIntersectionObserver"
-      :current-user-todos="currentUserTodos"
-      :show-work-item-current-user-todos="showWorkItemCurrentUserTodos"
-      :parent-work-item-confidentiality="parentWorkItemConfidentiality"
-      :update-in-progress="updateInProgress"
-      :full-path="workItemFullPath"
-      :is-modal="isModal"
-      :work-item="workItem"
-      :is-sticky-header-showing="isStickyHeaderShowing"
-      :work-item-notifications-subscribed="workItemNotificationsSubscribed"
-      @hideStickyHeader="hideStickyHeader"
-      @showStickyHeader="showStickyHeader"
-      @deleteWorkItem="$emit('deleteWorkItem', { workItemType, workItemId: workItem.id })"
-      @toggleWorkItemConfidentiality="toggleConfidentiality"
-      @error="updateError = $event"
-      @promotedToObjective="$emit('promotedToObjective', workItemIid)"
-      @toggleEditMode="enableEditMode"
-    />
-    <section class="work-item-view">
-      <section v-if="updateError" class="flash-container flash-container-page sticky">
-        <gl-alert class="gl-mb-3" variant="danger" @dismiss="updateError = undefined">
-          {{ updateError }}
-        </gl-alert>
-      </section>
-      <section :class="workItemBodyClass">
-        <div :class="modalCloseButtonClass">
-          <gl-button
-            v-if="isModal"
-            class="gl-ml-auto"
-            category="tertiary"
-            data-testid="work-item-close"
-            icon="close"
-            :aria-label="__('Close')"
-            @click="$emit('close')"
+  <work-item-metadata-provider :full-path="workItemFullPath">
+    <div
+      ref="workItemDetail"
+      data-testid="work-item-detail"
+      @dragstart.prevent.stop
+      @dragend.prevent.stop
+      @dragenter.prevent.stop="onDragEnter"
+      @dragover.prevent.stop="onDragOver"
+      @dragleave.prevent.stop="onDragLeaveMain"
+      @drop.prevent.stop="onDrop"
+    >
+      <work-item-sticky-header
+        v-if="showIntersectionObserver"
+        :current-user-todos="currentUserTodos"
+        :show-work-item-current-user-todos="showWorkItemCurrentUserTodos"
+        :parent-work-item-confidentiality="parentWorkItemConfidentiality"
+        :full-path="workItemFullPath"
+        :is-modal="isModal"
+        :is-drawer="isDrawer"
+        :work-item="workItem"
+        :is-sticky-header-showing="isStickyHeaderShowing"
+        @hideStickyHeader="hideStickyHeader"
+        @showStickyHeader="showStickyHeader"
+        @deleteWorkItem="$emit('deleteWorkItem', { workItemType, workItemId: workItem.id })"
+        @toggleWorkItemConfidentiality="toggleConfidentiality"
+        @error="updateError = $event"
+        @promotedToObjective="$emit('promotedToObjective', iid)"
+        @workItemTypeChanged="workItemTypeChanged"
+        @toggleEditMode="enableEditMode"
+        @workItemStateUpdated="$emit('workItemStateUpdated')"
+        @toggleReportAbuseModal="toggleReportAbuseModal"
+        @todosUpdated="updateWorkItemCurrentTodosWidgetCache"
+      >
+        <template #actions>
+          <work-item-actions
+            v-if="workItemPresent"
+            v-bind="workItemActionProps"
+            :update-in-progress="updateInProgress"
+            @deleteWorkItem="$emit('deleteWorkItem', { workItemType, workItemId: workItem.id })"
+            @toggleWorkItemConfidentiality="toggleConfidentiality"
+            @error="updateError = $event"
+            @promotedToObjective="$emit('promotedToObjective', iid)"
+            @workItemStateUpdated="$emit('workItemStateUpdated')"
+            @workItemTypeChanged="workItemTypeChanged"
+            @toggleReportAbuseModal="toggleReportAbuseModal"
+            @workItemCreated="handleWorkItemCreated"
+            @toggleSidebar="handleToggleSidebar"
+            @toggleTruncationEnabled="handleTruncationEnabled"
           />
-        </div>
-        <work-item-loading v-if="workItemLoading" />
-        <gl-empty-state
-          v-else-if="error"
-          :title="$options.i18n.fetchErrorTitle"
-          :description="error"
-          :svg-path="noAccessSvgPath"
-          :svg-height="null"
-        />
-        <div v-else data-testid="detail-wrapper">
-          <div class="gl-block sm:!gl-flex gl-items-start gl-flex-row gl-gap-3">
-            <work-item-ancestors v-if="showAncestors" :work-item="workItem" class="gl-mb-1" />
-            <div v-if="!error" :class="titleClassHeader" data-testid="work-item-type">
-              <work-item-title
-                v-if="workItem.title"
-                ref="title"
-                :is-editing="editMode"
-                :title="workItem.title"
-                @updateWorkItem="updateWorkItem"
-                @updateDraft="updateDraft('title', $event)"
-                @error="updateError = $event"
-              />
-            </div>
-            <div class="gl-flex gl-self-start gl-ml-auto gl-gap-3 gl-mt-1">
-              <gl-button
-                v-if="shouldShowEditButton"
-                category="secondary"
-                data-testid="work-item-edit-form-button"
-                class="shortcut-edit-wi-description"
-                @click="enableEditMode"
-              >
-                {{ __('Edit') }}
-              </gl-button>
-              <work-item-todos
-                v-if="showWorkItemCurrentUserTodos"
-                :work-item-id="workItem.id"
-                :work-item-iid="workItemIid"
-                :work-item-fullpath="workItemFullPath"
-                :current-user-todos="currentUserTodos"
-                @error="updateError = $event"
-              />
-              <work-item-notifications-widget
-                v-if="newTodoAndNotificationsEnabled"
-                :full-path="workItemFullPath"
-                :work-item-id="workItem.id"
-                :subscribed-to-notifications="workItemNotificationsSubscribed"
-                :can-update="canUpdate"
-                @error="updateError = $event"
-              />
-              <work-item-actions
-                :full-path="workItemFullPath"
-                :work-item-id="workItem.id"
-                :hide-subscribe="newTodoAndNotificationsEnabled"
-                :subscribed-to-notifications="workItemNotificationsSubscribed"
-                :work-item-type="workItemType"
-                :work-item-type-id="workItemTypeId"
-                :work-item-iid="workItemIid"
-                :can-delete="canDelete"
-                :can-update="canUpdate"
-                :is-confidential="workItem.confidential"
-                :is-discussion-locked="isDiscussionLocked"
-                :is-parent-confidential="parentWorkItemConfidentiality"
-                :work-item-reference="workItem.reference"
-                :work-item-create-note-email="workItem.createNoteEmail"
-                :is-modal="isModal"
-                :work-item-state="workItem.state"
-                :has-children="hasChildren"
-                @deleteWorkItem="$emit('deleteWorkItem', { workItemType, workItemId: workItem.id })"
-                @toggleWorkItemConfidentiality="toggleConfidentiality"
-                @error="updateError = $event"
-                @promotedToObjective="$emit('promotedToObjective', workItemIid)"
-              />
-            </div>
+        </template>
+      </work-item-sticky-header>
+      <section class="work-item-view">
+        <component :is="isModalOrDrawer ? 'h2' : 'h1'" v-if="editMode" class="gl-sr-only">{{
+          s__('WorkItem|Edit work item')
+        }}</component>
+        <gl-alert
+          v-if="info"
+          class="gl-mb-3"
+          variant="info"
+          data-testid="info-alert"
+          @dismiss="dismissInfo"
+        >
+          {{ flashNoticeMessage }}
+        </gl-alert>
+        <section v-if="updateError" class="flash-container flash-container-page sticky">
+          <gl-alert class="gl-mb-3" variant="danger" @dismiss="updateError = undefined">
+            {{ updateError }}
+          </gl-alert>
+        </section>
+        <section
+          v-if="refetchError"
+          :class="isDrawer ? 'gl-sticky gl-top-0' : 'flash-container flash-container-page sticky'"
+          :style="{ zIndex: 100 }"
+          data-testid="work-item-refetch-alert"
+        >
+          <gl-alert class="gl-mb-3" variant="warning" @dismiss="refetchError = null">
+            <span>{{ refetchError }}</span>
+            <gl-button
+              class="gl-ml-2"
+              category="primary"
+              variant="confirm"
+              size="small"
+              @click="$apollo.queries.workItem.refetch()"
+            >
+              {{ __('Refresh') }}
+            </gl-button>
+          </gl-alert>
+        </section>
+        <section :class="workItemBodyClass">
+          <div :class="modalCloseButtonClass">
             <gl-button
               v-if="isModal"
-              class="gl-hidden sm:!gl-block"
+              class="gl-ml-auto"
               category="tertiary"
               data-testid="work-item-close"
               icon="close"
@@ -574,123 +1022,361 @@ export default {
               @click="$emit('close')"
             />
           </div>
-          <div :class="{ 'gl-mt-3': !editMode }">
-            <work-item-title
-              v-if="workItem.title && showAncestors"
-              ref="title"
-              :is-editing="editMode"
-              :class="titleClassComponent"
-              :title="workItem.title"
-              @error="updateError = $event"
-              @updateWorkItem="updateWorkItem"
-              @updateDraft="updateDraft('title', $event)"
-            />
-            <work-item-created-updated
-              v-if="!editMode"
-              :full-path="workItemFullPath"
-              :work-item-iid="workItemIid"
-              :update-in-progress="updateInProgress"
-            />
-          </div>
-          <div data-testid="work-item-overview" class="work-item-overview">
-            <section>
-              <work-item-description
-                v-if="hasDescriptionWidget"
-                :edit-mode="editMode"
+          <work-item-loading v-if="workItemLoading" />
+          <gl-empty-state
+            v-else-if="error"
+            :title="s__('WorkItem|Work item not found')"
+            :description="error"
+            :svg-path="$options.noAccessSvg"
+          />
+          <div v-else data-testid="detail-wrapper">
+            <div class="gl-block gl-flex-row gl-items-start gl-gap-3 sm:!gl-flex">
+              <work-item-ancestors
+                v-if="shouldShowAncestors"
+                :work-item="workItem"
+                class="gl-mb-1"
+              />
+              <div v-if="!error" :class="titleClassHeader" data-testid="work-item-type">
+                <work-item-title
+                  v-if="workItem.title"
+                  ref="title"
+                  :is-editing="editMode"
+                  :is-modal="isModalOrDrawer"
+                  :title="workItem.title"
+                  :title-html="workItem.titleHtml"
+                  @updateWorkItem="updateWorkItem"
+                  @updateDraft="updateDraft('title', $event)"
+                  @error="updateError = $event"
+                />
+              </div>
+              <div class="gl-ml-auto gl-mt-1 gl-flex gl-gap-3 gl-self-start">
+                <gl-button
+                  v-if="shouldShowEditButton"
+                  v-gl-tooltip.bottom.html
+                  :title="editTooltip"
+                  category="secondary"
+                  data-testid="work-item-edit-form-button"
+                  class="shortcut-edit-wi-description"
+                  @click="enableEditMode"
+                >
+                  {{ __('Edit') }}
+                </gl-button>
+                <todos-toggle
+                  v-if="showWorkItemCurrentUserTodos"
+                  :item-id="workItem.id"
+                  :current-user-todos="currentUserTodos"
+                  todos-button-type="secondary"
+                  @todosUpdated="updateWorkItemCurrentTodosWidgetCache"
+                  @error="updateError = $event"
+                />
+                <work-item-notifications-widget
+                  v-if="newTodoAndNotificationsEnabled"
+                  :work-item-id="workItem.id"
+                  @error="updateError = $event"
+                />
+                <work-item-actions
+                  v-if="workItemPresent"
+                  v-bind="workItemActionProps"
+                  :update-in-progress="updateInProgress"
+                  @deleteWorkItem="
+                    $emit('deleteWorkItem', { workItemType, workItemId: workItem.id })
+                  "
+                  @toggleWorkItemConfidentiality="toggleConfidentiality"
+                  @error="updateError = $event"
+                  @promotedToObjective="$emit('promotedToObjective', iid)"
+                  @workItemStateUpdated="$emit('workItemStateUpdated')"
+                  @workItemTypeChanged="workItemTypeChanged"
+                  @toggleReportAbuseModal="toggleReportAbuseModal"
+                  @workItemCreated="handleWorkItemCreated"
+                  @toggleSidebar="handleToggleSidebar"
+                  @toggleTruncationEnabled="handleTruncationEnabled"
+                />
+              </div>
+              <gl-button
+                v-if="isModal"
+                class="gl-hidden sm:!gl-block"
+                category="tertiary"
+                data-testid="work-item-close"
+                icon="close"
+                :aria-label="__('Close')"
+                @click="$emit('close')"
+              />
+            </div>
+            <div>
+              <work-item-title
+                v-if="workItem.title && shouldShowAncestors"
+                ref="title"
+                :is-editing="editMode"
+                :is-modal="isModalOrDrawer"
+                :class="titleClassComponent"
+                :title="workItem.title"
+                :title-html="workItem.titleHtml"
+                @error="updateError = $event"
+                @updateWorkItem="updateWorkItem"
+                @updateDraft="updateDraft('title', $event)"
+              />
+              <div class="gl-flex gl-items-center gl-gap-3">
+                <work-item-created-updated
+                  v-if="!editMode"
+                  :full-path="workItemFullPath"
+                  :work-item-iid="iid"
+                  class="gl-grow"
+                />
+                <div
+                  v-if="!showSidebar"
+                  class="work-item-container-xs-hidden gl-hidden md:gl-block"
+                >
+                  <gl-button
+                    size="small"
+                    category="secondary"
+                    data-testid="work-item-show-sidebar-button"
+                    icon="sidebar-right"
+                    @click="handleToggleSidebar"
+                  >
+                    {{ s__('WorkItem|Show sidebar') }}
+                  </gl-button>
+                </div>
+              </div>
+            </div>
+            <div
+              data-testid="work-item-overview"
+              class="work-item-overview"
+              :class="{ 'sidebar-hidden': !showSidebar }"
+            >
+              <section>
+                <local-storage-sync
+                  v-model="truncationEnabled"
+                  :storage-key="$options.ENABLE_TRUNCATION_STORAGE_KEY"
+                />
+                <work-item-description
+                  v-if="hasDescriptionWidget"
+                  :edit-mode="editMode"
+                  :full-path="workItemFullPath"
+                  :work-item-id="workItem.id"
+                  :work-item-iid="workItem.iid"
+                  :update-in-progress="updateInProgress"
+                  :without-heading-anchors="isDrawer"
+                  :hide-fullscreen-markdown-button="isDrawer"
+                  :truncation-enabled="truncationEnabled"
+                  @updateWorkItem="updateWorkItem"
+                  @updateDraft="updateDraft('description', $event)"
+                  @cancelEditing="cancelEditing"
+                  @error="updateError = $event"
+                />
+                <div class="gl-mt-3 gl-flex gl-flex-wrap gl-justify-between gl-gap-y-3">
+                  <work-item-award-emoji
+                    v-if="workItemAwardEmoji"
+                    :work-item-archived="workItem.archived"
+                    :work-item-id="workItem.id"
+                    :work-item-fullpath="workItemFullPath"
+                    :award-emoji="workItemAwardEmoji.awardEmoji"
+                    :work-item-iid="iid"
+                    @error="updateError = $event"
+                    @emoji-updated="$emit('work-item-emoji-updated', $event)"
+                  />
+                  <div class="gl-mt-2 gl-flex gl-flex-wrap gl-gap-3 gl-gap-y-3">
+                    <gl-intersection-observer
+                      v-if="showUploadDesign"
+                      @appear="isDesignUploadButtonInViewport = true"
+                      @disappear="isDesignUploadButtonInViewport = false"
+                    >
+                      <design-upload-button
+                        v-if="showUploadDesign"
+                        :is-saving="isSaving"
+                        data-testid="design-upload-button"
+                        @upload="onUploadDesign"
+                        @error="onUploadDesignError"
+                      />
+                    </gl-intersection-observer>
+                    <work-item-create-branch-merge-request-split-button
+                      v-if="showCreateBranchMergeRequestSplitButton"
+                      :work-item-iid="iid"
+                      :work-item-full-path="workItemFullPath"
+                      :work-item-type="workItem.workItemType.name"
+                      :is-confidential-work-item="workItem.confidential"
+                      :project-id="workItemProjectId"
+                    />
+                    <div>
+                      <duo-workflow-action
+                        v-if="isDuoWorkflowEnabled"
+                        :project-id="projectIdAsNumber"
+                        :project-path="workItemFullPath"
+                        :title="__('Generate MR with Duo')"
+                        :hover-message="__('Generate merge request with Duo')"
+                        :goal="workItem.webUrl"
+                        workflow-definition="issue_to_merge_request"
+                        :agent-privileges="agentPrivileges"
+                        :duo-workflow-invoke-path="agentInvokePath"
+                        size="medium"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <local-storage-sync
+                v-model="showSidebar"
+                :storage-key="$options.SHOW_SIDEBAR_STORAGE_KEY"
+              />
+              <section
+                data-testid="work-item-overview-right-sidebar"
+                class="work-item-overview-right-sidebar"
+                :class="{ 'is-modal': isModal, 'md:gl-hidden': !showSidebar }"
+              >
+                <h2 class="gl-sr-only">{{ s__('WorkItem|Attributes') }}</h2>
+                <work-item-attributes-wrapper
+                  :class="{ 'gl-top-9': isDrawer }"
+                  :full-path="workItemFullPath"
+                  :work-item="workItem"
+                  :group-path="groupPath"
+                  :is-group="isGroupWorkItem"
+                  @error="updateError = $event"
+                  @attributesUpdated="$emit('attributesUpdated', $event)"
+                />
+              </section>
+
+              <work-item-error-tracking
+                v-if="workItemErrorTracking.identifier"
+                :full-path="workItemFullPath"
+                :iid="iid"
+              />
+
+              <work-item-linked-resources
+                v-if="workItemLinkedResources.length"
+                :linked-resources="workItemLinkedResources"
+              />
+
+              <design-widget
+                v-if="hasDesignWidget"
+                :class="{ 'gl-mt-0': isDrawer }"
+                :work-item-id="workItem.id"
+                :work-item-iid="iid"
+                :work-item-full-path="workItemFullPath"
+                :work-item-web-url="workItem.webUrl"
+                :is-group="isGroupWorkItem"
+                :upload-error="designUploadError"
+                :upload-error-variant="designUploadErrorVariant"
+                :is-saving="isSaving"
+                :can-reorder-design="canReorderDesign"
+                :is-board="isBoard"
+                :can-add-design="canAddDesign"
+                :can-update-design="canUpdateDesign"
+                :can-paste-design="canPasteDesign"
+                @upload="onUploadDesign"
+                @dismissError="designUploadError = null"
+              >
+                <template #empty-state>
+                  <design-dropzone
+                    v-if="isEmptyStateVisible && !isSaving && isDragDataValid && !isAddingNotes"
+                    class="gl-relative gl-mt-5"
+                    show-upload-design-overlay
+                    validate-design-upload-on-dragover
+                    hide-upload-text-on-dragging
+                    :accept-design-formats="$options.VALID_DESIGN_FILE_MIMETYPE.mimetype"
+                    @change="onUploadDesign"
+                  >
+                    <template #upload-text>
+                      {{ s__('DesignManagement|Drag images here to add designs.') }}
+                    </template>
+                  </design-dropzone>
+                </template>
+              </design-widget>
+
+              <work-item-tree
+                v-if="showWorkItemTree"
+                :full-path="workItemFullPath"
+                :is-group="isGroupWorkItem"
+                :work-item-type="workItemType"
+                :parent-work-item-type="workItem.workItemType.name"
+                :work-item-id="workItem.id"
+                :work-item-iid="iid"
+                :parent-iteration="workItemIteration"
+                :parent-milestone="workItemMilestone"
+                :active-child-item-id="activeChildItemId"
+                :can-update="canUpdate"
+                :can-update-children="canUpdateChildren"
+                :confidential="workItem.confidential"
+                :allowed-child-types="allowedChildTypes"
+                :is-drawer="isDrawer"
+                :contextual-view-enabled="contextualViewEnabled"
+                @show-modal="openContextualView"
+                @addChild="$emit('addChild')"
+              />
+              <work-item-relationships
+                v-if="workItemLinkedItems"
+                :is-group="isGroupWorkItem"
+                :work-item-id="workItem.id"
+                :work-item-iid="iid"
+                :work-item-full-path="workItemFullPath"
+                :work-item-type="workItem.workItemType.name"
+                :can-admin-work-item-link="canAdminWorkItemLink"
+                :active-child-item-id="activeChildItemId"
+                :has-blocked-work-items-feature="hasBlockedWorkItemsFeature"
+                :contextual-view-enabled="contextualViewEnabled"
+                @showModal="openContextualView"
+              />
+
+              <work-item-development
+                v-if="workItemDevelopment"
+                :is-modal="isModal"
+                :work-item-id="workItem.id"
+                :work-item-iid="iid"
+                :work-item-full-path="workItemFullPath"
+              />
+
+              <work-item-vulnerabilities
+                :work-item-iid="iid"
+                :work-item-full-path="workItemFullPath"
+                data-testid="work-item-vulnerabilities"
+              />
+
+              <work-item-notes
+                v-if="workItemNotes"
                 :full-path="workItemFullPath"
                 :work-item-id="workItem.id"
                 :work-item-iid="workItem.iid"
-                :update-in-progress="updateInProgress"
-                @updateWorkItem="updateWorkItem"
-                @updateDraft="updateDraft('description', $event)"
-                @cancelEditing="cancelEditing"
+                :work-item-type="workItemType"
+                :is-modal="isModal"
+                :is-drawer="isDrawer"
+                :assignees="workItemAssignees && workItemAssignees.assignees.nodes"
+                :can-set-work-item-metadata="canAssignUnassignUser"
+                :can-summarize-comments="canSummarizeComments"
+                :can-create-note="canCreateNote"
+                :is-discussion-locked="isDiscussionLocked"
+                :is-work-item-confidential="workItem.confidential"
+                :new-comment-template-paths="workItem.commentTemplatesPaths"
+                class="gl-pt-5"
+                :use-h2="!isModalOrDrawer"
+                :small-header-style="isModal"
+                :parent-id="parentWorkItemId"
+                :hide-fullscreen-markdown-button="isDrawer"
+                :uploads-path="uploadsPath"
                 @error="updateError = $event"
+                @openReportAbuse="openReportAbuseModal"
+                @startEditing="isAddingNotes = true"
+                @stopEditing="isAddingNotes = false"
+                @focus="isAddingNotes = true"
+                @blur="isAddingNotes = false"
               />
-              <work-item-award-emoji
-                v-if="workItemAwardEmoji"
-                :work-item-id="workItem.id"
-                :work-item-fullpath="workItemFullPath"
-                :award-emoji="workItemAwardEmoji.awardEmoji"
-                :work-item-iid="workItemIid"
-                @error="updateError = $event"
-                @emoji-updated="$emit('work-item-emoji-updated', $event)"
-              />
-              <design-widget v-if="!isDrawer && hasDesignWidget" :work-item-id="workItem.id" />
-            </section>
-            <aside
-              data-testid="work-item-overview-right-sidebar"
-              class="work-item-overview-right-sidebar"
-              :class="{ 'is-modal': isModal }"
-            >
-              <work-item-attributes-wrapper
-                :class="{ 'gl-top-3': isDrawer }"
-                :full-path="workItemFullPath"
-                :work-item="workItem"
-                :group-path="groupPath"
-                @error="updateError = $event"
-              />
-            </aside>
-
-            <work-item-tree
-              v-if="showWorkItemTree"
-              :full-path="workItemFullPath"
-              :work-item-type="workItemType"
-              :parent-work-item-type="workItem.workItemType.name"
-              :work-item-id="workItem.id"
-              :work-item-iid="workItemIid"
-              :children="children"
-              :can-update="canUpdate"
-              :can-update-children="canUpdateChildren"
-              :confidential="workItem.confidential"
-              @show-modal="openInModal"
-              @addChild="$emit('addChild')"
-            />
-            <work-item-relationships
-              v-if="workItemLinkedItems"
-              :work-item-id="workItem.id"
-              :work-item-iid="workItemIid"
-              :work-item-full-path="workItemFullPath"
-              :work-item-type="workItem.workItemType.name"
-              @showModal="openInModal"
-            />
-            <work-item-notes
-              v-if="workItemNotes"
-              :full-path="workItemFullPath"
-              :work-item-id="workItem.id"
-              :work-item-iid="workItem.iid"
-              :work-item-type="workItemType"
-              :is-modal="isModal"
-              :assignees="workItemAssignees && workItemAssignees.assignees.nodes"
-              :can-set-work-item-metadata="canAssignUnassignUser"
-              :report-abuse-path="reportAbusePath"
-              :is-discussion-locked="isDiscussionLocked"
-              :is-work-item-confidential="workItem.confidential"
-              class="gl-pt-5"
-              :use-h2="!isModal"
-              @error="updateError = $event"
-              @has-notes="updateHasNotes"
-              @openReportAbuse="openReportAbuseDrawer"
-            />
+            </div>
           </div>
-        </div>
+        </section>
       </section>
-    </section>
-    <work-item-detail-modal
-      v-if="!isModal"
-      ref="modal"
-      :work-item-id="modalWorkItemId"
-      :work-item-iid="modalWorkItemIid"
-      :work-item-full-path="modalWorkItemNamespaceFullPath"
-      :show="true"
-      @close="updateUrl"
-      @openReportAbuse="toggleReportAbuseDrawer(true, $event)"
-    />
-    <abuse-category-selector
-      v-if="isReportDrawerOpen"
-      :reported-user-id="reportedUserId"
-      :reported-from-url="reportedUrl"
-      :show-drawer="true"
-      @close-drawer="toggleReportAbuseDrawer(false)"
-    />
-  </div>
+      <work-item-drawer
+        v-if="contextualViewEnabled && !isDrawer"
+        :active-item="activeChildItem"
+        :open="isItemSelected"
+        :issuable-type="activeChildItemType"
+        click-outside-exclude-selector=".issuable-list"
+        @close="activeChildItem = null"
+        @workItemDeleted="deleteChildItem"
+      />
+      <work-item-abuse-modal
+        v-if="isReportModalOpen"
+        :show-modal="isReportModalOpen"
+        :reported-user-id="reportedUserId"
+        :reported-from-url="reportedUrl"
+        @close-modal="toggleReportAbuseModal(false)"
+      />
+    </div>
+  </work-item-metadata-provider>
 </template>

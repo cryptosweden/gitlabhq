@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Organizations::OrganizationUserPolicy, feature_category: :cell do
+RSpec.describe Organizations::OrganizationUserPolicy, feature_category: :organization do
   let_it_be(:organization) { create(:organization) }
   let_it_be_with_refind(:current_user) { create :user }
 
@@ -90,6 +90,12 @@ RSpec.describe Organizations::OrganizationUserPolicy, feature_category: :cell do
         end
       end
     end
+  end
+
+  context 'for update_organization_user policy' do
+    let_it_be(:user_policy) { :update_organization_user }
+
+    it_behaves_like 'organization owner policy'
   end
 
   context 'for remove_user policy' do

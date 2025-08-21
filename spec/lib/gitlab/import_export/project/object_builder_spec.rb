@@ -3,8 +3,9 @@
 require 'spec_helper'
 
 RSpec.describe Gitlab::ImportExport::Project::ObjectBuilder do
-  let!(:group) { create(:group, :private) }
-  let!(:subgroup) { create(:group, :private, parent: group) }
+  let!(:organization_id) { create(:organization, id: 1).id }
+  let!(:group) { create(:group, :private, organization_id: organization_id) }
+  let!(:subgroup) { create(:group, :private, parent: group, organization_id: organization_id) }
   let!(:project) do
     create(
       :project,
@@ -13,7 +14,8 @@ RSpec.describe Gitlab::ImportExport::Project::ObjectBuilder do
       :issues_disabled,
       name: 'project',
       path: 'project',
-      group: subgroup
+      group: subgroup,
+      organization_id: organization_id
     )
   end
 
@@ -222,12 +224,13 @@ RSpec.describe Gitlab::ImportExport::Project::ObjectBuilder do
 
   context 'merge request diff commit users' do
     it 'finds the existing user' do
-      user = MergeRequest::DiffCommitUser.find_or_create('Alice', 'alice@example.com')
+      user = MergeRequest::DiffCommitUser.find_or_create('Alice', 'alice@example.com', project.organization_id)
 
       found = described_class.build(
         MergeRequest::DiffCommitUser,
         'name' => 'Alice',
-        'email' => 'alice@example.com'
+        'email' => 'alice@example.com',
+        'project' => project
       )
 
       expect(found).to eq(user)
@@ -237,7 +240,8 @@ RSpec.describe Gitlab::ImportExport::Project::ObjectBuilder do
       found = described_class.build(
         MergeRequest::DiffCommitUser,
         'name' => 'Alice',
-        'email' => 'alice@example.com'
+        'email' => 'alice@example.com',
+        'project' => project
       )
 
       expect(found.name).to eq('Alice')
@@ -245,20 +249,88 @@ RSpec.describe Gitlab::ImportExport::Project::ObjectBuilder do
     end
   end
 
+  context 'merge request commits metadata' do
+    let_it_be(:project) { create(:project) }
+    let_it_be(:commit_author) { create(:merge_request_diff_commit_user) }
+    let_it_be(:committer) { create(:merge_request_diff_commit_user) }
+
+    let(:commits_metadata_attrs) do
+      {
+        'project' => project,
+        'sha' => 'abc123',
+        'commit_author' => commit_author,
+        'committer' => committer,
+        'trailers' => { 'foo' => 'bar' },
+        'message' => 'This is a message',
+        'authored_date' => Time.zone.parse("2014-02-27T09:57:31.000+01:00"),
+        'committed_date' => Time.zone.parse("2014-02-27T09:57:31.000+01:00")
+      }
+    end
+
+    it 'finds the existing commits metadata' do
+      # Non-matching record
+      create(
+        :merge_request_commits_metadata,
+        project: project,
+        sha: 'def456'
+      )
+
+      matching_commits_metadata = create(
+        :merge_request_commits_metadata,
+        project: project,
+        sha: 'abc123'
+      )
+
+      found = described_class.build(
+        MergeRequest::CommitsMetadata,
+        commits_metadata_attrs
+      )
+
+      expect(found).to eq(matching_commits_metadata)
+    end
+
+    it 'creates a new commits metadata' do
+      new_commits_metadata = described_class.build(
+        MergeRequest::CommitsMetadata,
+        commits_metadata_attrs
+      )
+
+      expect(new_commits_metadata.sha).to eq('abc123')
+      expect(new_commits_metadata.project).to eq(project)
+    end
+
+    context 'when merge_request_diff_commits_dedup is disabled' do
+      before do
+        stub_feature_flags(merge_request_diff_commits_dedup: false)
+      end
+
+      it 'does not create a new commits metadata' do
+        new_commits_metadata = described_class.build(
+          MergeRequest::CommitsMetadata,
+          commits_metadata_attrs
+        )
+
+        expect(new_commits_metadata).to be_nil
+      end
+    end
+  end
+
   context 'merge request diff commits' do
     context 'when the "committer" object is present' do
       it 'uses this object as the committer' do
         user = MergeRequest::DiffCommitUser
-          .find_or_create('Alice', 'alice@example.com')
+          .find_or_create('Alice', 'alice@example.com', project.organization_id)
 
         commit = described_class.build(
           MergeRequestDiffCommit,
           {
+            'sha' => 'abc123',
             'committer' => user,
             'committer_name' => 'Bla',
             'committer_email' => 'bla@example.com',
             'author_name' => 'Bla',
-            'author_email' => 'bla@example.com'
+            'author_email' => 'bla@example.com',
+            'project' => project
           }
         )
 
@@ -271,10 +343,12 @@ RSpec.describe Gitlab::ImportExport::Project::ObjectBuilder do
         commit = described_class.build(
           MergeRequestDiffCommit,
           {
+            'sha' => 'abc123',
             'committer_name' => 'Alice',
             'committer_email' => 'alice@example.com',
             'author_name' => 'Alice',
-            'author_email' => 'alice@example.com'
+            'author_email' => 'alice@example.com',
+            'project' => project
           }
         )
 
@@ -286,16 +360,18 @@ RSpec.describe Gitlab::ImportExport::Project::ObjectBuilder do
     context 'when the "commit_author" object is present' do
       it 'uses this object as the author' do
         user = MergeRequest::DiffCommitUser
-          .find_or_create('Alice', 'alice@example.com')
+          .find_or_create('Alice', 'alice@example.com', project.organization_id)
 
         commit = described_class.build(
           MergeRequestDiffCommit,
           {
+            'sha' => 'abc123',
             'committer_name' => 'Alice',
             'committer_email' => 'alice@example.com',
             'commit_author' => user,
             'author_name' => 'Bla',
-            'author_email' => 'bla@example.com'
+            'author_email' => 'bla@example.com',
+            'project' => project
           }
         )
 
@@ -308,15 +384,109 @@ RSpec.describe Gitlab::ImportExport::Project::ObjectBuilder do
         commit = described_class.build(
           MergeRequestDiffCommit,
           {
+            'sha' => 'abc123',
             'committer_name' => 'Alice',
             'committer_email' => 'alice@example.com',
             'author_name' => 'Alice',
-            'author_email' => 'alice@example.com'
+            'author_email' => 'alice@example.com',
+            'project' => project
           }
         )
 
         expect(commit.commit_author.name).to eq('Alice')
         expect(commit.commit_author.email).to eq('alice@example.com')
+      end
+    end
+
+    context 'when the "merge_request_commits_metadata" object is present' do
+      let_it_be(:project) { create(:project) }
+      let_it_be(:commit_author) { create(:merge_request_diff_commit_user) }
+      let_it_be(:committer) { create(:merge_request_diff_commit_user) }
+      let_it_be(:commits_metadata) { create(:merge_request_commits_metadata, project: project) }
+
+      let(:commit_attrs) do
+        {
+          'project' => project,
+          'commit_author' => commit_author,
+          'committer' => committer,
+          'merge_request_commits_metadata' => commits_metadata
+        }
+      end
+
+      it 'uses this object as commits metadata' do
+        commit = described_class.build(
+          MergeRequestDiffCommit,
+          commit_attrs
+        )
+
+        expect(commit.merge_request_commits_metadata).to eq(commits_metadata)
+      end
+
+      context 'when merge_request_diff_commits_dedup is disabled' do
+        before do
+          stub_feature_flags(merge_request_diff_commits_dedup: false)
+        end
+
+        it 'does not use this object as commits metadata' do
+          commit = described_class.build(
+            MergeRequestDiffCommit,
+            commit_attrs
+          )
+
+          expect(commit.merge_request_commits_metadata).to be_nil
+        end
+      end
+    end
+
+    context 'when the "merge_request_commits_metadata" object is missing' do
+      let_it_be(:commit_author) { create(:merge_request_diff_commit_user) }
+      let_it_be(:committer) { create(:merge_request_diff_commit_user) }
+
+      let(:commit_attrs) do
+        {
+          'project' => project,
+          'sha' => 'abc123',
+          'commit_author' => commit_author,
+          'committer' => committer,
+          'trailers' => { 'foo' => 'bar' },
+          'message' => 'This is a message',
+          'authored_date' => Time.zone.parse("2014-02-27T09:57:31.000+01:00"),
+          'committed_date' => Time.zone.parse("2014-02-27T09:57:31.000+01:00")
+        }
+      end
+
+      it 'creates one from the commit attributes' do
+        commit = described_class.build(
+          MergeRequestDiffCommit,
+          commit_attrs
+        )
+
+        commits_metadata = commit.merge_request_commits_metadata
+
+        expect(commits_metadata.id).to be_present
+        expect(commits_metadata.project_id).to eq(project.id)
+        expect(commits_metadata.sha).to eq(commit_attrs['sha'])
+        expect(commits_metadata.commit_author).to eq(commit_attrs['commit_author'])
+        expect(commits_metadata.committer).to eq(commit_attrs['committer'])
+        expect(commits_metadata.trailers).to eq(commit_attrs['trailers'])
+        expect(commits_metadata.message).to eq(commit_attrs['message'])
+        expect(commits_metadata.authored_date).to eq(commit_attrs['authored_date'])
+        expect(commits_metadata.committed_date).to eq(commit_attrs['committed_date'])
+      end
+
+      context 'when merge_request_diff_commits_dedup is disabled' do
+        before do
+          stub_feature_flags(merge_request_diff_commits_dedup: false)
+        end
+
+        it 'does not create merge request commits metadata' do
+          commit = described_class.build(
+            MergeRequestDiffCommit,
+            commit_attrs
+          )
+
+          expect(commit.merge_request_commits_metadata).to be_nil
+        end
       end
     end
   end
@@ -325,10 +495,10 @@ RSpec.describe Gitlab::ImportExport::Project::ObjectBuilder do
     context 'when the user already exists' do
       it 'returns the existing user' do
         user = MergeRequest::DiffCommitUser
-          .find_or_create('Alice', 'alice@example.com')
+          .find_or_create('Alice', 'alice@example.com', project.organization_id)
 
         found = described_class
-          .new(MergeRequestDiffCommit, {})
+          .new(MergeRequestDiffCommit, { 'project' => project })
           .send(:find_or_create_diff_commit_user, user.name, user.email)
 
         expect(found).to eq(user)
@@ -338,7 +508,7 @@ RSpec.describe Gitlab::ImportExport::Project::ObjectBuilder do
     context 'when the user does not exist' do
       it 'creates the user' do
         found = described_class
-          .new(MergeRequestDiffCommit, {})
+          .new(MergeRequestDiffCommit, { 'project' => project })
           .send(:find_or_create_diff_commit_user, 'Alice', 'alice@example.com')
 
         expect(found.name).to eq('Alice')
@@ -347,12 +517,58 @@ RSpec.describe Gitlab::ImportExport::Project::ObjectBuilder do
     end
 
     it 'caches the results' do
-      builder = described_class.new(MergeRequestDiffCommit, {})
+      builder = described_class.new(MergeRequestDiffCommit, { 'project' => project })
 
       builder.send(:find_or_create_diff_commit_user, 'Alice', 'alice@example.com')
 
       record = ActiveRecord::QueryRecorder.new do
         builder.send(:find_or_create_diff_commit_user, 'Alice', 'alice@example.com')
+      end
+
+      expect(record.count).to eq(1)
+    end
+  end
+
+  describe '#find_or_create_merge_request_commits_metadata' do
+    let_it_be(:project) { create(:project) }
+    let_it_be(:commit_author) { create(:merge_request_diff_commit_user) }
+    let_it_be(:committer) { create(:merge_request_diff_commit_user) }
+
+    let(:metadata) do
+      {
+        'project_id' => project.id,
+        'sha' => 'abc123',
+        'commit_author' => commit_author,
+        'committer' => committer,
+        'trailers' => { 'foo' => 'bar' },
+        'message' => 'This is a message',
+        'authored_date' => Time.zone.parse("2014-02-27T09:57:31.000+01:00"),
+        'committed_date' => Time.zone.parse("2014-02-27T09:57:31.000+01:00")
+      }
+    end
+
+    it 'calls MergeRequest::CommitsMetadata.find_or_create' do
+      commits_metadata = build_stubbed(:merge_request_commits_metadata)
+
+      allow(MergeRequest::CommitsMetadata)
+        .to receive(:find_or_create)
+        .with(metadata)
+        .and_return(commits_metadata)
+
+      found = described_class
+        .new(MergeRequestDiffCommit, { 'project' => project })
+        .send(:find_or_create_merge_request_commits_metadata, metadata)
+
+      expect(found).to eq(commits_metadata)
+    end
+
+    it 'caches the results' do
+      builder = described_class.new(MergeRequestDiffCommit, { 'project' => project })
+
+      builder.send(:find_or_create_merge_request_commits_metadata, metadata)
+
+      record = ActiveRecord::QueryRecorder.new do
+        builder.send(:find_or_create_merge_request_commits_metadata, metadata)
       end
 
       expect(record.count).to eq(1)

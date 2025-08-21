@@ -3,32 +3,42 @@
 class DashboardController < Dashboard::ApplicationController
   include IssuableCollectionsAction
   include FiltersEvents
+  include HomepageData
+  include ::Gitlab::InternalEventsTracking
 
   prepend_before_action(only: [:issues]) { authenticate_sessionless_user!(:rss) }
   prepend_before_action(only: [:issues_calendar]) { authenticate_sessionless_user!(:ics) }
 
   before_action :event_filter, only: :activity
-  before_action :projects, only: [:issues, :merge_requests]
-  before_action :set_show_full_reference, only: [:issues, :merge_requests]
-  before_action :check_filters_presence!, only: [:issues, :merge_requests]
+  before_action :projects, only: [:issues, :merge_requests, :search_merge_requests]
+  before_action :set_show_full_reference, only: [:issues, :merge_requests, :search_merge_requests]
+  before_action :check_filters_presence!, only: [:issues, :merge_requests, :search_merge_requests]
 
-  before_action only: :issues do
-    push_frontend_feature_flag(:frontend_caching)
-    push_frontend_feature_flag(:group_multi_select_tokens)
-  end
-
-  before_action only: :merge_requests do
-    push_frontend_feature_flag(:mr_approved_filter, type: :ops)
+  before_action only: [:merge_requests] do
+    if request.query_string.present? && current_user.merge_request_dashboard_enabled?
+      redirect_to merge_requests_search_dashboard_path(params: request.query_parameters), status: :moved_permanently
+    end
   end
 
   respond_to :html
 
+  feature_category :notifications, [:home]
   feature_category :user_profile, [:activity]
   feature_category :team_planning, [:issues, :issues_calendar]
-  feature_category :code_review_workflow, [:merge_requests]
+  feature_category :code_review_workflow, [:merge_requests, :search_merge_requests]
 
-  urgency :low, [:merge_requests, :activity]
+  urgency :low, [:merge_requests, :activity, :search_merge_requests]
   urgency :low, [:issues, :issues_calendar]
+
+  def home
+    if Feature.enabled?(:personal_homepage, current_user)
+      track_internal_event('user_views_homepage', user: current_user)
+      @homepage_app_data = homepage_app_data(current_user)
+      render('root/index')
+    else
+      not_found
+    end
+  end
 
   def activity
     respond_to do |format|
@@ -39,6 +49,10 @@ class DashboardController < Dashboard::ApplicationController
         pager_json('events/_events', @events.count { |event| event.visible_to_user?(current_user) })
       end
     end
+  end
+
+  def search_merge_requests
+    render_merge_requests
   end
 
   protected
@@ -69,8 +83,18 @@ class DashboardController < Dashboard::ApplicationController
         current_user.authorized_projects
       end
 
+    finder_params = {
+      offset: params[:offset].to_i,
+      filter: event_filter
+    }
+
+    if params[:limit].present?
+      limit = params[:limit].to_i
+      finder_params[:limit] = limit if limit > 0
+    end
+
     EventCollection
-      .new(projects, offset: params[:offset].to_i, filter: event_filter)
+      .new(projects, **finder_params)
       .to_a
       .map(&:present)
   end

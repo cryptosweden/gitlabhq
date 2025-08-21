@@ -2,9 +2,9 @@
 
 require 'spec_helper'
 
-RSpec.describe Packages::MarkPackageForDestructionService, feature_category: :package_registry do
+RSpec.describe Packages::MarkPackageForDestructionService, :aggregate_failures, feature_category: :package_registry do
   let_it_be(:user) { create(:user) }
-  let_it_be_with_reload(:package) { create(:npm_package) }
+  let_it_be_with_reload(:package) { create(:pypi_package) }
 
   describe '#execute' do
     subject(:service) { described_class.new(container: package, current_user: user) }
@@ -16,9 +16,10 @@ RSpec.describe Packages::MarkPackageForDestructionService, feature_category: :pa
 
       context 'when it is successful' do
         it 'marks the package and package files as pending destruction' do
-          expect(package).to receive(:sync_maven_metadata).and_call_original
-          expect(package).to receive(:sync_npm_metadata_cache).and_call_original
           expect(package).to receive(:mark_package_files_for_destruction).and_call_original
+          expect(package).not_to receive(:sync_maven_metadata)
+          expect(package).not_to receive(:sync_npm_metadata_cache)
+          expect(package).not_to receive(:sync_helm_metadata_cache)
           expect { service.execute }.to change { package.status }.from('default').to('pending_destruction')
         end
 
@@ -47,10 +48,38 @@ RSpec.describe Packages::MarkPackageForDestructionService, feature_category: :pa
 
           expect(package).not_to receive(:sync_maven_metadata)
           expect(package).not_to receive(:sync_npm_metadata_cache)
+          expect(package).not_to receive(:sync_helm_metadata_cache)
           expect(response).to be_a(ServiceResponse)
           expect(response).to be_error
           expect(response.message).to eq("Failed to mark the package as pending destruction")
           expect(response.status).to eq(:error)
+        end
+      end
+
+      context 'with npm package' do
+        let_it_be_with_reload(:package) { create(:npm_package) }
+
+        it 'returns a success ServiceResponse' do
+          expect(package).to receive(:sync_npm_metadata_cache).and_call_original
+          expect(service.execute).to be_success
+        end
+      end
+
+      context 'with helm package' do
+        let_it_be_with_reload(:package) { create(:helm_package) }
+
+        it 'calls sync_helm_metadata_cache', :aggregate_failures do
+          expect(package).to receive(:sync_helm_metadata_cache).and_call_original
+          expect(service.execute).to be_success
+        end
+      end
+
+      context 'with maven package' do
+        let_it_be_with_reload(:package) { create(:maven_package) }
+
+        it 'returns a success ServiceResponse' do
+          expect(package).to receive(:sync_maven_metadata).and_call_original
+          expect(service.execute).to be_success
         end
       end
     end

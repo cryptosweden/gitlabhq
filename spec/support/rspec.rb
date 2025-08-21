@@ -3,6 +3,7 @@
 require_relative 'rake'
 require_relative 'rspec_order'
 require_relative 'rspec_run_time'
+require_relative 'rspec_metadata_validator'
 require_relative 'system_exit_detected'
 require_relative 'helpers/stub_configuration'
 require_relative 'helpers/stub_metrics'
@@ -15,6 +16,8 @@ require 'gitlab/utils/all'
 RSpec::Expectations.configuration.on_potential_false_positives = :raise
 
 RSpec.configure do |config|
+  config.shared_context_metadata_behavior = :apply_to_host_groups
+
   # See https://gitlab.com/gitlab-org/gitlab/-/issues/379686
   config.threadsafe = false
 
@@ -28,6 +31,10 @@ RSpec.configure do |config|
       match = %r{/spec/([^/]+)/}.match(metadata[:location])
       metadata[:type] = match[1].singularize.to_sym if match
     end
+  end
+
+  config.before do |example|
+    RspecMetadataValidator.validate!(example.metadata)
   end
 
   # Makes diffs show entire non-truncated values.

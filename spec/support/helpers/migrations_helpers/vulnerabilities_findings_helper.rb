@@ -6,7 +6,6 @@ module MigrationHelpers
       uuid = SecureRandom.uuid
 
       {
-        project_fingerprint: SecureRandom.hex(20),
         location_fingerprint: Digest::SHA1.hexdigest(SecureRandom.hex(10)), # rubocop:disable Fips/SHA1
         uuid: uuid,
         name: "Vulnerability Finding #{uuid}",
@@ -20,7 +19,7 @@ module MigrationHelpers
         "description" => "The cipher does not provide data integrity update 1",
         "message" => "The cipher does not provide data integrity",
         "cve" => "818bf5dacb291e15d9e6dc3c5ac32178:CIPHER",
-        "solution" => "GCM mode introduces an HMAC into the resulting encrypted data, providing integrity of the result.", # rubocop:disable Layout/LineLength
+        "solution" => "GCM mode introduces an HMAC into the resulting encrypted data, providing integrity of the result.",
         "location" => {
           "file" => "maven/src/main/java/com/gitlab/security_products/tests/App.java",
           "start_line" => 29,

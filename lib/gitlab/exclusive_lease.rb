@@ -94,6 +94,16 @@ module Gitlab
     end
 
     def self.skip_transaction_check?
+      # When transactional tests are in use, Rails calls
+      # ConnectionPool#lock_thread= to ensure all application threads
+      # get the same connection so they can all see the data in the
+      # uncommited transaction. If Puma is in use, check the state of
+      # the lock thread.
+      if ::Rails.env.test?
+        lock_thread = ::ApplicationRecord.connection_pool.instance_variable_get(:@lock_thread)
+        return true if lock_thread && lock_thread[:skip_transaction_check_for_exclusive_lease]
+      end
+
       Thread.current[:skip_transaction_check_for_exclusive_lease]
     end
 
@@ -169,6 +179,13 @@ module Gitlab
     # Gives up this lease, allowing it to be obtained by others.
     def cancel
       self.class.cancel(@redis_shared_state_key, @uuid)
+    end
+
+    # Returns true if the UUID for the key hasn't changed.
+    def same_uuid?
+      ::Gitlab::Redis::SharedState.with do |redis|
+        redis.get(@redis_shared_state_key) == @uuid
+      end
     end
   end
 end

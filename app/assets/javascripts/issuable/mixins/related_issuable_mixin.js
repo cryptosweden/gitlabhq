@@ -1,6 +1,6 @@
 import { isEmpty } from 'lodash';
 import { STATUS_CLOSED, STATUS_MERGED, STATUS_OPEN, STATUS_REOPENED } from '~/issues/constants';
-import { formatDate } from '~/lib/utils/datetime_utility';
+import { localeDateFormat, newDate } from '~/lib/utils/datetime_utility';
 import { __ } from '~/locale';
 import timeagoMixin from '~/vue_shared/mixins/timeago';
 
@@ -137,14 +137,12 @@ const mixins = {
 
       return this.isOpen ? 'issue-open-m' : 'issue-close';
     },
-    iconClass() {
+    iconVariant() {
       if (this.isMergeRequest && this.isClosed) {
-        return 'merge-request-status closed issue-token-state-icon-closed';
+        return 'danger';
       }
 
-      return this.isOpen
-        ? 'issue-token-state-icon-open gl-text-green-500'
-        : 'issue-token-state-icon-closed gl-text-blue-500';
+      return this.isOpen ? 'success' : 'info';
     },
     computedLinkElementType() {
       return this.path.length > 0 ? 'a' : 'span';
@@ -162,10 +160,10 @@ const mixins = {
       return this.createdAt ? this.timeFormatted(this.createdAt) : '';
     },
     createdAtTimestamp() {
-      return this.createdAt ? formatDate(new Date(this.createdAt)) : '';
+      return this.createdAt ? localeDateFormat.asDateTimeFull.format(newDate(this.createdAt)) : '';
     },
     mergedAtTimestamp() {
-      return this.mergedAt ? formatDate(new Date(this.mergedAt)) : '';
+      return this.mergedAt ? localeDateFormat.asDateTimeFull.format(newDate(this.mergedAt)) : '';
     },
     mergedAtInWords() {
       return this.mergedAt ? this.timeFormatted(this.mergedAt) : '';
@@ -174,7 +172,7 @@ const mixins = {
       return this.closedAt ? this.timeFormatted(this.closedAt) : '';
     },
     closedAtTimestamp() {
-      return this.closedAt ? formatDate(new Date(this.closedAt)) : '';
+      return this.closedAt ? localeDateFormat.asDateTimeFull.format(newDate(this.closedAt)) : '';
     },
     stateText() {
       if (this.isMerged) {

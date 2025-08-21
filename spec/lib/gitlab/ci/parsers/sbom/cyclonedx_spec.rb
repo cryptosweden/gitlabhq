@@ -189,6 +189,41 @@ RSpec.describe Gitlab::Ci::Parsers::Sbom::Cyclonedx, feature_category: :dependen
         parse!
       end
     end
+
+    context 'when a component has license information' do
+      let(:license_id) { "Apache-2.0" }
+      let(:license_url) { "https://www.apache.org/licenses/LICENSE-2.0.txt" }
+      let(:components) do
+        [
+          {
+            "type" => "library",
+            "group" => "com.acme",
+            "name" => "tomcat-catalina",
+            "version" => "9.0.14",
+            "licenses" => [
+              {
+                "license" => {
+                  "id" => license_id,
+                  "url" => license_url
+                }
+              }
+            ]
+          }
+        ]
+      end
+
+      it 'adds component with license information' do
+        expected_license = an_object_having_attributes(
+          spdx_identifier: license_id,
+          name: nil,
+          url: license_url)
+
+        expect(report).to receive(:add_component)
+                            .with(an_object_having_attributes(licenses: [expected_license]))
+
+        parse!
+      end
+    end
   end
 
   context 'when report has container_scanning components' do
@@ -343,6 +378,94 @@ RSpec.describe Gitlab::Ci::Parsers::Sbom::Cyclonedx, feature_category: :dependen
       expect(report).to receive(:add_dependency).with('ref', 'dependency_ref')
 
       parse!
+    end
+  end
+
+  context 'when report has components with reachability' do
+    let(:report_data) { base_report_data.merge({ 'components' => components }) }
+
+    let(:parsed_properties) do
+      {
+        'reachability' => 'in_use'
+      }
+    end
+
+    let(:components) do
+      [
+        {
+          "name" => "GitPython",
+          "version" => "3.1.44",
+          "purl" => "pkg:pypi/GitPython@3.1.44",
+          "type" => "library",
+          "bom-ref" => "pkg:pypi/GitPython@3.1.44",
+          "properties" => [
+            {
+              "name" => "gitlab:dependency_scanning_component:reachability",
+              "value" => "in_use"
+            }
+          ]
+        }
+      ]
+    end
+
+    before do
+      allow(report).to receive(:add_component)
+    end
+
+    it 'adds component with the reachability property' do
+      expect(report).to receive(:add_component)
+        .with(
+          an_object_having_attributes(
+            name: "gitpython",
+            version: "3.1.44",
+            component_type: "library",
+            purl: an_object_having_attributes(type: "pypi"),
+            properties: an_object_having_attributes(
+              data: parsed_properties
+            )
+          )
+        )
+      parse!
+    end
+  end
+
+  context 'when metadata component is present' do
+    let(:ref) { 'urn:uuid:bbd321e1-f802-4fc1-ab0d-0cc629c3d53a' }
+    let(:type) { 'application' }
+    let(:name) { 'Root Application' }
+
+    let(:component) do
+      {
+        'type' => type,
+        'name' => name,
+        'bom-ref' => ref
+      }
+    end
+
+    let(:report_data) do
+      base_report_data.merge({ 'metadata' => { 'component' => component } })
+    end
+
+    it 'sets report metadata component' do
+      expect(report).to receive(:set_metadata_component)
+        .with(an_object_having_attributes(ref: ref, name: name, type: type))
+
+      parse!
+    end
+
+    context 'with incomplete component' do
+      let(:component) do
+        {
+          'type' => type,
+          'name' => name
+        }
+      end
+
+      it 'doesnt set report metadata component' do
+        expect(report).not_to receive(:set_metadata_component)
+
+        parse!
+      end
     end
   end
 end

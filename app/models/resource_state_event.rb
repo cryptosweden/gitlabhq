@@ -4,17 +4,18 @@ class ResourceStateEvent < ResourceEvent
   include MergeRequestResourceEvent
   include Importable
   include Import::HasImportSource
-  include IgnorableColumns
-
-  ignore_column :imported, remove_with: '17.2', remove_after: '2024-07-22'
-
-  validate :exactly_one_issuable, unless: :importing?
+  include FromUnion
 
   belongs_to :source_merge_request, class_name: 'MergeRequest', foreign_key: :source_merge_request_id
+  belongs_to :namespace
+
+  validate :exactly_one_issuable, unless: :importing?
+  validates :namespace, presence: true
 
   # state is used for issue and merge request states.
-  enum state: Issue.available_states.merge(MergeRequest.available_states).merge(reopened: 5)
+  enum :state, Issue.available_states.merge(MergeRequest.available_states).merge(reopened: 5)
 
+  before_validation :ensure_namespace_id
   after_create :issue_usage_metrics
 
   scope :merged_with_no_event_source, -> do
@@ -39,6 +40,10 @@ class ResourceStateEvent < ResourceEvent
 
   private
 
+  def ensure_namespace_id
+    self.namespace_id = Gitlab::Issuable::NamespaceGetter.new(issuable, allow_nil: true).namespace_id
+  end
+
   def issue_usage_metrics
     return unless for_issue?
 
@@ -57,4 +62,4 @@ class ResourceStateEvent < ResourceEvent
   end
 end
 
-ResourceStateEvent.prepend_mod_with('ResourceStateEvent')
+ResourceStateEvent.prepend_mod

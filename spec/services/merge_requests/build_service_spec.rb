@@ -14,6 +14,7 @@ RSpec.describe MergeRequests::BuildService, feature_category: :code_review_workf
   let(:issue) { create(:issue, project: project, title: 'A bug', confidential: issue_confidential) }
   let(:description) { nil }
   let(:source_branch) { 'feature' }
+  let(:ref_path) { "refs/heads/#{source_branch}" }
   let(:target_branch) { 'master' }
   let(:milestone_id) { nil }
   let(:label_ids) { [] }
@@ -133,6 +134,8 @@ RSpec.describe MergeRequests::BuildService, feature_category: :code_review_workf
 
       before do
         project.add_reporter(user)
+
+        allow(source_project).to receive(:ref_exists?).with(ref_path).and_return(false)
       end
 
       it 'assigns force_remove_source_branch' do
@@ -247,6 +250,8 @@ RSpec.describe MergeRequests::BuildService, feature_category: :code_review_workf
 
       before do
         stub_compare
+
+        project.add_developer(user)
       end
 
       it_behaves_like 'allows the merge request to be created'
@@ -372,6 +377,8 @@ RSpec.describe MergeRequests::BuildService, feature_category: :code_review_workf
 
       before do
         stub_compare
+
+        project.add_developer(user)
       end
 
       it_behaves_like 'allows the merge request to be created'
@@ -539,10 +546,54 @@ RSpec.describe MergeRequests::BuildService, feature_category: :code_review_workf
       before do
         allow(project).to receive(:branch_exists?).with(target_branch).and_return(true)
         allow(project).to receive(:branch_exists?).with(source_branch).and_return(false)
+        allow(project).to receive(:ref_exists?).with(ref_path).and_return(false)
       end
 
       it_behaves_like 'forbids the merge request from being created' do
         let(:error_message) { 'Source branch "feature" does not exist' }
+      end
+    end
+
+    context 'when a source branch ref exists in Gitaly but not in the ref cache' do
+      let(:log_arguments) do
+        {
+          class: 'MergeRequests::BuildService',
+          method: :ref_exists_in_gitaly?,
+          project_id: project.id,
+          source_branch: source_branch
+        }
+      end
+
+      before do
+        allow(service).to receive(:source_project).and_return(project)
+        allow(project).to receive(:branch_exists?).with(target_branch).and_return(true)
+        allow(project).to receive(:branch_exists?).with(source_branch).and_return(false)
+      end
+
+      context 'when the ref exists in Gitaly' do
+        before do
+          allow(project).to receive(:ref_exists?).with(ref_path).and_return(true)
+        end
+
+        it 'logs info' do
+          expect(project).to receive(:ref_exists?).with(ref_path)
+          expect(Gitlab::AppJsonLogger).to receive(:info).with(hash_including(**log_arguments))
+
+          service.execute
+        end
+      end
+
+      context 'when the ref does not exist in Gitaly' do
+        before do
+          allow(project).to receive(:ref_exists?).with(ref_path).and_return(false)
+        end
+
+        it 'does not log info' do
+          expect(project).to receive(:ref_exists?).with(ref_path)
+          expect(Gitlab::AppJsonLogger).not_to receive(:info).with(hash_including(**log_arguments))
+
+          service.execute
+        end
       end
     end
 
@@ -559,6 +610,7 @@ RSpec.describe MergeRequests::BuildService, feature_category: :code_review_workf
 
     context 'both source and target branches do not exist' do
       before do
+        allow(project).to receive(:ref_exists?).with(ref_path).and_return(false)
         allow(project).to receive(:branch_exists?).and_return(false)
       end
 
@@ -751,7 +803,69 @@ RSpec.describe MergeRequests::BuildService, feature_category: :code_review_workf
     end
   end
 
+  describe '#branch_name_to_title' do
+    let_it_be(:test_project) { create(:project, :repository) }
+    let_it_be(:test_user) { create(:user) }
+    let(:test_service) { described_class.new(project: test_project, current_user: test_user, params: {}) }
+
+    context 'replicates Rails titleize.humanize behavior exactly' do
+      where(:branch_name) do
+        [
+          'feature/FFQAQT1',
+          'feature/CERFTQ-11',
+          'bugfix/parser_error',
+          'hotfix/critical_issue',
+          'feature',
+          'fix-issue',
+          '124-fix-issue',
+          'feature/my-cool-branch',
+          'update_user_model',
+          'api/v2/users',
+          'feature----with----many----hyphens',
+          'feature____with____many____underscores',
+          'mixed---separators___test----case',
+          '---___feature___---'
+        ]
+      end
+
+      with_them do
+        it 'matches Rails output for non-EE acronym cases' do
+          our_result = test_service.send(:branch_name_to_title, branch_name)
+          rails_result = branch_name.titleize.humanize
+
+          expect(our_result).to eq(rails_result)
+        end
+      end
+
+      where(:input, :rails_output, :our_output) do
+        'feature/EEQAQT1'     | 'Feature/EE qaqt1'     | 'Feature/eeqaqt1'
+        'EEQAQT1-fix-bug'     | 'EE qaqt1 fix bug'     | 'Eeqaqt1 fix bug'
+        'feature/EEQAQT1-608' | 'Feature/EE qaqt1 608' | 'Feature/eeqaqt1 608'
+      end
+
+      with_them do
+        it 'intentionally differs from Rails for EE acronym cases' do
+          our_result = test_service.send(:branch_name_to_title, input)
+          rails_result = input.titleize.humanize
+
+          # Verify Rails would produce the splitting behavior
+          expect(rails_result).to eq(rails_output)
+
+          # Verify our implementation fixes the splitting
+          expect(our_result).to eq(our_output)
+
+          # Verify they are indeed different
+          expect(our_result).not_to eq(rails_result)
+        end
+      end
+    end
+  end
+
   describe '#replace_variables_in_description' do
+    before do
+      project.add_developer(user)
+    end
+
     context 'when the merge request description is blank' do
       let(:description) { nil }
 

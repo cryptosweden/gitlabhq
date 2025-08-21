@@ -1,10 +1,9 @@
 ---
-stage: Monitor
+stage: Analytics
 group: Analytics Instrumentation
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Internal Analytics review guidelines
 ---
-
-# Internal Analytics review guidelines
 
 This page includes introductory material for an
 [Analytics Instrumentation](https://handbook.gitlab.com/handbook/engineering/development/analytics/analytics-instrumentation/)
@@ -47,6 +46,7 @@ In most cases, an Analytics Instrumentation review is automatically added, but i
 - If a change to an event is a part of the review:
   - Check that the event(s) being fired have corresponding definition files.
   - Check that the [event definition file](internal_event_instrumentation/event_definition_guide.md) is correct.
+  - Check that the tracking parameters don't contain any [sensitive information](https://handbook.gitlab.com/handbook/security/data-classification-standard/).
 - If a change to a metric is a part of the review:
   - Add the `~database` label and ask for a [database review](../database_review.md) for
     metrics that are based on Database.
@@ -58,4 +58,13 @@ In most cases, an Analytics Instrumentation review is automatically added, but i
     - Check the file location. Consider the time frame, and if the file should be under `ee`.
     - Check the tiers.
   - If a metric was changed or removed: Make sure the MR author notified the Customer Success Ops team (`@csops-team`), Analytics Engineers (`@gitlab-data/analytics-engineers`), and Product Analysts (`@gitlab-data/product-analysts`) by `@` mentioning those groups in a comment on the issue for the MR and all of these groups have acknowledged the removal.
+- If a change to the Internal Events CLI is a part of the review:
+  - Check the changes follow the [CLI style guide](cli_contribution_guidelines.md).
+  - Run the CLI & check the UX of the changes:
+    - Is the content easy to skim?
+    - Would this content make sense to people outside the team?
+    - Is this information necessary? Helpful?
+    - What reservations would I have if I'd never gone through this flow before?
+    - Is the meaning or effect of every input clear?
+    - If we describe edge cases or caveats, are there instructions to validate whether the user needs to worry about it?
 - Approve the MR, and relabel the MR with `~"analytics instrumentation::approved"`.

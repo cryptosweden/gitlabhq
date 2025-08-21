@@ -149,7 +149,6 @@ RSpec.shared_examples 'a class that supports relative positioning' do
 
       expect(items.map(&:relative_position)).to all(be_valid_position)
       expect(bunch.reverse.sort_by(&:relative_position)).to eq(bunch)
-      expect(nils.reverse.sort_by(&:relative_position)).not_to eq(nils)
       expect(bunch.map(&:relative_position)).to all(be < nils.map(&:relative_position).min)
     end
 
@@ -257,7 +256,6 @@ RSpec.shared_examples 'a class that supports relative positioning' do
 
       expect(items.map(&:relative_position)).to all(be_valid_position)
       expect(bunch.reverse.sort_by(&:relative_position)).to eq(bunch)
-      expect(nils.reverse.sort_by(&:relative_position)).not_to eq(nils)
       expect(bunch.map(&:relative_position)).to all(be > nils.map(&:relative_position).max)
     end
   end
@@ -344,7 +342,7 @@ RSpec.shared_examples 'a class that supports relative positioning' do
 
       it 'can leap-frog STEPS times before needing to rebalance' do
         expect { RelativePositioning::STEPS.times { leap_frog } }
-          .to change { item3.reload.relative_position }.by(0)
+          .to not_change { item3.reload.relative_position }
           .and change { item1.reload.relative_position }.by(be < 0)
           .and change { item2.reload.relative_position }.by(be < 0)
 
@@ -431,13 +429,13 @@ RSpec.shared_examples 'a class that supports relative positioning' do
       it 'rebalances after STEPS jumps' do
         RelativePositioning::STEPS.pred.times do
           expect { leap_frog }
-            .to change { item3.reload.relative_position }.by(0)
+            .to not_change { item3.reload.relative_position }
             .and change { item1.reset.relative_position }.by(be >= 0)
             .and change { item2.reset.relative_position }.by(be >= 0)
         end
 
         expect { leap_frog }
-          .to change { item3.reload.relative_position }.by(0)
+          .to not_change { item3.reload.relative_position }
           .and change { item1.reset.relative_position }.by(be < 0)
           .and change { item2.reset.relative_position }.by(be < 0)
       end

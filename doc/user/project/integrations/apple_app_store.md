@@ -1,19 +1,25 @@
 ---
 stage: none
 group: unassigned
-info: This is a GitLab Incubation Engineering program. No technical writer assigned to this group.
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Apple App Store Connect
 ---
 
-# Apple App Store Connect
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/104888) in GitLab 15.8 [with a flag](../../../administration/feature_flags.md) named `apple_app_store_integration`. Disabled by default.
-> - [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/385335) in GitLab 15.10. Feature flag `apple_app_store_integration` removed.
+{{< /details >}}
 
-This feature is part of [Mobile DevOps](../../../ci/mobile_devops.md) developed by [GitLab Incubation Engineering](https://handbook.gitlab.com/handbook/engineering/development/incubation/).
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/104888) in GitLab 15.8 [with a flag](../../../administration/feature_flags/_index.md) named `apple_app_store_integration`. Disabled by default.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/issues/385335) in GitLab 15.10. Feature flag `apple_app_store_integration` removed.
+
+{{< /history >}}
+
+This feature is part of [Mobile DevOps](../../../ci/mobile_devops/_index.md) developed by GitLab.
 The feature is still in development, but you can:
 
 - [Request a feature](https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/feedback/-/issues/new?issuable_template=feature_request).
@@ -57,7 +63,7 @@ After you enable the integration:
 
 Malicious code pushed to your `.gitlab-ci.yml` file could compromise your variables, including
 `$APP_STORE_CONNECT_API_KEY_KEY`, and send them to a third-party server. For more information, see
-[CI/CD variable security](../../../ci/variables/index.md#cicd-variable-security).
+[CI/CD variable security](../../../ci/variables/_index.md#cicd-variable-security).
 
 ## Enable the integration in fastlane
 

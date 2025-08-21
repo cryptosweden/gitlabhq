@@ -1,14 +1,16 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
-info: "To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments"
+info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Troubleshooting GitLab with Kerberos integration
 ---
 
-# Troubleshooting GitLab with Kerberos integration
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 When working with GitLab with Kerberos integration, you might encounter the following issues.
 
@@ -94,7 +96,7 @@ GitLab server do not match. Often, Windows clients work in this case while
 Linux clients fail. They use reverse DNS while detecting the Kerberos
 realm. If they get the wrong realm then ordinary Kerberos mechanisms fail,
 so the client falls back to attempting to negotiate `IAKERB`, leading to the
-above error message.
+previous authentication error message.
 
 To fix this, ensure that the forward and reverse DNS for your GitLab server
 match. So for instance, if you access GitLab as `gitlab.example.com`, resolving
@@ -114,14 +116,25 @@ remote: HTTP Basic: Access denied
 fatal: Authentication failed for '<KRB5 path>'
 ```
 
-If you are using Git v2.11 or newer and see the above error when cloning, you can
+If you are using Git v2.11 or later and see the previous error when cloning, you can
 set the `http.emptyAuth` Git option to `true` to fix this:
 
 ```shell
 git config --global http.emptyAuth true
 ```
 
-See also: [Git v2.11 release notes](https://github.com/git/git/blob/master/Documentation/RelNotes/2.11.0.txt#L482-L486)
+## Git cloning with Kerberos over proxied HTTPS
+
+You must comment the following if:
+
+- You see `http://` URLs in the **Clone with KRB5 Git Cloning** options, when `https://` URLs are expected.
+- HTTPS is not terminated at your GitLab instance, but is instead proxied by your load balancer or local traffic manager.
+
+```shell
+# gitlab_rails['kerberos_https'] = false
+```
+
+See also: [Git v2.11 release notes](https://github.com/git/git/blob/master/Documentation/RelNotes/2.11.0.adoc?plain=1#L482-L486)
 
 ## Helpful links
 

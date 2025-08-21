@@ -2,13 +2,15 @@
 stage: Plan
 group: Knowledge
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Create a GitLab Pages website from a forked sample project
 ---
 
-# Create a GitLab Pages website from a forked sample project
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 GitLab provides [sample projects for the most popular Static Site Generators (SSG)](https://gitlab.com/pages).
 You can fork one of the sample projects and run the CI/CD pipeline to generate a Pages website.
@@ -23,7 +25,7 @@ To fork a sample project and create a Pages website:
 1. View the sample projects by navigating to the [GitLab Pages examples](https://gitlab.com/pages) group.
 1. Select the name of the project you want to [fork](../../repository/forking_workflow.md#create-a-fork).
 1. In the upper-right corner, select **Fork**, then choose a namespace to fork to.
-1. For your project, on the left sidebar, select **Build > Pipelines** and then **Run pipeline**.
+1. For your project, on the left sidebar, select **Build > Pipelines** and then **New pipeline**.
    GitLab CI/CD builds and deploys your site.
 
 The site can take approximately 30 minutes to deploy.
@@ -59,7 +61,7 @@ you can rename it to `<namespace>.gitlab.io`, where `<namespace>` is your GitLab
    If you set the repository path to `gitlab-tests.gitlab.io`,
    the resulting URL for your Pages website is `https://gitlab-tests.gitlab.io`.
 
-   ![Change repository's path](../img/change_path_v12_10.png)
+   ![Change repository's path](img/change_path_v12_10.png)
 
 1. Open your SSG configuration file and change the [base URL](../getting_started_part_one.md#urls-and-base-urls)
    from `"project-name"` to `""`. The project name setting varies by SSG and may not be in the configuration file.

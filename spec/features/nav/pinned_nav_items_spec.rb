@@ -4,7 +4,7 @@ require 'spec_helper'
 
 RSpec.describe 'Navigation menu item pinning', :js, feature_category: :navigation do
   let_it_be(:user) { create(:user) }
-  let_it_be(:project) { create(:project) }
+  let_it_be(:project) { create(:project, developers: user) }
 
   before do
     sign_in(user)
@@ -15,13 +15,11 @@ RSpec.describe 'Navigation menu item pinning', :js, feature_category: :navigatio
       visit explore_projects_path
     end
 
-    it 'does not show the Pinned section' do
+    it 'does not show the Pinned section nor buttons to pin items' do
       within '#super-sidebar' do
         expect(page).not_to have_content 'Pinned'
       end
-    end
 
-    it 'does not show the buttons to pin items' do
       within '#super-sidebar' do
         expect(page).not_to have_css 'button svg[data-testid="thumbtack-icon"]'
       end
@@ -30,13 +28,12 @@ RSpec.describe 'Navigation menu item pinning', :js, feature_category: :navigatio
 
   describe 'pinnable navigation menu' do
     before do
-      project.add_member(user, :owner)
       visit project_path(project)
     end
 
     it 'adds sensible defaults' do
       within_testid 'pinned-nav-items' do
-        expect(page).to have_link 'Issues'
+        expect(page).to have_link 'Work items'
       end
     end
 
@@ -54,7 +51,7 @@ RSpec.describe 'Navigation menu item pinning', :js, feature_category: :navigatio
       end
 
       within_testid 'pinned-nav-items' do
-        expect(page).to have_link 'Issues'
+        expect(page).to have_link 'Work items'
         expect(page).to have_link 'Activity'
         expect(page).to have_link 'Members'
       end
@@ -62,7 +59,7 @@ RSpec.describe 'Navigation menu item pinning', :js, feature_category: :navigatio
 
     describe 'when all pins are removed' do
       before do
-        remove_pin('Issues')
+        remove_pin('Work items')
       end
 
       it 'shows the Pinned section as expanded by default' do
@@ -115,13 +112,13 @@ RSpec.describe 'Navigation menu item pinning', :js, feature_category: :navigatio
 
       it 'can be reordered' do
         within_testid 'pinned-nav-items' do
-          pinned_items = page.find_all('a').map(&:text)
+          pinned_items = page.find_all('a', wait: false).map(&:text)
           item2 = page.find('a', text: 'Terraform states')
           item3 = page.find('a', text: 'Terraform modules')
           expect(pinned_items[1..2]).to eq [item2.text, item3.text]
           drag_item(item3, to: item2)
 
-          pinned_items = page.find_all('a').map(&:text)
+          pinned_items = page.find_all('a', wait: false).map(&:text)
           expect(pinned_items[1..2]).to eq [item3.text, item2.text]
         end
       end
@@ -129,13 +126,10 @@ RSpec.describe 'Navigation menu item pinning', :js, feature_category: :navigatio
   end
 
   describe 'reordering pins with hidden pins from non-available features' do
-    let_it_be(:project_with_repo) { create(:project, :repository) }
-    let_it_be(:project_without_repo) { create(:project, :repository_disabled) }
+    let_it_be(:project_with_repo) { create(:project, :repository, developers: user) }
+    let_it_be(:project_without_repo) { create(:project, :repository_disabled, developers: user) }
 
     before do
-      project_with_repo.add_member(user, :owner)
-      project_without_repo.add_member(user, :owner)
-
       visit project_path(project_with_repo)
       within '#super-sidebar' do
         click_on 'Code'
@@ -157,10 +151,10 @@ RSpec.describe 'Navigation menu item pinning', :js, feature_category: :navigatio
 
     it 'keeps pins of non-available features' do
       within_testid 'pinned-nav-items' do
-        pinned_items = page.find_all('a')
+        pinned_items = page.find_all('a', wait: false)
           .map(&:text)
           .map { |text| text.split("\n").first } # to drop the counter badge text from "Issues\n0"
-        expect(pinned_items).to eq ["Issues", "Merge requests", "Commits", "Members", "Activity"]
+        expect(pinned_items).to eq ["Work items", "Merge requests", "Commits", "Members", "Activity"]
       end
     end
   end
@@ -174,19 +168,17 @@ RSpec.describe 'Navigation menu item pinning', :js, feature_category: :navigatio
     context 'when a pinned item is clicked in the Pinned section' do
       before do
         within_testid 'pinned-nav-items' do
-          click_on 'Issues'
+          click_on 'Work items'
         end
       end
 
-      it 'shows the Pinned section as expanded' do
+      it 'shows the Pinned section as expanded and the original section as collapsed' do
         within_testid 'pinned-nav-items' do
-          expect(page).to have_link 'Issues'
+          expect(page).to have_link 'Work items'
         end
-      end
 
-      it 'shows the original section as collapsed' do
         within '#menu-section-button-plan' do
-          expect(page).not_to have_link 'Issues'
+          expect(page).not_to have_link 'Work items'
         end
       end
     end
@@ -197,19 +189,16 @@ RSpec.describe 'Navigation menu item pinning', :js, feature_category: :navigatio
           click_on 'Plan'
         end
         within '#super-sidebar #plan' do
-          click_on 'Issues'
+          click_on 'Work items'
         end
       end
 
-      it 'shows the Pinned section as collapsed' do
+      it 'shows the Pinned section as collapsed and the original section as expanded' do
         within '#menu-section-button-plan' do
-          expect(page).not_to have_link 'Issues'
+          expect(page).not_to have_link 'Work items'
         end
-      end
-
-      it 'shows the original section as expanded' do
         within '#super-sidebar #plan' do
-          expect(page).to have_link 'Issues'
+          expect(page).to have_link 'Work items'
         end
       end
     end

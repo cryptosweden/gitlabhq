@@ -32,7 +32,7 @@ RSpec.describe 'Group Package and registry settings', feature_category: :package
     it 'renders 404 when navigating to page' do
       visit_settings_page
 
-      expect(page).to have_content('Not Found')
+      expect(page).to have_content('Page not found')
     end
   end
 
@@ -65,7 +65,7 @@ RSpec.describe 'Group Package and registry settings', feature_category: :package
 
       wait_for_requests
 
-      expect(page).to be_axe_clean.within('[data-testid="packages-and-registries-group-settings"]') # rubocop:todo Capybara/TestidFinders -- Doesn't cover use case, see https://gitlab.com/gitlab-org/gitlab/-/issues/442224
+      expect(page).to be_axe_clean.within_testid('packages-and-registries-group-settings')
                                   .skipping :'link-in-text-block'
     end
 
@@ -82,16 +82,10 @@ RSpec.describe 'Group Package and registry settings', feature_category: :package
       wait_for_requests
 
       within_testid 'maven-settings' do
-        expect(page).to have_field _('Exceptions'), disabled: true
-
         click_button class: 'gl-toggle'
-
-        expect(page).to have_field _('Exceptions'), disabled: false
-
-        visit_settings_page
-
-        expect(page).to have_field _('Exceptions'), disabled: false
       end
+
+      expect(find('.gl-toast')).to have_content('Settings saved successfully.')
     end
 
     it 'shows an error on wrong regex', :js do
@@ -101,7 +95,7 @@ RSpec.describe 'Group Package and registry settings', feature_category: :package
       within_testid 'maven-settings' do
         click_button class: 'gl-toggle'
 
-        fill_in _('Exceptions'), with: ')'
+        fill_in class: 'gl-form-input', with: ')'
 
         # simulate blur event
         send_keys(:tab)
@@ -111,20 +105,46 @@ RSpec.describe 'Group Package and registry settings', feature_category: :package
     end
 
     context 'in a sub group' do
-      it 'works correctly', :js do
+      it 'automatically saves changes to the server', :js do
         visit_sub_group_settings_page
         wait_for_requests
 
         within_testid 'maven-settings' do
-          expect(page).to have_content('Allow duplicates')
-
-          expect(page).to have_field _('Exceptions'), disabled: true
-
           click_button class: 'gl-toggle'
-
-          expect(page).to have_field _('Exceptions'), disabled: false
         end
+
+        expect(find('.gl-toast')).to have_content('Settings saved successfully.')
       end
+    end
+  end
+
+  describe 'dependency proxy for containers', :js do
+    before do
+      stub_config(dependency_proxy: { enabled: true })
+    end
+
+    it 'updates Docker Hub authentication' do
+      visit_settings_page
+
+      within_testid 'dependency-proxy-settings-content' do
+        fill_in 'Identity', with: 'username'
+        fill_in 'Secret', with: 'token'
+
+        click_button 'Save changes'
+      end
+
+      expect(find('.gl-toast')).to have_content('Settings saved successfully.')
+    end
+
+    it 'allows clearing Docker Hub authentication settings' do
+      visit_settings_page
+
+      within_testid 'dependency-proxy-settings-content' do
+        fill_in 'Identity', with: ''
+        click_button 'Save changes'
+      end
+
+      expect(find('.gl-toast')).to have_content('Settings saved successfully.')
     end
   end
 

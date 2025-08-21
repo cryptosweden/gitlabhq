@@ -7,12 +7,15 @@ module CachedIntrospectionQuery
         __schema {
           queryType {
             name
+            kind
           }
           mutationType {
             name
+            kind
           }
           subscriptionType {
             name
+            kind
           }
           types {
             ...FullType
@@ -21,13 +24,12 @@ module CachedIntrospectionQuery
             name
             description
             locations
-            args {
+            args(includeDeprecated: true) {
               ...InputValue
             }
           }
         }
       }
-
       fragment FullType on __Type {
         kind
         name
@@ -35,7 +37,7 @@ module CachedIntrospectionQuery
         fields(includeDeprecated: true) {
           name
           description
-          args {
+          args(includeDeprecated: true) {
             ...InputValue
           }
           type {
@@ -44,7 +46,7 @@ module CachedIntrospectionQuery
           isDeprecated
           deprecationReason
         }
-        inputFields {
+        inputFields(includeDeprecated: true) {
           ...InputValue
         }
         interfaces {
@@ -60,7 +62,6 @@ module CachedIntrospectionQuery
           ...TypeRef
         }
       }
-
       fragment InputValue on __InputValue {
         name
         description
@@ -68,8 +69,9 @@ module CachedIntrospectionQuery
           ...TypeRef
         }
         defaultValue
+        isDeprecated
+        deprecationReason
       }
-
       fragment TypeRef on __Type {
         kind
         name
@@ -94,6 +96,14 @@ module CachedIntrospectionQuery
                     ofType {
                       kind
                       name
+                      ofType {
+                        kind
+                        name
+                        ofType {
+                          kind
+                          name
+                        }
+                      }
                     }
                   }
                 }
@@ -102,6 +112,7 @@ module CachedIntrospectionQuery
           }
         }
       }
+
     QUERY
   end
 end

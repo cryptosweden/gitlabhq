@@ -1,17 +1,11 @@
 ---
 stage: Plan
 group: Optimize
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Aggregated Value Stream Analytics
 ---
 
-# Aggregated Value Stream Analytics
-
-DISCLAIMER:
-This page contains information related to upcoming products, features, and functionality.
-It is important to note that the information presented is for informational purposes only.
-Please do not rely on this information for purchasing or planning purposes.
-The development, release, and timing of any products, features, or functionality may be subject to change or delay and remain at the
-sole discretion of GitLab Inc.
+{{< alert type="disclaimer" />}}
 
 This page provides a high-level overview of the aggregated backend for
 Value Stream Analytics (VSA).
@@ -51,7 +45,7 @@ Benefits of the aggregated VSA backend:
 
 ### Example configuration
 
-![VSA object hierarchy example](img/object_hierarchy_example_V14_10.png)
+![VSA object hierarchy example](img/object_hierarchy_v14_10.png)
 
 In this example, two independent value streams are set up for two teams that are using
 different development workflows within the `Test Group` (top-level namespace).
@@ -192,17 +186,17 @@ Both tables are hash partitioned by the `stage_event_hash_id`. Each table uses 3
 an arbitrary number and it could be changed. Important is to keep the partitions under 100 GB in
 size (which gives the feature a lot of headroom).
 
-|Column|Description|
-|-|-|
-|`stage_event_hash_id`|partitioning key|
-|`merge_request_id` or `issue_id`|reference to the domain record (Issuable)|
-|`group_id`|reference to the group (de-normalization)|
-|`project_id`|reference to the project|
-|`milestone_id`|duplicated data from the domain record table|
-|`author_id`|duplicated data from the domain record table|
-|`state_id`|duplicated data from the domain record table|
-|`start_event_timestamp`|timestamp derived from the stage configuration|
-|`end_event_timestamp`|timestamp derived from the stage configuration|
+| Column                           | Description |
+|----------------------------------|-------------|
+| `stage_event_hash_id`            | partitioning key |
+| `merge_request_id` or `issue_id` | reference to the domain record (Issuable) |
+| `group_id`                       | reference to the group (de-normalization) |
+| `project_id`                     | reference to the project |
+| `milestone_id`                   | duplicated data from the domain record table |
+| `author_id`                      | duplicated data from the domain record table |
+| `state_id`                       | duplicated data from the domain record table |
+| `start_event_timestamp`          | timestamp derived from the stage configuration |
+| `end_event_timestamp`            | timestamp derived from the stage configuration |
 
 With accordance to the data separation requirements, the table doesn't have any foreign keys. The
 consistency is ensured by a background job (eventually consistent).
@@ -212,7 +206,7 @@ consistency is ensured by a background job (eventually consistent).
 The base query always includes the following filters:
 
 - `stage_event_hash_id` - partition key
-- `project_id` or `group_id` - depending if it's a project or group level query
+- `project_id` or `group_id` - depending on whether it's a project or group query
 - `end_event_timestamp` - date range filter (last 30 days)
 
 Example: Selecting review stage duration for the GitLab project
@@ -242,18 +236,18 @@ Thanks to this, we can easily switch between the old and new query backends.
 
 VSA supports various filters on the base query. Most of the filters require no additional JOINs:
 
-|Filter name|Description|
-|-|-|
-|`milestone_title`|The backend translates it to `milestone_id` filter|
-|`author_username`|The backend translates it to `author_id` filter|
-|`project_ids`|Only used on the group-level|
+| Filter name       | Description |
+|-------------------|-------------|
+| `milestone_title` | The backend translates it to `milestone_id` filter |
+| `author_username` | The backend translates it to `author_id` filter |
+| `project_ids`     | Only used on the group-level |
 
 Exceptions: these filters are applied on other tables which means we `JOIN` them.
 
-|Filter name|Description|
-|-|-|
-|`label_name`|Array filter, using the `label_links` table|
-|`assignee_username`|Array filter, using the `*_assignees` table|
+| Filter name         | Description |
+|---------------------|-------------|
+| `label_name`        | Array filter, using the `label_links` table |
+| `assignee_username` | Array filter, using the `*_assignees` table |
 
 To fully decompose the database, the required ID values would need to be replicated in the VSA
 database tables. This change could be implemented using array columns.

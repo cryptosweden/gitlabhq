@@ -9,19 +9,19 @@ module RuboCop
       #
       # @example
       #
-      # # bad
-      # class TroubleMakerWorker
-      #   def perform
+      #   # bad
+      #   class TroubleMakerWorker
+      #     def perform
+      #     end
       #   end
-      # end
       #
-      # # good
-      # class NiceWorker
-      #   idempotent!
+      #   # good
+      #   class NiceWorker
+      #     idempotent!
       #
-      #   def perform
+      #     def perform
+      #     end
       #   end
-      # end
       #
       class IdempotentWorker < RuboCop::Cop::Base
         include CodeReuseHelpers
@@ -43,6 +43,7 @@ module RuboCop
           See #{HELP_LINK}
         MSG
 
+        # @!method idempotent?(node)
         def_node_search :idempotent?, <<~PATTERN
           (send nil? :idempotent!)
         PATTERN

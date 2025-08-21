@@ -104,22 +104,34 @@ module Gitlab
               validate_hash!
             end
 
+            def load_uninterpolated_yaml
+              ::Gitlab::Ci::Config::Yaml::Loader.new(content).load_uninterpolated_yaml
+            end
+
             protected
 
             def content_inputs
-              # TODO: remove support for `with` syntax in 16.1, see https://gitlab.com/gitlab-org/gitlab/-/issues/408369
-              # In the interim prefer `inputs` over `with` while allow either syntax.
-              params.to_h.slice(:inputs, :with).each_value.first
+              params.to_h.slice(:inputs).each_value.first
             end
 
             def content_result
               context.logger.instrument(:config_file_fetch_content_hash) do
                 ::Gitlab::Ci::Config::Yaml::Loader.new(
-                  content, inputs: content_inputs, variables: context.variables
+                  content, inputs: content_inputs, context: yaml_context
                 ).load
               end
             end
             strong_memoize_attr :content_result
+
+            def yaml_context
+              ::Gitlab::Ci::Config::Yaml::Context.new(**yaml_context_attributes)
+            end
+
+            def yaml_context_attributes
+              {
+                variables: context.variables
+              }
+            end
 
             def expanded_content_hash
               return if content_result.content.blank?

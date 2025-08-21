@@ -10,7 +10,7 @@ class CopyCodeButton extends HTMLElement {
     this.for = uniqueId('code-');
 
     const target = this.parentNode.querySelector('pre');
-    if (!target || this.closest('.suggestions')) return;
+    if (!target || this.closest('.md-suggestion')) return;
 
     target.setAttribute('id', this.for);
 
@@ -24,6 +24,7 @@ class CopyCodeButton extends HTMLElement {
       type: 'button',
       class: 'btn btn-default btn-md gl-button btn-icon has-tooltip',
       'data-title': __('Copy to clipboard'),
+      'aria-label': __('Copy to clipboard'),
       'data-clipboard-target': `pre#${this.for}`,
     });
 

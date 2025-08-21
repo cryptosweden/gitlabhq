@@ -17,6 +17,7 @@ import FollowersTab from './followers_tab.vue';
 import FollowingTab from './following_tab.vue';
 
 export default {
+  name: 'ProfileTabs',
   i18n: {
     personalProjectsErrorMessage: s__(
       'UserProfile|An error occurred loading the personal projects. Please refresh the page to try again.',
@@ -106,7 +107,7 @@ export default {
 </script>
 
 <template>
-  <gl-tabs nav-class="gl-bg-gray-10" content-class="gl-bg-white gl-pt-5" align="center">
+  <gl-tabs nav-class="gl-bg-subtle" content-class="gl-bg-default gl-pt-5" align="center">
     <component
       :is="component"
       v-for="{ key, component } in $options.tabs"

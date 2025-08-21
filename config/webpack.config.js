@@ -44,6 +44,7 @@ const {
   GITLAB_WEB_IDE_PUBLIC_PATH,
   copyFilesPatterns,
 } = require('./webpack.constants');
+const { PDF_JS_WORKER_PUBLIC_PATH, PDF_JS_CMAPS_PUBLIC_PATH } = require('./pdfjs.constants');
 const { generateEntries } = require('./webpack.helpers');
 
 const createIncrementalWebpackCompiler = require('./helpers/incremental_webpack_compiler');
@@ -58,7 +59,7 @@ const SUPPORTED_BROWSERS_HASH = crypto
   .digest('hex');
 
 const VENDOR_DLL = process.env.WEBPACK_VENDOR_DLL && process.env.WEBPACK_VENDOR_DLL !== 'false';
-const CACHE_PATH = process.env.WEBPACK_CACHE_PATH || path.join(ROOT_PATH, 'tmp/cache');
+const CACHE_PATH = process.env.WEBPACK_CACHE_PATH || path.join(ROOT_PATH, 'tmp/cache/webpack');
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const IS_DEV_SERVER = process.env.WEBPACK_SERVE === 'true';
 
@@ -88,6 +89,8 @@ if (WEBPACK_REPORT) {
   NO_HASHED_CHUNKS = true;
 }
 
+console.debug(`BABEL_ENV inside Webpack is: ${process.env.BABEL_ENV}`);
+
 const devtool = IS_PRODUCTION ? 'source-map' : 'cheap-module-eval-source-map';
 
 const incrementalCompiler = createIncrementalWebpackCompiler(
@@ -116,11 +119,21 @@ const alias = {
   // the following resolves files which are different between CE/EE/JH
   any_else_ce: path.join(ROOT_PATH, 'app/assets/javascripts'),
 
+  // consume @gitlab-ui from source to allow us to compile in either Vue 2 or Vue 3
+  '@gitlab/ui/dist/charts$': '@gitlab/ui/src/charts',
+  '@gitlab/ui$': '@gitlab/ui/src',
+
   // override loader path for icons.svg so we do not duplicate this asset
   '@gitlab/svgs/dist/icons.svg': path.join(
     ROOT_PATH,
     'app/assets/javascripts/lib/utils/icons_path.js',
   ),
+
+  // prevent loading of index.js to avoid duplicate instances of classes
+  graphql: path.join(ROOT_PATH, 'node_modules/graphql/index.mjs'),
+
+  // load mjs version instead of cjs
+  'markdown-it': path.join(ROOT_PATH, 'node_modules/markdown-it/index.mjs'),
 
   // test-environment-only aliases duplicated from Jest config
   'spec/test_constants$': path.join(ROOT_PATH, 'spec/frontend/__helpers__/test_constants'),
@@ -132,6 +145,7 @@ const alias = {
   test_helpers: path.join(ROOT_PATH, 'spec/frontend_integration/test_helpers'),
   public: path.join(ROOT_PATH, 'public'),
   storybook_addons: path.resolve(ROOT_PATH, 'storybook/config/addons'),
+  storybook_helpers: path.resolve(ROOT_PATH, 'storybook/helpers'),
 };
 
 if (IS_EE) {
@@ -189,6 +203,9 @@ const defaultJsOptions = {
     // Ensure that changing supported browsers will refresh the cache
     // in order to not pull in outdated files that import core-js
     SUPPORTED_BROWSERS_HASH,
+    // An EXPLICIT_VUE_VERSION changes how we alias certain packages
+    // use a different cache to prevent issues when switching between versions
+    EXPLICIT_VUE_VERSION,
   ].join('|'),
   cacheCompression: false,
 };
@@ -206,33 +223,33 @@ const vueLoaderOptions = {
   ].join('|'),
 };
 
-let shouldExcludeFromCompliling = (modulePath) =>
-  /node_modules|vendor[\\/]assets/.test(modulePath) && !/\.vue\.js/.test(modulePath);
-// We explicitly set VUE_VERSION
-// Use @gitlab-ui from source to allow us to dig differences
-// between Vue.js 2 and Vue.js 3 while using built gitlab-ui by default
-if (EXPLICIT_VUE_VERSION) {
-  Object.assign(alias, {
-    '@gitlab/ui/src/tokens/build/js': path.join(
-      ROOT_PATH,
-      'node_modules/@gitlab/ui/src/tokens/build/js',
-    ),
-    '@gitlab/ui/dist': '@gitlab/ui/src',
-    '@gitlab/ui': '@gitlab/ui/src',
-  });
+const shouldExcludeFromCompiling = (modulePath) => {
+  // file with .vue.js extension
+  if (/\.vue\.js$/.test(modulePath)) {
+    return false;
+  }
 
-  const originalShouldExcludeFromCompliling = shouldExcludeFromCompliling;
+  // graphql-ws
+  if (/graphql-ws/.test(modulePath)) {
+    return false;
+  }
 
-  shouldExcludeFromCompliling = (modulePath) =>
-    originalShouldExcludeFromCompliling(modulePath) &&
-    !/node_modules[\\/]@gitlab[\\/]ui/.test(modulePath) &&
-    !/node_modules[\\/]bootstrap-vue[\\/]src[\\/]vue\.js/.test(modulePath);
-}
+  // GitLab UI source files (in node_modules)
+  if (new RegExp(path.join(ROOT_PATH, 'node_modules/@gitlab/ui/src')).test(modulePath)) {
+    return false;
+  }
+
+  // Exclude other ./node_modules and ./vendor/assets modules
+  return (
+    new RegExp(path.join(ROOT_PATH, 'node_modules')).test(modulePath) ||
+    new RegExp(path.join(ROOT_PATH, 'vendor/assets')).test(modulePath)
+  );
+};
 
 if (USE_VUE3) {
   Object.assign(alias, {
     // ensure we always use the same type of module for Vue
-    vue: '@vue/compat/dist/vue.runtime.esm-bundler.js',
+    vue$: '@vue/compat/dist/vue.runtime.esm-bundler.js',
     vuex: path.join(ROOT_PATH, 'app/assets/javascripts/lib/utils/vue3compat/vuex.js'),
     'vue-apollo': path.join(ROOT_PATH, 'app/assets/javascripts/lib/utils/vue3compat/vue_apollo.js'),
     'vue-router': path.join(ROOT_PATH, 'app/assets/javascripts/lib/utils/vue3compat/vue_router.js'),
@@ -270,6 +287,7 @@ module.exports = {
     return {
       default: defaultEntries,
       sentry: './sentry/index.js',
+      coverage_persistence: './entrypoints/coverage_persistence.js',
       performance_bar: './entrypoints/performance_bar.js',
       jira_connect_app: './jira_connect/subscriptions/index.js',
       sandboxed_mermaid: './lib/mermaid.js',
@@ -278,6 +296,7 @@ module.exports = {
       super_sidebar: './entrypoints/super_sidebar.js',
       tracker: './entrypoints/tracker.js',
       analytics: './entrypoints/analytics.js',
+      graphql_explorer: './entrypoints/graphql_explorer.js',
       ...incrementalCompiler.filterEntryPoints(generateEntries({ defaultEntries, entriesState })),
     };
   },
@@ -293,7 +312,7 @@ module.exports = {
   },
 
   resolve: {
-    extensions: ['.js'],
+    extensions: ['.mjs', '.js'],
     alias,
   },
 
@@ -302,8 +321,26 @@ module.exports = {
     rules: [
       {
         type: 'javascript/auto',
+        exclude: /pdfjs-dist-v[34]/,
         test: /\.mjs$/,
         use: [],
+      },
+      {
+        test: /(pdfjs).*\.m?js?$/,
+        type: 'javascript/auto',
+        include: /node_modules/,
+        use: [
+          {
+            loader: 'babel-loader',
+            options: {
+              presets: [
+                ['@babel/preset-env', { targets: { esmodules: true }, modules: 'commonjs' }],
+              ],
+              plugins: ['@babel/plugin-transform-classes'],
+              ...defaultJsOptions,
+            },
+          },
+        ],
       },
       {
         test: /(@gitlab\/web-ide).*\.js?$/,
@@ -350,29 +387,41 @@ module.exports = {
         loader: 'babel-loader',
       },
       {
-        test: /swagger-ui-dist\/.*\.js?$/,
+        test: /@graphiql\/.*\.m?js$/,
+        include: /node_modules/,
+        loader: 'babel-loader',
+      },
+      {
+        test: /@radix-ui\/.*\.m?js$/,
+        include: /node_modules/,
+        loader: 'babel-loader',
+      },
+      {
+        test: /(@sentry|@sentry-internal)\/.*\.m?js$/,
         include: /node_modules/,
         loader: 'babel-loader',
         options: {
-          plugins: ['@babel/plugin-transform-logical-assignment-operators'],
-          ...defaultJsOptions,
+          plugins: ['@babel/plugin-transform-optional-chaining'],
         },
+      },
+      {
+        test: /swagger-ui-dist\/.*\.js?$/,
+        include: /node_modules/,
+        loader: 'babel-loader',
+        options: defaultJsOptions,
       },
       {
         test: /@swagger-api\/apidom-.*\.[mc]?js$/,
         include: /node_modules/,
         loader: 'babel-loader',
         options: {
-          plugins: [
-            '@babel/plugin-transform-class-properties',
-            '@babel/plugin-transform-logical-assignment-operators',
-          ],
+          plugins: ['@babel/plugin-transform-class-properties'],
           ...defaultJsOptions,
         },
       },
       {
         test: /\.(js|cjs)$/,
-        exclude: shouldExcludeFromCompliling,
+        exclude: shouldExcludeFromCompiling,
         use: [
           {
             loader: 'thread-loader',
@@ -490,6 +539,7 @@ module.exports = {
   optimization: {
     // Replace 'hashed' with 'deterministic' in webpack 5
     moduleIds: 'hashed',
+    chunkIds: 'named', // at least makes named chunks stable,
     runtimeChunk: 'single',
     splitChunks: {
       maxInitialRequests: 20,
@@ -508,14 +558,6 @@ module.exports = {
           name: 'prosemirror',
           chunks: 'all',
           test: /[\\/]node_modules[\\/]prosemirror.*?[\\/]/,
-          minChunks: 2,
-          reuseExistingChunk: true,
-        },
-        graphql: {
-          priority: 16,
-          name: 'graphql',
-          chunks: 'all',
-          test: /[\\/]node_modules[\\/][^\\/]*(immer|apollo|graphql|zen-observable)[^\\/]*[\\/]/,
           minChunks: 2,
           reuseExistingChunk: true,
         },
@@ -550,6 +592,30 @@ module.exports = {
   },
 
   plugins: [
+    // A custom function is needed because chunkIds: "named" alone only
+    // affects chunks that already have names (entry points, chunks with
+    // magic comments such as:
+    //
+    // /* webpackChunkName: "my-chunk" */
+    //
+    // Anonymous chunks, such as dynamic imports without names, would
+    // still get incremental IDs and could cause different IDs to be
+    // assigned across different runs.
+    //
+    // See https://gitlab.com/gitlab-com/gl-infra/production/-/issues/20271.
+    // This should not be needed with Webpack 5.
+    !DEV_SERVER_LIVERELOAD &&
+      new webpack.NamedChunksPlugin((chunk) => {
+        // Keep named chunks as-is (entries, magic comments)
+        if (chunk.name) return chunk.name;
+
+        // Get all module IDs in this chunk, sorted for stability
+        const ids = Array.from(chunk.modulesIterable, (m) => m.id).sort();
+
+        const hash = crypto.createHash('sha256').update(ids.join('_')).digest('hex');
+
+        return hash.slice(0, 8);
+      }),
     // manifest filename must match config.webpack.manifest_filename
     // webpack-rails only needs assetsByChunkName to function properly
     new StatsWriterPlugin({
@@ -671,11 +737,6 @@ module.exports = {
         );
       }),
 
-    new webpack.NormalModuleReplacementPlugin(/markdown-it/, (resource) => {
-      // eslint-disable-next-line no-param-reassign
-      resource.request = path.join(ROOT_PATH, 'app/assets/javascripts/lib/markdown_it.js');
-    }),
-
     /*
      The following `NormalModuleReplacementPlugin` adds support for exports field in `package.json`.
      It might not necessarily be needed for all packages which expose it, but some packages
@@ -712,8 +773,25 @@ module.exports = {
       });
     }),
 
+    new webpack.ContextReplacementPlugin(/^\.$/, (context) => {
+      if (/\/node_modules\/pdfjs-dist/.test(context.context)) {
+        for (const d of context.dependencies) {
+          if (d.critical) d.critical = false;
+        }
+      }
+    }),
+
     !IS_JH &&
       new webpack.NormalModuleReplacementPlugin(/^jh_component\/(.*)\.vue/, (resource) => {
+        // eslint-disable-next-line no-param-reassign
+        resource.request = path.join(
+          ROOT_PATH,
+          'app/assets/javascripts/vue_shared/components/empty_component.js',
+        );
+      }),
+    !IS_EE &&
+      !IS_JH &&
+      new webpack.NormalModuleReplacementPlugin(/^jh_else_ee\/(.*)\.vue/, (resource) => {
         // eslint-disable-next-line no-param-reassign
         resource.request = path.join(
           ROOT_PATH,
@@ -827,7 +905,10 @@ module.exports = {
       // This is used by Sourcegraph because these assets are loaded dnamically
       'process.env.SOURCEGRAPH_PUBLIC_PATH': JSON.stringify(SOURCEGRAPH_PUBLIC_PATH),
       'process.env.GITLAB_WEB_IDE_PUBLIC_PATH': JSON.stringify(GITLAB_WEB_IDE_PUBLIC_PATH),
+      'window.IS_VITE': JSON.stringify(false),
       ...(IS_PRODUCTION ? {} : { LIVE_RELOAD: DEV_SERVER_LIVERELOAD }),
+      'process.env.PDF_JS_WORKER_PUBLIC_PATH': JSON.stringify(PDF_JS_WORKER_PUBLIC_PATH),
+      'process.env.PDF_JS_CMAPS_PUBLIC_PATH': JSON.stringify(PDF_JS_CMAPS_PUBLIC_PATH),
     }),
 
     /* Pikaday has a optional dependency to moment.

@@ -1,10 +1,9 @@
 ---
 stage: SaaS Platforms
 group: Scalability
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: 'Uploads guide: Adding new uploads'
 ---
-
-# Uploads guide: Adding new uploads
 
 ## Recommendations
 
@@ -45,7 +44,7 @@ adding new buckets for the following reasons:
 
 - Using a new bucket adds to development time because you need to make downstream changes in [GDK](https://gitlab.com/gitlab-org/gitlab-development-kit), [Omnibus GitLab](https://gitlab.com/gitlab-org/omnibus-gitlab) and [CNG](https://gitlab.com/gitlab-org/build/CNG).
 - Using a new bucket requires GitLab.com Infrastructure changes, which slows down the roll-out of your new feature
-- Using a new bucket slows down adoption of your new feature for self-managed GitLab installation: people cannot start using your new feature until their local GitLab administrator has configured the new bucket.
+- Using a new bucket slows down adoption of your new feature for GitLab Self-Managed: people cannot start using your new feature until their local GitLab administrator has configured the new bucket.
 
 By using an existing bucket you avoid all this extra work
 and friction. The `Gitlab.config.uploads` storage location, which is what
@@ -134,14 +133,14 @@ For Rails endpoints you can use the
 
 Some features require us to process uploads, for example to extract
 metadata from the uploaded file. There are a couple of different ways
-you can implement this. The main choice is _where_ to implement the
+you can implement this. The main choice is where to implement the
 processing, or "who is the processor".
 
-|Processor|Direct Upload possible?|Can reject HTTP request?|Implementation|
-|---|---|---|---|
-|Sidekiq|yes|no|Straightforward|
-|Workhorse|yes|yes|Complex|
-|Rails|no|yes|Easy|
+| Processor | Direct Upload possible? | Can reject HTTP request? | Implementation |
+|-----------|-------------------------|--------------------------|----------------|
+| Sidekiq   | yes                     | no                       | Straightforward |
+| Workhorse | yes                     | yes                      | Complex        |
+| Rails     | no                      | yes                      | Easy           |
 
 Processing in Rails looks appealing but it tends to lead to scaling
 problems down the road because you cannot use direct upload. You are
@@ -197,13 +196,13 @@ particular, you currently cannot use the `version` mechanism of
 CarrierWave. Things you can do include:
 
 - Filename validation
-- **Incompatible with direct upload:** One time pre-processing of file contents, for example, image resizing
-- **Incompatible with direct upload:** Encryption at rest
+- **Incompatible with direct upload**: One time pre-processing of file contents, for example, image resizing
+- **Incompatible with direct upload**: Encryption at rest
 
 CarrierWave pre-processing behaviors such as image resizing
 or encryption require local access to the uploaded file. This forces
 you to upload the processed file from Ruby. This flies against direct
-upload, which is all about _not_ doing the upload in Ruby. If you use
+upload, which is all about not doing the upload in Ruby. If you use
 direct upload with an Uploader with pre-processing behaviors then the
 pre-processing behaviors are skipped silently.
 
@@ -211,10 +210,10 @@ pre-processing behaviors are skipped silently.
 
 CarrierWave has 2 storage engines:
 
-|CarrierWave class|GitLab name|Description|
-|---|---|---|
-|`CarrierWave::Storage::File`|`ObjectStorage::Store::LOCAL` |Local files, accessed through the Ruby `stdlib` |
-| `CarrierWave::Storage::Fog`|`ObjectStorage::Store::REMOTE`|Cloud files, accessed through the [Fog gem](https://github.com/fog/fog)|
+| CarrierWave class            | GitLab name                    | Description |
+|------------------------------|--------------------------------|-------------|
+| `CarrierWave::Storage::File` | `ObjectStorage::Store::LOCAL`  | Local files, accessed through the Ruby `stdlib` |
+| `CarrierWave::Storage::Fog`  | `ObjectStorage::Store::REMOTE` | Cloud files, accessed through the [Fog gem](https://github.com/fog/fog) |
 
 GitLab uses both of these engines, depending on configuration.
 
@@ -315,12 +314,13 @@ The Scalability::Frameworks team is making object storage and uploads more easy 
 | Avatar images                            | `direct upload`     | `workhorse`             | `/uploads/[user,group,project]/avatar/<model_id>`                                                         |
 | Import                           | `direct upload`     | `workhorse`             | `/uploads/import_export_upload/import_file/<model_id>/<file_name>`                                                                       |
 | Export                            | `carrierwave`     | `sidekiq`             | `/uploads/import_export_upload/export_file/<model_id>/<timestamp>_<namespace>-<project_name>_export.tag.gz`                                                                       |
+| Placeholder reassignment CSVs            | `direct_upload`     | `workhorse`             | `/uploads/-/system/group/<model_id>/placeholder_reassignment_csv/<file_name>`                             |
 | GitLab Migration                         | `carrierwave`       | `sidekiq`               | `/uploads/bulk_imports/???`                                                                               |
 | MR diffs                                 | `carrierwave`       | `sidekiq`               | `/external-diffs/merge_request_diffs/mr-<mr_id>/diff-<diff_id>`                                           |
-| [Package manager assets (except for NPM)](../../user/packages/package_registry/index.md)  | `direct upload`     | `workhorse`             | `/packages/<proj_id_hash>/packages/<package_id>/files/<package_file_id>`                                  |
-| [NPM Package manager assets](../../user/packages/npm_registry/index.md)                   | `carrierwave`       | `grape API`             | `/packages/<proj_id_hash>/packages/<package_id>/files/<package_file_id>`                                  |
-| [Debian Package manager assets](../../user/packages/debian_repository/index.md)           | `direct upload`     | `workhorse`             | `/packages/<group_id or project_id_hash>/debian_*/<group_id or project_id or distribution_file_id>`        |
-| [Dependency Proxy cache](../../user/packages/dependency_proxy/index.md)                   | [`send_dependency`](https://gitlab.com/gitlab-org/gitlab/-/blob/6ed73615ff1261e6ed85c8f57181a65f5b4ffada/workhorse/internal/dependencyproxy/dependencyproxy.go)   | `workhorse`             | `/dependency-proxy/<group_id_hash>/dependency_proxy/<group_id>/files/<blob_id or manifest_id>`            |
+| [Package manager assets (except for NPM)](../../user/packages/package_registry/_index.md) | `direct upload`     | `workhorse`             | `/packages/<proj_id_hash>/packages/<package_id>/files/<package_file_id>`                                  |
+| [NPM Package manager assets](../../user/packages/npm_registry/_index.md)                  | `carrierwave`       | `grape API`             | `/packages/<proj_id_hash>/packages/<package_id>/files/<package_file_id>`                                  |
+| [Debian Package manager assets](../../user/packages/debian_repository/_index.md)          | `direct upload`     | `workhorse`             | `/packages/<group_id or project_id_hash>/debian_*/<group_id or project_id or distribution_file_id>`        |
+| [Dependency Proxy cache](../../user/packages/dependency_proxy/_index.md)                  | [`send_dependency`](https://gitlab.com/gitlab-org/gitlab/-/blob/6ed73615ff1261e6ed85c8f57181a65f5b4ffada/workhorse/internal/dependencyproxy/dependencyproxy.go)   | `workhorse`             | `/dependency-proxy/<group_id_hash>/dependency_proxy/<group_id>/files/<blob_id or manifest_id>`            |
 | Terraform state files                    | `carrierwave`       | `rails controller`      | `/terraform/<proj_id_hash>/<terraform_state_id>`                                                          |
 | Pages content archives                   | `carrierwave`       | `sidekiq`               | `/gitlab-gprd-pages/<proj_id_hash>/pages_deployments/<deployment_id>/`                                    |
 | Secure Files                             | `carrierwave`       | `sidekiq`               | `/ci-secure-files/<proj_id_hash>/secure_files/<secure_file_id>/`                                    |
@@ -329,38 +329,38 @@ The Scalability::Frameworks team is making object storage and uploads more easy 
 
 | File                                                    | CarrierWave usage                                                                | Categorized         |
 |---------------------------------------------------------|----------------------------------------------------------------------------------|---------------------|
-| `app/models/project.rb`                                 | `include Avatarable`                                                             | **{check-circle}** Yes  |
-| `app/models/projects/topic.rb`                          | `include Avatarable`                                                             | **{check-circle}** Yes  |
-| `app/models/group.rb`                                   | `include Avatarable`                                                             | **{check-circle}** Yes  |
-| `app/models/user.rb`                                    | `include Avatarable`                                                             | **{check-circle}** Yes  |
-| `app/models/terraform/state_version.rb`                 | `include FileStoreMounter`                                                       | **{check-circle}** Yes  |
-| `app/models/ci/job_artifact.rb`                         | `include FileStoreMounter`                                                       | **{check-circle}** Yes  |
-| `app/models/ci/pipeline_artifact.rb`                    | `include FileStoreMounter`                                                       | **{check-circle}** Yes  |
-| `app/models/pages_deployment.rb`                        | `include FileStoreMounter`                                                       | **{check-circle}** Yes  |
-| `app/models/lfs_object.rb`                              | `include FileStoreMounter`                                                       | **{check-circle}** Yes  |
-| `app/models/dependency_proxy/blob.rb`                   | `include FileStoreMounter`                                                       | **{check-circle}** Yes  |
-| `app/models/dependency_proxy/manifest.rb`               | `include FileStoreMounter`                                                       | **{check-circle}** Yes  |
-| `app/models/packages/composer/cache_file.rb`            | `include FileStoreMounter`                                                       | **{check-circle}** Yes  |
-| `app/models/packages/package_file.rb`                   | `include FileStoreMounter`                                                       | **{check-circle}** Yes  |
-| `app/models/concerns/packages/debian/component_file.rb` | `include FileStoreMounter`                                                       | **{check-circle}** Yes  |
+| `app/models/project.rb`                                 | `include Avatarable`                                                             | {{< icon name="check-circle" >}} Yes  |
+| `app/models/projects/topic.rb`                          | `include Avatarable`                                                             | {{< icon name="check-circle" >}} Yes  |
+| `app/models/group.rb`                                   | `include Avatarable`                                                             | {{< icon name="check-circle" >}} Yes  |
+| `app/models/user.rb`                                    | `include Avatarable`                                                             | {{< icon name="check-circle" >}} Yes  |
+| `app/models/terraform/state_version.rb`                 | `include FileStoreMounter`                                                       | {{< icon name="check-circle" >}} Yes  |
+| `app/models/ci/job_artifact.rb`                         | `include FileStoreMounter`                                                       | {{< icon name="check-circle" >}} Yes  |
+| `app/models/ci/pipeline_artifact.rb`                    | `include FileStoreMounter`                                                       | {{< icon name="check-circle" >}} Yes  |
+| `app/models/pages_deployment.rb`                        | `include FileStoreMounter`                                                       | {{< icon name="check-circle" >}} Yes  |
+| `app/models/lfs_object.rb`                              | `include FileStoreMounter`                                                       | {{< icon name="check-circle" >}} Yes  |
+| `app/models/dependency_proxy/blob.rb`                   | `include FileStoreMounter`                                                       | {{< icon name="check-circle" >}} Yes  |
+| `app/models/dependency_proxy/manifest.rb`               | `include FileStoreMounter`                                                       | {{< icon name="check-circle" >}} Yes  |
+| `app/models/packages/composer/cache_file.rb`            | `include FileStoreMounter`                                                       | {{< icon name="check-circle" >}} Yes  |
+| `app/models/packages/package_file.rb`                   | `include FileStoreMounter`                                                       | {{< icon name="check-circle" >}} Yes  |
+| `app/models/concerns/packages/debian/component_file.rb` | `include FileStoreMounter`                                                       | {{< icon name="check-circle" >}} Yes  |
 | `ee/app/models/issuable_metric_image.rb`                | `include FileStoreMounter`                                                       |                     |
 | `ee/app/models/vulnerabilities/remediation.rb`          | `include FileStoreMounter`                                                       |                     |
 | `ee/app/models/vulnerabilities/export.rb`               | `include FileStoreMounter`                                                       |                     |
-| `app/models/packages/debian/project_distribution.rb`    | `include Packages::Debian::Distribution`                                         | **{check-circle}** Yes  |
-| `app/models/packages/debian/group_distribution.rb`      | `include Packages::Debian::Distribution`                                         | **{check-circle}** Yes  |
-| `app/models/packages/debian/project_component_file.rb`  | `include Packages::Debian::ComponentFile`                                        | **{check-circle}** Yes  |
-| `app/models/packages/debian/group_component_file.rb`    | `include Packages::Debian::ComponentFile`                                        | **{check-circle}** Yes  |
-| `app/models/merge_request_diff.rb`                      | `mount_uploader :external_diff, ExternalDiffUploader`                            | **{check-circle}** Yes  |
-| `app/models/note.rb`                                    | `mount_uploader :attachment, AttachmentUploader`                                 | **{check-circle}** Yes  |
-| `app/models/appearance.rb`                              | `mount_uploader :logo,         AttachmentUploader`                               | **{check-circle}** Yes  |
-| `app/models/appearance.rb`                              | `mount_uploader :header_logo,  AttachmentUploader`                               | **{check-circle}** Yes  |
-| `app/models/appearance.rb`                              | `mount_uploader :favicon,      FaviconUploader`                                  | **{check-circle}** Yes  |
+| `app/models/packages/debian/project_distribution.rb`    | `include Packages::Debian::Distribution`                                         | {{< icon name="check-circle" >}} Yes  |
+| `app/models/packages/debian/group_distribution.rb`      | `include Packages::Debian::Distribution`                                         | {{< icon name="check-circle" >}} Yes  |
+| `app/models/packages/debian/project_component_file.rb`  | `include Packages::Debian::ComponentFile`                                        | {{< icon name="check-circle" >}} Yes  |
+| `app/models/packages/debian/group_component_file.rb`    | `include Packages::Debian::ComponentFile`                                        | {{< icon name="check-circle" >}} Yes  |
+| `app/models/merge_request_diff.rb`                      | `mount_uploader :external_diff, ExternalDiffUploader`                            | {{< icon name="check-circle" >}} Yes  |
+| `app/models/note.rb`                                    | `mount_uploader :attachment, AttachmentUploader`                                 | {{< icon name="check-circle" >}} Yes  |
+| `app/models/appearance.rb`                              | `mount_uploader :logo,         AttachmentUploader`                               | {{< icon name="check-circle" >}} Yes  |
+| `app/models/appearance.rb`                              | `mount_uploader :header_logo,  AttachmentUploader`                               | {{< icon name="check-circle" >}} Yes  |
+| `app/models/appearance.rb`                              | `mount_uploader :favicon,      FaviconUploader`                                  | {{< icon name="check-circle" >}} Yes  |
 | `app/models/project.rb`                                 | `mount_uploader :bfg_object_map, AttachmentUploader`                             |                     |
-| `app/models/import_export_upload.rb`                    | `mount_uploader :import_file, ImportExportUploader`                              | **{check-circle}** Yes  |
-| `app/models/import_export_upload.rb`                    | `mount_uploader :export_file, ImportExportUploader`                              | **{check-circle}** Yes  |
+| `app/models/import_export_upload.rb`                    | `mount_uploader :import_file, ImportExportUploader`                              | {{< icon name="check-circle" >}} Yes  |
+| `app/models/import_export_upload.rb`                    | `mount_uploader :export_file, ImportExportUploader`                              | {{< icon name="check-circle" >}} Yes  |
 | `app/models/ci/deleted_object.rb`                       | `mount_uploader :file, DeletedObjectUploader`                                    |                     |
-| `app/models/design_management/action.rb`                | `mount_uploader :image_v432x230, DesignManagement::DesignV432x230Uploader`       | **{check-circle}** Yes  |
-| `app/models/concerns/packages/debian/distribution.rb`   | `mount_uploader :signed_file, Packages::Debian::DistributionReleaseFileUploader` | **{check-circle}** Yes  |
-| `app/models/bulk_imports/export_upload.rb`              | `mount_uploader :export_file, ExportUploader`                                    | **{check-circle}** Yes  |
+| `app/models/design_management/action.rb`                | `mount_uploader :image_v432x230, DesignManagement::DesignV432x230Uploader`       | {{< icon name="check-circle" >}} Yes  |
+| `app/models/concerns/packages/debian/distribution.rb`   | `mount_uploader :signed_file, Packages::Debian::DistributionReleaseFileUploader` | {{< icon name="check-circle" >}} Yes  |
+| `app/models/bulk_imports/export_upload.rb`              | `mount_uploader :export_file, ExportUploader`                                    | {{< icon name="check-circle" >}} Yes  |
 | `ee/app/models/user_permission_export_upload.rb`        | `mount_uploader :file, AttachmentUploader`                                       |                     |
 | `app/models/ci/secure_file.rb`                          | `include FileStoreMounter`                                                       |                     |

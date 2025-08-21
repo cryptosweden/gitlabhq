@@ -7,7 +7,7 @@ RSpec.describe Gitlab::SearchResults, feature_category: :global_search do
   include SearchHelpers
   using RSpec::Parameterized::TableSyntax
 
-  let_it_be(:user) { create(:user) }
+  let_it_be(:user) { create(:user, username: 'foobar') }
   let_it_be(:project) { create(:project, name: 'foo') }
   let_it_be(:issue) { create(:issue, project: project, title: 'foo') }
   let_it_be(:milestone) { create(:milestone, project: project, title: 'foo') }
@@ -104,7 +104,19 @@ RSpec.describe Gitlab::SearchResults, feature_category: :global_search do
 
       with_them do
         it 'returns an empty array' do
-          expect(results.aggregations(scope)).to match_array([])
+          expect(results.aggregations(scope)).to be_empty
+        end
+      end
+    end
+
+    describe '#counts' do
+      where(:scope) do
+        %w[projects issues merge_requests blobs commits wiki_blobs epics milestones users unknown]
+      end
+
+      with_them do
+        it 'returns an empty array' do
+          expect(results.counts(scope)).to be_empty
         end
       end
     end
@@ -276,27 +288,187 @@ RSpec.describe Gitlab::SearchResults, feature_category: :global_search do
       let(:query) { 'Test' }
 
       describe 'filtering' do
-        let_it_be(:group) { create(:group) }
+        let_it_be(:group) { create(:group, name: 'my-group') }
         let_it_be(:unarchived_result) { create(:project, :public, group: group, name: 'Test1') }
         let_it_be(:archived_result) { create(:project, :archived, :public, group: group, name: 'Test2') }
 
         it_behaves_like 'search results filtered by archived'
+
+        it 'returns the project' do
+          expect(results.objects('projects')).to eq([unarchived_result])
+        end
+
+        context 'when the query is Gitlab::Search::Params::MIN_TERM_LENGTH characters long' do
+          let(:query) { 'Te' }
+
+          it 'returns the project' do
+            expect(results.objects('projects')).to eq([unarchived_result])
+          end
+        end
+
+        context 'when the query is less than Gitlab::Search::Params::MIN_TERM_LENGTH characters long' do
+          let(:query) { 'T' }
+
+          it 'does not return the project' do
+            expect(results.objects('projects')).not_to eq([unarchived_result])
+          end
+        end
+
+        context 'when the query does not match the project name but it matches the group name' do
+          let(:query) { 'group' }
+
+          it 'returns the project' do
+            expect(results.objects('projects')).to eq([unarchived_result])
+          end
+        end
       end
     end
 
     describe '#users' do
+      subject(:user_search_result) { results.objects('users') }
+
+      let_it_be(:another_user) { create(:user, username: 'barfoo') }
+      let_it_be(:group) { create(:group) }
+
       it 'does not call the UsersFinder when the current_user is not allowed to read users list' do
         allow(Ability).to receive(:allowed?).and_return(false)
 
-        expect(UsersFinder).not_to receive(:new).with(user, { search: 'foo', use_minimum_char_limit: false }).and_call_original
+        expect(UsersFinder).not_to receive(:new)
 
-        results.objects('users')
+        user_search_result
       end
 
       it 'calls the UsersFinder' do
-        expect(UsersFinder).to receive(:new).with(user, { search: 'foo', use_minimum_char_limit: false }).and_call_original
+        expected_params = {
+          search: 'foo',
+          use_minimum_char_limit: false
+        }
 
-        results.objects('users')
+        expect(UsersFinder).to receive(:new).with(user, expected_params).and_call_original
+
+        user_search_result
+      end
+
+      context 'when the autocomplete filter is added' do
+        let(:filters) { { autocomplete: true } }
+
+        shared_examples 'returns users' do
+          it 'returns the current_user since they match the query' do
+            expect(user_search_result).to match_array(user)
+          end
+
+          context 'when another user belongs to a project the current_user belongs to' do
+            before do
+              project.add_developer(another_user)
+            end
+
+            it 'includes the other user' do
+              expect(user_search_result).to match_array([user, another_user])
+            end
+          end
+
+          context 'when another user belongs to a group' do
+            before do
+              group.add_developer(another_user)
+            end
+
+            it 'does not include the other user' do
+              expect(user_search_result).not_to include(another_user)
+            end
+
+            context 'when the current_user also belongs to that group' do
+              before do
+                group.add_developer(user)
+              end
+
+              it 'includes the other user' do
+                expect(user_search_result).to match_array([user, another_user])
+              end
+            end
+
+            context 'when the current_user belongs to a parent of the group' do
+              let_it_be(:parent_group) { create(:group) }
+              let_it_be(:group) { create(:group, parent: parent_group) }
+
+              before do
+                parent_group.add_developer(user)
+              end
+
+              it 'includes the other user' do
+                expect(user_search_result).to match_array([user, another_user])
+              end
+            end
+
+            context 'when the current_user belongs to a group that is shared by the group' do
+              let_it_be_with_reload(:shared_with_group) { create(:group) }
+              let_it_be_with_reload(:group_group_link) do
+                create(
+                  :group_group_link,
+                  group_access: ::Gitlab::Access::GUEST,
+                  shared_group: group,
+                  shared_with_group: shared_with_group
+                )
+              end
+
+              before do
+                shared_with_group.add_developer(user)
+              end
+
+              it 'includes the other user' do
+                expect(user_search_result).to match_array([user, another_user])
+              end
+            end
+
+            context 'when the current_user belongs to a child of the group' do
+              let_it_be(:child_group) { create(:group, parent: group) }
+
+              before do
+                child_group.add_developer(user)
+              end
+
+              it 'includes the other user' do
+                expect(user_search_result).to match_array([user, another_user])
+              end
+            end
+          end
+
+          context 'when another user is a guest of a private group' do
+            let_it_be(:private_group) { create(:group, :private) }
+
+            before do
+              private_group.add_guest(another_user)
+            end
+
+            it 'does not include the other user' do
+              expect(user_search_result).to match_array(user)
+            end
+
+            context 'when the current_user is a guest of the private group' do
+              before do
+                private_group.add_guest(user)
+              end
+
+              it 'includes the other user' do
+                expect(user_search_result).to match_array([user, another_user])
+              end
+            end
+
+            context 'when the current_user is a guest of the public parent of the private group' do
+              let_it_be(:public_parent_group) { create(:group, :public) }
+              let_it_be(:private_group) { create(:group, :private, parent: public_parent_group) }
+
+              before do
+                public_parent_group.add_guest(user)
+              end
+
+              it 'includes the other user' do
+                expect(user_search_result).to match_array([user, another_user])
+              end
+            end
+          end
+        end
+
+        include_examples 'returns users'
       end
     end
   end

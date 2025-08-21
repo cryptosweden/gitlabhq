@@ -1,27 +1,30 @@
 ---
 stage: AI-powered
-group: AI Model Validation
-description: AI-powered features and functionality.
-info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+group: AI Framework
+info: This page is maintained by Developer Relations, author @dnsmichi, see https://handbook.gitlab.com/handbook/marketing/developer-relations/developer-advocacy/content/#maintained-documentation
+description: AI-native features and functionality.
+title: GitLab Duo use cases
 ---
-
-<!-- This page is maintained by Developer Relations, author @dnsmichi. -->
-
-# GitLab Duo use cases
 
 The following use cases provide practical examples, exercises, and workflows with GitLab Duo.
 Learn how to:
 
 - Refactor existing source code.
-- Use root cause analysis to debug problems.
+- Use GitLab Duo Root Cause Analysis to troubleshoot failed jobs.
 - Solve security vulnerabilities.
+
+{{< alert type="note" >}}
+
+If you have GitLab Self-Managed: GitLab Duo requires GitLab 17.2 and later for the best user experience and results. Earlier versions may continue to work, however the experience may be degraded.
+
+{{< /alert >}}
 
 ## Use GitLab Duo to solve development challenges
 
 ### Start with a C# application
 
 In these examples, open your C# IDE, ensure that [GitLab Duo is enabled](turn_on_off.md),
-and explore how to use GitLab Duo AI-powered features for more efficiency.
+and explore how to use GitLab Duo AI-native features for more efficiency.
 
 #### CLI tool for querying the GitLab REST API
 
@@ -52,15 +55,15 @@ you need to configure CI/CD.
 - Chat can help with best practices for a `.gitignore` file for C#:
 
   ```markdown
-  Please show a .gitignore and .gitlab-ci.yml configuration for a C# project.
+  Show a .gitignore and .gitlab-ci.yml configuration for a C# project.
   ```
 
-- If your CI/CD job fails, [Root Cause Analysis](../../user/gitlab_duo/experiments.md#troubleshoot-failed-cicd-jobs-with-root-cause-analysis)
-  can help understand the problem. Alternatively, you can copy the error message into
+- If your CI/CD job fails, use Root Cause Analysis to [troubleshoot failed CI/CD jobs](../gitlab_duo_chat/examples.md#troubleshoot-failed-cicd-jobs-with-root-cause-analysis).
+  Alternatively, you can copy the error message into
   GitLab Duo Chat, and ask for help:
 
   ```markdown
-  Please explain the CI/CD error: The current .NET SDK does not support targeting
+  Explain the CI/CD error: The current .NET SDK does not support targeting
   .NET 8.0
   ```
 
@@ -87,7 +90,7 @@ solutions level to avoid import problems.
   ```markdown
   In C# and VS Code, how can I add a reference to a project from a test project?
 
-  Please provide the XML configuration which I can add to a C# .csproj file to add a
+  Provide the XML configuration which I can add to a C# .csproj file to add a
   reference to another project in the existing solution?
   ```
 
@@ -216,7 +219,7 @@ Watch the walkthrough of these steps in [GitLab Duo Coffee Chat: Refactor C++ fu
   How to instantiate an object from a class in C++, call the constructor with the SQLite DB path and call the functions. Prefer shared pointers. Explain which header includes are necessary.
   ```
 
-- Code Suggestions help generate the correct syntax for `std::shared_ptr` pointer arithmetic and help improve the code quality.
+- Code Suggestions helps generate the correct syntax for `std::shared_ptr` pointer arithmetic and help improve the code quality.
 
   ```cpp
   // Define the SQLite path in a variable, default value database.db
@@ -318,7 +321,7 @@ fun main() {
 }
 ```
 
-1. Select the source code in the IDE, then right-click for Duo Chat explain the code.
+1. Select the source code in the IDE, then right-click for GitLab Duo Chat to explain the code.
 1. Refine the prompts to learn more about bugs, optimization tips, or vulnerabilities:
 
    ```markdown
@@ -339,7 +342,7 @@ fun main() {
    be achieved by introducing a boolean flag or a separate game state to track whether the brick has been found.
    ```
 
-1. Use the `/tests` command to ask Duo Chat to generate tests for the selected code:
+1. Use the `/tests` command to ask Chat to generate tests for the selected code:
 
    ```markdown
    /tests
@@ -373,7 +376,7 @@ fun main() {
      }
     ```
 
-After you ensure that everything is tested, ask Duo Chat to refactor the selected code:
+After you ensure that everything is tested, ask Chat to refactor the selected code:
 
 ```markdown
 /refactor fix bugs, improve UX
@@ -452,10 +455,13 @@ fun main() {
 
 ### Get Started with PowerShell
 
-NOTE:
-PowerShell support is [experimental](../project/repository/code_suggestions/supported_extensions.md#add-support-for-more-languages-for-code-suggestions-in-vs-code).
+{{< alert type="note" >}}
 
-1. Use Duo Chat to ask how to get started with a PowerShell script that prints the file size of the current directory.
+PowerShell support is [experimental](../project/repository/code_suggestions/supported_extensions.md#add-support-for-more-languages).
+
+{{< /alert >}}
+
+1. Use GitLab Duo Chat to ask how to get started with a PowerShell script that prints the file size of the current directory.
 
    ```markdown
    How to get started with a PowerShell script that prints the file size of the current directory?
@@ -549,9 +555,9 @@ introduces a security vulnerability with a [buffer overflow](https://en.wikipedi
     printf("Contents of region: %s\n", region);
 ```
 
-[SAST security scanners](../application_security/sast/analyzers.md) can detect and report the problem. Use [Vulnerability Explanation](../application_security/vulnerabilities/index.md#explaining-a-vulnerability) to understand the problem.
-Vulnerability resolution helps to generate an MR.
-If the suggested changes do not fit requirements, or might lead to problems, you can use Code Suggestions and Duo Chat to refine. For example:
+[SAST security scanners](../application_security/sast/analyzers.md) can detect and report the problem. Use [Vulnerability Explanation](../application_security/vulnerabilities/_index.md#vulnerability-explanation) to understand the problem.
+Vulnerability Resolution helps to generate an MR.
+If the suggested changes do not fit requirements, or might lead to problems, you can use Code Suggestions and Chat to refine. For example:
 
 1. Open VS Code or the Web IDE with GitLab Duo enabled, and add a comment with instructions:
 
@@ -596,9 +602,9 @@ Watch the walkthrough of these steps in [GitLab Duo Coffee Chat: Solve problems 
 
 - You can use GitLab Duo Chat to explain CI/CD errors.
 
-   ```markdown
-   Explain this CI/CD error: build.sh: line 14: go command not found
-   ```
+  ```markdown
+  Explain this CI/CD error: build.sh: line 14: go command not found
+  ```
 
 - What happens when you are impatient, and input just one or two words?
 
@@ -620,10 +626,10 @@ Resources:
 
 - [Project with source code](https://gitlab.com/gitlab-da/use-cases/ai/gitlab-duo-coffee-chat/gitlab-duo-coffee-chat-2024-02-01)
 
-## Root cause analysis use cases
+## Root Cause Analysis use cases
 
-Use root cause analysis to determine the root cause for a CI/CD
-pipeline failure. The following examples illustrate common errors, and
+Use Root Cause Analysis to determine the root cause of a CI/CD
+job failure. The following examples illustrate common errors, and
 encourage you to fork and practice finding and fixing the root cause.
 
 For more information, see the blog post [Developing GitLab Duo: Blending AI and Root Cause Analysis to fix CI/CD pipelines](https://about.gitlab.com/blog/2024/06/06/developing-gitlab-duo-blending-ai-and-root-cause-analysis-to-fix-ci-cd/).
@@ -649,14 +655,13 @@ The project [Challenge: Root Cause Analysis - Go GitLab Release Fetcher](https:/
 provides an exercise to analyze and fix CI/CD problems with a Go Tanuki app. In this exercise,
 the `build` and `docker-build` jobs are failing. When you have fixed
 the problem, the CI/CD pipeline succeeds and the `build` job prints an output.
-The `solution/` directory provides two possible solutions after root cause analysis.
+The `solution/` directory provides two possible solutions.
 
 ## Use GitLab Duo to contribute to GitLab
 
 GitLab Duo usage focuses on contributing to the GitLab codebase, and how customers can contribute more efficiently.
 
 The GitLab codebase is large, and requires to understand sometimes complex algorithms or application specific implementations.
-Review the [architecture components](../../development/architecture.md) to learn more.
 
 ### Contribute to frontend: Profile Settings
 
@@ -686,12 +691,12 @@ The refactoring examples involve the following:
 GitLab Duo Chat helped with error debugging, prefixing the error message:
 
 ```markdown
-please explain this error: undefined method `icon` for
+Explain this error: undefined method `icon` for
 ```
 
 ## Code generation prompts
 
-The following examples provide [code generation](../project/repository/code_suggestions/index.md#best-practices)
+The following examples provide [code generation](../project/repository/code_suggestions/_index.md#best-practices-for-code-generation)
 prompts for the [supported languages](../project/repository/code_suggestions/supported_extensions.md) in GitLab Duo.
 You can use multi-line comments to refine code generation prompts.
 
@@ -1515,13 +1520,12 @@ The AI-generated source code examples are available in the [`typescript` directo
 ## Resources
 
 Many of the use cases are available as hands-on recordings in the [GitLab Duo Coffee Chat YouTube playlist](https://www.youtube.com/playlist?list=PL05JrBw4t0Kp5uj_JgQiSvHw1jQu0mSVZ).
-The [GitLab Duo Coffee Chat](https://handbook.gitlab.com/handbook/marketing/developer-relations/developer-advocacy/projects/#gitlab-duo-coffee-chat) is a learning series maintained by the [Developer Relations team](https://handbook.gitlab.com/handbook/marketing/developer-relations/).
 
 ### Blog resources
 
 The following blog posts provide tutorials for these use cases:
 
-- [Top tips for efficient AI-powered code suggestions with GitLab Duo](https://about.gitlab.com/blog/2024/06/11/top-tips-for-efficient-ai-powered-code-suggestions-with-gitlab-duo/)
+- [Top tips for efficient AI-powered Code Suggestions with GitLab Duo](https://about.gitlab.com/blog/2024/06/11/top-tips-for-efficient-ai-powered-code-suggestions-with-gitlab-duo/)
 - [10 best practices for using AI-powered GitLab Duo Chat](https://about.gitlab.com/blog/2024/04/02/10-best-practices-for-using-ai-powered-gitlab-duo-chat/)
 - [GitLab Duo Chat 101: Get more done on GitLab with our AI assistant](https://about.gitlab.com/blog/2024/05/29/gitlab-duo-chat-101-get-more-done-on-gitlab-with-our-ai-assistant/)
 - [Developing GitLab Duo: How we are dogfooding our AI features](https://about.gitlab.com/blog/2024/05/20/developing-gitlab-duo-how-we-are-dogfooding-our-ai-features/)

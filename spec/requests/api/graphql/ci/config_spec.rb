@@ -141,8 +141,8 @@ RSpec.describe 'Query.ciConfig', feature_category: :continuous_integration do
                 },
                 {
                   "name" => "spinach", "size" => 1, "jobs" =>
-                {
-                  "nodes" =>
+                  {
+                    "nodes" =>
                     [
                       {
                         "name" => "spinach",
@@ -175,24 +175,24 @@ RSpec.describe 'Query.ciConfig', feature_category: :continuous_integration do
                   "name" => "docker",
                   "size" => 1,
                   "jobs" =>
-                    {
-                      "nodes" => [
-                        {
-                          "name" => "docker",
-                          "groupName" => "docker",
-                          "stage" => "test",
-                          "script" => ["curl http://dockerhub/URL"],
-                          "beforeScript" => ["bundle install", "bundle exec rake db:create"],
-                          "afterScript" => ["echo 'run this after'"],
-                          "allowFailure" => true,
-                          "only" => { "refs" => %w[branches tags] },
-                          "when" => "manual",
-                          "except" => { "refs" => ["branches"] },
-                          "environment" => nil,
-                          "tags" => [],
-                          "needs" => { "nodes" => [{ "name" => "spinach" }, { "name" => "rspec 0 1" }] }
-                        }
-                      ]
+                  {
+                    "nodes" => [
+                      {
+                        "name" => "docker",
+                        "groupName" => "docker",
+                        "stage" => "test",
+                        "script" => ["curl http://dockerhub/URL"],
+                        "beforeScript" => ["bundle install", "bundle exec rake db:create"],
+                        "afterScript" => ["echo 'run this after'"],
+                        "allowFailure" => true,
+                        "only" => { "refs" => %w[branches tags] },
+                        "when" => "manual",
+                        "except" => { "refs" => ["branches"] },
+                        "environment" => nil,
+                        "tags" => [],
+                        "needs" => { "nodes" => [{ "name" => "spinach" }, { "name" => "rspec 0 1" }] }
+                      }
+                    ]
                   }
                 }
               ]
@@ -208,24 +208,24 @@ RSpec.describe 'Query.ciConfig', feature_category: :continuous_integration do
                   "name" => "deploy_job",
                   "size" => 1,
                   "jobs" =>
-                    {
-                      "nodes" => [
-                        {
-                          "name" => "deploy_job",
-                          "groupName" => "deploy_job",
-                          "stage" => "deploy",
-                          "script" => ["echo 'done'"],
-                          "beforeScript" => ["bundle install", "bundle exec rake db:create"],
-                          "afterScript" => ["echo 'run this after'"],
-                          "allowFailure" => false,
-                          "only" => { "refs" => %w[branches tags] },
-                          "when" => "on_success",
-                          "except" => nil,
-                          "environment" => "production",
-                          "tags" => [],
-                          "needs" => { "nodes" => [] }
-                        }
-                      ]
+                  {
+                    "nodes" => [
+                      {
+                        "name" => "deploy_job",
+                        "groupName" => "deploy_job",
+                        "stage" => "deploy",
+                        "script" => ["echo 'done'"],
+                        "beforeScript" => ["bundle install", "bundle exec rake db:create"],
+                        "afterScript" => ["echo 'run this after'"],
+                        "allowFailure" => false,
+                        "only" => { "refs" => %w[branches tags] },
+                        "when" => "on_success",
+                        "except" => nil,
+                        "environment" => "production",
+                        "tags" => [],
+                        "needs" => { "nodes" => [] }
+                      }
+                    ]
                   }
                 }
               ]
@@ -407,15 +407,13 @@ RSpec.describe 'Query.ciConfig', feature_category: :continuous_integration do
     before do
       stub_full_request('https://gitlab.com/gitlab-org/gitlab/raw/1234/.hello.yml').to_return(body: remote_file_content)
 
-      settings = GitlabSettings::Options.build({ 'server_fqdn' => 'gitlab.com' })
-      allow(::Settings).to receive(:gitlab_ci).and_return(settings)
+      allow(Gitlab.config.gitlab).to receive(:server_fqdn).and_return('gitlab.com')
 
       post_graphql_query
     end
 
     it_behaves_like 'a working graphql query'
 
-    # rubocop:disable Layout/LineLength
     it 'returns correct includes' do
       expect(graphql_data['ciConfig']["includes"]).to eq(
         [
@@ -467,7 +465,6 @@ RSpec.describe 'Query.ciConfig', feature_category: :continuous_integration do
         ]
       )
     end
-    # rubocop:enable Layout/LineLength
   end
 
   describe 'skip_verify_project_sha' do

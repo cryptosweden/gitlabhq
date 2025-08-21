@@ -256,11 +256,38 @@ export function removeParams(params, url = window.location.href, skipEncoding = 
   return `${root}${writableQuery}${writableFragment}`;
 }
 
+export function updateHistory({ state = {}, title = '', url, replace = false, win = window } = {}) {
+  if (win.history) {
+    if (replace) {
+      win.history.replaceState(state, title, url);
+    } else {
+      win.history.pushState(state, title, url);
+    }
+  }
+}
+
 /**
  * Returns value after the '#' in the location hash
  * @returns Current value of the hash, undefined if not set
  */
 export const getLocationHash = () => window.location.hash?.split('#')[1];
+
+/**
+ * Sets location hash to the given value.
+ * When value is undefined, the hash is removed.
+ * @param {string} hash - use undefined to remove location hash
+ */
+export const setLocationHash = (hash) => {
+  if (hash === undefined) {
+    updateHistory({
+      title: document.title,
+      url: window.location.pathname + window.location.search,
+      replace: true,
+    });
+  } else {
+    window.location.hash = hash;
+  }
+};
 
 /**
  * Returns a boolean indicating whether the URL hash contains the given string value
@@ -299,23 +326,15 @@ export const setUrlFragment = (url, fragment) => {
   return `${rootUrl}#${encodedFragment}`;
 };
 
-export function updateHistory({ state = {}, title = '', url, replace = false, win = window } = {}) {
-  if (win.history) {
-    if (replace) {
-      win.history.replaceState(state, title, url);
-    } else {
-      win.history.pushState(state, title, url);
-    }
-  }
-}
-
 export const escapeFileUrl = (fileUrl) => encodeURIComponent(fileUrl).replace(/%2F/g, '/');
 
 export function webIDEUrl(route = undefined) {
   let returnUrl = `${gon.relative_url_root || ''}/-/ide/`;
+
   if (route) {
-    returnUrl += `project${route.replace(new RegExp(`^${gon.relative_url_root || ''}`), '')}`;
+    returnUrl += `project${route.replace(new RegExp(`^${gon.relative_url_root || ''}/`), '/')}`;
   }
+
   return escapeFileUrl(returnUrl);
 }
 
@@ -425,12 +444,19 @@ export function relativePathToAbsolute(path, basePath) {
 }
 
 /**
- * Checks if the provided URL is a safe URL (absolute http(s) or root-relative URL)
+ * Checks if the provided URL is a valid URL. Valid URLs are
+ * - absolute URLs (`http(s)://...`)
+ * - root-relative URLs (`/path/...`)
+ * - parsable by the `URL` constructor
+ * - has http or https protocol
+ *
+ * Relative URLs (`../path`), queries (`?...`), and hashes (`#...`) are not
+ * considered valid.
  *
  * @param {String} url that will be checked
  * @returns {Boolean}
  */
-export function isSafeURL(url) {
+export function isValidURL(url) {
   if (!isAbsoluteOrRootRelative(url)) {
     return false;
   }
@@ -441,19 +467,6 @@ export function isSafeURL(url) {
   } catch (e) {
     return false;
   }
-}
-
-/**
- * Returns the sanitized url when not safe
- *
- * @param {String} url
- * @returns {String}
- */
-export function sanitizeUrl(url) {
-  if (!isSafeURL(url)) {
-    return 'about:blank';
-  }
-  return url;
 }
 
 /**
@@ -500,14 +513,20 @@ export const getUrlParamsArray = () => urlParamsToArray(window.location.search);
  * @param {String} query from "document.location.search"
  * @param {Object} options
  * @param {Boolean?} options.gatherArrays - gather array values into an Array
+ * @param {Boolean?} options.specialOperators - handle special operators `or` & `not` with arrays
  * @param {Boolean?} options.legacySpacesDecode - (deprecated) plus symbols (+) are not replaced with spaces, false by default
  * @returns {Object}
  *
  * ex: "?one=1&two=2" into {one: 1, two: 2}
  */
-export function queryToObject(query, { gatherArrays = false, legacySpacesDecode = false } = {}) {
+export function queryToObject(
+  query,
+  { gatherArrays = false, specialOperators = false, legacySpacesDecode = false } = {},
+) {
   const removeQuestionMarkFromQuery = String(query).startsWith('?') ? query.slice(1) : query;
   return removeQuestionMarkFromQuery.split('&').reduce((accumulator, curr) => {
+    if (!curr) return accumulator;
+
     const [key, value] = curr.split('=');
     if (value === undefined) {
       return accumulator;
@@ -516,7 +535,24 @@ export function queryToObject(query, { gatherArrays = false, legacySpacesDecode 
     const decodedValue = legacySpacesDecode ? decodeURIComponent(value) : decodeUrlParameter(value);
     const decodedKey = legacySpacesDecode ? decodeURIComponent(key) : decodeUrlParameter(key);
 
-    if (gatherArrays && decodedKey.endsWith('[]')) {
+    // Handle `or` & `not` operators, eg; or[label_name][] or not[label_name][].
+    // Check if the key ends with square brackets (indicating an array)
+    const isArrayNotation = decodedKey.endsWith('[]');
+    if (specialOperators && decodedKey.includes('[')) {
+      // If it's an array notation and we have already started collecting values
+      if (isArrayNotation && accumulator[decodedKey]) {
+        // Add to existing array
+        accumulator[decodedKey].push(decodedValue);
+      }
+      // If it's array notation but first occurrence, initialize array with first value
+      else if (isArrayNotation) {
+        accumulator[decodedKey] = [decodedValue];
+      }
+      // For non-array bracket notation, just set the value
+      else {
+        accumulator[decodedKey] = decodedValue;
+      }
+    } else if (gatherArrays && decodedKey.endsWith('[]')) {
       const decodedArrayKey = decodedKey.slice(0, -2);
 
       if (!Array.isArray(accumulator[decodedArrayKey])) {
@@ -576,6 +612,7 @@ export const setUrlParams = (
   clearParams = false,
   railsArraySyntax = false,
   decodeParams = false,
+  // eslint-disable-next-line max-params
 ) => {
   const urlObj = new URL(url);
   const queryString = urlObj.search;
@@ -721,7 +758,7 @@ export const removeLastSlashInUrlPath = (url) =>
  * Navigates to a URL.
  *
  * If destination is a querystring, it will be automatically transformed into a fully qualified URL.
- * If the URL is not a safe URL (see isSafeURL implementation), this function will log an exception into Sentry.
+ * If the URL is not valid (see isValidURL implementation), this function will log an exception into Sentry.
  * If the URL is external it calls window.open so it has no referrer header or reference to its opener.
  *
  * @param {*} destination - url to navigate to. This can be a fully qualified URL or a querystring.
@@ -736,15 +773,17 @@ export function visitUrl(destination, openWindow = false) {
     url = currentUrl.toString();
   }
 
-  if (!isSafeURL(url)) {
+  if (!isValidURL(url)) {
     throw new RangeError(`Only http and https protocols are allowed: ${url}`);
   }
 
   if (isExternal(url)) {
     const target = openWindow ? '_blank' : '_self';
     // Sets window.opener to null and avoids leaking referrer information.
+    // eslint-disable-next-line no-restricted-properties
     window.open(url, target, 'noreferrer');
   } else if (openWindow) {
+    // eslint-disable-next-line no-restricted-properties
     window.open(url);
   } else {
     window.location.assign(url);
@@ -755,7 +794,7 @@ export function visitUrl(destination, openWindow = false) {
  * Navigates to a URL and display alerts.
  *
  * If destination is a querystring, it will be automatically transformed into a fully qualified URL.
- * If the URL is not a safe URL (see isSafeURL implementation), this function will log an exception into Sentry.
+ * If the URL is not valid (see isValidURL implementation), this function will log an exception into Sentry.
  *
  * @param {*} destination - url to navigate to. This can be a fully qualified URL or a querystring.
  * @param {{id: String, title?: String, message: String, variant: String, dismissible?: Boolean, persistOnPages?: String[]}[]} alerts - Alerts to display
@@ -780,4 +819,52 @@ export function buildURLwithRefType({ base = window.location.origin, path, refTy
     url.searchParams.delete('ref_type');
   }
   return url.pathname + url.search;
+}
+
+export function stripRelativeUrlRootFromPath(path) {
+  const relativeUrlRoot = joinPaths(window.gon.relative_url_root, '/');
+
+  // If we have no relative url root or path doesn't start with it, just return the path
+  if (relativeUrlRoot === '/' || !path.startsWith(relativeUrlRoot)) {
+    return path;
+  }
+
+  return joinPaths('/', path.substring(relativeUrlRoot.length));
+}
+
+const LINE_RANGE_HASH_REGEX = /^#L(\d+)(?:-(\d+))?$/;
+
+/**
+ * Retrieves the line number range from the url hash if it exists.
+ *
+ * @param {string} [hash=window.location.hash] - The URL hash string to parse. Defaults to the current window's location hash.
+ *
+ * @returns {{beginning: number, end: number}| null} An object containing the line number range selected,
+ *                   otherwise returns null
+ */
+export const getLineRangeFromHash = (hash = window.location.hash) => {
+  const match = hash.match(LINE_RANGE_HASH_REGEX);
+  if (!match || !match[1]) return null;
+
+  const beginning = parseInt(match[1], 10);
+  // If there's a second number (end of range), use it; otherwise use the start number
+  const end = match[2] ? parseInt(match[2], 10) : beginning;
+
+  return { beginning, end };
+};
+
+/**
+ * Appends the current window's line reference hash to a URL if it exists.
+ *
+ * @param {string} url - The base URL to which the line reference should be appended
+ * @param {string} [hash=window.location.hash] - The hash string to check and potentially append. Defaults to the current window's location hash.
+ * @returns {string} The URL with the line reference hash appended if the current window's
+ *                   hash matches the line reference pattern (#L<number> or #L<number>-<number>),
+ *                   otherwise returns the original URL unchanged
+ */
+export function appendLineRangeHashToUrl(url, hash = window.location.hash) {
+  if (LINE_RANGE_HASH_REGEX.test(hash)) {
+    return url + hash;
+  }
+  return url;
 }

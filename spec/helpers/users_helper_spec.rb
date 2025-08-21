@@ -6,9 +6,44 @@ RSpec.describe UsersHelper, feature_category: :user_management do
   include TermsHelper
 
   let_it_be(:user) { create(:user, timezone: ActiveSupport::TimeZone::MAPPING['UTC']) }
+  let_it_be(:admin) { create(:admin) }
 
   def filter_ee_badges(badges)
     badges.reject { |badge| badge[:text] == 'Is using seat' }
+  end
+
+  describe 'has_contact_info?' do
+    subject { helper.has_contact_info?(user) }
+
+    context 'when user has bluesky profile' do
+      let_it_be(:user) { create(:user, bluesky: 'did:plc:ewvi7nxzyoun6zhxrhs64oiz') }
+
+      it { is_expected.to be true }
+    end
+
+    context 'when user has ORCID' do
+      let_it_be(:user) { create(:user, orcid: '1234-1234-1234-1234') }
+
+      it { is_expected.to be true }
+    end
+
+    context 'when user has public email' do
+      let_it_be(:user) { create(:user, :public_email) }
+
+      it { is_expected.to be true }
+    end
+
+    context 'when user public email is blank' do
+      let_it_be(:user) { create(:user, public_email: '') }
+
+      it { is_expected.to be false }
+    end
+
+    context 'when user ORCID is blank' do
+      let_it_be(:user) { create(:user, orcid: '') }
+
+      it { is_expected.to be false }
+    end
   end
 
   describe 'display_public_email?' do
@@ -66,27 +101,38 @@ RSpec.describe UsersHelper, feature_category: :user_management do
     end
   end
 
-  describe '#profile_tabs' do
-    subject(:tabs) { helper.profile_tabs }
+  describe '#profile_actions' do
+    subject(:profile_actions) { helper.profile_actions(other_user) }
+
+    let_it_be(:other_user) { create(:user) }
 
     before do
       allow(helper).to receive(:current_user).and_return(user)
-      allow(helper).to receive(:can?).and_return(true)
+      allow(user).to receive(:bot?).and_return(false)
+      allow(helper).to receive(:can?).with(user, :read_user_profile, other_user).and_return(true)
     end
 
     context 'with public profile' do
-      it 'includes all the expected tabs' do
-        expect(tabs).to include(:activity, :groups, :contributed, :projects, :starred, :snippets)
+      it 'contains all profile actions' do
+        expect(profile_actions).to match_array [:overview, :activity, :groups, :contributed, :projects, :starred, :snippets, :followers, :following]
       end
     end
 
     context 'with private profile' do
       before do
-        allow(helper).to receive(:can?).with(user, :read_user_profile, nil).and_return(false)
+        allow(helper).to receive(:can?).with(user, :read_user_profile, other_user).and_return(false)
       end
 
       it 'is empty' do
-        expect(tabs).to be_empty
+        expect(profile_actions).to be_empty
+      end
+    end
+
+    context 'with a public bot user' do
+      let_it_be(:other_user) { create(:user, :bot) }
+
+      it 'contains bot profile actions' do
+        expect(profile_actions).to match_array [:overview, :activity]
       end
     end
   end
@@ -146,6 +192,22 @@ RSpec.describe UsersHelper, feature_category: :user_management do
 
       it 'hides the profile and the settings tab' do
         expect(items).not_to include(:settings, :profile, :help)
+      end
+    end
+  end
+
+  describe '#impersonation_enabled' do
+    context 'when impersonation is enabled' do
+      before do
+        stub_config_setting(impersonation_enabled: true)
+      end
+
+      it 'allows the admin to impersonate a  user' do
+        expect(helper.impersonation_enabled?).to eq(true)
+      end
+
+      it 'allows impersonation tokens' do
+        expect(helper.impersonation_tokens_enabled?).to eq(true)
       end
     end
   end
@@ -222,120 +284,100 @@ RSpec.describe UsersHelper, feature_category: :user_management do
 
   describe '#user_badges_in_admin_section' do
     before do
-      allow(helper).to receive(:current_user).and_return(user)
+      allow(helper).to receive(:current_user).and_return(admin)
     end
 
+    subject(:badges) { filter_ee_badges(helper.user_badges_in_admin_section(user)) }
+
     context 'with a blocked user' do
-      it "returns the blocked badge" do
-        blocked_user = create(:user, state: 'blocked')
+      let(:user) { create(:user, state: 'blocked') }
 
-        badges = helper.user_badges_in_admin_section(blocked_user)
-
-        expect(filter_ee_badges(badges)).to match_array([text: s_("AdminUsers|Blocked"), variant: "danger"])
-      end
+      it { is_expected.to match_array([{ text: s_("AdminUsers|Blocked"), variant: "danger" }]) }
     end
 
     context 'with a pending approval user' do
-      it 'returns the pending approval badge' do
-        blocked_pending_approval_user = create(:user, :blocked_pending_approval)
+      let(:user) { create(:user, :blocked_pending_approval) }
 
-        badges = helper.user_badges_in_admin_section(blocked_pending_approval_user)
-
-        expect(filter_ee_badges(badges)).to match_array([text: s_('AdminUsers|Pending approval'), variant: 'info'])
-      end
+      it { is_expected.to match_array([{ text: s_('AdminUsers|Pending approval'), variant: 'info' }]) }
     end
 
     context 'with a banned user' do
-      it 'returns the banned badge' do
-        banned_user = create(:user, :banned)
+      let(:user) { create(:user, :banned) }
 
-        badges = helper.user_badges_in_admin_section(banned_user)
-
-        expect(filter_ee_badges(badges)).to match_array([text: s_('AdminUsers|Banned'), variant: 'danger'])
-      end
+      it { is_expected.to match_array([{ text: s_('AdminUsers|Banned'), variant: 'danger' }]) }
     end
 
     context 'with an admin user' do
-      it "returns the admin badge" do
-        admin_user = create(:admin)
+      let(:user) { create(:admin) }
 
-        badges = helper.user_badges_in_admin_section(admin_user)
-
-        expect(filter_ee_badges(badges)).to match_array([text: s_("AdminUsers|Admin"), variant: "success"])
-      end
+      it { is_expected.to match_array([{ text: s_("AdminUsers|Admin"), variant: "success" }]) }
     end
 
     context 'with a bot' do
-      it "returns the bot badge" do
-        bot = create(:user, :bot)
+      let(:user) { create(:user, :bot) }
 
-        badges = helper.user_badges_in_admin_section(bot)
-
-        expect(filter_ee_badges(badges)).to match_array([text: s_('AdminUsers|Bot'), variant: "muted"])
-      end
+      it { is_expected.to match_array([{ text: s_('AdminUsers|Bot'), variant: "muted" }]) }
     end
 
     context 'with a deactivated user' do
-      it "returns the deactivated badge" do
-        deactivated = create(:user, :deactivated)
+      let(:user) { create(:user, :deactivated) }
 
-        badges = helper.user_badges_in_admin_section(deactivated)
-
-        expect(filter_ee_badges(badges)).to match_array([text: s_('AdminUsers|Deactivated'), variant: "danger"])
-      end
+      it { is_expected.to match_array([{ text: s_('AdminUsers|Deactivated'), variant: "danger" }]) }
     end
 
     context 'with an external user' do
-      it 'returns the external badge' do
-        external_user = create(:user, external: true)
+      let(:user) { create(:user, external: true) }
 
-        badges = helper.user_badges_in_admin_section(external_user)
-
-        expect(filter_ee_badges(badges)).to match_array([text: s_("AdminUsers|External"), variant: "secondary"])
-      end
+      it { is_expected.to match_array([{ text: s_("AdminUsers|External"), variant: "muted" }]) }
     end
 
     context 'with the current user' do
-      it 'returns the "It\'s You" badge' do
-        badges = helper.user_badges_in_admin_section(user)
+      let(:user) { admin }
 
-        expect(filter_ee_badges(badges)).to match_array([text: s_("AdminUsers|It's you!"), variant: "muted"])
+      it "returns admin and it's you badges" do
+        is_expected.to match_array(
+          [
+            { text: s_("AdminUsers|Admin"), variant: "success" },
+            { text: s_("AdminUsers|It's you!"), variant: "muted" }
+          ])
       end
     end
 
     context 'with an external blocked admin' do
+      let(:user) { create(:admin, state: 'blocked', external: true) }
+
       it 'returns the blocked, admin and external badges' do
-        user = create(:admin, state: 'blocked', external: true)
-
-        badges = helper.user_badges_in_admin_section(user)
-
-        expect(badges).to match_array(
+        is_expected.to match_array(
           [
             { text: s_("AdminUsers|Blocked"), variant: "danger" },
             { text: s_("AdminUsers|Admin"), variant: "success" },
-            { text: s_("AdminUsers|External"), variant: "secondary" }
+            { text: s_("AdminUsers|External"), variant: "muted" }
           ])
       end
     end
 
     context 'with a locked user', time_travel_to: '2020-02-25 10:30:45 -0700' do
-      it 'returns the "Locked" badge' do
-        locked_user = create(:user, locked_at: DateTime.parse('2020-02-25 10:30:00 -0700'))
+      let(:user) { create(:user, locked_at: DateTime.parse('2020-02-25 10:30:00 -0700')) }
 
-        badges = helper.user_badges_in_admin_section(locked_user)
+      it { is_expected.to match_array([{ text: s_("AdminUsers|Locked"), variant: "warning" }]) }
+    end
 
-        expect(filter_ee_badges(badges)).to match_array([text: s_("AdminUsers|Locked"), variant: "warning"])
-      end
+    context 'with a placeholder user' do
+      let(:user) { create(:user, :placeholder) }
+
+      it { is_expected.to match_array([{ text: s_("UserMapping|Placeholder"), variant: "muted" }]) }
+    end
+
+    context 'with an LDAP user' do
+      let(:user) { create(:omniauth_user, provider: "ldapmain") }
+
+      it { is_expected.to match_array([{ text: 'LDAP', variant: 'info' }]) }
     end
 
     context 'get badges for normal user' do
-      it 'returns no badges' do
-        user = create(:user)
+      let(:user) { create(:user) }
 
-        badges = helper.user_badges_in_admin_section(user)
-
-        expect(filter_ee_badges(badges)).to be_empty
-      end
+      it { is_expected.to be_empty }
     end
   end
 
@@ -370,7 +412,7 @@ RSpec.describe UsersHelper, feature_category: :user_management do
 
     context 'without schema markup' do
       context 'when both job_title and organization are present' do
-        let(:user) { build(:user, organization: 'GitLab', job_title: 'Frontend Engineer') }
+        let(:user) { build(:user, user_detail_organization: 'GitLab', job_title: 'Frontend Engineer') }
 
         it 'returns job title concatenated with organization' do
           is_expected.to eq('Frontend Engineer at GitLab')
@@ -378,7 +420,7 @@ RSpec.describe UsersHelper, feature_category: :user_management do
       end
 
       context 'when only organization is present' do
-        let(:user) { build(:user, organization: 'GitLab') }
+        let(:user) { build(:user, user_detail_organization: 'GitLab') }
 
         it "returns organization" do
           is_expected.to eq('GitLab')
@@ -398,7 +440,7 @@ RSpec.describe UsersHelper, feature_category: :user_management do
       let(:with_schema_markup) { true }
 
       context 'when both job_title and organization are present' do
-        let(:user) { build(:user, organization: 'GitLab', job_title: 'Frontend Engineer') }
+        let(:user) { build(:user, user_detail_organization: 'GitLab', job_title: 'Frontend Engineer') }
 
         it 'returns job title concatenated with organization' do
           is_expected.to eq('<span itemprop="jobTitle">Frontend Engineer</span> at <span itemprop="worksFor">GitLab</span>')
@@ -406,7 +448,7 @@ RSpec.describe UsersHelper, feature_category: :user_management do
       end
 
       context 'when only organization is present' do
-        let(:user) { build(:user, organization: 'GitLab') }
+        let(:user) { build(:user, user_detail_organization: 'GitLab') }
 
         it "returns organization" do
           is_expected.to eq('<span itemprop="worksFor">GitLab</span>')
@@ -574,7 +616,7 @@ RSpec.describe UsersHelper, feature_category: :user_management do
     end
   end
 
-  describe '#user_profile_tabs_app_data' do
+  describe '#user_profile_app_data' do
     before do
       allow(helper).to receive(:current_user).and_return(user)
       allow(helper).to receive(:user_calendar_path).with(user, :json).and_return('/users/root/calendar.json')
@@ -587,7 +629,7 @@ RSpec.describe UsersHelper, feature_category: :user_management do
     it 'returns expected hash' do
       allow(helper).to receive(:can?).with(user, :create_snippet).and_return(true)
 
-      expect(helper.user_profile_tabs_app_data(user)).to match({
+      expect(helper.user_profile_app_data(user)).to match({
         followees_count: 3,
         followers_count: 2,
         user_calendar_path: '/users/root/calendar.json',
@@ -606,7 +648,7 @@ RSpec.describe UsersHelper, feature_category: :user_management do
       end
 
       it 'returns nil for new_snippet_path property' do
-        expect(helper.user_profile_tabs_app_data(user)[:new_snippet_path]).to be_nil
+        expect(helper.user_profile_app_data(user)[:new_snippet_path]).to be_nil
       end
     end
   end

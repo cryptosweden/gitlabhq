@@ -5,6 +5,7 @@ import { mergeUrlParams } from '~/lib/utils/url_utility';
 import { s__ } from '~/locale';
 import AddRequest from './add_request.vue';
 import DetailedMetric from './detailed_metric.vue';
+import InfoApp from './info_modal/info_app.vue';
 import RequestSelector from './request_selector.vue';
 
 export default {
@@ -12,6 +13,7 @@ export default {
     AddRequest,
     DetailedMetric,
     GlLink,
+    InfoApp,
     RequestSelector,
   },
   directives: {
@@ -112,12 +114,6 @@ export default {
         this.currentRequestId = requestId;
       },
     },
-    hasHost() {
-      return this.currentRequest && this.currentRequest.details && this.currentRequest.details.host;
-    },
-    isCanary() {
-      return Boolean(this.currentRequest.details.host.canary);
-    },
     downloadPath() {
       const data = JSON.stringify(this.requests);
       const blob = new Blob([data], { type: 'text/plain' });
@@ -126,9 +122,6 @@ export default {
     downloadName() {
       const fileName = this.requests[0].displayName;
       return `${fileName}_perf_bar_${Date.now()}.json`;
-    },
-    showZoekt() {
-      return document.body.dataset.page === 'search:show';
     },
     showFlamegraphButtons() {
       return this.isGetRequest(this.currentRequestId);
@@ -142,13 +135,18 @@ export default {
         this.store.findRequest(this.currentRequestId).fullUrl,
       );
     },
-  },
-  created() {
-    if (!this.showZoekt) {
-      this.$options.detailedMetrics = this.$options.detailedMetrics.filter(
-        (item) => item.metric !== 'zkt',
-      );
-    }
+    backgroundClass() {
+      if (this.env === 'production') {
+        return 'gl-bg-neutral-950';
+      }
+      if (this.env === 'staging') {
+        return 'gl-bg-purple-950 dark:gl-bg-purple-50';
+      }
+      if (this.env === 'development') {
+        return 'gl-bg-red-900 dark:gl-bg-red-50';
+      }
+      return 'gl-bg-neutral-1000';
+    },
   },
   mounted() {
     this.currentRequest = this.requestId;
@@ -171,28 +169,14 @@ export default {
 };
 </script>
 <template>
-  <div id="js-peek" :class="env">
+  <div id="js-peek" :class="[env, backgroundClass]">
     <div
       v-if="currentRequest"
-      class="gl-display-flex container-fluid gl-overflow-x-auto"
+      class="container-fluid gl-flex gl-overflow-x-auto"
       data-testid="performance-bar"
     >
-      <div class="gl-display-flex gl-flex-shrink-0 view-performance-container">
-        <div v-if="hasHost" id="peek-view-host" class="gl-display-flex gl-gap-2 view">
-          <span class="current-host" :class="{ canary: isCanary }">
-            <gl-emoji
-              v-if="isCanary"
-              id="canary-emoji"
-              v-gl-tooltip.viewport="'Canary'"
-              data-name="baby_chick"
-            />
-            <gl-emoji
-              id="host-emoji"
-              v-gl-tooltip.viewport="currentRequest.details.host.hostname"
-              data-name="computer"
-            />
-          </span>
-        </div>
+      <div class="view-performance-container gl-flex gl-shrink-0">
+        <info-app :current-request="currentRequest" />
         <detailed-metric
           v-for="metric in $options.detailedMetrics"
           :key="metric.metric"
@@ -207,14 +191,16 @@ export default {
           id="peek-view-trace"
           class="view"
         >
-          <gl-link class="gl-underline" :href="currentRequest.details.tracing.tracing_url">{{
-            s__('PerformanceBar|Trace')
-          }}</gl-link>
+          <gl-link
+            class="!gl-text-neutral-0 gl-underline"
+            :href="currentRequest.details.tracing.tracing_url"
+            >{{ s__('PerformanceBar|Trace') }}</gl-link
+          >
         </div>
         <div v-if="showFlamegraphButtons" id="peek-flamegraph" class="view">
           <gl-link
             v-gl-tooltip.viewport
-            class="gl-font-sm"
+            class="gl-text-sm !gl-text-neutral-0"
             :href="flamegraphPath('wall', currentRequestId)"
             :title="s__('PerformanceBar|Wall flamegraph')"
             >{{ s__('PerformanceBar|Wall') }}</gl-link
@@ -222,7 +208,7 @@ export default {
           /
           <gl-link
             v-gl-tooltip.viewport
-            class="gl-font-sm"
+            class="gl-text-sm !gl-text-neutral-0"
             :href="flamegraphPath('cpu', currentRequestId)"
             :title="s__('PerformanceBar|CPU flamegraph')"
             >{{ s__('PerformanceBar|CPU') }}</gl-link
@@ -230,7 +216,7 @@ export default {
           /
           <gl-link
             v-gl-tooltip.viewport
-            class="gl-font-sm"
+            class="gl-text-sm !gl-text-neutral-0"
             :href="flamegraphPath('object', currentRequestId)"
             :title="s__('PerformanceBar|Object flamegraph')"
             >{{ s__('PerformanceBar|Object') }}</gl-link
@@ -238,13 +224,13 @@ export default {
           <span class="gl-opacity-7">{{ s__('PerformanceBar|flamegraph') }}</span>
         </div>
       </div>
-      <div class="gl-display-flex gl-flex-shrink-0 gl-ml-auto">
-        <div class="gl-display-flex view-reports-container">
+      <div class="gl-ml-auto gl-flex gl-shrink-0">
+        <div class="view-reports-container gl-flex">
           <gl-link
             v-if="currentRequest.details"
             id="peek-download"
             v-gl-tooltip.viewport
-            class="view gl-font-sm"
+            class="view gl-text-sm !gl-text-neutral-0"
             is-unsafe-link
             :download="downloadName"
             :href="downloadPath"
@@ -255,7 +241,7 @@ export default {
             v-if="showMemoryReportButton"
             id="peek-memory-report"
             v-gl-tooltip.viewport
-            class="view gl-font-sm"
+            class="view gl-text-sm !gl-text-neutral-0"
             :href="memoryReportPath"
             :title="s__('PerformanceBar|Download memory report')"
             >{{ s__('PerformanceBar|Memory report') }}</gl-link
@@ -263,7 +249,7 @@ export default {
           <gl-link
             v-if="statsUrl"
             v-gl-tooltip.viewport
-            class="view gl-font-sm"
+            class="view gl-text-sm !gl-text-neutral-0"
             :href="statsUrl"
             :title="s__('PerformanceBar|Show stats')"
             >{{ s__('PerformanceBar|Stats') }}</gl-link

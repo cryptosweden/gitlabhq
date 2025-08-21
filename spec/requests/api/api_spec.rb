@@ -4,6 +4,7 @@ require 'spec_helper'
 
 RSpec.describe API::API, feature_category: :system_access do
   include GroupAPIHelpers
+  include Auth::DpopTokenHelper
 
   describe 'Record user last activity in after hook' do
     # It does not matter which endpoint is used because last_activity_on should
@@ -26,6 +27,79 @@ RSpec.describe API::API, feature_category: :system_access do
         expect(Users::ActivityService).to receive(:new).with(activity_args).and_call_original
 
         get(api("/projects/#{project.id}/issues", user))
+      end
+    end
+  end
+
+  describe 'DPoP authentication' do
+    shared_examples "checks for dpop token" do
+      let(:dpop_proof) { generate_dpop_proof_for(user) }
+
+      context 'with a missing DPoP token' do
+        it 'returns 401' do
+          get api(request_path, personal_access_token: personal_access_token)
+          expect(json_response["error_description"]).to eq("DPoP validation error: DPoP header is missing")
+          expect(response).to have_gitlab_http_status(:unauthorized)
+        end
+      end
+
+      context 'with a valid DPoP token' do
+        it 'returns 200' do
+          get(api(request_path, personal_access_token: personal_access_token), headers: { "dpop" => dpop_proof.proof })
+          expect(response).to have_gitlab_http_status(:ok)
+        end
+      end
+
+      context 'with a malformed DPoP token' do
+        it 'returns 401' do
+          get(api(request_path, personal_access_token: personal_access_token), headers: { "dpop" => 'invalid' })
+          # rubocop:disable Layout/LineLength -- We need the entire error message
+          expect(json_response["error_description"]).to eq("DPoP validation error: Malformed JWT, unable to decode. Not enough or too many segments")
+          # rubocop:enable Layout/LineLength
+          expect(response).to have_gitlab_http_status(:unauthorized)
+        end
+      end
+    end
+
+    context 'when :dpop_authentication FF is disabled' do
+      let(:user) { create(:user) }
+
+      it 'does not check for DPoP token' do
+        stub_feature_flags(dpop_authentication: false)
+
+        get api('/groups')
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+    end
+
+    context 'when :dpop_authentication FF is enabled' do
+      before do
+        stub_feature_flags(dpop_authentication: true)
+      end
+
+      context 'when DPoP is disabled for the user' do
+        let(:user) { create(:user) }
+
+        it 'does not check for DPoP token' do
+          get api('/groups')
+          expect(response).to have_gitlab_http_status(:ok)
+        end
+      end
+
+      context 'when DPoP is enabled for the user' do
+        let(:user) { create(:user, dpop_enabled: true) }
+        let(:personal_access_token) { create(:personal_access_token, user: user, scopes: [:api]) }
+        let(:oauth_token) { create(:oauth_access_token, user: user, scopes: [:api]) }
+        let(:request_path) { "/groups" }
+
+        context 'when API is called with an OAuth token' do
+          it 'does not invoke DPoP' do
+            get api('/groups', oauth_access_token: oauth_token)
+            expect(response).to have_gitlab_http_status(:ok)
+          end
+        end
+
+        it_behaves_like "checks for dpop token"
       end
     end
   end
@@ -72,6 +146,22 @@ RSpec.describe API::API, feature_category: :system_access do
         expect(response).to have_gitlab_http_status(:forbidden)
       end
 
+      it 'logs auth failure fields for post request' do
+        expect(described_class::LOG_FORMATTER).to receive(:call) do |_severity, _datetime, _, data|
+          expect(data.stringify_keys).to include(
+            'correlation_id' => an_instance_of(String),
+            'meta.auth_fail_reason' => "insufficient_scope",
+            'meta.auth_fail_token_id' => "PersonalAccessToken/#{token.id}",
+            'meta.auth_fail_requested_scopes' => "ai_workflows api read_api",
+            'route' => '/api/:version/groups'
+          )
+        end
+
+        params = attributes_for_group_api
+
+        post api("/groups", personal_access_token: token), params: params
+      end
+
       it 'does not authorize user for put request' do
         group_param = { name: 'Test' }
 
@@ -114,6 +204,80 @@ RSpec.describe API::API, feature_category: :system_access do
     end
   end
 
+  describe 'counter metrics', :aggregate_failures do
+    let_it_be(:project) { create(:project, :public) }
+    let_it_be(:user) { project.first_owner }
+    let_it_be(:http_router_rule_counter) { Gitlab::Metrics.counter(:gitlab_http_router_rule_total, 'description') }
+
+    let(:perform_request) { get(api("/projects/#{project.id}", user), headers: headers) }
+
+    context 'when the headers are present' do
+      context 'for classify action' do
+        let(:headers) do
+          {
+            'X-Gitlab-Http-Router-Rule-Action' => 'classify',
+            'X-Gitlab-Http-Router-Rule-Type' => 'FIRST_CELL'
+          }
+        end
+
+        it 'increments the counter' do
+          expect { perform_request }
+            .to change { http_router_rule_counter.get(rule_action: 'classify', rule_type: 'FIRST_CELL') }.by(1)
+        end
+      end
+
+      context 'for proxy action' do
+        let(:headers) do
+          {
+            'X-Gitlab-Http-Router-Rule-Action' => 'proxy'
+          }
+        end
+
+        it 'increments the counter' do
+          expect { perform_request }
+            .to change { http_router_rule_counter.get(rule_action: 'proxy', rule_type: nil) }.by(1)
+        end
+      end
+    end
+
+    context 'for invalid action and type' do
+      let(:headers) do
+        {
+          'X-Gitlab-Http-Router-Rule-Action' => 'invalid',
+          'X-Gitlab-Http-Router-Rule-Type' => 'invalid'
+        }
+      end
+
+      it 'does not increment the counter' do
+        expect { perform_request }
+          .to change { http_router_rule_counter.get(rule_action: 'invalid', rule_type: 'invalid') }.by(0)
+      end
+    end
+
+    context 'when action is not present and type is present' do
+      let(:headers) do
+        {
+          'X-Gitlab-Http-Router-Rule-Type' => 'FIRST_CELL'
+        }
+      end
+
+      it 'does not increment the counter' do
+        expect { perform_request }.to change {
+          http_router_rule_counter.get(rule_action: nil, rule_type: 'FIRST_CELL')
+        }.by(0)
+      end
+    end
+
+    context 'when the headers are absent' do
+      let(:headers) { {} }
+
+      it 'does not increment the counter' do
+        expect { perform_request }
+          .to change { http_router_rule_counter.get(rule_action: nil, rule_type: nil) }.by(0)
+      end
+    end
+  end
+
   describe 'logging', :aggregate_failures do
     let_it_be(:project) { create(:project, :public) }
     let_it_be(:user) { project.first_owner }
@@ -131,13 +295,42 @@ RSpec.describe API::API, feature_category: :system_access do
               'meta.user' => user.username,
               'meta.client_id' => a_string_matching(%r{\Auser/.+}),
               'meta.feature_category' => 'team_planning',
+              'meta.http_router_rule_action' => 'classify',
+              'meta.http_router_rule_type' => 'FIRST_CELL',
               'route' => '/api/:version/projects/:id/issues'
             )
           end
 
-          get(api("/projects/#{project.id}/issues", user))
+          get(api("/projects/#{project.id}/issues", user), headers: {
+            'X-Gitlab-Http-Router-Rule-Action' => 'classify',
+            'X-Gitlab-Http-Router-Rule-Type' => 'FIRST_CELL'
+          })
 
           expect(response).to have_gitlab_http_status(:ok)
+        end
+      end
+
+      context 'with an expired token' do
+        let_it_be(:private_project) { create(:project) }
+        let_it_be(:token) { create(:personal_access_token, :expired, user: user) }
+
+        it 'logs all application context fields and the route' do
+          expect(described_class::LOG_FORMATTER).to receive(:call) do |_severity, _datetime, _, data|
+            expect(data.stringify_keys).to include(
+              'correlation_id' => an_instance_of(String),
+              'meta.caller_id' => 'GET /api/:version/projects/:id/issues',
+              'meta.remote_ip' => an_instance_of(String),
+              'meta.client_id' => a_string_matching(%r{\Aip/.+}),
+              'meta.auth_fail_reason' => "token_expired",
+              'meta.auth_fail_token_id' => "PersonalAccessToken/#{token.id}",
+              'meta.feature_category' => 'team_planning',
+              'route' => '/api/:version/projects/:id/issues'
+            )
+          end
+
+          get(api("/projects/#{private_project.id}/issues", personal_access_token: token))
+
+          expect(response).to have_gitlab_http_status(:unauthorized)
         end
       end
 
@@ -395,6 +588,202 @@ RSpec.describe API::API, feature_category: :system_access do
         headers: { 'content-type' => 'application/json' }
 
       expect(response).to have_gitlab_http_status(:bad_request)
+    end
+  end
+
+  describe 'audit logging of requests with a specific token scope' do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+    let_it_be(:project) { create(:project) }
+    let_it_be(:issue) { create(:issue, project: project) }
+    let_it_be(:path) { "/projects/#{issue.project.id}/issues/#{issue.iid}" }
+
+    before_all do
+      project.add_developer(user)
+    end
+
+    shared_examples 'audited request' do
+      it 'adds audit log' do
+        expect(::Gitlab::Audit::Auditor).to receive(:audit).with(hash_including({
+          name: 'api_request_access_with_scope',
+          message: "API request with token scopes [:ai_workflows] - GET /api/v4#{path}"
+        })).and_call_original
+
+        subject
+
+        expect(response).to have_gitlab_http_status(status)
+      end
+    end
+
+    shared_examples 'not audited request' do
+      it "doesn't add audit log" do
+        expect(::Gitlab::Audit::Auditor).not_to receive(:audit)
+
+        subject
+
+        expect(response).to have_gitlab_http_status(status)
+      end
+    end
+
+    context 'when endpoint allows token with ai_workflow scope' do
+      subject { get api(path, oauth_access_token: token) }
+
+      context 'when token with ai_workflows scope is used' do
+        let(:status) { :ok }
+
+        it_behaves_like 'audited request'
+
+        context 'when request fails' do
+          let_it_be(:path) { "/projects/#{issue.project.id}/issues/#{non_existing_record_id}" }
+          let(:status) { :not_found }
+
+          it_behaves_like 'audited request'
+        end
+      end
+
+      context 'when token with ai_workflows scope is not used' do
+        let_it_be(:token) { create(:oauth_access_token, user: user, scopes: [:api]) }
+        let(:status) { :ok }
+
+        it_behaves_like 'not audited request'
+      end
+    end
+
+    context "when endpoint doesn't allow token with ai_workflow scope" do
+      subject { delete api(path, oauth_access_token: token) }
+
+      let(:status) { :forbidden }
+
+      it_behaves_like 'not audited request'
+    end
+  end
+
+  describe 'Language Server client restrictions', feature_category: :editor_extensions do
+    let_it_be(:user) { create(:user) }
+    let_it_be(:oauth_access_token) { create(:oauth_access_token, user: user, scopes: [:api]) }
+    let_it_be(:personal_access_token) { create(:personal_access_token, user: user, scopes: [:api]) }
+    # It does not matter which endpoint is used because language server restrictions
+    # should apply to every request. `/user` is used as an example
+    # to represent any API endpoint.
+    let(:request_path) { '/version' }
+
+    shared_examples 'an allowed client' do
+      it 'returns 200 when using an OAuth token' do
+        get(api(request_path, oauth_access_token: oauth_access_token), headers: headers)
+
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+
+      it 'returns 200 when using a Personal Access Token' do
+        get(api(request_path, personal_access_token: personal_access_token), headers: headers)
+
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+    end
+
+    shared_examples 'an unallowed client' do
+      it 'returns 401 when using an OAuth token' do
+        get(api(request_path, oauth_access_token: oauth_access_token), headers: headers)
+
+        expect(json_response["error_description"]).to a_string_including(
+          "Requests from Editor Extension clients are restricted")
+        expect(response).to have_gitlab_http_status(:unauthorized)
+      end
+
+      it 'returns 401 when using a Personal Access Token' do
+        get(api(request_path, personal_access_token: personal_access_token), headers: headers)
+
+        expect(json_response["error_description"]).to a_string_including(
+          "Requests from Editor Extension clients are restricted")
+        expect(response).to have_gitlab_http_status(:unauthorized)
+      end
+    end
+
+    context 'with allowed clients' do
+      using RSpec::Parameterized::TableSyntax
+
+      where(:is_dedicated, :enforce_language_server_version, :enable_language_server_restrictions, :client_version,
+        :user_agent) do
+        false | false | false | '0.1.0' | 'gitlab-language-server 0.1.0'
+        false | false | true  | '0.1.0' | 'gitlab-language-server 0.1.0'
+        false | false | false | nil     | 'code-completions-language-server-experiment (gitlab.vim: 1.0.0)'
+        false | false | false | nil     | 'gitlab-language-server 1.0.0'
+        false | false | false | nil     | 'unknown-app 1.0.0'
+        false | false | false | nil     | nil
+        false | true  | true  | '1.0.0' | 'gitlab-language-server 1.0.0'
+        false | true  | true  | '2.0.0' | 'gitlab-language-server 2.0.0'
+        true  | false | true  | '1.0.0' | 'gitlab-language-server 1.0.0'
+        true  | false | true  | '2.0.0' | 'gitlab-language-server 2.0.0'
+      end
+
+      with_them do
+        before do
+          stub_feature_flags(enforce_language_server_version: enforce_language_server_version)
+
+          allow(Gitlab::CurrentSettings.current_application_settings).to receive_messages(
+            enable_language_server_restrictions: enable_language_server_restrictions,
+            gitlab_dedicated_instance?: is_dedicated,
+            minimum_language_server_version: '1.0.0')
+        end
+
+        let(:headers) do
+          {
+            'User-Agent' => user_agent,
+            'X-GitLab-Language-Server-Version' => client_version
+          }
+        end
+
+        it_behaves_like 'an allowed client'
+      end
+    end
+
+    shared_examples 'unallowed clients' do
+      using RSpec::Parameterized::TableSyntax
+
+      where(:client_version, :user_agent) do
+        '0.1.0' | 'code-completions-language-server-experiment (gl-visual-studio-extension:1.0.0.0; arch:X64;)'
+        '0.1.0' | 'gitlab-language-server 1.0.0'
+        '0.1.0' | nil
+        nil     | 'code-completions-language-server-experiment (gl-visual-studio-extension:1.0.0.0; arch:X64;)'
+        nil     | 'gitlab-language-server 0.1.0'
+      end
+
+      with_them do
+        let(:headers) do
+          {
+            'User-Agent' => user_agent,
+            'X-GitLab-Language-Server-Version' => client_version
+          }
+        end
+
+        it_behaves_like 'an unallowed client'
+      end
+    end
+
+    context 'with unallowed clients on dedicated' do
+      before do
+        stub_feature_flags(enforce_language_server_version: false)
+
+        allow(Gitlab::CurrentSettings.current_application_settings).to receive_messages(
+          enable_language_server_restrictions: true,
+          gitlab_dedicated_instance?: true,
+          minimum_language_server_version: '1.0.0')
+      end
+
+      it_behaves_like 'unallowed clients'
+    end
+
+    context 'with unallowed clients outside of dedicated' do
+      before do
+        stub_feature_flags(enforce_language_server_version: true)
+
+        allow(Gitlab::CurrentSettings.current_application_settings).to receive_messages(
+          enable_language_server_restrictions: true,
+          gitlab_dedicated_instance?: false,
+          minimum_language_server_version: '1.0.0')
+      end
+
+      it_behaves_like 'unallowed clients'
     end
   end
 end

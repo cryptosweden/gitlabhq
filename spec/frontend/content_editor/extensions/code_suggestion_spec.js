@@ -1,8 +1,8 @@
+import { builders } from 'prosemirror-test-builder';
 import CodeBlockHighlight from '~/content_editor/extensions/code_block_highlight';
 import CodeSuggestion from '~/content_editor/extensions/code_suggestion';
 import {
   createTestEditor,
-  createDocBuilder,
   triggerNodeInputRule,
   expectDocumentAfterTransaction,
   sleep,
@@ -20,6 +20,8 @@ foo: bar
 `;
 
 const CODE_SUGGESTION_HTML = `<div class="gl-relative markdown-code-block js-markdown-code"><pre data-sourcepos="1:1-3:3" data-canonical-lang="suggestion" data-lang-params="-0+0" class="code highlight js-syntax-highlight language-suggestion" v-pre="true"><code class="js-render-suggestion"><span id="LC1" class="line" lang="suggestion">    options = [</span></code></pre></div>`;
+
+const EMPTY_CODE_SUGGESTION_HTML = `<div class="gl-relative markdown-code-block js-markdown-code"><pre data-sourcepos="1:1-2:3" data-canonical-lang="suggestion" data-lang-params="-0+0" class="code highlight js-syntax-highlight language-suggestion" v-pre="true"><code class="js-render-suggestion"></code></pre></div>`;
 
 jest.mock('~/content_editor/services/utils', () => ({
   memoizedGet: jest.fn().mockResolvedValue(SAMPLE_README_CONTENT),
@@ -51,15 +53,7 @@ describe('content_editor/extensions/code_suggestion', () => {
       ],
     });
 
-    ({
-      builders: { doc, codeSuggestion },
-    } = createDocBuilder({
-      tiptapEditor,
-      names: {
-        codeBlock: { nodeType: CodeBlockHighlight.name },
-        codeSuggestion: { nodeType: CodeSuggestion.name },
-      },
-    }));
+    ({ doc, codeSuggestion } = builders(tiptapEditor.schema));
   };
 
   describe('insertCodeSuggestion command', () => {
@@ -148,6 +142,26 @@ describe('content_editor/extensions/code_suggestion', () => {
             },
             '    options = [',
           ),
+        ).toJSON(),
+      );
+    });
+  });
+
+  describe('when parsing HTML with an empty code suggestion', () => {
+    beforeEach(() => {
+      createEditor();
+
+      tiptapEditor.commands.setContent(EMPTY_CODE_SUGGESTION_HTML);
+    });
+
+    it('parses HTML correctly into a code suggestions block', () => {
+      expect(tiptapEditor.getJSON()).toEqual(
+        doc(
+          codeSuggestion({
+            language: 'suggestion',
+            langParams: '-0+0',
+            class: 'code highlight js-syntax-highlight language-suggestion',
+          }),
         ).toJSON(),
       );
     });

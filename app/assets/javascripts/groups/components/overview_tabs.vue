@@ -8,9 +8,11 @@ import { RECENT_SEARCHES_STORAGE_KEY_GROUPS } from '~/filtered_search/recent_sea
 import GroupsStore from '../store/groups_store';
 import GroupsService from '../service/groups_service';
 import InactiveProjectsService from '../service/inactive_projects_service';
+import SharedGroupsService from '../service/shared_groups_service';
 import {
   ACTIVE_TAB_SUBGROUPS_AND_PROJECTS,
   ACTIVE_TAB_SHARED,
+  ACTIVE_TAB_SHARED_GROUPS,
   ACTIVE_TAB_INACTIVE,
   SORTING_ITEM_NAME,
   OVERVIEW_TABS_SORTING_ITEMS,
@@ -22,9 +24,8 @@ import eventHub from '../event_hub';
 import GroupsApp from './app.vue';
 import SubgroupsAndProjectsEmptyState from './empty_states/subgroups_and_projects_empty_state.vue';
 import SharedProjectsEmptyState from './empty_states/shared_projects_empty_state.vue';
+import SharedGroupsEmptyState from './empty_states/shared_groups_empty_state.vue';
 import InactiveProjectsEmptyState from './empty_states/inactive_projects_empty_state.vue';
-
-const MIN_SEARCH_LENGTH = 3;
 
 export default {
   components: {
@@ -61,6 +62,15 @@ export default {
         service: new GroupsService(this.endpoints[ACTIVE_TAB_SHARED], this.initialSort),
         store: new GroupsStore(),
         sortingItems: OVERVIEW_TABS_SORTING_ITEMS,
+      },
+      {
+        title: this.$options.i18n[ACTIVE_TAB_SHARED_GROUPS],
+        key: ACTIVE_TAB_SHARED_GROUPS,
+        emptyStateComponent: markRaw(SharedGroupsEmptyState),
+        lazy: this.$route.name !== ACTIVE_TAB_SHARED_GROUPS,
+        service: new SharedGroupsService(this.groupId, this.initialSort),
+        store: new GroupsStore(),
+        sortingItems: [SORTING_ITEM_NAME],
       },
       {
         title: this.$options.i18n[ACTIVE_TAB_INACTIVE],
@@ -215,14 +225,13 @@ export default {
     onFilter(filtersQuery) {
       this.search = filtersQuery[OVERVIEW_TABS_FILTERED_SEARCH_TERM_KEY];
 
-      if (!this.search || this.search.length >= MIN_SEARCH_LENGTH) {
-        this.handleSearchOrSortChange();
-      }
+      this.handleSearchOrSortChange();
     },
   },
   i18n: {
     [ACTIVE_TAB_SUBGROUPS_AND_PROJECTS]: __('Subgroups and projects'),
     [ACTIVE_TAB_SHARED]: __('Shared projects'),
+    [ACTIVE_TAB_SHARED_GROUPS]: __('Shared groups'),
     [ACTIVE_TAB_INACTIVE]: __('Inactive'),
     searchPlaceholder: __('Search (3 character minimum)'),
   },
@@ -250,30 +259,28 @@ export default {
     >
       <groups-app :action="key" :service="service" :store="store">
         <template v-if="emptyStateComponent" #empty-state>
-          <component :is="emptyStateComponent" />
+          <component :is="emptyStateComponent" :search="search" />
         </template>
       </groups-app>
     </gl-tab>
-    <template #tabs-end>
-      <li class="gl-w-full">
-        <filtered-search-and-sort
-          class="gl-border-b-0"
-          :filtered-search-namespace="$options.filteredSearch.namespace"
-          :filtered-search-tokens="$options.filteredSearch.tokens"
-          :filtered-search-term-key="$options.filteredSearch.searchTermKey"
-          :filtered-search-recent-searches-storage-key="
-            $options.filteredSearch.recentSearchesStorageKey
-          "
-          :filtered-search-query="$route.query"
-          :is-ascending="isAscending"
-          :sort-options="activeTabSortOptions"
-          :active-sort-option="activeSortOption"
-          :search-input-placeholder="$options.i18n.searchPlaceholder"
-          @filter="onFilter"
-          @sort-direction-change="onSortDirectionChange"
-          @sort-by-change="onSortByChange"
-        />
-      </li>
+    <template #toolbar-end>
+      <filtered-search-and-sort
+        class="gl-w-full gl-border-b-0"
+        :filtered-search-namespace="$options.filteredSearch.namespace"
+        :filtered-search-tokens="$options.filteredSearch.tokens"
+        :filtered-search-term-key="$options.filteredSearch.searchTermKey"
+        :filtered-search-recent-searches-storage-key="
+          $options.filteredSearch.recentSearchesStorageKey
+        "
+        :filtered-search-query="$route.query"
+        :is-ascending="isAscending"
+        :sort-options="activeTabSortOptions"
+        :active-sort-option="activeSortOption"
+        :search-input-placeholder="$options.i18n.searchPlaceholder"
+        @filter="onFilter"
+        @sort-direction-change="onSortDirectionChange"
+        @sort-by-change="onSortByChange"
+      />
     </template>
   </gl-tabs>
 </template>

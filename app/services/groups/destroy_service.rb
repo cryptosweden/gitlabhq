@@ -5,6 +5,8 @@ module Groups
     DestroyError = Class.new(StandardError)
 
     def async_execute
+      mark_deleted
+
       job_id = GroupDestroyWorker.perform_async(group.id, current_user.id)
       Gitlab::AppLogger.info("User #{current_user.id} scheduled a deletion of group ID #{group.id} with job ID #{job_id}")
     end
@@ -14,7 +16,9 @@ module Groups
       # TODO - add a policy check here https://gitlab.com/gitlab-org/gitlab/-/issues/353082
       raise DestroyError, "You can't delete this group because you're blocked." if current_user.blocked?
 
-      group.projects.includes(:project_feature).each do |project|
+      mark_deleted
+
+      group.projects.includes(:project_feature).find_each do |project|
         # Execute the destruction of the models immediately to ensure atomic cleanup.
         success = ::Projects::DestroyService.new(project, current_user).execute
 
@@ -46,10 +50,21 @@ module Groups
       publish_event
 
       group
+    rescue Exception # rubocop:disable Lint/RescueException -- Namespace.transaction can raise Exception
+      unmark_deleted
+      raise
     end
     # rubocop: enable CodeReuse/ActiveRecord
 
     private
+
+    def mark_deleted
+      group.update_attribute(:deleted_at, Time.current)
+    end
+
+    def unmark_deleted
+      group.update_attribute(:deleted_at, nil)
+    end
 
     def any_groups_shared_with_this_group?
       group.shared_group_links.any?
@@ -79,7 +94,6 @@ module Groups
       group.users_ids_of_direct_members
     end
 
-    # rubocop:disable CodeReuse/ActiveRecord
     def destroy_associated_users
       current_user_id = current_user.id
       bot_ids = users_to_destroy
@@ -90,7 +104,6 @@ module Groups
         end
       end
     end
-    # rubocop:enable CodeReuse/ActiveRecord
 
     # rubocop:disable CodeReuse/ActiveRecord
     def users_to_destroy
@@ -102,14 +115,13 @@ module Groups
     # rubocop:enable CodeReuse/ActiveRecord
 
     def publish_event
-      event = Groups::GroupDeletedEvent.new(
-        data: {
-          group_id: group.id,
-          root_namespace_id: group.root_ancestor.id
-        }
-      )
+      event_data = {
+        group_id: group.id,
+        root_namespace_id: group.root_ancestor&.id.to_i # remove safe navigation and `.to_i` with https://gitlab.com/gitlab-org/gitlab/-/issues/508611
+      }
+      event_data[:parent_namespace_id] = group.parent_id if group.parent_id.present?
 
-      Gitlab::EventStore.publish(event)
+      Gitlab::EventStore.publish(Groups::GroupDeletedEvent.new(data: event_data))
     end
   end
 end

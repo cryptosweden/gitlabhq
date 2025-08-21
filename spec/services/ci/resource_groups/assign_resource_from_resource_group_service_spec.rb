@@ -12,7 +12,6 @@ RSpec.describe Ci::ResourceGroups::AssignResourceFromResourceGroupService, featu
 
   before do
     allow(Ci::ResourceGroups::AssignResourceFromResourceGroupWorker).to receive(:perform_in)
-    allow(Ci::ResourceGroups::AssignResourceFromResourceGroupWorkerV2).to receive(:perform_in)
   end
 
   describe '#execute' do
@@ -27,6 +26,12 @@ RSpec.describe Ci::ResourceGroups::AssignResourceFromResourceGroupService, featu
 
         expect(ci_build.reload).to be_pending
         expect(ci_build.resource).to be_present
+      end
+
+      it_behaves_like 'internal event tracking' do
+        let(:event) { 'job_enqueued_by_resource_group' }
+        let(:category) { described_class.name }
+        let(:additional_properties) { { label: resource_group.process_mode, property: ci_build.id.to_s, resource_group_id: resource_group.id } }
       end
 
       context 'when failed to request resource' do
@@ -212,21 +217,9 @@ RSpec.describe Ci::ResourceGroups::AssignResourceFromResourceGroupService, featu
       end
 
       it 'does not re-spawn the new worker for assigning a resource' do
-        expect(Ci::ResourceGroups::AssignResourceFromResourceGroupWorkerV2).not_to receive(:perform_in)
+        expect(Ci::ResourceGroups::AssignResourceFromResourceGroupWorker).not_to receive(:perform_in)
 
         subject
-      end
-
-      context 'when `assign_resource_worker_deduplicate_until_executing` FF is disabled' do
-        before do
-          stub_feature_flags(assign_resource_worker_deduplicate_until_executing: false)
-        end
-
-        it 'does not re-spawn the old worker for assigning a resource' do
-          expect(Ci::ResourceGroups::AssignResourceFromResourceGroupWorker).not_to receive(:perform_in)
-
-          subject
-        end
       end
 
       context 'when there is a stale build assigned to a resource' do

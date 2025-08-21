@@ -34,7 +34,8 @@ RSpec.describe Ci::PipelinesHelper, feature_category: :continuous_integration do
     end
 
     it 'has the expected keys' do
-      expect(subject.keys).to include(:endpoint,
+      expect(subject.keys).to include(
+        :endpoint,
         :project_id,
         :default_branch_name,
         :params,
@@ -43,14 +44,15 @@ RSpec.describe Ci::PipelinesHelper, feature_category: :continuous_integration do
         :pipeline_schedules_path,
         :can_create_pipeline,
         :new_pipeline_path,
-        :ci_lint_path,
         :reset_cache_path,
         :has_gitlab_ci,
         :pipeline_editor_path,
         :suggested_ci_templates,
         :full_path,
         :visibility_pipeline_id_type,
-        :show_jenkins_ci_prompt)
+        :show_jenkins_ci_prompt,
+        :pipelines_analytics_path
+      )
     end
   end
 
@@ -120,7 +122,7 @@ RSpec.describe Ci::PipelinesHelper, feature_category: :continuous_integration do
         :project_id,
         :pipelines_path,
         :default_branch,
-        :pipelines_editor_path,
+        :pipeline_editor_path,
         :can_view_pipeline_editor,
         :ref_param,
         :var_param,
@@ -128,8 +130,34 @@ RSpec.describe Ci::PipelinesHelper, feature_category: :continuous_integration do
         :project_path,
         :project_refs_endpoint,
         :settings_link,
-        :max_warnings
+        :max_warnings,
+        :user_role,
+        :can_set_pipeline_variables
       )
+    end
+
+    describe 'user_role' do
+      context 'when there is no current user' do
+        it 'is nil' do
+          expect(helper.new_pipeline_data(project)[:user_role]).to be_nil
+        end
+      end
+
+      context 'when there is a current_user' do
+        let_it_be(:user) { create(:user) }
+
+        before_all do
+          project.add_developer(user)
+        end
+
+        before do
+          sign_in(user)
+        end
+
+        it "returns the human readable access level that the current user has in the pipeline's project" do
+          expect(helper.new_pipeline_data(project)[:user_role]).to eq('Developer')
+        end
+      end
     end
   end
 end

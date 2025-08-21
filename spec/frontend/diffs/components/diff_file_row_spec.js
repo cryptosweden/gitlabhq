@@ -48,6 +48,7 @@ describe('Diff File Row component', () => {
         file: {},
         size: 16,
         showTooltip: true,
+        asButton: false,
       }),
     );
   });
@@ -55,16 +56,16 @@ describe('Diff File Row component', () => {
   it.each`
     fileType  | isViewed | expected
     ${'blob'} | ${false} | ${'gl-font-bold'}
-    ${'blob'} | ${true}  | ${''}
-    ${'tree'} | ${false} | ${''}
-    ${'tree'} | ${true}  | ${''}
+    ${'blob'} | ${true}  | ${'gl-text-subtle'}
+    ${'tree'} | ${false} | ${'gl-text-subtle'}
+    ${'tree'} | ${true}  | ${'gl-text-subtle'}
   `(
     'with (fileType="$fileType", isViewed=$isViewed), sets fileClasses="$expected"',
     ({ fileType, isViewed, expected }) => {
       createComponent({
         file: {
           type: fileType,
-          fileHash: '#123456789',
+          id: '#123456789',
         },
         level: 0,
         hideFileStats: false,
@@ -101,5 +102,16 @@ describe('Diff File Row component', () => {
     });
 
     expect(wrapper.classes('is-active')).toBe(true);
+  });
+
+  it('marks viewed files', () => {
+    createComponent({
+      level: 0,
+      file: { fileHash: '123', type: 'blob' },
+      viewedFiles: { 123: true },
+      hideFileStats: false,
+    });
+
+    expect(wrapper.findComponent(FileRow).props('fileClasses')).toContain('gl-text-subtle');
   });
 });

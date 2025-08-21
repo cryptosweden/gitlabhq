@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Create' do
-    describe 'Branch with unusual name', product_group: :source_code do
+  RSpec.describe 'Create', feature_category: :source_code_management do
+    describe 'Branch with unusual name' do
       let(:branch_name) { 'unUsually/named#br--anch' }
       let(:project) { create(:project, :with_readme, name: 'unusually-named-branch-project') }
 
@@ -11,7 +11,7 @@ module QA
       end
 
       context 'when branch name contains slash, hash, double dash, and capital letter' do
-        it 'renders repository file tree correctly', :blocking, testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347715' do
+        it 'renders repository file tree correctly', testcase: 'https://gitlab.com/gitlab-org/gitlab/-/quality/test_cases/347715' do
           create(:commit,
             project: project,
             branch: branch_name,

@@ -3,6 +3,11 @@
 module Gitlab
   module Database
     module LooseForeignKeys
+      ALLOWED_WORKER_CLASSES = [
+        'LooseForeignKeys::CleanupWorker',
+        'LooseForeignKeys::MergeRequestDiffCommitCleanupWorker'
+      ].freeze
+
       def self.definitions_by_table
         @definitions_by_table ||= definitions.group_by(&:to_table).with_indifferent_access.freeze
       end
@@ -16,13 +21,25 @@ module Gitlab
       def self.build_definition(child_table_name, config)
         parent_table_name = config.fetch('table')
 
+        conditions = config['conditions']&.map { |hash| hash.transform_keys(&:to_sym) }
+
+        worker_class_name = config['worker_class'] || ::LooseForeignKeys::CleanupWorker.to_s
+        unless ALLOWED_WORKER_CLASSES.include?(worker_class_name)
+          raise ArgumentError, "Worker class '#{worker_class_name}' is not in the allowed list"
+        end
+
         ActiveRecord::ConnectionAdapters::ForeignKeyDefinition.new(
           child_table_name,
           parent_table_name,
           {
             column: config.fetch('column'),
             on_delete: config.fetch('on_delete').to_sym,
-            gitlab_schema: GitlabSchema.table_schema!(child_table_name)
+            gitlab_schema: GitlabSchema.table_schema!(child_table_name),
+            target_column: config['target_column'],
+            target_value: config['target_value'],
+            delete_limit: config['delete_limit'],
+            conditions: conditions,
+            worker_class: worker_class_name.constantize
           }
         )
       end

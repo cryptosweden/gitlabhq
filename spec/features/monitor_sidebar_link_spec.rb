@@ -9,8 +9,18 @@ RSpec.describe 'Monitor dropdown sidebar', :js, feature_category: :shared do
   let(:role) { nil }
 
   before do
+    # TODO: When removing the feature flag,
+    # we won't need the tests for the issues listing page, since we'll be using
+    # the work items listing page.
+    stub_feature_flags(work_item_planning_view: false)
+    stub_feature_flags(hide_incident_management_features: false)
+    stub_feature_flags(hide_error_tracking_features: false)
+
     project.add_role(user, role) if role
     sign_in(user)
+
+    project.update!(service_desk_enabled: true)
+    allow(::ServiceDesk).to receive(:supported?).and_return(true)
   end
 
   shared_examples 'shows common Monitor menu item based on the access level' do
@@ -39,6 +49,60 @@ RSpec.describe 'Monitor dropdown sidebar', :js, feature_category: :shared do
             expect(page).not_to have_link('Incidents', visible: :all)
           end
         end
+      end
+    end
+  end
+
+  shared_examples 'monitor sub menu visibility based on feature flag' do
+    context "when hide_incident_management_features feature is enabled" do
+      before do
+        stub_feature_flags(hide_incident_management_features: true)
+        stub_feature_flags(hide_error_tracking_features: true)
+      end
+
+      it 'does not show the incident menu' do
+        visit project_issues_path(project)
+        click_button('Monitor')
+        expect(page).not_to have_link('Incidents', href: project_incidents_path(project))
+      end
+
+      it 'does not show the alert menu' do
+        visit project_issues_path(project)
+        click_button('Monitor')
+        expect(page).not_to have_link('Alerts', href: project_alert_management_index_path(project))
+      end
+
+      it 'does not show the error tracking menu' do
+        visit project_issues_path(project)
+        click_button('Monitor')
+        expect(page).not_to have_link('Error Tracking', href: project_error_tracking_index_path(project))
+      end
+    end
+
+    context "when hide_incident_management_features feature is disabled" do
+      let(:role) { :developer }
+
+      before do
+        stub_feature_flags(hide_incident_management_features: false)
+        stub_feature_flags(hide_error_tracking_features: false)
+      end
+
+      it 'shows the incident menu' do
+        visit project_issues_path(project)
+        click_button('Monitor')
+        expect(page).to have_link('Incidents', href: project_incidents_path(project))
+      end
+
+      it 'shows the alert menu' do
+        visit project_issues_path(project)
+        click_button('Monitor')
+        expect(page).to have_link('Alerts', href: project_alert_management_index_path(project))
+      end
+
+      it 'shows the error tracking menu' do
+        visit project_issues_path(project)
+        click_button('Monitor')
+        expect(page).to have_link('Error Tracking', href: project_error_tracking_index_path(project))
       end
     end
   end
@@ -101,6 +165,7 @@ RSpec.describe 'Monitor dropdown sidebar', :js, feature_category: :shared do
     end
 
     it_behaves_like 'shows common Monitor menu item based on the access level'
+    it_behaves_like 'monitor sub menu visibility based on feature flag'
   end
 
   context 'when user has reporter role' do
@@ -123,6 +188,7 @@ RSpec.describe 'Monitor dropdown sidebar', :js, feature_category: :shared do
     end
 
     it_behaves_like 'shows common Monitor menu item based on the access level'
+    it_behaves_like 'monitor sub menu visibility based on feature flag'
   end
 
   context 'when user has developer role' do
@@ -144,6 +210,7 @@ RSpec.describe 'Monitor dropdown sidebar', :js, feature_category: :shared do
     end
 
     it_behaves_like 'shows common Monitor menu item based on the access level'
+    it_behaves_like 'monitor sub menu visibility based on feature flag'
   end
 
   context 'when user has maintainer role' do
@@ -165,5 +232,6 @@ RSpec.describe 'Monitor dropdown sidebar', :js, feature_category: :shared do
     end
 
     it_behaves_like 'shows common Monitor menu item based on the access level'
+    it_behaves_like 'monitor sub menu visibility based on feature flag'
   end
 end

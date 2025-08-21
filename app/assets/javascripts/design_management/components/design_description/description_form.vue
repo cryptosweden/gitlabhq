@@ -5,7 +5,7 @@ import { s__ } from '~/locale';
 import { helpPagePath } from '~/helpers/help_page_helper';
 import MarkdownEditor from '~/vue_shared/components/markdown/markdown_editor.vue';
 import { renderGFM } from '~/behaviors/markdown/render_gfm';
-import { toggleMarkCheckboxes } from '~/behaviors/markdown/utils';
+import { toggleCheckbox } from '~/behaviors/markdown/utils';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import { trackSavedUsingEditor } from '~/vue_shared/components/markdown/tracking';
 import updateDesignDescriptionMutation from '../../graphql/mutations/update_design_description.mutation.graphql';
@@ -148,7 +148,7 @@ export default {
         if (!sourcepos) return;
 
         // Toggle checkboxes based on user input
-        this.descriptionText = toggleMarkCheckboxes({
+        this.descriptionText = toggleCheckbox({
           rawMarkdown: this.descriptionText,
           checkboxChecked: target.checked,
           sourcepos,
@@ -168,7 +168,7 @@ export default {
       v-if="showEditor"
       class="design-description-form common-note-form"
       :label="$options.i18n.descriptionLabel"
-      label-class="!gl-leading-20 gl-font-lg!"
+      label-class="!gl-leading-20 !gl-text-lg"
     >
       <div v-if="errorMessage" class="gl-pb-3">
         <gl-alert variant="danger" @dismiss="errorMessage = null">
@@ -191,7 +191,7 @@ export default {
         @keydown.ctrl.enter="updateDesignDescription"
         @keydown.exact.esc.stop="closeForm"
       />
-      <div class="gl-display-flex gl-mt-3">
+      <div class="gl-mt-3 gl-flex gl-gap-3">
         <gl-button
           category="primary"
           variant="confirm"
@@ -200,7 +200,7 @@ export default {
           @click="updateDesignDescription"
           >{{ s__('DesignManagement|Save changes') }}
         </gl-button>
-        <gl-button category="tertiary" class="gl-ml-3" data-testid="cancel" @click="closeForm"
+        <gl-button category="tertiary" data-testid="cancel" @click="closeForm"
           >{{ s__('DesignManagement|Cancel') }}
         </gl-button>
       </div>
@@ -208,7 +208,7 @@ export default {
     <div v-else class="design-description-view">
       <gl-button
         v-if="showAddDescriptionButton"
-        class="gl-ml-auto gl-mb-5"
+        class="gl-mb-5 gl-ml-auto"
         size="small"
         data-testid="add-design-description"
         :aria-label="$options.i18n.addDescriptionLabel"
@@ -217,10 +217,8 @@ export default {
         {{ $options.i18n.addDescriptionLabel }}
       </gl-button>
       <template v-else>
-        <div
-          class="design-description-header gl-display-flex gl-justify-content-space-between gl-mb-2"
-        >
-          <h3 class="!gl-leading-20 gl-font-lg gl-m-0">
+        <div class="design-description-header gl-mb-2 gl-flex gl-justify-between">
+          <h3 class="gl-m-0 gl-text-lg !gl-leading-20">
             {{ $options.i18n.descriptionLabel }}
           </h3>
           <gl-button

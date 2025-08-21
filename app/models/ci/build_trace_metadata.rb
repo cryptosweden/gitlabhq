@@ -5,29 +5,33 @@ module Ci
     include Ci::Partitionable
 
     MAX_ATTEMPTS = 5
-    self.table_name = 'ci_build_trace_metadata'
+    self.table_name = :p_ci_build_trace_metadata
     self.primary_key = :build_id
+
+    before_validation :set_project_id
 
     belongs_to :build,
       ->(trace_metadata) { in_partition(trace_metadata) },
       class_name: 'Ci::Build',
       partition_foreign_key: :partition_id,
       inverse_of: :trace_metadata
+
     belongs_to :trace_artifact, # rubocop:disable Rails/InverseOf -- No clear relation to be used
       ->(metadata) { in_partition(metadata) },
       class_name: 'Ci::JobArtifact',
       partition_foreign_key: :partition_id
 
-    partitionable scope: :build
+    partitionable scope: :build, partitioned: true
 
     validates :build, presence: true
     validates :archival_attempts, presence: true
 
-    def self.find_or_upsert_for!(build_id, partition_id)
+    def self.find_or_upsert_for!(build_id, partition_id, project_id)
       record = find_by(build_id: build_id, partition_id: partition_id)
       return record if record
 
-      upsert({ build_id: build_id, partition_id: partition_id }, unique_by: :build_id)
+      upsert({ build_id: build_id, partition_id: partition_id, project_id: project_id },
+        unique_by: %w[build_id partition_id])
       find_by!(build_id: build_id, partition_id: partition_id)
     end
 
@@ -65,10 +69,20 @@ module Ci
         checksum == remote_checksum
     end
 
+    def successfully_archived?
+      return false unless archived_at
+
+      remote_checksum.nil? || remote_checksum_valid?
+    end
+
     private
 
     def backoff
       ::Gitlab::Ci::Trace::Backoff.new(archival_attempts).value_with_jitter
+    end
+
+    def set_project_id
+      self.project_id ||= build&.project_id
     end
   end
 end

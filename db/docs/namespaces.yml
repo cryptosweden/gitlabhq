@@ -1,8 +1,8 @@
 ---
 table_name: namespaces
 classes:
-- Group
 - Namespace
+- Group
 - Namespaces::ProjectNamespace
 - Namespaces::UserNamespace
 feature_categories:
@@ -10,7 +10,7 @@ feature_categories:
 description: Storing namespaces records for groups, users and projects
 introduced_by_url: https://github.com/gitlabhq/gitlabhq/pull/2051
 milestone: "<6.0"
-gitlab_schema: gitlab_main_cell
+gitlab_schema: gitlab_main_org
 schema_inconsistencies:
 - type: missing_indexes
   object_name: index_namespaces_on_created_at
@@ -18,4 +18,6 @@ schema_inconsistencies:
 - type: missing_indexes
   object_name: index_namespaces_on_ldap_sync_last_successful_update_at
   introduced_by_url: https://gitlab.com/gitlab-org/gitlab/-/merge_requests/135040
-sharding_key_issue_url: https://gitlab.com/gitlab-org/gitlab/-/issues/461310
+sharding_key:
+  organization_id: organizations
+table_size: large

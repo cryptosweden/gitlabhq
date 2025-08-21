@@ -56,6 +56,8 @@ module DiffViewer
 
     def collapsed?
       return @collapsed if defined?(@collapsed)
+      # diff_file.collapsed? returns false when the diff is part of a collection with only one diff
+      # and it was auto-expanded by Gitlab::Git::DiffCollection's expand_diff? check
       return @collapsed = true if diff_file.collapsed?
 
       @collapsed = !diff_file.expanded? && collapse_limit && diff_file.raw_size > collapse_limit
@@ -69,11 +71,7 @@ module DiffViewer
     end
 
     def expandable?
-      if Feature.enabled?(:increase_diff_file_performance, diff_file.repository.project)
-        !too_large? && text?
-      else
-        diff_file&.blob&.readable_text?
-      end
+      !too_large? && text?
     end
 
     def binary_detected_after_load?

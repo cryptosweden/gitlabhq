@@ -91,9 +91,9 @@ RSpec.describe Projects::BoardsController do
 
     def list_boards
       get :index, params: {
-                    namespace_id: project.namespace,
-                    project_id: project
-                  }
+        namespace_id: project.namespace,
+        project_id: project
+      }
     end
   end
 
@@ -129,7 +129,7 @@ RSpec.describe Projects::BoardsController do
         it 'does not save visit' do
           sign_out(user)
 
-          expect { read_board board: public_board }.to change(BoardProjectRecentVisit, :count).by(0)
+          expect { read_board board: public_board }.to not_change(BoardProjectRecentVisit, :count)
 
           expect(response).to render_template :show
           expect(response.media_type).to eq 'text/html'

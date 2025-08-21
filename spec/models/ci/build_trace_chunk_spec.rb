@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Ci::BuildTraceChunk, :clean_gitlab_redis_shared_state, :clean_gitlab_redis_trace_chunks do
+RSpec.describe Ci::BuildTraceChunk, :clean_gitlab_redis_shared_state, :clean_gitlab_redis_trace_chunks, feature_category: :pipeline_execution do
   include ExclusiveLeaseHelpers
 
   let_it_be(:build) { create(:ci_build, :running) }
@@ -16,7 +16,7 @@ RSpec.describe Ci::BuildTraceChunk, :clean_gitlab_redis_shared_state, :clean_git
   end
 
   before do
-    stub_feature_flags(ci_enable_live_trace: true)
+    stub_application_setting(ci_job_live_trace_enabled: true)
     stub_artifacts_object_storage
   end
 
@@ -142,17 +142,28 @@ RSpec.describe Ci::BuildTraceChunk, :clean_gitlab_redis_shared_state, :clean_git
       it { is_expected.to eq('Sample data in database') }
     end
 
-    context 'when data_store is fog' do
+    context 'when data_store is fog', :request_store do
       let(:data_store) { :fog }
+      let(:sample_data) { +'Sample data in fog' }
 
       before do
-        build_trace_chunk.send(:unsafe_set_data!, +'Sample data in fog')
+        build_trace_chunk.send(:unsafe_set_data!, sample_data)
       end
 
-      it { is_expected.to eq('Sample data in fog') }
+      it { is_expected.to eq(sample_data) }
 
       it 'returns a new Fog store' do
         expect(described_class.get_store_class(data_store)).to be_a(Ci::BuildTraceChunks::Fog)
+      end
+
+      it 'only initializes Fog::Storage once' do
+        RequestStore.clear!
+
+        expect(Fog::Storage).to receive(:new).and_call_original
+
+        2.times do
+          expect(build_trace_chunk.reload.build.trace_chunks.first.data).to eq(sample_data)
+        end
       end
     end
   end
@@ -771,6 +782,136 @@ RSpec.describe Ci::BuildTraceChunk, :clean_gitlab_redis_shared_state, :clean_git
         end
       end
     end
+
+    context 'with self_heal_build_trace_chunk_flushing feature flag' do
+      where(:data_store, :redis_class) do
+        [
+          [:redis, Ci::BuildTraceChunks::Redis],
+          [:redis_trace_chunks, Ci::BuildTraceChunks::RedisTraceChunks]
+        ]
+      end
+
+      with_them do
+        let(:data) { 'a' * described_class::CHUNK_SIZE }
+
+        before do
+          build_trace_chunk.send(:unsafe_set_data!, data)
+        end
+
+        context 'when feature flag is enabled' do
+          before do
+            stub_feature_flags(self_heal_build_trace_chunk_flushing: true)
+          end
+
+          context 'when save operation succeeds' do
+            before do
+              allow(build_trace_chunk).to receive_messages(changed?: true, save!: true)
+            end
+
+            it 'deletes old data from redis store' do
+              expect(redis_class.new.data(build_trace_chunk)).to eq(data)
+
+              subject
+
+              expect(redis_class.new.data(build_trace_chunk)).to be_nil
+            end
+          end
+
+          context 'when save operation fails' do
+            before do
+              allow(build_trace_chunk).to receive_messages(changed?: true, save!: false)
+            end
+
+            it 'preserves old data to allow self-healing' do
+              expect(redis_class.new.data(build_trace_chunk)).to eq(data)
+
+              expect { subject }.to raise_error(described_class::FailedToPersistDataError)
+
+              expect(redis_class.new.data(build_trace_chunk)).to eq(data)
+            end
+          end
+
+          context 'when save operation returns nil' do
+            before do
+              allow(build_trace_chunk).to receive_messages(changed?: true, save!: nil)
+            end
+
+            it 'preserves old data to allow self-healing' do
+              expect(redis_class.new.data(build_trace_chunk)).to eq(data)
+
+              expect { subject }.to raise_error(described_class::FailedToPersistDataError)
+
+              expect(redis_class.new.data(build_trace_chunk)).to eq(data)
+            end
+          end
+
+          context 'when save is not called due to no changes' do
+            before do
+              allow(build_trace_chunk).to receive(:changed?).and_return(false)
+            end
+
+            it 'preserves old data since save was not attempted' do
+              allow(build_trace_chunk).to receive(:changed?).and_return(false)
+
+              expect(redis_class.new.data(build_trace_chunk)).to eq(data)
+
+              expect { subject }.to raise_error(described_class::FailedToPersistDataError)
+
+              expect(redis_class.new.data(build_trace_chunk)).to eq(data)
+            end
+          end
+
+          context 'when save raises an exception' do
+            before do
+              allow(build_trace_chunk).to receive(:changed?).and_return(true)
+              allow(build_trace_chunk).to receive(:save!).and_raise(ActiveRecord::RecordInvalid)
+            end
+
+            it 'preserves old data and re-raises exception' do
+              expect(redis_class.new.data(build_trace_chunk)).to eq(data)
+
+              expect { subject }.to raise_error(ActiveRecord::RecordInvalid)
+
+              expect(redis_class.new.data(build_trace_chunk)).to eq(data)
+            end
+          end
+        end
+
+        context 'when feature flag is disabled' do
+          before do
+            stub_feature_flags(self_heal_build_trace_chunk_flushing: false)
+          end
+
+          context 'when data is not saved' do
+            before do
+              allow(build_trace_chunk).to receive(:unsafe_set_data!).and_return(nil)
+            end
+
+            it 'deletes old data' do
+              expect(redis_class.new.data(build_trace_chunk)).to eq(data)
+
+              subject
+
+              expect(redis_class.new.data(build_trace_chunk)).to be_nil
+            end
+          end
+
+          context 'when data is saved' do
+            before do
+              allow(build_trace_chunk).to receive(:unsafe_set_data!).and_return(true)
+            end
+
+            it 'deletes old data' do
+              expect(redis_class.new.data(build_trace_chunk)).to eq(data)
+
+              subject
+
+              expect(redis_class.new.data(build_trace_chunk)).to be_nil
+            end
+          end
+        end
+      end
+    end
   end
 
   describe 'final?' do
@@ -892,7 +1033,7 @@ RSpec.describe Ci::BuildTraceChunk, :clean_gitlab_redis_shared_state, :clean_git
         let(:chunk) { create(:ci_build_trace_chunk) }
 
         it 'indicates the these are equal' do
-          expect(chunk <=> chunk).to be_zero # rubocop:disable Lint/UselessComparison
+          expect(chunk <=> chunk).to be_zero
         end
       end
     end
@@ -986,6 +1127,21 @@ RSpec.describe Ci::BuildTraceChunk, :clean_gitlab_redis_shared_state, :clean_git
       it 'does not change the partition_id value' do
         expect { build_trace_chunk.valid? }.not_to change { build_trace_chunk.partition_id }
       end
+    end
+  end
+
+  describe '#set_project_id' do
+    it 'sets the project_id before validation' do
+      build_trace_chunk = create(:ci_build_trace_chunk)
+
+      expect(build_trace_chunk.project_id).to eq(build_trace_chunk.build.project_id)
+    end
+
+    it 'does not override the project_id if set' do
+      existing_project = create(:project)
+      build_trace_chunk = create(:ci_build_trace_chunk, project_id: existing_project.id)
+
+      expect(build_trace_chunk.project_id).to eq(existing_project.id)
     end
   end
 end

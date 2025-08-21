@@ -1,7 +1,7 @@
 ---
 key_path: counts.slack_app_installations
 description: Count of Slack app installations
-product_group: import_and_integrate
+product_group: import
 value_type: number
 status: active
 milestone: "15.1"
@@ -10,10 +10,7 @@ time_frame: all
 data_source: database
 data_category: optional
 instrumentation_class: CountSlackAppInstallationsMetric
-distribution:
-- ce
-- ee
-tier:
+tiers:
 - free
 - premium
 - ultimate

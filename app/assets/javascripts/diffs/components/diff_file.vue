@@ -1,8 +1,7 @@
 <script>
 import { GlButton, GlLoadingIcon, GlSprintf, GlAlert, GlLink } from '@gitlab/ui';
 import { escape } from 'lodash';
-// eslint-disable-next-line no-restricted-imports
-import { mapActions, mapGetters, mapState } from 'vuex';
+import { mapActions, mapState } from 'pinia';
 import SafeHtml from '~/vue_shared/directives/safe_html';
 import { IdState } from 'vendor/vue-virtual-scroller';
 import DiffContent from 'jh_else_ce/diffs/components/diff_content.vue';
@@ -10,15 +9,19 @@ import { createAlert } from '~/alert';
 import { hasDiff } from '~/helpers/diffs_helper';
 import { helpPagePath } from '~/helpers/help_page_helper';
 import { diffViewerErrors } from '~/ide/constants';
+import { clearDraft } from '~/lib/utils/autosave';
 import { scrollToElement, isElementStuck } from '~/lib/utils/common_utils';
+import { capitalizeFirstCharacter } from '~/lib/utils/text_utility';
 import { sprintf } from '~/locale';
 import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import notesEventHub from '~/notes/event_hub';
 import DiffFileDrafts from '~/batch_comments/components/diff_file_drafts.vue';
 import NoteForm from '~/notes/components/note_form.vue';
 import diffLineNoteFormMixin from '~/notes/mixins/diff_line_note_form';
-
 import { fileContentsId } from '~/diffs/components/diff_row_utils';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useMrNotes } from '~/mr_notes/store/legacy_mr_notes';
+import { useNotes } from '~/notes/store/legacy_notes';
 import {
   DIFF_FILE_AUTOMATIC_COLLAPSE,
   DIFF_FILE_MANUAL_COLLAPSE,
@@ -32,6 +35,7 @@ import { DIFF_FILE, SOMETHING_WENT_WRONG, SAVING_THE_COMMENT_FAILED, CONFLICT_TE
 import { collapsedType, getShortShaFromFile } from '../utils/diff_file';
 import DiffDiscussions from './diff_discussions.vue';
 import DiffFileHeader from './diff_file_header.vue';
+import DiffFileDiscussionExpansion from './diff_file_discussion_expansion.vue';
 
 export default {
   components: {
@@ -45,6 +49,7 @@ export default {
     DiffFileDrafts,
     NoteForm,
     DiffDiscussions,
+    DiffFileDiscussionExpansion,
   },
   directives: {
     SafeHtml,
@@ -102,6 +107,11 @@ export default {
       required: false,
       default: null,
     },
+    isDiffViewActive: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
   },
   idState() {
     return {
@@ -116,11 +126,37 @@ export default {
     genericError: SOMETHING_WENT_WRONG,
   },
   computed: {
-    ...mapState('diffs', ['currentDiffFileId', 'conflictResolutionPath', 'canMerge']),
-    ...mapGetters(['isNotesFetched', 'getNoteableData', 'noteableType']),
-    ...mapGetters('diffs', ['getDiffFileDiscussions', 'isVirtualScrollingEnabled', 'pinnedFile']),
-    isPinnedFile() {
-      return this.file === this.pinnedFile;
+    ...mapState(useLegacyDiffs, [
+      'currentDiffFileId',
+      'conflictResolutionPath',
+      'canMerge',
+      'getDiffFileDiscussions',
+      'isVirtualScrollingEnabled',
+      'linkedFile',
+    ]),
+    ...mapState(useMrNotes, ['isLoggedIn']),
+    ...mapState(useNotes, ['isNotesFetched', 'getNoteableData', 'noteableType']),
+    autosaveKey() {
+      if (!this.isLoggedIn) return '';
+
+      const {
+        id,
+        noteable_type: noteableTypeUnderscored,
+        noteableType,
+        diff_head_sha: diffHeadSha,
+      } = this.noteableData;
+
+      return [
+        'Autosave|Note', // eslint-disable-line @gitlab/require-i18n-strings
+        capitalizeFirstCharacter(noteableTypeUnderscored || noteableType),
+        id,
+        diffHeadSha,
+        FILE_DIFF_POSITION_TYPE,
+        this.file.id,
+      ].join('/');
+    },
+    isLinkedFile() {
+      return this.file === this.linkedFile;
     },
     viewBlobHref() {
       return escape(this.file.view_path);
@@ -152,16 +188,16 @@ export default {
     },
     hasBodyClasses() {
       const domParts = {
-        header: 'gl-rounded-base!',
+        header: '!gl-rounded-base',
         contentByHash: '',
         content: '',
       };
 
       if (this.showBody) {
-        domParts.header = 'gl-rounded-bottom-left-none gl-rounded-bottom-right-none';
+        domParts.header = 'gl-rounded-bl-none gl-rounded-br-none';
         domParts.contentByHash =
-          'gl-rounded-none gl-rounded-bottom-left-base gl-rounded-bottom-right-base gl-border-1 gl-border-t-0! gl-border-solid gl-border-gray-100';
-        domParts.content = 'gl-rounded-bottom-left-base gl-rounded-bottom-right-base';
+          'gl-rounded-none gl-rounded-bl-base gl-rounded-br-base gl-border-0';
+        domParts.content = 'gl-rounded-bl-base gl-rounded-br-base';
       }
 
       return domParts;
@@ -179,7 +215,12 @@ export default {
       return !this.isCollapsed || this.automaticallyCollapsed;
     },
     showWarning() {
-      return this.isCollapsed && this.automaticallyCollapsed && !this.viewDiffsFileByFile;
+      return (
+        !this.reviewed &&
+        this.isCollapsed &&
+        this.automaticallyCollapsed &&
+        !this.viewDiffsFileByFile
+      );
     },
     expandableWarning() {
       return this.file.viewer?.generated
@@ -207,6 +248,12 @@ export default {
       return this.file.discussions.filter(
         (f) => f.position?.position_type === FILE_DIFF_POSITION_TYPE,
       );
+    },
+    expandedFileDiscussions() {
+      return this.fileDiscussions.filter((d) => d.expandedOnDiff);
+    },
+    collapsedFileDiscussions() {
+      return this.fileDiscussions.filter((d) => !d.expandedOnDiff);
     },
     showFileDiscussions() {
       return (
@@ -242,9 +289,15 @@ export default {
         }
       },
     },
+    diffFileHash: {
+      handler(newHash, oldHash) {
+        if (oldHash) notesEventHub.$off(`loadCollapsedDiff/${oldHash}`, this.requestDiff);
+        notesEventHub.$on(`loadCollapsedDiff/${newHash}`, this.requestDiff);
+      },
+      immediate: true,
+    },
   },
   created() {
-    notesEventHub.$on(`loadCollapsedDiff/${this.file.file_hash}`, this.requestDiff);
     eventHub.$on(EVT_EXPAND_ALL_FILES, this.expandAllListener);
   },
   mounted() {
@@ -261,17 +314,24 @@ export default {
     }
   },
   beforeDestroy() {
+    notesEventHub.$off(`loadCollapsedDiff/${this.diffFileHash}`, this.requestDiff);
     eventHub.$off(EVT_EXPAND_ALL_FILES, this.expandAllListener);
   },
   methods: {
-    ...mapActions('diffs', [
+    ...mapActions(useLegacyDiffs, [
       'loadCollapsedDiff',
       'assignDiscussionsToDiff',
       'prefetchFileNeighbors',
       'setFileCollapsedByUser',
       'saveDiffDiscussion',
       'toggleFileCommentForm',
+      'toggleFileDiscussion',
     ]),
+    handleFileCommentCancel() {
+      this.toggleFileCommentForm(this.file.file_path);
+
+      clearDraft(this.autosaveKey);
+    },
     manageViewedEffects() {
       if (
         !this.idState.hasToggled &&
@@ -384,10 +444,24 @@ export default {
         errorCallback();
       });
     },
+    // eslint-disable-next-line max-params
     handleSaveDraftNote(note, _, parentElement, errorCallback) {
       this.addToReview(note, this.$options.FILE_DIFF_POSITION_TYPE, parentElement, errorCallback);
     },
+    toggleFileDiscussionVisibility() {
+      this.collapsedFileDiscussions.forEach((d) => this.toggleFileDiscussion(d));
+    },
   },
+  warningClasses: [
+    'collapsed-file-warning',
+    'gl-rounded-b-base',
+    'gl-px-5',
+    'gl-py-4',
+    'gl-flex',
+    'gl-flex-col',
+    'sm:gl-items-start',
+    'gl-gap-3',
+  ],
   CONFLICT_TEXT,
   FILE_DIFF_POSITION_TYPE,
   generatedDiffFileDocsPath: helpPagePath('user/project/merge_requests/changes.html', {
@@ -400,14 +474,57 @@ export default {
   <div
     :id="file.file_hash"
     :class="{
+      'gl-border-red-500': file.conflict_type,
       'comments-disabled': Boolean(file.brokenSymlink),
       'has-body': showBody,
       'is-virtual-scrolling': isVirtualScrollingEnabled,
-      'pinned-file': isPinnedFile,
+      'linked-file': isLinkedFile,
+      'diff-file-is-active': isDiffViewActive,
     }"
     :data-path="file.new_path"
-    class="diff-file file-holder gl-border-none gl-mb-0! gl-pb-5"
+    class="diff-file file-holder"
   >
+    <gl-alert
+      v-if="!showLoadingIcon && file.conflict_type"
+      variant="danger"
+      :dismissible="false"
+      data-testid="conflictsAlert"
+      class="gl-rounded-t-base"
+    >
+      {{ $options.CONFLICT_TEXT[file.conflict_type] }}
+      <template v-if="!canMerge">
+        {{ __('Ask someone with write access to resolve it.') }}
+      </template>
+      <gl-sprintf
+        v-else-if="conflictResolutionPath"
+        :message="
+          __(
+            'You can %{gitlabLinkStart}resolve conflicts on GitLab%{gitlabLinkEnd} or %{resolveLocallyStart}resolve them locally%{resolveLocallyEnd}.',
+          )
+        "
+      >
+        <template #gitlabLink="{ content }">
+          <gl-button :href="conflictResolutionPath" variant="link" class="gl-align-text-bottom">{{
+            content
+          }}</gl-button>
+        </template>
+        <template #resolveLocally="{ content }">
+          <gl-button variant="link" class="js-check-out-modal-trigger gl-align-text-bottom">{{
+            content
+          }}</gl-button>
+        </template>
+      </gl-sprintf>
+      <gl-sprintf
+        v-else
+        :message="__('You can %{resolveLocallyStart}resolve them locally%{resolveLocallyEnd}.')"
+      >
+        <template #resolveLocally="{ content }">
+          <gl-button variant="link" class="js-check-out-modal-trigger gl-align-text-bottom">{{
+            content
+          }}</gl-button>
+        </template>
+      </gl-sprintf>
+    </gl-alert>
     <diff-file-header
       ref="header"
       :can-current-user-fork="canCurrentUserFork"
@@ -418,14 +535,13 @@ export default {
       :add-merge-request-buttons="true"
       :view-diffs-file-by-file="viewDiffsFileByFile"
       :show-local-file-reviews="showLocalFileReviews"
-      :pinned="isPinnedFile"
-      class="js-file-title file-title gl-border-1 gl-border-solid gl-border-gray-100"
+      class="js-file-title file-title"
       :class="[
         hasBodyClasses.header,
         {
-          'gl-border-red-500! gl-bg-red-200!': file.conflict_type,
-          'gl-rounded-bottom-left-none! gl-rounded-bottom-right-none!':
-            file.conflict_type && isCollapsed,
+          '!gl-rounded-none !gl-bg-red-200': file.conflict_type,
+          '!gl-rounded-tl-none !gl-rounded-tr-none': file.conflict_type && isCollapsed,
+          '!gl-border-0': file.conflict_type || isCollapsed,
         },
       ]"
       @toggleFile="handleToggle({ viaUserInteraction: true })"
@@ -434,7 +550,7 @@ export default {
 
     <div
       v-if="idState.forkMessageVisible"
-      class="js-file-fork-suggestion-section file-fork-suggestion gl-border-1 gl-border-solid gl-border-gray-100 gl-border-top-0"
+      class="js-file-fork-suggestion-section file-fork-suggestion gl-border-1 gl-border-t-0 gl-border-solid gl-border-default"
     >
       <span v-safe-html="forkMessage" class="file-fork-suggestion-note"></span>
       <gl-button
@@ -455,81 +571,46 @@ export default {
     <template v-else>
       <div
         :id="fileId"
-        :class="[hasBodyClasses.contentByHash, { 'gl-border-red-500': file.conflict_type }]"
         class="diff-content"
         data-testid="content-area"
+        :class="[
+          hasBodyClasses.contentByHash,
+          {
+            '!gl-border-0': file.conflict_type,
+          },
+        ]"
       >
-        <gl-alert
-          v-if="!showLoadingIcon && file.conflict_type"
-          variant="danger"
-          :dismissible="false"
-          data-testid="conflictsAlert"
-        >
-          {{ $options.CONFLICT_TEXT[file.conflict_type] }}
-          <template v-if="!canMerge">
-            {{ __('Ask someone with write access to resolve it.') }}
-          </template>
-          <gl-sprintf
-            v-else-if="conflictResolutionPath"
-            :message="
-              __(
-                'You can %{gitlabLinkStart}resolve conflicts on GitLab%{gitlabLinkEnd} or %{resolveLocallyStart}resolve them locally%{resolveLocallyEnd}.',
-              )
-            "
-          >
-            <template #gitlabLink="{ content }">
-              <gl-button
-                :href="conflictResolutionPath"
-                variant="link"
-                class="gl-vertical-align-text-bottom"
-                >{{ content }}</gl-button
-              >
-            </template>
-            <template #resolveLocally="{ content }">
-              <gl-button
-                variant="link"
-                class="gl-vertical-align-text-bottom js-check-out-modal-trigger"
-                >{{ content }}</gl-button
-              >
-            </template>
-          </gl-sprintf>
-          <gl-sprintf
-            v-else
-            :message="__('You can %{resolveLocallyStart}resolve them locally%{resolveLocallyEnd}.')"
-          >
-            <template #resolveLocally="{ content }">
-              <gl-button
-                variant="link"
-                class="gl-vertical-align-text-bottom js-check-out-modal-trigger"
-                >{{ content }}</gl-button
-              >
-            </template>
-          </gl-sprintf>
-        </gl-alert>
         <div v-if="showFileDiscussions" data-testid="file-discussions">
           <div class="diff-file-discussions-wrapper">
+            <diff-file-discussion-expansion
+              v-if="collapsedFileDiscussions.length"
+              :discussions="collapsedFileDiscussions"
+              @toggle="toggleFileDiscussionVisibility"
+            />
             <diff-discussions
-              v-if="fileDiscussions.length"
+              v-if="expandedFileDiscussions.length"
               class="diff-file-discussions"
               data-testid="diff-file-discussions"
-              :discussions="fileDiscussions"
+              :discussions="expandedFileDiscussions"
             />
             <diff-file-drafts
               :file-hash="file.file_hash"
               :show-pin="false"
               :position-type="$options.FILE_DIFF_POSITION_TYPE"
+              :autosave-key="autosaveKey"
               class="diff-file-discussions"
             />
             <note-form
               v-if="file.hasCommentForm"
               :save-button-title="__('Comment')"
               :diff-file="file"
+              :autosave-key="autosaveKey"
               autofocus
-              class="gl-py-3 gl-px-5"
+              class="gl-px-5 gl-py-3"
               data-testid="file-note-form"
               @handleFormUpdate="handleSaveNote"
               @handleFormUpdateAddToReview="handleSaveDraftNote"
-              @cancelForm="toggleFileCommentForm(file.file_path)"
+              @cancelForm="handleFileCommentCancel"
             />
           </div>
         </div>
@@ -540,11 +621,8 @@ export default {
           data-testid="loader-icon"
         />
         <div v-else-if="errorMessage" class="diff-viewer">
-          <div
-            v-if="isFileTooLarge"
-            class="collapsed-file-warning gl-p-7 gl-bg-orange-50 gl-text-center gl-rounded-bottom-left-base gl-rounded-bottom-right-base"
-          >
-            <p class="gl-mb-5">
+          <div v-if="isFileTooLarge" :class="$options.warningClasses">
+            <p class="!gl-mb-0">
               {{ $options.i18n.tooLarge }}
             </p>
             <gl-button data-testid="blob-button" category="secondary" :href="viewBlobHref">
@@ -556,11 +634,8 @@ export default {
           <div v-else v-safe-html="errorMessage" class="nothing-here-block"></div>
         </div>
         <template v-else>
-          <div
-            v-if="showWarning"
-            class="collapsed-file-warning gl-p-7 gl-bg-orange-50 gl-text-center gl-rounded-bottom-left-base gl-rounded-bottom-right-base"
-          >
-            <p class="gl-mb-5">
+          <div v-if="showWarning" :class="$options.warningClasses" data-testid="diff-file-warning">
+            <p class="!gl-mb-0">
               <gl-sprintf :message="expandableWarning">
                 <template #tag="{ content }">
                   <code>{{ content }}</code>
@@ -583,6 +658,7 @@ export default {
             :sast-data="sastData"
             :diff-file="file"
             :help-page-path="helpPagePath"
+            :autosave-key="autosaveKey"
             @load-file="requestDiff"
           />
         </template>

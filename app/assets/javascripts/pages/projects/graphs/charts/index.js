@@ -1,4 +1,4 @@
-import { GlColumnChart } from '@gitlab/ui/dist/charts';
+import { GlColumnChart } from '@gitlab/ui/src/charts';
 import Vue from 'vue';
 import { __ } from '~/locale';
 import { visitUrl } from '~/lib/utils/url_utility';
@@ -21,6 +21,7 @@ const reorderWeekDays = (weekDays, firstDayOfWeek = 0) => {
     return weekDays;
   }
 
+  // eslint-disable-next-line max-params
   return Object.keys(weekDays).reduce((acc, dayName, idx, arr) => {
     const reorderedDayName = arr[(idx + firstDayOfWeek) % arr.length];
 

@@ -1,14 +1,17 @@
 ---
-stage: Monitor
-group: Respond
+stage: Analytics
+group: Platform Insights
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+description: Static status page websites for communicating incident information to users.
+title: Status Page
 ---
 
-# Status Page
+{{< details >}}
 
-DETAILS:
-**Tier:** Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 With a GitLab Status Page, you can create and deploy a static website to communicate
 efficiently to users during an incident. The Status Page landing page displays an
@@ -87,16 +90,19 @@ the necessary CI/CD variables to deploy the Status Page to AWS S3:
    - `AWS_ACCESS_KEY_ID` - The AWS access key ID.
    - `AWS_SECRET_ACCESS_KEY` - The AWS secret.
 1. On the left sidebar, select **Build > Pipelines**.
-1. To deploy the Status Page to S3, select **Run pipeline**.
+1. To deploy the Status Page to S3, select **New pipeline**.
 
-WARNING:
+{{< alert type="warning" >}}
+
 Consider limiting who can access issues in this project, as any user who can view
-the issue can potentially [publish comments to your GitLab Status Page](#publish-comments-on-incidents).
+the incident can potentially [publish comments to your GitLab Status Page](#publish-comments-on-incidents).
+
+{{< /alert >}}
 
 ### Sync incidents to the Status Page
 
 After creating the CI/CD variables, configure the Project you want to use for
-Incident issues:
+Incidents:
 
 1. On the left sidebar, select **Search or go to** and find your project.
 1. Select **Settings > Monitor**.
@@ -133,17 +139,17 @@ graph TB
 
 To publish an incident:
 
-1. Create an issue in the project you enabled the GitLab Status Page settings in.
+1. Create an incident in the project you enabled the GitLab Status Page settings in.
 1. A [project or group owner](../../user/permissions.md) must use the
    `/publish` [quick action](../../user/project/quick_actions.md) to publish the
-   issue to the GitLab Status Page. [Confidential issues](../../user/project/issues/confidential_issues.md) can't be published.
+   incident to the GitLab Status Page. [Confidential incidents](../../user/project/issues/confidential_issues.md) can't be published.
 
-A background worker publishes the issue onto the Status Page using the credentials
+A background worker publishes the incident onto the Status Page using the credentials
 you provided during setup. As part of publication, GitLab:
 
 - Anonymizes user and group mentions with `Incident Responder`.
 - Removes titles of non-public [GitLab references](../../user/markdown.md#gitlab-specific-references).
-- Publishes any files attached to incident issue descriptions, up to 5000 per issue.
+- Publishes any files attached to incident descriptions, up to 5000 per incident.
 
 After publication, you can access the incident's details page by selecting the
 **Published on status page** button displayed under the Incident's title.
@@ -152,32 +158,38 @@ After publication, you can access the incident's details page by selecting the
 
 ### Update an incident
 
-To publish an update to the Incident, update the incident issue's description.
+To publish an update to the Incident, update the incident's description.
 
-WARNING:
-When referenced issues are changed (such as title or confidentiality) the incident
+{{< alert type="warning" >}}
+
+When referenced incidents are changed (such as title or confidentiality) the incident
 they were referenced in is not updated.
+
+{{< /alert >}}
 
 ### Publish comments on incidents
 
 To publish comments to the Status Page Incident:
 
-- Create a comment on the incident issue.
+- Create a comment on the incident.
 - When you're ready to publish the comment, mark the comment for publication by
   adding a microphone [emoji reaction](../../user/emoji_reactions.md)
   reaction (`:microphone:` 🎤) to the comment.
-- Any files attached to the comment (up to 5000 per issue) are also published.
+- Any files attached to the comment (up to 5000 per incident) are also published.
 
-WARNING:
-Anyone with access to view the Issue can add an emoji reaction to a comment, so
+{{< alert type="warning" >}}
+
+Anyone with access to view the incident can add an emoji reaction to a comment, so
 consider limiting access to issues to team members only.
+
+{{< /alert >}}
 
 ### Update the incident status
 
-To change the incident status from `open` to `closed`, close the incident issue
-within GitLab. Closing the issue triggers a background worker to update the
+To change the incident status from `open` to `closed`, close the incident
+within GitLab. Closing the incident triggers a background worker to update the
 GitLab Status Page website.
 
 If you
-[make a published issue confidential](../../user/project/issues/confidential_issues.md#make-an-issue-confidential),
+[make a published incident confidential](../../user/project/issues/confidential_issues.md#make-an-issue-confidential),
 GitLab unpublishes it from your GitLab Status Page website.

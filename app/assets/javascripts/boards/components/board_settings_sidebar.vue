@@ -11,7 +11,7 @@ import {
 import { isScopedLabel } from '~/lib/utils/common_utils';
 import { __, s__ } from '~/locale';
 import Tracking from '~/tracking';
-import glFeatureFlagMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
+import glLicensedFeaturesMixin from '~/vue_shared/mixins/gl_licensed_feature_mixin';
 import { setError } from '../graphql/cache_updates';
 
 export default {
@@ -35,15 +35,11 @@ export default {
   directives: {
     GlModal: GlModalDirective,
   },
-  mixins: [glFeatureFlagMixin(), Tracking.mixin()],
+  mixins: [glLicensedFeaturesMixin(), Tracking.mixin()],
   inject: ['boardType', 'canAdminList', 'issuableType', 'scopedLabelsAvailable', 'isIssueBoard'],
   inheritAttrs: false,
   props: {
     listId: {
-      type: String,
-      required: true,
-    },
-    boardId: {
       type: String,
       required: true,
     },
@@ -65,7 +61,7 @@ export default {
   modalId: 'board-settings-sidebar-modal',
   computed: {
     isWipLimitsOn() {
-      return this.glFeatures.wipLimits && this.isIssueBoard;
+      return this.glLicensedFeatures.wipLimits && this.isIssueBoard;
     },
     activeListId() {
       return this.listId;
@@ -141,7 +137,7 @@ export default {
       @close="unsetActiveListId"
     >
       <template #title>
-        <h2 class="gl-my-0 gl-font-size-h2 gl-leading-24">
+        <h2 class="gl-my-0 gl-text-size-h2 gl-leading-24">
           {{ $options.listSettingsText }}
         </h2>
       </template>
@@ -174,6 +170,8 @@ export default {
         <board-settings-sidebar-wip-limit
           v-if="isWipLimitsOn"
           :max-issue-count="activeList.maxIssueCount"
+          :max-issue-weight="activeList.maxIssueWeight"
+          :current-limit-metric="list.limitMetric"
           :active-list-id="activeListId"
         />
       </template>

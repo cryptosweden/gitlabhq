@@ -1,9 +1,10 @@
 <script>
 import { GlButton } from '@gitlab/ui';
+import { isEmpty, debounce } from 'lodash';
 // eslint-disable-next-line no-restricted-imports
-import { mapState, mapActions } from 'vuex';
+import { mapState, mapActions, mapGetters } from 'vuex';
+import { DEFAULT_DEBOUNCE_AND_THROTTLE_MS } from '~/lib/utils/constants';
 import { InternalEvents } from '~/tracking';
-import glFeatureFlagsMixin from '~/vue_shared/mixins/gl_feature_flags_mixin';
 import { s__ } from '~/locale';
 import MarkdownDrawer from '~/vue_shared/components/markdown_drawer/markdown_drawer.vue';
 import {
@@ -13,10 +14,11 @@ import {
   LS_REGEX_HANDLE,
 } from '~/search/store/constants';
 import { loadDataFromLS } from '~/search/store/utils';
+import { SCOPE_BLOB } from '~/search/sidebar/constants';
 import { SYNTAX_OPTIONS_ADVANCED_DOCUMENT, SYNTAX_OPTIONS_ZOEKT_DOCUMENT } from '../constants';
 
 import SearchTypeIndicator from './search_type_indicator.vue';
-import GlSearchBoxByType from './search_box_by_type.vue';
+import GlobalSearchInput from './global_search_input.vue';
 
 const trackingMixin = InternalEvents.mixin();
 
@@ -31,23 +33,28 @@ export default {
   },
   components: {
     GlButton,
-    GlSearchBoxByType,
+    GlobalSearchInput,
     MarkdownDrawer,
     SearchTypeIndicator,
   },
-  mixins: [glFeatureFlagsMixin(), trackingMixin],
+  mixins: [trackingMixin],
   data() {
     return {
       regexEnabled: false,
     };
   },
   computed: {
-    ...mapState(['query', 'searchType', 'defaultBranchName', 'urlQuery']),
+    ...mapState(['query', 'searchType', 'defaultBranchName', 'projectInitialJson']),
+    ...mapGetters(['currentScope']),
     search: {
       get() {
         return this.query ? this.query.search : '';
       },
       set(value) {
+        if (this.isMultiMatch) {
+          this.debouncedSetQuery({ key: 'search', value });
+          return;
+        }
         this.setQuery({ key: 'search', value });
       },
     },
@@ -63,19 +70,23 @@ export default {
         : SYNTAX_OPTIONS_ADVANCED_DOCUMENT;
     },
     isDefaultBranch() {
-      return !this.query.repository_ref || this.query.repository_ref === this.defaultBranchName;
+      return (
+        !this.query.repository_ref ||
+        this.query.repository_ref === this.defaultBranchName ||
+        isEmpty(this.projectInitialJson)
+      );
     },
     isRegexButtonVisible() {
-      return (
-        this.searchType === ZOEKT_SEARCH_TYPE &&
-        this.isDefaultBranch &&
-        this.glFeatures.zoektExactSearch
-      );
+      return this.searchType === ZOEKT_SEARCH_TYPE && this.isDefaultBranch;
+    },
+    isMultiMatch() {
+      return this.searchType === ZOEKT_SEARCH_TYPE && this.currentScope === SCOPE_BLOB;
     },
   },
   created() {
     this.preloadStoredFrequentItems();
     this.regexEnabled = loadDataFromLS(LS_REGEX_HANDLE);
+    this.debouncedSetQuery = debounce(this.setQuery, DEFAULT_DEBOUNCE_AND_THROTTLE_MS);
   },
   methods: {
     ...mapActions(['applyQuery', 'setQuery', 'preloadStoredFrequentItems']),
@@ -93,6 +104,11 @@ export default {
         this.applyQuery();
       }
     },
+    submitSearch() {
+      if (!this.isMultiMatch) {
+        this.applyQuery();
+      }
+    },
   },
 };
 </script>
@@ -102,14 +118,14 @@ export default {
     <div class="search-page-form gl-mt-5">
       <search-type-indicator />
       <template v-if="showSyntaxOptions">
-        <div class="gl-display-inline-block">
+        <div class="gl-inline-block">
           <gl-button category="tertiary" variant="link" @click="onToggleDrawer"
             >{{ $options.i18n.syntaxOptionsLabel }}
           </gl-button>
         </div>
         <markdown-drawer ref="markdownDrawer" :document-path="documentBasedOnSearchType" />
       </template>
-      <gl-search-box-by-type
+      <global-search-input
         id="dashboard_search"
         v-model="search"
         name="search"
@@ -118,7 +134,7 @@ export default {
         :regex-button-state="regexEnabled"
         :regex-button-handler="regexButtonHandler"
         :placeholder="$options.i18n.searchPlaceholder"
-        @keydown.enter.stop.prevent="applyQuery"
+        @keydown.enter.stop.prevent="submitSearch"
       />
     </div>
   </section>

@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Icons and SVG Illustrations
 ---
-
-# Icons and SVG Illustrations
 
 We manage our own icon and illustration library in the [`gitlab-svgs`](https://gitlab.com/gitlab-org/gitlab-svgs)
 repository. This repository is published on [npm](https://www.npmjs.com/package/@gitlab/svgs),
@@ -28,13 +27,13 @@ sprite_icon(icon_name, size: nil, css_class: '')
 
 - **`icon_name`**: Use the `icon_name` for the SVG sprite in the list of
   ([GitLab SVGs](https://gitlab-org.gitlab.io/gitlab-svgs)).
-- **`size` (optional)**: Use one of the following sizes : 16, 24, 32, 48, 72 (this
+- **`size` (optional)**: Use one of the following sizes: 16, 24, 32, 48, 72 (this
   is translated into a `s16` class)
 - **`css_class` (optional)**: If you want to add additional CSS classes.
 
 **Example**
 
-```haml
+```ruby
 = sprite_icon('issues', size: 72, css_class: 'icon-danger')
 ```
 
@@ -90,7 +89,7 @@ Use the following function inside JS to render an icon:
 
 To insert a loading spinner in HAML or Rails use the `gl_loading_icon` helper:
 
-```haml
+```ruby
 = gl_loading_icon
 ```
 
@@ -102,21 +101,21 @@ by the examples that follow:
 - `size` (optional): either `sm` (default), `md`, `lg`, or `xl`.
 - `css_class` (optional): defaults to nothing, but can be used for utility classes to fine-tune alignment or spacing.
 
-**Example 1:**
+**Example 1**:
 
 The following HAML expression generates a loading icon's markup and
 centers the icon.
 
-```haml
+```ruby
 = gl_loading_icon
 ```
 
-**Example 2:**
+**Example 2**:
 
 The following HAML expression generates an inline loading icon's markup
 with a custom size. It also appends a margin utility class.
 
-```haml
+```ruby
 = gl_loading_icon(inline: true, size: 'lg', css_class: 'gl-mr-2')
 ```
 
@@ -127,7 +126,7 @@ The [GitLab UI](https://gitlab-org.gitlab.io/gitlab-ui/) components library prov
 [storybook](https://gitlab-org.gitlab.io/gitlab-ui/?path=/story/base-loading-icon--default)
 for more information about its usage.
 
-**Example:**
+**Example**:
 
 The following code snippet demonstrates how to use `GlLoadingIcon` in
 a Vue component.
@@ -157,31 +156,42 @@ Using the class `svg-content` around it ensures nice rendering.
 
 **Example**
 
-```haml
+```ruby
 .svg-content
   = image_tag 'illustrations/merge_requests.svg'
 ```
 
 ### Usage in Vue
 
-To use an SVG illustrations in a template provide the path as a property and display it through a standard `img` tag.
+It is discouraged to pass down SVG paths from Rails. Instead of `Rails => Haml => Vue` we can import SVG illustrations directly in `Vue`.
+
+To use an SVG illustration in a template import the SVG from `@gitlab/svgs`. You can find the available SVG paths via the [GitLab SVG Previewer](https://gitlab-org.gitlab.io/gitlab-svgs/illustrations).
+
+Below is an example of how to import an SVG illustration and use with the `GlEmptyState` component.
 
 Component:
 
 ```html
 <script>
+import { GlEmptyState } from '@gitlab/ui';
+// The ?url query string ensures the SVG is imported as a URL instead of an inline SVG
+// This is useful for bundle size and optimized loading
+import mergeTrainsSvgPath from '@gitlab/svgs/dist/illustrations/train-sm.svg?url';
+
 export default {
-  props: {
-    svgIllustrationPath: {
-      type: String,
-      required: true,
-    },
+  components: {
+    GlEmptyState
   },
+  mergeTrainsSvgPath,
 };
 <script>
 
 <template>
-  <img :src="svgIllustrationPath" />
+  <gl-empty-state
+    title="This state is empty"
+    description="Empty state description"
+    :svg-path="$options.mergeTrainsSvgPath"
+  />
 </template>
 ```
 

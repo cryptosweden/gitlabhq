@@ -16,30 +16,41 @@ update-static-analysis-cache:
   extends:
     - .static-analysis-base
     - .rubocop-job-cache-push
-    - .shared:rules:update-cache
+    - .caching:rules:update-master-based-caches
   stage: prepare
   script:
     # Silence cop offenses for rules with "grace period".
     # This will notify Slack if offenses were silenced.
     # For the moment we only cache `tmp/rubocop_cache` so we don't need to run all the tasks.
-    - run_timed_command "fail_on_warnings bundle exec rake rubocop:check:graceful"
+    - fail_on_warnings bundle exec rake rubocop:check:graceful
 
 static-analysis:
   extends:
     - .static-analysis-base
     - .static-analysis-cache
     - .static-analysis:rules:static-analysis
+  needs:
+    - job: cache:ruby-gems
+      optional: true
+    - job: cache:node-modules
+      optional: true
   parallel: 2
   script:
-    - yarn_install_script
-    - fail_on_warnings scripts/static-analysis
+    - |
+      function static_analysis() {
+        yarn_install_script
+        fail_on_warnings scripts/static-analysis
+      }
+
+      run_with_custom_exit_code static_analysis
+
 
 static-verification-with-database:
   extends:
     - .static-analysis-base
     - .rubocop-job-cache
     - .static-analysis:rules:static-verification-with-database
-    - .use-pg14
+    - .use-pg16
   script:
     - bundle exec rake lint:static_verification_with_database
   variables:
@@ -63,37 +74,75 @@ generate-apollo-graphql-schema:
     paths:
       - "${GRAPHQL_SCHEMA_APOLLO_FILE}"
 
-eslint:
+.eslint-base:
   extends:
     - .static-analysis-base
     - .yarn-cache
-    - .frontend:rules:default-frontend-jobs
   needs: ['generate-apollo-graphql-schema']
   variables:
     USE_BUNDLE_INSTALL: "false"
+    ESLINT_CODE_QUALITY_REPORT: "gl-code-quality-report.json"
+
+eslint-changed-files:
+  extends:
+    - .eslint-base
+    - .frontend:rules:eslint-changed-files
   script:
-    - yarn_install_script
-    - run_timed_command "yarn run lint:eslint:all"
+    - |
+      function eslint_script() {
+        yarn_install_script
+        ./tooling/ci/changed_files.rb eslint
+      }
+
+      run_with_custom_exit_code eslint_script
+
+eslint:
+  extends:
+    - .eslint-base
+    - .frontend:rules:eslint-default
+  script:
+    - |
+      function eslint_script() {
+        yarn_install_script
+        yarn run lint:eslint:all --format gitlab
+      }
+
+      run_with_custom_exit_code eslint_script
+  artifacts:
+    reports:
+      codequality: gl-code-quality-report.json
+
+eslint-docs:
+  extends:
+    - .static-analysis-base
+    - .yarn-cache
+    - .frontend:rules:default-frontend-jobs-with-docs-changes
+  variables:
+    USE_BUNDLE_INSTALL: "false"
+  script:
+    - |
+      function eslint_docs_script() {
+        yarn_install_script
+        scripts/frontend/lint_docs_links.mjs
+      }
+
+      run_with_custom_exit_code eslint_docs_script
 
 haml-lint:
   extends:
     - .static-analysis-base
     - .ruby-cache
     - .static-analysis:rules:haml-lint
+  needs:
+    - job: cache:ruby-gems
+      optional: true
   script:
-    - run_timed_command "bundle exec haml-lint --parallel app/views"
+    - bundle exec haml-lint --parallel
   artifacts:
     expire_in: 31d
     when: always
     paths:
       - tmp/feature_flags/
-
-haml-lint ee:
-  extends:
-    - "haml-lint"
-    - .static-analysis:rules:haml-lint-ee
-  script:
-    - run_timed_command "bundle exec haml-lint --parallel ee/app/views"
 
 rubocop:
   extends:
@@ -113,42 +162,65 @@ rubocop:
         # We won't notify Slack if offenses were silenced to avoid frequent messages.
         # Job `update-static-analysis-cache` takes care of Slack notifications every 2 hours.
         unset CI_SLACK_WEBHOOK_URL
-        run_timed_command "fail_on_warnings bundle exec rake rubocop:check:graceful"
+        fail_on_warnings bundle exec rake rubocop:check:graceful
       else
-        select_existing_files < "${RSPEC_CHANGED_FILES_PATH}" > "${RUBOCOP_TARGET_FILES}"
+        select_existing_files < "${GLCI_PREDICTIVE_CHANGED_FILES_PATH}" > "${RUBOCOP_TARGET_FILES}"
         # Skip running RuboCop if there's no target files
         if [ -s "${RUBOCOP_TARGET_FILES}" ]; then
-          run_timed_command "fail_on_warnings bundle exec rubocop --parallel --force-exclusion $(cat ${RUBOCOP_TARGET_FILES})"
+          fail_on_warnings bundle exec rubocop --parallel --force-exclusion $(cat ${RUBOCOP_TARGET_FILES})
         else
           echoinfo "Nothing interesting changed for RuboCop. Skipping."
         fi
       fi
 
-qa:metadata-lint:
+rubocop-docs:
   extends:
     - .static-analysis-base
-    - .static-analysis:rules:qa:metadata-lint
-  before_script:
-    - !reference [.default-before_script, before_script]
-    - cd qa/
-    - bundle_install_script
+    - .rubocop-job-cache
+    - .docs:rules:docs-lint
   script:
-    - run_timed_command "bundle exec bin/qa Test::Instance::All http://localhost:3000 --test-metadata-only"
-    - cd ..
-    - run_timed_command "./scripts/qa/testcases-check qa/tmp/test-metadata.json"
-    - run_timed_command "./scripts/qa/quarantine-types-check qa/tmp/test-metadata.json"
-  variables:
-    USE_BUNDLE_INSTALL: "false"
-    SETUP_DB: "false"
-    QA_EXPORT_TEST_METRICS: "false"
-    # Disable warnings in browserslist which can break on backports
-    # https://github.com/browserslist/browserslist/blob/a287ec6/node.js#L367-L384
-    BROWSERSLIST_IGNORE_OLD_DATA: "true"
+    - bundle exec rubocop --only Gitlab/DocumentationLinks/Link
+
+rubocop:docs-site:
+  extends:
+    - .static-analysis-base
+    - .rubocop-job-cache
+    - .docs:rules:rubocop-docs-site
+  allow_failure: true
+  script:
+    - apt-get update && apt-get -y install hugo
+    - bundle exec rake rubocop:docs
+    - cd rubocop/docs-hugo
+    - hugo --minify
+    - cd ../../
   artifacts:
+    name: rubocop-docs-site
     expire_in: 31d
     when: always
     paths:
-      - qa/tmp/
+      - rubocop/docs-hugo/public
+
+rails-next-dependency-check:
+  stage: lint
+  needs:
+    - job: cache:ruby-gems
+      optional: true
+  extends:
+    - .ruby-cache
+    - .rails:rules:rails-next-dependency-check
+  variables:
+    BUNDLE_GEMFILE: Gemfile.next
+  script:
+    - bundle install
+    - cp Gemfile.lock Gemfile.next.lock
+    - bundle lock
+    - bundle install
+  after_script:
+    - |
+      if [ "$CI_JOB_STATUS" == "failed" ]; then
+        echo "Gemfile.next.lock contains outdated dependencies, please run the following command and push the changes:"
+        echo "bundle exec rake bundler:gemfile:sync"
+      fi
 
 feature-flags-usage:
   extends:
@@ -158,26 +230,34 @@ feature-flags-usage:
   script:
     # We need to disable the cache for this cop since it creates files under tmp/feature_flags/*.used,
     # the cache would prevent these files from being created.
-    - run_timed_command "fail_on_warnings bundle exec rubocop --only Gitlab/MarkUsedFeatureFlags --cache false"
+    - fail_on_warnings bundle exec rubocop --only Gitlab/MarkUsedFeatureFlags --cache false
   artifacts:
     expire_in: 31d
     when: always
     paths:
       - tmp/feature_flags/
 
+ensure-application-settings-have-definition-file:
+  image: ${GITLAB_DEPENDENCY_PROXY_ADDRESS}ruby:${RUBY_VERSION}-alpine
+  extends:
+    - .static-analysis-base
+    - .static-analysis:rules:ensure-application-settings-have-definition-file
+  variables:
+    USE_BUNDLE_INSTALL: "false"
+  script:
+    - scripts/cells/ci-ensure-application-settings-have-definition-file.rb
+
 semgrep-appsec-custom-rules:
   stage: lint
   extends:
     - .semgrep-appsec-custom-rules:rules
-  image: returntocorp/semgrep
+  image: ${GITLAB_DEPENDENCY_PROXY_ADDRESS}returntocorp/semgrep:1.99.0
   needs: []
   script:
-    - git fetch origin master
-    - git clone $CUSTOM_RULES_REPOSITORY "${CI_BUILDS_DIR}/sast-custom-rules"
-    # Include/exclude list isn't ideal https://github.com/returntocorp/semgrep/issues/5399
+    - git clone $CUSTOM_RULES_REPOSITORY sast-custom-rules
     - |
-      rm "${CI_BUILDS_DIR}/sast-custom-rules/.gitlab-ci.yml" # semgrep fails when there are yaml files that are not rules
-      semgrep ci --metrics off --config "${CI_BUILDS_DIR}/sast-custom-rules" \
+      rm "sast-custom-rules/.gitlab-ci.yml" # semgrep fails when there are yaml files that are not rules
+      semgrep ci --metrics off --config "sast-custom-rules" \
         --include app --include lib --include workhorse \
         --exclude '*_test.go' --exclude spec --exclude qa --exclude tooling --json --verbose > gl-sast-report.json || true
 
@@ -198,7 +278,9 @@ audit-event-types-verify:
     - .default-before_script
     - .audit-event-types:rules:audit-event-types-verify
   stage: lint
-  needs: []
+  needs:
+    - job: cache:ruby-gems
+      optional: true
   script:
     - bundle exec rake gitlab:audit_event_types:check_docs
 
@@ -211,9 +293,26 @@ custom-roles-verify:
     - .default-before_script
     - .custom-roles:rules:custom-roles-verify
   stage: lint
-  needs: []
+  needs:
+    - job: cache:ruby-gems
+      optional: true
   script:
     - bundle exec rake gitlab:custom_roles:check_docs
+
+ci-job-token-policies-verify:
+  variables:
+    SETUP_DB: "false"
+  extends:
+    - .default-retry
+    - .ruby-cache
+    - .default-before_script
+    - .ci-job-token-policies:rules:ci-job-token-policies-verify
+  stage: lint
+  needs:
+    - job: cache:ruby-gems
+      optional: true
+  script:
+    - bundle exec rake ci:job_tokens:check_policies
 
 templates-shellcheck:
   extends:
@@ -221,7 +320,7 @@ templates-shellcheck:
     - .default-before_script
     - .default-retry
     - .ruby-cache
-    - .use-pg16
+    - .use-pg17
   stage: lint
   needs:
     - setup-test-env
@@ -230,7 +329,7 @@ templates-shellcheck:
 
 ping-appsec-for-sast-findings:
   stage: lint
-  image: alpine:latest
+  image: ${GITLAB_DEPENDENCY_PROXY_ADDRESS}alpine:latest
   extends:
     - .ping-appsec-for-sast-findings:rules
   variables:
@@ -249,7 +348,7 @@ ping-appsec-for-dependency-review:
   variables:
     GIT_CHECKOUT: "false"
     DISABLE_MENTIONS: "false"
-    DISABLE_SCORING: "true"
+    DISABLE_SCORING: "false"
     DISABLE_COMMENTING: "false"
     DEPENDENCY_REVIEW_BOT_CI_REG: "${CI_REGISTRY}/gitlab-com/gl-security/product-security/appsec/tooling/depscore/master"
   extends: [".ping-appsec-for-dependency-review:rules", ".use-docker-in-docker"]

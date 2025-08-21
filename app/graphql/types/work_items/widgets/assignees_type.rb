@@ -10,10 +10,11 @@ module Types
         graphql_name 'WorkItemWidgetAssignees'
         description 'Represents an assignees widget'
 
-        implements Types::WorkItems::WidgetInterface
+        implements ::Types::WorkItems::WidgetInterface
 
-        field :assignees, Types::UserType.connection_type,
+        field :assignees, ::Types::UserType.connection_type,
           null: true,
+          method: :assignees_by_name_and_id,
           description: 'Assignees of the work item.'
 
         field :allows_multiple_assignees, GraphQL::Types::Boolean,
@@ -35,7 +36,7 @@ module Types
           }
 
         def can_invite_members?
-          Ability.allowed?(current_user, :admin_project_member, object.work_item.project)
+          Ability.allowed?(current_user, :invite_project_members, object.work_item.project)
         end
       end
       # rubocop:enable Graphql/AuthorizeTypes

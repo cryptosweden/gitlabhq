@@ -40,27 +40,25 @@ describe('ListActions', () => {
       },
       {
         text: 'Delete',
-        extraAttrs: {
-          class: 'gl-text-red-500!',
-        },
+        variant: 'danger',
         action: expect.any(Function),
       },
     ]);
   });
 
   it('allows adding custom actions', () => {
-    const ACTION_LEAVE = 'leave';
+    const ACTION_CUSTOM = 'custom';
 
     createComponent({
       propsData: {
         actions: {
           ...defaultPropsData.actions,
-          [ACTION_LEAVE]: {
-            text: 'Leave project',
+          [ACTION_CUSTOM]: {
+            text: 'Custom',
             action: () => {},
           },
         },
-        availableActions: [ACTION_EDIT, ACTION_LEAVE, ACTION_DELETE],
+        availableActions: [ACTION_EDIT, ACTION_CUSTOM, ACTION_DELETE],
       },
     });
 
@@ -70,14 +68,12 @@ describe('ListActions', () => {
         href: '/-/edit',
       },
       {
-        text: 'Leave project',
+        text: 'Custom',
         action: expect.any(Function),
       },
       {
         text: 'Delete',
-        extraAttrs: {
-          class: 'gl-text-red-500!',
-        },
+        variant: 'danger',
         action: expect.any(Function),
       },
     ]);
@@ -108,9 +104,7 @@ describe('ListActions', () => {
     expect(getDropdownItemsProp()).toEqual([
       {
         text: 'Delete',
-        extraAttrs: {
-          class: 'gl-text-red-500!',
-        },
+        variant: 'danger',
         action: expect.any(Function),
       },
       {

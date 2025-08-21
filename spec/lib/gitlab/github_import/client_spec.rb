@@ -186,45 +186,69 @@ RSpec.describe Gitlab::GithubImport::Client, feature_category: :importers do
   end
 
   describe '#each_page' do
-    let(:object1) { double(:object1) }
-    let(:object2) { double(:object2) }
+    let(:resume_url) { nil }
 
     before do
       allow(client)
         .to receive(:with_rate_limit)
         .and_yield
 
-      allow(client.octokit)
-        .to receive(:public_send)
-        .and_return([object1])
+      stub_request(:get, 'https://api.github.com/repos/foo/bar/issues?per_page=100')
+        .to_return(
+          status: 200,
+          body: [{ title: 'Issue 1' }].to_json,
+          headers: {
+            'Content-Type' => 'application/json',
+            link: '<https://api.github.com/repositories/1/issues?page=2&per_page=100>; rel="next"'
+          }
+        )
 
-      response = double(:response, data: [object2], rels: { next: nil })
-      next_page = double(:next_page, get: response)
+      stub_request(:get, 'https://api.github.com/repositories/1/issues?page=2&per_page=100')
+        .to_return(
+          status: 200,
+          body: [{ title: 'Issue 2' }].to_json,
+          headers: {
+            'Content-Type' => 'application/json',
+            link: '<https://api.github.com/repositories/1/issues?page=3&per_page=100>; rel="next", ' \
+              '<https://api.github.com/repositories/1/issues?page=2&per_page=100>; rel="prev"'
+          }
+        )
 
-      allow(client.octokit)
-        .to receive(:last_response)
-        .and_return(double(:last_response, rels: { next: next_page }))
+      stub_request(:get, 'https://api.github.com/repositories/1/issues?page=3&per_page=100')
+        .to_return(
+          status: 200,
+          body: [{ title: 'Issue 3' }].to_json,
+          headers: {
+            'Content-Type' => 'application/json',
+            link: '<https://api.github.com/repositories/1/issues?page=2&per_page=100>; rel="prev"'
+          }
+        )
     end
 
     context 'without a block' do
       it 'returns an Enumerator' do
-        expect(client.each_page(:foo)).to be_an_instance_of(Enumerator)
+        expect(client.each_page(:issues, resume_url, 'foo/bar')).to be_an_instance_of(Enumerator)
       end
 
       it 'the returned Enumerator returns Page objects' do
-        enum = client.each_page(:foo)
+        enum = client.each_page(:issues, resume_url, 'foo/bar')
 
         page1 = enum.next
         page2 = enum.next
+        page3 = enum.next
 
         expect(page1).to be_an_instance_of(described_class::Page)
         expect(page2).to be_an_instance_of(described_class::Page)
+        expect(page3).to be_an_instance_of(described_class::Page)
 
-        expect(page1.objects).to eq([object1])
-        expect(page1.number).to eq(1)
+        expect(page1.objects.map(&:to_h)).to eq([{ title: 'Issue 1' }])
+        expect(page1.url).to eq(nil)
 
-        expect(page2.objects).to eq([object2])
-        expect(page2.number).to eq(2)
+        expect(page2.objects.map(&:to_h)).to eq([{ title: 'Issue 2' }])
+        expect(page2.url).to eq('https://api.github.com/repositories/1/issues?page=2&per_page=100')
+
+        expect(page3.objects.map(&:to_h)).to eq([{ title: 'Issue 3' }])
+        expect(page3.url).to eq('https://api.github.com/repositories/1/issues?page=3&per_page=100')
       end
     end
 
@@ -232,25 +256,75 @@ RSpec.describe Gitlab::GithubImport::Client, feature_category: :importers do
       it 'yields every retrieved page to the supplied block' do
         pages = []
 
-        client.each_page(:foo) { |page| pages << page }
+        client.each_page(:issues, resume_url, 'foo/bar') { |page| pages << page }
+
+        expect(pages.size).to eq(3)
+
+        expect(pages[0]).to be_an_instance_of(described_class::Page)
+        expect(pages[1]).to be_an_instance_of(described_class::Page)
+        expect(pages[2]).to be_an_instance_of(described_class::Page)
+
+        expect(pages[0].objects.map(&:to_h)).to eq([{ title: 'Issue 1' }])
+        expect(pages[0].url).to eq(nil)
+
+        expect(pages[1].objects.map(&:to_h)).to eq([{ title: 'Issue 2' }])
+        expect(pages[1].url).to eq('https://api.github.com/repositories/1/issues?page=2&per_page=100')
+
+        expect(pages[2].objects.map(&:to_h)).to eq([{ title: 'Issue 3' }])
+        expect(pages[2].url).to eq('https://api.github.com/repositories/1/issues?page=3&per_page=100')
+      end
+    end
+
+    context 'when a resume URL is passed' do
+      let(:resume_url) { 'https://api.github.com/repositories/1/issues?page=2&per_page=100' }
+
+      it 'resumes the pagination from the provided URL' do
+        pages = []
+
+        client.each_page(:issues, resume_url, 'foo/bar') { |page| pages << page }
+
+        expect(pages.size).to eq(2)
 
         expect(pages[0]).to be_an_instance_of(described_class::Page)
         expect(pages[1]).to be_an_instance_of(described_class::Page)
 
-        expect(pages[0].objects).to eq([object1])
-        expect(pages[0].number).to eq(1)
+        expect(pages[0].objects.map(&:to_h)).to eq([{ title: 'Issue 2' }])
+        expect(pages[0].url).to eq('https://api.github.com/repositories/1/issues?page=2&per_page=100')
 
-        expect(pages[1].objects).to eq([object2])
-        expect(pages[1].number).to eq(2)
+        expect(pages[1].objects.map(&:to_h)).to eq([{ title: 'Issue 3' }])
+        expect(pages[1].url).to eq('https://api.github.com/repositories/1/issues?page=3&per_page=100')
       end
+    end
 
-      it 'starts at the given page' do
+    context 'when resume URL is an empty string' do
+      let(:resume_url) { '' }
+
+      it 'does not resume the pagination' do
         pages = []
 
-        client.each_page(:foo, page: 2) { |page| pages << page }
+        client.each_page(:issues, resume_url, 'foo/bar') { |page| pages << page }
 
-        expect(pages[0].number).to eq(2)
-        expect(pages[1].number).to eq(3)
+        expect(pages.size).to eq(3)
+      end
+    end
+
+    context 'when next URL host does not match API URL host' do
+      it 'raises InvalidURLError' do
+        stub_request(:get, 'https://api.github.com/repos/foo/bar/issues?per_page=100')
+        .to_return(
+          status: 200,
+          body: [{ title: 'Issue 1' }].to_json,
+          headers: {
+            'Content-Type' => 'application/json',
+            link: '<https://another.host.com>; rel="next"'
+          }
+        )
+
+        enum = client.each_page(:issues, nil, 'foo/bar')
+
+        enum.next
+
+        expect { enum.next }.to raise_error(Gitlab::GithubImport::Exceptions::InvalidURLError, 'Invalid pagination URL')
       end
     end
   end
@@ -506,6 +580,40 @@ RSpec.describe Gitlab::GithubImport::Client, feature_category: :importers do
         expect(client.api_endpoint).to eq(endpoint)
       end
     end
+
+    context 'with a custom host' do
+      subject(:client) { described_class.new('foo', host: host) }
+
+      let(:host) { 'http://github-enterprise.com' }
+
+      it 'adds /api/v3 to the URL' do
+        expect(client.api_endpoint).to eq('http://github-enterprise.com/api/v3')
+      end
+
+      context 'when the host ends with /api/v3' do
+        let(:host) { 'http://github-enterprise.com/api/v3' }
+
+        it 'does not add /api/v3 to the URL' do
+          expect(client.api_endpoint).to eq('http://github-enterprise.com/api/v3')
+        end
+      end
+
+      context 'when host is github.com' do
+        let(:host) { 'https://github.com' }
+
+        it 'does not add /api/v3 to the URL' do
+          expect(client.api_endpoint).to eq('https://github.com')
+        end
+      end
+
+      context 'when host includes an API version different from v3' do
+        let(:host) { 'http://github-enterprise.com/api/v4' }
+
+        it 'keeps the provided version' do
+          expect(client.api_endpoint).to eq('http://github-enterprise.com/api/v4')
+        end
+      end
+    end
   end
 
   describe '#web_endpoint' do
@@ -524,10 +632,34 @@ RSpec.describe Gitlab::GithubImport::Client, feature_category: :importers do
         endpoint = 'https://github.kittens.com'
 
         expect(client)
-          .to receive(:custom_api_endpoint)
+          .to receive(:custom_api_endpoint).twice
           .and_return(endpoint)
 
         expect(client.web_endpoint).to eq(endpoint)
+      end
+    end
+  end
+
+  describe '#custom_web_endpoint' do
+    context 'with custom API endpoint' do
+      it 'returns the web endpoint derived from API endpoint' do
+        endpoint = 'https://github.enterprise.com'
+
+        expect(client)
+          .to receive(:custom_api_endpoint).twice
+          .and_return('https://github.enterprise.com/api/v3')
+
+        expect(client.custom_web_endpoint).to eq(endpoint)
+      end
+    end
+
+    context 'without custom API endpoint' do
+      it 'returns nil' do
+        expect(client)
+          .to receive(:custom_api_endpoint)
+          .and_return(nil)
+
+        expect(client.custom_web_endpoint).to be_nil
       end
     end
   end

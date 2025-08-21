@@ -1,10 +1,9 @@
 ---
-stage: Data Stores
-group: Database
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: Data Access
+group: Database Frameworks
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Ordering Table Columns in PostgreSQL
 ---
-
-# Ordering Table Columns in PostgreSQL
 
 For GitLab we require that columns of new tables are ordered to use the
 least amount of space. An easy way of doing this is to order them based on the
@@ -48,7 +47,7 @@ or
 - `user_id` (integer, 4 bytes)
 
 In these examples, the `id` and `user_id` columns are packed together, which
-means we only need 8 bytes to store _both_ of them. This in turn means each row
+means we only need 8 bytes to store both of them. This in turn means each row
 requires 8 bytes less space.
 
 Since Ruby on Rails 5.1, the default data type for IDs is `bigint`, which uses 8 bytes.
@@ -56,7 +55,7 @@ We are using `integer` in the examples to showcase a more realistic reordering s
 
 ## Type Sizes
 
-While the [PostgreSQL documentation](https://www.postgresql.org/docs/current/datatype.html) contains plenty
+While the [PostgreSQL documentation](https://www.postgresql.org/docs/16/datatype.html) contains plenty
 of information we list the sizes of common types here so it's easier to
 look them up. Here "word" refers to the word size, which is 4 bytes for a 32
 bits platform and 8 bytes for a 64 bits platform.

@@ -3,7 +3,6 @@ GraphQL/GraphqlName:
   Exclude:
     - 'app/graphql/mutations/alert_management/base.rb'
     - 'app/graphql/mutations/alert_management/http_integration/http_integration_base.rb'
-    - 'app/graphql/mutations/alert_management/prometheus_integration/prometheus_integration_base.rb'
     - 'app/graphql/mutations/award_emojis/base.rb'
     - 'app/graphql/mutations/base_mutation.rb'
     - 'app/graphql/mutations/boards/lists/base_create.rb'
@@ -110,7 +109,6 @@ GraphQL/GraphqlName:
     - 'ee/app/graphql/mutations/member_roles/base.rb'
     - 'ee/app/graphql/mutations/requirements_management/base_requirement.rb'
     - 'ee/app/graphql/types/ai/base_method_input_type.rb'
-    - 'ee/app/graphql/types/analytics/ai_metrics.rb'
     - 'ee/app/graphql/types/analytics/cycle_analytics/aggregation_status_type.rb'
     - 'ee/app/graphql/types/analytics/value_stream_analytics_type.rb'
     - 'ee/app/graphql/types/boards/board_epic_input_type.rb'

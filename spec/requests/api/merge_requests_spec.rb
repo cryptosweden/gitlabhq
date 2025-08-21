@@ -59,7 +59,7 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
           merge_request.mark_as_unchecked!
         end
 
-        context 'with merge status recheck projection' do
+        context 'with merge status recheck protection' do
           it 'does not check mergeability', :sidekiq_inline do
             expect(check_service_class).not_to receive(:new)
 
@@ -79,7 +79,7 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
     end
 
     context 'when authenticated' do
-      it 'avoids N+1 queries', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/330335' do
+      it 'avoids N+1 queries' do
         control = ActiveRecord::QueryRecorder.new do
           get api(endpoint_path, user)
         end
@@ -100,6 +100,22 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
         end.not_to exceed_query_limit(control)
       end
 
+      context 'when merge requests are merged' do
+        it 'avoids N+1 queries' do
+          create(:merge_request, state: :merged, source_project: project, target_project: project, merge_user: create(:user))
+
+          control = ActiveRecord::QueryRecorder.new do
+            get api(endpoint_path, user)
+          end
+
+          create(:merge_request, state: :merged, source_project: project, target_project: project, merge_user: create(:user))
+
+          expect do
+            get api(endpoint_path, user)
+          end.not_to exceed_query_limit(control)
+        end
+      end
+
       context 'when merge request is unchecked' do
         let(:check_service_class) { MergeRequests::MergeabilityCheckService }
         let(:mr_entity) { json_response.find { |mr| mr['id'] == merge_request.id } }
@@ -114,7 +130,7 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
             project.add_developer(user2)
           end
 
-          context 'with merge status recheck projection' do
+          context 'with merge status recheck protection' do
             it 'checks mergeability asynchronously in batch', :sidekiq_inline do
               get(api(endpoint_path, user2), params: { with_merge_status_recheck: true })
 
@@ -124,7 +140,7 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
             end
           end
 
-          context 'without merge status recheck projection' do
+          context 'without merge status recheck protection' do
             it 'does not enqueue a merge status recheck' do
               expect(check_service_class).not_to receive(:new)
 
@@ -137,7 +153,7 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
         end
 
         context 'with a reporter role' do
-          context 'with merge status recheck projection' do
+          context 'with merge status recheck protection' do
             it 'does not check mergeability', :sidekiq_inline do
               expect(check_service_class).not_to receive(:new)
 
@@ -287,35 +303,6 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(response).to match_response_schema('public_api/v4/merge_requests')
-      end
-
-      context 'with approved param' do
-        let(:approved_mr) { create(:merge_request, target_project: project, source_project: project) }
-
-        before do
-          create(:approval, merge_request: approved_mr)
-        end
-
-        it 'returns only approved merge requests' do
-          path = endpoint_path + '?approved=yes'
-
-          get api(path, user)
-
-          expect_paginated_array_response([approved_mr.id])
-        end
-
-        it 'returns only non-approved merge requests' do
-          path = endpoint_path + '?approved=no'
-
-          get api(path, user)
-
-          expect_paginated_array_response([
-            merge_request_merged.id,
-            merge_request_locked.id,
-            merge_request_closed.id,
-            merge_request.id
-          ])
-        end
       end
 
       it 'returns an empty array if no issue matches milestone' do
@@ -535,6 +522,35 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
 
             response_titles = json_response.map { |merge_request| merge_request['title'] }
             expect(response_titles).to eq(response_titles.sort.reverse)
+          end
+        end
+
+        context 'returns an array of merge_requests ordered by merged_at' do
+          it 'default is asc when requested' do
+            path = endpoint_path + '?order_by=merged_at&state=merged'
+
+            get api(path, user)
+
+            response_merged_timestamps = json_response.map { |merge_request| merge_request['merged_at'] }
+            expect(response_merged_timestamps).to eq(response_merged_timestamps.sort)
+          end
+
+          it 'asc when requested' do
+            path = endpoint_path + '?order_by=merged_at&sort=asc&state=merged'
+
+            get api(path, user)
+
+            response_merged_timestamps = json_response.map { |merge_request| merge_request['merged_at'] }
+            expect(response_merged_timestamps).to eq(response_merged_timestamps.sort)
+          end
+
+          it 'desc when requested' do
+            path = endpoint_path + '?order_by=merged_at&sort=desc&state=merged'
+
+            get api(path, user)
+
+            response_merged_timestamps = json_response.map { |merge_request| merge_request['merged_at'] }
+            expect(response_merged_timestamps).to eq(response_merged_timestamps.sort.reverse)
           end
         end
       end
@@ -1140,7 +1156,7 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
       let(:params) { {} }
 
       before do
-        get api(endpoint_path)
+        get api(endpoint_path), params: params
       end
 
       context 'when it is cached' do
@@ -1162,6 +1178,12 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
           end
 
           it_behaves_like 'a non-cached MergeRequest api request', 1
+        end
+
+        context 'when "with_labels_details" parameter is provided' do
+          let(:params) { { with_labels_details: true } }
+
+          it_behaves_like 'a non-cached MergeRequest api request', 4
         end
 
         context 'when the assignees change' do
@@ -1323,10 +1345,9 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
   describe "GET /groups/:id/merge_requests" do
     let_it_be(:group, reload: true) { create(:group, :public) }
     let_it_be(:project) { create(:project, :public, :repository, creator: user, namespace: group, only_allow_merge_if_pipeline_succeeds: false) }
+    let(:endpoint_path) { "/groups/#{group.id}/merge_requests" }
 
     include_context 'with merge requests'
-
-    let(:endpoint_path) { "/groups/#{group.id}/merge_requests" }
 
     before do
       group.add_reporter(user)
@@ -1401,6 +1422,20 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
 
   describe "GET /projects/:id/merge_requests/:merge_request_iid" do
     let(:merge_request) { create(:merge_request, :simple, author: user, assignees: [user], milestone: milestone, source_project: project, source_branch: 'markdown', title: "Test") }
+
+    context 'with oauth token that has ai_workflows scope' do
+      let(:user) { create(:user) }
+      let(:token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+
+      it "allows access" do
+        get api(
+          "/projects/#{project.id}/merge_requests/#{merge_request.iid}",
+          oauth_access_token: token
+        )
+
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+    end
 
     it 'matches json schema' do
       merge_request = create(:merge_request, :with_test_reports, milestone: milestone1, author: user, assignees: [user], source_project: project, target_project: project, title: "Test", created_at: base_time)
@@ -1534,10 +1569,10 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
     end
 
     context 'merge_user' do
-      context 'when MR is set to MWPS' do
-        let(:merge_request) { create(:merge_request, :merge_when_pipeline_succeeds, source_project: project, target_project: project) }
+      context 'when MR is set to auto merge' do
+        let(:merge_request) { create(:merge_request, :merge_when_checks_pass, source_project: project, target_project: project) }
 
-        it 'returns user who set MWPS' do
+        it 'returns user who set to auto merge' do
           get api("/projects/#{project.id}/merge_requests/#{merge_request.iid}", user)
 
           expect(response).to have_gitlab_http_status(:ok)
@@ -1759,12 +1794,30 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
 
     it 'returns a 200 when merge request is valid' do
       get api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/commits", user)
-      commit = merge_request.commits.first
+      commit = merge_request.merge_request_diff.last_commit
 
       expect_successful_response_with_paginated_array
       expect(json_response.size).to eq(merge_request.commits.size)
       expect(json_response.first['id']).to eq(commit.id)
       expect(json_response.first['title']).to eq(commit.title)
+      expect(json_response.first['parent_ids']).to be_present
+    end
+
+    context 'when optimized_commit_storage feature flag is disabled' do
+      before do
+        stub_feature_flags(optimized_commit_storage: false)
+      end
+
+      it 'returns a 200 with parent_ids' do
+        get api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/commits", user)
+        commit = merge_request.merge_request_diff.last_commit
+
+        expect_successful_response_with_paginated_array
+        expect(json_response.size).to eq(merge_request.commits.size)
+        expect(json_response.first['id']).to eq(commit.id)
+        expect(json_response.first['title']).to eq(commit.title)
+        expect(json_response.first['parent_ids']).to be_present
+      end
     end
 
     it 'returns a 404 when merge_request_iid not found' do
@@ -1952,7 +2005,7 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
     it 'returns the diffs of the merge_request' do
       get api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/diffs", user)
 
-      expect(response).to have_gitlab_http_status(:ok)
+      expect_successful_response_with_paginated_array
       expect(json_response.size).to eq(merge_request.diffs.size)
     end
 
@@ -1960,7 +2013,7 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
       it 'returns the diff in Unified format' do
         get api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/diffs", user), params: { unidiff: true }
 
-        expect(response).to have_gitlab_http_status(:ok)
+        expect_successful_response_with_paginated_array
         expect(json_response.dig(0, 'diff')).to eq(merge_request.diffs.diffs.first.unidiff)
       end
     end
@@ -1972,9 +2025,65 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
           params: { page: 1, per_page: 1 }
         )
 
-        expect(response).to have_gitlab_http_status(:ok)
+        expect_successful_response_with_paginated_array
         expect(json_response.size).to eq(1)
       end
+
+      context 'when per_page is greater than the max_per_page' do
+        before do
+          allow(Kaminari.config).to receive(:max_per_page).and_return(1)
+        end
+
+        it 'returns the correct amount of diffs' do
+          get(
+            api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/diffs", user),
+            params: { per_page: 2 }
+          )
+
+          expect_successful_response_with_paginated_array
+          expect(json_response.size).to eq(1)
+        end
+      end
+    end
+  end
+
+  describe 'GET /projects/:id/merge_requests/:merge_request_iid/raw_diffs' do
+    let_it_be(:merge_request) do
+      create(
+        :merge_request,
+        :simple,
+        author: user,
+        assignees: [user],
+        source_project: project,
+        target_project: project,
+        source_branch: 'markdown',
+        title: "Test",
+        created_at: base_time
+      )
+    end
+
+    it 'returns a 404 when merge_request_iid not found' do
+      get api("/projects/#{project.id}/merge_requests/0/raw_diffs", user)
+      expect(response).to have_gitlab_http_status(:not_found)
+    end
+
+    it 'returns a 404 when merge_request id is used instead of iid' do
+      get api("/projects/#{project.id}/merge_requests/#{merge_request.id}/raw_diffs", user)
+
+      expect(response).to have_gitlab_http_status(:not_found)
+    end
+
+    context 'when merge request author has only guest access' do
+      it_behaves_like 'rejects user from accessing merge request info' do
+        let(:url) { "/projects/#{project.id}/merge_requests/#{merge_request.iid}/raw_diffs" }
+      end
+    end
+
+    it 'returns the a workhorse git-diff url' do
+      get api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/raw_diffs", user)
+
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(response.headers[Gitlab::Workhorse::SEND_DATA_HEADER]).to start_with("git-diff:")
     end
   end
 
@@ -1991,6 +2100,19 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
         expect_successful_response_with_paginated_array
         expect(json_response.count).to eq(1)
         expect(json_response.first['id']).to eq(pipeline.id)
+      end
+
+      context 'with oauth token that has ai_workflows scope' do
+        let(:token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+
+        it "allows access" do
+          get api(
+            "/projects/#{project.id}/merge_requests/#{merge_request.iid}/pipelines",
+            oauth_access_token: token
+          )
+
+          expect_successful_response_with_paginated_array
+        end
       end
 
       it 'exposes basic attributes' do
@@ -2071,6 +2193,30 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
         expect(response).to have_gitlab_http_status(:ok)
         expect(json_response).to be_a Hash
       end
+
+      context 'when async is requested', :sidekiq_inline do
+        let(:request) do
+          post api("/projects/#{project.id}/merge_requests/#{merge_request_iid}/pipelines", authenticated_user), params: { async: true }
+        end
+
+        it 'creates the pipeline async' do
+          expect(MergeRequests::CreatePipelineWorker).to receive(:perform_async).and_call_original
+
+          expect { request }.to change(Ci::Pipeline, :count).by(1)
+
+          expect(response).to have_gitlab_http_status(:accepted)
+        end
+      end
+    end
+
+    context 'with oauth token that has ai_workflows scope' do
+      let(:token) { create(:oauth_access_token, user: authenticated_user, scopes: [:ai_workflows]) }
+
+      it 'does not allow access' do
+        post api("/projects/#{project.id}/merge_requests/#{merge_request_iid}/pipelines", oauth_access_token: token), params: { async: true }
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
     end
 
     context 'when unauthorized' do
@@ -2114,6 +2260,19 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
           author_id: user.id,
           assignee_id: user2.id
         }
+      end
+
+      context 'with oauth token that has ai_workflows scope' do
+        let(:token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+
+        it "creates a new merge request" do
+          post api("/projects/#{project.id}/merge_requests", oauth_access_token: token), params: params
+
+          expect(response).to have_gitlab_http_status(:created)
+          expect(json_response['title']).to eq('Test merge request')
+          expect(json_response['assignee']['name']).to eq(user2.name)
+          expect(json_response['assignees'].first['name']).to eq(user2.name)
+        end
       end
 
       it 'creates a new merge request' do
@@ -2363,7 +2522,7 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
                 target_branch: 'master',
                 author: user
               }
-          end.to change { MergeRequest.count }.by(0)
+          end.not_to change { MergeRequest.count }
 
           expect(response).to have_gitlab_http_status(:conflict)
           expect(json_response['message']).to eq(["Another open merge request already exists for this source branch: !1"])
@@ -2584,6 +2743,65 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
         end
       end
     end
+
+    context 'when user is using a composite identity', :request_store, :sidekiq_inline do
+      let(:user) { create(:user, username: 'user-with-composite-identity') }
+
+      let(:params) do
+        {
+          title: 'Test merge request',
+          source_branch: 'markdown',
+          target_branch: 'master',
+          author_id: user.id
+        }
+      end
+
+      before do
+        allow_any_instance_of(::User).to receive(:composite_identity_enforced) do |user|
+          user.username == 'user-with-composite-identity'
+        end
+      end
+
+      context 'when composite identity is missing' do
+        it 'responds with 403 forbidden http status' do
+          post api("/projects/#{project.id}/merge_requests", user), params: params
+
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
+      end
+
+      context 'when composite identity is defined' do
+        before do
+          ::Gitlab::Auth::Identity.new(user).link!(user2)
+        end
+
+        context 'when both users can create a merge request' do
+          before do
+            project.add_developer(user)
+            project.add_developer(user2)
+          end
+
+          it 'creates a merge request' do
+            post api("/projects/#{project.id}/merge_requests", user), params: params
+
+            expect(response).to have_gitlab_http_status(:created)
+          end
+        end
+
+        context 'when scoped user can not create a merge request' do
+          before do
+            project.add_developer(user)
+            project.add_reporter(user2)
+          end
+
+          it 'does not create a merge request' do
+            post api("/projects/#{project.id}/merge_requests", user), params: params
+
+            expect(response).to have_gitlab_http_status(:forbidden)
+          end
+        end
+      end
+    end
   end
 
   describe 'PUT /projects/:id/merge_requests/:merge_request_iid' do
@@ -2734,6 +2952,30 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
         expect(json_response['reviewers']).to be_empty
       end
     end
+
+    context 'accepts merge_after' do
+      let(:params) { { merge_after: '2025-01-09T20:47+0100' } }
+
+      it 'sets merge_after on the MR' do
+        put api("/projects/#{project.id}/merge_requests/#{merge_request.iid}", user), params: params
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response['merge_after']).to eq('2025-01-09T19:47:00.000Z')
+      end
+    end
+
+    context 'with oauth token that has ai_workflows scope' do
+      let(:token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+
+      it "allows access" do
+        put api(
+          "/projects/#{project.id}/merge_requests/#{merge_request.iid}?title=new_title",
+          oauth_access_token: token
+        )
+
+        expect(response).to have_gitlab_http_status(:ok)
+      end
+    end
   end
 
   describe "POST /projects/:id/merge_requests/:merge_request_iid/context_commits" do
@@ -2771,6 +3013,16 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
         expect(json_response.first['author_email']).to eq(commit.author_email)
         expect(json_response.first['committer_name']).to eq(commit.committer_name)
         expect(json_response.first['committer_email']).to eq(commit.committer_email)
+      end
+
+      context 'with oauth token that has ai_workflows scope' do
+        let(:token) { create(:oauth_access_token, user: authenticated_user, scopes: [:ai_workflows]) }
+
+        it 'does not allow access' do
+          post api("/projects/#{project.id}/merge_requests/#{merge_request_iid}/context_commits", oauth_access_token: token), params: params
+
+          expect(response).to have_gitlab_http_status(:forbidden)
+        end
       end
 
       context 'doesnt create when its already created' do
@@ -2936,10 +3188,66 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
     end
   end
 
+  shared_examples 'merging with auto merge strategies' do
+    it 'does not merge if auto merge request is passed and the pipeline has failed' do
+      create(:ci_pipeline,
+        :failed,
+        sha: merge_request.diff_head_sha,
+        merge_requests_as_head_pipeline: [merge_request])
+
+      put api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/merge", user), params: params
+
+      expect(response).to have_gitlab_http_status(:method_not_allowed)
+      expect(merge_request.reload.state).to eq('opened')
+    end
+
+    it 'merges if the head pipeline already succeeded and auto merge request is passed' do
+      create(:ci_pipeline, :success, sha: merge_request.diff_head_sha, merge_requests_as_head_pipeline: [merge_request])
+
+      put api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/merge", user), params: params
+
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(json_response['state']).to eq('merged')
+    end
+
+    it "enables auto merge if the pipeline is active" do
+      allow_any_instance_of(MergeRequest).to receive_messages(head_pipeline: pipeline, diff_head_pipeline: pipeline)
+      allow(pipeline).to receive(:active?).and_return(true)
+
+      put api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/merge", user), params: params
+
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(json_response['title']).to eq('Test')
+      expect(json_response['merge_when_pipeline_succeeds']).to eq(true)
+    end
+
+    it "enables auto merge if the pipeline is active and only_allow_merge_if_pipeline_succeeds is true" do
+      allow_any_instance_of(MergeRequest).to receive_messages(head_pipeline: pipeline, diff_head_pipeline: pipeline)
+      allow(pipeline).to receive(:active?).and_return(true)
+      project.update_attribute(:only_allow_merge_if_pipeline_succeeds, true)
+
+      put api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/merge", user), params: params
+
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(json_response['title']).to eq('Test')
+      expect(json_response['merge_when_pipeline_succeeds']).to eq(true)
+    end
+  end
+
   describe "PUT /projects/:id/merge_requests/:merge_request_iid/merge", :clean_gitlab_redis_cache do
     let(:project) { create(:project, :repository, namespace: user.namespace) }
     let(:merge_request) { create(:merge_request, :simple, author: user, source_project: project, source_branch: 'markdown', title: 'Test') }
     let(:pipeline) { create(:ci_pipeline, project: project) }
+
+    context 'with oauth token that has ai_workflows scope' do
+      let(:token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+
+      it "does not allow access" do
+        put api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/merge", oauth_access_token: token)
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
 
     it "returns merge_request in case of success" do
       expect { put api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/merge", user) }
@@ -3034,48 +3342,49 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
       expect(response).to have_gitlab_http_status(:ok)
     end
 
-    it 'does not merge if merge_when_pipeline_succeeds is passed and the pipeline has failed' do
-      create(:ci_pipeline,
-        :failed,
-        sha: merge_request.diff_head_sha,
-        merge_requests_as_head_pipeline: [merge_request])
+    context 'when the deprecated merge_when_pipeline_succeeds param is used' do
+      let(:params) { { merge_when_pipeline_succeeds: true } }
 
-      put api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/merge", user), params: { merge_when_pipeline_succeeds: true }
-
-      expect(response).to have_gitlab_http_status(:method_not_allowed)
-      expect(merge_request.reload.state).to eq('opened')
+      it_behaves_like 'merging with auto merge strategies'
     end
 
-    it 'merges if the head pipeline already succeeded and `merge_when_pipeline_succeeds` is passed' do
-      create(:ci_pipeline, :success, sha: merge_request.diff_head_sha, merge_requests_as_head_pipeline: [merge_request])
+    context 'when the new auto_merge param is used' do
+      let(:params) { { auto_merge: true } }
 
-      put api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/merge", user), params: { merge_when_pipeline_succeeds: true }
-
-      expect(response).to have_gitlab_http_status(:ok)
-      expect(json_response['state']).to eq('merged')
+      it_behaves_like 'merging with auto merge strategies'
     end
 
-    it "enables merge when pipeline succeeds if the pipeline is active" do
-      allow_any_instance_of(MergeRequest).to receive_messages(head_pipeline: pipeline, diff_head_pipeline: pipeline)
-      allow(pipeline).to receive(:active?).and_return(true)
+    it 'enables auto merge if the MR is not mergeable and only_allow_merge_if_pipeline_succeeds is true' do
+      allow_any_instance_of(MergeRequest)
+        .to receive_messages(
+          head_pipeline: pipeline,
+          diff_head_pipeline: pipeline
+        )
 
-      put api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/merge", user), params: { merge_when_pipeline_succeeds: true }
+      merge_request.update!(title: 'Draft: 1234')
 
-      expect(response).to have_gitlab_http_status(:ok)
-      expect(json_response['title']).to eq('Test')
-      expect(json_response['merge_when_pipeline_succeeds']).to eq(true)
-    end
-
-    it "enables merge when pipeline succeeds if the pipeline is active and only_allow_merge_if_pipeline_succeeds is true" do
-      allow_any_instance_of(MergeRequest).to receive_messages(head_pipeline: pipeline, diff_head_pipeline: pipeline)
-      allow(pipeline).to receive(:active?).and_return(true)
       project.update_attribute(:only_allow_merge_if_pipeline_succeeds, true)
 
       put api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/merge", user), params: { merge_when_pipeline_succeeds: true }
 
       expect(response).to have_gitlab_http_status(:ok)
-      expect(json_response['title']).to eq('Test')
+      expect(json_response['title']).to eq('Draft: 1234')
       expect(json_response['merge_when_pipeline_succeeds']).to eq(true)
+    end
+
+    context 'when the pipeline failed' do
+      let(:pipeline) { create(:ci_pipeline, :failed, project: project) }
+
+      it "enables auto merge if the pipeline is failed and only_allow_merge_if_pipeline_succeeds is true" do
+        allow_any_instance_of(MergeRequest).to receive_messages(head_pipeline: pipeline, diff_head_pipeline: pipeline)
+        project.update_attribute(:only_allow_merge_if_pipeline_succeeds, true)
+
+        put api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/merge", user), params: { merge_when_pipeline_succeeds: true }
+
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(json_response['title']).to eq('Test')
+        expect(json_response['merge_when_pipeline_succeeds']).to eq(true)
+      end
     end
 
     it "returns 404 for an invalid merge request IID" do
@@ -3155,7 +3464,7 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
 
         expect(response).to have_gitlab_http_status(:ok)
         expect(source_repository.branch_exists?(source_branch)).to be false
-        expect(merge_request.reload.should_remove_source_branch?).to be nil
+        expect(merge_request.reload.should_remove_source_branch?).to be_nil
       end
 
       it 'does not remove the source branch' do
@@ -3572,9 +3881,17 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
 
   describe 'GET :id/merge_requests/:merge_request_iid/closes_issues' do
     it 'returns the issue that will be closed on merge' do
+      group = create(:group, :public, developers: user)
+      project_without_auto_close = create(:project, :public, group: group, autoclose_referenced_issues: false)
+      group_issue = create(:issue, :group_level, namespace: group)
+      no_close_issue = create(:issue, project: project_without_auto_close)
       issue = create(:issue, project: project)
       mr = merge_request.tap do |mr|
-        mr.update_attribute(:description, "Closes #{issue.to_reference(mr.project)}")
+        mr.update_attribute(
+          :description,
+          "Closes #{issue.to_reference(mr.project)} Closes #{group_issue.to_reference(mr.project)} " \
+            "Closes #{no_close_issue.to_reference(mr.project)}"
+        )
         mr.cache_merge_request_closes_issues!
       end
 
@@ -3807,7 +4124,7 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
 
   describe 'POST :id/merge_requests/:merge_request_iid/cancel_merge_when_pipeline_succeeds' do
     before do
-      ::AutoMergeService.new(merge_request.target_project, user).execute(merge_request, AutoMergeService::STRATEGY_MERGE_WHEN_PIPELINE_SUCCEEDS)
+      ::AutoMergeService.new(merge_request.target_project, user).execute(merge_request, AutoMergeService::STRATEGY_MERGE_WHEN_CHECKS_PASS)
     end
 
     it 'removes the merge_when_pipeline_succeeds status' do
@@ -3827,9 +4144,29 @@ RSpec.describe API::MergeRequests, :aggregate_failures, feature_category: :sourc
 
       expect(response).to have_gitlab_http_status(:not_found)
     end
+
+    context 'with oauth token that has ai_workflows scope' do
+      let(:token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+
+      it "does not allow access" do
+        post api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/cancel_merge_when_pipeline_succeeds", oauth_access_token: token)
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
   end
 
   describe 'PUT :id/merge_requests/:merge_request_iid/rebase' do
+    context 'with oauth token that has ai_workflows scope' do
+      let(:token) { create(:oauth_access_token, user: user, scopes: [:ai_workflows]) }
+
+      it "does not allow access" do
+        put api("/projects/#{project.id}/merge_requests/#{merge_request.iid}/rebase", oauth_access_token: token)
+
+        expect(response).to have_gitlab_http_status(:forbidden)
+      end
+    end
+
     context 'when rebase can be performed' do
       it 'enqueues a rebase of the merge request against the target branch' do
         Sidekiq::Testing.fake! do

@@ -8,16 +8,17 @@ module Banzai
     # - Banzai::Filter::SanitizationFilter (Markdown)
     # - Banzai::Filter::AsciiDocSanitizationFilter (AsciiDoc/Asciidoctor)
     # - Banzai::Filter::BroadcastMessageSanitizationFilter (Markdown with styled links and line breaks)
+    # - Banzai::Filter::MinimumMarkdownSanitizationFilter (only inline elements)
     #
     # Extends HTML::Pipeline::SanitizationFilter with common rules.
     class BaseSanitizationFilter < HTML::Pipeline::SanitizationFilter
-      include Concerns::TimeoutFilterHandler
+      prepend Concerns::TimeoutFilterHandler
       include Gitlab::Utils::StrongMemoize
       extend Gitlab::Utils::SanitizeNodeLink
 
       UNSAFE_PROTOCOLS = %w[data javascript vbscript].freeze
 
-      def call_with_timeout
+      def call
         Sanitize.clean_node!(doc, allowlist)
       end
 
@@ -36,6 +37,7 @@ module Banzai
 
           # Allow data-escaped-chars span attribute
           allowlist[:attributes]['span'].push('data-escaped-chars')
+          allowlist[:attributes]['span'].push('data-placeholder')
 
           # Allow html5 details/summary elements
           allowlist[:elements].push('details')
@@ -50,14 +52,15 @@ module Banzai
           allowlist[:attributes]['a'].push('name')
 
           allowlist[:attributes]['a'].push('data-wikilink')
+          allowlist[:attributes]['a'].push('data-placeholder')
 
           allowlist[:attributes]['img'].push('data-diagram')
           allowlist[:attributes]['img'].push('data-diagram-src')
+          allowlist[:attributes]['img'].push('data-placeholder')
 
           # Allow any protocol in `a` elements
-          # and then remove links with unsafe protocols
+          # and then remove links with unsafe protocols in SanitizeLinkFilter
           allowlist[:protocols].delete('a')
-          allowlist[:transformers].push(self.class.method(:sanitize_unsafe_links))
 
           # Remove `rel` attribute from `a` elements
           allowlist[:transformers].push(self.class.remove_rel)
@@ -72,15 +75,19 @@ module Banzai
 
       private
 
+      def render_timeout
+        SANITIZATION_RENDER_TIMEOUT
+      end
+
       # If sanitization times out, we can not return partial un-sanitized results.
       # It's ok to allow any following filters to run since this is safe HTML.
       def returned_timeout_value
-        HTML::Pipeline.parse(COMPLEX_MARKDOWN_MESSAGE)
+        Banzai::PipelineBase.parse(COMPLEX_MARKDOWN_MESSAGE)
       end
 
       class << self
         def remove_rel
-          lambda do |env|
+          ->(env) do
             if env[:node_name] == 'a'
               # we allow rel="license" to support the Rel-license microformat
               # http://microformats.org/wiki/rel-license

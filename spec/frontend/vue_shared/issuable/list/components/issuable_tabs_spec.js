@@ -23,6 +23,7 @@ const createComponent = ({
     },
     slots: {
       'nav-actions': `<button class="js-new-issuable">New issuable</button>`,
+      title: '<h1 class="title">Tab title slot</h1>',
     },
   });
 

@@ -135,6 +135,30 @@ RSpec.describe ObjectStorage, :clean_gitlab_redis_shared_state, feature_category
         end
       end
     end
+
+    context 'with a model that persist object store' do
+      before do
+        allow(uploader).to receive_messages(sync_model_object_store?: false, persist_object_store?: true)
+      end
+
+      it 'does not sync with the model' do
+        expect(object).not_to receive(:"[]=")
+
+        uploader.object_store = described_class::Store::LOCAL
+      end
+
+      context 'with an uploader that sync with the model' do
+        before do
+          allow(uploader).to receive(:sync_model_object_store?).and_return(true)
+        end
+
+        it 'syncs with the model' do
+          expect(object).to receive(:"[]=").with(:file_store, described_class::Store::LOCAL)
+
+          uploader.object_store = described_class::Store::LOCAL
+        end
+      end
+    end
   end
 
   describe '#object_store' do
@@ -291,6 +315,7 @@ RSpec.describe ObjectStorage, :clean_gitlab_redis_shared_state, feature_category
               satisfying do |f|
                 expect(f).to be_an_instance_of(ObjectStorage::Concern::OpenFile)
                 expect(f.file_path).to be_nil
+                expect(f.original_filename).to be_nil
               end
             )
           end
@@ -300,6 +325,8 @@ RSpec.describe ObjectStorage, :clean_gitlab_redis_shared_state, feature_category
               satisfying do |f|
                 expect(f).to be_an_instance_of(ObjectStorage::Concern::OpenFile)
                 expect(File.exist?(f.file_path)).to be_truthy
+                expect(f.original_filename).not_to be_nil
+                expect(f.original_filename).to eq(File.basename(f.file_path))
               end
             )
           end
@@ -525,14 +552,15 @@ RSpec.describe ObjectStorage, :clean_gitlab_redis_shared_state, feature_category
     let(:has_length) { true }
     let(:maximum_size) { nil }
     let(:use_final_store_path) { false }
-    let(:final_store_path_root_id) { nil }
+    let(:final_store_path_root_hash) { nil }
+    let(:final_store_path_config) { { root_hash: final_store_path_root_hash } }
 
     subject do
       uploader_class.workhorse_authorize(
         has_length: has_length,
         maximum_size: maximum_size,
         use_final_store_path: use_final_store_path,
-        final_store_path_root_id: final_store_path_root_id
+        final_store_path_config: final_store_path_config
       )
     end
 
@@ -544,7 +572,7 @@ RSpec.describe ObjectStorage, :clean_gitlab_redis_shared_state, feature_category
 
     context 'when FIPS is disabled' do
       it 'response disables FIPS' do
-        expect(subject[:UploadHashFunctions]).to be nil
+        expect(subject[:UploadHashFunctions]).to be_nil
       end
     end
 
@@ -617,24 +645,24 @@ RSpec.describe ObjectStorage, :clean_gitlab_redis_shared_state, feature_category
     shared_examples 'handling object storage final upload path' do |multipart|
       context 'when use_final_store_path is true' do
         let(:use_final_store_path) { true }
-        let(:final_store_path_root_id) { 12345 }
+        let(:final_store_path_root_hash) { 12345 }
         let(:final_store_path) { File.join('@final', 'myprefix', 'abc', '123', 'somefilename') }
         let(:escaped_path) { escape_path(final_store_path) }
 
-        context 'and final_store_path_root_id was not given' do
-          let(:final_store_path_root_id) { nil }
+        context 'and final_store_path_root_hash was not given' do
+          let(:final_store_path_root_hash) { nil }
 
           it 'raises an error' do
             expect { subject }.to raise_error(ObjectStorage::MissingFinalStorePathRootId)
           end
         end
 
-        context 'and final_store_path_root_id was given' do
+        context 'and final_store_path_root_hash was given' do
           before do
             stub_object_storage_multipart_init_with_final_store_path("#{storage_url}#{final_store_path}") if multipart
 
             allow(uploader_class).to receive(:generate_final_store_path)
-              .with(root_id: final_store_path_root_id)
+              .with(root_hash: final_store_path_root_hash)
               .and_return(final_store_path)
           end
 
@@ -691,6 +719,35 @@ RSpec.describe ObjectStorage, :clean_gitlab_redis_shared_state, feature_category
                 ObjectStorage::PendingDirectUpload.exists?(uploader_class.storage_location_identifier, final_store_path)
               ).to eq(true)
             end
+          end
+        end
+
+        context 'and override_path was given' do
+          let(:override_path) { 'test_override_path' }
+          let(:final_store_path_config) { { override_path: override_path } }
+
+          before do
+            stub_object_storage_multipart_init_with_final_store_path("#{storage_url}#{override_path}") if multipart
+          end
+
+          it 'uses the override instead of generating a path' do
+            expect(uploader_class).not_to receive(:generate_final_store_path)
+
+            expect(subject[:RemoteObject][:ID]).to eq(override_path)
+            expect(subject[:RemoteObject][:GetURL]).to include(override_path)
+            expect(subject[:RemoteObject][:StoreURL]).to include(override_path)
+
+            if multipart
+              expect(subject[:RemoteObject][:MultipartUpload][:PartURLs]).to all(include(override_path))
+              expect(subject[:RemoteObject][:MultipartUpload][:CompleteURL]).to include(override_path)
+              expect(subject[:RemoteObject][:MultipartUpload][:AbortURL]).to include(override_path)
+            end
+
+            expect(subject[:RemoteObject][:SkipDelete]).to eq(true)
+
+            expect(
+              ObjectStorage::PendingDirectUpload.exists?(uploader_class.storage_location_identifier, override_path)
+            ).to eq(true)
           end
         end
       end
@@ -991,6 +1048,16 @@ RSpec.describe ObjectStorage, :clean_gitlab_redis_shared_state, feature_category
           it 'raises an error' do
             expect { subject }.to raise_error(uploader_class::RemoteStoreError, /Missing file/)
           end
+
+          context 'when check_remote_file_existence_on_upload? is set to false' do
+            before do
+              allow(uploader).to receive(:check_remote_file_existence_on_upload?).and_return(false)
+            end
+
+            it 'does not raise an error' do
+              expect { subject }.not_to raise_error
+            end
+          end
         end
 
         context 'when empty remote_id is specified' do
@@ -1051,6 +1118,12 @@ RSpec.describe ObjectStorage, :clean_gitlab_redis_shared_state, feature_category
           end
 
           context 'when uploaded file remote_id matches a pending direct upload entry' do
+            let(:uploader_class) do
+              Class.new(GitlabUploader) do
+                include ObjectStorage::Concern
+              end
+            end
+
             let(:object) { build_stubbed(:ci_job_artifact) }
             let(:final_path) { '@final/test/123123' }
             let(:fog_config) { Gitlab.config.uploads.object_store }
@@ -1291,10 +1364,10 @@ RSpec.describe ObjectStorage, :clean_gitlab_redis_shared_state, feature_category
   end
 
   describe '.generate_final_store_path' do
-    let(:root_id) { 12345 }
-    let(:expected_root_hashed_path) { Gitlab::HashedPath.new(root_hash: root_id) }
+    let(:root_hash) { 12345 }
+    let(:expected_root_hashed_path) { Gitlab::HashedPath.new(root_hash: root_hash) }
 
-    subject(:final_path) { uploader_class.generate_final_store_path(root_id: root_id) }
+    subject(:final_path) { uploader_class.generate_final_store_path(root_hash: root_hash) }
 
     before do
       allow(Digest::SHA2).to receive(:hexdigest).and_return('somehash1234')

@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe ::Gitlab::Seeders::Ci::VariablesGroupSeeder, feature_category: :secrets_management do
+RSpec.describe ::Gitlab::Seeders::Ci::VariablesGroupSeeder, feature_category: :ci_variables do
   let_it_be(:group) { create(:group) }
 
   let(:seeder) { described_class.new(name: group.name) }
@@ -64,9 +64,8 @@ RSpec.describe ::Gitlab::Seeders::Ci::VariablesGroupSeeder, feature_category: :s
     end
 
     it 'skips seeding when group name is invalid' do
-      expect { invalid_group_name_seeder.seed }.to change {
-        group.variables.count
-      }.by(0)
+      expect { invalid_group_name_seeder.seed }
+        .not_to change { group.variables.count }
     end
 
     it 'skips CI variable creation if CI variable already exists' do

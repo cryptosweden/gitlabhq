@@ -1,10 +1,20 @@
 # frozen_string_literal: true
 
 class GraphqlController < ApplicationController
+  include Gitlab::Auth::AuthFinders
   extend ::Gitlab::Utils::Override
 
   # Unauthenticated users have access to the API for public data
   skip_before_action :authenticate_user!
+  # This is already handled by authorize_access_api!
+  skip_before_action :active_user_check
+  # CSRF protection is only necessary when the request is authenticated via a session cookie.
+  # Also, we allow anonymous users to access the API without a CSRF token so that it is easier for users
+  # to get started with our GraphQL API.
+  skip_before_action :verify_authenticity_token, if: -> {
+    current_user.nil? || sessionless_user? || !any_mutating_query?
+  }
+  skip_before_action :check_two_factor_requirement, if: -> { sessionless_user? }
 
   # Header can be passed by tests to disable SQL query limits.
   DISABLE_SQL_QUERY_LIMIT_HEADER = 'HTTP_X_GITLAB_DISABLE_SQL_QUERY_LIMIT'
@@ -16,29 +26,11 @@ class GraphqlController < ApplicationController
   CACHED_INTROSPECTION_QUERY_STRING = CachedIntrospectionQuery.query_string
   INTROSPECTION_QUERY_OPERATION_NAME = 'IntrospectionQuery'
 
-  # If a user is using their session to access GraphQL, we need to have session
-  # storage, since the admin-mode check is session wide.
-  # We can't enable this for anonymous users because that would cause users using
-  # enforced SSO from using an auth token to access the API.
-  skip_around_action :set_session_storage, unless: :current_user
-
-  # Allow missing CSRF tokens, this would mean that if a CSRF is invalid or missing,
-  # the user won't be authenticated but can proceed as an anonymous user.
-  #
-  # If a CSRF is valid, the user is authenticated. This makes it easier to play
-  # around in GraphiQL.
-  protect_from_forgery with: :null_session, only: :execute
-
   # must come first: current_user is set up here
-  before_action(only: [:execute]) do
-    if Feature.enabled? :graphql_minimal_auth_methods # rubocop:disable Gitlab/FeatureFlagWithoutActor -- reverting MR
-      authenticate_graphql
-    else
-      authenticate_sessionless_user!(:api)
-    end
-  end
+  prepend_before_action { authenticate_sessionless_user!(:graphql_api) }
 
   before_action :authorize_access_api!
+  before_action(only: [:execute]) { check_dpop! }
   before_action :set_user_last_activity
   before_action :track_vs_code_usage
   before_action :track_jetbrains_usage
@@ -48,6 +40,7 @@ class GraphqlController < ApplicationController
   before_action :track_neovim_plugin_usage
   before_action :disable_query_limiting
   before_action :limit_query_size
+  before_action :enforce_language_server_restrictions
 
   before_action :disallow_mutations_for_get
 
@@ -88,6 +81,31 @@ class GraphqlController < ApplicationController
     end
   end
 
+  rescue_from Gitlab::Auth::RestrictedLanguageServerClientError do |exception|
+    log_exception(exception)
+
+    render_error(exception.message, status: :unauthorized)
+  end
+
+  rescue_from Gitlab::Auth::DpopValidationError do |exception|
+    log_exception(exception)
+
+    render_error(exception.message, status: :unauthorized)
+  end
+
+  # ApplicationController has similar rescues but we declare these again here because the
+  # `rescue_from StandardError` above would prevent these from bubbling up to ApplicationController.
+  # These also return errors in a JSON format similar to GraphQL errors.
+  rescue_from ActionController::InvalidAuthenticityToken do |exception|
+    render_error(exception.message, status: :unprocessable_entity)
+  end
+
+  rescue_from RateLimitedService::RateLimitedError do |e|
+    e.log_request(request, current_user)
+
+    render_error(e.message, status: :too_many_requests)
+  end
+
   rescue_from Gitlab::Auth::TooManyIps do |exception|
     log_exception(exception)
 
@@ -123,21 +141,26 @@ class GraphqlController < ApplicationController
 
   private
 
-  # unwound from SessionlessAuthentication concern
-  # use a minimal subset of Gitlab::Auth::RequestAuthenticator.find_sessionless_user
-  # so only token types allowed for GraphQL can authenticate users
-  # CI_JOB_TOKENs are not allowed for now, since their access is too broad
-  def authenticate_graphql
-    user = request_authenticator.find_user_from_web_access_token(:api, scopes: authorization_scopes)
-    user ||= request_authenticator.find_user_from_personal_access_token_for_api_or_git
-    sessionless_sign_in(user) if user
-  rescue Gitlab::Auth::AuthenticationError
-    nil
+  def check_dpop!
+    return unless !!sessionless_user? # DPoP is only enforced on token-based authentication
+    return unless current_user && Feature.enabled?(:dpop_authentication, current_user)
+
+    token = extract_personal_access_token
+    return unless PersonalAccessToken.find_by_token(token.to_s) # The token is not PAT, exit early
+
+    # For authenticated requests we check if the user has DPoP enabled
+    ::Auth::DpopAuthenticationService.new(current_user: current_user,
+      personal_access_token_plaintext: token,
+      request: current_request).execute
   end
 
-  # Overridden in EE
-  def authorization_scopes
-    [:api, :read_api]
+  def enforce_language_server_restrictions
+    response = Gitlab::Auth::EditorExtensions::LanguageServerClientVerifier.new(
+      current_user: current_user,
+      request: current_request
+    ).execute
+
+    raise Gitlab::Auth::RestrictedLanguageServerClientError, response.message if response.error?
   end
 
   def permitted_params
@@ -173,7 +196,7 @@ class GraphqlController < ApplicationController
 
   def any_mutating_query?
     if multiplex?
-      multiplex_queries.any? { |q| mutation?(q[:query], q[:operation_name]) }
+      multiplex_param.any? { |q| mutation?(q[:query], q[:operationName]) }
     else
       mutation?(query)
     end
@@ -187,10 +210,16 @@ class GraphqlController < ApplicationController
   def disable_query_limiting
     return unless Gitlab::QueryLimiting.enabled_for_env?
 
-    disable_issue = request.headers[DISABLE_SQL_QUERY_LIMIT_HEADER]
-    return unless disable_issue
+    disable_reference = request.headers[DISABLE_SQL_QUERY_LIMIT_HEADER]
+    return unless disable_reference
 
-    Gitlab::QueryLimiting.disable!(disable_issue)
+    first, second = disable_reference.split(',')
+
+    if first.match?(/^\d+$/)
+      Gitlab::QueryLimiting.disable!(second, new_threshold: first&.to_i)
+    else
+      Gitlab::QueryLimiting.disable!(first)
+    end
   end
 
   def set_user_last_activity
@@ -241,7 +270,7 @@ class GraphqlController < ApplicationController
   end
 
   def query
-    GraphQL::Language.escape_single_quoted_newlines(permitted_params.fetch(:query, ''))
+    GraphQL::Language.escape_single_quoted_newlines(permitted_params.fetch(:query, '').to_s)
   end
 
   def multiplex_param
@@ -266,6 +295,7 @@ class GraphqlController < ApplicationController
     @context ||= {
       current_user: current_user,
       is_sessionless_user: api_user,
+      current_organization: Current.organization,
       request: request,
       scope_validator: ::Gitlab::Auth::ScopeValidator.new(api_user, request_authenticator),
       remove_deprecated: Gitlab::Utils.to_boolean(permitted_params[:remove_deprecated], default: false)
@@ -285,7 +315,7 @@ class GraphqlController < ApplicationController
   def authorize_access_api!
     if current_user.nil? &&
         request_authenticator.authentication_token_present?
-      render_error('Invalid token', status: :unauthorized)
+      return render_error('Invalid token', status: :unauthorized)
     end
 
     return if can?(current_user, :access_api)
@@ -321,6 +351,8 @@ class GraphqlController < ApplicationController
   end
 
   def execute_introspection_query
+    context[:introspection] = true
+
     if introspection_query_can_use_cache?
       # Context for caching: https://gitlab.com/gitlab-org/gitlab/-/issues/409448
       Rails.cache.fetch(

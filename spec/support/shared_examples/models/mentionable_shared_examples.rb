@@ -11,6 +11,7 @@ RSpec.shared_context 'mentionable context' do
   let(:author)  { subject.author }
 
   let(:mentioned_issue) { create(:issue, project: project) }
+  let(:mentioned_work_item) { create(:work_item, :task, project: project) }
   let!(:mentioned_mr) { create(:merge_request, source_project: project) }
   let(:mentioned_commit) { project.commit("HEAD~1") }
 
@@ -27,12 +28,14 @@ RSpec.shared_context 'mentionable context' do
   let(:ref_string) do
     <<-MSG.strip_heredoc
       These references are new:
-        Issue:  #{mentioned_issue.to_reference}
-        Merge:  #{mentioned_mr.to_reference}
-        Commit: #{mentioned_commit.to_reference}
+        Issue:    #{mentioned_issue.to_reference}
+        WorkItem: #{Gitlab::UrlBuilder.build(mentioned_work_item)}
+        Merge:    #{mentioned_mr.to_reference}
+        Commit:   #{mentioned_commit.to_reference}
 
       This reference is a repeat and should only be mentioned once:
         Repeat: #{mentioned_issue.to_reference}
+        Repeat: #{mentioned_work_item.to_reference}
 
       These references are cross-referenced:
         Issue:  #{ext_issue.to_reference(project)}
@@ -69,8 +72,9 @@ RSpec.shared_examples 'a mentionable' do
   it "extracts references from its reference property", :clean_gitlab_redis_cache do
     # De-duplicate and omit itself
     refs = subject.referenced_mentionables
-    expect(refs.size).to eq(6)
+    expect(refs.size).to eq(7)
     expect(refs).to include(mentioned_issue)
+    expect(refs).to include(mentioned_work_item)
     expect(refs).to include(mentioned_mr)
     expect(refs).to include(mentioned_commit)
     expect(refs).to include(ext_issue)
@@ -99,8 +103,8 @@ RSpec.shared_examples 'a mentionable' do
   end
 
   it 'creates cross-reference notes', :clean_gitlab_redis_cache do
-    mentioned_objects = [mentioned_issue, mentioned_mr, mentioned_commit,
-                         ext_issue, ext_mr, ext_commit]
+    mentioned_objects = [mentioned_issue, mentioned_work_item, mentioned_mr, mentioned_commit,
+      ext_issue, ext_mr, ext_commit]
 
     mentioned_objects.each do |referenced|
       expect(SystemNoteService).to receive(:cross_reference)
@@ -146,7 +150,7 @@ RSpec.shared_examples 'an editable mentionable' do
     context 'when the markdown cache is stale' do
       before do
         expect(subject).to receive(:latest_cached_markdown_version).at_least(:once) do
-          (Gitlab::MarkdownCache::CACHE_COMMONMARK_VERSION + 1) << 16
+          Gitlab::MarkdownCache::CACHE_COMMONMARK_VERSION_SHIFTED + 1
         end
       end
 

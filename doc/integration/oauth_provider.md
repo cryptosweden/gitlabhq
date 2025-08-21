@@ -1,10 +1,16 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Configure GitLab as an OAuth 2.0 authentication identity provider
 ---
 
-# Configure GitLab as an OAuth 2.0 authentication identity provider
+{{< history >}}
+
+- Group SAML SSO support for OAuth applications [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/461212) in GitLab 18.2 [with a flag](../administration/feature_flags/_index.md) named `ff_oauth_redirect_to_sso_login`. Disabled by default.
+- Group SAML SSO support for OAuth applications [enabled on GitLab.com, GitLab Self-Managed and GitLab Dedicated](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/200682) in GitLab 18.3.
+
+{{< /history >}}
 
 [OAuth 2.0](https://oauth.net/2/) provides secure delegated server resource
 access to client applications on behalf of a resource owner. OAuth 2 allows
@@ -25,9 +31,10 @@ You can use a non-SSL URL instead, but you should use an SSL URL.
 After adding an OAuth 2 application to an instance, you can use OAuth 2 to:
 
 - Enable users to sign in to your application with their GitLab.com account.
+- Enable users to sign in to your application using [SAML SSO](../user/group/saml_sso/_index.md)
+  when SAML is configured for the associated group.
 - Set up GitLab.com for authentication to your GitLab instance. For more information,
   see [integrating your server with GitLab.com](gitlab.md).
-
 - After an application is created, external services can manage access tokens using the
   [OAuth 2 API](../api/oauth2.md).
 
@@ -65,23 +72,30 @@ To create a new application for a group:
 
 ## Create an instance-wide application
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+{{< details >}}
+
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 To create an application for your GitLab instance:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Applications**.
 1. Select **New application**.
 
-When creating application in the **Admin Area** , mark it as **trusted**.
+When creating application in the **Admin area** , mark it as **trusted**.
 The user authorization step is automatically skipped for this application.
 
 ## View all authorized applications
 
-> - `k8s_proxy` [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/422408) in GitLab 16.4 [with a flag](../administration/feature_flags.md) named `k8s_proxy_pat`. Enabled by default.
-> - Feature flag `k8s_proxy_pat` [removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/131518) in GitLab 16.5.
+{{< history >}}
+
+- `k8s_proxy` [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/422408) in GitLab 16.4 [with a flag](../administration/feature_flags/_index.md) named `k8s_proxy_pat`. Enabled by default.
+- Feature flag `k8s_proxy_pat` [removed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/131518) in GitLab 16.5.
+
+{{< /history >}}
 
 To see all the application you've authorized with your GitLab credentials:
 
@@ -92,33 +106,47 @@ To see all the application you've authorized with your GitLab credentials:
 The GitLab OAuth 2 applications support scopes, which allow application to perform
 different actions. See the following table for all available scopes.
 
-| Scope              | Description |
-|--------------------| ----------- |
-| `api`              | Grants complete read/write access to the API, including all groups and projects, the container registry, the dependency proxy, and the package registry. |
-| `read_user`        | Grants read-only access to the authenticated user's profile through the /user API endpoint, which includes username, public email, and full name. Also grants access to read-only API endpoints under /users. |
-| `read_api`         | Grants read access to the API, including all groups and projects, the container registry, and the package registry. |
-| `read_repository`  | Grants read-only access to repositories on private projects using Git-over-HTTP or the Repository Files API. |
-| `write_repository` | Grants read-write access to repositories on private projects using Git-over-HTTP (not using the API). |
-| `read_registry`    | Grants read-only access to container registry images on private projects. |
-| `write_registry`   | Grants read-only access to container registry images on private projects. |
-| `sudo`             | Grants permission to perform API actions as any user in the system, when authenticated as an administrator user. |
-| `openid`           | Grants permission to authenticate with GitLab using [OpenID Connect](openid_connect_provider.md). Also gives read-only access to the user's profile and group memberships. |
-| `profile`          | Grants read-only access to the user's profile data using [OpenID Connect](openid_connect_provider.md). |
-| `email`            | Grants read-only access to the user's primary email address using [OpenID Connect](openid_connect_provider.md). |
-| `create_runner`    | Grants permission to create runners. |
-| `manage_runner`    | Grants permission to manage runners. |
-| `k8s_proxy`        | Grants permission to perform Kubernetes API calls using the agent for Kubernetes. |
+| Scope                    | Description |
+|--------------------------|-------------|
+| `api`                    | Grants complete read/write access to the API, including all groups and projects, the container registry, the dependency proxy, and the package registry. |
+| `read_api`               | Grants read access to the API, including all groups and projects, the container registry, and the package registry. |
+| `read_user`              | Grants read-only access to the authenticated user's profile through the `/user` API endpoint, which includes username, public email, and full name. Also grants access to read-only API endpoints under `/users`. |
+| `create_runner`          | Grants create access to the runners. |
+| `manage_runner`          | Grants access to manage the runners. |
+| `k8s_proxy`              | Grants permission to perform Kubernetes API calls using the agent for Kubernetes. |
+| `read_repository`        | Grants read-only access to repositories on private projects using Git-over-HTTP or the Repository Files API. |
+| `write_repository`       | Grants read-write access to repositories on private projects using Git-over-HTTP (not using the API). |
+| `read_registry`          | Grants read-only access to container registry images on private projects. |
+| `write_registry`         | Grants write access to container registry images on private projects. You need both read and write access to push images. |
+| `read_virtual_registry`  | Grants read-only access to container images through the dependency proxy in private projects and virtual registries. |
+| `write_virtual_registry` | Grants read, write, and delete access to container images through the dependency proxy in private projects. |
+| `read_observability`     | Grants read-only access to GitLab Observability. |
+| `write_observability`    | Grants write access to GitLab Observability. |
+| `ai_features`            | Grants access to GitLab Duo related API endpoints. |
+| `sudo`                   | Grants permission to perform API actions as any user in the system, when authenticated as an administrator user. |
+| `admin_mode`             | Grants permission to perform API actions as an administrator, when Admin Mode is enabled. |
+| `read_service_ping`      | Grants access to download Service Ping payloads through the API when authenticated as an administrator user. |
+| `openid`                 | Grants permission to authenticate with GitLab using [OpenID Connect](openid_connect_provider.md). Also gives read-only access to the user's profile and group memberships. |
+| `profile`                | Grants read-only access to the user's profile data using [OpenID Connect](openid_connect_provider.md). |
+| `email`                  | Grants read-only access to the user's primary email address using [OpenID Connect](openid_connect_provider.md). |
 
 At any time you can revoke any access by selecting **Revoke**.
 
 ## Access token expiration
 
-> - Database validation on `expires_in` [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/112765) in GitLab 15.10. If your GitLab instance has any remaining OAuth Access Tokens without `expires_in` set when you are upgrading to 15.10 or later, the database migration will raise an error. For workaround instructions, see the [GitLab 15.10.0 upgrade documentation](../update/versions/gitlab_15_changes.md#15100).
+{{< history >}}
 
-WARNING:
+- Database validation on `expires_in` [introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/112765) in GitLab 15.10. If your GitLab instance has any remaining OAuth access tokens without `expires_in` set when you are upgrading to 15.10 or later, the database migration will raise an error. For workaround instructions, see the [GitLab 15.10.0 upgrade documentation](../update/versions/gitlab_15_changes.md#15100).
+
+{{< /history >}}
+
+{{< alert type="warning" >}}
+
 The ability to opt out of expiring access tokens was
 [removed](https://gitlab.com/gitlab-org/gitlab/-/issues/340848) in GitLab 15.0. All
 existing integrations must be updated to support access token refresh.
+
+{{< /alert >}}
 
 Access tokens expire after two hours. Integrations that use access tokens must
 generate new ones using the `refresh_token` attribute. Refresh tokens may be
@@ -137,13 +165,14 @@ application are also deleted.
 
 ## Hashed OAuth application secrets
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/374588) in GitLab 15.4 [with a flag](../administration/feature_flags.md) named `hash_oauth_secrets`. Disabled by default.
-> - [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/374588) in GitLab 15.8.
-> - [Enabled on self-managed](https://gitlab.com/gitlab-org/gitlab/-/issues/374588) in GitLab 15.9.
+{{< history >}}
 
-FLAG:
-On self-managed GitLab, by default this feature is available. To hide the feature, an administrator can [disable the feature flag](../administration/feature_flags.md) named `hash_oauth_secrets`.
-On GitLab.com, this feature is available.
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/374588) in GitLab 15.4 [with a flag](../administration/feature_flags/_index.md) named `hash_oauth_secrets`. Disabled by default.
+- [Enabled on GitLab.com](https://gitlab.com/gitlab-org/gitlab/-/issues/374588) in GitLab 15.8.
+- [Enabled on GitLab Self-Managed](https://gitlab.com/gitlab-org/gitlab/-/issues/374588) in GitLab 15.9.
+- [Generally available](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/113892) in GitLab 15.10. Feature flag `hash_oauth_secrets` removed.
+
+{{< /history >}}
 
 By default, GitLab stores OAuth application secrets in the database in hashed format. These secrets are only available to users immediately after creating OAuth applications. In
 earlier versions of GitLab, application secrets are stored as plain text in the database.

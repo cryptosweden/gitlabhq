@@ -20,7 +20,6 @@ RSpec.describe IdeController, feature_category: :web_ide do
   let(:user) { creator }
 
   before do
-    stub_feature_flags(vscode_web_ide: true)
     sign_in(user)
   end
 
@@ -32,10 +31,11 @@ RSpec.describe IdeController, feature_category: :web_ide do
         it 'increases the views counter' do
           expect(Gitlab::InternalEvents).to receive(:track_event)
             .with(
-              'web_ide_viewed',
-              user: user,
-              project: project,
-              namespace: project.namespace
+              'web_ide_viewed', hash_including({
+                user: user,
+                project: project,
+                namespace: project.namespace
+              })
             ).once
 
           subject
@@ -147,54 +147,14 @@ RSpec.describe IdeController, feature_category: :web_ide do
         end
       end
 
-      describe 'legacy Web IDE' do
-        before do
-          stub_feature_flags(vscode_web_ide: false)
-        end
+      it 'uses fullscreen layout' do
+        subject
 
-        it 'uses application layout' do
-          subject
-
-          expect(response).to render_template('layouts/application')
-        end
-
-        it 'does not create oauth application' do
-          expect(Doorkeeper::Application).not_to receive(:new)
-
-          subject
-
-          expect(web_ide_oauth_application).to be_nil
-        end
-      end
-
-      describe 'vscode IDE' do
-        before do
-          stub_feature_flags(vscode_web_ide: true)
-        end
-
-        it 'uses fullscreen layout' do
-          subject
-
-          expect(response).to render_template('layouts/fullscreen')
-        end
-      end
-
-      describe 'with web_ide_oauth flag off' do
-        before do
-          stub_feature_flags(web_ide_oauth: false)
-        end
-
-        it 'does not create oauth application' do
-          expect(Doorkeeper::Application).not_to receive(:new)
-
-          subject
-
-          expect(web_ide_oauth_application).to be_nil
-        end
+        expect(response).to render_template('layouts/fullscreen')
       end
 
       it 'ensures web_ide_oauth_application' do
-        expect(Doorkeeper::Application).to receive(:new).and_call_original
+        expect(Authn::OauthApplication).to receive(:new).and_call_original
 
         subject
 
@@ -206,11 +166,25 @@ RSpec.describe IdeController, feature_category: :web_ide do
         existing_app = create(:oauth_application, owner_id: nil, owner_type: nil)
 
         stub_application_setting({ web_ide_oauth_application: existing_app })
-        expect(Doorkeeper::Application).not_to receive(:new)
+        expect(Authn::OauthApplication).not_to receive(:new)
 
         subject
 
         expect(web_ide_oauth_application).to eq(existing_app)
+      end
+
+      it 'includes the Web IDE favicon link tag with correct attributes' do
+        subject
+
+        expect(response).to have_gitlab_http_status(:ok)
+
+        doc = Nokogiri::HTML(response.body)
+        favicon_link = doc.at_css('link#favicon')
+
+        expect(favicon_link).to be_present
+        expect(favicon_link['rel']).to eq('icon')
+        expect(favicon_link['type']).to eq('image/png')
+        expect(favicon_link['href']).to match_asset_path '/assets/favicon-web-ide.png'
       end
     end
 
@@ -220,7 +194,8 @@ RSpec.describe IdeController, feature_category: :web_ide do
       it 'updates the content security policy with the correct frame sources' do
         subject
 
-        expect(find_csp_directive('frame-src')).to include("http://www.example.com/assets/webpack/", "https://*.web-ide.gitlab-static.net/")
+        expect(find_csp_directive('frame-src')).to include("http://www.example.com/assets/webpack/", "https://*.web-ide.gitlab-static.net/",
+          ide_oauth_redirect_url, oauth_authorization_url)
         expect(find_csp_directive('worker-src')).to include("http://www.example.com/assets/webpack/")
       end
 
@@ -255,22 +230,6 @@ RSpec.describe IdeController, feature_category: :web_ide do
         oauth_redirect
 
         expect(response).to have_gitlab_http_status(:ok)
-      end
-
-      it 'with vscode_web_ide flag off, returns not_found' do
-        stub_feature_flags(vscode_web_ide: false)
-
-        oauth_redirect
-
-        expect(response).to have_gitlab_http_status(:not_found)
-      end
-
-      it 'with web_ide_oauth flag off, returns not_found' do
-        stub_feature_flags(web_ide_oauth: false)
-
-        oauth_redirect
-
-        expect(response).to have_gitlab_http_status(:not_found)
       end
     end
   end

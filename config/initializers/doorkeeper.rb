@@ -17,7 +17,9 @@ Doorkeeper.configure do
     else
       # Ensure user is redirected to redirect_uri after login
       session[:user_return_to] = request.fullpath
-      redirect_to(new_user_session_url)
+
+      resolver = Gitlab::Auth::OAuth::OauthResourceOwnerRedirectResolver.new(request, session)
+      redirect_to(resolver.resolve_redirect_url)
       nil
     end
   end
@@ -30,6 +32,14 @@ Doorkeeper.configure do
     next if user.two_factor_enabled? || Gitlab::Auth::TwoFactorAuthVerifier.new(user).two_factor_authentication_enforced?
 
     Gitlab::Auth.find_with_user_password(params[:username], params[:password], increment_failed_attempts: true)
+  end
+
+  allow_grant_flow_for_client do |grant_flow, client|
+    next true unless client
+    next true unless grant_flow == 'password'
+    next true unless Applications::CreateService.disable_ropc_available?
+
+    client.ropc_enabled?
   end
 
   # If you want to restrict access to the web interface for adding oauth authorized applications, you need to declare the block below.
@@ -91,9 +101,9 @@ Doorkeeper.configure do
   # Check out the wiki for more information on customization
   access_token_methods :from_access_token_param, :from_bearer_authorization, :from_bearer_param
 
-  hash_token_secrets using: '::Gitlab::DoorkeeperSecretStoring::Token::Pbkdf2Sha512', fallback: :plain
+  hash_token_secrets using: '::Gitlab::DoorkeeperSecretStoring::Sha512Hash'
 
-  hash_application_secrets using: '::Gitlab::DoorkeeperSecretStoring::Secret::Pbkdf2Sha512', fallback: :plain
+  hash_application_secrets using: '::Gitlab::DoorkeeperSecretStoring::Pbkdf2Sha512', fallback: :plain
 
   # Specify what grant flows are enabled in array of Strings. The valid
   # strings and the flows they enable are:
@@ -102,7 +112,7 @@ Doorkeeper.configure do
   # "password"           => Resource Owner Password Credentials Grant Flow
   # "client_credentials" => Client Credentials Grant Flow
   #
-  grant_flows %w[authorization_code password client_credentials]
+  grant_flows %w[authorization_code password client_credentials device_code]
 
   # Under some circumstances you might want to have applications auto-approved,
   # so that the user skips the authorization step.
@@ -119,14 +129,82 @@ Doorkeeper.configure do
   # Allow Resource Owner Password Credentials Grant without client credentials,
   # this was disabled by default in Doorkeeper 5.5.
   #
-  # We might want to disable this in the future, see https://gitlab.com/gitlab-org/gitlab/-/issues/323615
-  skip_client_authentication_for_password_grant true
+  skip_client_authentication_for_password_grant -> { Gitlab::CurrentSettings.ropc_without_client_credentials }
 
   # 2 hours in seconds
   # This is also the database default value
+  #
+  # WARNING: If this is less than `300` some unexpected behavior may occur.
+  # For example, the Web IDE has a baked in expiration buffer of 5 minutes, so
+  # the Web IDE would treat all tokens as expired if this value is `300` or less.
   access_token_expires_in 7200
 
   # Use a custom class for generating the application secret.
   # https://doorkeeper.gitbook.io/guides/configuration/other-configurations#custom-application-secret-generator
   application_secret_generator 'Gitlab::DoorkeeperSecretStoring::Token::UniqueApplicationToken'
+
+  custom_access_token_attributes [:organization_id]
+
+  enable_dynamic_scopes
+  # Following doorkeeper monkey patches are to identify the organization on best effort basis
+
+  Doorkeeper::OAuth::PasswordAccessTokenRequest.class_eval do
+    private
+
+    def before_successful_response
+      organization = Gitlab::Current::Organization.new(user: resource_owner).organization
+
+      find_or_create_access_token(client, resource_owner, scopes, { organization_id: organization.id }, server)
+      super
+    end
+
+    def validate_client
+      if Doorkeeper.config.skip_client_authentication_for_password_grant.call
+        client.present? || (!parameters[:client_id] && credentials.blank?)
+      else
+        client.present?
+      end
+    end
+  end
+
+  Doorkeeper::DeviceAuthorizationGrant::OAuth::DeviceAuthorizationRequest.class_eval do
+    # @return [Hash]
+    def device_grant_attributes
+      {
+        application_id: client.id,
+        expires_in: configuration.device_code_expires_in,
+        scopes: scopes.to_s,
+        user_code: generate_user_code,
+        # This will result in a fallback to Default Organizzation
+        # OAuth device grant flow doesn't support other organizations yet
+        organization_id: Gitlab::Current::Organization.new.organization.id
+      }
+    end
+  end
+
+  Doorkeeper::DeviceAuthorizationGrant::OAuth::DeviceCodeRequest.class_eval do
+    def generate_access_token
+      find_or_create_access_token(
+        device_grant.application,
+        device_grant.resource_owner_id,
+        device_grant.scopes,
+        { organization_id: device_grant.organization_id },
+        server
+      )
+    end
+  end
+
+  Doorkeeper::OpenidConnect::OAuth::Authorization::Code.class_eval do
+    private
+
+    def create_openid_request(access_grant)
+      ::Doorkeeper::OpenidConnect::Request.create!(
+        access_grant: access_grant,
+        nonce: pre_auth.nonce,
+        organization_id: access_grant.organization_id
+      )
+    end
+  end
+
+  application_class "Authn::OauthApplication"
 end

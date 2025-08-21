@@ -1,5 +1,5 @@
 import { GlLoadingIcon, GlEmptyState, GlAlert, GlIntersectionObserver } from '@gitlab/ui';
-import { mount, shallowMount } from '@vue/test-utils';
+import { shallowMount } from '@vue/test-utils';
 import Vue, { nextTick } from 'vue';
 import VueApollo from 'vue-apollo';
 import createMockApollo from 'helpers/mock_apollo_helper';
@@ -15,6 +15,7 @@ import JobsTable from '~/ci/jobs_page/components/jobs_table.vue';
 import { createAlert } from '~/alert';
 import { TEST_HOST } from 'spec/test_constants';
 import JobsFilteredSearch from '~/ci/common/private/jobs_filtered_search/app.vue';
+import JobsTableEmptyState from '~/ci/jobs_page/components/jobs_table_empty_state.vue';
 import * as urlUtils from '~/lib/utils/url_utility';
 import { useMockInternalEventsTracking } from 'helpers/tracking_internal_events_helper';
 import {
@@ -79,11 +80,11 @@ describe('Job table app', () => {
     handler = successHandler,
     cancelableHandler = cancelHandler,
     countHandler = countSuccessHandler,
-    mountFn = shallowMount,
     data = {},
     provideOptions = {},
+    stubs = {},
   } = {}) => {
-    wrapper = mountFn(AdminJobsTableApp, {
+    wrapper = shallowMount(AdminJobsTableApp, {
       data() {
         return {
           ...data,
@@ -93,6 +94,10 @@ describe('Job table app', () => {
         jobStatuses: statuses,
         glFeatures: { adminJobsFilterRunnerType: true },
         ...provideOptions,
+      },
+      stubs: {
+        JobsTableEmptyState,
+        ...stubs,
       },
       apolloProvider: createMockApolloProvider(handler, cancelableHandler, countHandler),
     });
@@ -204,7 +209,7 @@ describe('Job table app', () => {
 
   describe('empty state', () => {
     it('should display empty state if there are no jobs and tab scope is null', async () => {
-      createComponent({ handler: emptyHandler, mountFn: mount });
+      createComponent({ handler: emptyHandler });
 
       await waitForPromises();
 
@@ -213,7 +218,7 @@ describe('Job table app', () => {
     });
 
     it('should not display empty state if there are jobs and tab scope is not null', async () => {
-      createComponent({ handler: successHandler, mountFn: mount });
+      createComponent({ handler: successHandler });
 
       await waitForPromises();
 
@@ -282,20 +287,39 @@ describe('Job table app', () => {
   });
 
   describe('cancel jobs button', () => {
-    it('should display cancel all jobs button', async () => {
-      createComponent({ cancelableHandler: cancelHandler, mountFn: mount });
+    const options = {
+      cancelableHandler: cancelHandler,
+      stubs: { JobsTableTabs },
+    };
 
-      await waitForPromises();
+    describe('when there are cancelable jobs', () => {
+      it('should display cancel all jobs button', async () => {
+        createComponent({ ...options, provideOptions: { canUpdateAllJobs: true } });
 
-      expect(findCancelJobsButton().exists()).toBe(true);
+        await waitForPromises();
+
+        expect(findCancelJobsButton().exists()).toBe(true);
+      });
+
+      describe('when canUpdateAllJobs is false', () => {
+        it('should not display cancel all jobs button', async () => {
+          createComponent({ ...options, provideOptions: { canUpdateAllJobs: false } });
+
+          await waitForPromises();
+
+          expect(findCancelJobsButton().exists()).toBe(false);
+        });
+      });
     });
 
-    it('should not display cancel all jobs button', async () => {
-      createComponent();
+    describe('when there are no cancelable jobs', () => {
+      it('should not display cancel all jobs button', async () => {
+        createComponent({ provideOptions: { canUpdateAllJobs: true } });
 
-      await waitForPromises();
+        await waitForPromises();
 
-      expect(findCancelJobsButton().exists()).toBe(false);
+        expect(findCancelJobsButton().exists()).toBe(false);
+      });
     });
   });
 

@@ -10,6 +10,8 @@ class Admin::ProjectsController < Admin::ApplicationController
   feature_category :source_code_management, [:repository_check]
 
   def index
+    return if Feature.enabled?(:admin_projects_vue, current_user)
+
     params[:sort] ||= 'latest_activity_desc'
     @sort = params[:sort]
 
@@ -72,7 +74,8 @@ class Admin::ProjectsController < Admin::ApplicationController
         Ci::Runners::ResetRegistrationTokenService.new(@project, current_user).execute
       end
 
-      redirect_to [:admin, @project], notice: format(_("Project '%{project_name}' was successfully updated."), project_name: @project.name)
+      redirect_to [:admin, @project],
+        notice: format(_("Project '%{project_name}' was successfully updated."), project_name: @project.name)
     else
       render "edit"
     end

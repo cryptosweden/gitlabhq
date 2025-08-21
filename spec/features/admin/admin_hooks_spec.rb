@@ -17,7 +17,7 @@ RSpec.describe 'Admin::Hooks', feature_category: :webhooks do
       visit admin_root_path
 
       within_testid('super-sidebar') do
-        click_on 'System Hooks', match: :first
+        click_on 'System hooks', match: :first
       end
 
       expect(page).to have_current_path(admin_hooks_path, ignore_query: true)
@@ -35,7 +35,7 @@ RSpec.describe 'Admin::Hooks', feature_category: :webhooks do
 
       visit admin_hooks_path
 
-      expect(page).to have_content('File Hooks')
+      expect(page).to have_content('File hooks')
       expect(page).to have_content('foo.rb')
       expect(page).to have_content('bar.clj')
     end
@@ -48,6 +48,8 @@ RSpec.describe 'Admin::Hooks', feature_category: :webhooks do
       visit admin_hooks_path
 
       click_button 'Add new webhook'
+      fill_in 'Name (optional)', with: 'New system hook'
+      fill_in 'Description (optional)', with: 'A new system hook for testing'
       fill_in 'hook_url', with: url
       check 'Enable SSL verification'
 
@@ -66,6 +68,8 @@ RSpec.describe 'Admin::Hooks', feature_category: :webhooks do
       visit admin_hooks_path
 
       click_link 'Edit'
+      fill_in 'Name (optional)', with: 'Existing system hook'
+      fill_in 'Description (optional)', with: 'An existing system hook for testing'
       fill_in 'hook_url', with: new_url
       check 'Enable SSL verification'
       click_button 'Save changes'
@@ -84,7 +88,7 @@ RSpec.describe 'Admin::Hooks', feature_category: :webhooks do
     end
 
     context 'removes existing hook' do
-      it 'from hooks list page', quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/451295' do
+      it 'from hooks list page' do
         visit admin_hooks_path
 
         accept_gl_confirm(button_text: 'Delete webhook') { click_link 'Delete' }

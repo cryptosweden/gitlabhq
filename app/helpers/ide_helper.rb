@@ -4,12 +4,11 @@ module IdeHelper
   # Overridden in EE
   def ide_data(project:, fork_info:, params:)
     base_data = {
-      'use-new-web-ide' => use_new_web_ide?.to_s,
-      'new-web-ide-help-page-path' => help_page_path('user/project/web_ide/index', anchor: 'vscode-reimplementation'),
+      'new-web-ide-help-page-path' => help_page_path('user/project/web_ide/_index.md'),
       'sign-in-path' => new_session_path(current_user),
       'sign-out-path' => destroy_user_session_path,
       'user-preferences-path' => profile_preferences_path
-    }.merge(use_new_web_ide? ? new_ide_data(project: project) : legacy_ide_data(project: project))
+    }.merge(extend_ide_data(project: project))
 
     return base_data unless project
 
@@ -22,24 +21,18 @@ module IdeHelper
   end
 
   def show_web_ide_oauth_callback_mismatch_callout?
-    return false unless ::Gitlab::WebIde::DefaultOauthApplication.feature_enabled?(current_user)
-
-    callback_urls = ::Gitlab::WebIde::DefaultOauthApplication.oauth_application_callback_urls
+    callback_urls = ::WebIde::DefaultOauthApplication.oauth_application_callback_urls
     callback_url_domains = callback_urls.map { |url| URI.parse(url).origin }
     callback_url_domains.any? && callback_url_domains.exclude?(request.base_url)
   end
 
   def web_ide_oauth_application_id
-    ::Gitlab::WebIde::DefaultOauthApplication.oauth_application_id
-  end
-
-  def use_new_web_ide?
-    Feature.enabled?(:vscode_web_ide, current_user)
+    ::WebIde::DefaultOauthApplication.oauth_application_id
   end
 
   private
 
-  def new_ide_fonts
+  def ide_fonts
     {
       fallback_font_family: 'monospace',
       font_faces: [{
@@ -61,16 +54,15 @@ module IdeHelper
     }
   end
 
-  def new_ide_code_suggestions_data
+  def ide_code_suggestions_data
     {}
   end
 
-  def new_ide_oauth_data
-    return {} unless ::Gitlab::WebIde::DefaultOauthApplication.feature_enabled?(current_user)
-    return {} unless ::Gitlab::WebIde::DefaultOauthApplication.oauth_application
+  def ide_oauth_data
+    return {} unless ::WebIde::DefaultOauthApplication.oauth_application
 
-    client_id = ::Gitlab::WebIde::DefaultOauthApplication.oauth_application.uid
-    callback_urls = ::Gitlab::WebIde::DefaultOauthApplication.oauth_application_callback_urls
+    client_id = ::WebIde::DefaultOauthApplication.oauth_application.uid
+    callback_urls = ::WebIde::DefaultOauthApplication.oauth_application_callback_urls
 
     {
       'client-id' => client_id,
@@ -78,49 +70,24 @@ module IdeHelper
     }
   end
 
-  def new_ide_data(project:)
+  def extend_ide_data(project:)
+    extension_marketplace_settings = WebIde::ExtensionMarketplace.webide_extension_marketplace_settings(
+      user: current_user
+    )
+    settings_context_hash = WebIde::SettingsSync.settings_context_hash(
+      extension_marketplace_settings: extension_marketplace_settings
+    )
+
     {
       'project-path' => project&.path_with_namespace,
       'csp-nonce' => content_security_policy_nonce,
-      # We will replace these placeholders in the FE
-      'ide-remote-path' => ide_remote_path(remote_host: ':remote_host', remote_path: ':remote_path'),
-      'editor-font' => new_ide_fonts.to_json,
-      'extensions-gallery-settings' => extensions_gallery_settings
-    }.merge(new_ide_code_suggestions_data).merge(new_ide_oauth_data)
-  end
-
-  def legacy_ide_data(project:)
-    {
-      'empty-state-svg-path' => image_path('illustrations/multi_file_editor_empty.svg'),
-      'no-changes-state-svg-path' => image_path('illustrations/multi-editor_no_changes_empty.svg'),
-      'committed-state-svg-path' => image_path('illustrations/rocket-launch-md.svg'),
-      'pipelines-empty-state-svg-path': image_path('illustrations/empty-state/empty-pipeline-md.svg'),
-      'switch-editor-svg-path': image_path('illustrations/rocket-launch-md.svg'),
-      'promotion-svg-path': image_path('illustrations/web-ide_promotion.svg'),
-      'ci-help-page-path' => help_page_path('ci/quick_start/index'),
-      'web-ide-help-page-path' => help_page_path('user/project/web_ide/index'),
-      'render-whitespace-in-code': current_user.render_whitespace_in_code.to_s,
-      'default-branch' => project && project.default_branch,
-      'project' => convert_to_project_entity_json(project),
-      'preview-markdown-path' => project && preview_markdown_path(project),
-      'web-terminal-svg-path' => image_path('illustrations/web-ide_promotion.svg'),
-      'web-terminal-help-path' => help_page_path('user/project/web_ide/index', anchor: 'interactive-web-terminals-for-the-web-ide'),
-      'web-terminal-config-help-path' => help_page_path('user/project/web_ide/index', anchor: 'web-ide-configuration-file'),
-      'web-terminal-runners-help-path' => help_page_path('user/project/web_ide/index', anchor: 'runner-configuration')
-    }
-  end
-
-  def convert_to_project_entity_json(project)
-    return unless project
-
-    API::Entities::Project.represent(project, current_user: current_user).to_json
+      'editor-font' => ide_fonts.to_json,
+      'extension-marketplace-settings' => extension_marketplace_settings.to_json,
+      'settings-context-hash' => settings_context_hash
+    }.merge(ide_code_suggestions_data).merge(ide_oauth_data)
   end
 
   def has_dismissed_ide_environments_callout?
     current_user.dismissed_callout?(feature_name: 'web_ide_ci_environments_guidance')
-  end
-
-  def extensions_gallery_settings
-    Gitlab::WebIde::ExtensionsMarketplace.webide_extensions_gallery_settings(user: current_user).to_json
   end
 end

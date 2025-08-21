@@ -1,10 +1,9 @@
 ---
-stage: Systems
-group: Distribution
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+stage: GitLab Delivery
+group: Build
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Building a package for testing
 ---
-
-# Building a package for testing
 
 While developing a new feature or modifying an existing one, it is helpful if an
 installable package (or a Docker image) containing those changes is available
@@ -18,7 +17,7 @@ that will create:
 - The image tag is the commit that triggered the pipeline.
 
 When you push a commit to either the GitLab CE or GitLab EE project, the
-pipeline for that commit will have a `trigger-omnibus` job inside `e2e:package-and-test` child pipeline in the `.pre` stage.
+pipeline for that commit will have a `trigger-omnibus` job inside `e2e:test-on-omnibus-ee` child pipeline in the `.pre` stage.
 
 ![Trigger omnibus job](img/trigger_omnibus_v16_3.png)
 

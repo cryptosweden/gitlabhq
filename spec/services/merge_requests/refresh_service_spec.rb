@@ -26,7 +26,7 @@ RSpec.describe MergeRequests::RefreshService, feature_category: :code_review_wor
         target_branch: 'feature',
         target_project: @project,
         auto_merge_enabled: true,
-        auto_merge_strategy: AutoMergeService::STRATEGY_MERGE_WHEN_PIPELINE_SUCCEEDS,
+        auto_merge_strategy: AutoMergeService::STRATEGY_MERGE_WHEN_CHECKS_PASS,
         merge_user: @user
       )
 
@@ -37,7 +37,7 @@ RSpec.describe MergeRequests::RefreshService, feature_category: :code_review_wor
         target_branch: 'test',
         target_project: @project,
         auto_merge_enabled: true,
-        auto_merge_strategy: AutoMergeService::STRATEGY_MERGE_WHEN_PIPELINE_SUCCEEDS,
+        auto_merge_strategy: AutoMergeService::STRATEGY_MERGE_WHEN_CHECKS_PASS,
         merge_user: @user
       )
 
@@ -120,8 +120,8 @@ RSpec.describe MergeRequests::RefreshService, feature_category: :code_review_wor
       end
 
       it 'triggers mergeRequestMergeStatusUpdated GraphQL subscription conditionally' do
-        expect(GraphqlTriggers).to receive(:merge_request_merge_status_updated).with(@merge_request)
-        expect(GraphqlTriggers).to receive(:merge_request_merge_status_updated).with(@another_merge_request)
+        expect(GraphqlTriggers).to receive(:merge_request_merge_status_updated).twice.with(@merge_request)
+        expect(GraphqlTriggers).to receive(:merge_request_merge_status_updated).twice.with(@another_merge_request)
         expect(GraphqlTriggers).not_to receive(:merge_request_merge_status_updated).with(@fork_merge_request)
 
         refresh_service.execute(@oldrev, @newrev, 'refs/heads/master')
@@ -240,10 +240,22 @@ RSpec.describe MergeRequests::RefreshService, feature_category: :code_review_wor
         it 'create detached merge request pipeline with commits' do
           expect { subject }
             .to change { @merge_request.pipelines_for_merge_request.count }.by(1)
-            .and change { @another_merge_request.pipelines_for_merge_request.count }.by(0)
+            .and not_change { @another_merge_request.pipelines_for_merge_request.count }
 
           expect(@merge_request.has_commits?).to be_truthy
           expect(@another_merge_request.has_commits?).to be_falsy
+        end
+
+        context 'when push is a branch removal' do
+          before do
+            # If @newrev is a blank SHA, it means the ref has been removed
+            @newrev = Gitlab::Git::SHA1_BLANK_SHA
+          end
+
+          it 'does not create detached merge request pipeline' do
+            expect { subject }
+              .not_to change { @merge_request.pipelines_for_merge_request.count }
+          end
         end
 
         context 'when "push_options: nil" is passed' do
@@ -254,7 +266,7 @@ RSpec.describe MergeRequests::RefreshService, feature_category: :code_review_wor
           it 'creates a detached merge request pipeline with commits' do
             expect { subject }
               .to change { @merge_request.pipelines_for_merge_request.count }.by(1)
-              .and change { @another_merge_request.pipelines_for_merge_request.count }.by(0)
+              .and not_change { @another_merge_request.pipelines_for_merge_request.count }
 
             expect(@merge_request.has_commits?).to be_truthy
             expect(@another_merge_request.has_commits?).to be_falsy
@@ -270,7 +282,7 @@ RSpec.describe MergeRequests::RefreshService, feature_category: :code_review_wor
           it 'creates a skipped detached merge request pipeline with commits' do
             expect { subject }
               .to change { @merge_request.pipelines_for_merge_request.count }.by(1)
-              .and change { @another_merge_request.pipelines_for_merge_request.count }.by(0)
+              .and not_change { @another_merge_request.pipelines_for_merge_request.count }
 
             expect(@merge_request.has_commits?).to be_truthy
             expect(@another_merge_request.has_commits?).to be_falsy
@@ -531,6 +543,15 @@ RSpec.describe MergeRequests::RefreshService, feature_category: :code_review_wor
 
       context 'With merged MR that contains the same SHA' do
         before do
+          @merge_request.head_pipeline = create(
+            :ci_pipeline,
+            :success,
+            project: @merge_request.source_project,
+            ref: @merge_request.source_branch,
+            sha: @merge_request.diff_head_sha)
+
+          @merge_request.update_head_pipeline
+
           # Merged via UI
           MergeRequests::MergeService
             .new(project: @merge_request.target_project, current_user: @user, params: { sha: @merge_request.diff_head_sha })
@@ -869,10 +890,10 @@ RSpec.describe MergeRequests::RefreshService, feature_category: :code_review_wor
           target_project: @project
         )
 
-        commits = draft_merge_request.commits
+        commits = draft_merge_request.commits(load_from_gitaly: true)
         oldrev = commits.last.id
         newrev = commits.first.id
-        draft_commit = draft_merge_request.commits.find(&:draft?)
+        draft_commit = commits.find(&:draft?)
 
         refresh_service.execute(oldrev, newrev, 'refs/heads/wip')
 
@@ -980,12 +1001,6 @@ RSpec.describe MergeRequests::RefreshService, feature_category: :code_review_wor
         let(:auto_merge_strategy) { AutoMergeService::STRATEGY_MERGE_WHEN_CHECKS_PASS }
       end
     end
-
-    context 'when auto merge strategy is MWPS' do
-      it_behaves_like 'abort ff merge requests with auto merges' do
-        let(:auto_merge_strategy) { AutoMergeService::STRATEGY_MERGE_WHEN_PIPELINE_SUCCEEDS }
-      end
-    end
   end
 
   describe '#abort_auto_merges' do
@@ -1000,7 +1015,7 @@ RSpec.describe MergeRequests::RefreshService, feature_category: :code_review_wor
         target_project: project,
         merge_user: user,
         auto_merge_enabled: true,
-        auto_merge_strategy: AutoMergeService::STRATEGY_MERGE_WHEN_PIPELINE_SUCCEEDS
+        auto_merge_strategy: AutoMergeService::STRATEGY_MERGE_WHEN_CHECKS_PASS
       )
     end
 
@@ -1018,7 +1033,7 @@ RSpec.describe MergeRequests::RefreshService, feature_category: :code_review_wor
       merge_request.reload
     end
 
-    it 'aborts MWPS for merge requests' do
+    it 'aborts auto merge for merge requests' do
       expect(merge_request.auto_merge_enabled?).to be_falsey
       expect(merge_request.merge_user).to be_nil
     end
@@ -1026,7 +1041,7 @@ RSpec.describe MergeRequests::RefreshService, feature_category: :code_review_wor
     context 'when merge params contains up-to-date sha' do
       let(:merge_sha) { newrev }
 
-      it 'maintains MWPS for merge requests' do
+      it 'maintains auto merge for merge requests' do
         expect(merge_request.auto_merge_enabled?).to be_truthy
         expect(merge_request.merge_user).to eq(user)
       end

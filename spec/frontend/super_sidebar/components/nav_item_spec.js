@@ -1,6 +1,6 @@
+import { nextTick } from 'vue';
 import { GlBadge, GlButton, GlAvatar } from '@gitlab/ui';
 import { RouterLinkStub } from '@vue/test-utils';
-import { nextTick } from 'vue';
 import { mountExtended, extendedWrapper } from 'helpers/vue_test_utils_helper';
 import NavItem from '~/super_sidebar/components/nav_item.vue';
 import NavItemRouterLink from '~/super_sidebar/components/nav_item_router_link.vue';
@@ -32,14 +32,14 @@ describe('NavItem component', () => {
       stubs: {
         RouterLink: {
           ...RouterLinkStub,
-          render() {
+          render(h) {
             const children = this.$scopedSlots.default({
               href: '/foo',
               isActive: false,
               navigate: jest.fn(),
               ...routerLinkSlotProps,
             });
-            return children;
+            return h('a', children);
           },
         },
       },
@@ -47,7 +47,7 @@ describe('NavItem component', () => {
   };
 
   describe('pills', () => {
-    it.each([0, 5, 3.4, 'foo', '10%'])('item with pill_data `%p` renders a pill', (pillCount) => {
+    it.each([0, 5, 3.4, 'foo', '10%'])('item with pill_count `%p` renders a pill', (pillCount) => {
       createWrapper({ item: { title: 'Foo', pill_count: pillCount } });
 
       expect(findPill().text()).toBe(pillCount.toString());
@@ -75,7 +75,9 @@ describe('NavItem component', () => {
       };
 
       it('updates the pill count', async () => {
-        createWrapper({ item: { id: itemIdForUpdate, pill_count: initialPillValue } });
+        createWrapper({
+          item: { id: itemIdForUpdate, pill_count: initialPillValue, pill_count_dynamic: true },
+        });
 
         await triggerPillValueUpdate();
 
@@ -83,7 +85,9 @@ describe('NavItem component', () => {
       });
 
       it('does not update the pill count for non matching item id', async () => {
-        createWrapper({ item: { id: '_non_matching_id_', pill_count: initialPillValue } });
+        createWrapper({
+          item: { id: '_non_matching_id_', pill_count: initialPillValue, pill_count_dynamic: true },
+        });
 
         await triggerPillValueUpdate();
 
@@ -100,6 +104,62 @@ describe('NavItem component', () => {
         // https://gitlab.com/gitlab-org/gitlab/-/issues/428246
         // This is testing specific async behaviour that was before missed
         await wrapper.setProps({ item: { title: 'Foo', pill_count: 10 } });
+        expect(findPill().text()).toBe('10');
+      });
+    });
+
+    it.each([null, undefined, false, true, '', NaN, Number.POSITIVE_INFINITY])(
+      'if `pill_count_field` field is `%s`, does not render pill',
+      (value) => {
+        createWrapper({
+          item: {
+            pill_count: 100,
+            pill_count_field: 'test',
+          },
+          props: {
+            asyncCount: {
+              test: value,
+            },
+          },
+        });
+        expect(findPill().exists()).toBe(false);
+      },
+    );
+
+    describe('if asyncCount `pill_count_field` exists, use it to get count', () => {
+      it.each`
+        pillCountField                       | result
+        ${'openIssuesCount'}                 | ${0}
+        ${'openIssuesCount'}                 | ${10}
+        ${'openIssuesCount'}                 | ${'100.2k'}
+        ${'todos'}                           | ${1}
+        ${'assigned_issues'}                 | ${2}
+        ${'assigned_merge_requests'}         | ${3}
+        ${'review_requested_merge_requests'} | ${4}
+        ${'total_merge_requests'}            | ${7}
+      `(
+        'returns `$result` when nav item `pill_count_field` is `$pillCountField` and count is `$result`',
+        ({ pillCountField, result }) => {
+          createWrapper({
+            item: {
+              pill_count: 100,
+              pill_count_field: pillCountField,
+            },
+            props: {
+              asyncCount: {
+                [pillCountField]: result,
+              },
+            },
+          });
+          expect(findPill().text()).toBe(`${result}`);
+        },
+      );
+    });
+
+    describe('if `pill_count_field` does not exist, use `pill_count` value`', () => {
+      it('renders `pill_count_field` value based on item type', () => {
+        createWrapper({ item: { title: 'Foo', pill_count: 10, pill_count_field: null } });
+
         expect(findPill().text()).toBe('10');
       });
     });
@@ -174,6 +234,15 @@ describe('NavItem component', () => {
         expect(pinButton.classes()).toContain('gl-pointer-events-none');
       });
     });
+  });
+
+  it('applies correct aria-label', () => {
+    const titleString = 'Hello, world!';
+    createWrapper({
+      item: { title: titleString },
+    });
+
+    expect(findLink().attributes('aria-label')).toEqual(titleString);
   });
 
   it('applies custom link classes', () => {

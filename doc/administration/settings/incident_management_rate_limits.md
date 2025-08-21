@@ -1,17 +1,20 @@
 ---
-stage: Monitor
-group: Respond
+stage: Analytics
+group: Platform Insights
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+gitlab_dedicated: yes
+title: Incident management rate limits
 ---
 
-# Incident management rate limits
+{{< details >}}
 
-DETAILS:
-**Tier:** Ultimate
-**Offering:** Self-managed
+- Tier: Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
+
+{{< /details >}}
 
 You can limit the number of inbound alerts for [incidents](../../operations/incident_management/incidents.md)
-that can be created in a period of time. The inbound [incident management](../../operations/incident_management/index.md)
+that can be created in a period of time. The inbound [incident management](../../operations/incident_management/_index.md)
 alert limit can help prevent overloading your incident responders by reducing the
 number of alerts or duplicate issues.
 
@@ -31,7 +34,7 @@ Requests that exceed the limit are logged into `auth.log`.
 
 To set inbound incident management alert limits:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > Network**.
 1. Expand **Incident Management Limits**.
 1. Select the **Enable Incident Management inbound alert limit** checkbox.

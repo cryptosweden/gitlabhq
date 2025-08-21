@@ -2,11 +2,11 @@
 stage: AI-powered
 group: Duo Chat
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: GitLab Duo Chat best practices
 ---
 
-# GitLab Duo Chat best practices
-
-When prompting GitLab Duo Chat with questions, keep the following best practices in mind.
+When prompting GitLab Duo Chat with questions, apply the following best practices
+to receive concrete examples and specific guidance.
 
 ## Have a conversation
 
@@ -85,7 +85,7 @@ Explain labels in GitLab. Provide an example for efficient usage with issue boar
 
 ## Reset when needed
 
-Use `/reset` if chat gets stuck on a wrong track. Start fresh.
+Use `/reset` if Chat gets stuck on a wrong track. Start fresh.
 
 ## Refine slash command prompts
 
@@ -103,6 +103,6 @@ Or:
 
 ## Related topics
 
-- Duo Chat best practices [blog post](https://about.gitlab.com/blog/2024/04/02/10-best-practices-for-using-ai-powered-gitlab-duo-chat/)
+- GitLab Duo Chat best practices [blog post](https://about.gitlab.com/blog/2024/04/02/10-best-practices-for-using-ai-powered-gitlab-duo-chat/)
 - [Videos on how to use Chat](https://www.youtube.com/playlist?list=PL05JrBw4t0Kp5uj_JgQiSvHw1jQu0mSVZ)
-- [Request a Duo Chat learning session](https://gitlab.com/groups/gitlab-com/marketing/developer-relations/-/epics/476)
+- [Request a GitLab Duo Chat learning session](https://gitlab.com/groups/gitlab-com/marketing/developer-relations/-/epics/476)

@@ -1,62 +1,62 @@
 import { shallowMount } from '@vue/test-utils';
+import { createTestingPinia } from '@pinia/testing';
 import Vue from 'vue';
-// eslint-disable-next-line no-restricted-imports
-import Vuex from 'vuex';
 import { throttle } from 'lodash';
+import { PiniaVuePlugin } from 'pinia';
 import DiffView from '~/diffs/components/diff_view.vue';
+import DraftNote from '~/batch_comments/components/draft_note.vue';
+import { globalAccessorPlugin } from '~/pinia/plugins';
+import { useLegacyDiffs } from '~/diffs/stores/legacy_diffs';
+import { useNotes } from '~/notes/store/legacy_notes';
+import { createCustomGetters } from 'helpers/pinia_helpers';
+
+Vue.use(PiniaVuePlugin);
 
 jest.mock('lodash/throttle', () => jest.fn((fn) => fn));
 const lodash = jest.requireActual('lodash');
 
 describe('DiffView', () => {
+  let pinia;
+
   const DiffExpansionCell = { template: `<div/>` };
   const DiffRow = { template: `<div/>` };
   const DiffCommentCell = { template: `<div/>` };
-  const DraftNote = { template: `<div/>` };
-  const showCommentForm = jest.fn();
-  const setSelectedCommentPosition = jest.fn();
   const getDiffRow = (wrapper) => wrapper.findComponent(DiffRow).vm;
+  const findNotesHolder = (wrapper) => wrapper.find('[data-testid="notes-holder"]');
 
   const createWrapper = ({ props } = {}) => {
-    Vue.use(Vuex);
-
-    const batchComments = {
-      getters: {
-        shouldRenderDraftRow: () => false,
-        shouldRenderParallelDraftRow: () => () => true,
-        draftsForLine: () => false,
-        draftsForFile: () => false,
-        hasParallelDraftLeft: () => false,
-        hasParallelDraftRight: () => false,
-      },
-      namespaced: true,
-    };
-    const diffs = {
-      actions: { showCommentForm },
-      getters: { commitId: () => 'abc123', fileLineCoverage: () => ({}) },
-      namespaced: true,
-    };
-    const notes = {
-      actions: { setSelectedCommentPosition },
-      state: { selectedCommentPosition: null, selectedCommentPositionHover: null },
-    };
-
-    const store = new Vuex.Store({
-      modules: { diffs, notes, batchComments },
-    });
-
     const propsData = {
       diffFile: { file_hash: '123' },
       diffLines: [],
+      autosaveKey: 'autosave',
       ...props,
     };
 
-    const stubs = { DiffExpansionCell, DiffRow, DiffCommentCell, DraftNote };
-    return shallowMount(DiffView, { propsData, store, stubs });
+    const stubs = { DiffExpansionCell, DiffRow, DiffCommentCell };
+    return shallowMount(DiffView, { propsData, pinia, stubs });
   };
 
   beforeEach(() => {
     throttle.mockImplementation(lodash.throttle);
+    pinia = createTestingPinia({
+      plugins: [
+        globalAccessorPlugin,
+        createCustomGetters(() => ({
+          legacyNotes: {},
+          legacyDiffs: {},
+          batchComments: {
+            shouldRenderDraftRow: () => false,
+            shouldRenderParallelDraftRow: () => () => true,
+            draftsForLine: () => false,
+            draftsForFile: () => false,
+            hasParallelDraftLeft: () => false,
+            hasParallelDraftRight: () => false,
+          },
+        })),
+      ],
+    });
+    useLegacyDiffs().commit = { id: 'abc123' };
+    useNotes();
   });
 
   afterEach(() => {
@@ -79,7 +79,7 @@ describe('DiffView', () => {
           inline: type === 'inline',
         },
       });
-      expect(wrapper.findAllComponents(DiffCommentCell).length).toBe(total);
+      expect(wrapper.findAllComponents(DiffCommentCell)).toHaveLength(total);
       expect(wrapper.find(container).findComponent(DiffCommentCell).exists()).toBe(true);
     },
   );
@@ -89,6 +89,45 @@ describe('DiffView', () => {
       props: { diffLines: [{ renderCommentRow: true, left: { lineDrafts: [{ isDraft: true }] } }] },
     });
     expect(wrapper.findComponent(DraftNote).exists()).toBe(true);
+    expect(wrapper.findComponent(DraftNote).props('autosaveKey')).toBe('autosave');
+  });
+
+  describe('notes-holder class assignment', () => {
+    it.each`
+      leftType     | rightType    | hasFullWidthClass
+      ${null}      | ${null}      | ${true}
+      ${null}      | ${'new'}     | ${false}
+      ${'old'}     | ${null}      | ${false}
+      ${'old'}     | ${'new'}     | ${false}
+      ${'context'} | ${'context'} | ${false}
+    `(
+      'applies diff-grid-comments-full-width class when leftType=$leftType and rightType=$rightType',
+      ({ leftType, rightType, hasFullWidthClass }) => {
+        const line = {
+          renderCommentRow: true,
+          left: {
+            renderDiscussion: true,
+            type: leftType,
+          },
+          right: {
+            renderDiscussion: true,
+            type: rightType,
+          },
+        };
+
+        const wrapper = createWrapper({
+          props: { diffLines: [line] },
+        });
+
+        const notesHolder = findNotesHolder(wrapper);
+
+        if (hasFullWidthClass) {
+          expect(notesHolder.classes()).toContain('diff-grid-comments-full-width');
+        } else {
+          expect(notesHolder.classes()).not.toContain('diff-grid-comments-full-width');
+        }
+      },
+    );
   });
 
   describe('drag operations', () => {
@@ -105,14 +144,14 @@ describe('DiffView', () => {
       diffRow.$emit('startdragging', { line: { chunk: 0 } });
       diffRow.$emit('enterdragging', { chunk: 1 });
 
-      expect(setSelectedCommentPosition).not.toHaveBeenCalled();
+      expect(useNotes().setSelectedCommentPosition).not.toHaveBeenCalled();
     });
 
     it.each`
       start | end  | expectation
-      ${1}  | ${2} | ${{ start: { index: 1 }, end: { index: 2 } }}
-      ${2}  | ${1} | ${{ start: { index: 1 }, end: { index: 2 } }}
-      ${1}  | ${1} | ${{ start: { index: 1 }, end: { index: 1 } }}
+      ${1}  | ${2} | ${{ start: { chunk: 1, index: 1 }, end: { chunk: 1, index: 2 } }}
+      ${2}  | ${1} | ${{ start: { chunk: 1, index: 1 }, end: { chunk: 1, index: 2 } }}
+      ${1}  | ${1} | ${{ start: { chunk: 1, index: 1 }, end: { chunk: 1, index: 1 } }}
     `(
       'calls `setSelectedCommentPosition` with correct `updatedLineRange`',
       ({ start, end, expectation }) => {
@@ -122,9 +161,7 @@ describe('DiffView', () => {
         diffRow.$emit('startdragging', { line: { chunk: 1, index: start } });
         diffRow.$emit('enterdragging', { chunk: 1, index: end });
 
-        const arg = setSelectedCommentPosition.mock.calls[0][1];
-
-        expect(arg).toMatchObject(expectation);
+        expect(useNotes().setSelectedCommentPosition).toHaveBeenCalledWith(expectation);
       },
     );
 
@@ -137,7 +174,7 @@ describe('DiffView', () => {
 
       diffRow.$emit('stopdragging');
       expect(wrapper.vm.idState.dragStart).toBeNull();
-      expect(showCommentForm).toHaveBeenCalled();
+      expect(useLegacyDiffs().showCommentForm).toHaveBeenCalled();
     });
 
     it('throttles multiple calls to enterdragging', () => {
@@ -151,7 +188,7 @@ describe('DiffView', () => {
 
       jest.runOnlyPendingTimers();
 
-      expect(setSelectedCommentPosition).toHaveBeenCalledTimes(1);
+      expect(useNotes().setSelectedCommentPosition).toHaveBeenCalledTimes(1);
     });
   });
 });

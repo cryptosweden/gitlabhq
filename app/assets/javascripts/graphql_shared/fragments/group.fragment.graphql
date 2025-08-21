@@ -1,0 +1,34 @@
+fragment Group on Group {
+  id
+  name
+  fullPath
+  fullName
+  parent {
+    id
+  }
+  webUrl
+  descriptionHtml
+  avatarUrl
+  descendantGroupsCount
+  projectsCount
+  groupMembersCount
+  visibility
+  createdAt
+  updatedAt
+  userPermissions {
+    archiveGroup
+    canLeave
+    removeGroup
+    viewEditPage
+    adminAllResources @gl_introduced(version: "18.3.0")
+  }
+  maxAccessLevel {
+    integerValue
+  }
+  isLinkedToSubscription
+  archived
+  markedForDeletion
+  isSelfDeletionInProgress
+  isSelfDeletionScheduled
+  permanentDeletionDate
+}

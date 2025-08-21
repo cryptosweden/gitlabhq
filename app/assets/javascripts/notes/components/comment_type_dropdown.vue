@@ -56,12 +56,6 @@ export default {
     },
   },
   computed: {
-    isNoteTypeComment() {
-      return this.noteType === constants.COMMENT;
-    },
-    isNoteTypeDiscussion() {
-      return this.noteType === constants.DISCUSSION;
-    },
     dropdownCommentButtonTitle() {
       const { comment, internalComment } = this.$options.i18n.submitButton;
 
@@ -137,12 +131,12 @@ export default {
 
 <template>
   <gl-button-group
-    class="js-comment-button js-comment-submit-button comment-type-dropdown gl-w-full gl-mb-3 gl-md-w-auto gl-md-mb-0"
+    class="js-comment-button js-comment-submit-button comment-type-dropdown gl-mb-3 gl-w-full sm:gl-mb-0 sm:gl-w-auto"
     :data-track-label="trackingLabel"
     data-track-action="click_button"
     data-testid="comment-button"
   >
-    <gl-button variant="confirm" :disabled="disabled" @click="handleClick">
+    <gl-button type="submit" variant="confirm" :disabled="disabled" @click="handleClick">
       {{ commentButtonTitle }}
     </gl-button>
     <gl-collapsible-listbox

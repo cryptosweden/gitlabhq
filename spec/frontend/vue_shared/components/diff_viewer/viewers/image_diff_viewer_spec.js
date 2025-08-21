@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { GREEN_BOX_IMAGE_URL, RED_BOX_IMAGE_URL } from 'spec/test_constants';
 import ImageDiffViewer from '~/vue_shared/components/diff_viewer/viewers/image_diff_viewer.vue';
+import ImageViewer from '~/vue_shared/components/content_viewer/viewers/image_viewer.vue';
 
 describe('ImageDiffViewer component', () => {
   const requiredProps = {
@@ -46,8 +47,8 @@ describe('ImageDiffViewer component', () => {
     createComponent(allProps);
     const metaInfoElements = wrapper.findAll('.image-info');
 
-    expect(wrapper.find('.added img').attributes('src')).toBe(GREEN_BOX_IMAGE_URL);
-    expect(wrapper.find('.deleted img').attributes('src')).toBe(RED_BOX_IMAGE_URL);
+    expect(wrapper.find('.added img').element.src).toBe(GREEN_BOX_IMAGE_URL);
+    expect(wrapper.find('.deleted img').element.src).toBe(RED_BOX_IMAGE_URL);
     expect(wrapper.find('.view-modes-menu li.active').text()).toBe('2-up');
     expect(wrapper.find('.view-modes-menu li:nth-child(2)').text()).toBe('Swipe');
     expect(wrapper.find('.view-modes-menu li:nth-child(3)').text()).toBe('Onion skin');
@@ -56,17 +57,22 @@ describe('ImageDiffViewer component', () => {
     expect(metaInfoElements.at(1).text()).toBe('1.00 KiB');
   });
 
+  it('renders unencoded image path', () => {
+    createComponent({ ...allProps, encodePath: false });
+    expect(wrapper.findComponent(ImageViewer).props('encodePath')).toBe(false);
+  });
+
   it('renders image diff for new', () => {
     createComponent({ ...allProps, diffMode: 'new', oldPath: '' });
 
-    expect(wrapper.find('.added img').attributes('src')).toBe(GREEN_BOX_IMAGE_URL);
+    expect(wrapper.find('.added img').element.src).toBe(GREEN_BOX_IMAGE_URL);
     expect(wrapper.find('.image-info').text()).toBe('1.00 KiB');
   });
 
   it('renders image diff for deleted', () => {
     createComponent({ ...allProps, diffMode: 'deleted', newPath: '' });
 
-    expect(wrapper.find('.deleted img').attributes('src')).toBe(RED_BOX_IMAGE_URL);
+    expect(wrapper.find('.deleted img').element.src).toBe(RED_BOX_IMAGE_URL);
     expect(wrapper.find('.image-info').text()).toBe('2.00 KiB');
   });
 
@@ -76,7 +82,7 @@ describe('ImageDiffViewer component', () => {
       { 'image-overlay': '<span class="overlay">test</span>' },
     );
 
-    expect(wrapper.find('img').attributes('src')).toBe(GREEN_BOX_IMAGE_URL);
+    expect(wrapper.find('img').element.src).toBe(GREEN_BOX_IMAGE_URL);
     expect(wrapper.find('.overlay').exists()).toBe(true);
     expect(wrapper.find('.image-info').text()).toBe('2.00 KiB');
   });

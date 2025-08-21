@@ -53,16 +53,16 @@ export const MISSING_OR_DELETED_IMAGE_MESSAGE = s__(
   'ContainerRegistry|The requested image repository does not exist or has been deleted. If you think this is an error, try refreshing the page.',
 );
 
-export const MISSING_OR_DELETED_IMAGE_BREADCRUMB = s__(
-  'ContainerRegistry|Image repository not found',
-);
-
 export const ADMIN_GARBAGE_COLLECTION_TIP = s__(
   'ContainerRegistry|Remember to run %{docLinkStart}garbage collection%{docLinkEnd} to remove the stale data from storage.',
 );
 
 export const MISSING_MANIFEST_WARNING_TOOLTIP = s__(
   'ContainerRegistry|Invalid tag: missing manifest digest',
+);
+
+export const MANIFEST_MEDIA_TYPE_ROW_TEXT = s__(
+  'ContainerRegistry|Manifest media type: %{mediaType}',
 );
 
 export const CREATED_AT = s__('ContainerRegistry|Created %{time}');
@@ -168,8 +168,14 @@ export const IMAGE_STATUS_ALERT_TYPE = {
 };
 
 export const PACKAGE_DELETE_HELP_PAGE_PATH = helpPagePath(
-  'user/packages/container_registry/index',
-  {
-    anchor: 'delete-images',
-  },
+  'user/packages/container_registry/delete_container_registry_images',
 );
+
+export const DOCKER_MEDIA_TYPE = 'application/vnd.docker.distribution.manifest.list.v2+json';
+export const OCI_MEDIA_TYPE = 'application/vnd.oci.image.index.v1+json';
+
+export const MinimumAccessLevelText = {
+  ADMIN: s__('AdminUsers|Administrator'),
+  MAINTAINER: __('Maintainer'),
+  OWNER: __('Owner'),
+};

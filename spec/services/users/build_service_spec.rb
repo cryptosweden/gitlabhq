@@ -8,11 +8,12 @@ RSpec.describe Users::BuildService, feature_category: :user_management do
   describe '#execute' do
     let_it_be(:current_user) { nil }
     let_it_be(:organization) { create(:organization) }
+    let_it_be(:organization_params) { { organization_id: organization.id, organization_access_level: 'owner' } }
 
     let(:base_params) do
       build_stubbed(:user)
         .slice(:first_name, :last_name, :name, :username, :email, :password)
-        .merge(organization_id: organization.id)
+        .merge(organization_params)
     end
 
     let(:params) { base_params }
@@ -23,18 +24,6 @@ RSpec.describe Users::BuildService, feature_category: :user_management do
         user = service.execute
 
         expect { user.save! }.to change { UserDetail.count }.by(1)
-      end
-
-      context 'when create_user_details_all_user_creation feature flag is disabled' do
-        before do
-          stub_feature_flags(create_user_details_all_user_creation: false)
-        end
-
-        it 'does not create the user_detail record' do
-          user = service.execute
-
-          expect { user.save! }.not_to change { UserDetail.count }
-        end
       end
     end
 
@@ -113,6 +102,12 @@ RSpec.describe Users::BuildService, feature_category: :user_management do
 
       it_behaves_like 'common user build items'
 
+      it 'creates organization_user with access level from params' do
+        organization_user_data = user.organization_users.first
+
+        expect(organization_user_data.access_level).to eq(organization_params[:organization_access_level])
+      end
+
       context 'with allowed params' do
         let(:params) do
           {
@@ -120,6 +115,7 @@ RSpec.describe Users::BuildService, feature_category: :user_management do
             admin: 1,
             avatar: anything,
             bio: 1,
+            bot_namespace: create(:group),
             can_create_group: 1,
             color_scheme_id: 1,
             color_mode_id: 1,
@@ -136,26 +132,28 @@ RSpec.describe Users::BuildService, feature_category: :user_management do
             projects_limit: 1,
             remember_me: 1,
             skip_confirmation: 1,
-            skype: 1,
             theme_id: 1,
             twitter: 1,
             username: 1,
             website_url: 1,
             private_profile: 1,
-            organization: 1,
+            user_detail_organization: 1,
             location: 1,
             public_email: 1,
             user_type: 'project_bot',
             note: 1,
-            view_diffs_file_by_file: 1,
-            organization_id: organization.id
+            view_diffs_file_by_file: 1
           }
         end
 
-        let(:user_params) { params.except(:organization_id) }
+        let(:user_params) { params }
 
         it 'sets all allowed attributes' do
-          expect(User).to receive(:new).with(hash_including(user_params)).and_call_original
+          expect_next_instance_of(User) do |instance|
+            # Due to skip_confirmation not being an actual attribute, we need to verify this way instead
+            # of checking the returned user from execute.
+            expect(instance).to receive(:assign_attributes).with(hash_including(user_params)).and_call_original
+          end
 
           service.execute
         end

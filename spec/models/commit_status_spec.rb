@@ -5,8 +5,8 @@ require 'spec_helper'
 RSpec.describe CommitStatus, feature_category: :continuous_integration do
   let_it_be(:project) { create(:project, :repository) }
 
-  let_it_be(:pipeline) do
-    create(:ci_pipeline, project: project, sha: project.commit.id)
+  let_it_be_with_reload(:pipeline) do
+    create(:ci_pipeline, project: project, sha: project.commit.id, user: create(:user))
   end
 
   let(:commit_status) { create_status }
@@ -22,12 +22,18 @@ RSpec.describe CommitStatus, feature_category: :continuous_integration do
       .with_foreign_key(:commit_id).inverse_of(:statuses)
   end
 
+  it do
+    is_expected.to belong_to(:ci_stage).class_name('Ci::Stage')
+      .with_foreign_key(:stage_id)
+  end
+
   it { is_expected.to belong_to(:user) }
   it { is_expected.to belong_to(:project) }
   it { is_expected.to belong_to(:auto_canceled_by) }
 
   it { is_expected.to validate_presence_of(:name) }
   it { is_expected.to validate_presence_of(:ci_stage) }
+  it { is_expected.to validate_presence_of(:project) }
   it { is_expected.to validate_inclusion_of(:status).in_array(%w[pending running failed success canceled]) }
 
   it { is_expected.to validate_length_of(:ref).is_at_most(255) }
@@ -43,6 +49,13 @@ RSpec.describe CommitStatus, feature_category: :continuous_integration do
   it { is_expected.to respond_to :pending? }
   it { is_expected.not_to be_retried }
   it { expect(described_class.primary_key).to eq('id') }
+
+  describe 'partition query' do
+    subject { commit_status.reload }
+
+    it_behaves_like 'including partition key for relation', :pipeline
+    it_behaves_like 'including partition key for relation', :ci_stage
+  end
 
   describe '#author' do
     subject { commit_status.author }
@@ -174,7 +187,7 @@ RSpec.describe CommitStatus, feature_category: :continuous_integration do
   describe '.cancelable' do
     subject { described_class.cancelable }
 
-    %i[running pending waiting_for_resource waiting_for_callback preparing created scheduled].each do |status|
+    %i[running pending waiting_for_resource waiting_for_callback preparing created scheduled manual].each do |status|
       context "when #{status} commit status" do
         let!(:commit_status) { create(:commit_status, status, pipeline: pipeline) }
 
@@ -182,13 +195,19 @@ RSpec.describe CommitStatus, feature_category: :continuous_integration do
       end
     end
 
-    %i[failed success skipped canceled manual].each do |status|
+    %i[failed success skipped canceled].each do |status|
       context "when #{status} commit status" do
         let!(:commit_status) { create(:commit_status, status, pipeline: pipeline) }
 
         it { is_expected.to be_empty }
       end
     end
+  end
+
+  describe '#supports_force_cancel?' do
+    subject { commit_status.supports_force_cancel? }
+
+    it { is_expected.to eq(false) }
   end
 
   describe '#started?' do
@@ -366,6 +385,7 @@ RSpec.describe CommitStatus, feature_category: :continuous_integration do
       before do
         commit_status.queued_at = Time.current - 1.minute
         commit_status.started_at = nil
+        commit_status.finished_at = nil
       end
 
       it { is_expected.to eq(1.minute) }
@@ -589,6 +609,44 @@ RSpec.describe CommitStatus, feature_category: :continuous_integration do
 
     it 'returns statuses that match type' do
       expect(described_class.with_type(::Ci::Build)).to contain_exactly(have_attributes(name: 'build job'))
+    end
+  end
+
+  describe '.ref_protected' do
+    subject { described_class.ref_protected }
+
+    context 'when protected is true' do
+      let!(:job) { create_status(protected: true) }
+
+      it { is_expected.to include(job) }
+    end
+
+    context 'when protected is false' do
+      let!(:job) { create_status(protected: false) }
+
+      it { is_expected.not_to include(job) }
+    end
+
+    context 'when protected is nil' do
+      let!(:job) { create_status }
+
+      before do
+        job.update_attribute(:protected, nil)
+      end
+
+      it { is_expected.not_to include(job) }
+    end
+  end
+
+  describe '.for_user' do
+    subject { described_class.for_user(pipeline.user).order(:id) }
+
+    let(:statuses) do
+      [create_status(user: create(:user)), create_status(user: pipeline.user)]
+    end
+
+    it 'returns statuses for the specified user' do
+      is_expected.to eq(statuses.values_at(1))
     end
   end
 
@@ -832,76 +890,6 @@ RSpec.describe CommitStatus, feature_category: :continuous_integration do
     end
   end
 
-  describe 'ensure stage assignment' do
-    before do
-      stub_feature_flags(ci_remove_ensure_stage_service: false)
-    end
-
-    context 'when the feature flag ci_remove_ensure_stage_service is disabled' do
-      context 'when commit status has a stage_id assigned' do
-        let!(:stage) do
-          create(:ci_stage, project: project, pipeline: pipeline)
-        end
-
-        let(:commit_status) do
-          create(:commit_status, stage_id: stage.id, name: 'rspec', stage: 'test')
-        end
-
-        it 'does not create a new stage' do
-          expect { commit_status }.not_to change { Ci::Stage.count }
-          expect(commit_status.stage_id).to eq stage.id
-        end
-      end
-
-      context 'when commit status does not have a stage_id assigned' do
-        let(:commit_status) do
-          FactoryBot.build(:commit_status, name: 'rspec', stage: 'test', status: :success)
-        end
-
-        let(:stage) { Ci::Stage.first }
-
-        it 'creates a new stage', :sidekiq_might_not_need_inline do
-          expect { commit_status.save! }.to change { Ci::Stage.count }.by(1)
-
-          expect(stage.name).to eq 'test'
-          expect(stage.project).to eq commit_status.project
-          expect(stage.pipeline).to eq commit_status.pipeline
-          expect(stage.status).to eq commit_status.status
-          expect(commit_status.stage_id).to eq stage.id
-        end
-      end
-
-      context 'when commit status does not have stage but it exists' do
-        let!(:stage) do
-          create(:ci_stage, project: project, pipeline: pipeline, name: 'test')
-        end
-
-        let(:commit_status) do
-          FactoryBot.build(:commit_status, project: project, pipeline: pipeline, name: 'rspec', stage: 'test',
-            status: :success)
-        end
-
-        it 'uses existing stage', :sidekiq_might_not_need_inline do
-          expect { commit_status.save! }.not_to change { Ci::Stage.count }
-
-          expect(commit_status.stage_id).to eq stage.id
-          expect(stage.reload.status).to eq commit_status.status
-        end
-      end
-
-      context 'when commit status is being imported' do
-        let(:commit_status) do
-          FactoryBot.build(:commit_status, name: 'rspec', stage: 'test', importing: true)
-        end
-
-        it 'does not create a new stage' do
-          expect { commit_status.save! }.not_to change { Ci::Stage.count }
-          expect(commit_status.stage_id).not_to be_present
-        end
-      end
-    end
-  end
-
   describe '#all_met_to_become_pending?' do
     subject { commit_status.all_met_to_become_pending? }
 
@@ -1102,5 +1090,29 @@ RSpec.describe CommitStatus, feature_category: :continuous_integration do
     let(:attr_value) { :unknown_failure }
 
     it_behaves_like 'having enum with nil value'
+  end
+
+  describe '#archived?' do
+    before do
+      pipeline.update!(created_at: 1.day.ago)
+    end
+
+    subject { build_stubbed(:commit_status, pipeline: pipeline) }
+
+    context 'when archive_builds_in is set' do
+      before do
+        stub_application_setting(archive_builds_in_seconds: 3600)
+      end
+
+      it { is_expected.to be_archived }
+    end
+
+    context 'when archive_builds_in is not set' do
+      before do
+        stub_application_setting(archive_builds_in_seconds: nil)
+      end
+
+      it { is_expected.not_to be_archived }
+    end
   end
 end

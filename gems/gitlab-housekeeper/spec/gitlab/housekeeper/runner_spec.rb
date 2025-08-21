@@ -2,6 +2,7 @@
 
 require 'spec_helper'
 require 'gitlab/housekeeper/runner'
+require 'rspec/parameterized'
 
 # rubocop:disable RSpec/MultipleMemoizedHelpers -- there are lots of parameters at play
 RSpec.describe ::Gitlab::Housekeeper::Runner do
@@ -28,14 +29,17 @@ RSpec.describe ::Gitlab::Housekeeper::Runner do
     )
   end
 
+  let(:fake_keep_instance) { instance_double(::Gitlab::Housekeeper::Keep) }
+
   before do
-    fake_keep_instance = instance_double(::Gitlab::Housekeeper::Keep)
     allow(fake_keep).to receive(:new).and_return(fake_keep_instance)
 
-    allow(fake_keep_instance).to receive(:each_change)
+    allow(fake_keep_instance).to receive(:each_identified_change)
       .and_yield(change1)
       .and_yield(change2)
       .and_yield(change3)
+
+    allow(fake_keep_instance).to receive(:make_change!)
   end
 
   describe '#run' do
@@ -73,6 +77,12 @@ RSpec.describe ::Gitlab::Housekeeper::Runner do
 
       allow(gitlab_client).to receive(:non_housekeeper_changes)
         .and_return([])
+
+      allow(gitlab_client).to receive(:closed_merge_request_exists?)
+        .and_return(false)
+
+      allow(gitlab_client).to receive(:create_or_update_merge_request)
+        .and_return({ 'web_url' => 'https://example.com' })
 
       allow(::Gitlab::Housekeeper::Shell).to receive(:execute)
     end
@@ -155,24 +165,22 @@ RSpec.describe ::Gitlab::Housekeeper::Runner do
 
     context 'when given filter_identifiers' do
       it 'skips a change that does not match the filter_identifiers' do
-        # Branches get created
-        expect(git).to receive(:create_branch).with(change1)
-          .and_return('the-identifier-for-the-first-change')
-        allow(git).to receive(:in_branch).with('the-identifier-for-the-first-change')
-          .and_yield
-        expect(git).to receive(:create_commit).with(change1)
-
+        # Only change2 should pass the filter and get branches/commits created
         expect(git).to receive(:create_branch).with(change2)
           .and_return('the-identifier-for-the-second-change')
         allow(git).to receive(:in_branch).with('the-identifier-for-the-second-change')
           .and_yield
         expect(git).to receive(:create_commit).with(change2)
 
+        # change1 and change3 are filtered out, so they won't get branches/commits
+        expect(git).to receive(:create_branch).with(change1)
+          .and_return('the-identifier-for-the-first-change')
         expect(git).to receive(:create_branch).with(change3)
           .and_return('the-identifier-for-the-third-change')
-        allow(git).to receive(:in_branch).with('the-identifier-for-the-third-change')
-          .and_yield
-        expect(git).to receive(:create_commit).with(change3)
+
+        # No commits expected for filtered changes
+        expect(git).not_to receive(:create_commit).with(change1)
+        expect(git).not_to receive(:create_commit).with(change3)
 
         expect(::Gitlab::Housekeeper::Substitutor).to receive(:perform).with(change2)
 
@@ -206,6 +214,41 @@ RSpec.describe ::Gitlab::Housekeeper::Runner do
         end
       end
     end
+
+    context 'when change has context from each_identified_change' do
+      let(:change_with_context) do
+        change1.tap do |change|
+          change.context = { custom_data: 'test_value', file_count: 3 }
+        end
+      end
+
+      before do
+        allow(fake_keep_instance).to receive(:each_identified_change).and_yield(change_with_context)
+      end
+
+      it 'passes context to make_change! method' do
+        expect(fake_keep_instance).to receive(:make_change!) do |change|
+          expect(change.context[:custom_data]).to eq('test_value')
+          expect(change.context[:file_count]).to eq(3)
+        end
+
+        described_class.new(max_mrs: 1, keeps: [fake_keep]).run
+      end
+    end
+
+    context 'when make_change! updates change files after processing' do
+      it 'uses updated file list for commits and diffs' do
+        allow(fake_keep_instance).to receive(:make_change!) do |change|
+          change.changed_files = ['updated_file1.rb', 'updated_file2.rb']
+        end
+
+        expect(::Gitlab::Housekeeper::Shell).to receive(:execute)
+          .with('git', '--no-pager', 'diff', '--color=always', 'master',
+            'the-identifier-for-the-first-change', '--', 'updated_file1.rb', 'updated_file2.rb')
+
+        described_class.new(max_mrs: 1, keeps: [fake_keep]).run
+      end
+    end
   end
 
   describe '#housekeeper_fork_project_id' do
@@ -226,6 +269,82 @@ RSpec.describe ::Gitlab::Housekeeper::Runner do
 
     it 'defaults to HOUSEKEEPER_TARGET_PROJECT_ID env var' do
       expect(described_class.new.housekeeper_fork_project_id).to eq('456')
+    end
+  end
+
+  describe '.should_push_code?' do
+    using RSpec::Parameterized::TableSyntax
+
+    # rubocop:disable Lint/BinaryOperatorWithIdenticalOperands -- false positive rspec table syntax not binary operator
+    where(:already_approved, :push_when_approved, :code_update_required, :expected_result) do
+      true  | false | true  | false
+      true  | false | false | false
+      true  | true  | true  | true
+      true  | true  | false | false
+      false | true  | true  | true
+      false | true  | false | false
+    end
+    # rubocop:enable Lint/BinaryOperatorWithIdenticalOperands
+
+    with_them do
+      it "determines if we should push" do
+        change = instance_double(::Gitlab::Housekeeper::Change)
+
+        allow(change).to receive(:already_approved?).and_return(already_approved)
+        allow(change).to receive(:update_required?).with(:code).and_return(code_update_required)
+
+        result = described_class.should_push_code?(change, push_when_approved)
+        expect(result).to eq(expected_result)
+      end
+    end
+
+    context 'when a closed merge request exists' do
+      let(:closed_mr_change) { create_change(identifiers: ['closed-mr-branch']) }
+      let(:fake_keep_with_closed_mr) { instance_double(Class) }
+      let(:closed_mr_git) { instance_double(::Gitlab::Housekeeper::Git) }
+      let(:closed_mr_gitlab_client) { instance_double(::Gitlab::Housekeeper::GitlabClient) }
+
+      before do
+        stub_env('HOUSEKEEPER_FORK_PROJECT_ID', '123')
+        stub_env('HOUSEKEEPER_TARGET_PROJECT_ID', '456')
+
+        fake_keep_instance = instance_double(::Gitlab::Housekeeper::Keep)
+        allow(fake_keep_with_closed_mr).to receive(:new).and_return(fake_keep_instance)
+        allow(fake_keep_instance).to receive(:each_identified_change).and_yield(closed_mr_change)
+
+        allow(::Gitlab::Housekeeper::Git).to receive(:new).and_return(closed_mr_git)
+        allow(::Gitlab::Housekeeper::GitlabClient).to receive(:new).and_return(closed_mr_gitlab_client)
+        allow(closed_mr_git).to receive(:with_clean_state).and_yield
+        allow(closed_mr_git).to receive(:create_branch).with(closed_mr_change).and_return('closed-mr-branch')
+        allow(closed_mr_git).to receive(:in_branch).and_yield
+        allow(closed_mr_git).to receive(:create_commit)
+        allow(closed_mr_gitlab_client).to receive(:closed_merge_request_exists?)
+          .with(
+            source_project_id: '123',
+            source_branch: 'closed-mr-branch',
+            target_branch: 'master',
+            target_project_id: '456'
+          ).and_return(true)
+      end
+
+      it 'skips the change when a closed MR exists' do
+        expect(closed_mr_gitlab_client).not_to receive(:get_existing_merge_request)
+        expect(closed_mr_gitlab_client).not_to receive(:create_or_update_merge_request)
+        expect(closed_mr_git).not_to receive(:push)
+
+        described_class.new(max_mrs: 1, keeps: [fake_keep_with_closed_mr]).run
+      end
+
+      it 'logs the skip message' do
+        logger = instance_double(::Gitlab::Housekeeper::Logger)
+        allow(::Gitlab::Housekeeper::Logger).to receive(:new).and_return(logger)
+        allow(logger).to receive(:puts)
+
+        expect(logger).to receive(:puts)
+          .with('Skipping change: ["closed-mr-branch"] as we have closed an MR for this branch closed-mr-branch')
+
+        described_class.new(max_mrs: 1, keeps: [fake_keep_with_closed_mr]).run
+      end
     end
   end
 end

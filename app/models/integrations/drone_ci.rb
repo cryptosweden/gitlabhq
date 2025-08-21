@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
 module Integrations
-  class DroneCi < BaseCi
+  class DroneCi < Integration
+    include Base::Ci
     include HasWebHook
     include HasAvatar
     include PushDataValidations
@@ -13,12 +14,14 @@ module Integrations
     field :drone_url,
       title: -> { s_('ProjectService|Drone server URL') },
       placeholder: 'http://drone.example.com',
+      description: -> { _('Drone CI URL (for example, `http://drone.example.com`).') },
       exposes_secrets: true,
       required: true
 
     field :token,
       type: :password,
       help: -> { s_('ProjectService|Token for the Drone project.') },
+      description: -> { _('Drone CI token.') },
       non_empty_password_title: -> { s_('ProjectService|Enter new token') },
       non_empty_password_help: -> { s_('ProjectService|Leave blank to use your current token.') },
       required: true
@@ -58,7 +61,7 @@ module Integrations
     end
 
     def calculate_reactive_cache(sha, ref)
-      response = Gitlab::HTTP.try_get(
+      response = Clients::HTTP.try_get(
         commit_status_path(sha, ref),
         verify: enable_ssl_verification,
         extra_log_info: { project_id: project_id }

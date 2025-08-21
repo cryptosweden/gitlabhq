@@ -6,6 +6,9 @@ RSpec.describe 'Issue Sidebar', feature_category: :team_planning do
   include MobileHelpers
   include Features::InviteMembersModalHelpers
 
+  # Ensure support bot user is created so creation doesn't count towards query limit
+  # See https://gitlab.com/gitlab-org/gitlab/-/issues/509629
+  let_it_be(:support_bot) { Users::Internal.support_bot }
   let_it_be(:group) { create(:group, :nested) }
   let_it_be(:project) { create(:project, :public, namespace: group) }
   let_it_be(:user) { create(:user) }
@@ -128,42 +131,46 @@ RSpec.describe 'Issue Sidebar', feature_category: :team_planning do
 
       context 'for editing issue due date', :js do
         it_behaves_like 'date sidebar widget'
+
+        it 'ensures the due date is persisted after a reload', :sidekiq_inline do
+          # Issues with empty dates sources were not persisting the due date on edit
+          # https://gitlab.com/gitlab-org/gitlab/-/issues/517311
+          create(:work_items_dates_source, issue_id: issue.id)
+
+          new_date = Time.zone.today
+
+          wait_for_all_requests
+
+          within_testid("sidebar-due-date") do
+            button = find_button('Edit')
+            scroll_to(button)
+            button.click
+
+            execute_script('document.querySelector(".issuable-sidebar")?.scrollBy(0, 50)')
+
+            click_button new_date.day.to_s
+
+            wait_for_all_requests
+
+            expect(find_by_testid("sidebar-date-value")).to have_content new_date.strftime('%b %-d, %Y')
+          end
+
+          visit_issue(project, issue)
+          wait_for_all_requests
+
+          within_testid("sidebar-due-date") do
+            expect(find_by_testid("sidebar-date-value")).to have_content new_date.strftime('%b %-d, %Y')
+          end
+        end
       end
 
-      context 'for editing issue labels', :js do
+      context 'for editing issue labels', :js, quarantine: 'https://gitlab.com/gitlab-org/gitlab/-/issues/448822' do
         it_behaves_like 'labels sidebar widget'
       end
 
       context 'for escalation status', :js do
         it 'is not available for default issue type' do
           expect(page).not_to have_selector('.block.escalation-status')
-        end
-      end
-
-      context 'when interacting with collapsed sidebar', :js do
-        collapsed_sidebar_selector = 'aside.right-sidebar.right-sidebar-collapsed'
-        expanded_sidebar_selector = 'aside.right-sidebar.right-sidebar-expanded'
-        confidentiality_sidebar_block = '.block.confidentiality'
-        collapsed_sidebar_block_icon = '.sidebar-collapsed-icon'
-
-        before do
-          resize_screen_sm
-        end
-
-        it 'confidentiality block expands then collapses sidebar' do
-          expect(page).to have_css(collapsed_sidebar_selector)
-
-          page.within(confidentiality_sidebar_block) do
-            find(collapsed_sidebar_block_icon).click
-          end
-
-          expect(page).to have_css(expanded_sidebar_selector)
-
-          page.within(confidentiality_sidebar_block) do
-            page.find('button', text: 'Cancel').click
-          end
-
-          expect(page).to have_css(collapsed_sidebar_selector)
         end
       end
     end

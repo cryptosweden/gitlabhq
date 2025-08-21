@@ -11,6 +11,15 @@ RSpec.describe API::Namespaces, :aggregate_failures, feature_category: :groups_a
   let_it_be(:project_namespace) { project.project_namespace }
   let_it_be(:path) { "/namespaces" }
 
+  shared_examples "returns empty results" do
+    it "returns empty array" do
+      expect(response).to have_gitlab_http_status(:ok)
+      expect(response).to include_pagination_headers
+      expect(json_response).to be_an Array
+      expect(json_response.length).to eq(0)
+    end
+  end
+
   describe "GET /namespaces" do
     context "when unauthenticated" do
       it "returns authentication error" do
@@ -120,6 +129,69 @@ RSpec.describe API::Namespaces, :aggregate_failures, feature_category: :groups_a
           expect(response).to have_gitlab_http_status(:ok)
           expect(response).to include_pagination_headers
           expect(json_response.map { |resource| resource['id'] }).to match_array([user.namespace_id, group1.id])
+        end
+      end
+    end
+
+    describe 'full_path_search' do
+      let_it_be(:subgroup) { create(:group, parent: group1, owners: [user]) }
+
+      before do
+        get api("/namespaces?search=#{search}&full_path_search=#{full_path_search}", user)
+      end
+
+      context 'when true' do
+        let(:full_path_search) { true }
+
+        context 'when search matches full_path' do
+          let(:search) { subgroup.full_path }
+
+          it 'returns an array of matched namespaces by full_path' do
+            expect(response).to have_gitlab_http_status(:ok)
+            expect(response).to include_pagination_headers
+            expect(json_response).to be_an Array
+            expect(json_response.length).to eq(1)
+            expect(json_response.last['path']).to eq(subgroup.path)
+            expect(json_response.last['full_path']).to eq(subgroup.full_path)
+          end
+        end
+
+        context 'when search does not match full_path' do
+          let(:search) { 'non_existent_group' }
+
+          it_behaves_like "returns empty results"
+        end
+      end
+
+      context 'when false' do
+        let(:full_path_search) { false }
+
+        context 'when search matches full_path' do
+          let(:search) { subgroup.full_path }
+
+          it_behaves_like "returns empty results"
+        end
+
+        context 'when search does not match full_path' do
+          let(:search) { 'non_existing_group' }
+
+          it_behaves_like "returns empty results"
+        end
+      end
+
+      context 'when nil' do
+        let(:full_path_search) { nil }
+
+        context 'when search matches full_path' do
+          let(:search) { subgroup.full_path }
+
+          it_behaves_like "returns empty results"
+        end
+
+        context 'when search does not match full_path' do
+          let(:search) { 'non_existent_group' }
+
+          it_behaves_like "returns empty results"
         end
       end
     end
@@ -363,6 +435,17 @@ RSpec.describe API::Namespaces, :aggregate_failures, feature_category: :groups_a
         get api("#{path}/#{namespace1sub.path}/exists", user)
 
         expected_json = { exists: false, suggests: [] }.to_json
+        expect(response).to have_gitlab_http_status(:ok)
+        expect(response.body).to eq(expected_json)
+      end
+
+      it 'returns JSON indicating the namespace exists and a suggestion when same pages unique domain exists' do
+        # Simulate the existing domain being in use
+        create(:project_setting, pages_unique_domain: 'existing-domain')
+
+        get api("#{path}/existing-domain/exists", user)
+
+        expected_json = { exists: true, suggests: ["existing-domain1"] }.to_json
         expect(response).to have_gitlab_http_status(:ok)
         expect(response.body).to eq(expected_json)
       end

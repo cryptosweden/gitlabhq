@@ -2,60 +2,103 @@
 stage: Plan
 group: Project Management
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Due dates
 ---
 
-# Due dates
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-Due dates can be used in [issues](index.md) to keep track of deadlines and make sure features are
-shipped on time. Users need at least the Reporter role
-to be able to edit the due date. All users with permission to view
-the issue can view the due date.
+{{< /details >}}
 
-## Setting a due date
+{{< history >}}
 
-When creating an issue, select the **Due date** field to make a calendar
-appear for choosing the date. To remove the date, select the date
-text and delete it. The date is related to the server's time zone, not the time zone of
-the user setting the due date.
+- Minimum role to set due dates [changed](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/169256) from Reporter to Planner in GitLab 17.7.
 
-![Create a due date](img/due_dates_create.png)
+{{< /history >}}
 
-You can also set a due date by using the issue sidebar. Expand the
-sidebar and select **Edit** to pick a due date or remove the existing one.
-Changes are saved immediately.
+Use due dates in work items to track deadlines, and make sure features are
+shipped on time.
 
-![Edit a due date with the sidebar](img/due_dates_edit_sidebar.png)
+Due dates are supported in:
 
-The last way to set a due date is by using [quick actions](../quick_actions.md), directly in an issue's description or comment:
+- [Issues](_index.md)
+- [Epics](../../group/epics/_index.md)
+- [Tasks](../../tasks.md)
+- [Objectives and key results](../../okrs.md)
+- [Incidents](../../../operations/incident_management/incidents.md)
 
-- `/due <date>`: set due date. Examples of valid `<date>` include `in 2 days`, `this Friday`, and `December 31st`.
-- `/remove_due_date`: remove due date.
+The day before an open item is due, an email is sent to all participants.
+<!-- For issue due timing source, see 'issue_due_scheduler_worker' in https://gitlab.com/gitlab-org/gitlab/-/blob/master/config/initializers/1_settings.rb -->
+The notification is sent at 00:50 in the server's time zone (for GitLab.com this is UTC)
+for all open items with a due date of the next calendar day.
 
-## Making use of due dates
+Due dates also appear in your [to-do items](../../todos.md).
 
-You can see issues with their due dates in the issues list.
-Overdue issues have their icon and date colored red.
-To sort issues by their due dates, select **Due date** from the dropdown list on the right.
-Issues are then sorted from the earliest due date to the latest.
-To display issues with the latest due dates at the top, select **Sort direction** (**{sort-lowest}**).
+## View issues with due dates
 
-Due dates also appear in your [to-do list](../../todos.md).
+You can see issues with their due dates on the **Issues** page.
+If an issue contains a due date,
+it is shown below the issue title:
 
-![Issues with due dates in the to dos](img/due_dates_todos.png)
+![An issue with a due date in 2024.](img/overdue_issue_v17_9.png)
 
-The day before an open issue is due, an email is sent to all participants
-of the issue. Like the due date, the "day before the due date" is determined by the
-server's time zone.
+Issue dates in the past are shown with a red icon ({{< icon name="calendar-overdue" >}}).
+
+To view and sort issues containing due dates in your project:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Plan > Issues**.
+1. To sort by due date, select the current sort method, then select **Due date**.
+1. Optional. To reverse the sort order, select **Sort direction** ({{< icon name="sort-lowest" >}}).
+
+## Set a due date for an issue
+
+All users with permission to view the issue can view its due date.
+
+### When creating an issue
+
+If you have at least the Planner role, when creating an issue, select **Due date** to show a calendar.
+This date uses the server's time zone, not the current user's time zone.
+
+To remove the date, select the date text, then delete the text.
+
+### In an existing issue
+
+Prerequisites:
+
+- You must have at least the Planner role.
+
+To do this:
+
+1. On the left sidebar, select **Search or go to** and find your project.
+1. Select **Plan > Issues**, then select the title of your issue to view it.
+1. On the right sidebar, next to **Due date**, select **Edit** to display a calendar.
+1. Select your desired date, then select again, outside the calendar, to save your changes.
+
+### With a quick action
+
+To set a due date from a [quick action](../quick_actions.md) in an issue's description or comment:
+
+- `/due <date>`: Set the due date. Examples of valid `<date>` include `in 2 days`, `this Friday`, and `December 31st`.
+- `/remove_due_date`: Remove an existing due date.
+
+## Export issue due dates to a calendar
 
 Issues with due dates can also be exported as an iCalendar feed. The URL of the
-feed can be added to calendar applications. The feed is accessible by selecting
-the **Subscribe to calendar** option in the  **Actions** (**{ellipsis_v}**) dropdown
-list on the following pages:
+feed can be added to calendar applications.
 
-- The **Assigned Issues** page linked on the right side of the GitLab header
 - The **Project Issues** page
 - The **Group Issues** page
+
+1. Go to the page that contains the list of issues you want to subscribe to.
+   For example:
+
+   - [Issues assigned to you](managing_issues.md#view-all-issues-assigned-to-you)
+   - [Issues in a specific project](managing_issues.md#issue-list)
+   - Issues for all projects [in a group](../../group/_index.md)
+
+1. On the right, from the **Actions** ({{< icon name="ellipsis_v" >}}) dropdown list, select **Subscribe to calendar** to display the `.ics` file.
+1. Copy the full link to the page (including the full query string) and use it in your
+   preferred calendar application.

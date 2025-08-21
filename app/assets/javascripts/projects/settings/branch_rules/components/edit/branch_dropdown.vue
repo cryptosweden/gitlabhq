@@ -54,8 +54,8 @@ export default {
     },
   },
   searchInputDelay: 250,
-  wildcardsHelpPath: helpPagePath('user/project/protected_branches', {
-    anchor: 'protect-multiple-branches-with-wildcard-rules',
+  wildcardsHelpPath: helpPagePath('user/project/repository/branches/protected', {
+    anchor: 'use-wildcard-rules',
   }),
   props: {
     projectPath: {

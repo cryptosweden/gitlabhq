@@ -29,7 +29,11 @@ class MergeRequestPollCachedWidgetEntity < IssuableEntity
   end
 
   expose :commits_without_merge_commits, using: MergeRequestWidgetCommitEntity do |merge_request|
-    merge_request.recent_commits.without_merge_commits
+    if Feature.enabled?(:disable_widget_responses, merge_request.target_project)
+      []
+    else
+      merge_request.recent_commits.without_merge_commits
+    end
   end
 
   expose :diff_head_sha do |merge_request|
@@ -89,17 +93,11 @@ class MergeRequestPollCachedWidgetEntity < IssuableEntity
     diffs_project_merge_request_path(merge_request.project, merge_request)
   end
 
-  expose :squash_enabled_by_default do |merge_request|
-    presenter(merge_request).project.squash_enabled_by_default?
-  end
+  expose :squash_enabled_by_default?, as: :squash_enabled_by_default
 
-  expose :squash_readonly do |merge_request|
-    presenter(merge_request).project.squash_readonly?
-  end
+  expose :squash_readonly?, as: :squash_readonly
 
-  expose :squash_on_merge do |merge_request|
-    presenter(merge_request).squash_on_merge?
-  end
+  expose :squash_on_merge?, as: :squash_on_merge
 
   expose :api_approvals_path do |merge_request|
     presenter(merge_request).api_approvals_path

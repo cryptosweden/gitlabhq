@@ -46,8 +46,8 @@ RSpec.describe Gitlab::SensitiveSerializableHash, feature_category: :shared do
       context "for #{klass.name}\##{attribute_name}" do
         let(:attributes) { [attribute_name, "encrypted_#{attribute_name}", "encrypted_#{attribute_name}_iv"] }
 
-        it 'has a attr_encrypted_attributes field' do
-          expect(klass.attr_encrypted_attributes).to include(attribute_name.to_sym)
+        it 'has a attr_encrypted_encrypted_attributes field' do
+          expect(klass.attr_encrypted_encrypted_attributes).to include(attribute_name.to_sym)
         end
 
         it 'does not include the attribute in serializable_hash', :aggregate_failures do
@@ -95,7 +95,7 @@ RSpec.describe Gitlab::SensitiveSerializableHash, feature_category: :shared do
     it_behaves_like 'add_authentication_token_field attribute', Ci::Runner, 'token' do
       let_it_be(:model) { create(:ci_runner) }
 
-      let(:attributes) { %w[token token_encrypted] }
+      let(:attributes) { %w[token_encrypted] }
     end
 
     it_behaves_like 'add_authentication_token_field attribute', ApplicationSetting, 'health_check_access_token' do

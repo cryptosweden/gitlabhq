@@ -20,6 +20,10 @@ RSpec.describe ::Packages::Npm::ProcessPackageFileService, feature_category: :pa
         package.project_id,
         package.name
       )
+      expect_next_instance_of(::Packages::Npm::CheckManifestCoherenceService, package,
+        instance_of(Gem::Package::TarReader::Entry)) do |service|
+        expect(service).to receive(:execute)
+      end
       expect(package).to receive(:default!)
 
       service.execute
@@ -31,14 +35,6 @@ RSpec.describe ::Packages::Npm::ProcessPackageFileService, feature_category: :pa
 
     context 'with an invalid package file' do
       let(:package_file) { nil }
-
-      it_behaves_like 'raising an error', 'invalid package file'
-    end
-
-    context 'when linked to a non npm package' do
-      before do
-        allow(package).to receive(:npm?).and_return(false)
-      end
 
       it_behaves_like 'raising an error', 'invalid package file'
     end
@@ -86,19 +82,37 @@ RSpec.describe ::Packages::Npm::ProcessPackageFileService, feature_category: :pa
     end
 
     context 'with multiple package.json entries' do
-      before do
-        allow(Gem::Package::TarReader).to receive(:new).and_return([
+      let(:archives) do
+        [
+          instance_double(Gem::Package::TarReader::Entry, full_name: 'pkg1/foo/package.json'),
+          instance_double(Gem::Package::TarReader::Entry, full_name: 'pkg1/foo/bar/package.json'),
           instance_double(Gem::Package::TarReader::Entry, full_name: 'pkg1/package.json'),
+          instance_double(Gem::Package::TarReader::Entry, full_name: 'package/package.json'),
           instance_double(Gem::Package::TarReader::Entry, full_name: 'pkg2/package.json'),
           instance_double(Gem::Package::TarReader::Entry, full_name: 'pkg3/package.json')
-        ])
+        ]
       end
 
-      it 'yeilds only one package.json entry' do
+      before do
+        allow(Gem::Package::TarReader).to receive(:new).and_return(archives)
+        allow(archives).to receive(:rewind).and_return(0)
+      end
+
+      it 'yeilds last root package.json entry' do
         expect { |b| service.send(:with_package_json_entry, &b) }.to yield_with_args(
-          instance_of(RSpec::Mocks::InstanceVerifyingDouble)
+          archives.find { |e| e.full_name == 'pkg3/package.json' }
         )
       end
+    end
+
+    context 'with TarInvalidError' do
+      before do
+        allow_next_instance_of(Gem::Package::TarReader::Entry) do |instance|
+          allow(instance).to receive(:full_name).and_raise(::Gem::Package::TarInvalidError)
+        end
+      end
+
+      it_behaves_like 'processing the package file'
     end
   end
 end

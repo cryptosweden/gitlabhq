@@ -1,16 +1,23 @@
 ---
-stage: Govern
+stage: Software Supply Chain Security
 group: Authentication
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+gitlab_dedicated: yes
+title: External authorization control
 ---
 
-# External authorization control
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed, GitLab Dedicated
 
-> - [Moved](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/27056) from GitLab Premium to GitLab Free in 11.10.
+{{< /details >}}
+
+{{< history >}}
+
+- [Moved](https://gitlab.com/gitlab-org/gitlab-foss/-/merge_requests/27056) from GitLab Premium to GitLab Free in 11.10.
+
+{{< /history >}}
 
 In highly controlled environments, it may be necessary for access policy to be
 controlled by an external service that permits access based on project
@@ -41,7 +48,7 @@ the [Linux package documentation](https://docs.gitlab.com/omnibus/settings/logs.
 When using TLS Authentication with a self signed certificate, the CA certificate
 needs to be trusted by the OpenSSL installation. When using GitLab installed
 using the Linux package, learn to install a custom CA in the
-[Linux package documentation](https://docs.gitlab.com/omnibus/settings/ssl/index.html).
+[Linux package documentation](https://docs.gitlab.com/omnibus/settings/ssl/).
 Alternatively, learn where to install custom certificates by using
 `openssl version -d`.
 
@@ -49,7 +56,7 @@ Alternatively, learn where to install custom certificates by using
 
 The external authorization service can be enabled by an administrator:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > General**.
 1. Expand **External authorization**.
 1. Complete the fields.
@@ -57,11 +64,15 @@ The external authorization service can be enabled by an administrator:
 
 ### Allow external authorization with deploy tokens and deploy keys
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/386656) in GitLab 15.9.
-> - Deploy tokens no longer being able to access container or package registries [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/387721) in GitLab 16.0.
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/386656) in GitLab 15.9.
+- Deploy tokens no longer being able to access container or package registries [introduced](https://gitlab.com/gitlab-org/gitlab/-/issues/387721) in GitLab 16.0.
+
+{{< /history >}}
 
 You can set your instance to allow external authorization for Git operations with
-[deploy tokens](../../user/project/deploy_tokens/index.md) or [deploy keys](../../user/project/deploy_keys/index.md).
+[deploy tokens](../../user/project/deploy_tokens/_index.md) or [deploy keys](../../user/project/deploy_keys/_index.md).
 
 Prerequisites:
 
@@ -69,17 +80,20 @@ Prerequisites:
 
 To allow authorization with deploy tokens and keys:
 
-1. On the left sidebar, at the bottom, select **Admin Area**.
+1. On the left sidebar, at the bottom, select **Admin**.
 1. Select **Settings > General**.
 1. Expand **External authorization**, and:
    - Leave the service URL field empty.
    - Select **Allow deploy tokens and deploy keys to be used with external authorization**.
 1. Select **Save changes**.
 
-WARNING:
+{{< alert type="warning" >}}
+
 If you enable external authorization, deploy tokens cannot access container or package registries. If you use deploy tokens to access these registries, this measure breaks this use of these tokens. Disable external authorization to use tokens with container or package registries.
 
-## How it works
+{{< /alert >}}
+
+## How GitLab connects to an external authorization service
 
 When GitLab requests access, it sends a JSON POST request to the external
 service with this body:
@@ -131,16 +145,4 @@ label defined in the [global settings](#configuration) is used.
 
 On all project pages, in the upper-right corner, the label appears.
 
-![classification label on project page](img/classification_label_on_project_page_v14_8.png)
-
-<!-- ## Troubleshooting
-
-Include any troubleshooting steps that you can foresee. If you know beforehand what issues
-one might have when setting this up, or when something is changed, or on upgrading, it's
-important to describe those, too. Think of things that may go wrong and include them here.
-This is important to minimize requests for support, and to avoid doc comments with
-questions that you know someone might ask.
-
-Each scenario can be a third-level heading, for example `### Getting error message X`.
-If you have none to add when creating a doc, leave this section in place
-but commented out to help encourage others to add to it in the future. -->
+![A red overridden label with an open lock icon displays in the upper-right corner of a project.](img/classification_label_on_project_page_v14_8.png)

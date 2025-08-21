@@ -1,8 +1,13 @@
 # frozen_string_literal: true
 
 FactoryBot.define do
-  factory :snippet do
-    author
+  factory :project_snippet, class: :ProjectSnippet do
+    # Project specific attributes
+    project
+    author { project.creator }
+    organization { nil }
+
+    # Shared attributes
     title { generate(:title) }
     content { generate(:title) }
     description { generate(:title) }
@@ -44,16 +49,15 @@ FactoryBot.define do
     end
   end
 
-  factory :project_snippet, parent: :snippet, class: :ProjectSnippet do
-    project
-    author { project.creator }
-  end
+  # Using an inheritance from project_snippet to share traits
+  factory :personal_snippet, parent: :project_snippet, class: :PersonalSnippet do
+    author { association(:author, :with_namespace) }
+    organization { author&.organization || association(:common_organization) }
+    project { nil }
 
-  factory :personal_snippet, parent: :snippet, class: :PersonalSnippet do
     trait :secret do
       visibility_level { Snippet::PUBLIC }
       secret { true }
-      project { nil }
     end
   end
 end

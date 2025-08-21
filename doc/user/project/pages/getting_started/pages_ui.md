@@ -2,28 +2,36 @@
 stage: Plan
 group: Knowledge
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Create a GitLab Pages deployment for a static site
 ---
 
-# Create a GitLab Pages deployment for a static site
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** GitLab.com, Self-managed, GitLab Dedicated
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab.com, GitLab Self-Managed, GitLab Dedicated
 
-If you already have a GitLab project that contains your static site or framework,
-you can generate a GitLab Pages website from it.
+{{< /details >}}
 
-When you provide basic information in the UI, a `.gitlab-ci.yml` file is created
-and a merge request opened. When you commit the merge request,
-a pipeline deploys your Pages website.
+Create a GitLab Pages deployment to convert your static site or framework into a website hosted on GitLab.
+Through a step-by-step form, GitLab:
+
+- Generates a custom CI/CD configuration based on your project setup.
+- Creates a `.gitlab-ci.yml` file configured for GitLab Pages deployments.
+- Submits the changes through a merge request for your review.
+- Deploys your website automatically when the merge request is committed.
+
+This guide explains how to use the Pages UI to deploy a static site or framework-based application.
 
 ## Prerequisites
 
 - Your app must [output files to the `public` folder](../public_folder.md). If you create
   this folder during the build pipeline, you do not need to commit it to Git.
 
-  WARNING:
+  {{< alert type="warning" >}}
+
   This step is important. Ensure your files are in a root-level `public` folder.
+
+  {{< /alert >}}
 
 - You must have a project that either:
   - Generates static sites or a client-rendered single-page application (SPA),
@@ -42,7 +50,7 @@ To complete the setup and generate a GitLab Pages deployment:
 
    A **Get Started with Pages** form appears. If this form is not available,
    see [Troubleshooting](#if-the-get-started-with-pages-form-is-not-available).
-1. For **Step 1**, enter an image name and verify that your files are in a `public` folder.
+1. For **Step 1**, enter an image name. You can also [set a custom folder to be deployed with Pages](../introduction.md#customize-the-default-folder).
 1. Select **Next**.
 1. For **Step 2**, enter your installation steps. If your framework's build process does not
    need one of the provided build commands, you can either:

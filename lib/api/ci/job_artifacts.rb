@@ -7,7 +7,7 @@ module API
 
       before { authenticate_non_get! }
 
-      feature_category :build_artifacts
+      feature_category :job_artifacts
 
       # EE::API::Ci::JobArtifacts would override the following helpers
       helpers do
@@ -39,6 +39,7 @@ module API
                   'available only on Premium and Ultimate tiers.'
         end
         route_setting :authentication, job_token_allowed: true
+        route_setting :authorization, job_token_policies: :read_jobs
         get ':id/jobs/artifacts/:ref_name/download',
           urgency: :low,
           requirements: { ref_name: /.+/ } do
@@ -46,6 +47,9 @@ module API
 
           latest_build = user_project.latest_successful_build_for_ref!(params[:job], params[:ref_name])
           authorize_read_job_artifacts!(latest_build)
+
+          not_found! unless latest_build.artifacts_file&.exists?
+
           audit_download(latest_build, latest_build.artifacts_file.filename)
           present_artifacts_file!(latest_build.artifacts_file)
         end
@@ -69,6 +73,8 @@ module API
                   'available only on Premium and Ultimate tiers.'
         end
         route_setting :authentication, job_token_allowed: true
+        route_setting :authorization, job_token_policies: :read_jobs,
+          allow_public_access_for_enabled_project_features: [:repository, :builds]
         get ':id/jobs/artifacts/:ref_name/raw/*artifact_path',
           urgency: :low,
           format: false,
@@ -101,12 +107,13 @@ module API
                   'available only on Premium and Ultimate tiers.'
         end
         route_setting :authentication, job_token_allowed: true
+        route_setting :authorization, job_token_policies: :read_jobs
         get ':id/jobs/:job_id/artifacts', urgency: :low do
           authorize_download_artifacts!
 
           build = find_build!(params[:job_id])
           authorize_read_job_artifacts!(build)
-          audit_download(build, build.artifacts_file&.filename) if build.artifacts_file
+          audit_download(build, build.artifacts_file.filename) if build.artifacts_file
           present_artifacts_file!(build.artifacts_file)
         end
 
@@ -127,6 +134,7 @@ module API
                   'available only on Premium and Ultimate tiers.'
         end
         route_setting :authentication, job_token_allowed: true
+        route_setting :authorization, job_token_policies: :read_jobs
         get ':id/jobs/:job_id/artifacts/*artifact_path', urgency: :low, format: false do
           authorize_download_artifacts!
 

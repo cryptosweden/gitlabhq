@@ -2,7 +2,7 @@
 
 require 'spec_helper'
 
-RSpec.describe Banzai::Filter::IssuableReferenceExpansionFilter, feature_category: :team_planning do
+RSpec.describe Banzai::Filter::IssuableReferenceExpansionFilter, feature_category: :markdown do
   include FilterSpecHelper
 
   let_it_be(:user) { create(:user) }
@@ -88,14 +88,6 @@ RSpec.describe Banzai::Filter::IssuableReferenceExpansionFilter, feature_categor
     doc = filter(link, context.merge(project: nil, group: group))
 
     expect(doc.css('a').last.text).to eq("#{closed_issue.to_reference(other_project)} (closed)")
-  end
-
-  it 'skips cross project references if the user cannot read cross project' do
-    expect(Ability).to receive(:allowed?).with(user, :read_cross_project) { false }
-    link = create_link(closed_issue.to_reference(other_project), issue: closed_issue.id, reference_type: 'issue')
-    doc = filter(link, context.merge(project: other_project))
-
-    expect(doc.css('a').last.text).to eq(closed_issue.to_reference(other_project).to_s)
   end
 
   it 'does not append state when filter is not enabled' do
@@ -262,8 +254,6 @@ RSpec.describe Banzai::Filter::IssuableReferenceExpansionFilter, feature_categor
           control = ActiveRecord::QueryRecorder.new(skip_cached: false) do
             filter(link, context)
           end
-
-          expect(control.count).to eq 12
 
           expect do
             filter("#{link} #{link2}", context)

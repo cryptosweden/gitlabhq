@@ -72,6 +72,10 @@ describe('AdminUserActions component', () => {
         expect(findActionsDropdown().exists()).toBe(true);
       });
 
+      it('sets actions dropdown autoClose prop to false', () => {
+        expect(findActionsDropdown().props('autoClose')).toBe(false);
+      });
+
       describe('when there are actions that require confirmation', () => {
         beforeEach(() => {
           initComponent({ actions: CONFIRMATION_ACTIONS });
@@ -157,7 +161,9 @@ describe('AdminUserActions component', () => {
       const tooltip = getBinding(findEditButton().element, 'gl-tooltip');
 
       expect(findEditButton().text()).toBe('');
-      expect(findEditButton().attributes('aria-label')).toBe(I18N_USER_ACTIONS.edit);
+      expect(findEditButton().attributes('aria-label')).toBe(
+        I18N_USER_ACTIONS.editWithName('nikki'),
+      );
       expect(tooltip).toBeDefined();
       expect(tooltip.value).toBe(I18N_USER_ACTIONS.edit);
     });

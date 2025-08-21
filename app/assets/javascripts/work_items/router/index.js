@@ -8,12 +8,7 @@ import { routes } from './routes';
 Vue.use(GlToast);
 Vue.use(VueRouter);
 
-export function createRouter({
-  fullPath,
-  workItemType = 'work_items',
-  workspaceType = WORKSPACE_PROJECT,
-  defaultBranch,
-}) {
+export function createRouter({ fullPath, workspaceType = WORKSPACE_PROJECT, defaultBranch }) {
   const workspacePath = workspaceType === WORKSPACE_GROUP ? '/groups' : '';
 
   if (workspaceType === WORKSPACE_PROJECT) {
@@ -21,8 +16,8 @@ export function createRouter({
   }
 
   return new VueRouter({
-    routes: routes(),
+    routes: routes(fullPath),
     mode: 'history',
-    base: joinPaths(gon?.relative_url_root, workspacePath, fullPath, '-', workItemType),
+    base: joinPaths(gon?.relative_url_root, workspacePath, fullPath, '-'),
   });
 }

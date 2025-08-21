@@ -1,10 +1,9 @@
 ---
 stage: none
 group: unassigned
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: Development style guides
 ---
-
-# Development style guides
 
 ## Editor/IDE styling standardization
 
@@ -15,7 +14,7 @@ If your editor or IDE does not automatically support `.editorconfig`, we suggest
 [see if a plugin exists](https://editorconfig.org/#download). For example, a
 [plugin for vim](https://github.com/editorconfig/editorconfig-vim).
 
-## Pre-push static analysis with Lefthook
+## Pre-commit and pre-push static analysis with Lefthook
 
 [Lefthook](https://github.com/evilmartians/lefthook) is a Git hooks manager that allows
 custom logic to be executed prior to Git committing or pushing. GitLab comes with
@@ -86,7 +85,7 @@ LEFTHOOK=0 git push ...
 
 ### Run Lefthook hooks manually
 
-To run the `pre-push` Git hook, run:
+You can run the `pre-commit`, `pre-push`, and `auto-fix` hooks manually. For example:
 
 ```shell
 bundle exec lefthook run pre-push
@@ -146,7 +145,7 @@ See the dedicated [Ruby Style Guide](../backend/ruby_style_guide.md).
 
 ## Go
 
-See the dedicated [Go standards and style guidelines](../go_guide/index.md).
+See the dedicated [Go standards and style guidelines](../go_guide/_index.md).
 
 ## Shell commands (Ruby)
 
@@ -154,33 +153,37 @@ See the dedicated [Guidelines for shell commands in the GitLab codebase](../shel
 
 ## Shell scripting
 
-See the dedicated [Shell scripting standards and style guidelines](../shell_scripting_guide/index.md).
+See the dedicated [Shell scripting standards and style guidelines](../shell_scripting_guide/_index.md).
+
+## Publishing NPM packages to npmjs.com
+
+See the dedicated [npmjs package publishing guide](../npmjs.md).
 
 ## Markdown
 
-<!-- vale gitlab.Spelling = NO -->
+<!-- vale gitlab_base.Spelling = NO -->
 
 We're following [Ciro Santilli's Markdown Style Guide](https://cirosantilli.com/markdown-style-guide/).
 
-<!-- vale gitlab.Spelling = YES -->
+<!-- vale gitlab_base.Spelling = YES -->
 
 ## Documentation
 
-See the dedicated [Documentation Style Guide](../documentation/styleguide/index.md).
+See the dedicated [Documentation Style Guide](../documentation/styleguide/_index.md).
 
 ### Guidelines for good practices
 
-*Good practice* examples demonstrate encouraged ways of writing code while
+Good practice examples demonstrate encouraged ways of writing code while
 comparing with examples of practices to avoid. These examples are labeled as
-*Bad* or *Good*. In GitLab development guidelines, when presenting the cases,
-it's recommended to follow a *first-bad-then-good* strategy. First demonstrate
-the *Bad* practice (how things *could* be done, which is often still working
-code), and then how things *should* be done better, using a *Good* example. This
+"Bad" or "Good". In GitLab development guidelines, when presenting the cases,
+it's recommended to follow a "first-bad-then-good" strategy. First demonstrate
+the "Bad" practice (how things *could* be done, which is often still working
+code), and then how things *should* be done better, using a "Good" example. This
 is typically an improved example of the same code.
 
 Consider the following guidelines when offering examples:
 
-- First, offer the *Bad* example, and then the *Good* one.
+- First, offer the "Bad" example, and then the "Good" one.
 - When only one bad case and one good case is given, use the same code block.
 - When more than one bad case or one good case is offered, use separated code
   blocks for each. With many examples being presented, a clear separation helps
@@ -196,7 +199,7 @@ guidelines, do not use it for user documentation. For user documentation, use
 
 ## Python
 
-See the dedicated [Python Development Guidelines](../python_guide/index.md).
+See the dedicated [Python Development Guidelines](../python_guide/_index.md).
 
 ## Misc
 

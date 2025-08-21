@@ -1,14 +1,13 @@
 ---
 stage: none
 group: Engineering Productivity
-info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/ee/development/development_processes.html#development-guidelines-review.
+info: Any user with at least the Maintainer role can merge updates to this content. For details, see https://docs.gitlab.com/development/development_processes/#development-guidelines-review.
+title: CI configuration internals
 ---
-
-# CI configuration internals
 
 ## Workflow rules
 
-Pipelines for the GitLab project are created using the [`workflow:rules` keyword](../../ci/yaml/index.md#workflow)
+Pipelines for the GitLab project are created using the [`workflow:rules` keyword](../../ci/yaml/_index.md#workflow)
 feature of the GitLab CI/CD.
 
 Pipelines are always created for the following scenarios:
@@ -70,11 +69,11 @@ purposes.
 
 The default image is defined in [`.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab-ci.yml).
 
-<!-- vale gitlab.Spelling = NO -->
+<!-- vale gitlab_base.Spelling = NO -->
 
 It includes Ruby, Go, Git, Git LFS, Chrome, Node, Yarn, PostgreSQL, and Graphics Magick.
 
-<!-- vale gitlab.Spelling = YES -->
+<!-- vale gitlab_base.Spelling = YES -->
 
 The images used in our pipelines are configured in the
 [`gitlab-org/gitlab-build-images`](https://gitlab.com/gitlab-org/gitlab-build-images)
@@ -89,6 +88,16 @@ The current version of the build images can be found in the
 In addition to the [predefined CI/CD variables](../../ci/variables/predefined_variables.md),
 each pipeline includes default variables defined in
 [`.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab-ci.yml).
+
+### Variable naming
+
+Starting in March 2025, we have begun prefixing new environment variables
+that are exclusively used for the monolith CI pipelines with `GLCI_`.
+
+This allows us to track if an environment variable is intended for CI
+(`GLCI_`), the product (`GITLAB_`), or tools and systems not owned by us.
+That helps us better evaluate the impact of environment variable changes
+in our pipeline configuration.
 
 ## Stages
 
@@ -122,21 +131,28 @@ The current stages are:
 
 Some of the jobs are using images from Docker Hub, where we also use
 `${GITLAB_DEPENDENCY_PROXY_ADDRESS}` as a prefix to the image path, so that we pull
-images from our [Dependency Proxy](../../user/packages/dependency_proxy/index.md).
+images from our [Dependency Proxy](../../user/packages/dependency_proxy/_index.md).
 By default, this variable is set from the value of `${GITLAB_DEPENDENCY_PROXY}`.
 
-`${GITLAB_DEPENDENCY_PROXY}` is a group CI/CD variable defined in
-[`gitlab-org`](https://gitlab.com/gitlab-org) as
-`${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/`. This means when we use an image
-defined as:
+- `CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX` is [a GitLab predefined CI/CD variable](../../ci/variables/predefined_variables.md) that gives the top-level group image prefix to pull images through the Dependency Proxy.
+- `GITLAB_DEPENDENCY_PROXY` is a CI/CD variable in the [`gitlab-org`](https://gitlab.com/gitlab-org) and the [`gitlab-com`](https://gitlab.com/gitlab-com) groups. It is defined as `${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/`.
+- `GITLAB_DEPENDENCY_PROXY_ADDRESS` is defined in the `gitlab-org/gitlab` project. It defaults to `"${GITLAB_DEPENDENCY_PROXY}"`, but is overridden in some cases (see the workaround section below).
+
+In `gitlab-org/gitlab`, we'll use `GITLAB_DEPENDENCY_PROXY_ADDRESS` [due to a workaround](#work-around-for-when-a-pipeline-is-started-by-a-project-access-token-user). Everywhere else in the `gitlab-org` and `gitlab-com` groups, we should use `GITLAB_DEPENDENCY_PROXY` to use the Dependency Proxy. For any other project, you can rely on the `CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX` predefined CI/CD variable to enable the dependency proxy:
 
 ```yaml
+# In the gitlab-org/gitlab project
 image: ${GITLAB_DEPENDENCY_PROXY_ADDRESS}alpine:edge
+
+# In any other project in gitlab-org and gitlab-com groups
+image: ${GITLAB_DEPENDENCY_PROXY}alpine:edge
+
+# In projects outside of gitlab-org and gitlab-com groups
+image: ${CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX}/alpine:edge
 ```
 
-Projects in the `gitlab-org` group pull from the Dependency Proxy, while
-forks that reside on any other personal namespaces or groups fall back to
-Docker Hub unless `${GITLAB_DEPENDENCY_PROXY}` is also defined there.
+Forks that reside on any other personal namespaces or groups fall back to
+Docker Hub unless `GITLAB_DEPENDENCY_PROXY` is also defined there.
 
 ### Work around for when a pipeline is started by a Project access token user
 
@@ -153,47 +169,57 @@ To work around that, we have a special workflow rule, that overrides the
     GITLAB_DEPENDENCY_PROXY_ADDRESS: ""
 ```
 
-NOTE:
+{{< alert type="note" >}}
+
 We don't directly override the `${GITLAB_DEPENDENCY_PROXY}` variable because group-level
 variables have higher precedence over `.gitlab-ci.yml` variables.
 
+{{< /alert >}}
+
+## External CI/CD secrets
+
+As part of <https://gitlab.com/groups/gitlab-org/quality/engineering-productivity/-/epics/46>, in February 2024, we
+started to dogfood [the usage of GCP Secret Manager](../../ci/secrets/gcp_secret_manager.md) to
+[store the `ADD_JH_FILES_TOKEN` CI variable](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/144228).
+
+As part of this, [the `qual-ci-secret-mgmt-e78c9b95` GCP project was created](https://gitlab.com/gitlab-org/quality/engineering-productivity-infrastructure/-/issues/99#note_1605141484).
+
 ## Common job definitions
 
-Most of the jobs [extend from a few CI definitions](../../ci/yaml/index.md#extends)
+Most of the jobs [extend from a few CI definitions](../../ci/yaml/_index.md#extends)
 defined in [`.gitlab/ci/global.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/global.gitlab-ci.yml)
-that are scoped to a single [configuration keyword](../../ci/yaml/index.md#job-keywords).
+that are scoped to a single [configuration keyword](../../ci/yaml/_index.md#job-keywords).
 
 | Job definitions  | Description |
 |------------------|-------------|
-| `.default-retry` | Allows a job to [retry](../../ci/yaml/index.md#retry) upon `unknown_failure`, `api_failure`, `runner_system_failure`, `job_execution_timeout`, or `stuck_or_timeout_failure`. |
+| `.default-retry` | Allows a job to [retry](../../ci/yaml/_index.md#retry) upon `unknown_failure`, `api_failure`, `runner_system_failure`, `job_execution_timeout`, or `stuck_or_timeout_failure`. |
 | `.default-before_script` | Allows a job to use a default `before_script` definition suitable for Ruby/Rails tasks that may need a database running (for example, tests). |
-| `.repo-from-artifacts` | Allows a job to fetch the repository from artifacts in `clone-gitlab-repo` instead of cloning. This should reduce GitLab.com Gitaly load and also slightly improve the speed because downloading from artifacts is faster than cloning. Note that this should be avoided to be used with jobs having `needs: []` because otherwise it'll start later and we normally want all jobs to start as soon as possible. Use this only on jobs which has other dependencies so that we don't wait longer than just cloning. Note that this behavior can be controlled via `CI_FETCH_REPO_GIT_STRATEGY`. See [Fetch repository via artifacts instead of cloning/fetching from Gitaly](performance.md#fetch-repository-via-artifacts-instead-of-cloningfetching-from-gitaly) for more details. |
+| `.repo-from-artifacts` | Allows a job to fetch the repository from artifacts in `clone-gitlab-repo` instead of cloning. This should reduce GitLab.com Gitaly load and also slightly improve the speed because downloading from artifacts is faster than cloning. Note that this should be avoided to be used with jobs having `needs: []` because otherwise it'll start later and we usually want all jobs to start as soon as possible. Use this only on jobs which has other dependencies so that we don't wait longer than just cloning. Note that this behavior can be controlled via `CI_FETCH_REPO_GIT_STRATEGY`. See [Fetch repository via artifacts instead of cloning/fetching from Gitaly](performance.md#fetch-repository-via-artifacts-instead-of-cloningfetching-from-gitaly) for more details. |
 | `.setup-test-env-cache` | Allows a job to use a default `cache` definition suitable for setting up test environment for subsequent Ruby/Rails tasks. |
 | `.ruby-cache` | Allows a job to use a default `cache` definition suitable for Ruby tasks. |
 | `.static-analysis-cache` | Allows a job to use a default `cache` definition suitable for static analysis tasks. |
-| `.ruby-gems-coverage-cache` | Allows a job to use a default `cache` definition suitable for coverage tasks. |
 | `.qa-cache` | Allows a job to use a default `cache` definition suitable for QA tasks. |
 | `.yarn-cache` | Allows a job to use a default `cache` definition suitable for frontend jobs that do a `yarn install`. |
 | `.assets-compile-cache` | Allows a job to use a default `cache` definition suitable for frontend jobs that compile assets. |
-| `.use-pg13` | Allows a job to use the `postgres` 13, `redis`, and `rediscluster` services (see [`.gitlab/ci/global.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/global.gitlab-ci.yml) for the specific versions of the services). |
-| `.use-pg13-ee` | Same as `.use-pg13` but also use an `elasticsearch` service (see [`.gitlab/ci/global.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/global.gitlab-ci.yml) for the specific version of the service). |
 | `.use-pg14` | Allows a job to use the `postgres` 14, `redis`, and `rediscluster` services (see [`.gitlab/ci/global.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/global.gitlab-ci.yml) for the specific versions of the services). |
 | `.use-pg14-ee` | Same as `.use-pg14` but also use an `elasticsearch` service (see [`.gitlab/ci/global.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/global.gitlab-ci.yml) for the specific version of the service). |
 | `.use-pg15` | Allows a job to use the `postgres` 15, `redis`, and `rediscluster` services (see [`.gitlab/ci/global.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/global.gitlab-ci.yml) for the specific versions of the services). |
 | `.use-pg15-ee` | Same as `.use-pg15` but also use an `elasticsearch` service (see [`.gitlab/ci/global.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/global.gitlab-ci.yml) for the specific version of the service). |
 | `.use-pg16` | Allows a job to use the `postgres` 16, `redis`, and `rediscluster` services (see [`.gitlab/ci/global.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/global.gitlab-ci.yml) for the specific versions of the services). |
 | `.use-pg16-ee` | Same as `.use-pg16` but also use an `elasticsearch` service (see [`.gitlab/ci/global.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/global.gitlab-ci.yml) for the specific version of the service). |
-| `.use-kaniko` | Allows a job to use the `kaniko` tool to build Docker images. |
+| `.use-pg17` | Allows a job to use the `postgres` 17, `redis`, and `rediscluster` services (see [`.gitlab/ci/global.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/global.gitlab-ci.yml) for the specific versions of the services). |
+| `.use-pg17-ee` | Same as `.use-pg17` but also use an `elasticsearch` service (see [`.gitlab/ci/global.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/global.gitlab-ci.yml) for the specific version of the service). |
+| `.use-buildx` | Allows a job to use the `docker buildx` tool to build Docker images. |
 | `.as-if-foss` | Simulate the FOSS project by setting the `FOSS_ONLY='1'` CI/CD variable. |
 | `.use-docker-in-docker` | Allows a job to use Docker in Docker. For more details, see the [handbook about CI/CD configuration](https://handbook.gitlab.com/handbook/engineering/gitlab-repositories/#cicd-configuration). |
 
 ## `rules`, `if:` conditions and `changes:` patterns
 
-We're using the [`rules` keyword](../../ci/yaml/index.md#rules) extensively.
+We're using the [`rules` keyword](../../ci/yaml/_index.md#rules) extensively.
 
 All `rules` definitions are defined in
 [`rules.gitlab-ci.yml`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/rules.gitlab-ci.yml),
-then included in individual jobs via [`extends`](../../ci/yaml/index.md#extends).
+then included in individual jobs via [`extends`](../../ci/yaml/_index.md#extends).
 
 The `rules` definitions are composed of `if:` conditions and `changes:` patterns,
 which are also defined in
@@ -202,34 +228,30 @@ and included in `rules` definitions via [YAML anchors](../../ci/yaml/yaml_optimi
 
 ### `if:` conditions
 
-<!-- vale gitlab.Substitutions = NO -->
-
-| `if:` conditions | Description | Notes |
-|------------------|-------------|-------|
-| `if-not-canonical-namespace`                                 | Matches if the project isn't in the canonical (`gitlab-org/` and `gitlab-cn/`) or security (`gitlab-org/security`) namespace. | Use to create a job for forks (by using `when: on_success` or `when: manual`), or **not** create a job for forks (by using `when: never`). |
-| `if-not-ee`                                                  | Matches if the project isn't EE (that is, project name isn't `gitlab` or `gitlab-ee`). | Use to create a job only in the FOSS project (by using `when: on_success` or `when: manual`), or **not** create a job if the project is EE (by using `when: never`). |
-| `if-not-foss`                                                | Matches if the project isn't FOSS (that is, project name isn't `gitlab-foss`, `gitlab-ce`, or `gitlabhq`). | Use to create a job only in the EE project (by using `when: on_success` or `when: manual`), or **not** create a job if the project is FOSS (by using `when: never`). |
-| `if-default-refs`                                            | Matches if the pipeline is for `master`, `main`, `/^[\d-]+-stable(-ee)?$/` (stable branches), `/^\d+-\d+-auto-deploy-\d+$/` (auto-deploy branches), `/^security\//` (security branches), merge requests, and tags. | Note that jobs aren't created for branches with this default configuration. |
-| `if-master-refs`                                             | Matches if the current branch is `master` or `main`. | |
-| `if-master-push`                                             | Matches if the current branch is `master` or `main` and pipeline source is `push`. | |
-| `if-master-schedule-maintenance`                                | Matches if the current branch is `master` or `main` and pipeline runs on a 2-hourly schedule. | |
-| `if-master-schedule-nightly`                                 | Matches if the current branch is `master` or `main` and pipeline runs on a nightly schedule. | |
-| `if-auto-deploy-branches`                                    | Matches if the current branch is an auto-deploy one. | |
-| `if-master-or-tag`                                           | Matches if the pipeline is for the `master` or `main` branch or for a tag. | |
-| `if-merge-request`                                           | Matches if the pipeline is for a merge request. | |
-| `if-merge-request-title-as-if-foss`                          | Matches if the pipeline is for a merge request and the MR has label ~"pipeline:run-as-if-foss" | |
-| `if-merge-request-title-update-caches`                       | Matches if the pipeline is for a merge request and the MR has label ~"pipeline:update-cache". | |
-| `if-merge-request-labels-run-all-rspec`                      | Matches if the pipeline is for a merge request and the MR has label ~"pipeline:run-all-rspec". | |
-| `if-merge-request-labels-run-cs-evaluation`                  | Matches if the pipeline is for a merge request and the MR has label ~"pipeline:run-CS-evaluation". | |
-| `if-security-merge-request`                                  | Matches if the pipeline is for a security merge request. | |
-| `if-security-schedule`                                       | Matches if the pipeline is for a security scheduled pipeline. | |
-| `if-nightly-master-schedule`                                 | Matches if the pipeline is for a `master` scheduled pipeline with `$NIGHTLY` set. | |
-| `if-dot-com-gitlab-org-schedule`                             | Limits jobs creation to scheduled pipelines for the `gitlab-org` group on GitLab.com. | |
-| `if-dot-com-gitlab-org-master`                               | Limits jobs creation to the `master` or `main` branch for the `gitlab-org` group on GitLab.com. | |
-| `if-dot-com-gitlab-org-merge-request`                        | Limits jobs creation to merge requests for the `gitlab-org` group on GitLab.com. | |
-| `if-dot-com-ee-schedule`                                     | Limits jobs to scheduled pipelines for the `gitlab-org/gitlab` project on GitLab.com. | |
-
-<!-- vale gitlab.Substitutions = YES -->
+| `if:` conditions                            | Description | Notes |
+|---------------------------------------------|-------------|-------|
+| `if-not-canonical-namespace`                | Matches if the project isn't in the canonical (`gitlab-org/` and `gitlab-cn/`) or security (`gitlab-org/security`) namespace. | Use to create a job for forks (by using `when: on_success` or `when: manual`), or **not** create a job for forks (by using `when: never`). |
+| `if-not-ee`                                 | Matches if the project isn't EE (that is, project name isn't `gitlab` or `gitlab-ee`). | Use to create a job only in the FOSS project (by using `when: on_success` or `when: manual`), or **not** create a job if the project is EE (by using `when: never`). |
+| `if-not-foss`                               | Matches if the project isn't FOSS (that is, project name isn't `gitlab-foss`, `gitlab-ce`, or `gitlabhq`). | Use to create a job only in the EE project (by using `when: on_success` or `when: manual`), or **not** create a job if the project is FOSS (by using `when: never`). |
+| `if-default-refs`                           | Matches if the pipeline is for `master`, `main`, `/^[\d-]+-stable(-ee)?$/` (stable branches), `/^\d+-\d+-auto-deploy-\d+$/` (auto-deploy branches), `/^security\//` (security branches), merge requests, and tags. | Note that jobs aren't created for branches with this default configuration. |
+| `if-master-refs`                            | Matches if the current branch is `master` or `main`. | |
+| `if-master-push`                            | Matches if the current branch is `master` or `main` and pipeline source is `push`. | |
+| `if-master-schedule-maintenance`            | Matches if the current branch is `master` or `main` and pipeline runs on a 2-hourly schedule. | |
+| `if-master-schedule-nightly`                | Matches if the current branch is `master` or `main` and pipeline runs on a nightly schedule. | |
+| `if-auto-deploy-branches`                   | Matches if the current branch is an auto-deploy one. | |
+| `if-master-or-tag`                          | Matches if the pipeline is for the `master` or `main` branch or for a tag. | |
+| `if-merge-request`                          | Matches if the pipeline is for a merge request. | |
+| `if-merge-request-title-as-if-foss`         | Matches if the pipeline is for a merge request and the MR has label `~"pipeline:run-as-if-foss"`. | |
+| `if-merge-request-title-update-caches`      | Matches if the pipeline is for a merge request and the MR has label `~"pipeline:update-cache"`. | |
+| `if-merge-request-labels-run-all-rspec`     | Matches if the pipeline is for a merge request and the MR has label `~"pipeline:run-all-rspec"`. | |
+| `if-merge-request-labels-run-cs-evaluation` | Matches if the pipeline is for a merge request and the MR has label `~"pipeline:run-CS-evaluation"`. | |
+| `if-security-merge-request`                 | Matches if the pipeline is for a security merge request. | |
+| `if-security-schedule`                      | Matches if the pipeline is for a security scheduled pipeline. | |
+| `if-nightly-master-schedule`                | Matches if the pipeline is for a `master` scheduled pipeline with `$NIGHTLY` set. | |
+| `if-dot-com-gitlab-org-schedule`            | Limits jobs creation to scheduled pipelines for the `gitlab-org` group on GitLab.com. | |
+| `if-dot-com-gitlab-org-master`              | Limits jobs creation to the `master` or `main` branch for the `gitlab-org` group on GitLab.com. | |
+| `if-dot-com-gitlab-org-merge-request`       | Limits jobs creation to merge requests for the `gitlab-org` group on GitLab.com. | |
+| `if-dot-com-ee-schedule`                    | Limits jobs to scheduled pipelines for the `gitlab-org/gitlab` project on GitLab.com. | |
 
 ### `changes:` patterns
 
@@ -252,6 +274,31 @@ and included in `rules` definitions via [YAML anchors](../../ci/yaml/yaml_optimi
 | `code-qa-patterns`           | Combination of `code-patterns` and `qa-patterns`.                        |
 | `code-backstage-qa-patterns` | Combination of `code-patterns`, `backstage-patterns`, and `qa-patterns`. |
 | `static-analysis-patterns`   | Only create jobs for Static Analytics configuration-related changes.     |
+
+## Custom exit codes
+
+GitLab CI uses custom exit codes to categorize different types of job failures. This helps with automated failure tracking and retry logic. To see which exit codes trigger automatic retries, check the retry rules in [GitLab global CI configuration](https://gitlab.com/gitlab-org/gitlab/-/blob/master/.gitlab/ci/global.gitlab-ci.yml).
+
+The table below lists current exit codes and their meanings:
+
+| exit code |                         Description   |
+|-----------|---------------------------------------|
+|110        | network connection error              |
+|111        | low disk space                        |
+|112        | known flaky test failure              |
+|160        | failed to upload/download job artifact|
+|161        | 5XX server error                      |
+|162        | Gitaly spawn failure                  |
+|163        | RSpec job timeout                     |
+|164        | Redis cluster error                   |
+|165        | segmentation fault                    |
+|166        | EEXIST: file already exists           |
+|167        | `gitlab.com` overloaded               |
+|168        | gRPC resource exhausted               |
+|169        | SQL query limit exceeded              |
+|170        | SQL table is write protected          |
+
+This list can be expanded as new failure patterns emerge. To avoid conflicts with standard Bash exit codes, new custom codes must be 160 or higher.
 
 ## Best Practices
 
@@ -328,7 +375,7 @@ This applies to the parent sections the job extends from as well.
 
 You can just extend the `.fast-no-clone-job`:
 
-**Before:**
+**Before**:
 
 ```yaml
   # Note: No `extends:` is present in the job
@@ -338,7 +385,7 @@ You can just extend the `.fast-no-clone-job`:
       - echo "No need for a git clone!"
 ```
 
-**After:**
+**After**:
 
 ```yaml
   # Note: No `extends:` is present in the job
@@ -361,7 +408,7 @@ For this scenario, you have to:
 1. Extend the `.fast-no-clone-job` as in the first scenario (this will merge the `FILES_TO_DOWNLOAD` variable with the other variables)
 1. Make sure the `before_script` section from `.fast-no-clone-job` is referenced in the `before_script` we use for this job.
 
-**Before:**
+**Before**:
 
 ```yaml
   .base-job:
@@ -376,7 +423,7 @@ For this scenario, you have to:
       - echo "No need for a git clone!"
 ```
 
-**After:**
+**After**:
 
 ```yaml
   .base-job:
@@ -438,7 +485,7 @@ For this scenario, you have to:
 
 Additionally, `scripts/utils.sh` is always downloaded from the API when this pattern is used (this file contains the code for `.fast-no-clone-job`).
 
-#### Runner tags
+### Runner tags
 
 On GitLab.com, both unprivileged and privileged runners are
 available. For projects in the `gitlab-org` group and forks of those
@@ -459,3 +506,99 @@ no matching runners are available.
 
 See [the GitLab Repositories handbook page](https://handbook.gitlab.com/handbook/engineering/gitlab-repositories/#cicd-configuration)
 for more information.
+
+### Using the `gitlab` Ruby gem in the canonical project
+
+When calling `require 'gitlab'` in the canonical project, it will require the `lib/gitlab.rb` file when `$LOAD_PATH` has `lib`, which happens when we're loading the application (`config/application.rb`) or tests (`spec/spec_helper.rb`).
+
+This means we're not able to load the `gitlab` gem under the above conditions and even if we can, the constant name will conflict, breaking internal assumptions and causing random errors.
+If you are working on a script that is using [the `gitlab` Ruby gem](https://github.com/NARKOZ/gitlab), you will need to take a few precautions:
+
+#### 1 - Conditional require of the gem
+
+To avoid potential conflicts, only require the `gitlab` gem if the `Gitlab` constant isn't defined:
+
+```ruby
+# Bad
+require 'gitlab'
+
+# Good
+if Object.const_defined?(:RSpec)
+  # Ok, we're testing, we know we're going to stub `Gitlab`, so we just ignore
+else
+  require 'gitlab'
+
+  if Gitlab.singleton_class.method_defined?(:com?)
+    abort 'lib/gitlab.rb is loaded, and this means we can no longer load the client and we cannot proceed'
+  end
+end
+```
+
+#### 2 - Mock the `gitlab` gem entirely in your specs
+
+In your specs, `require 'gitlab'` will reference the `lib/gitlab.rb` file:
+
+```ruby
+# Bad
+allow(GitLab).to receive(:a_method).and_return(...)
+
+# Good
+client = double('GitLab')
+# In order to easily stub the client, consider using a method to return the client.
+# We can then stub the method to return our fake client, which we can further stub its methods.
+#
+# This is the pattern followed below
+let(:instance) { described_class.new }
+
+allow(instance).to receive(:gitlab).and_return(client)
+allow(client).to receive(:a_method).and_return(...)
+```
+
+In case you need to query jobs for instance, the following snippet will be useful:
+
+```ruby
+# Bad
+allow(GitLab).to receive(:pipeline_jobs).and_return(...)
+
+# Good
+#
+# rubocop:disable RSpec/VerifiedDoubles -- We do not load the Gitlab client directly
+client = double('GitLab')
+allow(instance).to receive(:gitlab).and_return(client)
+
+jobs = ['job1', 'job2']
+allow(client).to yield_jobs(:pipeline_jobs, jobs)
+
+def yield_jobs(api_method, jobs)
+  messages = receive_message_chain(api_method, :auto_paginate)
+
+  jobs.inject(messages) do |stub, job_name|
+    stub.and_yield(double(name: job_name))
+  end
+end
+# rubocop:enable RSpec/VerifiedDoubles
+```
+
+#### 3 - Do not call your script with `bundle exec`
+
+Executing with `bundle exec` will change the `$LOAD_PATH` for Ruby, and it will load `lib/gitlab.rb` when calling `require 'gitlab'`:
+
+```shell
+# Bad
+bundle exec scripts/my-script.rb
+
+# Good
+scripts/my-script.rb
+```
+
+## CI Configuration Testing
+
+We now have RSpec tests to verify changes to the CI configuration by simulating pipeline creation with the updated YAML files. You can find these tests and a documentation of the current test coverage in [`spec/dot_gitlab_ci/job_dependency_spec.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/spec/dot_gitlab_ci/job_dependency_spec.rb).
+
+### How Do the Tests Work
+
+With the help of `Ci::CreatePipelineService`, we are able to simulate pipeline creation with different attributes such as branch name, MR labels, pipeline source (scheduled v.s push), pipeline type (merge train v.s merged results), etc. This is the same service utilized by the GitLab CI Lint API for validating CI/CD configurations.
+
+These tests will automatically run for merge requests that update CI configurations. However, team members can opt to skip these tests by adding the label ~"pipeline:skip-ci-validation" to their merge requests.
+
+Running these tests locally is encouraged, as it provides the fastest feedback.

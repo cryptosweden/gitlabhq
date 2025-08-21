@@ -28,11 +28,16 @@ class Admin::SessionsController < ApplicationController
       render :new
     end
   rescue Gitlab::Auth::CurrentUserMode::NotRequestedError
-    redirect_to new_admin_session_path, alert: _('Re-authentication period expired or never requested. Please try again')
+    redirect_to new_admin_session_path,
+      alert: _('Re-authentication period expired or never requested. Please try again')
   end
 
   def destroy
     current_user_mode.disable_admin_mode!
+
+    if Feature.enabled?(:omniauth_step_up_auth_for_admin_mode, current_user)
+      ::Gitlab::Auth::Oidc::StepUpAuthentication.disable_step_up_authentication!(session: session, scope: :admin_mode)
+    end
 
     redirect_to root_path, status: :found, notice: _('Admin mode disabled')
   end
@@ -40,7 +45,7 @@ class Admin::SessionsController < ApplicationController
   private
 
   def user_is_admin!
-    render_404 unless current_user&.admin?
+    render_404 unless current_user&.can_access_admin_area?
   end
 
   def two_factor_enabled_for_user?
@@ -63,7 +68,7 @@ class Admin::SessionsController < ApplicationController
   end
 
   def user_params
-    params.fetch(:user, {}).permit(:password, :otp_attempt, :device_response)
+    params.fetch(:user, {}).permit(:password, :otp_attempt, :device_response) # rubocop:disable Rails/StrongParams -- fetch is safely followed by permit
   end
 
   def valid_otp_attempt?(user)

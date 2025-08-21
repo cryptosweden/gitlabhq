@@ -40,32 +40,12 @@ module Clusters
       end
     end
 
-    def integrations_path
-      if cluster.project_type?
-        create_or_update_project_cluster_integration_path(project, cluster)
-      elsif cluster.group_type?
-        create_or_update_group_cluster_integration_path(group, cluster)
-      elsif cluster.instance_type?
-        create_or_update_admin_cluster_integration_path(cluster)
-      else
-        raise NotImplementedError
-      end
-    end
-
     def read_only_kubernetes_platform_fields?
       !cluster.provided_by_user?
     end
 
-    def health_data(clusterable)
-      {
-        'clusters-path': clusterable.index_path,
-        'dashboard-endpoint': clusterable.metrics_dashboard_path(cluster),
-        'documentation-path': help_page_path('user/infrastructure/clusters/manage/clusters_health'),
-        'add-dashboard-documentation-path': help_page_path('operations/metrics/dashboards/index', anchor: 'add-a-new-dashboard-to-your-project'),
-        'settings-path': '',
-        'project-path': '',
-        'tags-path': ''
-      }
+    def agent_migration_for_display
+      cluster.agent_migration || Clusters::AgentMigration.new(cluster: cluster)
     end
 
     private
@@ -93,5 +73,3 @@ module Clusters
     end
   end
 end
-
-Clusters::ClusterPresenter.prepend_mod_with('Clusters::ClusterPresenter')

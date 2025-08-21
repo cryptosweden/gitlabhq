@@ -1,6 +1,7 @@
 <script>
 import { GlButton } from '@gitlab/ui';
 import { unionBy } from 'lodash';
+import fuzzaldrinPlus from 'fuzzaldrin-plus';
 import { sortNameAlphabetically, newWorkItemId } from '~/work_items/utils';
 import currentUserQuery from '~/graphql_shared/queries/current_user.query.graphql';
 import usersSearchQuery from '~/graphql_shared/queries/workspace_autocomplete_users.query.graphql';
@@ -10,8 +11,8 @@ import UncollapsedAssigneeList from '~/sidebar/components/assignees/uncollapsed_
 import WorkItemSidebarDropdownWidget from '~/work_items/components/shared/work_item_sidebar_dropdown_widget.vue';
 import { s__, sprintf, __ } from '~/locale';
 import Tracking from '~/tracking';
+import { ISSUE_MR_CHANGE_ASSIGNEE } from '~/behaviors/shortcuts/keybindings';
 import updateWorkItemMutation from '../graphql/update_work_item.mutation.graphql';
-import updateNewWorkItemMutation from '../graphql/update_new_work_item.mutation.graphql';
 import { i18n, TRACKING_CATEGORY_SHOW } from '../constants';
 
 export default {
@@ -23,10 +24,13 @@ export default {
     UncollapsedAssigneeList,
   },
   mixins: [Tracking.mixin()],
-  inject: ['isGroup'],
   props: {
     fullPath: {
       type: String,
+      required: true,
+    },
+    isGroup: {
+      type: Boolean,
       required: true,
     },
     workItemId: {
@@ -60,11 +64,6 @@ export default {
       required: false,
       default: () => [],
     },
-    workItemAuthor: {
-      type: Object,
-      required: false,
-      default: () => ({}),
-    },
   },
   data() {
     return {
@@ -76,6 +75,7 @@ export default {
       currentUser: null,
       updateInProgress: false,
       localUsers: [],
+      shortcut: ISSUE_MR_CHANGE_ASSIGNEE,
     };
   },
   apollo: {
@@ -110,6 +110,14 @@ export default {
     },
     currentUser: {
       query: currentUserQuery,
+      result({ data }) {
+        if (!data) {
+          return;
+        }
+
+        const currentUsers = data.currentUser ? [data.currentUser] : [];
+        this.localUsers = unionBy(this.localUsers, currentUsers, 'id');
+      },
     },
   },
   computed: {
@@ -133,10 +141,9 @@ export default {
           text: user?.name,
         }));
 
-        const selectedUsers =
-          allUsers
-            .filter(({ id }) => this.assigneeIdsToShowAtTopOfTheListbox.includes(id))
-            .sort(sortNameAlphabetically) || [];
+        const selectedUsers = allUsers.filter(({ id }) =>
+          this.assigneeIdsToShowAtTopOfTheListbox.includes(id),
+        );
 
         const unselectedUsers = allUsers.filter(
           ({ id }) => !this.assigneeIdsToShowAtTopOfTheListbox.includes(id),
@@ -156,13 +163,24 @@ export default {
           { options: unselectedUsers, text: __('All users'), textSrOnly: true },
         ];
       }
+      const filteredParticipants = fuzzaldrinPlus.filter(
+        // We're storing `name` and `username` as a combined string in
+        // a new key `matcher` as fuzzaldrin-plus doesn't support searching
+        // using multiple keys.
+        this.participants.map((p) => ({ ...p, matcher: `${p.name} ${p.username}` })),
+        this.searchKey,
+        {
+          key: ['matcher'],
+        },
+      );
 
-      return this.users.map((user) => ({
+      return unionBy([...filteredParticipants, ...this.users], 'id').map((user) => ({
         ...user,
         value: user?.id,
         text: user?.name,
       }));
     },
+    // eslint-disable-next-line vue/no-unused-properties
     tracking() {
       return {
         category: TRACKING_CATEGORY_SHOW,
@@ -202,11 +220,23 @@ export default {
       return unionBy(this.assignees, this.searchUsers, this.participants, this.localUsers, 'id');
     },
     localAssignees() {
-      return (
+      const assignees =
         this.filteredAssignees
           .filter(({ id }) => this.localAssigneeIds.includes(id))
-          .sort(sortNameAlphabetically) || []
+          .sort(sortNameAlphabetically) || [];
+
+      const localAssigneeCurrentUser = assignees.find(
+        // uses gon to avoid race condition where filteredAssignees is computed before currentUser is fetched
+        ({ username }) => username === gon?.current_username,
       );
+
+      if (localAssigneeCurrentUser) {
+        return [
+          localAssigneeCurrentUser,
+          ...assignees.filter(({ id }) => id !== localAssigneeCurrentUser?.id),
+        ];
+      }
+      return assignees;
     },
   },
   watch: {
@@ -237,18 +267,7 @@ export default {
       const { localAssigneeIds } = this;
 
       if (this.workItemId === newWorkItemId(this.workItemType)) {
-        this.$apollo.mutate({
-          mutation: updateNewWorkItemMutation,
-          variables: {
-            input: {
-              isGroup: this.isGroup,
-              workItemType: this.workItemType,
-              fullPath: this.fullPath,
-              assignees: this.localAssignees,
-            },
-          },
-        });
-
+        this.$emit('updateWidgetDraft', { assignees: this.localAssignees });
         this.updateInProgress = false;
         return;
       }
@@ -274,6 +293,7 @@ export default {
           return;
         }
         this.track('updated_assignees');
+        this.$emit('assigneesUpdated', localAssigneeIds);
       } catch {
         this.throwUpdateError();
       } finally {
@@ -326,6 +346,7 @@ export default {
     :header-text="headerText"
     :update-in-progress="updateInProgress"
     :reset-button-label="__('Clear')"
+    :shortcut="shortcut"
     clear-search-on-item-select
     data-testid="work-item-assignees"
     @dropdownShown="onDropdownShown"
@@ -338,33 +359,36 @@ export default {
       <sidebar-participant v-if="item" :user="item" />
     </template>
     <template v-if="canInviteMembers" #footer>
-      <gl-button category="tertiary" block class="gl-justify-content-start!">
+      <gl-button category="tertiary" block class="!gl-justify-start">
         <invite-members-trigger
           :display-text="__('Invite members')"
           trigger-element="side-nav"
           icon="plus"
           trigger-source="work-item-assignees"
-          classes="gl-hover-text-decoration-none! gl-pb-2"
+          classes="hover:!gl-no-underline gl-pb-2"
         />
       </gl-button>
     </template>
     <template #none>
-      <div class="gl-display-flex gl-align-items-center gl-text-gray-500 gl-gap-2">
+      <div class="gl-flex gl-items-center gl-gap-2 gl-text-subtle">
         <span>{{ __('None') }}</span>
         <template v-if="currentUser && canUpdate">
           <span>-</span>
-          <gl-button variant="link" data-testid="assign-self" @click.stop="assignToCurrentUser"
-            ><span class="gl-text-gray-500 gl-hover-text-blue-800">{{
-              __('assign yourself')
-            }}</span></gl-button
+          <gl-button
+            class="!gl-text-inherit hover:!gl-text-link"
+            variant="link"
+            data-testid="assign-self"
+            @click.stop="assignToCurrentUser"
           >
+            {{ __('assign yourself') }}
+          </gl-button>
         </template>
       </div>
     </template>
     <template #readonly>
       <uncollapsed-assignee-list
         :users="localAssignees"
-        show-less-assignees-class="gl-hover-bg-transparent!"
+        show-less-assignees-class="hover:!gl-bg-transparent"
       />
     </template>
   </work-item-sidebar-dropdown-widget>

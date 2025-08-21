@@ -1,16 +1,22 @@
 ---
-stage: Data Stores
+stage: AI-powered
 group: Global Search
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Search admin API
 ---
 
-# Search admin API
+{{< details >}}
 
-DETAILS:
-**Tier:** Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Premium, Ultimate
+- Offering: GitLab Self-Managed
 
-> - [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/120751) in GitLab 16.1
+{{< /details >}}
+
+{{< history >}}
+
+- [Introduced](https://gitlab.com/gitlab-org/gitlab/-/merge_requests/120751) in GitLab 16.1
+
+{{< /history >}}
 
 The search admin API returns information about [advanced search migrations](../integration/advanced_search/elasticsearch.md#advanced-search-migrations).
 
@@ -96,7 +102,7 @@ curl --header "PRIVATE-TOKEN: <your_access_token>" "https://primary.example.com/
 curl --header "PRIVATE-TOKEN: <your_access_token>" "https://primary.example.com/api/v4/admin/search/mirations/BackfillProjectPermissionsInBlobsUsingPermutations"
 ```
 
-If successful, returns [`200`](rest/index.md#status-codes) and the following
+If successful, returns [`200`](rest/troubleshooting.md#status-codes) and the following
 response attributes:
 
 | Attribute         | Type     | Description                                           |

@@ -1,14 +1,16 @@
 ---
-stage: Data Stores
-group: Database
+stage: Data Access
+group: Database Operations
 info: To determine the technical writer assigned to the Stage/Group associated with this page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments
+title: Standalone PostgreSQL for Linux package installations
 ---
 
-# Standalone PostgreSQL for Linux package installations
+{{< details >}}
 
-DETAILS:
-**Tier:** Free, Premium, Ultimate
-**Offering:** Self-managed
+- Tier: Free, Premium, Ultimate
+- Offering: GitLab Self-Managed
+
+{{< /details >}}
 
 If you wish to have your database service hosted separately from your GitLab
 application servers, you can do this using the PostgreSQL binaries packaged
@@ -19,7 +21,7 @@ together with the Linux package. This is recommended as part of our
 
 1. SSH in to the PostgreSQL server.
 1. [Download and install](https://about.gitlab.com/install/) the Linux
-   package you want using *steps 1 and 2* from the GitLab downloads page. Do not complete any other steps on the
+   package you want using steps 1 and 2 from the GitLab downloads page. Do not complete any other steps on the
    download page.
 1. Generate a password hash for PostgreSQL. This assumes you are using the default
    username of `gitlab` (recommended). The command requests a password

@@ -5,7 +5,7 @@ import { filterBySearchTerm } from '~/analytics/shared/utils';
 import { getIdFromGraphQLId } from '~/graphql_shared/utils';
 import { AVATAR_SHAPE_OPTION_RECT } from '~/vue_shared/constants';
 import { DEFAULT_DEBOUNCE_AND_THROTTLE_MS } from '~/lib/utils/constants';
-import { n__, s__, __ } from '~/locale';
+import { n__, __ } from '~/locale';
 import getProjects from '../graphql/projects.query.graphql';
 
 const MIN_SEARCH_CHARS = 3;
@@ -31,11 +31,6 @@ export default {
       type: Boolean,
       required: false,
       default: false,
-    },
-    label: {
-      type: String,
-      required: false,
-      default: s__('CycleAnalytics|project dropdown filter'),
     },
     queryParams: {
       type: Object,
@@ -189,6 +184,7 @@ export default {
         this.isDirty = true;
       }
       this.selectedProjects = [];
+      this.handleUpdatedSelectedProjects();
     },
     fetchData() {
       this.loading = true;
@@ -239,7 +235,6 @@ export default {
     :header-text="__('Projects')"
     :items="listBoxItems"
     :reset-button-label="__('Clear All')"
-    :loading="loadingDefaultProjects"
     :multiple="multiSelect"
     :no-results-text="__('No matching results')"
     :selected="selectedListBoxItems"
@@ -252,7 +247,8 @@ export default {
   >
     <template #toggle>
       <gl-button
-        button-text-classes="gl-w-full gl-justify-content-space-between gl-display-flex gl-shadow-none gl-mb-0"
+        :loading="loadingDefaultProjects"
+        button-text-classes="gl-w-full gl-justify-between gl-flex gl-shadow-none gl-mb-0"
         :class="['dropdown-projects', toggleClasses]"
       >
         <gl-avatar
@@ -263,14 +259,14 @@ export default {
           :size="16"
           :shape="$options.AVATAR_SHAPE_OPTION_RECT"
           :alt="selectedProjects[0].name"
-          class="gl-inline-flex gl-align-middle gl-mr-2 gl-flex-shrink-0"
+          class="gl-mr-2 gl-inline-flex gl-shrink-0 gl-align-middle"
         />
-        <gl-truncate :text="selectedProjectsLabel" class="gl-min-w-0 gl-flex-grow-1" />
-        <gl-icon class="gl-ml-2 gl-flex-shrink-0" name="chevron-down" />
+        <gl-truncate :text="selectedProjectsLabel" class="gl-min-w-0 gl-grow" />
+        <gl-icon class="gl-ml-2 gl-shrink-0" name="chevron-down" />
       </gl-button>
     </template>
     <template #list-item="{ item }">
-      <div class="gl-display-flex">
+      <div class="gl-flex">
         <gl-avatar
           class="gl-mr-2 gl-align-middle"
           :alt="item.name"
@@ -282,7 +278,7 @@ export default {
         />
         <div>
           <div data-testid="project-name">{{ item.name }}</div>
-          <div class="gl-text-gray-500" data-testid="project-full-path">
+          <div class="gl-text-subtle" data-testid="project-full-path">
             {{ item.fullPath }}
           </div>
         </div>

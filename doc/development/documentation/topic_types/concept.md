@@ -2,9 +2,8 @@
 stage: none
 group: Documentation Guidelines
 info: For assistance with this Style Guide page, see https://handbook.gitlab.com/handbook/product/ux/technical-writing/#assignments-to-other-projects-and-subjects.
+title: Concept topic type
 ---
-
-# Concept topic type
 
 A concept introduces a single feature or concept.
 
@@ -24,7 +23,8 @@ If you start describing another concept, start a new concept and link to it.
 Concepts should be in this format:
 
 ```markdown
-# Title (a noun, like "Widgets")
+title: Title (a noun, like "Widgets")
+---
 
 A paragraph or two that explains what this thing is and why you would use it.
 
@@ -59,3 +59,24 @@ Avoid these topic titles:
   noun or phrase that someone would search for.
 - `Use cases`. Instead, incorporate the information as part of the concept.
 - `How it works`. Instead, use a noun followed by `workflow`. For example, `Merge request workflow`.
+
+## Example
+
+### Before
+
+The following topic was trying to be all things to all people. It provided information about groups
+and where to find them. It reiterated what was visible in the UI.
+
+![An example concept and task](img/example_1_v17_10.png)
+
+### After
+
+The information is easier to scan if you move it into concepts and [tasks](task.md).
+
+#### Concept
+
+![A concept example after it's been corrected](img/example_1_after_concept_v17_10.png)
+
+#### Task
+
+![A task example after it's been corrected](img/example_1_after_task_v17_10.png)

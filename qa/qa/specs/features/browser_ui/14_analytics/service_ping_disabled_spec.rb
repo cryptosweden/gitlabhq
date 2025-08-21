@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module QA
-  RSpec.describe 'Analytics', product_group: :analytics_instrumentation do
+  RSpec.describe 'Analytics', feature_category: :service_ping do
     describe 'Service ping disabled', :orchestrated, :service_ping_disabled, :requires_admin do
       context 'when disabled from gitlab.yml config' do
         before do
@@ -17,7 +17,7 @@ module QA
         ) do
           Page::Admin::Settings::MetricsAndProfiling.perform do |settings|
             settings.expand_usage_statistics do |usage_statistics|
-              expect(usage_statistics).to have_disabled_usage_data_checkbox
+              expect(usage_statistics).to have_usage_data_checkbox_disabled
             end
           end
         end

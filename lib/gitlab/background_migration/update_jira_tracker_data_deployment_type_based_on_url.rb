@@ -1,24 +1,21 @@
 # frozen_string_literal: true
 
-# rubocop: disable Style/Documentation
 module Gitlab
   module BackgroundMigration
     class UpdateJiraTrackerDataDeploymentTypeBasedOnUrl < Gitlab::BackgroundMigration::BatchedMigrationJob
       feature_category :database
 
-      # rubocop: disable Gitlab/NamespacedClass
       class JiraTrackerData < ActiveRecord::Base
         self.table_name = "jira_tracker_data"
         self.inheritance_column = :_type_disabled
 
         include ::Integrations::BaseDataFields
+
         attr_encrypted :url, encryption_options
         attr_encrypted :api_url, encryption_options
 
-        enum deployment_type: { unknown: 0, server: 1, cloud: 2 }, _prefix: :deployment
+        enum :deployment_type, { unknown: 0, server: 1, cloud: 2 }, prefix: :deployment
       end
-      # rubocop: enable Gitlab/NamespacedClass
-
       # https://rubular.com/r/uwgK7k9KH23efa
       JIRA_CLOUD_REGEX = %r{^https?://[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?\.atlassian\.net$}ix
 

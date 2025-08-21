@@ -78,7 +78,7 @@ describe('Project PathNavigation', () => {
 
         it('renders each stage', () => {
           const result = findPathNavigationTitles();
-          expect(result.length).toBe(transformedProjectStagePathData.length);
+          expect(result).toHaveLength(transformedProjectStagePathData.length);
         });
 
         it('renders each stage with its median', () => {
@@ -102,6 +102,11 @@ describe('Project PathNavigation', () => {
 
           it('shows the median stage time for the first stage item', () => {
             expect(firstPopover().text()).toContain('Stage time (median)');
+          });
+
+          it('passes correct settings to popover', () => {
+            expect(firstPopover().props('placement')).toBe('bottom');
+            expect(firstPopover().props('triggers')).toBeUndefined();
           });
         });
       });
